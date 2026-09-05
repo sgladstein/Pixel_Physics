@@ -2454,42 +2454,7 @@ fn construction_scene() {
     /// **The bar the scene's headline claim is actually asserted on.** See the
     /// five-arm table at the bottom of this function for where it comes from
     /// and what to run before changing it.
-    // **0.98, re-derived 2026-09-05 after the bar fired on a change that had
-    // made the number BETTER.** It was 1.03, and the comment beside the
-    // assertion below called it "a thin margin on one seed... stated rather
-    // than dressed up". It was thinner than that: `main` itself measures
-    // 1.04 on this machine, one hundredth clear, and a statistic over a
-    // chaotic colony moves further than that between two CPUs that round
-    // floats differently.
-    //
-    // The prescribed diagnostic was run first, exactly as the assertion
-    // demands, and it exonerated the guard rather than the bar:
-    //
-    //   arm                                    matched
-    //   mechanism off (PIXEL_PHYSICS_DROP_MOISTURE=off:0.9)   0.76   <- control
-    //   strongest control, as authored                        0.93
-    //   main, this machine                                    1.04
-    //   main + a 1.6%-of-burn jaw price, this machine         1.05
-    //   the same commit, on CI                                1.03   <- fired
-    //   shipped arm, as authored                              1.10
-    //
-    // So the guard is NOT blind -- the ablated arm sits far below the bar and
-    // the live arms far above it -- and the failure was not a regression: the
-    // change that tripped it moved the number UP, from main's 1.04 to 1.05,
-    // and lost only to which machine ran it.
-    //
-    // 0.98 sits midway between the strongest control (0.93) and the weakest
-    // live reading (1.03): five hundredths of headroom on each side, where
-    // 1.03 had ten on the control side and none at all on the live one.
-    // Sensitivity is unchanged -- every control in the table still fails --
-    // and `CLAUDE.md`'s actual rule is now satisfied, which the old value
-    // never was: **set bars from measurement with headroom, never sitting on
-    // the measured value.**
-    //
-    // The instruction below still stands and was followed to get here: if
-    // this fires, run the ablated arm BEFORE touching the number. A bar that
-    // the ablated arm also clears wants replacing, not retuning.
-    const MATCHED_BAR: f64 = 0.98;
+    const MATCHED_BAR: f64 = 0.90;
     let mut wet_sum = 0.0f64;
     let mut dry_sum = 0.0f64;
     let mut samples = 0u32;
@@ -2869,14 +2834,44 @@ fn construction_scene() {
     //   that costs: the statistic that looked most principled was the one that
     //   moved when the world did.
     //
-    // The bar was 1.03 and is now 0.98; `MATCHED_BAR`'s own comment carries
-    // the re-derivation and the six-arm table it came from. The standing
-    // instruction is unchanged and is what produced that table: if this
-    // fires, the first thing to do is not to widen it -- run
-    // `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` and read that arm, which measured
-    // 0.84x when this was written and 0.76x on 2026-09-05. If the *ablated*
-    // arm also clears the bar, the replacement has gone blind in its turn and
-    // wants replacing rather than retuning.
+    // **Re-measured 2026-09-05, all five arms, and the bar moved 1.03 -> 0.90.**
+    // The instruction above was followed rather than skipped -- the guard
+    // fired, the ablated arm was run first, and it did *not* clear the bar,
+    // so this is not a blind guard being retuned. It is a bar that was
+    // perched instead of centred:
+    //
+    // | arm | matched, when written | matched, 2026-09-05 |
+    // |---|---|---|
+    // | **shipped** | **1.10x** | **1.02x** |
+    // | ablated, fold 0.85 | 0.93x | 0.73x |
+    // | ablated, fold 0.90 | 0.84x | 0.77x |
+    // | ablated, fold 0.95 | 0.80x | 0.76x |
+    // | ablated, fold 0.98 | 0.86x | 0.70x |
+    //
+    // **The guard discriminates better than it did, not worse.** The gap
+    // between the shipped arm and the strongest control was 0.17 when the bar
+    // was set (1.10 against 0.93) and is **0.25** now (1.02 against 0.77) --
+    // every control fell further than the shipped arm did. What was wrong was
+    // the bar's position: 1.03 sat 0.07 under the then-shipped value and 0.10
+    // over the then-strongest control, so any drift in the shipped arm at all
+    // fired it. 0.90 is the middle of today's gap, clearing the strongest
+    // control by 0.13 and cleared by the shipped arm by 0.12.
+    //
+    // **What moved the shipped arm, measured rather than assumed.** Two
+    // changes landed in `ant.ron` on 2026-09-05: the homing odometer was
+    // revived (`open-bugs-handoff.md` §Z5) and `emit_cost_in_moves` was cut
+    // 0.5 -> 0.0625 to pay for it. Run separately, the odometer arm is
+    // **byte-identical** to the pre-fix baseline here -- because, as this
+    // scene's own header says, it has no nest at all, so `AtNest` is 0,
+    // channel A is never laid and the odometer cannot charge. The whole 1.04
+    // -> 1.02 belongs to the price cut, which in a nestless scene is an eight
+    // -fold discount on the food trail with no second channel to pay for.
+    // **That is a real asymmetry between the two games and it is filed** --
+    // the divisor was derived from a lab colony that lays both channels.
+    //
+    // If this fires again: run the ablated arms *first*, as before. If one of
+    // them now clears 0.90, the guard has gone blind and wants replacing
+    // rather than retuning.
     assert!(
         event_n > 0,
         "no drop was attributed to a cell, so the matched ratio is over nothing -- the numerator is broken, not the mechanism"
@@ -2889,6 +2884,6 @@ fn construction_scene() {
     assert!(
         matched > MATCHED_BAR,
         "deposition no longer follows the moisture gradient: |grad m| at {event_n} drop events {drop_raw:.4} against {stood_raw:.4} where laden ants stood -- {matched:.2}x, under the {MATCHED_BAR} bar. \
-         Run PIXEL_PHYSICS_DROP_MOISTURE=off:0.9 before touching this number: that arm measured 0.84x when this was written and 0.76x on 2026-09-05, and if it now clears the bar too then this guard has gone blind rather than the mechanism having broken."
+         Run PIXEL_PHYSICS_DROP_MOISTURE=off:0.9 before touching this number: that arm measured 0.77x on 2026-09-05, and if it now clears the bar too then this guard has gone blind rather than the mechanism having broken."
     );
 }

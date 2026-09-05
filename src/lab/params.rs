@@ -44,7 +44,7 @@
 
 use crate::sim::material;
 use crate::sim::organism::{self, Behavior, CellType, SpeciesId};
-use crate::sim::world::World;
+use crate::sim::world::{self, World};
 use crate::tunables::{self, Tunable, TunableGroup};
 
 use super::scene::LabBox;
@@ -1374,8 +1374,9 @@ pub type SpecimenRow = (String, String, String);
 pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
 
 /// What each group's heading means, as the page's hover note reads it.
-const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
+const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM, HOW FAR DOWN THE LINE IT IS, AND THE DATED LINES IT PUT IN THE RUN LOG. NOTHING HERE CHANGES ONCE IT IS WRITTEN -- A FRAME NUMBER IS SETTLED THE MOMENT THE THING HAPPENS, WHICH IS WHAT SEPARATES THIS GROUP FROM STATE.";
 const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
+const WORDS_NOTE: &str = "THE SAME GENOME, IN SENTENCES. WHAT KIND OF THING THIS IS, RATHER THAN WHAT ITS NUMBERS ARE -- EVERY LINE HERE IS DERIVED FROM A ROW UNDER GENOME, AND HOVERING ONE SAYS WHICH.";
 const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
 
 /// **The same readout, in the three groups the cell page folds it into.**
@@ -1408,8 +1409,26 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     // thing the player did on purpose). A release is its own origin and says
     // so, or the rack's whole point -- did the line I picked do better --
     // cannot be read off a cell.
+    // **`BORN` is `LIFE`, `AGE` is `STATE`.** The frame it was allocated is
+    // settled the moment the thing exists, which is what this group is for;
+    // how long ago that was moves every tick, which is what the next one is.
+    row("BORN", format!("FRAME {}", state.born_frame),
+        "THE FRAME THIS INDIVIDUAL WAS ALLOCATED. WITH ITS ORGANISM NUMBER IT IS WHAT PINS IT: A SLOT IS HANDED OUT AGAIN AFTER SIXTEEN REUSES, SO THE NUMBER ALONE WOULD FOLLOW WHATEVER LANDED IN IT NEXT. THE FRAME DOES NOT COME BACK.");
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
+
+    // **The individual's own lines out of the run log, filed under `LIFE`.**
+    //
+    // They belong here by the group's own contract: a frame number is settled
+    // the moment the thing happens and never moves again, which is exactly
+    // what separates `LIFE` from `STATE`. They were briefly a fifth group of
+    // their own and that is why they are not: one extra heading is 15px, the
+    // ant's page had about that much slack, and
+    // `the_cell_page_fits_on_the_screen_for_a_plant_and_for_an_ant` went red
+    // saying the page now fitted only because rows had been **dropped** --
+    // which is the one thing that guard exists to refuse. A group that costs
+    // a heading to say five short lines is not worth a trimmed page.
+    life.extend(story(world, id, state.born_frame));
 
     // A second closure over `rows`, so the borrow of `life` ends here. The
     // shadowing is deliberate: every `row(...)` below this line files into
@@ -1435,8 +1454,19 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             genome.push((name.to_uppercase(), format!("{:+.3}", state.traits[*slot]),
                 format!("THIS ANIMAL'S OWN {}, INHERITED WITH JITTER RATHER THAN THE SPECIES VALUE ON THE ANTS PAGE. COMPARE THE TWO AND YOU ARE LOOKING AT HOW FAR THIS LINEAGE HAS DRIFTED.", name.replace('_', " ").to_uppercase())));
         }
-        row("SINCE NEST", state.since_nest.to_string(),
-            "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
+        // **`forage_max`, not `since_nest`, and the swap is the same one the
+        // roster's `FAR` row made.** This row read `SINCE NEST` and told the
+        // reader that *"a number that only ever climbs is an ant that is
+        // lost"*. Both halves stopped being true: `since_nest` counts ticks
+        // at a species' `tick_interval`, so its scale is a constant rather
+        // than a distance, and it is incremented unconditionally, so an ant
+        // standing *on* the nest accrues it -- 136 of 142 of its resets were
+        // loitering. It is documented measurement-only for exactly that
+        // reason, and a per-individual row is precisely the case its own doc
+        // warns about. It also disagreed with the `STATE` column beside it,
+        // which is the worse failure on a page whose job is to be read.
+        row("RANGE", state.forage_max.to_string(),
+            "HOW FAR THIS ONE HAS GOT FROM THE LAST PLACE IT TOUCHED HOME, IN CELLS, ON THE TRIP IT IS ON NOW. IT RE-ANCHORS EVERY TIME IT TOUCHES THE NEST, SO STANDING AT HOME CANNOT RUN IT UP -- WHICH IS THE FAULT IN THE TICK COUNTER THIS ROW USED TO SHOW. PAST 30 THE ANIMALS PAGE CALLS IT FAR.");
         row("CROP", match &state.crop {
                 Some(c) => format!("{} x{}", world.materials.get(c.material).display.to_uppercase(), c.cells),
                 None => "EMPTY".into(),
@@ -1444,13 +1474,36 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
-        return vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)];
+        row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+            "HOW LONG THIS ONE HAS BEEN ALIVE, IN SIMULATED TICKS. AGAINST THE ANIMALS PAGE'S OWN TURNOVER IT SAYS WHETHER YOU ARE LOOKING AT A FOUNDER THAT HAS OUTLASTED EVERYTHING OR AT SOMETHING BORN THIS MINUTE.");
+        row("YOUNG", state.life.offspring.to_string(),
+            "HOW MANY THIS ONE HAS BUDDED. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES FOR AN ANIMAL -- AND A COLONY WHERE NOBODY'S NUMBER EVER LEAVES ZERO IS A COLONY THAT IS NOT BREEDING, WHICH A HEADCOUNT ALONE CANNOT TELL YOU.");
+        row("FED", state.life.bites.to_string(),
+            "MOUTHFULS TAKEN INTO THE CROP OVER ITS WHOLE LIFE. IT COUNTS PICKING FOOD UP AND NOT DIGESTING IT, WHICH ARE DIFFERENT EVENTS -- AN ANIMAL WITH A HIGH COUNT AND NO DELIVERIES IS EATING EVERYTHING IT FINDS WHERE IT FINDS IT.");
+        row("DELIVERED", state.life.deliveries.to_string(),
+            "LOADS IT HAS BROUGHT HOME. AGAINST FED IT IS THE HALF OF THE FORAGING LOOP THAT CLOSES: PICKUPS WITHOUT DELIVERIES IS A COLONY THAT FEEDS ITSELF AND NEVER STOCKS THE NEST.");
+        row("DUG", state.life.digs.to_string(),
+            "CELLS IT HAS EXCAVATED IN ITS LIFE. THE GALLERIES IN THE BED ARE THE SUM OF THESE.");
+        row("WALKED", format!("{} / {} BLOCKED", state.life.moves, state.life.moves_blocked),
+            "STEPS TAKEN, AND STEPS IT TRIED AND COULD NOT MAKE. THE SECOND NUMBER IS NOT WASTE -- A COLONY SPENDS A THIRD OF ITS LIFE TURNING ON THE SPOT -- BUT AN ANIMAL WHOSE BLOCKED COUNT DWARFS ITS MOVES IS ONE WEDGED SOMEWHERE.");
+        return vec![
+            ("WORDS", WORDS_NOTE, words(world, id)),
+            ("LIFE", LIFE_NOTE, life),
+            ("STATE", STATE_NOTE, rows),
+            ("GENOME", GENOME_NOTE, genome),
+        ];
     }
 
     row("SHOOT", state.shoot_cells.to_string(),
         "HOW MUCH SHOOT IT HAS GROWN. THIS IS THE NUMBER THE PLANT PAGE'S SEED MATURITY IS COMPARED AGAINST -- BELOW THAT FENCE THIS PLANT CANNOT SET A SEED AT ALL, HOWEVER MUCH ENERGY IT HAS.");
     row("ROOT", state.root_cells.to_string(),
         "HOW MUCH ROOT IT HAS. AGAINST THE SHOOT COUNT IT IS THE ROOT-TO-SHOOT BALANCE, WHICH IS WHAT DECIDES WHETHER IT DIES OF THIRST OR OF SHADE.");
+    // **A plant's clock starts at seed set, not at germination**, because
+    // that is when `bear_seed_at` allocates its organism. So this includes
+    // however long it lay in the seed bank, and the row says so rather than
+    // printing a number that means something different for the two kingdoms.
+    row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+        "HOW LONG SINCE THIS INDIVIDUAL WAS CREATED, IN SIMULATED TICKS. FOR A PLANT THE CLOCK STARTS WHEN ITS PARENT SET THE SEED AND NOT WHEN IT GERMINATED, SO A LONG-DORMANT SEED READS OLD ON ITS FIRST DAY ABOVE GROUND. AN ANIMAL'S CLOCK STARTS AT ITS BIRTH.");
     row("SEEDS SET", state.seeds_set.to_string(),
         "SEEDS THIS INDIVIDUAL HAS SET IN ITS LIFE. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES.");
     row("ROOT IN SOIL", {
@@ -1497,7 +1550,92 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             format!("THIS INDIVIDUAL'S OWN MULTIPLIER ON ITS SPECIES' {label}, DRAWN WHEN IT GERMINATED AND CARRIED FOR LIFE. 1.00 IS THE SPECIES VALUE; ITS SPECIES ALLOWS UP TO {:.0}% EITHER WAY. THIS IS WHY TWO SEEDS OF ONE SPECIES DO NOT GROW INTO THE SAME PLANT.", width * 100.0),
         ));
     }
-    vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)]
+    vec![
+        ("WORDS", WORDS_NOTE, words(world, id)),
+        ("LIFE", LIFE_NOTE, life),
+        ("STATE", STATE_NOTE, rows),
+        ("GENOME", GENOME_NOTE, genome),
+    ]
+}
+
+/// **One individual's own lines out of the run log**, newest first.
+///
+/// The counters under `STATE` say *how much*; this says *when*, which is the
+/// one question a standing number cannot answer -- at 1024x a player crosses
+/// tens of thousands of frames between two glances, and "fed 41 times" does
+/// not say whether it started this minute or has been foraging all run.
+///
+/// **Bounded by construction rather than by a cap**, which is the distinction
+/// `CLAUDE.md`'s size-cap rule turns on: each of the five kinds fires at most
+/// once in a life, so this is at most five rows however long the individual
+/// lives, and there is no budget whose exhaustion could turn into an answer.
+/// What the log *does* drop is old lines wholesale, and the row below says so
+/// -- an individual older than the log's window has a truncated story, and a
+/// truncated story must not read as an uneventful one.
+fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+    let mut rows: Vec<SpecimenRow> = world
+        .run_log
+        .about(id, born_frame)
+        .map(|e| {
+            (
+                format!("F{}", e.frame),
+                match e.kind {
+                    world::LogKind::Born => "BORN".to_string(),
+                    world::LogKind::Died => organism::DEATH_CAUSE_LIST
+                        .get(e.other as usize)
+                        .map(|c| c.label().to_string())
+                        .unwrap_or_else(|| "DIED".to_string()),
+                    world::LogKind::FirstFeed => "FIRST FED".to_string(),
+                    world::LogKind::FirstSeed => "FIRST SEED".to_string(),
+                    world::LogKind::LineEnded => format!("LINE {} ENDED", e.other),
+                },
+                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S WHAT HAPPENED LIST IS THE SAME LOG WITH EVERYBODY IN IT.".to_string(),
+            )
+        })
+        .collect();
+    if rows.is_empty() {
+        rows.push((
+            "NO LINES".into(),
+            "--".into(),
+            "NOTHING THIS INDIVIDUAL DID HAS REACHED THE RUN LOG. EITHER IT HAS NOT YET DONE ANYTHING NOTABLE, OR IT IS OLD ENOUGH THAT ITS LINES HAVE AGED OUT OF THE LOG -- THE WHAT HAPPENED PAGE SAYS HOW MANY HAVE BEEN LOST FOR GOOD.".into(),
+        ));
+    }
+    rows
+}
+
+/// **The genome read back as sentences** -- `plainspeak::describe`, as
+/// specimen rows.
+///
+/// A row with no value column, because a phrase *is* the value: the label
+/// column is 150 px and a sentence in it with a number beside it would wrap
+/// or truncate, and the number is already in `GENOME` two headings down. The
+/// explanation carries the weight or the allele it came from, so hovering any
+/// sentence says why it was said.
+fn words(world: &World, id: u16) -> Vec<SpecimenRow> {
+    crate::lab::plainspeak::describe(world, id)
+        .into_iter()
+        .flat_map(|p| {
+            // **A backstop, not the mechanism.** `page_rect` sizes the page
+            // to its widest row and then clamps it onto the screen, so a long
+            // sentence does not wrap of its own accord -- it widens the whole
+            // page and slides it left over whatever it was opened from. A
+            // thirty-character phrase took the cell page to 250 px and hid
+            // three of the roster's eight columns behind it.
+            //
+            // So the phrases are *written* to fit, and
+            // `plainspeak::every_phrase_fits_the_column` holds them to it over
+            // every genome and every allele rather than over the ones anybody
+            // thought of. This wrap is what happens if one ever slips through:
+            // two short rows rather than a page that eats its neighbour. The
+            // continuation carries the same explanation, so hovering either
+            // half says the same thing.
+            let note = p.detail;
+            crate::lab::ui::wrap_words(&p.text, crate::lab::plainspeak::PHRASE_COLUMNS)
+                .into_iter()
+                .map(move |line| (line, String::new(), note.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The genome's slot map, as `organism::GENOTYPE_TRAITS`' own doc names it.
@@ -1522,6 +1660,10 @@ const GENOTYPE_SLOTS: [&str; organism::GENOTYPE_TRAITS] = [
 /// separation is what lets a root and a shoot diverge inside one individual,
 /// and a reader that took whichever arm came first would report the wrong
 /// width for three of ten rows.
+pub fn genotype_variance_of(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
+    genotype_width(world, species, slot)
+}
+
 fn genotype_width(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
     let cell_type = if matches!(slot, 1 | 5 | 8) { CellType::RootTip } else { CellType::GrowingTip };
     world.species.get(species).behaviors(cell_type).iter().find_map(|b| match b {

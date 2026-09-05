@@ -133,7 +133,31 @@
         // brain that decides to broadcast it. At 1.0 it was 12.5% and the
         // largest single line in the budget, which is a species that cannot
         // afford to speak.
-        emit_cost_in_moves: 0.5,
+        // **0.5 -> 0.0625 on 2026-09-05, and the divisor is 8 for a reason
+        // that is not tuning.** This price was set when channel A was
+        // structurally dead (`open-bugs-handoff.md` §Z5), so it was charging
+        // for one pheromone channel; reviving the odometer made it charge for
+        // two. Channel B is laid only while laden and A on every move, so the
+        // number of charged units went up about eightfold and the per-unit
+        // price comes down by the same factor to hold the *share* the
+        // original measurement was made of.
+        //
+        // Measured on `creature::what_the_odometer_costs`, colony bed, 4,000
+        // frames, 27 ants placed:
+        //
+        // | | survivors | emit energy |
+        // |---|---|---|
+        // | dead odometer, price 0.5 (as shipped 09-02) | 12 | 72 |
+        // | live odometer, price 0.5 | **2** | 846 |
+        // | live odometer, price 0.0625 | **13** | 85 |
+        //
+        // **Lowering the emitted amplitude does not substitute for this**, and
+        // that was checked rather than assumed: dropping the curve's peak from
+        // 0.99 to 0.65 moved the spend only 846 -> 556 and left survivors at
+        // 2, because the cost is driven by how often A is laid and not by how
+        // much. Digs are unmoved either way (193 -> 214), so the verb this
+        // price was introduced to make selectable stays selectable.
+        emit_cost_in_moves: 0.0625,
         // **A pellet weighs one body cell** -- half of this two-cell animal,
         // which is roughly what a real ant carries. Honest rather than
         // powerful: it moves `moved` by 0.3%, because an ant puts spoil down
@@ -846,7 +870,11 @@
             // gradient -- with it, the emitted value ran 0.909 -> 0.767 over
             // 3,000 ticks instead of 0.785 -> 0.046. What is left here is the
             // -0.35 offset the odometer's fit needs.
-            (Bias, EmitA, -0.35),
+            // **No offset any more.** The -0.35 it carried existed to hold
+            // down a unit whose output weight was 1609.1; at 32.0 the level
+            // never approaches saturation and the offset would only clip the
+            // bottom of the gradient. A zero weight is no connection, so this
+            // line is simply gone.
 
             // -- the verbs -------------------------------------------
             // **A standing drive to dig, and its absence was a hole in the
@@ -1126,7 +1154,33 @@
             // gradient-laying rule is the better end. An ant past
             // `nest_memory` used to lay nothing at all, and so stopped
             // contributing to the gradient it was itself navigating by.
-            (AtNest,      4,   0.0005),
+            // **Re-derived 2026-09-05, because these weights had never once
+            // fired.** `open-bugs-handoff.md` §Z5: the charge was 0.0005
+            // against a `W_EPS` of 0.01, so `eval_brain` skipped the wire, the
+            // unit never left zero and no ant laid a grain of channel A from
+            // the day this landed. The curve behind the old numbers was
+            // verified by simulating the recurrence directly, which is right
+            // about the arithmetic and never saw the gate.
+            //
+            // Re-fitted **through `eval_brain`** (`brain.rs`'s
+            // `what_an_odometer_emits`), against the rule this replaced --
+            // `squash(2.0) * (1 - since/3000)`, i.e. 0.667 falling linearly.
+            // Emits **0.992 -> 0.072 across 3,000 ticks after a five-tick
+            // nest touch**, monotone, rms 0.084; the dead version scored
+            // 0.385 by emitting nothing at all. Saturated for 85 of those
+            // 3,000 ticks, so the near field still carries a gradient.
+            //
+            // **Stable across the touch duration**, which is what sank an
+            // earlier fit: a one-tick brush starts at 0.976 and a 400-tick
+            // stay at 0.993, with identical tails and no runaway.
+            //
+            // `w_in` is 5x `W_EPS` and it is chosen for headroom, not for
+            // fit -- 0.02 through 0.08 all score within 0.002, because the
+            // level drops into `squash`'s harmonic regime within a few dozen
+            // ticks whatever it started at. `MUT_ABS_FLOOR` is 0.04, so a
+            // charge at 2x `W_EPS` is inside one mutation of deletion. That
+            // deletion is lawful; shipping it already deleted was not.
+            (AtNest,      4,   0.05),
 
             (Bias,        0, -45.0),
             (Carrying,    0,  75.0),
@@ -1158,13 +1212,13 @@
             // activation decays fast, so a slow decay has to be carried by a
             // small state that the output weight rescales. That is a property
             // of the squash, not a magic number -- the fit is above.
-            (4, EmitA, 1609.1),
+            (4, EmitA, 32.0),
         ],
         // **The fourth list, and this ant had none until now.**
         // Self-recurrence is what makes unit 4 an odometer rather than a
         // gate; the other four units are pure feed-forward and stay so.
         recurrence: [
-            (4, 0.9999),
+            (4, 0.99995),
         ],
     )),
 )

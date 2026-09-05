@@ -122,6 +122,22 @@ GAME = {
     # outdoor game grows a way to keep an individual.
     "keeping, cloning and mutating an individual": "lab",
     "reading one specimen off the screen": "lab",
+    # The third lab row, and it is the one that gets you *to* an individual:
+    # the two above assume you have already found one.
+    "finding one individual among all of them": "lab",
+    # The fourth lab row. Distinct from "reading one specimen off the screen"
+    # deliberately: that row is the numbers, this is what they mean.
+    "the genome in plain words": "lab",
+    # The fifth lab row: what an individual has done, as opposed to what it
+    # is. Also engine-side -- the counters live on `OrganismState`.
+    "what an individual has done, and what killed it": "lab",
+    # The sixth lab row, and the one that needs the box *running*: the
+    # three above are all readable from a stopped frame, and a trail is
+    # not -- it is accumulated history and only exists because time passed.
+    "watching one individual over time": "lab",
+    # The seventh lab row. The only one whose subject is a *pair*: every
+    # other page is one individual or the whole box.
+    "comparing two individuals": "lab",
     # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
@@ -143,12 +159,18 @@ TOPICS = {
         "Breaking status — a badly grown tree comes down on its own",
         "Specimen shelf status — an individual's genetics outlive the box",
         "Cell page status — the specimen readout is in three groups, and folds",
+        "Roster status — every plant and every animal, as a list you click through",
+        "Plain-speech status — the genome read back as sentences",
+        "Life record status — what an individual has done, and what killed it",
     ],
     "creatures — worms and the ant colony": [
         "M18 status",
         "The ant colony — status",
         "Specimen shelf status — an individual's genetics outlive the box",
+        "Roster status — every plant and every animal, as a list you click through",
+        "Plain-speech status — the genome read back as sentences",
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
+        "Life record status — what an individual has done, and what killed it",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -238,6 +260,31 @@ TOPICS = {
     # them has no reason to look under "the evolution lab" for it.
     "keeping, cloning and mutating an individual": [
         "Specimen shelf status — an individual's genetics outlive the box",
+    ],
+    # The way *in* to the two rows above. They both start from "you have an
+    # individual"; this is how you get one out of a box of a hundred, and it
+    # is where the identity those pages are pinned by is defined. Listed under
+    # plants and creatures too, for the reason the shelf is: an agent on
+    # either line has no reason to look under the lab for it.
+    "finding one individual among all of them": [
+        "Roster status — every plant and every animal, as a list you click through",
+    ],
+    # Listed under creatures and plants too: the brain half and the allele
+    # half are read by different lines, and neither has a reason to look
+    # under the lab for it.
+    "the genome in plain words": [
+        "Plain-speech status — the genome read back as sentences",
+    ],
+    # Listed under creatures and plants too: the counters are on
+    # `OrganismState` and both kingdoms carry them.
+    "what an individual has done, and what killed it": [
+        "Life record status — what an individual has done, and what killed it",
+    ],
+    "watching one individual over time": [
+        "Watch status — where one individual has been, and how its numbers moved",
+    ],
+    "comparing two individuals": [
+        "Side-by-side status — two individuals, with what differs marked",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and

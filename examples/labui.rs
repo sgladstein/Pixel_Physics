@@ -18,6 +18,7 @@
 //! `frames=N` warms the box for N ticks first (default 900, enough for the
 //! founders to have grown into something the pages have numbers about).
 
+use pixel_physics::lab::roster;
 use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 
@@ -143,6 +144,424 @@ fn main() {
         let at = centre(&lab, Action::Panel(open));
         click(&mut lab, at);
     }
+
+    // 6a2. **The two rosters, opened the way a player opens them** -- through
+    // the PLANTS/ANTS page's own LIST heading, because the bar is full and
+    // there is no chip for them. Every tile prints a count: an image shows a
+    // table and cannot show whether the click resolved to anything, and a
+    // roster with `pinned: None` under it looks exactly like one that works.
+    for (cover, list, verb) in [
+        (Panel::Plants, Panel::PlantList, "PLANTS"),
+        (Panel::Ants, Panel::AntList, "ANIMALS"),
+    ] {
+        // Leaving whatever is open, by its own button. A roster is left by
+        // its BACK chip rather than by a bar button, which is the difference
+        // that made this loop panic the first time it ran.
+        if let Some(open) = lab.ui.panel {
+            let at = match open {
+                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+                _ => centre(&lab, Action::Panel(open)),
+            };
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let at = centre(&lab, Action::Panel(cover));
+        click(&mut lab, at);
+        // **A frame first.** The layout is retained from the last painted
+        // frame, so nothing on a page that has not been drawn is clickable --
+        // the same constraint the warm draw at the top of this file exists
+        // for, and it applies again every time a click opens something new.
+        let _ = shot(&mut lab);
+        // The heading is a `Body::Head` row on the cover page, so it is a
+        // real widget and `widget_rect` can find it -- which is the whole
+        // reason it is a heading rather than a chip.
+        let at = centre(&lab, Action::Panel(list));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        // **The list is rebuilt through the page's own sort accessor**, not
+        // with a guessed one. The first run of this harness used
+        // `SortKey::Slot` and reported the click pinning ant 41 where 11 was
+        // expected -- which was the harness asking a different question than
+        // the page was answering, and it is exactly the mismatch the printed
+        // pair is here to catch.
+        let kingdom = kingdom_of(list);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        fired.push(format!("LIST {verb} opened: {} with {} rows", lab.ui.panel == Some(list), rows.len()));
+        tiles.push((format!("ROSTER: {verb}"), shot(&mut lab)));
+
+        // Pin the third row, or the first on a short list. The identity is
+        // printed rather than the index, because the index is the thing that
+        // is not an identity.
+        if !rows.is_empty() {
+            let want = 2.min(rows.len() - 1);
+            let at = centre(&lab, Action::RosterSelect(want));
+            click(&mut lab, at);
+            fired.push(format!(
+                "LIST {verb} row {want} pinned: {:?} (expected {:?}) -- notice {:?}",
+                lab.ui.pinned(),
+                Some(rows[want].who),
+                lab.ui.notice_text()
+            ));
+            tiles.push((format!("ROSTER: {verb} PINNED"), shot(&mut lab)));
+
+            // **Does the pin survive the thing moving?** The failure this
+            // whole identity exists to prevent is a walking ant leaving its
+            // own page behind, so the harness walks it.
+            let before = lab.ui.pinned();
+            let moved_from = rows[want].at;
+            lab.act(Action::TogglePhase);
+            for _ in 0..240 {
+                lab.advance(std::time::Duration::from_millis(16));
+            }
+            lab.act(Action::TogglePhase);
+            let _ = shot(&mut lab);
+            // A plant has no `chain`, so its position is its lowest cell --
+            // which is what the roster's own `at` uses, and what the marker
+            // is drawn at. Reading `chain` for both kingdoms printed `None`
+            // for every plant on the first run: a readout that says nothing
+            // moved because it was asking the wrong half of the state.
+            let now = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter())
+                .into_iter()
+                .find(|r| Some(r.who) == lab.ui.pinned())
+                .map(|r| r.at);
+            fired.push(format!(
+                "LIST {verb} pin after 240 ticks: same {} alive {} -- was at {:?} now at {:?}",
+                lab.ui.pinned() == before,
+                lab.ui.pinned().is_some_and(|w| w.alive(&lab.world)),
+                moved_from,
+                now
+            ));
+            tiles.push((format!("ROSTER: {verb} PIN HELD"), shot(&mut lab)));
+
+            // **The payoff shot: the list put away, and the mark still on
+            // the box.** This is what the roster is for -- the list is how
+            // you find one, the marker is how you keep hold of it -- and it
+            // is the one tile that shows the world rather than a panel.
+            lab.ui.close_panel();
+            let held = lab.ui.pinned().and_then(|w| w.resolve(&lab.world)).map(|s| s.cells.len());
+            fired.push(format!(
+                "LIST {verb} marked on the box: pin {:?} owning {:?} cells",
+                lab.ui.pinned().map(|w| w.id),
+                held
+            ));
+            tiles.push((format!("MARKED: {verb}"), shot(&mut lab)));
+            lab.ui.toggle_panel(if verb == "PLANTS" { Panel::PlantList } else { Panel::AntList });
+            let _ = shot(&mut lab);
+
+            // Sorting, and the pin surviving the reorder underneath it.
+            let at = centre(&lab, Action::RosterSort(1));
+            click(&mut lab, at);
+            fired.push(format!(
+                "LIST {verb} sorted on col 1: {:?}, pin still {:?}",
+                lab.ui.roster_sort(),
+                lab.ui.pinned()
+            ));
+            tiles.push((format!("ROSTER: {verb} SORTED"), shot(&mut lab)));
+        }
+
+        // **The graveyard.** Cull a few first, because an empty graveyard and
+        // a broken one draw the same tile -- the same reason every other
+        // block here prints a count beside its picture. Two clicks of the
+        // filter chip: ALL -> IN TROUBLE -> DEAD.
+        // Culled through the verb and then left to run, rather than freed
+        // directly: `World::free_organism` is crate-private, and going round
+        // it would be the harness testing a path the player has no way to
+        // take. A cull marks senescent; the corpse rots; the slot is released
+        // and the grave taken then. So the ticks are part of the mechanism,
+        // not a delay bolted on -- which is also `rot_remains`' whole point,
+        // that a death is graded rather than a disappearance.
+        let victims: Vec<_> = rows.iter().take(3).map(|r| r.who).collect();
+        for who in &victims {
+            lab.world.mark_organism_senescent(who.id);
+        }
+        // **6,000 from measurement**, not from eye:
+        // `roster::how_long_a_cull_takes` reports 3,403 ticks for animals and
+        // 3,632 for plants on this bed, so this is the larger with about 65%
+        // headroom. It is a bound, never a gate -- the count is printed
+        // beside the tile either way, so a sheet taken on a bed that rots
+        // slower says so instead of drawing an empty page and looking broken.
+        // **Wait for *these* individuals, not for a count.** The first
+        // version waited on `graveyard.len() >= victims.len()`, and by this
+        // point in the sheet the CULL verb tile has already killed four
+        // plants -- so the condition was satisfied before the loop began, it
+        // waited 0 ticks, and the ANIMALS tile rendered an empty graveyard
+        // holding somebody else's plants. `CLAUDE.md`'s *ask what your
+        // counter counts*: the number was right and about the wrong thing.
+        let arrived = |lab: &Lab, v: &[roster::Individual]| {
+            v.iter().all(|w| lab.world.graveyard.about(w.id, w.born_frame).is_some())
+        };
+        let mut waited = 0u32;
+        while waited < 6000 && !arrived(&lab, &victims) {
+            lab.tick_for_harness();
+            waited += 1;
+        }
+        fired.push(format!(
+            "LIST {verb} cull: marked {} senescent, all of them reached the graveyard: {} after {waited} ticks ({} graves in all)",
+            victims.len(),
+            arrived(&lab, &victims),
+            lab.world.graveyard.len()
+        ));
+        // Re-aimed for each click, same reason as the reset loop below.
+        for _ in 0..2 {
+            let step = centre(&lab, Action::RosterFilter);
+            click(&mut lab, step);
+            let _ = shot(&mut lab);
+        }
+        let dead = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        fired.push(format!(
+            "LIST {verb} graveyard: filter {:?}, culled {} and the page lists {} -- {}",
+            lab.ui.roster_filter(),
+            victims.len(),
+            dead.len(),
+            dead.iter().map(|r| format!("{} {}", r.who.id, r.state.label())).collect::<Vec<_>>().join(", ")
+        ));
+        tiles.push((format!("ROSTER: {verb} GRAVEYARD"), shot(&mut lab)));
+        // Back to the living, so the tiles after this are not all corpses.
+        //
+        // **Re-aimed every step and bounded**, because neither is optional
+        // here: `at` was computed against the ALL page's layout and the
+        // filter chip is not guaranteed to sit in the same place once the
+        // page under it changes, so a stale position clicks nothing, the
+        // filter never moves and the loop never ends. It did, for fifteen
+        // minutes, which reads exactly like a slow harness rather than a hung
+        // one. The bound is the cycle's own length with slack.
+        let mut steps = 0;
+        while lab.ui.roster_filter() != roster::Filter::All && steps < 8 {
+            let back = centre(&lab, Action::RosterFilter);
+            click(&mut lab, back);
+            let _ = shot(&mut lab);
+            steps += 1;
+        }
+        fired.push(format!("LIST {verb} filter reset to {:?} in {steps} clicks", lab.ui.roster_filter()));
+    }
+    // **A roster is left by its own BACK chip.** Unlike every other page
+    // here, no widget on screen carries `Action::Panel(PlantList)` while the
+    // roster is open -- the page has no bar chip, which is the whole reason
+    // it hangs off the PLANTS page -- so the usual "click whatever opened it"
+    // cannot aim at anything. Twice now this loop has found that, which is
+    // the harness doing its job: a page a synthetic click cannot leave is a
+    // page a player cannot leave either.
+    if let Some(open) = lab.ui.panel {
+        let at = match open {
+            Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+            Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+            _ => centre(&lab, Action::Panel(open)),
+        };
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+    }
+    // 6a-bis. **WATCH: where the pinned one has been, and how its numbers
+    //         moved.** The trail is the one thing on this interface that
+    //         cannot be judged from a still of the moment it was made -- it
+    //         *is* accumulated history, so the tile has to run the box with a
+    //         pin held and then look. Both kingdoms, because a plant's trail
+    //         being a single dot is the control: it says the ring is tracking
+    //         one individual rather than drawing whatever moved.
+    for (what, animal) in [("ANT", true), ("PLANT", false)] {
+        let kingdom = if animal { roster::Kingdom::Creatures } else { roster::Kingdom::Plants };
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let live = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All);
+        // **The one that has been furthest, not row 0.** A trail is only a
+        // trail if its subject moved, and most of this colony has not: row 0
+        // travelled five cells in 1,524 frames, which draws as a dot and says
+        // nothing about whether the ring works. `forage_max` is the roster's
+        // own excursion depth -- the same number `FAR` reads -- so this picks
+        // the individual the table would already be pointing at.
+        let ranger = live
+            .iter()
+            .max_by_key(|r| lab.world.organism(r.who.id).map_or(0, |st| st.forage_max))
+            .map(|r| r.who);
+        let Some(who) = ranger else {
+            fired.push(format!("WATCH {what}: nothing alive to follow"));
+            continue;
+        };
+        lab.ui.release_pin();
+        lab.ui.pin(who);
+        // **FOLLOW on, and the box drawn as it runs.** Both are needed, and
+        // the reason is one this harness had to find twice.
+        //
+        // `Lab::follow_pin` runs in `draw`, not in `tick`, and
+        // `Renderer::follow` is a *dead-zone* follow -- deliberately, because
+        // a strictly-centred camera repaints the whole screen every frame an
+        // animal walks and pays away the dirty-rect skip. So a loop that
+        // ticks 1,600 times and draws once at the end gets exactly one
+        // dead-zone nudge, which does not carry the view from where it was to
+        // where the ant now is. The tile came back byte-identical twice, with
+        // the counter reporting 128 samples both times: the ring was full and
+        // the ant was simply outside the view.
+        //
+        // Drawing every 16 ticks is also what the real thing does -- a player
+        // watching an individual is looking at frames, not at a fast-forward.
+        // **Zoomed in, because at 1:1 the camera cannot move at all.**
+        // Measured: `world_to_screen` is the identity here -- the bed is 512
+        // wide and so is the screen, so `Renderer::follow` has nowhere to pan
+        // and an individual at x=404 stays at x=404, which is under the cell
+        // page. A pin *forces* that page open (`Lab::follow_pin` calls
+        // `inspect_at` every draw, by design), so the only way to see the
+        // subject is to zoom until the view is smaller than the world and let
+        // FOLLOW centre it.
+        lab.renderer.zoom_within(2, (WIDTH, HEIGHT), lab.world.bounds());
+        lab.ui.toggle_following();
+        let before = who.resolve(&lab.world).and_then(roster::anchor_of);
+        let scr_before = before.and_then(|(x, y)| lab.renderer.world_to_screen(x, y));
+        for i in 0..1600 {
+            lab.tick_for_harness();
+            if i % 16 == 0 {
+                let _ = shot(&mut lab);
+            }
+        }
+        let after = who.resolve(&lab.world).and_then(roster::anchor_of);
+        let scr_after = after.and_then(|(x, y)| lab.renderer.world_to_screen(x, y));
+        fired.push(format!(
+            "WATCH {what}: following {}, world {before:?} -> {after:?}, screen {scr_before:?} -> {scr_after:?}",
+            lab.ui.following()
+        ));
+        let moved = lab.ui.watch_len();
+        fired.push(format!(
+            "WATCH {what}: pinned {who:?}, {moved} samples over {} frames, alive {}, page open {}",
+            lab.ui.watch_span(),
+            who.alive(&lab.world),
+            lab.ui.inspecting().is_some()
+        ));
+        lab.set_cursor(None);
+        tiles.push((format!("WATCH: {what} TRAIL"), shot(&mut lab)));
+
+        // ...and the sparklines, which live in STATE. Clicking the
+        // individual's own cell is what puts the page on it -- the pin is
+        // deliberately not enough, so this also exercises the gate that stops
+        // one animal's series appearing under another's numbers.
+        if let Some((wx, wy)) = live.first().map(|r| r.at) {
+            let (sx, sy) = lab.renderer.world_to_screen(wx, wy).unwrap_or((wx, wy));
+            click(&mut lab, (sx, sy));
+            let _ = shot(&mut lab);
+            let state_group = Action::SpecimenSection(2);
+            if let Some(r) = lab.ui.widget_rect(state_group) {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                let _ = shot(&mut lab);
+            }
+            fired.push(format!("WATCH {what}: cell page on group {}", lab.ui.specimen_section()));
+            lab.set_cursor(None);
+            tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
+        }
+    }
+    // 6a-quater. **SPARE and CULL REST: keep these, kill the others.**
+    //            Driven through the real chips, because the gesture is the
+    //            feature: pin a row, press SPARE, pin another, press SPARE,
+    //            then press CULL REST once. The counts either side of it are
+    //            the whole proof -- a graded cull changes nothing on screen
+    //            for thousands of frames, so a tile of the moment after the
+    //            press looks identical to a tile of the press having missed.
+    {
+        let kingdom = roster::Kingdom::Creatures;
+        open_list(&mut lab, Panel::Ants, Panel::AntList);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let before = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All).len();
+        // Spare three, by walking the list the way a player would.
+        for row in 0..3usize.min(before) {
+            let at = centre(&lab, Action::RosterSelect(row));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterSpare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let spared: Vec<roster::Individual> = lab.ui.spared_list().to_vec();
+        fired.push(format!("CULL: spared {} of {before} animals", spared.len()));
+        lab.set_cursor(None);
+        tiles.push(("CULL: THREE SPARED".into(), shot(&mut lab)));
+
+        let aimed = lab.ui.cull_rest_targets(&lab.world, kingdom);
+        let doomed = aimed.len();
+        let at = centre(&lab, Action::RosterCullRest);
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        // A cull marks senescent; `rot_remains` carries the bodies out at the
+        // species half-life, measured at ~3,400 ticks for an animal
+        // (`roster::how_long_a_cull_takes`). So the count is read twice: the
+        // rows that went ROTTING immediately, and the population once the
+        // bodies are actually gone.
+        let rotting = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+            .iter()
+            .filter(|r| matches!(r.state, roster::RowState::Senescent))
+            .count();
+        fired.push(format!("CULL REST: aimed at {doomed}, {rotting} rows now rotting, {before} before"));
+        lab.set_cursor(None);
+        tiles.push(("CULL: AFTER CULL REST".into(), shot(&mut lab)));
+        for _ in 0..6000 {
+            lab.tick_for_harness();
+        }
+        let after = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All).len();
+        // **Name the individuals, do not count the population.** A count
+        // cannot say the *right* ones lived: the box breeds, so 16 -> 10 is
+        // consistent with the cull having missed and ten animals having been
+        // born. `Individual` is `(organism_id, born_frame)`, so a slot reused
+        // by a newborn does not read as the spared one surviving.
+        let kept = spared
+            .iter()
+            .filter(|who| roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+                .iter()
+                .any(|r| r.who == **who && !matches!(r.state, roster::RowState::Senescent)))
+            .count();
+        let doomed_left = aimed
+            .iter()
+            .filter(|who| roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All)
+                .iter()
+                .any(|r| r.who == **who && !matches!(r.state, roster::RowState::Senescent)))
+            .count();
+        fired.push(format!(
+            "CULL REST: {before} animals -> {after} once the bodies rotted; {kept} of {} spared still alive, {doomed_left} of {doomed} doomed still alive",
+            spared.len()
+        ));
+        lab.ui.clear_spared();
+    }
+
+    // 6a-ter. **COMPARE: two individuals side by side.** Driven through the
+    //         real chips -- HOLD on one row, pin another, VS -- rather than
+    //         by setting the two slots directly, because the thing most
+    //         likely to be wrong is the gesture rather than the page: one
+    //         chip means two things depending on state, and a chip that does
+    //         the wrong one is invisible in a screenshot of the page it
+    //         opened.
+    {
+        let kingdom = roster::Kingdom::Creatures;
+        let list = Panel::AntList;
+        let cover = Panel::Ants;
+        // `open_list` rather than a hand-rolled close-cover-list, because
+        // `Action::Panel` toggles: pressing the cover chip while the cover is
+        // already open *closes* it and the list heading never appears. This
+        // block is where that bit -- the CULL block above leaves the roster
+        // open, where every earlier block left it shut.
+        open_list(&mut lab, cover, list);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        if rows.len() >= 2 {
+            let at = centre(&lab, Action::RosterSelect(0));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterCompare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            fired.push(format!("COMPARE: after HOLD, held {:?}", lab.ui.held()));
+            let at = centre(&lab, Action::RosterSelect(1));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            let at = centre(&lab, Action::RosterCompare);
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+            fired.push(format!(
+                "COMPARE: page {:?}, held {:?}, pinned {:?}",
+                lab.ui.panel,
+                lab.ui.held(),
+                lab.ui.pinned()
+            ));
+            tiles.push(("COMPARE: TWO ANTS".into(), shot(&mut lab)));
+        } else {
+            fired.push(format!("COMPARE: only {} rows, need two", rows.len()));
+        }
+    }
+    lab.ui.release_pin();
 
     // 6b. The rack, and the rack with a row picked -- which is the half that
     // carries the picture. Skipped on a one-chamber lab, where there is no
@@ -711,6 +1130,27 @@ fn main() {
         }
         tiles.push((format!("SPECIMEN: {what}"), shot(&mut lab)));
 
+        // **The WORDS group, opened the same way, and it had no tile at all
+        // until 2026-09-05.** It is the group the plain-speech work exists
+        // for and it is *collapsed by default*, so every tile above shows it
+        // as `+ WORDS 14` and none of them can answer "do the sentences read
+        // right" -- which is what the review card asking about it had to be
+        // hand-built to show. A feature with no tile is a feature the sheet
+        // cannot be used to judge.
+        let words = pixel_physics::lab::ui::Action::SpecimenSection(0);
+        match lab.ui.widget_rect(words) {
+            Some(r) => {
+                click(&mut lab, (r.x + 20, r.y + 4));
+                fired.push(format!(
+                    "SPECIMEN {what}: clicking WORDS left the page showing group {}",
+                    lab.ui.specimen_section()
+                ));
+                lab.set_cursor(None);
+                tiles.push((format!("SPECIMEN: {what} WORDS"), shot(&mut lab)));
+            }
+            None => fired.push(format!("SPECIMEN {what}: no WORDS heading to click")),
+        }
+
         // **Open the genome group by clicking its heading**, which is the
         // whole click path -- the heading is drawn by `paint_page`, collected
         // into `inspect_bar` in the same loop, hit-tested by `Ui::hit` and
@@ -794,6 +1234,14 @@ fn main() {
     println!("wrote {out}");
 }
 
+/// Which table a list page is.
+fn kingdom_of(panel: Panel) -> roster::Kingdom {
+    match panel {
+        Panel::AntList => roster::Kingdom::Creatures,
+        _ => roster::Kingdom::Plants,
+    }
+}
+
 fn blank() -> Vec<u8> {
     vec![0u8; (WIDTH * HEIGHT * 4) as usize]
 }
@@ -804,9 +1252,54 @@ fn shot(lab: &mut Lab) -> Vec<u8> {
     frame
 }
 
+/// Open `list` from its cover page, from *whatever* is open now.
+///
+/// **A loop rather than a fixed close-cover-list sequence**, because
+/// `Action::Panel` toggles and the roster's own way out is its cover's bar
+/// chip: pressing ANTS while the animal roster is open lands on the ANIMALS
+/// cover, so the next press of ANTS *closes* it and the list heading never
+/// appears. Three blocks below hand-rolled that sequence and the third one
+/// panicked on the missing heading, because the block before it left the
+/// roster open where the earlier blocks had left it shut. The fixed point is
+/// the same in every starting state: step towards the list, redraw, look
+/// again.
+fn open_list(lab: &mut Lab, cover: Panel, list: Panel) {
+    for _ in 0..6 {
+        match lab.ui.panel {
+            Some(p) if p == list => return,
+            Some(p) if p == cover => {
+                let at = centre(lab, Action::Panel(list));
+                click(lab, at);
+            }
+            Some(p) => {
+                // Off any other page by its own button; a roster leaves by its
+                // cover's chip, which is the case that made this a loop.
+                let at = match p {
+                    Panel::PlantList => centre(lab, Action::Panel(Panel::Plants)),
+                    Panel::AntList => centre(lab, Action::Panel(Panel::Ants)),
+                    other => centre(lab, Action::Panel(other)),
+                };
+                click(lab, at);
+            }
+            None => {
+                let at = centre(lab, Action::Panel(cover));
+                click(lab, at);
+            }
+        }
+        let _ = shot(lab);
+    }
+    panic!("could not reach {list:?} from {:?}", lab.ui.panel);
+}
+
 /// The middle of the button for `action`, from the retained layout.
 fn centre(lab: &Lab, action: Action) -> (i32, i32) {
-    let r = lab.ui.widget_rect(action).expect("the bar has no button for this action");
+    let r = lab
+        .ui
+        .widget_rect(action)
+        // **Names the action.** The bare message cost a debugging round: with
+        // six `centre` calls in one loop, "the bar has no button for this
+        // action" says a click could not be aimed and not which one.
+        .unwrap_or_else(|| panic!("the interface has no button for {action:?} -- has a frame been drawn since it appeared?"));
     (r.x + r.w / 2, r.y + r.h / 2)
 }
 

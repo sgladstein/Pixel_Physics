@@ -501,7 +501,20 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
         }
         // Cloned per worker rather than per plan — see `start_runs_from`.
         // The palette repaint came with the template.
-        Start::Copy(template) => (**template).clone(),
+        Start::Copy(template) => {
+            let mut w = (**template).clone();
+            // **The copy's narrative starts when the copy does.** `World` is
+            // `Clone`, so a copy arrives holding everything its parent
+            // logged, and fifty of them would be fifty transcripts of one
+            // shared past with fifty divergent futures appended. The
+            // *counters* are deliberately kept -- they describe the shared
+            // starting population, which is the experiment -- but the log is
+            // a story about a particular run, and this is a different one.
+            // Not done for `Resume`, which is EXTEND: that is the same run
+            // carrying on, and its history is its own.
+            w.run_log.clear();
+            w
+        }
         // **Taken, not cloned.** The world came out of the rack and is going
         // back into it; cloning here would double a fifty-chamber extension's
         // peak memory for nothing. A row with no entry -- an on-record row,
@@ -720,5 +733,67 @@ mod tests {
         let cells = 40 * 64 * 64 * 12; // 8x5 chunks of 12-byte cells
         assert!(bytes > cells, "the estimate is cells only: {bytes} vs {cells}");
         assert!(bytes < cells * 2, "the estimate has run away: {bytes} vs {cells}");
+    }
+
+    /// **A batch copy starts its own run log.**
+    ///
+    /// `World` is `Clone` and the run log is part of it, so without the clear
+    /// in `run_one` every copy opens holding its parent's whole narrative and
+    /// then appends a *different* future to it. Fifty chambers would each
+    /// read as one shared past with fifty contradictory continuations, and
+    /// the page has no way to tell which lines were inherited.
+    ///
+    /// Provable red by deleting `w.run_log.clear()` from the `Copy` arm: the
+    /// planted line comes back in every copy's log.
+    ///
+    /// The `Resume` half is the other side of the same rule and is asserted
+    /// here too, because it is the case where clearing would be the bug --
+    /// EXTEND is the same run carrying on, so its history must survive.
+    #[test]
+    fn a_batch_copy_starts_its_own_run_log_and_an_extension_keeps_its_own() {
+        let shared = Arc::new(Shared {
+            done: Mutex::new(Vec::new()),
+            finished: AtomicUsize::new(0),
+            failed: AtomicUsize::new(0),
+            held: AtomicUsize::new(0),
+            kept_bytes: AtomicU64::new(0),
+            cancel: AtomicBool::new(false),
+            ticks: AtomicU64::new(0),
+            live: Mutex::new(Vec::new()),
+        });
+        // A world with a line of history nothing in the run could produce:
+        // frame 999_999 is past anything a 60-frame run reaches, so finding
+        // it in a copy's log can only mean it was inherited.
+        let planted = crate::sim::world::LogEvent {
+            frame: 999_999,
+            id: 7,
+            born_frame: 0,
+            species: crate::sim::organism::SpeciesId(0),
+            kind: crate::sim::world::LogKind::Born,
+            other: 0,
+        };
+        let mut parent = bed().build();
+        crate::lab::earth_toned_nest(&mut parent);
+        parent.run_log.push(planted);
+        assert_eq!(parent.run_log.len(), 1, "the plant did not take -- the rest of this proves nothing");
+
+        let run = spec(1, None).runs().remove(0);
+        let copied = run_one(&run, 60, &shared, &Start::Copy(Box::new(parent.clone())));
+        let log = &copied.world.as_ref().expect("the budget is u64::MAX, so the world is kept").run_log;
+        assert!(
+            !log.recent().any(|e| e.frame == 999_999),
+            "a batch copy opened holding its parent's history: {} line(s) inherited",
+            log.recent().filter(|e| e.frame == 999_999).count()
+        );
+
+        // ...and the extension keeps it. Same planted world, handed in
+        // through the table EXTEND uses.
+        let table = Mutex::new(std::collections::HashMap::from([(run.index, parent)]));
+        let extended = run_one(&run, 60, &shared, &Start::Resume(table));
+        let log = &extended.world.as_ref().expect("the budget is u64::MAX, so the world is kept").run_log;
+        assert!(
+            log.recent().any(|e| e.frame == 999_999),
+            "EXTEND threw away the chamber's own history -- that is the same run carrying on, not a copy"
+        );
     }
 }
