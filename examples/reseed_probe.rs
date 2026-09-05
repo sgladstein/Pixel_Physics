@@ -275,6 +275,24 @@ fn main() {
              reads as `the mechanism does nothing`"
         );
     }
+    // **`germwater=` is the third registry knob, on the gate the tree's own
+    // seed actually fails.** `Behavior::Germinate::soil_water_threshold` is
+    // plant-available water 0..1 under the resting seed, and it separates the
+    // species widely -- grass 0.10, herb 0.15, tree 0.25. Measured over
+    // 300,000 frames on one tree, the standing bank reads **22-43 of 30-53
+    // seeds `too-dry` at every stop and `dark` 0 at every stop**, so the
+    // question "can a tree's seed start under its own parent" is a water
+    // question and not the shade one it looks like. Swept through the
+    // registry for the same `include_str!` reason as `launch=` and
+    // `maturity=`.
+    if let Some(floor) = arg::<f32>("germwater") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        assert!(
+            world.species.set_param(id, CellType::Seed, organism::ParamId::GerminateWater, 0, floor),
+            "germwater={floor} matched no Germinate behaviour on {species} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+    }
     // **`col=` moves the single founder to a named column.** `spread(1)` puts
     // one founder at the bed's centre, which at `lamp_spacing 64` is exactly
     // half way between two fixtures -- so a one-founder run is not a smaller
