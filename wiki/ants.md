@@ -3,9 +3,11 @@
 *Current as of: 2026-09-05, when **how far an animal can see stopped being
 fixed for its whole kind** — a sharp-eyed beetle and a short-sighted one are
 now two different beetles, and which one leaves more young is something the
-world decides rather than something written down. An animal born without eyes
-still has none; what is inherited is the reach of an eye it already has. The
-same day what an ant is carrying became visible —
+world decides rather than something written down. **A kind born with no eyes
+at all can grow them**, slowly, over a great many generations, and pay for
+them once it has: nothing is locked shut. Every animal alive still sees
+exactly what its kind always saw; only its descendants can differ. The same
+day what an ant is carrying became visible —
 a heavy forager draws brighter than an empty one and a spoil-hauler darker,
 which is the first time anything an ant holds has been on screen at all (the
 exact colouring is still being judged and may change). The same day digging,

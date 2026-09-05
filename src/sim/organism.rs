@@ -4982,34 +4982,41 @@ pub const CREATURE_TRAITS: usize = 4;
 /// magnitude is a free dimension with nothing selecting on it, so a
 /// histogram of its alleles measures its own drift and reads as a result.
 /// A scalar on a bounded axis has no such dimension.
-/// Slot 3 of `CREATURE_TRAITS`: **how far this animal can see**, as a
-/// multiplier on its species' authored `sight_range` — `-1` blind, `0` the
-/// species' own reach, `+1` twice it, read through
+/// Slot 3 of `CREATURE_TRAITS`: **how far this animal can see**, as a shift
+/// on its species' authored `sight_range` — `-1` blind, `0` the species' own
+/// reach, `+1` that reach plus a full `creature::SIGHT_SPAN`, read through
 /// `creature::sight_range_of`.
 ///
 /// **The point is that an eye stops being a designer's constant.** Before
 /// this, `sight_range` was a plain `i32` species field: whether an animal
 /// could see, and how far, was fixed for its whole kind for ever, and no
 /// lineage could trade sharper eyes against their cost or cheaper eyes
-/// against their loss. That is the same defect
+/// against their loss. That is the defect
 /// `Reports/selective-environments-2026-09-05.md` names for the verbs — a
 /// quantity outside the economy is a quantity selection cannot reach —
 /// arriving on the sensory axis.
 ///
 /// **The price for it was authored a week before the gene was.**
-/// `sight_fraction` charges per cell the eye actually reads, and its own
-/// doc says it landed "to stop `sight_range` being a ratchet" so that the
-/// day the reach became heritable "the gene arrives into a world that
-/// already charges for it". This is that day; nothing new has to be priced.
+/// `sight_fraction` charges per cell the eye actually reads, and its own doc
+/// says it landed "to stop `sight_range` being a ratchet" so that the day
+/// the reach became heritable "the gene arrives into a world that already
+/// charges for it". This is that day; nothing new had to be priced.
 ///
-/// **The species field stays the switch, exactly as `reproduce_threshold`
-/// does.** `sight_range: 0` is blind whatever the trait says, so this slot
-/// is not a back door through which every eyeless species quietly grows
-/// eyes — the same argument `reproduce_at_of` makes in as many words, and
-/// for the same reason: a showcase species must not change because a
-/// mutable slot was appended. A blind lineage therefore cannot evolve
-/// sight, which is a real limit and a deliberate one; opening an eye stays
-/// an authoring decision, and only its *reach* is evolvable.
+/// **Additive, and there is no species gate — that is a ruling, and it
+/// reversed this slot's first design.** The first version scaled the
+/// authored reach, so `sight_range: 0` was blind at every allele: zero is
+/// absorbing under multiplication and an eyeless species could never evolve
+/// an eye. It followed `TRAIT_REPRODUCE_AT`'s precedent, that the species
+/// field stays the switch so a mutable slot cannot be a back door. The owner
+/// overturned it — *"anything should be able to evolve. don't lock"* — and
+/// the reasoning is that a back door is exactly what an open-ended system is
+/// for: a species that cannot cross a line drawn by its author is not
+/// evolving, it is being permitted.
+///
+/// **So this slot is deliberately unlike `TRAIT_REPRODUCE_AT` next door**,
+/// where `reproduce_threshold: 0` really does still mean "does not
+/// reproduce". The two are different on purpose and the reason is above; do
+/// not tidy them into agreement without taking the ruling back first.
 pub const TRAIT_SIGHT_RANGE: usize = 3;
 
 pub const TRAIT_GUT_BIAS: usize = 0;

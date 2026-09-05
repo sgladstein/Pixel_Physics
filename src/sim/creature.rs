@@ -1460,32 +1460,60 @@ pub fn reproduce_at_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> Op
 /// axis that is nearly a suicide pact, and it is reachable on purpose:
 /// `CLAUDE.md`'s rule is that a gene with one reachable end expresses
 /// nothing.
-/// **How far this particular animal can see**, in cells — the species'
-/// authored `sight_range` scaled by its own `TRAIT_SIGHT_RANGE` allele.
+/// **How far one full swing of the sight allele moves an eye**, in cells.
 ///
-/// `-1` blind, `0` the species' reach, `+1` twice it, on the same
-/// `(1.0 + t)` axis `reproduce_fraction` uses. One shape for every scalar
-/// gene is worth more than a per-gene curve: it means the axis means the
-/// same thing to a beetle and to an ant, and a reader who has understood one
-/// slot has understood all four.
+/// 64, which is the largest reach any shipped species authors (the beetle's)
+/// — so the axis is scaled to the biggest eye in the game rather than to a
+/// number chosen for its own sake, and `+1` on a blind lineage is exactly a
+/// beetle's eye.
+const SIGHT_SPAN: f32 = 64.0;
+
+/// **The ceiling on an evolved eye**, in cells. Twice `SIGHT_SPAN`, so a
+/// species that already authors the largest eye can still double it and the
+/// top of the axis is a real place rather than a clamp nobody reaches.
 ///
-/// **`sight_range: 0` stays blind whatever the allele says**, and that gate
-/// is the whole reason this is safe to append. It is `reproduce_at_of`'s
-/// argument exactly: a mutable slot must not be a back door through which
-/// every showcase species quietly grows an organ it was never authored to
-/// have. So the trait moves the *reach* of an eye that exists; it cannot
-/// conjure one.
+/// It exists because `sight_fraction` prices *per cell read* and a cast is
+/// already 328–1,186 `World::get` at reach 64: an unbounded allele is an
+/// unbounded per-tick cost, and the frame is a hard constraint here.
+const SIGHT_MAX: f32 = 128.0;
+
+/// **How far this particular animal can see**, in cells — its species'
+/// authored `sight_range` shifted by its own `TRAIT_SIGHT_RANGE` allele.
 ///
-/// Rounded rather than truncated, and floored at 1 for any species that has
-/// an eye at all: a lineage that drifts its allele to the bottom of the axis
-/// should end up nearly blind, not silently eyeless, because eyeless is the
-/// *species* switch and the two must not become confusable.
+/// **Additive, where `reproduce_fraction` is multiplicative, and that is the
+/// whole point.** A multiplier makes zero absorbing: `0 * anything` is 0, so
+/// a species authored blind could never evolve an eye at any allele, for
+/// ever. The owner's ruling is that **anything should be able to evolve** —
+/// so the allele *shifts* the reach rather than scaling it, and a lineage
+/// that starts with no eyes at all can grow them.
+///
+/// **This deliberately overturns the gate the first version of this gene
+/// shipped with.** That version followed `reproduce_at_of`'s precedent — the
+/// species field stays the switch, so a mutable slot cannot be a back door
+/// through which an eyeless showcase species quietly grows an organ. The
+/// argument is sound and the ruling is against it: a back door is exactly
+/// what an open-ended evolutionary system is *for*, and a species that
+/// cannot cross a line drawn by its author is not evolving, it is being
+/// permitted. The cost is real and is accepted rather than hidden — every
+/// eyeless species in the game can now, given enough generations, start
+/// paying for eyes.
+///
+/// `0` is the species' authored reach exactly, so **generation zero is
+/// unchanged for every species**, blind or sighted: the whole axis is
+/// measured from what the author wrote, and only drift moves it.
+///
+/// | allele | ant (authored 0) | beetle (authored 64) |
+/// |---|---|---|
+/// | `-1` | 0, blind | 0, blind |
+/// | `0` | **0, as authored** | **64, as authored** |
+/// | `+1` | 64 | 128 |
+///
+/// Floored at 0 rather than at 1: an eye that has drifted to nothing *is*
+/// blindness now, and there is no longer a species switch for it to be
+/// confusable with.
 pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32 {
-    if def.sight_range <= 0 {
-        return 0;
-    }
-    let scale = (1.0f32 + traits[TRAIT_SIGHT_RANGE]).clamp(0.0, 2.0);
-    ((def.sight_range as f32 * scale).round() as i32).max(1)
+    let shifted = def.sight_range as f32 + traits[TRAIT_SIGHT_RANGE].clamp(-1.0, 1.0) * SIGHT_SPAN;
+    shifted.round().clamp(0.0, SIGHT_MAX) as i32
 }
 
 pub fn reproduce_fraction(t: f32) -> f32 {
@@ -1954,7 +1982,10 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let (inputs, seen, sight_reads) = sense(world, x, y, organism, heading, def);
     let sighting = seen.prey;
-    if def.sight_range > 0 {
+    // **The individual's reach, not the species'** -- an ant whose lineage
+    // has evolved an eye casts, and a counter still gated on the species
+    // field would report it as never having looked.
+    if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         if let Some(seen) = sighting {
@@ -6370,44 +6401,48 @@ mod tests {
         );
     }
 
-    /// **An eye's reach is this animal's, not its species'** — and the
-    /// species field is still the switch.
+    /// **An eye's reach is this animal's, not its species' — and a blind
+    /// lineage can grow one.**
     ///
-    /// Three claims, and the third is the one that makes appending this slot
-    /// safe. A neutral allele reproduces the authored range exactly, so every
-    /// animal alive before the gene existed is unchanged; the allele scales
-    /// the reach on the shared `(1 + t)` axis every other trait uses; and
-    /// **a species authored blind stays blind at every allele**, so the slot
-    /// cannot be a back door through which an eyeless showcase species
-    /// quietly grows eyes.
+    /// Three claims. A neutral allele reproduces the authored reach exactly,
+    /// so every animal alive before this gene existed is unchanged, blind or
+    /// sighted. The allele shifts the reach monotonically. And **a species
+    /// authored with no eyes at all reaches a positive range at a positive
+    /// allele** — which is the owner's ruling that anything should be able to
+    /// evolve, and is the assertion that would have failed under the gated
+    /// first version of this gene.
     #[test]
-    fn the_eye_is_heritable_but_cannot_be_conjured() {
+    fn a_blind_lineage_can_evolve_an_eye() {
         let w = test_world();
-        let sighted_def = w.species.get(w.species.id_of("beetle").expect("beetle")).creature.as_ref().expect("creature").clone();
-        assert!(sighted_def.sight_range > 0, "the beetle is this test's sighted species and must have an eye, or nothing below is measured");
-
-        let at = |t: f32| {
-            let mut traits = [0.0f32; CREATURE_TRAITS];
-            traits[TRAIT_SIGHT_RANGE] = t;
-            sight_range_of(&sighted_def, &traits)
+        let def_of = |name: &str| {
+            w.species.get(w.species.id_of(name).expect(name)).creature.as_ref().expect("creature").clone()
         };
-        assert_eq!(at(0.0), sighted_def.sight_range, "a neutral allele must reproduce the authored range exactly, or every animal that predates this gene changed");
-        assert_eq!(at(1.0), sighted_def.sight_range * 2, "the top of the axis is twice the authored reach");
-        assert!(at(-1.0) >= 1, "the bottom of the axis is nearly blind, never eyeless -- eyeless is the species switch and the two must not be confusable");
-        assert!(at(-0.5) < at(0.0) && at(0.0) < at(0.5), "the allele must be monotone in reach, or it is not a dial");
-
-        // The gate. A species with no eye authored gets none at any allele.
-        let mut blind = sighted_def.clone();
-        blind.sight_range = 0;
-        for t in [-1.0f32, 0.0, 0.5, 1.0] {
+        let at = |def: &CreatureDef, t: f32| {
             let mut traits = [0.0f32; CREATURE_TRAITS];
             traits[TRAIT_SIGHT_RANGE] = t;
-            assert_eq!(
-                sight_range_of(&blind, &traits),
-                0,
-                "a species authored blind grew an eye at allele {t} -- the slot has become a back door"
-            );
-        }
+            sight_range_of(def, &traits)
+        };
+
+        let sighted = def_of("beetle");
+        let blind = def_of("ant");
+        assert!(sighted.sight_range > 0, "the beetle is this test's sighted species and must author an eye");
+        assert_eq!(blind.sight_range, 0, "the ant is this test's blind species and must author none, or the claim below is untested");
+
+        // Generation zero is untouched, for both.
+        assert_eq!(at(&sighted, 0.0), sighted.sight_range, "a neutral allele must reproduce the authored reach exactly");
+        assert_eq!(at(&blind, 0.0), 0, "a neutral allele on a blind species must still be blind, or every eyeless animal changed the day this landed");
+
+        // The ruling: blindness is a starting point, not a cage.
+        assert!(
+            at(&blind, 1.0) > 0,
+            "a species authored blind stayed blind at the top of the axis -- anything should be able to evolve, and this is the gate that must not come back"
+        );
+        assert!(at(&blind, 0.5) > 0 && at(&blind, 0.5) < at(&blind, 1.0), "and it must climb gradually, or the eye is a switch rather than a gene");
+
+        // Monotone, and bounded at both ends.
+        assert!(at(&sighted, -0.5) < at(&sighted, 0.0) && at(&sighted, 0.0) < at(&sighted, 0.5), "the allele must be monotone in reach");
+        assert_eq!(at(&sighted, -1.0), 0, "the bottom of the axis is blindness");
+        assert!(at(&sighted, 1.0) as f32 <= SIGHT_MAX, "an evolved eye must stay under the ceiling that prices it");
     }
 
     #[test]
