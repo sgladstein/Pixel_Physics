@@ -285,3 +285,64 @@ oversubscription anyway at N agents on 4 cores. `sccache` is the item worth
 having here — thirteen worktrees currently rebuild identical dependencies
 from scratch — but installing it is a machine-wide change for the owner to
 make, not a repo change.
+
+---
+
+## 7. The derivations behind `CLAUDE.md`'s timing rules
+
+Moved here 2026-09-05 from `CLAUDE.md`'s *A timing number is only as
+trustworthy as the box was quiet*, which keeps every rule and every headline
+number and routes the worked cases. Nothing below is new; it is the evidence
+those rules were derived from, which every session was paying for and almost
+none needed.
+
+### 7a. Why "identical under any load" was wrong about counters
+
+The rule read *"identical under any load"* until 2026-08-30, when the burrow
+lane measured **610 digs idle and 278 loaded from the same baseline binary**
+on `ascii`'s colony scene. The mechanism is rayon's thread count changing with
+the box, so how the sweep is cut across workers reaches the result. An A/B by
+env switch in a single binary — which is what measured the 130-against-0 the
+entry comes from — is immune either way, because both arms see one
+parallelism.
+
+Measured again independently 2026-08-25 by the perf lane, from the other
+direction: a scheduler census recompiled between two runs of one scene came
+back **byte-identical** (`produced 7042 / deferred 61488` at frame 4,800, both
+times) while the wall-clock column on the same frame moved **9.54 → 8.16 ms**.
+The counters reproduced exactly where the clock moved 17%.
+
+### 7b. The null that was a counter counting calls
+
+A harness probing whether the pick leaks the way a blast does reported 200
+cuts and a queue flat at its idle 5,400 — a clean, counter-based negative,
+measured two hours after the counters rule landed. **The counter was counting
+calls.** `rigid::is_tool_target` accepts `Solid | Plant` and refuses bedrock,
+and the harness aimed at the topmost `Solid | Powder` cell, which on a rolling
+world is soil, so every swing landed in dirt: 23 swings, **0 cells removed**.
+With the aim corrected the same 23 remove **1,157**, and the queue then goes
+to the scheduler's cap and stays there.
+
+The asymmetry that makes the pairing rule cheap: `rigid::mine_swept` returns
+its own loosened count, `rigid::strike` returns `()`, so the second needs a
+census of the neighbourhood either side of the blow.
+
+### 7c. How the worst-frame rule was corrected
+
+The original said flatly that an untrusted worst is worth nothing. True for
+the case it was drawn from — the worst is one frame among thousands of
+*comparable* ones and a single scheduler preemption can set it; measured
+across three attempts at one scene, the worst moved **6x** with machine state
+while the median moved ~30%.
+
+It is false when the expensive event is **rare**, because then the mean
+contains the worst. One blast per run puts essentially all time ever spent in
+the blasts phase into a single frame: the converged-pass figure pins at
+**0.97** (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst) and its
+bedrock-only control at **0.96**, while the `ascii` case pins at nothing at
+all. Two further independent legs held there.
+
+The correction came from the perf lane pushing back with a case the original
+got wrong, and the replacement is better because it is *satisfiable* rather
+than merely cautionary: it says when a worst may be quoted, not only when it
+may not.
