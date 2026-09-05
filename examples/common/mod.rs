@@ -312,6 +312,26 @@ impl Default for PlantScene {
     }
 }
 
+/// Whether `PlantScene`'s bed gets ground under its stone floor.
+/// `PIXEL_PHYSICS_SCENE_FLOOR=void` restores the pre-2026-09-05 bed, whose
+/// floor was a slab 512 wide and 6 thick over 80 empty rows.
+///
+/// **An ablation rather than a tidy-up, because the fill is not inert and
+/// the divergence is chaotic rather than systematic.** Measured 2026-09-05
+/// on `scene=grove` at the shipped defaults, standing cells void -> solid:
+/// 16,234 -> 16,166 at frame 6,000 (**-0.4%**), growing to 28,390 -> 23,329
+/// by 24,000. That is what two worlds that differ at all look like in this
+/// engine -- `CLAUDE.md`: two runs that diverge on one frame are different
+/// worlds by the next -- so **no measurement may be compared across this
+/// switch unpaired**, and the switch exists so both arms can come out of one
+/// binary. The seed sweep behind the "chaotic, not systematic" claim is in
+/// `open-bugs-handoff.md` §W3.
+fn scene_floor_is_solid() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_SCENE_FLOOR").as_deref(), Ok("void")))
+}
+
 impl PlantScene {
     /// The deepest soil any column of this bed can hold — what the stone
     /// floor has to sit beneath so that no column is left bottomless.
@@ -384,6 +404,45 @@ impl PlantScene {
             );
             for y in floor_top..floor_bottom {
                 w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            // **Bedrock the rest of the way down, because the floor above was
+            // a bridge.** `floor_bottom` is 240 at the shipped defaults
+            // (`ground_y` 200 + 34 soil + 6 stone) in a 320-row world, so
+            // y 240..319 used to be **empty** and that stone floor was a slab
+            // 512 wide and 6 thick held up by nothing but the two world edges
+            // -- `load.rs` reads `Cell::OUT_OF_BOUNDS` as bedrock. Stone's
+            // `max_unsupported_span` is 16, giving `capacity_within` a base of
+            // 128 against a 3,072-cell section spanning 512 cells, so the load
+            // model would reject it on sight.
+            //
+            // **It stood anyway, for as long as nothing asked.** Measured
+            // 2026-09-05 on a bare bed (`filmstrip scene=grove plants=0`):
+            // zero `overloaded` and zero `unsupported` failures over 24,000
+            // frames, `awake 0/40`, the slab reported intact at every stop --
+            // `structural::tick` never evaluated it. Then a tree fell on it,
+            // which is a disturbance big enough to wake the chunks beneath,
+            // and the bed went to the bottom of the world. Full account and
+            // the numbers: `open-bugs-handoff.md` §W3.
+            //
+            // **Filling the void rather than making the floor itself bedrock,
+            // and the difference is not cosmetic.** `structural.rs`'s
+            // `relax_one` roots a cell's distance at 0 when a `NEIGHBOURS_4`
+            // neighbour is `BEDROCK`, so a bedrock *floor* would silently
+            // anchor every root that reached it -- a behaviour change to the
+            // plants smuggled in as a scene repair. Keeping the floor stone
+            // and putting ground under it leaves every material within six
+            // rows of living tissue exactly as it was.
+            //
+            // Bedrock rather than more stone because that is what this repo
+            // already builds scaffolding from -- `anchor_probe` and
+            // `arch_probe` both floor their scenes with it -- and because it
+            // is inert: it never moves, so these chunks sleep, and `bounds`
+            // was always the whole world rect so the sweep covers no more
+            // ground than before.
+            if scene_floor_is_solid() {
+                for y in floor_bottom..self.height {
+                    w.set(x, y, Cell::new(material::BEDROCK, 0));
+                }
             }
             for y in self.ground_y..(self.ground_y + depth) {
                 w.set(x, y, Cell::new(soil, (rng::jitter(x, y) * 255.0) as u8).with_aux(moisture));
