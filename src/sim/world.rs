@@ -200,6 +200,101 @@ pub struct RunLog {
 /// with every other sentence removed.
 pub const RUN_LOG_CAP: usize = 2048;
 
+/// **One individual that has died, kept after its slot is gone.**
+///
+/// The roster could only ever list the living, and `README`'s own "known
+/// limitations" said so: *"a death takes its row with it"*. That is the
+/// wrong way round for what this box is for. A selection experiment is
+/// mostly a record of what did **not** work, and the design guide's own
+/// measurement is that an ant is two dark cells at play zoom, findable
+/// because it moves -- so a dead one has stopped being findable by the only
+/// channel that ever found it. The individual most worth looking at was the
+/// one that could not be looked at.
+///
+/// **A flat record and not a handle**, because there is nothing left to
+/// point at: `free_organism` has already dropped the `OrganismState` and
+/// pushed the slot back for re-use, and by the next frame the same
+/// `organism_id` may well belong to somebody else. Everything a page wants
+/// is copied out here or it is gone.
+///
+/// `LifeCounters` comes across whole rather than as a summary, so the cell
+/// page's LIFE group reads the same for a dead individual as for a live one.
+#[derive(Clone, Copy, Debug)]
+pub struct Grave {
+    /// The identity it had, which is still how a run-log line refers to it:
+    /// `RunLog::about` is keyed on exactly this pair.
+    pub id: u16,
+    pub born_frame: u64,
+    pub died_frame: u64,
+    pub species: organism::SpeciesId,
+    pub lineage: u32,
+    pub generation: u16,
+    pub cause: organism::DeathCause,
+    pub life: organism::LifeCounters,
+    /// Where it was when it died -- the anchor of whatever it still owned.
+    ///
+    /// **Kept even though nothing is there any more**, because "where did it
+    /// die" is the question a graveyard row is opened to answer, and a
+    /// creature that starved on the far side of the box is a different
+    /// finding from one that starved on the nest. The marker draws a
+    /// crosshair at it, never a body outline: there is no body.
+    pub at: (i32, i32),
+    /// Whether it belonged in the animals table or the plants one. Read off
+    /// the species at death rather than looked up later, so a grave is
+    /// self-contained.
+    pub creature: bool,
+}
+
+/// **How many graves are kept.**
+///
+/// Deliberately the same bound as the run log and for the same reason: the
+/// shipped bed's deaths and its notable log lines are the same order of
+/// magnitude (a colony of 52 that turns over is 52 graves), so one cap that
+/// covers several sessions covers both. Oldest out first, and
+/// `Graveyard::dropped` says how many, because a silently truncated list of
+/// the dead reads as a box where nothing died.
+pub const GRAVE_CAP: usize = 2048;
+
+/// The dead, oldest first. See [`Grave`].
+#[derive(Clone, Debug, Default)]
+pub struct Graveyard {
+    graves: std::collections::VecDeque<Grave>,
+    dropped: u64,
+}
+
+impl Graveyard {
+    pub fn push(&mut self, grave: Grave) {
+        self.graves.push_back(grave);
+        while self.graves.len() > GRAVE_CAP {
+            self.graves.pop_front();
+            self.dropped += 1;
+        }
+    }
+
+    /// Newest first, which is the order a graveyard is read in.
+    pub fn recent(&self) -> impl Iterator<Item = &Grave> {
+        self.graves.iter().rev()
+    }
+
+    /// One individual's record, if it is still held.
+    pub fn about(&self, id: u16, born_frame: u64) -> Option<&Grave> {
+        self.graves.iter().rev().find(|g| g.id == id && g.born_frame == born_frame)
+    }
+
+    pub fn len(&self) -> usize {
+        self.graves.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.graves.is_empty()
+    }
+
+    /// How many have aged out of the far end.
+    pub fn dropped(&self) -> u64 {
+        self.dropped
+    }
+}
+
 impl RunLog {
     pub fn push(&mut self, event: LogEvent) {
         self.events.push_back(event);
@@ -1225,6 +1320,11 @@ pub struct World {
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
+    /// **The dead, still listed.** See [`Graveyard`].
+    ///
+    /// Beside `deaths_by_cause` rather than instead of it: that is a count
+    /// and this is a list, and the count is the one that never ages out.
+    pub graveyard: Graveyard,
     /// **Germinations refused because every organism slot was live** — the
     /// other half of making the 4,095 ceiling a real check rather than a
     /// `debug_assert` (see `push_organism`).
@@ -2640,6 +2740,7 @@ impl World {
             dead_life: organism::LifeCounters::default(),
             deaths_by_cause: [0; organism::DEATH_CAUSES],
             run_log: RunLog::default(),
+            graveyard: Graveyard::default(),
             organisms_refused: 0,
             organism_generation_wraps: 0,
             next_lineage: 1,
@@ -3491,8 +3592,40 @@ impl World {
             Some(state) => (state.species, state.lineage, state.born_frame),
             None => (organism::SpeciesId(0), 0, 0),
         };
+        // **Read before `slot.state` is dropped**, which is the only moment
+        // it can be: everything on it is about to stop existing, and the slot
+        // goes back on the free list two lines below for some other
+        // individual to be born into. The grave itself is *pushed* after the
+        // borrow of `self.organisms` ends -- see below.
+        let (generation, at) = match slot.state.as_ref() {
+            Some(state) => (
+                state.generation,
+                // A creature's head, else any cell it still owns. A plant
+                // felled whole owns none by the time it reaches here, and
+                // `(0, 0)` is honest for that: there is nowhere to point.
+                state.chain.first().copied().or_else(|| state.cells.keys().next().copied()).unwrap_or((0, 0)),
+            ),
+            None => (0, (0, 0)),
+        };
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+        // **Which table it belonged in, decided from the species and not from
+        // the corpse.** Asking the state whether it had a brain would have
+        // read a creature felled to nothing as a plant, which is the same
+        // shape of mistake as `FelledOrLost` above.
+        let creature = self.species.get(species).creature.is_some();
+        self.graveyard.push(Grave {
+            id: organism_id,
+            born_frame,
+            died_frame: self.frame,
+            species,
+            lineage,
+            generation,
+            cause,
+            life,
+            at,
+            creature,
+        });
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
         self.run_log.push(LogEvent {

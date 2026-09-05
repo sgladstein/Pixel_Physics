@@ -4888,7 +4888,11 @@ impl LifeCounters {
 /// reason reads as a broken table rather than as a box with mortality in it --
 /// and because one of these causes has never had an organism-level counter at
 /// all. See [`DeathCause::FelledOrLost`].
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+// `Ord` so a roster row can carry the cause inside its state and still sort:
+// `lab::roster::RowState::Dead` holds one, and the STATE column is sortable.
+// The order is declaration order, which groups the causes as they are written
+// rather than alphabetically -- there is no meaningful ranking of ways to die.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 pub enum DeathCause {
     /// Nothing recorded a cause. A bug if it is common.
     #[default]

@@ -1584,6 +1584,25 @@ impl History {
         }
         Some(pick(&self.samples[n - 1]) - pick(&self.samples[n - 2]))
     }
+
+    /// **How many simulated frames the last delta actually spans.**
+    ///
+    /// The `CHANGE` row's explanation used to say "120 SIMULATED FRAMES
+    /// APART" as a literal, and while `observe` was called once per drawn
+    /// frame that was simply untrue -- the real gap was whatever a batch
+    /// happened to be, drifting around 140 and set by how fast the machine
+    /// was. Reading it off the samples means the page states a measured fact
+    /// about the run in front of it rather than a property it assumes, and a
+    /// cadence that comes adrift again shows up in the tooltip instead of
+    /// being invisible. It is also the only reader `Sample::frame` has, which
+    /// is the point: a field with a writer and no reader is dead weight.
+    fn gap(&self) -> Option<u64> {
+        let n = self.samples.len();
+        if n < 2 {
+            return None;
+        }
+        Some(self.samples[n - 1].frame.saturating_sub(self.samples[n - 2].frame))
+    }
 }
 
 /// `+3`, `-1`, `0` — and the colour says which way without reading it.
@@ -2371,10 +2390,16 @@ impl Ui {
     pub fn cycle_roster_filter(&mut self, line: Option<u32>) -> String {
         let Some(k) = self.roster_kingdom() else { return String::new() };
         let v = self.view_mut(k);
+        // ALL -> IN TROUBLE -> DEAD -> (LINE n) -> ALL. The graveyard sits
+        // after the living states and before the lineage cut, so the cycle
+        // reads as "everything, then what is going wrong, then what already
+        // did" -- and a player who only wants the living never passes through
+        // two thousand dead rows to get back.
         v.filter = match (v.filter, line) {
             (roster::Filter::All, _) => roster::Filter::Trouble,
-            (roster::Filter::Trouble, Some(l)) => roster::Filter::Lineage(l),
-            (roster::Filter::Trouble, None) => roster::Filter::All,
+            (roster::Filter::Trouble, _) => roster::Filter::Dead,
+            (roster::Filter::Dead, Some(l)) => roster::Filter::Lineage(l),
+            (roster::Filter::Dead, None) => roster::Filter::All,
             (roster::Filter::Lineage(_), _) => roster::Filter::All,
         };
         v.scroll = 0;
@@ -2661,7 +2686,13 @@ impl Ui {
                         "CHANGE",
                         d,
                         tint,
-                        "HOW THE STANDING COUNT MOVED ACROSS THE LAST TWO SAMPLES, 120 SIMULATED FRAMES APART. A STILL PICTURE CANNOT SHOW WHETHER A BOX FULL OF GREEN IS BREEDING OR DYING; THIS CAN.",
+                        format!(
+                            "HOW THE STANDING COUNT MOVED ACROSS THE LAST TWO SAMPLES, {} SIMULATED FRAMES APART. A STILL PICTURE CANNOT SHOW WHETHER A BOX FULL OF GREEN IS BREEDING OR DYING; THIS CAN.",
+                            match self.history.gap() {
+                                Some(g) => g.to_string(),
+                                None => "--".to_string(),
+                            }
+                        ),
                     ),
                     Row::value(
                         "GERMINATED",
@@ -3442,11 +3473,16 @@ fn roster_page_width(kingdom: roster::Kingdom) -> i32 {
 /// can reach them: this page paints itself, so nothing in `panel_rows` covers
 /// it, and `hud::draw_text` renders a character outside its 5x7 set as a
 /// **silent blank**. That trap has shipped three times here.
-const ROSTER_LITERALS: [&str; 4] = [
+const ROSTER_LITERALS: [&str; 5] = [
     "NOTHING ALIVE IN THIS BOX YET",
     "NOTHING MATCHES THIS FILTER",
     "THIS ONE HAS DIED",
     "CLICK A ROW TO PIN ONE",
+    // The graveyard's own empty state. "NOTHING MATCHES THIS FILTER" is true
+    // and useless here: an empty graveyard is a box where nothing has died
+    // yet, which is a fact about the run and not a filter the player should
+    // go and undo.
+    "NOTHING HAS DIED YET",
 ];
 
 /// **The rack page's columns: a heading and the widest thing it can hold.**
@@ -4424,6 +4460,7 @@ impl Ui {
             // clicks ago.
             let why = match view.filter {
                 roster::Filter::All => ROSTER_LITERALS[0],
+                roster::Filter::Dead => ROSTER_LITERALS[4],
                 _ => ROSTER_LITERALS[1],
             };
             text(frame, left, y + 2, why, FAINT);
@@ -4466,9 +4503,14 @@ impl Ui {
                 // `roster::RowState::Far` for why it stopped being `LOST`.
                 roster::RowState::Far => VALUE,
                 roster::RowState::Carrying => GOOD,
+                // Dimmer than POOR, which is a warning about something still
+                // alive. Nothing can be done about this row.
+                roster::RowState::Dead(_) => FAINT,
                 roster::RowState::Ok => FAINT,
             };
-            let age = world.frame.saturating_sub(r.born_frame);
+            // **A grave's age is the life it had, not the time since it was
+            // born.** See `RosterRow::died_frame`.
+            let age = r.died_frame.unwrap_or(world.frame).saturating_sub(r.born_frame);
             let values: [(String, [u8; 4]); 8] = if kingdom == roster::Kingdom::Plants {
                 [
                     (species, VALUE),

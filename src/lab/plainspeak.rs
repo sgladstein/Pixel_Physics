@@ -263,10 +263,23 @@ fn scent_label(w: &brain::Wiring, channel: BrainOutput) -> &'static str {
             _ => "A SCENT",
         };
     }
+    // **Positive weights only, because a negative one cannot lay anything.**
+    // `creature.rs` clamps the deposit to `[0, 1]`, so a channel whose only
+    // direct weight is negative is never emitted onto at all -- naming it for
+    // that weight answers "who lays this" with an animal that does not.
+    //
+    // It is the shipped ant's case and the lab ancestor's alike: both carry
+    // `(Bias, EmitA, -0.35)`, an offset their odometer's fit needs, and both
+    // read `HOME SCENT` off it while laying nothing. On the ancestor that was
+    // visibly wrong -- it declares no nest at all -- and the page said
+    // `FOLLOWS HOME SCENT` two lines above `LAYS NOTHING IT FOLLOWS`. With
+    // this they read `A SCENT`, which is what an unlaid channel honestly is,
+    // and the memory branch above names them properly the moment
+    // `open-bugs-handoff.md` §Z5 lets the odometers charge.
     let mut best: Option<(BrainInput, f32)> = None;
-    for i in w.instincts.iter().filter(|i| i.1 == channel && i.2.abs() > brain::W_EPS) {
-        if best.is_none_or(|(_, m)| i.2.abs() > m) {
-            best = Some((i.0, i.2.abs()));
+    for i in w.instincts.iter().filter(|i| i.1 == channel && i.2 >= brain::W_EPS) {
+        if best.is_none_or(|(_, m)| i.2 > m) {
+            best = Some((i.0, i.2));
         }
     }
     match best {
@@ -757,10 +770,21 @@ fn creature(world: &World, species: SpeciesId, genome: &[f32], traits: &[f32]) -
         wiring.instincts.iter().any(|i| i.0 == input && i.2.abs() > brain::W_EPS)
             || wiring.hidden.iter().any(|h| h.0 == input && h.2.abs() > brain::W_EPS)
     };
-    if c.sight_range > 0 && !uses(BrainInput::PreyNear) && !uses(BrainInput::PreyBearing) {
+    // **All four sight-fed inputs, not just the two prey ones.** `KinNear`
+    // and `KinBearing` are scaled by `def.sight_range` exactly as the prey
+    // pair is and read a constant 0.0 without it, so an animal that steers by
+    // its own kind is using its eyes. Checking only the prey inputs said
+    // `HAS EYES, IGNORES THEM` about the lab's own ancestor on the same page
+    // as `TURNS TOWARD ITS KIN` -- a flat contradiction, and the direction it
+    // pointed (a sense paid for and wired to nothing) was the wrong one.
+    let blind_to = |a: BrainInput, b: BrainInput| !uses(a) && !uses(b);
+    if c.sight_range > 0
+        && blind_to(BrainInput::PreyNear, BrainInput::PreyBearing)
+        && blind_to(BrainInput::KinNear, BrainInput::KinBearing)
+    {
         out.push(Phrase::new(
             "HAS EYES, IGNORES THEM",
-            "ITS SPECIES CASTS A SIGHT RAY AND THIS INDIVIDUAL'S BRAIN CARRIES NO LIVE WEIGHT FROM EITHER PREY INPUT. THE SENSE IS PAID FOR AND WIRED TO NOTHING -- A HUNTER THAT CANNOT ACT ON WHAT IT SEES.".to_string(),
+            "ITS SPECIES CASTS A SIGHT RAY AND THIS INDIVIDUAL'S BRAIN CARRIES NO LIVE WEIGHT FROM ANY OF THE FOUR INPUTS THAT RAY FEEDS -- NEITHER PREY NOR KIN. THE SENSE IS PAID FOR AND WIRED TO NOTHING.".to_string(),
         ));
     }
     if !uses(BrainInput::PheroAAlong) && !uses(BrainInput::PheroAFront) && !uses(BrainInput::PheroALateral) {
@@ -1008,7 +1032,16 @@ mod tests {
         assert!(says(&base, "WALKS RATHER THAN WAITS"), "the ant's strongest Bias->Move weight produced no sentence");
         // The channels are named for what the animal does with them, so the
         // words to look for are those names rather than "TRAIL".
-        assert!(says(&base, "HOME SCENT"), "the ant lays a scent everywhere it goes and the page said nothing about it");
+        //
+        // **Channel A is `A SCENT` and that is not a gap in the naming.**
+        // `scent_label`'s fourth case is *"one nobody lays is still
+        // followable and has no name"*, and nobody lays this one: the
+        // odometer that should is dead (`open-bugs-handoff.md` §Z5) and the
+        // only direct weight left is a -0.35 offset, which cannot raise a
+        // deposit that is clamped at zero. It reads `HOME SCENT` again the
+        // moment either of those changes -- the memory branch names it, or a
+        // positive weight does.
+        assert!(says(&base, "A SCENT"), "channel A is followed and unlaid, and the page gave it no name at all: {base:#?}");
         assert!(says(&base, "FOOD ROUTE"), "the ant marks the way back from food and the page said nothing about it");
         assert!(base.len() <= 4 + MOST_DRIVES + 4 + 2, "the summary has grown into a paragraph: {} lines", base.len());
 
@@ -1133,7 +1166,14 @@ mod tests {
         );
         // ...and the loop it implies, which lives entirely in the hidden
         // layer and which this page said nothing about until it read one.
-        assert!(says(&said, "LADEN: FOLLOWS HOME SCENT"), "the laden half of the foraging loop is missing");
+        //
+        // **The laden half names `A SCENT` rather than `HOME SCENT`**, and
+        // the two assertions together are the point: the ant still *follows*
+        // channel A while laden, and the channel has no name because nothing
+        // lays it. A page that called it the home scent here would be
+        // describing the round trip the ant was designed for rather than the
+        // one it is currently capable of.
+        assert!(says(&said, "LADEN: FOLLOWS A SCENT"), "the laden half of the foraging loop is missing: {said:#?}");
         assert!(says(&said, "EMPTY: FOLLOWS FOOD ROUTE"), "the empty-handed half of the foraging loop is missing");
 
         // **Swap which channel is laid how, and the names must swap with
@@ -1288,7 +1328,38 @@ mod tests {
         assert!(checked > 500, "only {checked} phrases checked -- the sweep is not reaching the generated strings");
     }
 
-    /// A throwaway readout, run with `--nocapture`, that prints the ant's
+/// **What the lab's own ancestor reads like -- the species with no nest.**
+    ///
+    /// A readout beside `the_ants_wiring_against_what_the_page_says`, and it
+    /// exists because the two answer a question that gets confused. The
+    /// 2026-09-02 change did not remove the nest from the genome; it made
+    /// `CreatureDef::nest` **optional** and took the *privileged* homing rule
+    /// out of Rust. `ant.ron` still declares `nest: "nest"` and still authors
+    /// weights off `AtNest`, so its page still says AT THE NEST and is right
+    /// to. `ancestor.ron` declares none, so `AtNest` reads a constant 0.0 for
+    /// it and its odometer charges off `KinNear` instead -- its own kind,
+    /// which its lineage has to find rather than have painted under it.
+    ///
+    /// So this is the arm that shows what "no express nest" actually looks
+    /// like on the page, and the ant is not it.
+    /// `cargo test --release --lib -- --ignored --nocapture the_ancestors_page`
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test -- --ignored --nocapture the_ancestors_page"]
+    fn the_ancestors_page() {
+        let mut world = world();
+        let Some(sp) = world.species.id_of("ancestor") else {
+            println!("no `ancestor` species loaded");
+            return;
+        };
+        println!("ancestor declares nest: {:?}", world.species.get(sp).creature.as_ref().map(|c| c.nest.clone()));
+        let id = animal(&mut world, "ancestor");
+        println!("== THE PAGE ==");
+        for p in describe(&world, id) {
+            println!("  {}", p.text);
+        }
+    }
+
+        /// A throwaway readout, run with `--nocapture`, that prints the ant's
     /// whole genome beside what the page says about it. Kept because the
     /// question *"is the summary accurate?"* is one a reader will ask again,
     /// and answering it from the source beats answering it from memory.

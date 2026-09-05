@@ -1143,6 +1143,20 @@ impl Lab {
         self.ui.observe(&self.world);
     }
 
+    /// **One tick, for a harness that needs to advance the world without the
+    /// speed dial in the way.**
+    ///
+    /// `tick` is private for a good reason -- how many run per displayed
+    /// frame is `time`'s decision and splitting that across two callers is
+    /// how a speed dial stops being honest. This is not that: it is for a
+    /// harness driving the box to a known state (a cull that has to rot
+    /// before the slot is released, say), where the dial is not under test
+    /// and `advance`'s wall-clock budget would make the tick count depend on
+    /// the machine.
+    pub fn tick_for_harness(&mut self) {
+        self.tick();
+    }
+
     /// Run whatever this displayed frame's share of simulated time is, and
     /// report what actually happened.
     ///

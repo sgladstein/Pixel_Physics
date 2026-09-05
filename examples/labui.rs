@@ -260,6 +260,81 @@ fn main() {
             ));
             tiles.push((format!("ROSTER: {verb} SORTED"), shot(&mut lab)));
         }
+
+        // **The graveyard.** Cull a few first, because an empty graveyard and
+        // a broken one draw the same tile -- the same reason every other
+        // block here prints a count beside its picture. Two clicks of the
+        // filter chip: ALL -> IN TROUBLE -> DEAD.
+        // Culled through the verb and then left to run, rather than freed
+        // directly: `World::free_organism` is crate-private, and going round
+        // it would be the harness testing a path the player has no way to
+        // take. A cull marks senescent; the corpse rots; the slot is released
+        // and the grave taken then. So the ticks are part of the mechanism,
+        // not a delay bolted on -- which is also `rot_remains`' whole point,
+        // that a death is graded rather than a disappearance.
+        let victims: Vec<_> = rows.iter().take(3).map(|r| r.who).collect();
+        for who in &victims {
+            lab.world.mark_organism_senescent(who.id);
+        }
+        // **6,000 from measurement**, not from eye:
+        // `roster::how_long_a_cull_takes` reports 3,403 ticks for animals and
+        // 3,632 for plants on this bed, so this is the larger with about 65%
+        // headroom. It is a bound, never a gate -- the count is printed
+        // beside the tile either way, so a sheet taken on a bed that rots
+        // slower says so instead of drawing an empty page and looking broken.
+        // **Wait for *these* individuals, not for a count.** The first
+        // version waited on `graveyard.len() >= victims.len()`, and by this
+        // point in the sheet the CULL verb tile has already killed four
+        // plants -- so the condition was satisfied before the loop began, it
+        // waited 0 ticks, and the ANIMALS tile rendered an empty graveyard
+        // holding somebody else's plants. `CLAUDE.md`'s *ask what your
+        // counter counts*: the number was right and about the wrong thing.
+        let arrived = |lab: &Lab, v: &[roster::Individual]| {
+            v.iter().all(|w| lab.world.graveyard.about(w.id, w.born_frame).is_some())
+        };
+        let mut waited = 0u32;
+        while waited < 6000 && !arrived(&lab, &victims) {
+            lab.tick_for_harness();
+            waited += 1;
+        }
+        fired.push(format!(
+            "LIST {verb} cull: marked {} senescent, all of them reached the graveyard: {} after {waited} ticks ({} graves in all)",
+            victims.len(),
+            arrived(&lab, &victims),
+            lab.world.graveyard.len()
+        ));
+        // Re-aimed for each click, same reason as the reset loop below.
+        for _ in 0..2 {
+            let step = centre(&lab, Action::RosterFilter);
+            click(&mut lab, step);
+            let _ = shot(&mut lab);
+        }
+        let dead = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter());
+        fired.push(format!(
+            "LIST {verb} graveyard: filter {:?}, culled {} and the page lists {} -- {}",
+            lab.ui.roster_filter(),
+            victims.len(),
+            dead.len(),
+            dead.iter().map(|r| format!("{} {}", r.who.id, r.state.label())).collect::<Vec<_>>().join(", ")
+        ));
+        tiles.push((format!("ROSTER: {verb} GRAVEYARD"), shot(&mut lab)));
+        // Back to the living, so the tiles after this are not all corpses.
+        //
+        // **Re-aimed every step and bounded**, because neither is optional
+        // here: `at` was computed against the ALL page's layout and the
+        // filter chip is not guaranteed to sit in the same place once the
+        // page under it changes, so a stale position clicks nothing, the
+        // filter never moves and the loop never ends. It did, for fifteen
+        // minutes, which reads exactly like a slow harness rather than a hung
+        // one. The bound is the cycle's own length with slack.
+        let mut steps = 0;
+        while lab.ui.roster_filter() != roster::Filter::All && steps < 8 {
+            let back = centre(&lab, Action::RosterFilter);
+            click(&mut lab, back);
+            let _ = shot(&mut lab);
+            steps += 1;
+        }
+        fired.push(format!("LIST {verb} filter reset to {:?} in {steps} clicks", lab.ui.roster_filter()));
     }
     // **A roster is left by its own BACK chip.** Unlike every other page
     // here, no widget on screen carries `Action::Panel(PlantList)` while the
