@@ -71,6 +71,76 @@
         traits: (1.0, 1.0, 0.0),
         trait_variance: (0.15, 0.15, 0.15),
 
+        // **A beetle can breed, and until 2026-09-05 it could not — the
+        // field was simply absent.** `#[serde(default)]` made it 0.0 and
+        // `creature::reproduce_at_of` is gated `> 0.0`, so `reproduce_at`
+        // returned `None` for every beetle in every bed at every energy.
+        // The owner found the consequence from play before anyone found the
+        // cause: *"when I add beetles, they usually kill all the ants or the
+        // ants have multiplied so much that a few beetles have no effect —
+        // beetles likely need to be able to breed to find an equilibrium
+        // with the ants if it is possible"*. Exactly right, and the reason
+        // the two outcomes were the only two available: a fixed stock of
+        // predators can overshoot or be swamped and can do nothing else. **A
+        // predator-prey cycle was not rare in this build, it was
+        // unreachable.**
+        //
+        // **Derived from this animal's own birth cost, on the ant's ratio,
+        // rather than picked.** `creature::birth_cost_of` is
+        // `grant + body_energy * body cells`:
+        //
+        //     grant   grant_fraction(traits.1 = 1.0) * start_energy
+        //             = 1.0 * 1600                              = 1600
+        //     stamp   body_energy * cells, and a `Rigid` body is
+        //             `cells.len() + 1` because (0,0) is implicit,
+        //             so 3 offsets is 4 cells: 200 * 4            =  800
+        //     birth_cost                                         = 2400
+        //
+        // The ant authors 1100 against a birth cost of 1040 — **6% of
+        // headroom over the floor** (`reproduce_at_of` floors the bar at
+        // `birth_cost + 1` whatever this says, so a threshold under 2401
+        // would be a beetle whose every birth kills its parent). The same
+        // 6% here is 2550.
+        //
+        // **What that costs a beetle, in ants:** it starts at 1600 and must
+        // reach 2550, so it needs roughly 950 net on top of what it burns.
+        // An ant stamps `body_energy * 2` and a beetle's `+1.0` gut reads
+        // `food_class: 1.0` flesh at quality 1.0 — the filter takes nothing
+        // — so that is on the order of two ants per child. A beetle that
+        // catches a couple of ants breeds; one that catches none does not.
+        //
+        // **This makes the cycle possible. It does not promise one, and
+        // measured, it has not yet produced one.** The verb fires: on one
+        // bed a beetle bred (6 -> 7) inside 40,000 frames, which is the
+        // first beetle birth this engine has ever produced. Whether it
+        // changes the *ecology* is **not established**, and two seeds is why
+        // — they disagree in direction:
+        //
+        //     seed 1, 40,000 frames   breeding: ants 15, beetles 5-7
+        //                              control: ants 53, beetles 1
+        //     seed 2, 32,000 frames   breeding: ants 34, beetles 2
+        //                              control: ants 21, beetles 3 -> 1
+        //
+        // Seed 1 reads exactly like the owner's complaint being fixed —
+        // *"the ants have multiplied so much that a few beetles have no
+        // effect"* is the control arm precisely, beetles decaying to 1 while
+        // the colony climbs back to 53, against a breeding arm that holds
+        // the colony at 15. **Seed 2 reverses it.** This bed's seed-alone
+        // spread is 2.4-3.1x (`labbatch`), so two runs are a lottery ticket
+        // and the honest reading is that the capability is verified and its
+        // consequence is unmeasured. It wants a seed sweep read at an order
+        // statistic, not another pair of runs.
+        //
+        // `reproduce_threshold: 0.0` restores the old exogenous beetle
+        // exactly, and `labstats -- beetlebreed=0` is that control without
+        // an edit.
+        reproduce_threshold: 2550.0,
+        // Matched to `ant.ron`'s rather than derived separately: nothing has
+        // measured what a beetle lineage should drift at, and two unexplained
+        // rates would be worse than one shared one. A number to re-derive
+        // when a beetle line is actually being bred, not before.
+        mutation_rate: 0.0058456,
+
         nest: "nest",
         dig_force: 0.3,
         // **The eye, and it is the whole of what this animal was missing.**

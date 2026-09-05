@@ -230,10 +230,32 @@ of an environment that cannot select for the behaviour it was built to
 produce: `burrow_probe` measures chamber shape beautifully and nothing in the
 world cares what shape it is.
 
-**Predator–prey cycles.** Blocked on a hard fact rather than an environment:
-`beetle.ron` has no `reproduce_threshold`, so a beetle can never bud. One
-authored field. Until then the predator is a fixed stock and there is no
-cycle to find.
+**Predator–prey cycles.** ~~Blocked on a hard fact rather than an
+environment.~~ **Unblocked 2026-09-05, and the result is a capability rather
+than a cycle.** `beetle.ron` had no `reproduce_threshold` at all, so
+`reproduce_at_of`'s `> 0.0` gate returned `None` and a beetle could never bud
+in any bed at any energy. It now authors **2550**, derived from its own birth
+cost the way the ant's was: `grant_fraction(1.0) * 1600 = 1600` plus a
+`200 * 4`-cell stamp is **2400**, and the ant's authored 1100 sits 6% over its
+own 1040 — the same 6% here.
+
+**The verb fires** — a beetle bred (6 → 7) inside 40,000 frames, the first
+beetle birth this engine has produced. **Whether it changes the ecology is
+not established**, and two seeds is why:
+
+| | breeding | control (`beetlebreed=0`) |
+|---|---|---|
+| seed 1, 40,000 frames | ants 15, beetles 5–7 | ants **53**, beetles **1** |
+| seed 2, 32,000 frames | ants 34, beetles 2 | ants 21, beetles 3 → 1 |
+
+Seed 1 reads exactly like the owner's complaint being fixed: the control arm
+*is* *"the ants have multiplied so much that a few beetles have no effect"*,
+beetles decaying to one while the colony climbs back to 53, against a
+breeding arm holding it at 15. **Seed 2 reverses it.** At this bed's 2.4–3.1x
+seed spread two runs are a lottery ticket, so the honest reading is:
+capability verified, consequence unmeasured. It wants a seed sweep read at an
+order statistic — which is now a one-command question rather than an
+impossible one.
 
 **Division of labour.** Needs two tasks with different optimal traits *and* a
 way for the payoff to reach kin. The engine has no food sharing between
