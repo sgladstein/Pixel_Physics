@@ -469,11 +469,18 @@ pre-change binary on `scene=fell`: every physics line identical.
 argument silently resolved to 8 and the one control that separates *the
 scene falling down on its own* from *the plants knocking it down* could not
 be run. It is `Option<usize>` now. That control is what root-caused
-`open-bugs-handoff.md` §W3 in a single run: over 24,000 frames a bare
+and then verified the fix for `open-bugs-handoff.md` §W3 in a single run each: over 24,000 frames a bare
 `scene=grove` reports zero `overloaded` and zero `unsupported` failures and
 `awake 0/40`, which proves the bed's 512-span stone slab is never evaluated
 rather than sound. Reach for it whenever a scene misbehaves only once
 something is living in it.
+
+**`PIXEL_PHYSICS_SCENE_FLOOR=void` is the paired arm for that fix**, and it
+exists because filling the void is *not* inert: six paired seeds put it at a
+median 1.002 with a 0.982-1.175 range, so it is unbiased but every arm has
+to come out of one binary. Any `PlantScene` number taken before 2026-09-05
+must be re-taken across this switch rather than compared to one taken after
+it.
 
 **`filmstrip channel=bend` draws the plant bending stress**, and its
 quantitative pair is the `bending stress over N cells` line in the felling
