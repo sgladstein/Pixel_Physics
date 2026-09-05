@@ -108,7 +108,8 @@ or it measures root mass and calls it uptake.
 | | second draft | now | why |
 |---|---|---|---|
 | **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
-| **2** | open the root-tip gate | **BUILT, default-off: key `break_root_tips` on local soil scarcity** | §2b-iii: roots 3.93x in 12/12 seeds, **income flat**, root:shoot 7.3% -> 23.3% |
+| **1=** | — | **shrink the water tank** — it is now a prerequisite, not a nicety | §2b-vi: with the gate on, roots inflate the tank and a droughted tree cannot die |
+| **2** | open the root-tip gate | **BUILT, default-off, blocked on the tank** | §2b-iii/vi: roots 3.93x in 12/12 seeds, income flat, +34% at 20 rows — and a droughted tree survives |
 | **3** | root turnover | **built, measured, does not do the job** | §2b-v: every rate is worse than none on the failing bed — a shed/rebuild treadmill, not a counterweight |
 | **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
 | **5** | immobile nutrient | unchanged, still second-order | §3 |
@@ -302,6 +303,53 @@ worst pairing available** — separately measured, the shallow bed is already
 the hostile one (income 1.588 against 4.785 deep, worst-plant water status
 0.063 against 0.723), and the gate makes it worse rather than more
 interesting. The lab's 96 rows are not the problem to solve first.
+
+### 2b-vi. The depth curve, and the regression that blocks shipping it
+
+**Where the gate's sign flips**, 12 paired seeds at each depth:
+
+| soil rows | income off -> on | seeds up | root cells | root zone recovers to |
+|---|---|---|---|---|
+| 6 | 1.588 -> 0.189 (**0.12x**) | 2/12 | 1.18x | 0.000 |
+| 12 | 3.758 -> 3.469 (0.92x) | 5/12 | 2.26x | 0.016 |
+| **20** | 4.168 -> **5.585 (1.34x)** | **10/12** | 3.46x | 0.280 |
+| 34 | 4.785 -> 4.765 (1.00x) | 7/12 | 3.93x | 0.570 |
+
+The last column orders it: the rule pays exactly where roots can reach soil
+no root has drunk. At 20 rows it is not merely free but **+34% income in 10
+of 12 seeds**. The one harmful bed is 6 rows, which is already marginal
+before any change and which neither game ships — `worldgen.ron` gives 48-135
+rows outdoors and the lab's `DEFAULT_SOIL_DEPTH` is 96.
+
+**This also corrects §2b-iv's advice about the lab bed.** That section said
+shallowing the bed and enabling the gate were the worst available pairing;
+that was drawn from `soil=6` alone and is wrong. Shallowing toward **~20**
+is the *best* pairing. Only going below about 10 is bad.
+
+**On that evidence the default was flipped, and the flip was reverted the
+same hour, because a guard caught a real regression.** With the gate on,
+`a_tree_denied_water_dies_and_a_watered_one_does_not` fails: a tree denied
+water for twenty thousand frames survives at **221 cells with zero
+consecutive starving ticks** — comfortable, not marginal. That test asserts
+the owner's 2026-08-24 ruling, so it is not a number the improved behaviour
+gets to move.
+
+**The loop, and it is this rule meeting an older defect rather than a fault
+of its own.** `water_capacity_of` is `WATER_SCALE x contact_root_cells`, so
+roots buy *storage*. Open the gate and a thirsty plant answers by rooting —
+measured, contact roots 175 -> 576, a **3.29x tank** — and `water_status` is
+`min(stock/demand, openness)` against that inflated tank, so it **rises**:
+measured, the worst plant in each bed went **0.723 -> 1.000**. Income
+carries `water_status` as a multiplier, so income stays above the starvation
+line and nothing fires. **A droughted plant roots its way to a bigger bucket
+and reads as well-watered.**
+
+**So the prerequisite is the one this line has deferred three times**:
+capacity must stop scaling without bound with contact roots
+(`plant-roots-and-transport-2026-09-05.md` §7b, and §3a's arithmetic that
+the tank covers the bill at ~7 contact cells while trees grow 250-320).
+Until then the gate is *correct and unshippable*, and that is a statement
+about the tank rather than about the gate.
 
 ### 2b-v. Turnover was built and does NOT fix it — a null, and the reason is instructive
 

@@ -7406,12 +7406,56 @@ fn note_root_tip_exit(_which: usize) {}
 /// its demand fully met spends on canopy instead — that, with
 /// `ROOT_BIAS_AT_FULL_WATER`, is the whole of functional balance.
 /// Whether `break_root_tips` reads the **local** root-zone water rather than
-/// the whole-plant tank — `PIXEL_PHYSICS_ROOT_GATE=local`.
+/// the whole-plant tank — `PIXEL_PHYSICS_ROOT_GATE=local`. **Default off,
+/// and the reason it is off is a measured regression, not caution: see
+/// below.**
 ///
-/// A `OnceLock` in the shape of `BEND=off` / `BREAK=off` / the
-/// `PIXEL_PHYSICS_SOIL_UPTAKE` arm beside them: a measurement instrument, so
-/// one process is one arm. Default is the shipped behaviour exactly, and the
-/// read is one relaxed atomic load per organism per tick.
+/// The evidence *for* it is a depth sweep, 12 paired seeds at each of four
+/// bed depths:
+///
+/// | soil rows | income off -> on | seeds up | root cells |
+/// |---|---|---|---|
+/// | 6 | 1.588 -> 0.189 (**0.12x**) | 2/12 | 1.18x |
+/// | 12 | 3.758 -> 3.469 (0.92x) | 5/12 | 2.26x |
+/// | 20 | 4.168 -> **5.585 (1.34x)** | **10/12** | 3.46x |
+/// | 34 | 4.785 -> 4.765 (1.00x) | 7/12 | 3.93x |
+///
+/// The root-zone column is what orders that: the rule only pays where the
+/// roots can actually reach soil no root has drunk, and the recovery it
+/// achieves runs 0.000 / 0.016 / 0.280 / 0.570 across those depths. At six
+/// rows there is no "elsewhere" and the rule is pure cost — but that bed is
+/// already marginal before any change (income 1.588 against 4.785, worst
+/// plant at water status 0.063), and both shipped worlds are far deeper:
+/// `assets/worldgen.ron` gives 48-135 rows outdoors and `lab::scene`'s
+/// `DEFAULT_SOIL_DEPTH` is 96.
+///
+/// What it buys where it ships: **root:shoot 7.3% -> 23.3%**, against a real
+/// tree's 20-25%, for no measurable income.
+///
+/// **Why it is nevertheless off: switched on, a tree denied water for
+/// twenty thousand frames does not die.** It ends at 221 cells with **zero**
+/// consecutive starving ticks — not marginal, comfortable — and
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` fails. That test
+/// asserts the owner's 2026-08-24 ruling (*"if a tree doesn't get watered,
+/// it will eventually die"*), so this is a regression rather than a number
+/// that moved, and it is not the test's to absorb.
+///
+/// **The loop, which is this rule meeting an older defect rather than a
+/// fault of its own.** `water_capacity_of` is `WATER_SCALE x
+/// contact_root_cells`, so roots buy *storage*. Open the gate and a thirsty
+/// plant answers by rooting — measured, contact roots 175 -> 576, a 3.29x
+/// tank — and `water_status` is `min(stock/demand, openness)` against that
+/// inflated tank, so it **rises**: measured, the worst plant in each bed
+/// went 0.723 -> 1.000. Income carries `water_status` as a multiplier, so
+/// income stays above the starvation line and nothing ever fires. **A
+/// droughted plant roots its way to a bigger bucket and reads as
+/// well-watered.**
+///
+/// So the prerequisite is the one the diagnosis report listed and this plan
+/// kept deferring: **capacity must stop scaling without bound with contact
+/// roots** (`plant-roots-and-transport-2026-09-05.md` §7b). Until then the
+/// gate is correct and unshippable, which is a statement about the tank and
+/// not about the gate.
 fn root_gate_is_local() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
