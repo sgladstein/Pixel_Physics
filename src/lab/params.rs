@@ -66,6 +66,17 @@ pub enum Group {
     Ants,
     /// The bed itself, and the lamps over it.
     Box,
+    /// **Everything an ant pays for** — its own page for the reason
+    /// `Heredity` has one: the ants page was mixing *what an animal is* with
+    /// *what it costs to be one*, and those are two different questions.
+    ///
+    /// **And this list only grows.** Owner's ruling, 2026-09-05:
+    /// *everything should be priced*. Every capability an animal has is
+    /// getting a price, so the page that holds them was always going to
+    /// outgrow a shared tab — it went over `no_page_is_longer_than_two_
+    /// screens`' ceiling the moment the jaw was priced, which is that
+    /// guard working rather than being in the way.
+    Costs,
     /// **How heredity itself works** — global to the world rather than to any
     /// one species, and its own page because there are now six of them and
     /// the plant page was mixing *this species' numbers* with *how breeding
@@ -76,7 +87,7 @@ pub enum Group {
 
 /// In tab order. One list, so the tab strip, the key and the tests cannot
 /// disagree about what pages exist — `ui::TOOLS`' reason.
-pub const GROUPS: [Group; 5] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Box];
+pub const GROUPS: [Group; 6] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Costs, Group::Box];
 
 impl Group {
     pub fn label(self) -> &'static str {
@@ -84,6 +95,7 @@ impl Group {
             Group::Ground => "GROUND",
             Group::Plant => "PLANT",
             Group::Ants => "ANTS",
+            Group::Costs => "COSTS",
             Group::Box => "BOX",
             Group::Heredity => "HEREDITY",
         }
@@ -95,6 +107,7 @@ impl Group {
             Group::Ground => "WHAT THE BED IS MADE OF. SOIL IS WHAT ROOTS GO INTO AND ANTS DIG THROUGH; PACKED SOIL IS WHAT AN ANT LEAVES BEHIND WHEN IT DIGS, AND IT IS THE ONLY REASON A TUNNEL STAYS OPEN. CHANGES HERE ARE FELT ON THE NEXT TICK.",
             Group::Plant => "THE PLANT THE SPECIES CHIP ON THE BAR HAS ARMED. THESE ARE THE SPECIES' OWN NUMBERS, NOT ONE INDIVIDUAL'S -- MOVING ONE CHANGES EVERY PLANT OF THAT SPECIES ALREADY STANDING, ON THE NEXT TICK, AS WELL AS EVERY SEED YOU PLANT AFTERWARDS.",
             Group::Ants => "THE COLONY SPECIES. SAME RULE AS THE PLANT PAGE: THESE ARE THE SPECIES' NUMBERS AND THEY REACH EVERY ANT ALIVE. AN INDIVIDUAL'S OWN INHERITED TRAITS ARE ON THE CELL PAGE -- CLICK AN ANT WITH THE LOOK TOOL.",
+            Group::Costs => "EVERYTHING AN ANT PAYS FOR, IN ONE PLACE. AN ANIMAL DIES OF EXACTLY TWO THINGS IN THIS WORLD -- RUNNING OUT OF ENERGY, OR BEING EATEN -- SO THIS PAGE IS ONE OF THE TWO WAYS ANYTHING HERE CAN EVER MATTER. A CAPABILITY THAT COSTS NOTHING CANNOT BE SELECTED AGAINST, WHICH IS WHY EVERY ONE OF THEM NOW HAS A LINE HERE: TURN ONE TO ZERO AND THAT PART OF AN ANT BECOMES FREE, AND THE COLONY WILL TAKE AS MUCH OF IT AS IT CAN GET.",
             Group::Box => "THE BED AND THE LAMPS OVER IT. THE LAMP IS LIVE. EVERYTHING ELSE HERE IS THE SPEC THE BOX IS BUILT FROM, SO IT TAKES EFFECT WHEN YOU REBUILD -- CHANGE IT, THEN PRESS REBUILD.",
             Group::Heredity => "HOW BREEDING BEHAVES, FOR EVERY PLANT IN THE BOX AT ONCE -- NOT ONE SPECIES' NUMBERS. THIS IS THE PAGE THE LAB IS ACTUALLY FOR. EVERYTHING HERE IS FELT AT THE NEXT SEED RATHER THAN THE NEXT TICK, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING, AND NONE OF IT IS SAVED TO A SPECIES FILE -- IT LASTS THE SESSION.",
         }
@@ -356,6 +369,7 @@ pub fn registry(world: &World, spec: &LabBox, plant: Option<SpeciesId>) -> Vec<P
         plant_rows(world, &name, &mut out);
     }
     ant_rows(world, &mut out);
+    cost_rows(world, &mut out);
     box_rows(world, spec, &mut out);
     out
 }
@@ -631,6 +645,8 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "synapse_fraction" => def.synapse_fraction,
+        "sight_fraction" => def.sight_fraction,
         "force_fraction" => def.force_fraction,
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
@@ -667,22 +683,6 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "HOW MUCH A NEWBORN'S BRAIN DIFFERS FROM ITS PARENT'S. ZERO IS CLONING AND EVOLUTION CANNOT HAPPEN; HIGH IS A COLONY THAT NEVER KEEPS WHAT WORKED.");
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
-    cr("idle_cost_per_cell", span(0.0, 2.0, 0.01), false,
-        "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
-    cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
-        "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
-    cr("dig_cost_in_moves", span(0.0, 40.0, 0.5), false,
-        "WHAT DIGGING ONE CELL COSTS, COUNTED IN STEPS -- AT 3 IT COSTS AN ANT THE SAME AS WALKING THREE CELLS. IT SHIPS AT ZERO, WHICH MEANS EXCAVATION IS FREE AND THE COLONY WILL DIG WHATEVER IT DIGS WITHOUT EVER PAYING FOR IT. THAT IS WHY A BED WITH ANTS IN IT ENDS UP AS ONE ENORMOUS HOLE: THE ANTS ARE BORN WANTING TO DIG AND NOTHING IN THE WORLD CAN TALK THEM OUT OF IT. TURN IT UP AND DIGGING BECOMES A CHOICE THEY CAN GET WRONG.");
-    cr("emit_cost_in_moves", span(0.0, 40.0, 0.5), false,
-        "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
-    cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
-        "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
-    cr("force_fraction", span(0.0, 0.0002, 0.000005), false,
-        "WHAT AN ANT'S JAW COSTS TO CARRY, PER UNIT OF DIGGING FORCE, PER TURN. IT IS CHARGED WHETHER OR NOT THE ANT DIGS -- YOU FEED THE MUSCLE EITHER WAY -- WHICH IS WHAT GIVES A LINEAGE THAT NEVER DIGS A REASON TO PUT THE JAW DOWN. DIGGING FORCE IS A THRESHOLD: BELOW A MATERIAL'S HARDNESS YOU CANNOT CUT IT AT ALL, SO WHAT THIS PRICES IS WHICH PARTS OF THE WORLD AN ANIMAL CAN EAT AND TUNNEL THROUGH. IT IS ALSO WHY BEETLES CANNOT BURROW: THEIRS IS SET BELOW SOIL.");
-    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
-        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
-    cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
-        "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
 
     if let Some(id) = world.species.id_of(species) {
         if let Some(def) = world.species.get(id).creature.as_ref() {
@@ -717,6 +717,52 @@ const TRAIT_ROWS: &[(usize, &str, &str)] = &[
     (organism::TRAIT_PACE, "pace",
         "HOW FAST THIS LINEAGE LIVES: +1 IS AN ANT THAT TAKES ITS TURN TWICE AS OFTEN AND -1 ONE THAT TAKES IT HALF AS OFTEN. IT MOVES THE TICK INTERVAL ROW ABOVE, AND IT IS THE ONE ROW ON THIS PAGE YOU CAN WATCH WITHOUT AN OVERLAY -- A QUICK ANT SCURRIES AND A SLOW ONE PLODS. IT IS NOT A FREE SPEED-UP: EVERY COST AN ANT PAYS IS CHARGED ONCE PER TURN, SO LIVING TWICE AS FAST BURNS TWICE AS FAST."),
 ];
+
+/// **Everything an ant pays for.** Split off `ant_rows` when the jaw price
+/// took the ants page over `no_page_is_longer_than_two_screens`' ceiling --
+/// the same split, for the same reason, that gave `Heredity` its own page.
+///
+/// **`synapse_fraction` and `sight_fraction` are here for the first time.**
+/// Neither had ever been registered anywhere, so two of the prices an ant
+/// pays were unreachable and unviewable from the lab -- the identical defect
+/// that had left two of the four trait slots off the ants page, found by
+/// listing the prices in one place and noticing the list was short. That is
+/// the argument for a page per question rather than per struct: a gap in a
+/// mixed page looks like a page that happens to be long.
+fn cost_rows(world: &World, out: &mut Vec<Param>) {
+    let g = Group::Costs;
+    let species = COLONY_SPECIES;
+    let sp = species.to_string();
+    let mut cr = |field: &'static str, s: Span, integral, note: &str| {
+        let Some(value) = creature_value(world, species, field) else { return };
+        let knob = Knob::Creature { species: sp.clone(), field };
+        out.push(if integral {
+            integer(g, knob, species, field, value, s, note)
+        } else {
+            float(g, knob, species, field, value, s, note)
+        });
+    };
+    cr("idle_cost_per_cell", span(0.0, 2.0, 0.01), false,
+        "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
+    cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
+        "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
+    cr("dig_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT DIGGING ONE CELL COSTS, COUNTED IN STEPS -- AT 3 IT COSTS AN ANT THE SAME AS WALKING THREE CELLS. IT SHIPS AT ZERO, WHICH MEANS EXCAVATION IS FREE AND THE COLONY WILL DIG WHATEVER IT DIGS WITHOUT EVER PAYING FOR IT. THAT IS WHY A BED WITH ANTS IN IT ENDS UP AS ONE ENORMOUS HOLE: THE ANTS ARE BORN WANTING TO DIG AND NOTHING IN THE WORLD CAN TALK THEM OUT OF IT. TURN IT UP AND DIGGING BECOMES A CHOICE THEY CAN GET WRONG.");
+    cr("emit_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
+    cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
+        "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
+    cr("force_fraction", span(0.0, 0.0002, 0.000005), false,
+        "WHAT AN ANT'S JAW COSTS TO CARRY, PER UNIT OF DIGGING FORCE, PER TURN. IT IS CHARGED WHETHER OR NOT THE ANT DIGS -- YOU FEED THE MUSCLE EITHER WAY -- WHICH IS WHAT GIVES A LINEAGE THAT NEVER DIGS A REASON TO PUT THE JAW DOWN. DIGGING FORCE IS A THRESHOLD: BELOW A MATERIAL'S HARDNESS YOU CANNOT CUT IT AT ALL, SO WHAT THIS PRICES IS WHICH PARTS OF THE WORLD AN ANIMAL CAN EAT AND TUNNEL THROUGH. IT IS ALSO WHY BEETLES CANNOT BURROW: THEIRS IS SET BELOW SOIL.");
+    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
+        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
+    cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
+        "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
+    cr("synapse_fraction", span(0.0, 0.00002, 0.0000002), false,
+        "WHAT ONE LIVE CONNECTION IN AN ANT'S BRAIN COSTS PER TURN, AS A SHARE OF ITS WHOLE BUDGET. THINKING IS EXPENSIVE TISSUE IN REAL ANIMALS AND IT IS HERE TOO: A CONNECTION THAT DOES NOT EARN ITS KEEP GETS PRUNED BY SELECTION, WHICH IS BOTH WHY EVOLVED BRAINS STAY SMALL ENOUGH TO READ AND A REAL TRADE AN ANT CAN GET WRONG. AT ZERO, BRAINS GROW DENSE AND MEAN NOTHING.");
+    cr("sight_fraction", span(0.0, 0.0000005, 0.000000005), false,
+        "WHAT LOOKING COSTS, PER CELL AN ANIMAL'S EYE ACTUALLY READS, PER TURN. CHARGED ON CELLS READ RATHER THAN ON RANGE, SO A RAY THAT STOPS AT A WALL COSTS ONLY WHAT IT CROSSED -- AN ANIMAL IN A TUNNEL PAYS LESS TO LOOK THAN ONE SWEEPING OPEN GROUND, WHICH MEANS SHELTER PAYS FOR ITSELF TWICE. NOBODY WROTE THAT RULE; IT FALLS OUT OF CHARGING FOR THE WORK HONESTLY. THE SHIPPED ANT IS BORN BLIND, SO IT PAYS THIS ONLY ONCE A LINEAGE HAS GROWN EYES.");
+}
 
 fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     let g = Group::Box;
@@ -912,6 +958,8 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "synapse_fraction" => def.synapse_fraction = value,
+                "sight_fraction" => def.sight_fraction = value,
                 "force_fraction" => def.force_fraction = value,
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
@@ -1828,6 +1876,51 @@ mod tests {
 
     /// A tuple or a list must not be mistaken for a number, or the span edit
     /// replaces up to the first comma and leaves `, -0.2)` dangling.
+    /// **Every price an ant pays has a row on the costs page.**
+    ///
+    /// The sibling of `every_trait_slot_has_a_row`, and it exists because the
+    /// same defect has now happened twice for the same reason: rows are
+    /// registered one call at a time, so a field that lands without one is
+    /// invisible and nothing says so. `reproduce_at` and `sight_range` were
+    /// the trait half; `synapse_fraction` and `sight_fraction` were the price
+    /// half, both unregistered since the day they were authored.
+    ///
+    /// **The list is the mechanism, and a new price goes in it.** Rust cannot
+    /// enumerate a struct's fields at runtime, so this cannot derive itself
+    /// from `CreatureDef` — but naming them here makes the omission a failing
+    /// test rather than a thing somebody notices a month later. Owner's
+    /// ruling, 2026-09-05: *everything should be priced*; this is what stops
+    /// "priced" from meaning "priced and unreachable".
+    #[test]
+    fn every_price_an_ant_pays_has_a_row() {
+        const PRICES: &[&str] = &[
+            "idle_cost_per_cell",
+            "move_cost_per_cell",
+            "dig_cost_in_moves",
+            "emit_cost_in_moves",
+            "spoil_weight_cells",
+            "exposure_cost_per_cell",
+            "synapse_fraction",
+            "sight_fraction",
+            "curvature_fraction",
+            "force_fraction",
+        ];
+        let (world, spec) = bed();
+        let costs: Vec<String> = registry(&world, &spec, None)
+            .iter()
+            .filter(|p| p.group == Group::Costs)
+            .map(|p| p.tunable.name.to_string())
+            .collect();
+        for price in PRICES {
+            assert!(
+                costs.iter().any(|c| c == price),
+                "{price} is a price an ant pays and has no row on the costs page, so it can be neither seen nor set -- \
+                 which is how synapse_fraction and sight_fraction stayed unreachable from the day they were authored"
+            );
+        }
+        assert_eq!(costs.len(), PRICES.len(), "the costs page has a row this list does not name: {costs:?}");
+    }
+
     /// **Every heritable trait slot is reachable from this page.**
     ///
     /// The guard for the failure that prompted `TRAIT_ROWS`: `reproduce_at`
