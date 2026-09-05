@@ -721,6 +721,108 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "THE NUMBER THIS BOX IS BUILT FROM. THE SAME SEED AND THE SAME BUILD REBUILD THE SAME BOX EXACTLY, WHICH IS WHAT LETS YOU CHANGE ONE PARAMETER AND COMPARE TWO RUNS RATHER THAN TWO WORLDS. TAKES EFFECT ON REBUILD.");
 }
 
+/// **The world-level dials the parameters page exposes that are not a
+/// material or species field** — the three [`Knob::Rule`] switches and the
+/// five [`Knob::Heredity`] numbers, all plain fields on [`World`] with no
+/// asset file of their own. Everything else the page can save round-trips
+/// through `assets/materials` or `assets/species`; these had no file at all
+/// until this type, which was the larger half of "There is no save"
+/// (`Reports/lanes/evolution-lab-coordinator.md`, round three).
+///
+/// [`Self::from_world`] and [`Self::apply_to`] are the only place that knows
+/// this field list, mirroring [`write`]'s own `Knob::Rule` and
+/// `Knob::Heredity` arms deliberately — a dial added to the panel and not to
+/// both is a reader with no writer on restart, which looks exactly like a
+/// working save until the process restarts.
+#[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
+pub struct Dials {
+    pub plant_load_failure: bool,
+    pub plant_bending: bool,
+    pub plant_size_cadence: bool,
+    pub mutation_sigma: f32,
+    pub fate_mutation_chance: f32,
+    pub param_mutation_chance: f32,
+    pub param_mutation_sigma: f32,
+    /// Same encoding [`write`]'s `Knob::Heredity { field: "developmental_key" }`
+    /// arm uses: `0` is [`organism::DevelopmentalKey::World`], `n > 0` is
+    /// `DevelopmentalKey::Plant { coarseness: n - 1 }`.
+    pub developmental_key: u32,
+}
+
+impl Dials {
+    /// Gitignored, like the specimen shelf (`sim::specimen::SHELF_DIR`) and
+    /// `LabBox::ASSET_PATH` beside it — this is which dials a player left a
+    /// running box at, not authored content shared by both games.
+    pub const ASSET_PATH: &'static str = "assets/lab_dials.ron";
+    /// Environment override for [`ASSET_PATH`](Self::ASSET_PATH).
+    pub const ASSET_PATH_ENV: &'static str = "PIXEL_PHYSICS_LAB_DIALS";
+
+    fn state_path() -> std::path::PathBuf {
+        std::env::var(Self::ASSET_PATH_ENV).map(std::path::PathBuf::from).unwrap_or_else(|_| Self::ASSET_PATH.into())
+    }
+
+    /// Read the current value of every dial off a live `World`.
+    pub fn from_world(world: &World) -> Self {
+        Self {
+            plant_load_failure: world.plant_load_failure,
+            plant_bending: world.plant_bending,
+            plant_size_cadence: world.plant_size_cadence,
+            mutation_sigma: world.mutation_sigma,
+            fate_mutation_chance: world.fate_mutation_chance,
+            param_mutation_chance: world.param_mutation_chance,
+            param_mutation_sigma: world.param_mutation_sigma,
+            developmental_key: match world.developmental_key {
+                organism::DevelopmentalKey::World => 0,
+                organism::DevelopmentalKey::Plant { coarseness } => coarseness + 1,
+            },
+        }
+    }
+
+    /// The saved dials, if the parameters page has ever saved any and the
+    /// file still parses. `None` — absent or stale alike — means the caller
+    /// keeps whatever `World::default()` already set, exactly as before this
+    /// file existed.
+    pub fn load_saved() -> Option<Self> {
+        let text = std::fs::read_to_string(Self::state_path()).ok()?;
+        ron::from_str(&text).ok()
+    }
+
+    /// Restore every dial onto a live `World` — the inverse of
+    /// [`Self::from_world`], and the same field-by-field assignment
+    /// [`write`]'s `Knob::Rule`/`Knob::Heredity` arms make, so a restored
+    /// session cannot mean something a live edit could not also reach.
+    pub fn apply_to(&self, world: &mut World) {
+        world.plant_load_failure = self.plant_load_failure;
+        world.plant_bending = self.plant_bending;
+        world.plant_size_cadence = self.plant_size_cadence;
+        world.mutation_sigma = self.mutation_sigma;
+        world.fate_mutation_chance = self.fate_mutation_chance;
+        world.param_mutation_chance = self.param_mutation_chance;
+        world.param_mutation_sigma = self.param_mutation_sigma;
+        world.developmental_key = if self.developmental_key == 0 {
+            organism::DevelopmentalKey::World
+        } else {
+            organism::DevelopmentalKey::Plant { coarseness: self.developmental_key - 1 }
+        };
+        // Every plant already standing has to be re-folded under the
+        // restored key, or the box runs two rules at once -- see
+        // `Knob::Heredity`'s own write arm, which this mirrors exactly.
+        world.refold_developmental_seeds();
+    }
+
+    /// Write every dial to [`ASSET_PATH`](Self::ASSET_PATH) whole, like
+    /// `player::Tuning::save` — a generated file with no comments to lose.
+    pub fn save(&self) -> Result<(), String> {
+        let path = Self::state_path();
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        let pretty = ron::ser::PrettyConfig::new().struct_names(false);
+        let text = ron::ser::to_string_pretty(self, pretty).map_err(|e| e.to_string())?;
+        std::fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+}
+
 /// **Write `value` back to wherever the parameter lives.**
 ///
 /// Every path here is a live store the tick reads through, so a change is felt
@@ -985,18 +1087,37 @@ pub fn needs_rebuild(knob: &Knob) -> bool {
 ///   like ordinary fields to a span edit, which would replace up to the first
 ///   comma and leave a dangling `, -0.2)` behind.
 ///
-/// [`Knob::Bed`] has no asset file at all — it is the running spec — and says
-/// so rather than reporting a save that did not happen, which is
-/// `App::save_tunable`'s rule for the weather pin.
-pub fn save(param: &Param) -> Result<String, String> {
-    let (path, updated) = planned_edit(param)?;
-    std::fs::write(&path, updated).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(format!(
-        "SAVED {} {} = {}",
-        path.file_name().map_or_else(|| "?".into(), |f| f.to_string_lossy().to_uppercase()),
-        param.tunable.name.to_uppercase(),
-        param.tunable.display()
-    ))
+/// [`Knob::Bed`], [`Knob::Rule`] and [`Knob::Heredity`] have no *per-field*
+/// asset file — they live on [`LabBox`]/[`World`] alone — so all three save
+/// differently from every other row here: not a span edit of the one field
+/// that changed, but the whole of [`LabBox`] or [`Dials`] as it currently
+/// stands, via [`LabBox::save`] or [`Dials::save`]. That is deliberate
+/// rather than a shortcut — a partial save of "just this field" would still
+/// need the rest of the spec/dials to write a valid file, and reading them
+/// back off the live `world`/`spec` in hand is simpler than reconstructing
+/// them from a lone `Param`. Every other row still saves *itself*, unchanged
+/// from before these three could be saved at all.
+pub fn save(param: &Param, world: &World, spec: &LabBox) -> Result<String, String> {
+    match &param.knob {
+        Knob::Bed { .. } => {
+            spec.save()?;
+            Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
+        }
+        Knob::Rule { .. } | Knob::Heredity { .. } => {
+            Dials::from_world(world).save()?;
+            Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
+        }
+        _ => {
+            let (path, updated) = planned_edit(param)?;
+            std::fs::write(&path, updated).map_err(|e| format!("{}: {e}", path.display()))?;
+            Ok(format!(
+                "SAVED {} {} = {}",
+                path.file_name().map_or_else(|| "?".into(), |f| f.to_string_lossy().to_uppercase()),
+                param.tunable.name.to_uppercase(),
+                param.tunable.display()
+            ))
+        }
+    }
 }
 
 /// **What [`save`] would do, without doing it** — the same checks, the same
@@ -1005,27 +1126,35 @@ pub fn save(param: &Param) -> Result<String, String> {
 /// Exists so a harness can report whether every registered row is savable
 /// without editing the repository's own asset files, which is a check nobody
 /// could run twice. It is the *same code path* rather than a second claim
-/// about it: [`save`] is this plus one `fs::write`.
+/// about it, for the text-edited rows: [`save`] is this plus one
+/// `fs::write`. [`Knob::Bed`], [`Knob::Rule`] and [`Knob::Heredity`] are
+/// reported directly instead — a whole-struct save has nothing a dry run
+/// could parse-and-discard the way a span edit does, so there is no shared
+/// path to reuse for them.
 pub fn save_check(param: &Param) -> String {
-    match planned_edit(param) {
-        Ok((path, _)) => format!("would write {}", path.display()),
-        Err(e) => e,
+    match &param.knob {
+        Knob::Bed { .. } => format!("would write {}", LabBox::ASSET_PATH),
+        Knob::Rule { .. } | Knob::Heredity { .. } => format!("would write {}", Dials::ASSET_PATH),
+        _ => match planned_edit(param) {
+            Ok((path, _)) => format!("would write {}", path.display()),
+            Err(e) => e,
+        },
     }
 }
 
 /// The file this parameter would be written to, and the whole new text of it.
+///
+/// **Text-edited rows only.** [`Knob::Bed`], [`Knob::Rule`] and
+/// [`Knob::Heredity`] never reach this function — [`save`] and
+/// [`save_check`] both branch on those three before calling it — so the
+/// three arms below exist only to keep the match exhaustive, and say where
+/// the real path is rather than repeat one of the two callers' branches.
 fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
     let (dir, file) = match &param.knob {
         Knob::ReadOnly => return Err("this row cannot be changed, so there is nothing to save".into()),
-        Knob::Bed { .. } => {
-            return Err("the bed's spec is session-only -- it has no file. rebuild to apply it".into())
-        }
-        Knob::Rule { .. } => {
-            return Err("this is a rule of the running box, not a number in a file -- it lasts the session".into())
-        }
-        Knob::Heredity { .. } => {
-            return Err("heredity is one number for every plant, not a species field -- it lasts the session".into())
-        }
+        Knob::Bed { .. } => return Err("unreachable via save/save_check -- see LabBox::save".into()),
+        Knob::Rule { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
+        Knob::Heredity { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }
         | Knob::CreatureTrait { species, .. }
@@ -1283,6 +1412,86 @@ mod tests {
     fn bed() -> (World, LabBox) {
         let spec = LabBox::default();
         (spec.build(), spec)
+    }
+
+    /// A private state file for the whole test, same reasoning as
+    /// `lab::tests`' `SHELF_LOCK`: [`Dials::ASSET_PATH_ENV`] and
+    /// [`LabBox::ASSET_PATH_ENV`] both resolve through process-global state,
+    /// and `cargo test` runs a binary's tests in parallel by default.
+    static STATE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// A scratch path under this process's own tempdir — pid-tagged because
+    /// `/tmp` is shared between agents in this project's containers
+    /// (`Reports/lanes/evolution-lab-coordinator.md`).
+    fn scratch_path(tag: &str) -> std::path::PathBuf {
+        std::env::temp_dir().join(format!("pixel_physics_lab_{tag}_{}.ron", std::process::id()))
+    }
+
+    #[test]
+    fn a_saved_dials_round_trips_and_a_missing_file_reports_none() {
+        let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let path = scratch_path("dials_roundtrip");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var(Dials::ASSET_PATH_ENV, &path);
+
+        assert!(Dials::load_saved().is_none(), "nothing saved yet");
+
+        let (mut world, _) = bed();
+        world.plant_load_failure = false;
+        world.mutation_sigma = 0.25;
+        world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
+        Dials::from_world(&world).save().expect("save");
+
+        let loaded = Dials::load_saved().expect("a just-saved file parses back");
+        assert!(!loaded.plant_load_failure);
+        assert_eq!(loaded.mutation_sigma, 0.25);
+        // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
+        assert_eq!(loaded.developmental_key, 4);
+
+        let mut fresh = bed().0;
+        loaded.apply_to(&mut fresh);
+        assert!(!fresh.plant_load_failure);
+        assert_eq!(fresh.mutation_sigma, 0.25);
+        assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
+
+        let _ = std::fs::remove_file(&path);
+        std::env::remove_var(Dials::ASSET_PATH_ENV);
+    }
+
+    /// **`save` used to refuse every `Bed`/`Rule`/`Heredity` row outright** —
+    /// "session-only ... it lasts the session" — which was the larger half
+    /// of "There is no save"
+    /// (`Reports/lanes/evolution-lab-coordinator.md`, round three). Put the
+    /// fault back (route these three through `planned_edit` again, as
+    /// `save` used to) and this goes red: `CLAUDE.md`'s guard rule, applied
+    /// to a green whose meaning just changed.
+    #[test]
+    fn save_now_persists_bed_and_rule_rows_instead_of_refusing_them() {
+        let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let bed_path = scratch_path("bed_save");
+        let dials_path = scratch_path("dials_save");
+        let _ = std::fs::remove_file(&bed_path);
+        let _ = std::fs::remove_file(&dials_path);
+        std::env::set_var(LabBox::ASSET_PATH_ENV, &bed_path);
+        std::env::set_var(Dials::ASSET_PATH_ENV, &dials_path);
+
+        let (world, spec) = bed();
+        let all = registry(&world, &spec, None);
+        let width = all.iter().find(|p| matches!(p.knob, Knob::Bed { field: "width" })).expect("width is registered");
+        let rule = all
+            .iter()
+            .find(|p| matches!(p.knob, Knob::Rule { field: "plant_load_failure" }))
+            .expect("plant_load_failure is registered");
+
+        assert!(save(width, &world, &spec).is_ok(), "a Bed row should now save");
+        assert!(bed_path.exists(), "LabBox::save wrote a file");
+        assert!(save(rule, &world, &spec).is_ok(), "a Rule row should now save");
+        assert!(dials_path.exists(), "Dials::save wrote a file");
+
+        let _ = std::fs::remove_file(&bed_path);
+        let _ = std::fs::remove_file(&dials_path);
+        std::env::remove_var(LabBox::ASSET_PATH_ENV);
+        std::env::remove_var(Dials::ASSET_PATH_ENV);
     }
 
     /// **The economy rows carry live numbers, not zeroes** — the guard for
