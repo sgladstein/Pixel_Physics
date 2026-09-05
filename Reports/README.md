@@ -2031,7 +2031,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   sweep's random draws are consumed per *visited* cell, not per cell that
   acts**, so *any* narrowing of the swept region is a behaviour change however
   provably correct it is — which is why per-row dirty spans measure a real
-  1.19x and still ship off by default, and why the unlock is a positional RNG
+  1.19x and still ship off by default, and why the unlock looked like a positional RNG
   rather than a better region. **§8 is the fix, built 2026-09-02**: moisture on
   its own dirty channel and its own pass, **tick 6.42 -> 3.81 ms and the dial
   2.6x -> 4.4x with a 9.5% larger stand**, plus two findings the build produced
@@ -2095,7 +2095,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   utilisation observed. Also records that the **draw is not the limiter**
   (2.59 ms/frame at 512x320, worth 16% of the dial) and that `FIELD_PASS` had
   the same one-frame sampling defect as `ORGANISM_PASS` -- **three instruments
-  in one session**.
+  in one session**. **§5 is superseded on both its conclusions** by
+  [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md):
+  the positional draw it names as the unlock costs +0.149 ms/tick, about the
+  whole of what the spans save, and the premise it argues from is false --
+  keyed positionally the two sweep arms still diverge, at frame 4,330
+  (`open-bugs-handoff.md` §E2).
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
   **built, measured and STOPPED 2026-09-05; adversarially reviewed before
   being put forward (§8 records what the review changed, including two claims
