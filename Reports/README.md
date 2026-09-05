@@ -143,6 +143,16 @@ by somebody about to try it on creatures.
   The twelve-issue backlog; nine-plus closed, #11 (slice-identifier on
   `ChunkCoord`) has a land-before-save-format deadline and #12 (grass does
   not spread) was owner-filed 2026-08-24.
+- [method-worked-cases-2026-09-05.md](method-worked-cases-2026-09-05.md) —
+  **living record.** The evidence behind `CLAUDE.md`'s Method rules: what
+  `seedsweep.sh`'s default frame budget misses and the water-cycle control
+  that explains its drift, the five instruments that have each lied and the
+  four numbers that could not have moved, the relaxation pass whose 300x was a
+  region made immune, and the field gate that removed 91% of the work and made
+  the frame slower. **Every rule and every headline number stayed in
+  `CLAUDE.md`** — this is what you need once you are inside the manoeuvre, not
+  before. Split out 2026-09-05 with the section that took always-loaded context
+  from 26,314 to 21,390 tokens.
 - [concurrent-sessions.md](concurrent-sessions.md) — **living record.** The
   narratives behind `CLAUDE.md`'s "Working alongside another session" rules:
   the incidents, their measurements, and the forensics for recognising each

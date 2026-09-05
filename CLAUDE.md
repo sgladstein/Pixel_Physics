@@ -532,53 +532,41 @@ fix you build for the wrong reading.
 independent sessions, the last two on one day.** Sanity-check any new number
 against a case you know is fine, before trusting it about a case you don't.
 
-The rule was written as *"ask what a **metric** counts"* and recurred
-anyway, because none of the repeats looked like a metric in the moment. Name
-the instrument and it stops hiding:
-
-| instrument | how it lied |
-|---|---|
-| a **metric** | the whisker hunt defined a "film" as water with air above and below — *what falling water looks like* — so it counted every droplet in the world |
-| a **counter** | 200 cuts reported against a flat queue; the counter counted **calls**, the harness aimed at soil, and 23 swings removed **0** cells |
-| a **timing** | three 600-frame windows on the same world gave **0.00, 4.98 and 7.04 ms/frame**, each offered as "the settled field cost" — it was the wind |
-| a **difference** | `extra lost = 0`, comparing two things that had both not happened |
-| a **census** | counted every `Solid` in the world rather than the platform under test |
-
-Its numbers are real every time. That is the point: a number that is
-arithmetically correct and answers a different question than the one asked
-looks exactly like a result.
+The rule was written as *"ask what a **metric** counts"* and recurred anyway,
+because none of the repeats looked like a metric in the moment. **Name the
+instrument and it stops hiding** — it has lied as a *metric* (a "film" defined
+as what falling water looks like, so it counted every droplet in the world), a
+*counter* (counting calls: 23 swings removing 0 cells), a *timing* (0.00, 4.98
+and 7.04 ms/frame from one world, each offered as the settled cost — it was
+the wind), a *difference* (`extra lost = 0`, comparing two things that had
+both not happened), and a *census* (every `Solid` in the world rather than the
+platform under test). Its numbers are real every time. That is the point: a
+number that is arithmetically correct and answers a different question than
+the one asked looks exactly like a result.
 
 **And against a case you know is broken, which is the half this rule was
 missing.** The sentence above checks *specificity* — that the number stays
 quiet when nothing is wrong. It does not check **sensitivity**: that the
-number *moves* when something is. This file already has the sensitivity rule,
-written for guards — *"before you cite a guard's green as evidence, put the
-fault it is named for back and watch it go red"* — and it was never crossed to
+number *moves* when something is. This file already has that rule for guards —
+*put the fault back and watch it go red* — and it was never crossed to
 measurements. Measured 2026-08-25, in one session: **six numbers that were
-arithmetically correct, plausible, and about the wrong thing**, of which
-five needed the guard rule applied to an instrument. Two of the six are the
-counter and the census in the table above, seen from the other side — they
-did not merely count the wrong thing, they *could not have moved*. The rest:
-
-| what was measured | why it could not answer |
-|---|---|
-| a flat platform's damage | no span, so no load to concentrate, so no support rule could matter |
-| a queue going quiet | means "converged" *or* "made immune", and queue depth cannot tell them apart |
-| an A/B whose arms differed in two things | the paint path, not the rule under test, carried half the effect |
-| six seeds | 1.64x; the next twelve gave 1.08x and the pooled median was **zero** |
+arithmetically correct, plausible, and about the wrong thing**, of which five
+needed the guard rule applied to an instrument, and two of them *could not
+have moved at all*.
 
 **So run the positive control**: construct the case whose answer you *know* is
 non-zero and check the instrument reports it. It is cheap, and it would have
 caught three of those six outright and pointed straight at a fourth.
 
-**The tell, when there is no control to hand: tidiness.** Outcomes in this
-engine are chaotic, so a clean first result is evidence of an artifact rather
-than of a strong effect. Every wrong number that day was tidy — a queue flat
-at exactly its idle value, two arms agreeing at 1712/1712 and 1710/1710 and
-1711/1711, a clean 2.7x, a clean 1.64x. The true answer was messy: 1.24x, a
-per-seed median of zero, eight seeds worse and six *better*. When the first
-number tells a clean story, something has usually collapsed the complexity —
-often the very thing being measured.
+**The tell, when there is no control to hand: tidiness.** Outcomes here are
+chaotic, so a clean first result is evidence of an artifact rather than of a
+strong effect. Every wrong number that day was tidy — a queue flat at exactly
+its idle value, two arms agreeing at 1712/1712, a clean 2.7x, a clean 1.64x.
+The true answer was messy: 1.24x, a per-seed median of zero, eight seeds worse
+and six *better*. When the first number tells a clean story, something has
+usually collapsed the complexity — often the very thing being measured. The
+six cases, and why each could not answer, are in
+[`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
 ### When the complaint is visible and persistent, measure the standing state, not the event rate
 
@@ -681,31 +669,21 @@ have been different if I had sampled it an hour later?**
 
 ### Size a problem at the moment it starts, not after it has been running
 
-The sibling of the cascade rule below, pointing the other way: that one says
-a census taken **too early** reads a delay as damage, and this one says a
-census taken **late** can be measuring the system's *response* to the event
-rather than the event. Both are the same question — *what was the world doing
-between the thing happening and me looking?* — and the second is the more
-expensive mistake, because it sizes the fix.
+The sibling of the cascade rule below, pointing the other way: that one says a
+census taken **too early** reads a delay as damage, and this one says a census
+taken **late** can be measuring the system's *response* to the event rather
+than the event. Both are the same question — *what was the world doing between
+the thing happening and me looking?* — and the second is the more expensive
+mistake, because it sizes the fix.
 
-Measured 2026-08-26 on `open-bugs-handoff.md` §S. One radius-20 charge, the
-support field censused against a converged oracle at increasing distances
-from the bang:
-
-| censused at | cells wrong |
-|---|---|
-| **5 frames after** | **369** |
-| 50 frames after | 42,825 |
-| 1,300 frames after | 67,100 |
-
-Every one of those is a real count of genuinely wrong cells. Read at 1,300
-frames it says *"a charge invalidates 67,000 cells, so build a pass that
-converges 67,000 cells"* — and a whole scope report was written on that
-reading. Read at 5 frames it says the charge invalidates **370**, the other
-sixty-seven thousand are manufactured by the engine's own slow correction,
-and a pass that converges the damage once fixes almost nothing. The fix those
-two readings call for is not the same fix, and the second one is the
-expensive one to discover after building the first.
+Measured on one radius-20 charge, the support field censused against a
+converged oracle: **369 cells wrong at 5 frames after, 42,825 at 50, and
+67,100 at 1,300.** Every one is a real count of genuinely wrong cells. Read at
+1,300 frames it says *"a charge invalidates 67,000 cells, so build a pass that
+converges 67,000"* — and a whole scope report was written on that reading.
+Read at 5 frames it says the charge invalidates **370**, the other sixty-seven
+thousand are manufactured by the engine's own slow correction, and a pass that
+converges the damage once fixes almost nothing.
 
 **So: before sizing a repair from a measurement, ask when it was taken
 relative to the event, and take a second one close to the event.** If the two
@@ -720,56 +698,37 @@ measured as `roomcut` losing 251 cells against 1,501 at frame 202, and as
 235 against 273 once both runs were given 1,500 frames — a disaster and a
 rounding error, from the same two binaries.
 
-**`seedsweep.sh`'s own default does this**, still, today. `FRAMES="start=2
-every=400 count=4"` stops at frame 1,202, which is mid-collapse. Measured on
-`scene=worldcrack strike=12`, one build, eight preset/seed pairs, frame
-1,202 against frame 3,602:
+**`seedsweep.sh`'s own default does this**, still, today: `FRAMES="start=2
+every=400 count=4"` stops at frame 1,202, which is mid-collapse. Over eight
+preset/seed pairs on `scene=worldcrack strike=12`, four destroy rock by frame
+3,602; **the default misses two of them outright**, reading rock as net
+*gained* where the collapse has not yet arrived, and understates the two it
+does see by 1.9x and **10x**.
 
-| | rock destroyed @1,202 | @3,602 |
-|---|---|---|
-| `terraced 1` | 557 | **1,042** |
-| `terraced 7` | none — rock *gained* 647 | **260** |
-| `flat 1` | 20 | **199** |
-| `rolling 7` | none — rock *gained* 223 | **88** |
+**Read `rock`, not `cells lost`, for the settling question.** `rock` plateaus;
+`cells lost` never settles at all. **That drift is an oscillation, not
+accumulation, and it is not the cascade** — the control is the same scene with
+no verb: at `strike=0`, `terraced 1` reports **zero failures and `rock +0` at
+every tile** while `cells lost` swings across ±1,700 cells, **larger than most
+damage figures in the sweep**. On `wetland` the `rock` column matches the
+frozen-water count exactly, which points at the water cycle. So a `cells lost`
+reading at any single frame is that frame's phase plus the damage, and the two
+are not separable — this is the *divide-the-oscillator-out* problem below, not
+a too-short budget.
 
-Four of the eight destroy rock by 3,602. **The default misses two of them
-outright** — it reads rock as net *gained* where the collapse has not yet
-arrived — and understates the two it does see, by 1.9x on `terraced 1` and
-**10x** on `flat 1`. `terraced 7` reverses outright: −634 cells lost at 1,202
-becomes +326 at 3,602.
+`awake` and `sites` are a weaker tell than they look: on `rolling` and
+`terraced` both sit near 5,000 sites indefinitely. The tell that works is that
+**the quantity being censused has stopped moving** across two consecutive
+tiles. `every=900 count=5` is enough for `rock`; no budget is enough for
+`cells lost`, because the problem is phase, not length.
 
-**Read `rock`, not `cells lost`, for the settling question.** `rock`
-plateaus — `terraced 1` runs −952, −1,042, −1,042, −1,052, −1,052 across
-frames 1,802 to 9,002 — while `cells lost` never settles at all: the same run
-goes 849 → 1,109 → 745 → −126 → −1,322.
-
-**That drift is an oscillation, not accumulation, and it is not the cascade.**
-An earlier version of this section blamed it on weathering accruing rubble.
-The control that settles it is the same scene with **no verb at all**: at
-`strike=0`, `terraced 1` reports **zero failures and `rock +0` at every tile**
-while `cells lost` swings 0 → 290 → 471 → 44 → −725 → −1,684. Nothing broke,
-so no rock became rubble; the rubble census is simply riding something
-periodic, and on `wetland` the `rock` column matches the frozen-water count
-exactly — `rock +833` against `833 frozen` — which points at the water cycle.
-Amplitude is about ±1,700 cells, **larger than most damage figures in the
-sweep**, so a `cells lost` reading taken at any single frame is that frame's
-phase plus the damage, and the two are not separable. This is the
-*divide-the-oscillator-out* problem below, not a too-short budget — and until
-it is divided out, `cells lost` cannot be used to compare two models on these
-presets at all.
-
-So `awake` and `sites` are a weaker tell than they look: on `rolling` and
-`terraced` both sit near 5,000 sites indefinitely and never reach zero. The
-tell that works is that **the quantity being censused has stopped moving**
-across two consecutive tiles. `every=900 count=5` is enough for `rock`;
-no budget is enough for `cells lost`, because the problem is phase, not length.
-
-Worse, and the reason this needs its own heading rather than a footnote: two
-runs that diverge on one frame are **different worlds** by the next, so a
-single cascade scene cannot compare two models at all, settled or not. One
-term measured *ten times worse* on `scene=worldcrack strike=12` and nearly
-halved the worst case over 24 seeded runs. Comparisons of cascades belong in
-`seedsweep.sh`, run to rest, read at the order statistic.
+Worse, and the reason this needs its own heading: two runs that diverge on one
+frame are **different worlds** by the next, so a single cascade scene cannot
+compare two models at all, settled or not. Comparisons of cascades belong in
+`seedsweep.sh`, run to rest, read at the order statistic. Both tables, and the
+term that measured ten times worse on one scene while nearly halving the worst
+case over 24 seeded runs, are in
+[`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
 ### A mean over *events* is not a mean over the thing you care about
 
@@ -842,70 +801,59 @@ machine-wide lock the report designed was deliberately not landed.
 
 ### A cost that vanishes may be work that vanished
 
-The sharpest version of *look again for what you did not measure*, and it
-cost a night. §S's backlog — a blast leaving the structural scheduler pinned
-at its cap for ever — was attacked with a converged relaxation pass over the
-damaged region. At a large enough region the queue did not shrink, it
-**disappeared**: 5,134 pending against 25,876, scheduler 0.03 ms against
-10.08 ms, whole frame 31.21 → 18.98 ms, and `scripts/acceptance.sh` green on
-every case. It reads as a complete fix and it was an artifact:
-`relax_region` anchors any cell resting on loose ground at distance 0
-outright, where `tick` takes that root only as a last resort, so the pass had
-rooted the whole blast neighbourhood flat and the structural system simply
-had nothing left to say about it. **A queue that goes quiet because the
-system stopped asking is indistinguishable, in every timing, from one that
-went quiet because it converged.**
-
-Two things to carry:
+The sharpest version of *look again for what you did not measure*, and it cost
+a night. A blast leaving the structural scheduler pinned at its cap was
+attacked with a converged relaxation pass over the damaged region. At a large
+enough region the queue did not shrink, it **disappeared**: 5,134 pending
+against 25,876, scheduler **0.03 ms against 10.08**, whole frame 31.21 → 18.98
+ms, and `scripts/acceptance.sh` green on every case. It reads as a complete
+fix and it was an artifact — the pass had rooted the whole blast neighbourhood
+flat, so the structural system had nothing left to say about it. **A queue that
+goes quiet because the system stopped asking is indistinguishable, in every
+timing, from one that went quiet because it converged.**
 
 - **When a cost disappears rather than shrinks, suspect the work
-  disappeared.** A 300x improvement in a subsystem nobody optimised is a
-  claim that the subsystem was doing nothing useful. Find the quantity that
-  says whether it still is — here `max aux`, the largest support distance in
-  the field, which read 142 with the "fix" and 2,482 without it.
+  disappeared.** A 300x improvement in a subsystem nobody optimised is a claim
+  that the subsystem was doing nothing useful. Find the quantity that says
+  whether it still is — here `max aux`, the largest support distance in the
+  field, which read **142 with the "fix" and 2,482 without it**.
 - **The control is to hold the semantic rule fixed, not to add another
-  metric.** One env switch putting `relax_region` back on
-  `compute_world_distances`' bedrock-only rule, changing nothing else,
-  settled it in one run: the queue came straight back to baseline. Measuring
-  *around* the confound would have taken all night and convinced nobody.
+  metric.** One env switch, changing nothing else, settled it in a single run.
+  Measuring *around* the confound would have taken all night and convinced
+  nobody.
 
-And note what did **not** catch it: acceptance was green on all cases
-throughout, damage counters still fired, pieces still came off. A guard over
-"does destruction still happen" cannot see "destruction happens over a region
-that has quietly been made immune".
+And note what did **not** catch it: acceptance was green throughout, damage
+counters still fired, pieces still came off. A guard over "does destruction
+still happen" cannot see "destruction happens over a region that has quietly
+been made immune". The mechanism is in
+[`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
 ### An isolated harness overstates what the app will see
 
-The sibling of the paired-baseline rule below, and it cost a wrong headline
-before it was caught. The same field change measured **−50%** in
-`field_cost` — which runs the sweep and the field and nothing else — and
-**−27%** in `scale_probe phases=1`, which runs the whole of `App::update`,
-in the same session on the same machine. Neither is wrong; they answer
-different questions. The app-level number is smaller because the other
-phases keep chunks awake and enlarge the solve set the optimised pass has to
-walk. **Quote the whole-frame figure**, and treat a subsystem harness as
-aiming the work rather than sizing it.
+The sibling of the paired-baseline rule below, and it cost a wrong headline.
+The same field change measured **−50%** in `field_cost` — the sweep and the
+field and nothing else — and **−27%** in `scale_probe phases=1`, which runs
+the whole of `App::update`, in the same session on the same machine. Neither
+is wrong; they answer different questions, and the app-level number is smaller
+because the other phases keep chunks awake and enlarge the solve set.
+**Quote the whole-frame figure**, and treat a subsystem harness as aiming the
+work rather than sizing it.
 
 **A sub-phase breakdown of the *same* harness overstates in the same way, and
-the mechanism is different enough to be worth stating separately: removing
-work is not the same as removing cost.** Measured 2026-08-26 on the field's
-momentum passes. A gate that skipped them for tiles whose neighbourhood
-provably could not give them momentum removed **91% of that work** — 1,497
-solved tiles down to 147 — and the per-pass timings moved a long way with it:
-pressure 0.92 → 0.39, velocity 2.87 → 1.11, advection 3.25 → 1.49, the field
-step 14.50 → 9.87 ms. It was bit-identical, and it made the frame **slower**:
-eight alternating paired runs of two fixed binaries put the difference at
-**+0.59 ms, slower in 7 of 8**. The gate's own bookkeeping was timed and is
-not the answer (0.15 ms amortised). What was left is that the skipped passes
-had been *touching every solved tile*, and the full-set pass that runs after
-them then paid the cold misses instead — the arithmetic went away and the
-memory traffic only moved. On a `HashMap` of tiles walked by pointer-chasing,
-the traffic is the cost.
+the mechanism is worth stating separately: removing work is not the same as
+removing cost.** A gate that skipped the field's momentum passes where they
+could not matter removed **91% of that work** and moved every per-pass timing
+a long way — and it was bit-identical and made the frame **slower**: eight
+alternating paired runs of two fixed binaries put it at **+0.59 ms, slower in
+7 of 8**. The skipped passes had been *touching every solved tile*, so the
+full-set pass after them paid the cold misses instead; the arithmetic went
+away and the memory traffic only moved.
 
 So when a change makes one phase cheaper, **the phase it was made cheaper
-against is the whole frame**, measured paired and alternating. A sub-phase
-row that falls by a third while the frame does not move is not a partial win
-being masked by noise; it is usually the cost relocating.
+against is the whole frame**, measured paired and alternating. A sub-phase row
+that falls by a third while the frame does not move is not a partial win
+masked by noise; it is usually the cost relocating. The per-pass numbers are
+in [`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
 ### A noise bar belongs to the job it was measured on
 
