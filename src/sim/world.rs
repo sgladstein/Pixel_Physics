@@ -111,6 +111,230 @@ pub(crate) fn creature_priority() -> bool {
     *ON.get_or_init(|| std::env::var("CREATURE_PRIORITY").map_or(true, |v| v != "0"))
 }
 
+
+/// **One line of the box's own history.**
+///
+/// **Narrative only. This is never the source of any count.** Every number a
+/// page shows comes from `LifeCounters` or from `CreatureStats`; the log says
+/// *what happened and when*, which those cannot. The distinction matters
+/// because the log is capped, and a reader who answered "how many times did
+/// this ant feed?" by filtering it would get an **undercount that looks like
+/// an answer** the moment the cap was reached. `CLAUDE.md`'s size-cap rule
+/// turns on exactly that: does exhausting the cap produce *an answer*, or
+/// merely *less work*? Dropping the oldest line is less work -- the event
+/// still fired and is still counted -- and `RunLog::dropped` is what stops
+/// the trimming being silent.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LogEvent {
+    /// The simulated frame it happened on.
+    pub frame: u64,
+    /// Who it happened to, as the identity the roster pins by.
+    pub id: u16,
+    pub born_frame: u64,
+    pub species: organism::SpeciesId,
+    pub kind: LogKind,
+    /// The other party, where there is one: a birth's parent. `0` otherwise.
+    pub other: u16,
+}
+
+/// What kind of thing happened.
+///
+/// **Notable events only, and that list is a measurement rather than a
+/// taste.** `labstats frames=90000` on the shipped bed reports 3,099 seeds
+/// borne against 279 germinations, 15 animal births and 64 deaths -- so a log
+/// that recorded every seed-set would be **90% seed-set** and would drown
+/// everything worth reading. Recording only an individual's *first* seed
+/// brings the whole run to roughly 640 lines, which is what sets the cap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum LogKind {
+    /// A creature budded, or a seed germinated.
+    Born,
+    /// It left the world. `LogEvent::other` carries the cause's index.
+    Died,
+    /// The first mouthful of its life -- the moment a forager starts paying
+    /// its own way, and the one nothing else records.
+    FirstFeed,
+    /// The first seed it ever set. Its later seeds are counted and not logged.
+    FirstSeed,
+    /// The last individual of a founding line died. The only entry that is
+    /// about a *lineage* rather than an individual.
+    LineEnded,
+}
+
+impl LogKind {
+    pub fn label(self) -> &'static str {
+        match self {
+            LogKind::Born => "BORN",
+            LogKind::Died => "DIED",
+            LogKind::FirstFeed => "FIRST FED",
+            LogKind::FirstSeed => "FIRST SEED",
+            LogKind::LineEnded => "LINE ENDED",
+        }
+    }
+}
+
+/// **What happened in this box while you were not looking.**
+///
+/// The instrument `Reports/evolution-lab-gui-physics-2026-08-30.md` asks for
+/// and nothing provided: a phase that fast-forwards 45,000 frames has to be
+/// able to say what went on. Filter by identity for one individual's
+/// timeline; read it whole for the box's.
+#[derive(Clone, Debug, Default)]
+pub struct RunLog {
+    events: std::collections::VecDeque<LogEvent>,
+    /// **How many lines have aged out.** Without it a trimmed early history
+    /// reads as *nothing happened*, which is the same failure as a zero body
+    /// count read as "chunks are working": the absence of evidence looks
+    /// exactly like evidence of absence. The page prints it.
+    dropped: u64,
+}
+
+/// **How many lines the log holds**, set from measurement with headroom.
+///
+/// Roughly 640 notable events per 90,000 frames of the shipped bed (see
+/// `LogKind`), so this covers about 290,000 frames -- several sessions --
+/// before anything ages out at all.
+///
+/// **Not decimated**, unlike `lab::stats`' sample ring. A decimated *series*
+/// is the same shape at lower resolution; a decimated *narrative* is a story
+/// with every other sentence removed.
+pub const RUN_LOG_CAP: usize = 2048;
+
+/// **One individual that has died, kept after its slot is gone.**
+///
+/// The roster could only ever list the living, and `README`'s own "known
+/// limitations" said so: *"a death takes its row with it"*. That is the
+/// wrong way round for what this box is for. A selection experiment is
+/// mostly a record of what did **not** work, and the design guide's own
+/// measurement is that an ant is two dark cells at play zoom, findable
+/// because it moves -- so a dead one has stopped being findable by the only
+/// channel that ever found it. The individual most worth looking at was the
+/// one that could not be looked at.
+///
+/// **A flat record and not a handle**, because there is nothing left to
+/// point at: `free_organism` has already dropped the `OrganismState` and
+/// pushed the slot back for re-use, and by the next frame the same
+/// `organism_id` may well belong to somebody else. Everything a page wants
+/// is copied out here or it is gone.
+///
+/// `LifeCounters` comes across whole rather than as a summary, so the cell
+/// page's LIFE group reads the same for a dead individual as for a live one.
+#[derive(Clone, Copy, Debug)]
+pub struct Grave {
+    /// The identity it had, which is still how a run-log line refers to it:
+    /// `RunLog::about` is keyed on exactly this pair.
+    pub id: u16,
+    pub born_frame: u64,
+    pub died_frame: u64,
+    pub species: organism::SpeciesId,
+    pub lineage: u32,
+    pub generation: u16,
+    pub cause: organism::DeathCause,
+    pub life: organism::LifeCounters,
+    /// Where it was when it died -- the anchor of whatever it still owned.
+    ///
+    /// **Kept even though nothing is there any more**, because "where did it
+    /// die" is the question a graveyard row is opened to answer, and a
+    /// creature that starved on the far side of the box is a different
+    /// finding from one that starved on the nest. The marker draws a
+    /// crosshair at it, never a body outline: there is no body.
+    pub at: (i32, i32),
+    /// Whether it belonged in the animals table or the plants one. Read off
+    /// the species at death rather than looked up later, so a grave is
+    /// self-contained.
+    pub creature: bool,
+}
+
+/// **How many graves are kept.**
+///
+/// Deliberately the same bound as the run log and for the same reason: the
+/// shipped bed's deaths and its notable log lines are the same order of
+/// magnitude (a colony of 52 that turns over is 52 graves), so one cap that
+/// covers several sessions covers both. Oldest out first, and
+/// `Graveyard::dropped` says how many, because a silently truncated list of
+/// the dead reads as a box where nothing died.
+pub const GRAVE_CAP: usize = 2048;
+
+/// The dead, oldest first. See [`Grave`].
+#[derive(Clone, Debug, Default)]
+pub struct Graveyard {
+    graves: std::collections::VecDeque<Grave>,
+    dropped: u64,
+}
+
+impl Graveyard {
+    pub fn push(&mut self, grave: Grave) {
+        self.graves.push_back(grave);
+        while self.graves.len() > GRAVE_CAP {
+            self.graves.pop_front();
+            self.dropped += 1;
+        }
+    }
+
+    /// Newest first, which is the order a graveyard is read in.
+    pub fn recent(&self) -> impl Iterator<Item = &Grave> {
+        self.graves.iter().rev()
+    }
+
+    /// One individual's record, if it is still held.
+    pub fn about(&self, id: u16, born_frame: u64) -> Option<&Grave> {
+        self.graves.iter().rev().find(|g| g.id == id && g.born_frame == born_frame)
+    }
+
+    pub fn len(&self) -> usize {
+        self.graves.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.graves.is_empty()
+    }
+
+    /// How many have aged out of the far end.
+    pub fn dropped(&self) -> u64 {
+        self.dropped
+    }
+}
+
+impl RunLog {
+    pub fn push(&mut self, event: LogEvent) {
+        self.events.push_back(event);
+        while self.events.len() > RUN_LOG_CAP {
+            self.events.pop_front();
+            self.dropped += 1;
+        }
+    }
+
+    /// Newest first, which is the order a log is read in.
+    pub fn recent(&self) -> impl Iterator<Item = &LogEvent> {
+        self.events.iter().rev()
+    }
+
+    /// One individual's timeline, newest first.
+    pub fn about(&self, id: u16, born_frame: u64) -> impl Iterator<Item = &LogEvent> {
+        self.events.iter().rev().filter(move |e| e.id == id && e.born_frame == born_frame)
+    }
+
+    pub fn len(&self) -> usize {
+        self.events.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.events.is_empty()
+    }
+
+    /// How many lines have aged out of the far end.
+    pub fn dropped(&self) -> u64 {
+        self.dropped
+    }
+
+    /// Start again. For a batch copy, which inherits its parent's log through
+    /// `World`'s `Clone` and should not: a copy's history is its own run.
+    pub fn clear(&mut self) {
+        self.events.clear();
+        self.dropped = 0;
+    }
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -1119,6 +1343,27 @@ pub struct World {
     /// interesting.
     organisms_born: u64,
     organisms_died: u64,
+    /// **The lifetime counters of every organism that has died.**
+    ///
+    /// The third term of `LifeCounters`' closing identity, and without it the
+    /// live sum can only fall: a freed organism takes its counts with it, so
+    /// the sum over the living alone is not comparable to anything. Rolled up
+    /// at `free_organism`, which is the one function that decides a release
+    /// really happened.
+    pub dead_life: organism::LifeCounters,
+    /// Deaths by cause, indexed by `organism::DeathCause::index`.
+    ///
+    /// The far side of the run log's `died` events, and the only place §B2's
+    /// whole-plant fellings are counted as *organisms* rather than as cells.
+    pub deaths_by_cause: [u64; organism::DEATH_CAUSES],
+    /// **What happened while you were not looking.** See [`RunLog`] -- it is
+    /// narrative, never the source of a count.
+    pub run_log: RunLog,
+    /// **The dead, still listed.** See [`Graveyard`].
+    ///
+    /// Beside `deaths_by_cause` rather than instead of it: that is a count
+    /// and this is a list, and the count is the one that never ages out.
+    pub graveyard: Graveyard,
     /// **Germinations refused because every organism slot was live** — the
     /// other half of making the 4,095 ceiling a real check rather than a
     /// `debug_assert` (see `push_organism`).
@@ -2542,6 +2787,10 @@ impl World {
             free_organism_slots: Vec::new(),
             organisms_born: 0,
             organisms_died: 0,
+            dead_life: organism::LifeCounters::default(),
+            deaths_by_cause: [0; organism::DEATH_CAUSES],
+            run_log: RunLog::default(),
+            graveyard: Graveyard::default(),
             organisms_refused: 0,
             organism_generation_wraps: 0,
             next_lineage: 1,
@@ -3113,6 +3362,14 @@ impl World {
         let fates = super::organism::FateGenome::from_table(self.species.get(species).fate_table());
         let state = OrganismState {
             fates,
+            // **The identity, stamped at the one allocation seam.** See
+            // `OrganismState::born_frame`: the handle alone is not an
+            // identity because slots are reused, and this is the term that
+            // makes the pair unique. Stamped here rather than by the caller
+            // so it cannot be forgotten on one of the five creation paths.
+            born_frame: self.frame,
+            life: organism::LifeCounters::default(),
+            senescence_cause: organism::DeathCause::Unknown,
             // **Founders carry no overrides**, which is what makes the
             // parameter genome inert until something breeds — see
             // `organism::ParamGenome`. `plant::bear_seed_at` overwrites this
@@ -3297,6 +3554,9 @@ impl World {
         match self.organism_mut(organism_id) {
             Some(state) => {
                 state.senescent = true;
+                // The caller owns the *choice* to cull; recording that it was
+                // a cull rather than something the box did is this seam's.
+                state.senescence_cause = organism::DeathCause::Culled;
                 true
             }
             None => false,
@@ -3392,8 +3652,97 @@ impl World {
         if slot.generation != generation || slot.state.is_none() {
             return;
         }
+        // **The individual's books are closed here, for the same reason the
+        // death is counted here**: this is the one function that decides a
+        // release really happened, so it is the only place a roll-up cannot
+        // double-count. `slot.state` is already in hand, so it costs no
+        // lookup and no signature change.
+        let (life, cause) = match slot.state.as_ref() {
+            Some(state) => (
+                state.life,
+                // **A plant that never declared itself dead was felled**, and
+                // that classification is the whole of §B2's missing counter.
+                // `plant.rs`'s senescence rule is guarded on
+                // `!cells.is_empty()`, so a whole-plant felling empties the
+                // list, the guard is false, and the organism arrives here
+                // with `senescent == false` and no cause -- until now
+                // indistinguishable from one allocated and never given a
+                // cell. A creature always arrives with a cause set by
+                // `creature_dies`, so this only reclassifies plants.
+                if state.senescence_cause == organism::DeathCause::Unknown && state.cells.is_empty() && state.chain.is_empty() {
+                    organism::DeathCause::FelledOrLost
+                } else {
+                    state.senescence_cause
+                },
+            ),
+            None => (organism::LifeCounters::default(), organism::DeathCause::Unknown),
+        };
+        let (species, lineage, born_frame) = match slot.state.as_ref() {
+            Some(state) => (state.species, state.lineage, state.born_frame),
+            None => (organism::SpeciesId(0), 0, 0),
+        };
+        // **Read before `slot.state` is dropped**, which is the only moment
+        // it can be: everything on it is about to stop existing, and the slot
+        // goes back on the free list two lines below for some other
+        // individual to be born into. The grave itself is *pushed* after the
+        // borrow of `self.organisms` ends -- see below.
+        let (generation, at) = match slot.state.as_ref() {
+            Some(state) => (
+                state.generation,
+                // A creature's head, else any cell it still owns. A plant
+                // felled whole owns none by the time it reaches here, and
+                // `(0, 0)` is honest for that: there is nowhere to point.
+                state.chain.first().copied().or_else(|| state.cells.keys().next().copied()).unwrap_or((0, 0)),
+            ),
+            None => (0, (0, 0)),
+        };
         slot.state = None;
         self.free_organism_slots.push(slot_index);
+        // **Which table it belonged in, decided from the species and not from
+        // the corpse.** Asking the state whether it had a brain would have
+        // read a creature felled to nothing as a plant, which is the same
+        // shape of mistake as `FelledOrLost` above.
+        let creature = self.species.get(species).creature.is_some();
+        self.graveyard.push(Grave {
+            id: organism_id,
+            born_frame,
+            died_frame: self.frame,
+            species,
+            lineage,
+            generation,
+            cause,
+            life,
+            at,
+            creature,
+        });
+        self.dead_life.absorb(&life);
+        self.deaths_by_cause[cause.index()] += 1;
+        self.run_log.push(LogEvent {
+            frame: self.frame,
+            id: organism_id,
+            born_frame,
+            species,
+            kind: LogKind::Died,
+            other: cause.index() as u16,
+        });
+        // **The lineage's own ending, which is the only line here about
+        // something other than an individual.** A founding line going extinct
+        // is the thing a selection experiment is watching for and the thing a
+        // population count cannot show: the headcount falls by one whether the
+        // last of a line died or one of fifty siblings did.
+        //
+        // The walk is O(live organisms) and runs only on a death -- tens of
+        // organisms, hundreds of deaths in a long run.
+        if lineage != 0 && !self.organisms.iter().any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage)) {
+            self.run_log.push(LogEvent {
+                frame: self.frame,
+                id: organism_id,
+                born_frame,
+                species,
+                kind: LogKind::LineEnded,
+                other: 0,
+            });
+        }
         // Counted here rather than at either call site: this is the one
         // function that decides a release really happened (both callers can
         // fire twice for one death, and the guards above are what stop the
@@ -6056,6 +6405,82 @@ mod tests {
         World::new(Rect::new(0, 0, 127, 127))
     }
 
+    /// **The log says how much of the story it threw away.**
+    ///
+    /// The cap is a bound on the writer, not a gate on any answer -- every
+    /// number in the interface comes from `LifeCounters`, never from counting
+    /// log lines. But a reader still has to be able to tell a quiet run from a
+    /// trimmed one, and silence looks identical either way. That is the same
+    /// failure as a zero body count read as "chunks are working", so
+    /// `dropped` exists and the page prints it.
+    ///
+    /// Provable red by dropping the `self.dropped += 1` in `RunLog::push`, or
+    /// by resetting `dropped` in `clear`'s place.
+    #[test]
+    fn the_run_log_reports_what_it_dropped() {
+        let mut log = RunLog::default();
+        let line = |frame: u64| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind: LogKind::Born,
+            other: 0,
+        };
+
+        // Under the cap it drops nothing -- the specificity half, without
+        // which `dropped` could simply count every push.
+        for f in 0..RUN_LOG_CAP as u64 {
+            log.push(line(f));
+        }
+        assert_eq!(log.len(), RUN_LOG_CAP);
+        assert_eq!(log.dropped(), 0, "the log trimmed a story that fitted");
+
+        // Over it, the count is exact and the oldest lines are the ones gone.
+        const OVER: u64 = 37;
+        for f in 0..OVER {
+            log.push(line(RUN_LOG_CAP as u64 + f));
+        }
+        assert_eq!(log.len(), RUN_LOG_CAP, "the cap did not bound the writer");
+        assert_eq!(log.dropped(), OVER, "the log lost lines without saying how many");
+        assert!(
+            log.recent().all(|e| e.frame >= OVER),
+            "the log trimmed from the wrong end -- the newest lines went instead of the oldest"
+        );
+
+        log.clear();
+        assert!(log.is_empty() && log.dropped() == 0, "a cleared log still claims a past");
+    }
+
+    /// **One individual's timeline is filtered by identity, not by handle.**
+    ///
+    /// `id` is a 12-bit slot plus a 4-bit generation and is reused after 16
+    /// turns, so a log filtered on the handle alone hands the roster a dead
+    /// animal's history under a living one's name -- and it reads as a rich
+    /// life rather than as a bug. Red by dropping the `born_frame` term from
+    /// `RunLog::about`.
+    #[test]
+    fn one_individuals_timeline_is_filtered_by_identity_not_by_handle() {
+        let mut log = RunLog::default();
+        let line = |frame: u64, born_frame: u64, kind: LogKind| LogEvent {
+            frame,
+            id: 9,
+            born_frame,
+            species: organism::SpeciesId(0),
+            kind,
+            other: 0,
+        };
+        log.push(line(10, 10, LogKind::Born));
+        log.push(line(90, 10, LogKind::Died));
+        // Same slot, a later tenant.
+        log.push(line(100, 100, LogKind::Born));
+
+        let first: Vec<u64> = log.about(9, 10).map(|e| e.frame).collect();
+        assert_eq!(first, vec![90, 10], "the first tenant's timeline is wrong (newest first)");
+        let second: Vec<u64> = log.about(9, 100).map(|e| e.frame).collect();
+        assert_eq!(second, vec![100], "the slot's second tenant inherited the first one's life");
+    }
+
     // --- meat_lost: the destruction seam ---------------------------------
 
     /// A world with a corpse slab in it, every cell stamped `worth`.
@@ -6268,6 +6693,87 @@ mod tests {
         let id = w.push_organism(species).expect("an organism slot is free");
         assert_ne!(id, 0, "0 is reserved for \"no organism\"");
         assert_eq!(w.organism(id).unwrap().species, species);
+    }
+
+    /// **A plant that leaves the world owning nothing, having never declared
+    /// itself dead, is booked as felled.**
+    ///
+    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
+    /// plant whole, and `plant.rs`'s senescence rule is guarded on
+    /// `!cells.is_empty()` -- so a whole-plant felling empties the cell list,
+    /// that guard is false, `senescent` is never set, and the organism arrives
+    /// at `free_organism` with no cause at all. §B2 has only ever had
+    /// cell-level numbers; it has never been able to say **how many plants**
+    /// died this way, because nothing counted the organism.
+    ///
+    /// This guards the classification rather than the bug: §B2 is masked by
+    /// default (`plant_load_failure` covers the detached branch for a living
+    /// organism), so reproducing the felling itself needs the mask off and a
+    /// bed that accumulates litter. What is testable here, and what is new, is
+    /// that the seam turns "no cells, no cause" into a counted death instead
+    /// of dropping it on the floor.
+    #[test]
+    fn an_organism_that_leaves_owning_nothing_is_counted_as_felled() {
+        let mut w = test_world();
+        let species = SpeciesId(0);
+
+        // A plant that was felled: it had cells, they were all taken, and
+        // nothing ever set `senescent`.
+        let felled = w.push_organism(species).expect("a slot is free");
+        w.free_organism(felled);
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
+            1,
+            "an organism that left with no cells and no cause was not booked as felled"
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Unknown.index()],
+            0,
+            "it was booked as an unattributed death instead, which is the state this replaces"
+        );
+
+        // ...against one that *did* declare a cause, which must keep it.
+        let starved = w.push_organism(species).expect("a slot is free");
+        w.organism_mut(starved).expect("just made").senescence_cause = organism::DeathCause::Starved;
+        w.free_organism(starved);
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            1,
+            "a declared cause was overwritten by the felled classification"
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::FelledOrLost.index()],
+            1,
+            "the felled bucket took a death that had already named its cause"
+        );
+
+        // The books still close over the whole histogram.
+        let (_, died) = w.organism_turnover();
+        assert_eq!(w.deaths_by_cause.iter().sum::<u64>(), died, "a death was counted without a cause bucket, or twice");
+    }
+
+    /// **A dead individual's counters are rolled into the world's dead-side
+    /// total, and not lost with it.**
+    #[test]
+    fn a_freed_organism_hands_its_life_to_the_world() {
+        let mut w = test_world();
+        let id = w.push_organism(SpeciesId(0)).expect("a slot is free");
+        {
+            let state = w.organism_mut(id).expect("just made");
+            state.life.moves = 7;
+            state.life.digs = 3;
+            state.life.seeds_set = 2;
+        }
+        assert_eq!(w.dead_life.moves, 0, "the positive control: nothing has died yet");
+        w.free_organism(id);
+        assert_eq!(w.dead_life.moves, 7, "the dead individual's steps were dropped rather than rolled up");
+        assert_eq!(w.dead_life.digs, 3);
+        assert_eq!(w.dead_life.seeds_set, 2);
+        // Freeing the same handle twice must not double-count: the generation
+        // check above the roll-up is what stops it, and it is the same guard
+        // that stops `organisms_died` counting one death twice.
+        w.free_organism(id);
+        assert_eq!(w.dead_life.moves, 7, "a second free of the same handle counted its life again");
     }
 
     #[test]
