@@ -831,6 +831,31 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [selective-environments-2026-09-05.md](selective-environments-2026-09-05.md)
+  — **method and one worked demonstration, 2026-09-05.** The owner's
+  correction — *"not just population size and run length but actually setting
+  up the appropriate environment to select for them"* — answered as a
+  measurement. **There are exactly two currencies**: an animal dies of energy
+  reaching zero or of its cells being destroyed, and nothing else (no thermal
+  death, no age, no disease), so every selective pressure that will ever exist
+  has to route through one of them — the first check against any proposed
+  environment. **Never argue an environment, ablate it**: `creature_arena`
+  now takes `arm=ablate input=<sense> [output=<verb>]` and can vary the
+  economy in the same run, because an arena that only varies the genome
+  answers half the question. The demonstration is the dig drive at three
+  economies, same genome and seeds throughout: **all verbs free gives median
+  50.0% and 1 seed of 4 — the null — and the shipped prices give 63.6% and 4
+  of 4.** One environment change turned a selectively invisible behaviour
+  into a selected one. Two things it overturned: `spoil_weight_cells`, sized
+  at a negligible **0.3% of movement cost** across the population, is
+  decisive **in the contrast** because only one arm carries spoil — a general
+  warning about sizing a lever by its share of a total; and `arm=notrail`
+  cannot mean what it says, because `ant.ron` wires both pheromone senses
+  through the hidden units that drive `Move`, so blinding them removes
+  run-and-tumble rather than trail-following. **A behaviour that is not
+  separable in the genome cannot be selected for by any environment**, and an
+  ablation will hand you a confident number about something else
+
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
