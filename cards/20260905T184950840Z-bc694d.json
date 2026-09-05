@@ -1,0 +1,66 @@
+{
+  "id": "20260905T184950840Z-bc694d",
+  "created": "2026-09-05T18:49:50Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "5b66092e",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Keep a few, cull the rest",
+  "question": "You asked for a way to save the ones you want and clear the others. Does this gesture read -- pin a row, press SPARE, repeat, then press CULL REST once? And is the count on the button enough warning for a destructive verb with no undo?",
+  "context_md": "The lists are `F1` (or PLANTS) then **LIST EVERY PLANT**, and `F2` (or ANTS) then **LIST EVERY ANIMAL** -- they hang off those pages because the bar has no room for a seventh chip.\n\nNew on both tables: **SPARE** beside CULL on the pinned row (it toggles, and reads SPARED while the row is on the keep list), and **CULL REST n** on the table's own header. A spared row's number draws `*3` and tints green.\n\nThe cull is graded -- the same death the brush deals -- so nothing vanishes when you press it. The rows go ROTTING and the bodies clear at the species half-life, about 3,400 ticks. That is why the count on the button matters: it is the only feedback at the moment of pressing.\n\nThree things also got fixed on the way, all found in these pictures and by nothing else: the `*` was drawing as a **blank gap** (the font had no asterisk), the cell page was **painting over the end of BACK**, and pinning a row left the cell page reading **whatever you last clicked in the world** -- so the marker was on the ant and the panel was a plant across the bed.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "three spared",
+      "files": [
+        "20260905T184950840Z-bc694d/000-labui-cull--three-spared.png"
+      ],
+      "caption": "Rows *1 *2 *3 marked and tinted; CULL REST on the header; SPARED -- 3 KEPT said back.",
+      "meta": {
+        "animals in the box": 16,
+        "spared": 3,
+        "CULL REST would take": 12
+      },
+      "focus": null
+    },
+    {
+      "label": "after CULL REST",
+      "files": [
+        "20260905T184950840Z-bc694d/001-labui-cull--after-cull-rest.png"
+      ],
+      "caption": "CULLED 12, KEPT 3. The three spared still FAR/OK, everything else ROTTING, and the button now reads CULL REST 0.",
+      "meta": {
+        "culled": 12,
+        "spared still alive 6,000 ticks later": "3 of 3",
+        "doomed still alive 6,000 ticks later": "0 of 12"
+      },
+      "focus": null
+    },
+    {
+      "label": "the plant list, same verbs",
+      "files": [
+        "20260905T184950840Z-bc694d/002-labui-roster--plants-pinned.png"
+      ],
+      "caption": "Both kingdoms get the same row. This is also the page where BACK used to be cut in half by the cell page.",
+      "meta": {
+        "plants listed": 5,
+        "CULL REST would take": 5
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
