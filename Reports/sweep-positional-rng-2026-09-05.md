@@ -59,8 +59,10 @@ straight-down `try_move` that returns at `:1349`. Neither runs at all for
 unaffected — the draws are still consumed per visited cell in visit order, so
 narrowing still shifts the stream — but the wording overstates how many cells
 draw, and §3.2's "a cell that never draws never pays the hash" depends on the
-corrected version. Fixing those three places is owed work, not done here
-because nothing in the engine is being touched before a decision.
+corrected version. **Done 2026-09-05**, after the engine was touched and that
+reason expired: `chunk.rs`'s doc is rewritten around what §9 measured,
+`dead-ends.md`'s entry body is marked, and §5 of the predecessor carries a
+superseded banner.
 
 It is also the last shared-mutable-stream holdout in the hot path.
 `plant.rs` already draws positionally through `rng::stream` — 20-odd sites,
