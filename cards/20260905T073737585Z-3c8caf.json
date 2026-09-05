@@ -1,0 +1,43 @@
+{
+  "id": "20260905T073737585Z-3c8caf",
+  "created": "2026-09-05T07:37:37Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "4b72ce04",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Two ants side by side, with what differs at the top",
+  "question": "Is this the comparison you'd want? The dimmed block underneath is everything the two have in common -- would you rather it were not there at all, or is it worth having to see what did NOT vary?",
+  "context_md": "HOLD on one row, pin another, press VS.\n\n**Read the bright block at the top and you have the answer in about four seconds**: ant 37 ranged 124 cells against 89, dug 17 against 2, and delivered *nothing* while ant 27 delivered 7. One is wandering and digging, the other is actually bringing food home.\n\nThat ordering is the whole page and I got it wrong first time. Kept in the natural order, the two ants put **fourteen identical plain-speech lines above the nine rows that differed** -- so a page you open to ask 'why is this one doing better' answered below the fold. Differences first, matches dimmed underneath.\n\nI also suppress the usual cell page while this is open. It is the only page that gets that treatment: its own left-hand column *is* the pinned ant's cell page, so leaving both up drew the same numbers twice and ate the width that makes the comparison readable.\n\nOne wart worth knowing about: rows whose label carries a frame number (F630 FIRST FED) can never pair up, so each ant contributes its own row with -- opposite. It reads correctly and it does inflate the difference count by one per event.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "COMPARE",
+      "files": [
+        "20260905T073737585Z-3c8caf/000-cmp2-compare--two-ants.png"
+      ],
+      "caption": "Ant 37 held, ant 27 pinned. Bright rows differ, dim rows match.",
+      "meta": {
+        "rows differing": 9,
+        "rows compared": 32,
+        "range 37 vs 27": "124 vs 89",
+        "delivered 37 vs 27": "0 vs 7",
+        "dug 37 vs 27": "17 vs 2"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
