@@ -464,6 +464,17 @@ measured against, and the first reading of this change fell back on a
 cluster-level statistic for exactly that reason. Verified against the
 pre-change binary on `scene=fell`: every physics line identical.
 
+**`filmstrip plants=0` is a bare bed, and it was unreachable until
+2026-09-05** -- `plants` was a `usize` whose zero meant "not given", so the
+argument silently resolved to 8 and the one control that separates *the
+scene falling down on its own* from *the plants knocking it down* could not
+be run. It is `Option<usize>` now. That control is what root-caused
+`open-bugs-handoff.md` §W3 in a single run: over 24,000 frames a bare
+`scene=grove` reports zero `overloaded` and zero `unsupported` failures and
+`awake 0/40`, which proves the bed's 512-span stone slab is never evaluated
+rather than sound. Reach for it whenever a scene misbehaves only once
+something is living in it.
+
 **`filmstrip channel=bend` draws the plant bending stress**, and its
 quantitative pair is the `bending stress over N cells` line in the felling
 census — median, peak, **where the peak is**, and how many cells read exactly

@@ -451,7 +451,7 @@ fn pin_sheet_light(args: &Args) -> bool {
 /// all.
 fn gnome_stand(args: &Args) -> World {
     let base = common::PlantScene::default();
-    let plants = if args.plants > 0 { args.plants } else { base.trees };
+    let plants = args.plants.unwrap_or(base.trees);
     common::PlantScene { trees: plants, start_frame: args.frame0, ..base }.build()
 }
 
@@ -1318,7 +1318,7 @@ fn build_scene(args: &Args) -> World {
         // `grove`, so every stored `grove` sheet still means what it meant.
         "gradient" => {
             let base = common::PlantScene::varied();
-            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            let plants = args.plants.unwrap_or(base.trees);
             return common::PlantScene {
                 species: args.species.clone(),
                 trees: plants,
@@ -1331,7 +1331,7 @@ fn build_scene(args: &Args) -> World {
         }
         "grove" => {
             let base = common::PlantScene::default();
-            let plants = if args.plants > 0 { args.plants } else { base.trees };
+            let plants = args.plants.unwrap_or(base.trees);
             return common::PlantScene {
                 species: args.species.clone(),
                 trees: plants,
@@ -2621,7 +2621,14 @@ struct Args {
     /// That is this repo's own "a scene that contradicts the code will
     /// look like a bug in the code", in its cheaper form: a scene that
     /// cannot contain the artifact will look like the artifact is absent.
-    plants: usize,
+    /// `plants=`, as written on the command line. `None` means "not given",
+    /// which is what lets **`plants=0` mean an empty bed** -- it was a
+    /// `usize` sentinel-at-zero before, so a bare bed was the one control
+    /// this harness could not express, and the question "does the ground
+    /// fall down on its own, without a tree to drop on it?" could not be
+    /// asked at all. `CLAUDE.md`: a control that cannot be expressed cannot
+    /// be run.
+    plants: Option<usize>,
     /// `ignite=x,y,radius,frame` -- start a fire at a chosen frame, after
     /// the vegetation has had time to grow. Repeatable.
     ignitions: Vec<(i32, i32, i32, usize)>,
@@ -3272,7 +3279,7 @@ fn parse() -> Args {
         soil_moisture: pixel_physics::sim::material::SOIL_FIELD_CAPACITY,
         frame0: 0,
         // 0 means "leave `PlantScene`'s own default alone".
-        plants: 0,
+        plants: None,
         soil_depth: common::SOIL_DEPTH,
         ignitions: Vec::new(),
         dries: Vec::new(),
@@ -3392,7 +3399,7 @@ fn parse() -> Args {
             "species" => a.species = v.into(),
             "moisture" => a.soil_moisture = v.parse().expect("moisture"),
             "frame0" => a.frame0 = v.parse().expect("frame0"),
-            "plants" => a.plants = v.parse().expect("plants"),
+            "plants" => a.plants = Some(v.parse().expect("plants")),
             "loadfail" => a.load_failure = Some(v.parse::<i32>().expect("loadfail=0|1") != 0),
             "soil" => a.soil_depth = v.parse().expect("soil=ROWS"),
             "ignite" => {
