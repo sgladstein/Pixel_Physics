@@ -2025,7 +2025,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let (inputs, seen, sight_reads) = sense(world, x, y, organism, heading, def);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
     let sighting = seen.prey;
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
@@ -2083,6 +2083,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // one sweeping open ground — which is the term that makes shelter pay
     // for itself twice.
     let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    // **Feeling the ground costs, at the same per-cell rate as looking at
+    // it.** `curvature_radius` was the sensory ratchet `sight_range` used to
+    // be -- a wider disc was strictly better because nothing billed the
+    // `(2r+1)^2` reads it performs. Owner's ruling, 2026-09-05:
+    // *everything should be priced*. Charged per cell actually read, so the
+    // species gate and the two debug switches all resolve to a bill of zero
+    // without a second condition being written anywhere.
+    let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -2097,12 +2105,14 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     } else {
         0.0
     };
-    let mut spent = idle + synapse_tax + sight_tax + exposure;
+    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax + exposure) as f64;
+    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + exposure) as f64;
+    world.creature_stats.curvature_cells_read += curvature_reads;
+    world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
     if exposure > 0.0 {
         world.creature_stats.exposed_ticks += 1;
@@ -2376,7 +2386,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
     let Some(state) = world.organism(organism) else {
         return ([0.0; brain::BRAIN_INPUTS], [0.0; brain::BRAIN_OUTPUTS], 0);
     };
-    let (inputs, _, _) = sense(world, x, y, organism, state.heading, def);
+    let (inputs, _, _, _) = sense(world, x, y, organism, state.heading, def);
     let mut brain_state = state.brain_state;
     let (outputs, active) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
     (inputs, outputs, active)
@@ -2424,7 +2434,7 @@ fn sense(
     organism: u16,
     heading: u8,
     def: &CreatureDef,
-) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64) {
+) -> ([f32; brain::BRAIN_INPUTS], Sightings, u64, u64) {
     use brain::BrainInput as I;
     let mut inputs = [0.0f32; brain::BRAIN_INPUTS];
     inputs[I::Bias as usize] = 1.0;
@@ -2576,6 +2586,7 @@ fn sense(
     // tick and never enters `sight`; the ant, the worm and every plant-side
     // caller are therefore bit-identical to before this input existed.
     let mut sight_reads = 0u64;
+    let mut curvature_reads = 0u64;
     // **This animal's reach, not its species'.** `TRAIT_SIGHT_RANGE` scales
     // the authored range per individual, so the gate, the cast and both
     // distance normalisations below have to read the same number -- an eye
@@ -2631,9 +2642,22 @@ fn sense(
     inputs[I::SurfaceCurvature as usize] = if def.curvature_radius == 0 || !curvature_sense_enabled() {
         0.0
     } else if curvature_flattened() {
+        // The flattened arm substitutes a constant and performs no reads, so
+        // it must not be billed for any. Deriving the charge from the radius
+        // instead of counting here would bill this arm for a sense that did
+        // not fire -- and it is a control arm, so the bill would land
+        // precisely where the comparison is.
         CURVATURE_BANK_MEDIAN
     } else {
-        surface_curvature(world, x, y, def.curvature_radius)
+        let r = def.curvature_radius;
+        // `(2r+1)^2 - 1`, which is exactly what `surface_curvature`'s loops
+        // traverse: the full disc, centre excluded, with no early exit. The
+        // count is derived from the same radius the call gets rather than
+        // instrumented inside the loop, because the loop is unconditional --
+        // and it is asserted against the real thing by
+        // `the_curvature_disc_is_billed_for_every_cell_it_reads`.
+        curvature_reads = ((2 * r + 1) * (2 * r + 1) - 1).max(0) as u64;
+        surface_curvature(world, x, y, r)
     };
 
     // **The kin pair, from the same cast the prey pair came out of.**
@@ -2657,7 +2681,7 @@ fn sense(
         inputs[I::KinBearing as usize] = error / std::f32::consts::PI;
     }
 
-    (inputs, seen_all, sight_reads)
+    (inputs, seen_all, sight_reads, curvature_reads)
 }
 
 /// **What one cell is worth to *this gut*** — S5's matched filter, and the
@@ -6469,6 +6493,97 @@ mod tests {
             narrow < authored && authored < wide,
             "a sharper eye must read more of the world: allele -0.75 read {narrow}, 0.0 read {authored}, +0.75 read {wide} -- \
              equal figures mean the allele is not reaching the cast"
+        );
+    }
+
+    /// **The curvature disc is billed for every cell it reads, and for none
+    /// when it does not read.**
+    ///
+    /// Owner's ruling, 2026-09-05: *everything should be priced*. This is
+    /// the guard for the sense that was the clearest unpriced ratchet left —
+    /// a wider disc was strictly better because the `(2r+1)^2` reads it
+    /// performs cost nothing.
+    ///
+    /// **The billed count is derived from the radius, not instrumented
+    /// inside the loop**, which is only sound while `surface_curvature`'s
+    /// loops stay unconditional — they traverse the full disc with the
+    /// centre skipped and no early exit. The arithmetic assertion below is
+    /// the thing that has to be re-derived if that ever changes; an early
+    /// exit would make this over-bill silently.
+    #[test]
+    fn the_curvature_disc_is_billed_for_every_cell_it_reads() {
+        // Read the disc the way `surface_curvature` does, and count. This is
+        // the loop shape the charge assumes, written out so a change to the
+        // real one shows up here rather than as a quiet over-bill.
+        let disc_cells = |r: i32| -> u64 {
+            let mut n = 0u64;
+            for dy in -r..=r {
+                for dx in -r..=r {
+                    if dx == 0 && dy == 0 {
+                        continue;
+                    }
+                    n += 1;
+                }
+            }
+            n
+        };
+        assert_eq!(disc_cells(2), 24, "the r=2 disc is 24 cells, which is the number ant.ron's price is derived against");
+
+        // The ant's authored rate, at f32's actual precision -- the asset
+        // carries more digits than an f32 can hold, and clippy is right that
+        // writing them here is a claim the type cannot keep.
+        const ANT_RATE: f32 = 8.116883e-8;
+        let scene = |fraction: f32, radius: i32| -> (u64, f64, u64) {
+            let mut w = test_world();
+            if let Some(id) = w.species.id_of("ant") {
+                if let Some(mut def) = w.species.get(id).creature.clone() {
+                    def.curvature_fraction = fraction;
+                    def.curvature_radius = radius;
+                    // Breeding off: a second animal would make the read count
+                    // a population rather than a sense, which is the confound
+                    // `a_quicker_lineage_takes_more_turns_and_burns_more`
+                    // records paying for.
+                    def.reproduce_threshold = 0.0;
+                    w.species.set_creature(id, def);
+                }
+            }
+            w.plant_ant(100, 95);
+            let ant = w.get(100, 95).organism_id();
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            if let Some(st) = w.organism_mut(ant) {
+                st.energy = 100_000.0;
+            }
+            run(&mut w, 600);
+            (w.creature_stats.curvature_cells_read, w.creature_stats.curvature_energy, w.creature_stats.ticks)
+        };
+
+        // The authored sense, priced.
+        let (reads, spent, ticks) = scene(ANT_RATE, 2);
+        assert!(ticks > 0, "the ant never took a turn, so this measures a dead animal rather than a sense");
+        assert_eq!(reads, ticks * disc_cells(2), "every tick of a radius-2 sense must bill its whole disc");
+        assert!(spent > 0.0, "the disc read {reads} cells and was billed nothing -- a reader with no writer, which is the failure this price exists to close");
+
+        // **The zero arm is a positive control on the guard, not a
+        // formality.** `curvature_fraction` defaults to 0.0, so a charge
+        // that was never wired at all reports 0.0 here and would pass any
+        // test that only asserted the default.
+        let (free_reads, free_spent, _) = scene(0.0, 2);
+        assert_eq!(free_reads, reads, "the sense must read the same cells whether or not it is billed");
+        assert_eq!(free_spent, 0.0, "the 0.0 default must charge exactly nothing: a species that has not opted in has to be bit-identical");
+
+        // A species with no such sense reads nothing and pays nothing --
+        // both, and the pair is the point: a bill without reads would mean
+        // the charge is derived from something other than the work.
+        let (off_reads, off_spent, _) = scene(ANT_RATE, 0);
+        assert_eq!((off_reads, off_spent), (0, 0.0), "a species authoring no curvature_radius must neither read nor pay");
+
+        // Quadratic in the radius, which is the gradient that makes a broad
+        // sense expensive without a hand-written cap.
+        let (wide_reads, wide_spent, _) = scene(ANT_RATE, 4);
+        assert_eq!(wide_reads, ticks * disc_cells(4), "a radius-4 disc bills 80 cells a tick");
+        assert!(
+            wide_spent > spent * 3.0,
+            "widening the disc from 2 to 4 must cost more than three times as much (24 -> 80 cells): {spent} -> {wide_spent}"
         );
     }
 

@@ -245,6 +245,15 @@ pub struct CreatureStats {
     /// cannot say whether a colony is sheltering more or simply dying, and
     /// the tick count alone cannot say whether the price is biting.
     pub exposure_energy: f64,
+    /// Cells the terrain-curvature disc read, and what they were billed --
+    /// the same pair `sight_cells_read`/`sight_fraction` keeps for the eye,
+    /// on the other sense. Two counters rather than one because the work and
+    /// the price are separately wrong-able: a disc that reads nothing prints
+    /// zero on both, and a disc that reads and is not billed prints a
+    /// positive left and a zero right, which is the reader-with-no-writer
+    /// shape this engine has hit three times.
+    pub curvature_cells_read: u64,
+    pub curvature_energy: f64,
     pub exposed_ticks: u64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
     /// — the effect counter on the far side of `digs`, which is a call

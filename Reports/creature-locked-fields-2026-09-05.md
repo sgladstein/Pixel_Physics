@@ -34,6 +34,29 @@ Hence the order: **price first, unlock second.** `sight_fraction` landed a
 week before `TRAIT_SIGHT_RANGE` and said in its own doc that it existed so
 that "the gene arrives into a world that already charges for it".
 
+## The ruling that this document was first written the wrong way round
+
+**Owner, on reading the sentence above: *"everything should be priced."***
+
+The first draft of this report treated *unpriced* as a standing reason to
+leave a field locked, and its queue accordingly read as four fields waiting on
+a design decision that might never come. That is backwards. **An unpriced
+field is a defect to be fixed, not a justification for a lock.** "Leave it
+locked" is not one of the available resting states; the resting state is
+*priced and open*, and everything not yet there is work.
+
+This changes nothing about the ordering — a price still has to land before or
+with its gene, for the ratchet reason above — and everything about what the
+table is *for*. It is a work list with a known end, not a classification with
+some rows permanently in the wrong column. The rows below marked *needs a
+price first* are the remaining prices to author, in order.
+
+**It also disposes of the two "should stay the author's" arguments further
+down.** They survive only in the narrow form the ruling leaves them: a *price*
+is a rule of the game rather than a property of an animal, so it is not a
+locked trait at all — there is nothing there to unlock. Anything that is a
+property of the animal gets priced and opened.
+
 ## The table
 
 `CreatureDef`, every field, at 2026-09-05.
@@ -49,10 +72,10 @@ that "the gene arrives into a world that already charges for it".
 | `sight_range` | *was* | yes | unlocked 2026-09-05 |
 | `crop_capacity` | **yes** | **yes**, `carried_cells` charges a load | **ready — next** |
 | `body` (cell count) | **yes** | **yes**, every cost is per cell | **ready**, but it is S8 and larger than a slot |
-| `dig_force` | **yes** | **no** | needs a price first |
-| `bite_force` | **yes** | **no** | needs a price first |
-| `curvature_radius` | **yes** | **no** | needs a price first |
-| `digest_rate` | **yes** | **no** | needs a price first |
+| `dig_force` | **yes** | **no** | price to author — next |
+| `bite_force` | **yes** | **no** | price to author, with `dig_force` |
+| `curvature_radius` | *was* | **now yes**, `curvature_fraction` | **priced here**; unlock next |
+| `digest_rate` | **yes** | **no** | price to author |
 | `sensor_offset` | **yes** | no — but see below | **safe unpriced**, uniquely |
 | `body_energy` | **yes** | it is a price | see *the ones that should stay* |
 | `mutation_rate` | **yes** | no | see *the ones that should stay* |
@@ -104,6 +127,51 @@ was not the gene. Worth recording as `CLAUDE.md`'s tidiness rule running the
 other way: here the *untidy* number was the tell, and the clean 2x exists only
 because the confound was removed rather than corrected for.
 
+### And in a live bed it decides whether the colony breeds at all
+
+Eight seeds, the sealed lab bed, 9,000 frames, the whole colony set to one
+allele. **The two obvious measures point in exactly opposite directions, with
+no exceptions in either.**
+
+| seed | animals left −1 / 0 / +1 | born −1 / 0 / +1 | died −1 / 0 / +1 |
+|---|---|---|---|
+| 1 | 24 / 13 / 10 | 0 / 0 / 2 | 28 / 39 / 44 |
+| 2 | 24 / 17 / 16 | 0 / 0 / 3 | 28 / 35 / 39 |
+| 3 | 22 / 5 / 11 | 0 / 0 / 1 | 30 / 47 / 42 |
+| 4 | 27 / 21 / 18 | 0 / 0 / 5 | 25 / 31 / 39 |
+| 5 | 23 / 14 / 8 | 0 / 0 / 2 | 29 / 38 / 46 |
+| 6 | 22 / 13 / 9 | 0 / 0 / 3 | 30 / 39 / 46 |
+| 7 | 34 / 25 / 13 | 0 / 1 / 5 | 18 / 28 / 44 |
+| 8 | 26 / 9 / 11 | 0 / 0 / 2 | 26 / 43 / 43 |
+| **total** | — | **0 / 1 / 23** | **214 / 300 / 343** |
+
+**Slow colonies end larger on 8 of 8. Quick colonies are the only ones that
+breed, on 8 of 8 — the slow arm reproduced zero times across all eight seeds,
+and the shipped ant managed one.**
+
+**The standing-population column is very nearly a tautology and is reported as
+one.** This bed starves its colony from 52 animals down to a dozen, so
+"animals alive at frame 9000" is a snapshot on a declining curve, and a
+half-metabolism ant outliving a double-metabolism one is arithmetic rather
+than selection. It measures survival time under starvation, which low
+metabolism wins by construction. It is in the table because leaving it out
+would hide the disagreement, not because it is evidence.
+
+**The births column is the one that carries information**, and its mechanism
+is already written down elsewhere: `wiki/ants.md` records that this colony
+"eats its neighbourhood bare and then starves in a bed that is filling up with
+food it cannot reach". A birth costs ~1,100 J banked. A quick ant covers twice
+the ground per frame, so it is the only one that reaches the far plants and
+gets rich enough — and it pays for the trip, dying 343 times against the slow
+arm's 214.
+
+So in the owner's own showcase bed, **the pace allele is the difference
+between a colony that merely persists and one that reproduces**, and it is
+also what kills them. That is the "gradient supplied by the bed" claim
+appearing as a measurement rather than as an argument: neither arm is fitter
+in the abstract, and which one is fitter here depends on a question about the
+bed — whether the far food is worth the trip.
+
 It is also the only gene in the table a person can see without an overlay. The
 owner's stated target is *"clear variety in behavior, different methods of
 movement"*; a quick ant scurries and a slow one plods, at up to a **4x spread
@@ -154,19 +222,53 @@ reason to refuse it.
 
 ## The queue
 
-1. **`crop_capacity`** — locked, already priced, and its own doc names it as
-   "the codomain of a future capacity gene". The cheapest remaining row.
-2. **`body` cell count (S8)** — priced since per-cell metabolism landed. Not a
-   trait slot: the body is a structure, so this is a real change rather than a
-   fifth tuple element.
-3. **A price for strength**, then `dig_force` and `bite_force` behind it. The
-   verb price exists (`dig_cost_in_moves`) but is flat in force, so today a
-   stronger jaw is free.
-4. **A price for the curvature disc**, then `curvature_radius`. The shape is
-   already solved next door — `sight_fraction` charges per cell *read*, and
-   the disc's read count is `(2r+1)^2`, known before the read happens.
-5. **A price for digestion**, then `digest_rate`. Least clear of the four:
-   what a faster gut should cost is a design question, not a lookup.
+Under the ruling this is a work list with a known end — every row priced, every
+row open — rather than a set of candidates.
+
+1. **`curvature_fraction`** — **done, this change.** Charged per cell the disc
+   reads, at *the same per-cell rate as `sight_fraction`*, because a disc read
+   and a ray read are both one `World::get` and the price of looking at a cell
+   cannot depend on which organ looked. The share then falls out of the work:
+   the ant's r=2 disc is 24 cells against 616 for a r=32 cast, so feeling the
+   ground is **0.39% of an idle lifetime** where a full sweep is 10%. It is
+   quadratic in the radius — r=8 is 4.7%, r=16 is 17.6% — so a broad sense is
+   expensive without any hand-written cap. `curvature_radius` unlocks next.
+2. **`crop_capacity`** — locked, already priced by `carried_cells`, and its own
+   doc names it as "the codomain of a future capacity gene". No price to
+   author; it is an unlock.
+3. **A price for strength**, then `dig_force` and `bite_force`. The verb price
+   exists (`dig_cost_in_moves`) but is flat in force, so a stronger jaw is free
+   today. The idiom is settled by the two sensory prices: a per-tick fraction
+   of `start_energy` per unit of force, since what you are paying for is the
+   muscle you carry whether or not you swing it. Charged on the **max** of the
+   two rather than the sum — one apparatus, rated for the harder job — so an
+   animal authoring only `dig_force` is not billed twice.
+4. **A price for digestion**, then `digest_rate`. The least settled of the
+   four, and the reason is worth stating: a fast gut is strictly better today
+   (energy sooner, and less weight carried, since `carried_cells` charges for
+   what is still in the crop). So the price wants to be a *digestive
+   overhead* — a fraction of what is processed, lost to processing it — which
+   makes the trade real in both directions: quick and wasteful against slow
+   and efficient, with the crop's weight as the counterweight.
+5. **`body` cell count (S8)** — priced since per-cell metabolism landed. Not a
+   trait slot: a body is a structure, so this is a real change rather than a
+   tuple element.
+6. **`body_energy`** — what a corpse is worth, so a heritable version is prey
+   evolving to be **unpalatable**. Real and attractive, and it is three
+   couplings rather than one: it is also the divisor in `carried_cells` and a
+   term in `birth_cost`. It gets a change of its own with those re-derived,
+   which is `CLAUDE.md`'s *name the constants calibrated against the current
+   behaviour* rule and not a reason to refuse it.
+7. **`climbs_over_kin`, `eats_kin`** — booleans. They need an *axis* before
+   they need a price; a gene on a bit is a switch, not a trait.
+
+**`mutation_rate` is the one genuinely hard case**, and it is not being quietly
+exempted. It governs how every other gene explores, so a lineage that inherits
+its own rate has a gradient toward zero in any population currently doing well
+— the trait would reliably evolve away the capacity to evolve. That is a real
+design problem rather than a missing price, and it is the one row that should
+be argued out before it is built. `Reports/dead-ends.md` should be checked
+first either way.
 
 ## What this change also fixed, which was a lock of a different kind
 

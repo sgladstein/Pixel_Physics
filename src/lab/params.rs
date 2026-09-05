@@ -631,6 +631,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
         _ => return None,
     })
@@ -675,6 +676,8 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
     cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
         "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
+    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
+        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
     cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
         "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
 
@@ -906,6 +909,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
                         _ => return false,
             }

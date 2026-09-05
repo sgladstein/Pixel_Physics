@@ -3095,6 +3095,39 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub sight_fraction: f32,
+    /// Charged per **cell the curvature disc actually read** per tick — the
+    /// same price as `sight_fraction`, for the same work, on the other
+    /// sense.
+    ///
+    /// **Authored equal to `sight_fraction` on the ant, and that equality is
+    /// the derivation rather than a coincidence.** A disc read and a ray
+    /// read are both one `World::get`; the price of *looking at a cell* does
+    /// not depend on which organ did the looking. So there is one per-cell
+    /// sensory rate per species and the *share* of a lifetime each sense
+    /// costs falls out of how much work it does — 24 cells for the ant's
+    /// r=2 disc against 616 for a r=32 cast, so feeling the ground is
+    /// **0.39% of an idle lifetime** where a full sweep is 10%. Picking a
+    /// share per sense instead would have made the two incomparable, and
+    /// they have to be comparable: once both reaches are heritable, an
+    /// animal trading a wider disc against a longer eye is choosing between
+    /// them, and the choice is only honest if the cells cost the same.
+    ///
+    /// **It is quadratic in the radius, which is the whole gradient.** The
+    /// disc is `(2r+1)^2 - 1` cells, so r=2 is 24, r=8 is 288 (4.7% of an
+    /// idle life) and r=16 is 1,088 (17.6%). A species wanting broad
+    /// features pays steeply for them, and nothing has to cap the radius by
+    /// hand to make that true.
+    ///
+    /// **Charged on cells actually read, not on the radius**, so the gates
+    /// are respected: a species with `curvature_radius: 0`, or a run with
+    /// the sense switched off, reads nothing and pays nothing. Deriving the
+    /// charge from the radius instead would bill an animal for a sense that
+    /// did not fire, which is the reader-with-no-writer failure inverted.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub curvature_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3404,7 +3437,7 @@ impl CreatureDef {
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
     /// | a rate per decision, per animal | `1/k` | `digest_rate` |
-    /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction` |
+    /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
     /// | dimensionless, or an energy in joules | `1` | everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
@@ -3467,6 +3500,7 @@ impl CreatureDef {
             exposure_cost_per_cell,
             synapse_fraction,
             sight_fraction,
+            curvature_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3549,6 +3583,12 @@ impl CreatureDef {
             // its body has more cells — and an eye is per animal, not per
             // cell.
             sight_fraction: sight_fraction / (k * time_factor).max(f32::EPSILON),
+            // Same class and the same divisor as `sight_fraction` directly
+            // above -- a rate per cell *read* per decision. The disc grows
+            // as `(2r+1)^2` with the radius, and `curvature_radius` is
+            // already scaled as a length, so the read count carries `k*k` on
+            // its own and only the per-cell rate is corrected here.
+            curvature_fraction: curvature_fraction / (k * time_factor).max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
