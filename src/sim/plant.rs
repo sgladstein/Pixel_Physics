@@ -748,7 +748,45 @@ fn wood_density_mult(world: &World, organism_id: u16) -> f32 {
 /// with no root system at all yet, still has somewhere to put its first
 /// drink.
 fn water_capacity_of(contact_root_cells: u32) -> f32 {
-    organism::WATER_SCALE * contact_root_cells.max(1) as f32
+    organism::WATER_SCALE * contact_root_cells.clamp(1, water_tank_contact_cap()) as f32
+}
+
+/// **How many contact roots may count toward *storage*** — past this, more
+/// root buys uptake and anchorage but not a bigger tank.
+///
+/// `u32::MAX` ships, so the default is the unbounded formula exactly and
+/// this is inert until swept.
+///
+/// **Why a bound is wanted at all.** Capacity is `WATER_SCALE x
+/// contact_root_cells` and nothing limits it, so at `WATER_SCALE` 4.0 the
+/// tank equals a mature tree's ~29-per-tick demand at about **7** contact
+/// cells while the tree grows **250-320** — a buffer of thirty-five ticks
+/// where a real plant stores well under a day's transpiration.
+///
+/// **And why it is now a blocker rather than a tidy-up.** With
+/// `PIXEL_PHYSICS_ROOT_GATE=local` a thirsty plant answers by rooting
+/// (measured: contact 175 -> 576), which inflates the tank 3.29x, which
+/// raises `water_status` because that is `min(stock/demand, openness)`
+/// against the inflated tank (measured: worst plant 0.723 -> 1.000), which
+/// props up income because income multiplies by it — so **a droughted plant
+/// roots its way to a bigger bucket and reads as well-watered**, and
+/// `a_tree_denied_water_dies_and_a_watered_one_does_not` fails. Capping the
+/// storage term is what breaks that loop without touching what roots buy in
+/// *uptake*, which is the channel that should matter.
+///
+/// Biologically it is the right place to cut: water is stored in sapwood,
+/// not in fine roots, so root count was never the quantity storage should
+/// have scaled with.
+const WATER_TANK_CONTACT_CAP: u32 = u32::MAX;
+
+/// `WATER_TANK_CONTACT_CAP`, swept per process — a measurement instrument in
+/// the shape of `soil_uptake_per_tick` and `root_gate_is_local` beside it.
+fn water_tank_contact_cap() -> u32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_WATER_TANK_CAP").ok().and_then(|v| v.parse().ok()).unwrap_or(WATER_TANK_CONTACT_CAP)
+    })
 }
 
 /// Settle one organism's water balance for this tick — the arithmetic
