@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**49 open, 96 bugs** (plus 20 landing-note items,
+**48 open, 96 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -141,7 +141,7 @@ point.
 | W2 | **OPEN** | 9264 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
 | W2a | **OPEN** | 9340 | The refutation, measured |
 | E2 | **OPEN** | 9421 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | **OPEN** | 9493 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W3 | closed | 9493 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
 
 <!-- END GENERATED INDEX -->
 
@@ -9490,7 +9490,7 @@ and answers "yes, don't retry it".
 
 Full account: `Reports/sweep-positional-rng-2026-09-05.md` §9.3.
 
-### W3. `PlantScene`'s bed stands on a 512-span slab anchored only at the world edges, and it survives by never being evaluated
+### W3. `PlantScene`'s bed stands on a 512-span slab anchored only at the world edges, and it survives by never being evaluated — **FIXED the same day: there is ground under it now (`PIXEL_PHYSICS_SCENE_FLOOR=void` restores the old bed)**
 
 Found 2026-09-05 while rendering a review card, and root-caused the same
 day after the card's own claim turned out to be wrong. **This is a scene
@@ -9548,11 +9548,54 @@ bed spreads the load" (`rootwood.reinforces_powder`) are both live, and one
 seed cannot tell them apart. A seed sweep pairing largest-piece size against
 floor survival would.
 
-**Two things this makes suspect, which is why it is filed rather than
+**THE FIX, 2026-09-05, on the owner's go-ahead: fill y `floor_bottom`..
+`height` with `BEDROCK`, and leave the stone floor's own material alone.**
+
+The defect is the void, not the slab's material, and that distinction is
+load-bearing. The tempting repair -- make the *floor* bedrock -- would have
+been a behaviour change to the plants smuggled in as a scene repair, because
+`structural.rs`'s `relax_one` roots a cell's distance at 0 when a
+`NEIGHBOURS_4` neighbour is `BEDROCK`, so every root that reached the floor
+would silently have become anchored. Filling underneath leaves every
+material within six rows of living tissue exactly as it was. Bedrock rather
+than more stone because that is what this repo already floors its support
+scenes with (`anchor_probe`, `arch_probe`) and because it is inert: it never
+moves, so those chunks sleep, and `bounds` was always the whole world rect.
+
+**It works.** The arm that reliably collapsed -- roots ablated, the same
+seed -- now reports `overloaded 0 (0 cells)` and its cluster intact at
+6,000 / 12,000 / 18,000 / 24,000 frames, *with* trees falling on it (4-6
+settled log pieces). Before the fix that arm had `overloaded 553 (6,032
+cells)` and no floor left by 18,000.
+
+**It is NOT inert, and that was predicted wrong before it was measured.**
+The prediction was bit-identical for short runs; it is not. Standing cells
+on the default seed went 16,234 -> 16,166 at frame 6,000 (-0.4%) and 28,390
+-> 23,329 by 24,000. **But the divergence is chaotic, not systematic**, and
+that is the claim that decides whether the fix is safe. Six paired seeds at
+12,000 frames, `RAYON_NUM_THREADS` pinned, one binary across the switch:
+
+| seed | void | solid | ratio |
+|---|---|---|---|
+| 1 | 25,651 | 25,188 | 0.982 |
+| 2 | 24,206 | 28,433 | 1.175 |
+| 3 | 33,032 | 33,032 | **1.000** |
+| 4 | 27,088 | 27,161 | 1.003 |
+| 5 | 24,514 | 24,534 | 1.001 |
+| 6 | 26,234 | 29,007 | 1.106 |
+
+**Median 1.002, larger on 4 of 6 seeds, range 0.982-1.175** -- unbiased, with
+one seed coming out bit-identical and three within 0.3%. The -18% above was
+one seed's chaos, which is what `CLAUDE.md` means by *two runs that diverge
+on one frame are different worlds by the next*. **Consequence for anyone
+holding an old number: re-take it paired across
+`PIXEL_PHYSICS_SCENE_FLOOR`, never compare across the switch unpaired.**
+
+**Two things this made suspect, and the reason it was filed before it was
 fixed.** Any measurement taken on a long `scene=grove` run is taken over
 terrain that may have collapsed -- `wood` and `climb` build the same bed --
-so a plant statistic past ~15,000 frames should be read against the
-`hanging census` line before it is trusted. And the general shape is worth
+so a plant statistic past ~15,000 frames **taken before this fix** should be
+read against the `hanging census` line before it is trusted. And the general shape is worth
 more than the scene: **an impossible structure is indistinguishable from a
 sound one for as long as nothing disturbs it**, so "it has stood for
 20,000 frames" is not evidence that the load model accepts it.

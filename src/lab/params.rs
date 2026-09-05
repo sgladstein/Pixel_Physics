@@ -631,6 +631,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
         _ => return None,
     })
@@ -675,20 +676,44 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
     cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
         "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
+    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
+        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
     cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
         "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
 
     if let Some(id) = world.species.id_of(species) {
         if let Some(def) = world.species.get(id).creature.as_ref() {
-            out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: organism::TRAIT_GUT_BIAS }, species, "gut_bias",
-                def.traits[organism::TRAIT_GUT_BIAS], span(-1.0, 1.0, 0.05),
-                "WHERE THIS LINEAGE'S DIGESTION SITS BETWEEN PLANT MATTER (-1) AND FLESH (+1). IT IS HERITABLE, SO THIS ROW IS THE ANCESTRAL VALUE A NEWBORN STARTS FROM AND NOT WHAT ANY ANT ALIVE HAS -- CLICK ONE WITH THE LOOK TOOL TO SEE ITS OWN."));
-            out.push(float(g, Knob::CreatureTrait { species: sp, slot: organism::TRAIT_BIRTH_GRANT }, species, "birth_grant",
-                def.traits[organism::TRAIT_BIRTH_GRANT], span(-1.0, 1.0, 0.05),
-                "HOW MUCH OF START ENERGY A NEWBORN IS ACTUALLY HANDED. HERITABLE, LIKE GUT BIAS, SO THIS IS THE ANCESTRAL VALUE. IT IS THE PARENT'S INVESTMENT PER OFFSPRING."));
+            for (slot, name, note) in TRAIT_ROWS {
+                out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
+                    def.traits[*slot], span(-1.0, 1.0, 0.05), note));
+            }
         }
     }
 }
+
+/// **Every heritable trait slot, as a table rather than as a call each.**
+///
+/// Two of the four slots that existed before `pace` were unreachable from
+/// this page -- `reproduce_at` and `sight_range` both landed with a
+/// hand-written `out.push` for the two older slots beside them and no line
+/// of their own, so the owner could not set them and could not see them.
+/// That is not an oversight anybody repeats on purpose; it is what a
+/// registration written one slot at a time does. Indexing
+/// `CREATURE_TRAITS`' constants from one table means a new slot is a row
+/// here or a compile error there, and `every_trait_slot_has_a_row` asserts
+/// the count.
+const TRAIT_ROWS: &[(usize, &str, &str)] = &[
+    (organism::TRAIT_GUT_BIAS, "gut_bias",
+        "WHERE THIS LINEAGE'S DIGESTION SITS BETWEEN PLANT MATTER (-1) AND FLESH (+1). IT IS HERITABLE, SO THIS ROW IS THE ANCESTRAL VALUE A NEWBORN STARTS FROM AND NOT WHAT ANY ANT ALIVE HAS -- CLICK ONE WITH THE LOOK TOOL TO SEE ITS OWN."),
+    (organism::TRAIT_BIRTH_GRANT, "birth_grant",
+        "HOW MUCH OF START ENERGY A NEWBORN IS ACTUALLY HANDED. HERITABLE, LIKE GUT BIAS, SO THIS IS THE ANCESTRAL VALUE. IT IS THE PARENT'S INVESTMENT PER OFFSPRING."),
+    (organism::TRAIT_REPRODUCE_AT, "reproduce_at",
+        "HOW RICH AN ANT WAITS TO BE BEFORE IT BREEDS, AS A MULTIPLIER ON THE REPRODUCE THRESHOLD ROW ABOVE: -1 IS THE EARLIEST THE ARITHMETIC ALLOWS AND +1 IS TWICE THE BAR. LOW IS VERY NEARLY A SUICIDE PACT -- A PARENT THAT BREEDS THE INSTANT IT CAN AFFORD TO IS LEFT STANDING ON ONE JOULE. HIGH IS FEWER CHILDREN AND A LONGER LIFE TO HAVE THEM IN."),
+    (organism::TRAIT_SIGHT_RANGE, "sight_range",
+        "HOW FAR THIS LINEAGE CAN SEE, SHIFTED FROM WHAT THE SPECIES WAS AUTHORED WITH: 0 IS THE AUTHORED EYE, +1 ADDS SIXTY-FOUR CELLS OF REACH AND -1 TAKES IT AWAY. IT IS ADDITIVE, SO A SPECIES BORN BLIND -- WHICH IS EVERY ONE OF THEM BUT THE BEETLE -- CAN EVOLVE EYES. SEEING IS CHARGED PER CELL LOOKED AT, SO A BIGGER EYE IS A REAL BILL AND NOT A FREE UPGRADE."),
+    (organism::TRAIT_PACE, "pace",
+        "HOW FAST THIS LINEAGE LIVES: +1 IS AN ANT THAT TAKES ITS TURN TWICE AS OFTEN AND -1 ONE THAT TAKES IT HALF AS OFTEN. IT MOVES THE TICK INTERVAL ROW ABOVE, AND IT IS THE ONE ROW ON THIS PAGE YOU CAN WATCH WITHOUT AN OVERLAY -- A QUICK ANT SCURRIES AND A SLOW ONE PLODS. IT IS NOT A FREE SPEED-UP: EVERY COST AN ANT PAYS IS CHARGED ONCE PER TURN, SO LIVING TWICE AS FAST BURNS TWICE AS FAST."),
+];
 
 fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     let g = Group::Box;
@@ -884,6 +909,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
                         _ => return false,
             }
@@ -1336,22 +1362,20 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     // organism's whole-body energy, and the same figure twice under one
     // heading reads as two different quantities that happen to agree.
     if species.creature.is_some() {
-        // **The two inherited traits are `GENOME`, not `STATE`**, for the
-        // reason the grouping exists: they are drawn at birth and carried for
-        // life, so they belong with the plant's genotype draws rather than
-        // with the numbers that move while you watch.
-        genome.push(("GUT BIAS".into(), format!("{:+.3}", state.traits[organism::TRAIT_GUT_BIAS]),
-            "THIS ANIMAL'S OWN DIET, -1 PLANT MATTER TO +1 FLESH. IT IS INHERITED WITH JITTER, SO IT IS NOT THE SPECIES VALUE ON THE ANTS PAGE -- COMPARE THE TWO AND YOU ARE LOOKING AT ONE GENERATION OF DRIFT.".into()));
-        genome.push(("BIRTH GRANT".into(), format!("{:+.3}", state.traits[organism::TRAIT_BIRTH_GRANT]),
-            "HOW MUCH THIS ONE WOULD HAND A NEWBORN, AS ITS OWN INHERITED VALUE RATHER THAN THE SPECIES'.".into()));
-        // **The third body trait, and it was missing.** Two of three were
-        // printed here from the day the group landed; nothing pointed it out
-        // because a page listing two numbers looks exactly like a page whose
-        // subject has two. It is the one life-history axis the brain cannot
-        // already express, so a page without it cannot tell a fast breeder
-        // from a hoarder.
-        genome.push(("BREEDS AT".into(), format!("{:+.3}", state.traits[organism::TRAIT_REPRODUCE_AT]),
-            "HOW MUCH WEALTH THIS ONE INSISTS ON BEFORE IT WILL BUD, FROM -1 (THE EARLIEST THE ARITHMETIC ALLOWS) TO +1 (TWICE ITS SPECIES' THRESHOLD). AGAINST THE ANTS PAGE'S OWN FIGURE IT IS ONE GENERATION OF DRIFT. A BOX FULL OF HOARDERS IS A BOX THAT LOOKS HEALTHY AND DOES NOT BREED.".into()));
+        // **The inherited traits are `GENOME`, not `STATE`**, for the reason
+        // the grouping exists: they are drawn at birth and carried for life,
+        // so they belong with the plant's genotype draws rather than with the
+        // numbers that move while you watch.
+        //
+        // **Off the same `TRAIT_ROWS` table the parameters page reads**, and
+        // that is the whole repair: this block listed two of what were four
+        // slots, so an owner clicking an animal to ask what it had inherited
+        // was shown half its genome with nothing to say so. A slot is now
+        // visible here the moment it has a row there.
+        for (slot, name, _) in TRAIT_ROWS {
+            genome.push((name.to_uppercase(), format!("{:+.3}", state.traits[*slot]),
+                format!("THIS ANIMAL'S OWN {}, INHERITED WITH JITTER RATHER THAN THE SPECIES VALUE ON THE ANTS PAGE. COMPARE THE TWO AND YOU ARE LOOKING AT HOW FAR THIS LINEAGE HAS DRIFTED.", name.replace('_', " ").to_uppercase())));
+        }
         // **`forage_max`, not `since_nest`, and the swap is the same one the
         // roster's `FAR` row made.** This row read `SINCE NEST` and told the
         // reader that *"a number that only ever climbs is an ant that is
@@ -1942,6 +1966,28 @@ mod tests {
 
     /// A tuple or a list must not be mistaken for a number, or the span edit
     /// replaces up to the first comma and leaves `, -0.2)` dangling.
+    /// **Every heritable trait slot is reachable from this page.**
+    ///
+    /// The guard for the failure that prompted `TRAIT_ROWS`: `reproduce_at`
+    /// and `sight_range` both shipped with the two older slots registered by
+    /// hand beside them and no row of their own, so half the genome was
+    /// unreachable and unviewable and nothing said so. A count is enough --
+    /// the table is indexed by the `TRAIT_*` constants, so a row that exists
+    /// cannot be pointing at the wrong slot without failing to compile.
+    #[test]
+    fn every_trait_slot_has_a_row() {
+        assert_eq!(
+            TRAIT_ROWS.len(),
+            organism::CREATURE_TRAITS,
+            "a heritable trait slot has no row on the parameters page, so the owner can neither set it nor see it -- \
+             that is how two of the first four slots shipped unreachable"
+        );
+        let mut seen: Vec<usize> = TRAIT_ROWS.iter().map(|(slot, ..)| *slot).collect();
+        seen.sort_unstable();
+        seen.dedup();
+        assert_eq!(seen.len(), TRAIT_ROWS.len(), "two rows name the same slot, so some other slot has none");
+    }
+
     #[test]
     fn field_text_reads_the_span_the_edit_would_replace() {
         assert_eq!(field_text("(dig_force: 0.85,)", "dig_force").as_deref(), Some("0.85"));

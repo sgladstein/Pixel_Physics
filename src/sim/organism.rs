@@ -3095,6 +3095,39 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub sight_fraction: f32,
+    /// Charged per **cell the curvature disc actually read** per tick — the
+    /// same price as `sight_fraction`, for the same work, on the other
+    /// sense.
+    ///
+    /// **Authored equal to `sight_fraction` on the ant, and that equality is
+    /// the derivation rather than a coincidence.** A disc read and a ray
+    /// read are both one `World::get`; the price of *looking at a cell* does
+    /// not depend on which organ did the looking. So there is one per-cell
+    /// sensory rate per species and the *share* of a lifetime each sense
+    /// costs falls out of how much work it does — 24 cells for the ant's
+    /// r=2 disc against 616 for a r=32 cast, so feeling the ground is
+    /// **0.39% of an idle lifetime** where a full sweep is 10%. Picking a
+    /// share per sense instead would have made the two incomparable, and
+    /// they have to be comparable: once both reaches are heritable, an
+    /// animal trading a wider disc against a longer eye is choosing between
+    /// them, and the choice is only honest if the cells cost the same.
+    ///
+    /// **It is quadratic in the radius, which is the whole gradient.** The
+    /// disc is `(2r+1)^2 - 1` cells, so r=2 is 24, r=8 is 288 (4.7% of an
+    /// idle life) and r=16 is 1,088 (17.6%). A species wanting broad
+    /// features pays steeply for them, and nothing has to cap the radius by
+    /// hand to make that true.
+    ///
+    /// **Charged on cells actually read, not on the radius**, so the gates
+    /// are respected: a species with `curvature_radius: 0`, or a run with
+    /// the sense switched off, reads nothing and pays nothing. Deriving the
+    /// charge from the radius instead would bill an animal for a sense that
+    /// did not fire, which is the reader-with-no-writer failure inverted.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub curvature_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3157,7 +3190,10 @@ pub struct CreatureDef {
     pub digest_rate: f32,
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
-    /// `birth_grant`, slot 2 is `reproduce_at`.
+    /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
+    /// slot 4 is `pace`. Each slot has its own `TRAIT_*` constant carrying
+    /// what its axis means; this list is the index and those are the
+    /// definitions.
     ///
     /// Authored per species because two ancestors one number apart, living
     /// in different parts of the world and coloured differently, *is* the
@@ -3401,7 +3437,7 @@ impl CreatureDef {
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
     /// | a rate per decision, per animal | `1/k` | `digest_rate` |
-    /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction` |
+    /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
     /// | dimensionless, or an energy in joules | `1` | everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
@@ -3464,6 +3500,7 @@ impl CreatureDef {
             exposure_cost_per_cell,
             synapse_fraction,
             sight_fraction,
+            curvature_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3546,6 +3583,12 @@ impl CreatureDef {
             // its body has more cells — and an eye is per animal, not per
             // cell.
             sight_fraction: sight_fraction / (k * time_factor).max(f32::EPSILON),
+            // Same class and the same divisor as `sight_fraction` directly
+            // above -- a rate per cell *read* per decision. The disc grows
+            // as `(2r+1)^2` with the radius, and `curvature_radius` is
+            // already scaled as a length, so the read count carries `k*k` on
+            // its own and only the per-cell rate is corrected here.
+            curvature_fraction: curvature_fraction / (k * time_factor).max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
@@ -5165,7 +5208,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 3;
+pub const CREATURE_TRAITS: usize = 5;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5176,6 +5219,43 @@ pub const CREATURE_TRAITS: usize = 3;
 /// magnitude is a free dimension with nothing selecting on it, so a
 /// histogram of its alleles measures its own drift and reads as a result.
 /// A scalar on a bounded axis has no such dimension.
+/// Slot 3 of `CREATURE_TRAITS`: **how far this animal can see**, as a shift
+/// on its species' authored `sight_range` — `-1` blind, `0` the species' own
+/// reach, `+1` that reach plus a full `creature::SIGHT_SPAN`, read through
+/// `creature::sight_range_of`.
+///
+/// **The point is that an eye stops being a designer's constant.** Before
+/// this, `sight_range` was a plain `i32` species field: whether an animal
+/// could see, and how far, was fixed for its whole kind for ever, and no
+/// lineage could trade sharper eyes against their cost or cheaper eyes
+/// against their loss. That is the defect
+/// `Reports/selective-environments-2026-09-05.md` names for the verbs — a
+/// quantity outside the economy is a quantity selection cannot reach —
+/// arriving on the sensory axis.
+///
+/// **The price for it was authored a week before the gene was.**
+/// `sight_fraction` charges per cell the eye actually reads, and its own doc
+/// says it landed "to stop `sight_range` being a ratchet" so that the day
+/// the reach became heritable "the gene arrives into a world that already
+/// charges for it". This is that day; nothing new had to be priced.
+///
+/// **Additive, and there is no species gate — that is a ruling, and it
+/// reversed this slot's first design.** The first version scaled the
+/// authored reach, so `sight_range: 0` was blind at every allele: zero is
+/// absorbing under multiplication and an eyeless species could never evolve
+/// an eye. It followed `TRAIT_REPRODUCE_AT`'s precedent, that the species
+/// field stays the switch so a mutable slot cannot be a back door. The owner
+/// overturned it — *"anything should be able to evolve. don't lock"* — and
+/// the reasoning is that a back door is exactly what an open-ended system is
+/// for: a species that cannot cross a line drawn by its author is not
+/// evolving, it is being permitted.
+///
+/// **So this slot is deliberately unlike `TRAIT_REPRODUCE_AT` next door**,
+/// where `reproduce_threshold: 0` really does still mean "does not
+/// reproduce". The two are different on purpose and the reason is above; do
+/// not tidy them into agreement without taking the ruling back first.
+pub const TRAIT_SIGHT_RANGE: usize = 3;
+
 pub const TRAIT_GUT_BIAS: usize = 0;
 
 /// Slot 1 of `CREATURE_TRAITS`: **how much of `start_energy` a newborn is
@@ -5239,6 +5319,52 @@ pub const TRAIT_BIRTH_GRANT: usize = 1;
 /// this slot says, so making reproduction universal stays S5c's decision
 /// to take deliberately rather than something this slot does quietly.
 pub const TRAIT_REPRODUCE_AT: usize = 2;
+
+/// Slot 4 of `CREATURE_TRAITS`: **how fast this animal lives**, `-1` (half
+/// the species' pace) to `+1` (twice it), read through
+/// `creature::tick_interval_of`.
+///
+/// **Named for the animal rather than for the field, because the allele
+/// runs the opposite way to the number it moves.** `tick_interval` is a
+/// duration — *more* of it is a *slower* animal — and a slot where `+1`
+/// meant "sluggish" would read backwards against the other four and against
+/// what is on screen. So `+1` is a quick animal and the interval it
+/// produces is *shorter*.
+///
+/// **This one needed no new price, and the arithmetic for why is already
+/// written down in `CreatureDef::scaled`**: idle burn per frame is
+/// `idle_cost_per_cell * cells / tick_interval`, so halving the interval
+/// exactly doubles the cost of living per unit of world time. Every charge
+/// an animal pays — `idle`, `synapse_tax`, `sight_tax`, exposure — is
+/// levied once per decision, and a creature steps one cell per decision
+/// (`creature::step_chain`), so the whole budget and the whole output scale
+/// together on this axis.
+///
+/// **Which means it is very nearly neutral at first order, and that is the
+/// point rather than a defect.** Joules per *step* do not move: a quick
+/// animal pays double per frame and takes double the steps. What does not
+/// cancel is everything measured against **world** time — food regrowing,
+/// a predator closing, a rival reaching the same leaf first, a famine to be
+/// outlasted. So the gradient on this slot is supplied by the *bed* and not
+/// by the arithmetic, which is exactly the shape that produces different
+/// answers in different environments instead of one answer everywhere.
+/// Contrast `sight_fraction`, which had to be authored precisely because
+/// reach was otherwise free.
+///
+/// **Bounded by construction, so it needs no `MAX` constant.** The factor
+/// is `1/(1+t)` above zero and `1-t` below it — a reciprocal pair, so the
+/// axis is symmetric in *ratio*, which is the right symmetry for a rate and
+/// the reason this is not the plain `(1 + t)` shape `reproduce_fraction`
+/// uses. `t` is clamped to `-1..=1`, so the interval never leaves
+/// `[authored/2, authored*2]` and only a floor of 1 tick has to be imposed.
+/// The reciprocal is written out rather than reached for as a power because
+/// nothing decision-relevant in this engine may call libm — see
+/// `brain::squash`.
+///
+/// **There is no species gate, per the ruling `TRAIT_SIGHT_RANGE` records.**
+/// A species authoring `tick_interval: 6` has descendants at 3 and at 12,
+/// and no author's constant stands in the way.
+pub const TRAIT_PACE: usize = 4;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.

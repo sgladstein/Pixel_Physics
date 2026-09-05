@@ -289,6 +289,35 @@
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
         sight_fraction: 0.000000081168831,
+        // **The price of the curvature disc, and it is the same number as
+        // the eye's on purpose.** Owner's ruling, 2026-09-05: *everything
+        // should be priced*. `curvature_radius` was the sensory ratchet
+        // `sight_range` used to be -- a wider disc is strictly better if the
+        // `(2r+1)^2` reads it performs cost nothing -- and this is the line
+        // that stops it being one.
+        //
+        // **Equal to `sight_fraction` above because a disc read and a ray
+        // read are the same work.** One `World::get` is one `World::get`;
+        // the price of looking at a cell does not depend on which organ
+        // looked. So a species carries one per-cell sensory rate and the
+        // share each sense costs falls out of the cells it touches:
+        //
+        //   idle ticks = start_energy / (idle_cost_per_cell * cells)
+        //              = 200 / 0.10 = 2,000
+        //   the r=2 disc reads (2*2+1)^2 - 1 = 24 cells per tick
+        //   share = 8.1169e-8 * 2,000 * 24 = 0.0039
+        //
+        // **0.39% of an idle lifetime, against the eye's 10%** -- which is
+        // right, because the disc does 26x less work. Picking a share per
+        // sense instead would have made the two incomparable, and they have
+        // to be comparable: the day both reaches are heritable an animal is
+        // choosing between a wider disc and a longer eye, and that choice is
+        // only honest if the cells cost the same.
+        //
+        // It is quadratic in the radius, which is the whole gradient: r=8 is
+        // 288 reads (4.7% of an idle life) and r=16 is 1,088 (17.6%). No
+        // hand-written cap is needed to make a broad sense expensive.
+        curvature_fraction: 0.000000081168831,
         // **120, which is exactly what a corpse cell was worth before.**
         // Under `eat_energy` any mouthful paid the eater 120, so pricing an
         // ant's own meat at 120 a cell leaves scavenging worth precisely
@@ -481,7 +510,7 @@
         // `place_creature` leaves a parent standing on one joule, which is
         // about three ticks of upkeep, so the low allele very nearly kills
         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
-        traits: (0.0, -0.2, 0.0),
+        traits: (0.0, -0.2, 0.0, 0.0, 0.0),
         // The width one birth may move the gut, the grant, and the bar.
         // Authored so it and the ancestral value it widens cannot drift apart
         // in separate commits -- see `CreatureDef::trait_variance`. Read by
@@ -493,7 +522,7 @@
         // threshold -- 165 J for this ant, about half a mouthful of flower.
         // That is a step a lineage can actually be selected on inside a run
         // this long; a tenth of it would drift and never arrive.
-        trait_variance: (0.15, 0.15, 0.15),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
