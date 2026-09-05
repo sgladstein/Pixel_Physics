@@ -166,6 +166,84 @@ fn step(w: &mut World) {
     w.step_fields();
 }
 
+/// **Does a depletion zone exist around roots at all?** Median
+/// plant-available water in soil cells touching root tissue, against soil
+/// cells at the same depths that are far from any root.
+///
+/// This is the positive control for the whole `SOIL_UPTAKE_PER_TICK`
+/// question, and it is a *contrast* rather than a level for the reason
+/// `CLAUDE.md` prefers paired comparisons: bed-wide moisture rides the water
+/// cycle at about +/-1,700 cells, so a single "how wet is the soil" number is
+/// that frame's phase plus the drawdown and the two are not separable. Near
+/// and far are read on the same frame from the same bed, so the cycle
+/// divides out.
+///
+/// `far` is >= `FAR` cells from any root by a capped BFS, and is restricted
+/// to the row band the roots actually occupy — comparing rooted topsoil
+/// against unrooted subsoil would report a depth profile as a depletion
+/// zone.
+///
+/// Returns `(near, far, n_near, n_far)`. A run where `n_near` or `n_far` is
+/// tiny is reporting noise; both counts are printed for that reason.
+fn depletion_contrast(w: &World, width: i32, height: i32) -> (f32, f32, usize, usize) {
+    const FAR: u8 = 8;
+    let idx = |x: i32, y: i32| (y * width + x) as usize;
+    let mut dist: Vec<u8> = vec![u8::MAX; (width * height) as usize];
+    let mut queue: std::collections::VecDeque<(i32, i32)> = std::collections::VecDeque::new();
+    let (mut lo, mut hi) = (i32::MAX, i32::MIN);
+    for y in 0..height {
+        for x in 0..width {
+            let c = w.get(x, y);
+            if c.organism_id() == 0 {
+                continue;
+            }
+            let root = w.materials.get(c.material).reinforces_powder
+                || organism::cell_type(c.aux()) == Some(CellType::RootTip);
+            if root {
+                dist[idx(x, y)] = 0;
+                queue.push_back((x, y));
+                lo = lo.min(y);
+                hi = hi.max(y);
+            }
+        }
+    }
+    while let Some((x, y)) = queue.pop_front() {
+        let d = dist[idx(x, y)];
+        if d >= FAR {
+            continue;
+        }
+        for (dx, dy) in [(1, 0), (-1, 0), (0, 1), (0, -1)] {
+            let (nx, ny) = (x + dx, y + dy);
+            if nx < 0 || ny < 0 || nx >= width || ny >= height {
+                continue;
+            }
+            if dist[idx(nx, ny)] > d + 1 {
+                dist[idx(nx, ny)] = d + 1;
+                queue.push_back((nx, ny));
+            }
+        }
+    }
+    let (mut near, mut far) = (Vec::new(), Vec::new());
+    if lo <= hi {
+        for y in lo..=hi {
+            for x in 0..width {
+                let c = w.get(x, y);
+                if w.materials.get(c.material).water_capacity == 0 || c.organism_id() != 0 {
+                    continue;
+                }
+                let a = pixel_physics::sim::update::plant_available_fraction(c);
+                match dist[idx(x, y)] {
+                    1 => near.push(a),
+                    d if d >= FAR => far.push(a),
+                    _ => {}
+                }
+            }
+        }
+    }
+    let (n_near, n_far) = (near.len(), far.len());
+    (median(&mut near), median(&mut far), n_near, n_far)
+}
+
 fn median(v: &mut [f32]) -> f32 {
     if v.is_empty() {
         return f32::NAN;
@@ -229,6 +307,7 @@ fn main() {
                 ..Default::default()
             };
             let ground_y = scene.ground_y;
+            let (width, height) = (scene.width, scene.height);
             let mut w = scene.build();
 
             while w.frame < cut {
@@ -300,7 +379,7 @@ fn main() {
                 median(&mut b_status)
             );
             println!(
-                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income"
+                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   near    far   gap  n_near/n_far"
             );
 
             let mut last = cells_at_cut;
@@ -363,8 +442,9 @@ fn main() {
                 let mut income: Vec<f32> = tracked(&now, &live, |r| r.income);
                 let alive = cells.len();
                 let m = median(&mut cells);
+                let (near, far, n_near, n_far) = depletion_contrast(&w, width, height);
                 println!(
-                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}",
+                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
                     w.frame,
                     alive,
                     m,
@@ -380,6 +460,11 @@ fn main() {
                     median(&mut demand),
                     median(&mut uptake),
                     median(&mut income),
+                    near,
+                    far,
+                    far - near,
+                    n_near,
+                    n_far,
                 );
                 last = m;
             }

@@ -527,10 +527,10 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                         let want = rate.min(capacity - water);
                         if want > 0.0 {
                             let fill = update::liquid_fill(n);
-                            let asked = (want / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                            let asked = (want / rate.max(f32::EPSILON) * soil_uptake_per_tick() as f32) as u16;
                             let taken = asked.min(fill);
                             if taken > 0 {
-                                water += taken as f32 / SOIL_UPTAKE_PER_TICK as f32 * rate;
+                                water += taken as f32 / soil_uptake_per_tick() as f32 * rate;
                                 let left = fill - taken;
                                 world.set(nx, ny, if left == 0 { Cell::EMPTY } else { n.with_aux(left) });
                             }
@@ -608,7 +608,7 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                                 // and air humidity over drying ground falls
                                 // out of `apply_moisture_sources` on its own,
                                 // at the resolution the field actually has.
-                                let taken = (drawn / rate.max(f32::EPSILON) * SOIL_UPTAKE_PER_TICK as f32) as u16;
+                                let taken = (drawn / rate.max(f32::EPSILON) * soil_uptake_per_tick() as f32) as u16;
                                 let held = update::soil_moisture(n);
                                 let left = held.saturating_sub(taken);
                                 world.set(nx, ny, n.with_aux(left));
@@ -2632,6 +2632,32 @@ const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 /// make every root independent of every other. Untuned beyond that
 /// reasoning, and a first-class target for the economy pass.
 const SOIL_UPTAKE_PER_TICK: u16 = 60;
+
+/// `SOIL_UPTAKE_PER_TICK`, overridable for one process by
+/// `PIXEL_PHYSICS_SOIL_UPTAKE` — **a measurement instrument, not a
+/// setting**, exactly like `BEND=off` and `BREAK=off` beside it.
+///
+/// It exists because this constant is the one lever that moves the *soil*
+/// without moving the *economy*: `absorb_water`'s Powder arm computes the
+/// credited `drawn` from `rate x available` and only then derives `taken`
+/// from this number, so raising it changes how fast a cell draws down and
+/// leaves income per drink alone (the Liquid arm derives both from it and is
+/// likewise income-neutral). That makes it testable without re-deriving
+/// `INCOME_PER_NODE`, `Grow.cost` or anything else calibrated against
+/// income — see `Reports/plant-soil-nutrient-plan-2026-09-05.md` §1a and
+/// `open-bugs-handoff.md` §W2.
+///
+/// **A `OnceLock`, so one process is one arm.** Two arms therefore mean two
+/// processes off *one binary*, which is what keeps the comparison immune to
+/// the stale-binary trap; pin `RAYON_NUM_THREADS` when comparing counters
+/// across them.
+fn soil_uptake_per_tick() -> u16 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u16> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_SOIL_UPTAKE").ok().and_then(|v| v.parse().ok()).unwrap_or(SOIL_UPTAKE_PER_TICK)
+    })
+}
 
 /// Water drawn out of adjacent soil by **transpiration**, per root cell per
 /// organism tick, on `material::SOIL_SATURATED`'s scale — and credited to
