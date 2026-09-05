@@ -1,0 +1,44 @@
+{
+  "id": "20260905T090809476Z-df92ca",
+  "created": "2026-09-05T09:08:09Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "c6969ed7",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ants can smell their way home again",
+  "question": "Nothing to judge by eye here really -- but worth knowing, and there is one number I would like your call on: the price of laying a scent came down eightfold. Does that sit right, or would you rather I had left the price alone and let the colony feel it?",
+  "context_md": "Following on from the card about the genome in plain words: the home scent that was not being laid **is being laid again**. The line on the ant's page went from  back to , and it is there because the ant does it, not because I put the words back.\n\n**Putting it back was not free, and this is the part I want you to see.** Ants pay for laying a scent. That price was set while only the food trail was really being laid -- so switching the home scent back on doubled what an ant is charged *for*, and roughly octupled it in practice, because the food trail is only laid while carrying something and the home scent on every single step.\n\nAt the old price, a colony of twenty-seven went to **two survivors** in 4,000 frames. With the price divided by the same eight that the work went up by, it is **thirteen** -- which is where it was before, with the scent broken. Digging is untouched, which was the thing that price was brought in to make worth choosing.\n\nI checked the obvious alternative first: making the scent *fainter* instead of cheaper. It does not work -- taking the strength down by a third moved the cost by well under half and still left two survivors. The cost is about how *often* it is laid, not how much.\n\nOne consequence for whoever owns the creature work: the result that pricing the free verbs bought about a sixth less digging at no cost in ants was measured on a colony with one working scent channel. It wants running again now there are two.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "THE ANT'S PAGE",
+      "files": [
+        "20260905T090809476Z-df92ca/000-fx-specimen--ant-words.png"
+      ],
+      "caption": "LAYS HOME SCENT, FADING is back, and LADEN: FOLLOWS HOME SCENT under it -- the round trip in two lines.",
+      "meta": {
+        "survivors at old price": 2,
+        "survivors at new price": 13,
+        "survivors while broken": 12,
+        "scent spend old": 846,
+        "scent spend new": 85,
+        "digs unchanged": "193 -> 214"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
