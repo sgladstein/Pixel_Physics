@@ -217,7 +217,21 @@ impl Param {
             a if a >= 1000.0 => format!("{v:.0}"),
             a if a >= 100.0 => format!("{v:.1}"),
             a if a >= 10.0 => format!("{v:.2}"),
-            _ => format!("{v:.3}"),
+            // **Below a thousandth, three decimals is not a rounding, it is a
+            // blank.** Every price expressed as a fraction of `start_energy`
+            // lives here -- `synapse_fraction` at 2.2e-6, `sight_fraction`
+            // and `curvature_fraction` at 8.1e-8, `force_fraction` at 2.5e-5
+            // -- and all four rendered as a flat `0.000` that never changed
+            // however far the row was turned. Four rows indistinguishable
+            // from each other, from zero, and from a control that does not
+            // work. `clicking_a_parameters_row_moves_it` is what caught it,
+            // and it caught it as "did not move on a click", because from
+            // outside the panel those are the same thing.
+            //
+            // Zero keeps the decimal form: a price that is switched off
+            // should read `0.000` like every other off knob, not `0.0e0`.
+            a if a >= 0.001 || a == 0.0 => format!("{v:.3}"),
+            _ => format!("{v:.1e}"),
         }
     }
 
