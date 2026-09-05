@@ -264,54 +264,43 @@ and cannot gate anything; `Reports/agent-communication.md` holds the census.
 ## Working alongside another session
 
 **This tree is worked in concurrently, and often by more than one agent at
-once.** Git handles the merges; what it cannot handle is the three failures
-below, each of which has cost real hours.
+once.** Git handles the merges; what it cannot handle is the failures below,
+each of which has cost real hours. **The worked cases behind them are in
+[`Reports/concurrent-sessions.md`](Reports/concurrent-sessions.md)** — the
+rules and their numbers are here.
 
 **`main` is the trunk. Never integrate against `master`.** `main` began as a
-15-byte stub while the project lived on `master`, and the fix was to copy
-`master` onto `main` — but the copy left `master` standing, so for a while
-both names looked equally plausible and the docs named both. `3d53351`
-records the result: a branch merged `master` while `main` was 10 commits
-ahead, and silently missed the CLAUDE.md restructure, the map-scroll feature
+15-byte stub while the project lived on `master`, and the fix left `master`
+standing, so for a while both names looked equally plausible. `3d53351`
+records the result: a branch merged `master` while `main` was **10 commits
+ahead**, and silently missed the CLAUDE.md restructure, the map-scroll feature
 and the play-button fix. Nothing failed; the session noticed because a diff
-made no sense. `main` is the GitHub default, is the only branch CI gates, and
-is what the reset procedure below names. `master` is a mirror with nothing of
-its own and is on its way out. `scripts/branchcheck.sh --gate` fails if any
-commit is ever reachable from `master` but not `main`, and CI runs it.
+made no sense. `main` is the GitHub default and the only branch CI gates.
+`scripts/branchcheck.sh --gate` fails if any commit is reachable from `master`
+but not `main`, and CI runs it.
 
 **A session cannot delete a branch, so the prune is the owner's to run.**
 Measured 2026-08-25: 37 branches verified at 0 ahead of `main`, every
 `git push origin --delete` returned **HTTP 403**, none succeeded. Pushing
 commits works all day; deleting a ref does not, and the GitHub MCP server
-offers no delete-branch tool either. The proxy was healthy with no relay
-failures, so this is the credential's scope rather than a misconfiguration.
-`branchcheck` can therefore *identify* deletable branches and never act on
-them — when the merged count climbs, that is a message for the owner, not a
-task any lane can pick up.
+offers no delete-branch tool either. So `branchcheck` can *identify* deletable
+branches and never act on them — when the merged count climbs, that is a
+message for the owner, not a task any lane can pick up.
 
-**Know how far behind you are, before you trust anything you measured on
-it.** The worktree rule below keeps two sessions from breaking each other's
-build; nothing was ever written down about staying current, so nothing pulled
-a branch forward and the drift compounded silently. Measured 2026-08-22
-across 27 remote branches: one was current, **ten sat at exactly 160 commits
-behind `main`** — cut at the same moment and never once updated — and twelve
-more were already fully merged and still standing as clutter. A branch does
-not notice it is 160 behind. The merge does, and by then the conflict surface
-is the whole session rather than a file or two.
-
-So: pull `main` in *while* you work rather than saving it for the end. **You
-no longer have to remember to check** — a `SessionStart` hook
-(`.claude/settings.json`) runs `scripts/branchcheck.sh --brief` and puts your
-ahead/behind, the merged/stale counts and the deepest unlanded branches in
-context before you act. That hook exists because this paragraph asked for the
-check by convention and the drift happened anyway; run the full
-`bash scripts/branchcheck.sh` when the summary says something worth opening. This is not
-tidiness — a baseline measured on a 160-behind branch is a measurement of a
-tree nobody else has, and the numbers in a report written from it do not
-transfer. The one exception the script prints for you: a branch sharing *no*
-history with `main` is a deliberate orphan carrying data, not source
-(`review-queue`, the review queue's transport — see `review_lib.py`'s
-`SYNC_BRANCH`). Never merge `main` into one of those.
+**Know how far behind you are, before you trust anything you measured on it.**
+Measured 2026-08-22 across 27 remote branches: one was current, **ten sat at
+exactly 160 commits behind `main`** — cut at the same moment and never once
+updated — and twelve more were already fully merged and standing as clutter. A
+branch does not notice it is 160 behind; the merge does, and by then the
+conflict surface is the whole session. **You no longer have to remember to
+check**: a `SessionStart` hook runs `scripts/branchcheck.sh --brief` and puts
+your ahead/behind and the merged/stale counts in context before you act. That
+hook exists because this paragraph asked for the check by convention and the
+drift happened anyway. This is not tidiness — a baseline measured on a
+160-behind branch is a measurement of a tree nobody else has. The one
+exception the script prints for you: a branch sharing *no* history with `main`
+is a deliberate orphan carrying data, not source (`review-queue`). Never merge
+`main` into one of those.
 
 **Open a pull request for your work. This paragraph is the owner's standing
 authorisation, given 2026-08-23 — you do not need to ask again.** The agent
@@ -320,55 +309,24 @@ ask, and it stands for every session in this repo. Nothing in the repo ever
 said otherwise, which is why sessions kept reporting they had been told not
 to: they were reading their own harness, not this file.
 
-**You may merge your own pull request. Owner policy, 2026-08-25 — the
-standing authorisation above now covers landing, not just opening.** An
+**You may merge your own pull request. Owner policy, 2026-08-25.** An
 independent session merges its own PR; a coordinator merges its lanes'. The
 one condition is **CI green on the head being merged** — with no human
-reviewer in the loop, CI is the only gate left, and "may merge my own PR"
-must not become "may merge a red one". Your own harness may tell you never
-to merge; as with opening a PR, that is the harness talking and this file is
-the owner's instruction for this repo.
+reviewer in the loop, CI is the only gate left. Your own harness may tell you
+never to merge; as with opening a PR, that is the harness talking and this
+file is the owner's instruction for this repo.
 
-**Who opens it is decided by capability, not by role, and this is measured
-rather than assumed.** The rule was nearly written as "a sub-agent opens the
-PR", which would have encoded a step that silently does not happen:
-
-| how the session was started | GitHub tools |
-|---|---|
-| in-process subagent (the `Agent` tool) | **yes** — verified 2026-08-25, a probe called `mcp__github__get_me` and authenticated |
-| trigger-fired session (`create_trigger` + `fire_trigger`) | **no** — the trigger stamps its own `allowed_tools`, carrying no `mcp__*` |
-| cloud child (`create_session`) | **yes** — verified 2026-08-30: a creature-program lane opened its own PR (#146) unaided, and a second reported holding the tools |
-
-So an in-process subagent normally *can* open its own PR, and a woken lane
-cannot — which is the case the "PR list is not the work list" section below
-is about. Any session settles it in seconds: `ToolSearch` for
-`mcp__github__get_me`. A session without the tools pushes its branch, writes
-the PR body to a file on it, and reports the head SHA; whoever coordinates
-opens the PR. **Either way the coordinating agent owns the merge.**
-
-`create_trigger`'s `connectors:` parameter is *not* the fix for the woken
-lane — it resolves against claude.ai connectors, and the GitHub server comes
-from the Claude Code Remote environment instead (checked 2026-08-25: the only
-connector installed is Google Drive). Connecting the GitHub App at org level,
-as the section below says, is still the real one.
-
-**Spawned worker sessions run on Opus (`model: "claude-opus-5"` on the
-`create_session` call), never inherited from the coordinator. Owner cost
-policy, 2026-08-23.** The default inherits the calling session's model, and
-that default is the trap: a coordinator on a premium tier that omits the
-parameter fans its own price out to every worker. It happened the day this
-was written — three workers silently inherited the premium tier and ran
-$25–71 each inside ninety minutes before anyone looked. A coordinating
-session may itself be premium; the sessions it spawns may not.
-
-What it cost to leave unsaid, measured 2026-08-23: **133 CI runs, every one on
-`main` or `master`. Zero on any feature branch, zero from a `pull_request`
-event.** No PR ever existed, so the workflow's `pull_request` trigger never
-fired and pushes to `claude/**` matched nothing — the first time CI saw a
-branch's code was *after* it landed, when a red suite can no longer tell you
-whether the branch broke it or the merge resolution did. And a branch nobody
-can see is a branch nobody merges: 27 accumulated, ten of them cut in one
-fan-out and never once pulled forward.
+**Who opens it is decided by capability, not by role**, and it is settled in
+seconds: `ToolSearch` for `mcp__github__get_me`. An in-process subagent and a
+cloud child both have the GitHub tools and can open their own PR; a
+trigger-fired session does **not**, because the trigger stamps its own
+`allowed_tools` carrying no `mcp__*`. A session without the tools pushes its
+branch, writes the PR body to a file on it, and reports the head SHA; whoever
+coordinates opens the PR. **Either way the coordinating agent owns the
+merge.** Why `create_trigger`'s `connectors:` is not the fix, and what it cost
+to leave unsaid (133 CI runs, every one on `main` or `master`, none from a
+`pull_request` event — so the first time CI saw a branch's code was *after* it
+landed): `Reports/concurrent-sessions.md`.
 
 **When to land**, from this repo's own 49 two-parent merges, each replayed
 with `git merge-tree` to count the conflicts it actually produced:
@@ -378,179 +336,94 @@ with `git merge-tree` to count the conflicts it actually produced:
 | `behind x files > 300` | past the point where merges get expensive — act |
 | feature complete | open the PR |
 
-Every painful merge in that history (3+ conflicts) scored **above 340**; no
-clean merge exceeded 1440 and the clean ones reach p90 at **280**. So 300 sits
-in the gap rather than on a measured value. `bash scripts/branchcheck.sh`
-prints your two numbers -- **`FILES` and `BxF`, which it did not until
-2026-08-25** while this paragraph claimed it did. The consequence was not
-cosmetic: with no printed operand each reader invented one, and two readings
-of the *same* merge scored it **132** and **198**, one counting the branch's
-changed files and the other main's. The script now settles it — `files` is
-branch-side, `git diff --name-only origin/main...<ref>`, which is the operand
-this rule's own reasoning implies (a large `files` means *this branch* has
-become more than one feature).
-
-**Read the screen for what it is.** 100% sensitivity is what the numbers
-support — every painful merge was above 340, so **at or under 300 you are
-safe** — and about 90% specificity, since clean merges reach p90 at 280. It
-will therefore fire on roughly one clean merge in ten, and that is fine: the
-action it prescribes (merge `main` in) is near-free and worth doing anyway.
-Do not "improve" it into a lower bound; that throws away the only half that
-prompts action. Two caveats on the provenance, both real: the 49 merges are
-reported as "3+ conflicts" and "clean", so **merges with 1-2 conflicts are
-unreported** and the classes do not partition; and the threshold was placed
-in a gap by eye, not fitted.
-
-**And it answers only one of the two questions.** It predicts *"will this
-merge be laborious?"* — it is built from conflict counts. It cannot see
-*"will this merge be wrong?"*, and that is not a tuning problem: measured
-2026-08-25, two merges scoring 132 and 96 — comfortably "safe" — were
-**zero-conflict by `git merge-tree`** and still broke the tree, because
-`main` had added generated-file gates while the branch edited their sources.
-The second question has its own instrument, below.
+`bash scripts/branchcheck.sh` prints your two numbers, **`FILES` and `BxF`**;
+`files` is branch-side, `git diff --name-only origin/main...<ref>`. Every
+painful merge (3+ conflicts) scored **above 340** and no clean merge exceeded
+1440, with the clean ones reaching p90 at **280** — so 300 sits in a gap
+rather than on a measured value, at 100% sensitivity and about 90%
+specificity. **It will fire on roughly one clean merge in ten, and that is
+fine**: the action it prescribes is near-free. Do not "improve" it into a
+lower bound; that throws away the only half that prompts action.
 
 **The two terms want different remedies, and this is the part that gets
 confused.** If `behind` is driving the product, merge `main` in — that fixes
-it in place, costs nothing you were not going to pay at landing time, and
-landing does *not* reduce drift: a 337-behind branch that opens a PR still
-owes the same 337-commit reconciliation. If `files` is driving it, the branch
-has quietly become more than one feature; land it and start another.
+it in place, and landing does *not* reduce drift: a 337-behind branch that
+opens a PR still owes the same 337-commit reconciliation. If `files` is
+driving it, the branch has quietly become more than one feature; land it and
+start another.
 
-**Run `bash scripts/docscheck.sh` after every merge. Unconditionally.**
-It is sub-second, and it is the *only* thing in the repo that catches a
-generated file going stale against its source — `scripts/bugindex.py` over
-the bug register's index, `scripts/readmetoc.py` over README's table of
-contents. Both 2026-08-25 incidents were caught by it immediately and by
-nothing else: `test`, `test-debug`, `clippy`, `ascii` and `acceptance` were
-all green through a stale index, and CI carries `docscheck` only as an
-informational job, so a stale index can reach `main` with every gate
-passing.
+**And it answers only one of the two questions.** It predicts *"will this
+merge be laborious?"* — it is built from conflict counts. It cannot see
+*"will this merge be wrong?"*, and that is not a tuning problem: two merges
+scoring 132 and 96, comfortably "safe", were **zero-conflict by
+`git merge-tree`** and still broke the tree, because `main` had added
+generated-file gates while the branch edited their sources.
 
-**Do not reach for a file-overlap metric here — it was proposed and it does
-not work.** Intersecting the two sides' changed files looks like a second
-line of defence and is not: in both incidents the *generators* were
-main-side only, and landed in the intersection purely because main happened
-to regenerate the artifacts in the same commits. Had main added
-`readmetoc.py` without touching `README.md`, overlap on it would have been
-zero and the gate would have broken identically. It also over-fires — this
-file, `README.md` and `Reports/README.md` are the contested row of the table
-below and sit in nearly every intersection. The failure class is "main
-changed generator G, branch changed source S, G != S", and only running the
-checker sees it.
+**Run `bash scripts/docscheck.sh` after every merge. Unconditionally.** It is
+sub-second, and it is the *only* thing in the repo that catches a generated
+file going stale against its source — `scripts/bugindex.py` over the bug
+register's index, `scripts/readmetoc.py` over README's table of contents. Both
+2026-08-25 incidents were caught by it immediately and by nothing else: `test`,
+`clippy`, `ascii` and `acceptance` were all green through a stale index, and
+CI carries `docscheck` only as an informational job. **A file-overlap metric
+is not a substitute — it was proposed, and it does not work**; the reasoning
+is in `Reports/dead-ends.md`.
 
 Do not read "land early" as "land broken". A half-finished `src/sim/load.rs`
 on `main` costs every concurrent session, because they all build on it and
 every measurement taken against it is void. And the fastest way to satisfy a
-"commit and push now" impulse is `git add -A`, which is banned here for a
-reason recorded below. Stage explicit paths, green the gates, then land.
+"commit and push now" impulse is `git add -A`, which is banned here. Stage
+explicit paths, green the gates, then land.
 
 **Work in your own worktree, not the shared checkout.** Two sessions in one
 checkout share a `target/`, so one session's half-finished edit makes the
 *other* session's `cargo test` and `cargo clippy` fail on code it did not
 write and must not fix — and a running sandbox in one session locks the exe
-the other needs to link. Both happened in a single afternoon. A worktree
-gives each session its own `target/`, so a broken build stays local to
-whoever broke it. (A cloud session gets a fresh container with its own
-checkout, so this is about a shared *local* clone.)
+the other needs to link. Both happened in a single afternoon. (A cloud session
+gets a fresh container, so this is about a shared *local* clone.)
 
-**Know which files are yours.** Collisions are almost never random — they
-land in the same few files every time. Counted over **188 branch landings**
-(2026-08-25, `git log --merges` with each merge diffed against its first
-parent), here is how many landings touched each file:
-
-| Area | Files, with landings that touched them |
-|---|---|
-| **Contested — anyone may be in these** | `Reports/open-bugs-handoff.md` **118**, `README.md` **103**, `Reports/README.md` **103**, `src/sim/world.rs` **103**, `examples/filmstrip.rs` **99**, `Reports/dead-ends.md` **79**, `src/render.rs` **70**, this file **66**, `src/app.rs` 51, `PLAN-log.md` 50, `PLAN.md` 41 |
-| Plants | `src/sim/plant.rs` 60, `organism.rs` 44, `examples/plant_probe.rs` 44, `wiki/plants.md` 67, `assets/species/*.ron` |
-| Structural / destruction | `src/sim/structural.rs` 57, `rigid.rs` 32, `load.rs` 22, `scripts/acceptance.sh` 41, `wiki/structural-collapse.md` 43 |
-| Creatures | `src/sim/creature.rs` 39, `brain.rs` 19, `assets/species/ant.ron` |
-| Worldgen | `tests/worldgen.rs` 36, `src/worldgen/passes.rs` 27, `params.rs` 18, `assets/worldgen.ron` 15 |
-| Fields, fire, weather | `src/sim/field.rs` 34, `fire.rs` 38, `weather.rs` 43, `decay.rs` 19, `src/sky.rs` 11 |
-| The sweep itself | `src/sim/parallel.rs` 38, `update.rs` 24, `material.rs` 33, `scheduler.rs` 16 |
-| The gnome | `src/sim/player.rs` 45 |
-
-**Two things in that table correct what this file used to say**, and both
-were measured rather than assumed:
-
-- It claimed *"everything that has actually collided here collided in
-  `src/app.rs`."* `app.rs` is **sixth**, at 51. `world.rs` (103),
-  `filmstrip.rs` (99) and `open-bugs-handoff.md` (118) are all far more
-  exposed, and none of the three was listed at all.
-- The old table named only structural and worldgen, so **every other line —
-  plants, creatures, fire, weather, the sweep, the gnome — had no row**, and
-  an agent on one of them could not tell whether its files were shared.
-
-`src/sim/liquid.rs` and `chunk.rs` show **0** landings in that window: real
-files, currently dormant. A zero here means nobody is in your way, not that
-the file does not matter.
-
-So: **if you touch a contested file, land it quickly** rather than holding a
-large diff across a session — the window in which someone else's work cannot
-compile is the window you created. Recompute the table rather than trusting
-it: it is a snapshot, and the command that produced it is named above.
+**Know which files are yours.** Collisions are almost never random — they land
+in the same few files every time. Counted over 188 branch landings
+(2026-08-25), the contested row anyone may be in is
+`Reports/open-bugs-handoff.md` **118**, `README.md` **103**,
+`Reports/README.md` **103**, `src/sim/world.rs` **103**,
+`examples/filmstrip.rs` **99**, `Reports/dead-ends.md` **79**,
+`src/render.rs` **70**, this file **66**. **If you touch one of those, land it
+quickly** rather than holding a large diff across a session — the window in
+which someone else's work cannot compile is the window you created. The
+per-area breakdown, and the two claims the census overturned, are in
+`Reports/concurrent-sessions.md`; recompute it rather than trusting it.
 
 **A file-ownership split is only as current as your last look at the branch
-list.** Read once at session start it is stale within the hour, and nothing
-prompts a re-read — the drift check has `branchcheck.sh` nagging for it, this
-has nothing, which is exactly why it goes unasked. Measured 2026-08-23 on the
-creature line's three-lane split: Lane A fetched the remotes before Lanes B
-and C had branches at all, never looked again, and spent the whole session
-believing it was the only lane. On that belief it filed four bug entries into
-`Reports/open-bugs-handoff.md`, a file the split assigns to **Lane B** — which
-had already filed all four, and better, its version of the foraging regression
-bisected where Lane A's said "unattributed". Lane B then spent a merge
-unifying the duplicates (`e3c5e76`), and Lane A had meanwhile told the owner
-those lanes did not exist. **Before writing into a file another lane owns,
-re-list the branches.** It costs one command, and the roster you were handed
-is a claim about the past, not evidence about who is running now.
+list**, and nothing prompts a re-read — the drift check has `branchcheck.sh`
+nagging for it, this has nothing. **Before writing into a file another lane
+owns, re-list the branches.** It costs one command, and the roster you were
+handed is a claim about the past, not evidence about who is running now.
 
-**The roster is the narrow case; the general one is that a shared append-only
-file must be *read* before it is appended to.** Re-listing branches fixes
-staleness of the roster, and two collisions the same day had no roster
-confusion in them at all — both were single-owner filings by sessions that
-knew exactly who else was running. `Reports/open-bugs-handoff.md` is where
-they land, because it is append-only, lettered, and written into by every
-line at once:
+**The general case is that a shared append-only file must be *read* before it
+is appended to**, and `Reports/open-bugs-handoff.md` is where that bites —
+append-only, lettered, written into by every line at once. Two bugs were once
+filed as **§Q**, and a branch carried a stale copy of **§M still headed OPEN**
+which `main` had since closed. So before adding a section: **grep the file for
+the thing you are about to file**, and for the letter run
+`python3 scripts/bugindex.py --check`, which names both lines when one is used
+twice and is already gated by `docscheck`. Do not check the letter by eye.
+When a merge conflicts there, ask which side is *newer* rather than which is
+yours. **Check the split is self-consistent, too** — one plan gave Lane A
+everything under `examples/*` and told Lane C to add a mode to a file under
+`examples/*`, so the collision was authored in rather than stumbled into.
 
-- Two different bugs were filed as **§Q** — one branch's colony-scene panic
-  against `main`'s owner-reported debris needles, which already carried three
-  inbound references. Landing them naively would have left two §Q headings in
-  one document with those references silently resolving to whichever sorted
-  first. The newcomer was renamed §R, its self-references repointed.
-- A branch carried a stale copy of **§M still headed OPEN** which `main` had
-  since closed. Resolved keep-both, that merge would have re-opened a fixed
-  bug and sent the next reader at a generator with nothing to do with it —
-  which is the failure §M's own entry opens by warning about.
+If you need to commit while a contested file holds somebody else's unfinished
+work, do **not** stage around it. Add a worktree at `origin/main`, re-apply
+your change there, verify, commit and push from it, then bring the main tree's
+branch pointer forward with `git reset --mixed origin/main`. **That reset
+strands stale files whenever the main tree was *behind*** — they appear as
+modifications that are really a *revert* of an upstream commit the tree
+missed, and nobody recognises them as theirs. **Note which files are genuinely
+dirty *before* the reset**; afterwards a stale file and an edited one look
+identical. Full account, and the case it happened to, in
+`Reports/concurrent-sessions.md`.
 
-So before adding a section: **grep the file for the thing you are about to
-file** — and for the letter, run `python3 scripts/bugindex.py --check`, which
-names both lines when one is used twice (`identifier 'D3' is used by 2
-entries`) and is already gated by `docscheck`. Do not check the letter by
-eye; that is what the tool is for. And when a merge conflicts there,
-ask which side is *newer* rather than which is yours — a stale copy of an
-entry the other side has since closed looks exactly like your own work.
-
-**Check the split is self-consistent before trusting it, too.** The same
-document gave Lane A everything under `examples/*` and told Lane C to add a
-`creature_space` mode — a file under `examples/*`. Two lanes were directed
-into one file by the plan itself, so the collision was authored in rather
-than stumbled into.
-
-If you find yourself needing to commit while a contested file holds
-somebody else's unfinished work, do **not** try to stage around it. Add a
-worktree at `origin/main`, re-apply your own change there, verify, commit
-and push from it, then bring the main tree's branch pointer forward with
-`git reset --mixed origin/main` — which moves the branch and leaves their
-working tree untouched.
-
-**That reset strands stale files whenever the main tree was *behind*** — they
-show up as modifications that are really a *revert* of the upstream commit the
-tree missed, and nobody recognises them as theirs. So: **note which files are
-genuinely dirty *before* the reset**, because afterwards a stale file and an
-edited one look identical. After it, diff anything newly modified against the
-commits you were behind by; if it is their exact inverse and the file was clean
-beforehand, `git checkout --` it. Full account, and the case it really happened
-to, in `Reports/concurrent-sessions.md`.
 
 ## Running a program of sessions — moved out
 
