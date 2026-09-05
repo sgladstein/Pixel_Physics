@@ -2631,6 +2631,63 @@ const ROOT_MOISTURE_DEPLETION: f32 = 1.0;
 /// its neighbours for a finite local store, and an instant drain would
 /// make every root independent of every other. Untuned beyond that
 /// reasoning, and a first-class target for the economy pass.
+/// **Chance a root cell in fully exhausted soil is shed, per organism
+/// tick** — fine-root turnover, and the counterweight the local-scarcity
+/// root gate needs.
+///
+/// Real fine roots live weeks to months and die *because the soil around
+/// them is spent*; fine-root production is often a third or more of NPP. In
+/// this engine a root that has mined its cell out earns nothing for ever and
+/// costs `MAINTENANCE_PER_CELL` for ever, so the optimum has no interior:
+/// `Reports/dead-ends.md:781` records unbounded root growth as the shipped
+/// state once soil gave roots income everywhere.
+///
+/// **Measured need**, and this is why it is not optional: with
+/// `PIXEL_PHYSICS_ROOT_GATE=local` and no turnover, a 6-row bed loses
+/// **88% of its income** (12 paired seeds) because the plant keeps buying
+/// roots that land in soil already dead. A 34-row bed gains, because there
+/// the roots reach soil no root has drunk. A rule whose sign depends on bed
+/// geometry is missing a term, and this is the term.
+///
+/// **Zero, so the mechanism ships inert** — the `ANCHOR_DEMAND = 0`
+/// discipline. At zero the roll is not merely false, it is **never taken**:
+/// a `chance(0.0)` still consumes a draw, and `decay.rs` records a
+/// `chance(1.0)` doing exactly that and breaking an unrelated test.
+/// Swept through `PIXEL_PHYSICS_ROOT_TURNOVER`.
+const ROOT_TURNOVER_PER_TICK: f32 = 0.0;
+
+/// Local availability at or above which a root is not a turnover candidate
+/// at all — it is drinking, so it is earning its keep.
+///
+/// The shed chance ramps from zero here to `ROOT_TURNOVER_PER_TICK` at
+/// fully exhausted soil, so the outcome is a **distribution over a
+/// gradient** rather than a cliff at a threshold — the ethos's first law,
+/// and the reason this is a ramp and not a test.
+const ROOT_TURNOVER_WET: f32 = 0.5;
+
+/// Most of a plant's roots one tick of turnover may take. A bound on pace,
+/// never a gate on whether turnover happens — the distinction
+/// `CLAUDE.md` draws about size caps, and the same shape
+/// `MAX_DIEBACK_FRACTION` already has.
+const MAX_TURNOVER_FRACTION: f32 = 0.02;
+
+/// Salt for turnover's own RNG stream.
+///
+/// **Its own stream, not `growth_stream`'s.** Every `growth_stream` call for
+/// one cell in one frame returns the *same* stream, so drawing turnover's
+/// coin from it would hand two unrelated decisions the identical roll.
+const ROOT_TURNOVER_SALT: u64 = 0x0072_006f_006f_0074;
+
+/// `ROOT_TURNOVER_PER_TICK`, overridable per process for the sweep — see
+/// `soil_uptake_per_tick` for why these are `OnceLock`s and not settings.
+fn root_turnover_per_tick() -> f32 {
+    use std::sync::OnceLock;
+    static N: OnceLock<f32> = OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_ROOT_TURNOVER").ok().and_then(|v| v.parse().ok()).unwrap_or(ROOT_TURNOVER_PER_TICK)
+    })
+}
+
 const SOIL_UPTAKE_PER_TICK: u16 = 60;
 
 /// `SOIL_UPTAKE_PER_TICK`, overridable for one process by
@@ -8092,6 +8149,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // rather than meaningful.
     let mut root_zone_faces = 0u32;
     let mut root_zone_available = 0.0f32;
+    let turnover_rate = root_turnover_per_tick();
+    let mut turnover_candidates: Vec<(i32, i32, f32)> = Vec::new();
     // The crown's overturning demand, accumulated as `Σ y` and turned into
     // `Σ (collar − y)` once the collar is known. A mass times a lever arm,
     // in one sum, from the walk that is already running.
@@ -8227,6 +8286,21 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 contact_root_cells += 1;
                 root_zone_faces += wet_faces;
                 root_zone_available += available;
+                // **Turnover candidate: a root drinking from spent soil.**
+                // Collected here because this is where the local reading
+                // already exists; shed after the walk, like die-back's own
+                // candidates, so the pace cap reads a whole-plant count that
+                // does not drift as the walk proceeds.
+                //
+                // Gated on the rate *before* anything else so that at the
+                // shipped zero this costs one `f32` compare and takes no RNG
+                // draw at all.
+                if turnover_rate > 0.0 {
+                    let local = available / wet_faces as f32;
+                    if local < ROOT_TURNOVER_WET {
+                        turnover_candidates.push((cx, cy, local));
+                    }
+                }
             }
             // **The primed site's own affordability check**, in the walk
             // that is already happening rather than in a traversal of its
@@ -8954,6 +9028,62 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             shed_stranded_leaves(world, cx, cy, organism_id);
             recovered += bill;
             starved_cells += 1;
+        }
+    }
+
+    // **Fine-root turnover: shed roots whose own soil is spent.**
+    //
+    // The counterweight to `break_root_tips`' local-scarcity gate. That rule
+    // says *extend when the soil here is spent*; without this one nothing
+    // ever stops paying for the roots it built, so a plant in a bed with
+    // nowhere left to reach buys tissue that returns zero — measured at
+    // **88% of income** on a 6-row bed.
+    //
+    // **Deliberately not keyed on the plant's carbon deficit**, which is
+    // what die-back above reads. The measurement that motivated this found
+    // `ROOT_TIP_POOR` at **zero in every run**: the plant is not broke, it
+    // is simply keeping tissue that has stopped earning. A rule keyed on
+    // solvency could never fire here.
+    //
+    // Guards, in order, and each is the same one die-back needed:
+    // never strand a growing tip; never split the plant
+    // (`removal_would_disconnect_a_neighbour`, whose doc records die-back
+    // leaving a tree at 52% connectivity without it); and a pace cap so a
+    // dry spell thins a root system rather than deleting it.
+    if turnover_rate > 0.0 && !turnover_candidates.is_empty() {
+        // Driest first, then row-major so the choice is a property of the
+        // world rather than of the hasher's seed.
+        turnover_candidates.sort_unstable_by(|a, b| {
+            a.2.total_cmp(&b.2).then((a.1, a.0).cmp(&(b.1, b.0)))
+        });
+        let cap = (((root_cells as f32) * MAX_TURNOVER_FRACTION).ceil() as usize).max(1);
+        let mut shed = 0usize;
+        for &(cx, cy, local) in &turnover_candidates {
+            if shed >= cap {
+                break;
+            }
+            if world.get(cx, cy).organism_id() != organism_id {
+                continue; // already gone this tick
+            }
+            if NEIGHBOURS_8.iter().any(|&(dx, dy)| {
+                let n = world.get(cx + dx, cy + dy);
+                n.organism_id() == organism_id && organism::cell_type(n.aux()).is_some_and(is_frontier)
+            }) {
+                continue; // a tip is working here
+            }
+            if removal_would_disconnect_a_neighbour(world, cx, cy, organism_id) {
+                continue;
+            }
+            // Ramped from zero at `ROOT_TURNOVER_WET` to the full rate in
+            // dead soil, so this is a gradient rather than a cliff.
+            let pressure = ((ROOT_TURNOVER_WET - local) / ROOT_TURNOVER_WET).clamp(0.0, 1.0);
+            let mut rng = rng::stream(world.seed ^ ROOT_TURNOVER_SALT, cx as u64, cy as u64, world.frame);
+            if !rng.chance(turnover_rate * pressure) {
+                continue;
+            }
+            shed_to_litter(world, cx, cy);
+            world.roots_shed += 1;
+            shed += 1;
         }
     }
 
