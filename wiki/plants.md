@@ -3,7 +3,22 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-03 (a plant's leaves can now be arranged as well as
+*Current as of: 2026-09-05 (**plants build real root systems now.** A plant
+used to stop putting out new roots as soon as it read itself as watered --
+and it nearly always did, because the reading was taken against a store that
+grew with the roots, so a plant standing in soil its own roots had drunk dry
+still reported itself comfortable and simply stopped. A root tip now asks
+about the ground *it* is standing in. Roots come out about **five times**
+bigger, a plant carries **a fifth to a quarter** of itself below ground
+instead of a thirteenth -- which is about what a real tree does -- and the
+whole plant ends up **two-fifths larger** because it can actually drink.
+The change is easiest to see in a bed that has been standing a while: the
+soil under a plant is worked through with root rather than holding one thin
+line of it. Related, and the reason this could not ship on its own: a
+plant's **water store no longer grows without limit** with its root count.
+It used to, so a plant dying of thirst could root its way to a bigger bucket
+and read as well-watered -- and would not die.)
+Before that: 2026-09-03 (a plant's leaves can now be arranged as well as
 counted -- **leaf spread** is a new number on the parameters page, zero for
 every species, and turning it up makes foliage reach out in lines instead of
 bunching, without changing how much leaf there is. Also: plants can now throw
@@ -166,7 +181,12 @@ a root in a dry bed find the damp instead of sitting in the dust.
 
 A plant that is short of water spends its growth on roots instead of canopy,
 and switches back once it is comfortable. So a thirsty plant looks
-root-heavy, and a well-watered one looks top-heavy. Root systems are branched
+root-heavy, and a well-watered one looks top-heavy. **Short of water means
+short where the roots are**, not short overall: a plant reads the ground its
+own roots are standing in, so one whose roots have drunk their patch dry
+keeps putting out new root even while the water it is carrying looks
+sufficient. That is what stops a plant sitting still in exhausted soil, and
+it is why root systems spread instead of thickening in place. Root systems are branched
 tangles, not single taproots. **How deep they go is set by where the water
 is, not by how deep the bed is**: in an evenly wet bed the typical plant
 roots about a third of the way down and the deepest reach past half, and

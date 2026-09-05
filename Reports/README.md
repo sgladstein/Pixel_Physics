@@ -2362,7 +2362,64 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   6,064 cells unreached** grows 4,672 → 6,064 while drinking through roots it
   is not joined to. That switch is therefore making two promises at once, and
   §7a is the change that separates them. Ranked repairs in §7, costed, none
-  built; §9 records what the report itself got wrong on the way.
+  built; §9 records what the report itself got wrong on the way. **Its §7
+  ranking is revised by `plant-soil-nutrient-plan-2026-09-05.md` below** —
+  read that before acting on §7b, which is withdrawn there.
+- [plant-soil-nutrient-plan-2026-09-05.md](plant-soil-nutrient-plan-2026-09-05.md)
+  — **plan, 2026-09-05, third draft; one arm measured, nothing built.** What
+  to do about the report above. **Read §0a first: the depletion story that
+  drafts one and two argued over is refuted by measurement.** Soil touching
+  roots sits at **0.016** plant-available against **1.000** away from roots
+  at the constant on `main` — the zone is already at the wilting floor, so
+  there was never anything to restore. The reasoning that missed it is the
+  reusable part: the capillary rest gap bounds the difference between two
+  *adjacent* soil cells, so it caps how **steep** the depletion boundary is,
+  not how **deep** it goes, and the measured profile is that staircase almost
+  exactly (61.9 units per cell against a 60-unit gap). The 2026-08-31 change
+  therefore made the zone **wider**, not shallower — more overlap between
+  neighbouring roots, so *more* competition. **The cheap lever is refuted
+  too**: `PIXEL_PHYSICS_SOIL_UPTAKE` over 12 seeds and four arms drives roots
+  up reliably (12/12 seeds at 8x) and income down harder at every setting
+  (0.78x / 0.46x / **0.11x**), with no usable band, because a bigger draw on
+  spent soil only pushes water status down. So **root *reach* is the binding
+  constraint, not root income**, and the immobile nutrient stays on the list
+  second-order. Also carries the geometric bound that survives all of it
+  (`dead-ends.md:892`: a handicap removed 23% of root cells and **3%** of
+  uptake surface, so contact roots are ~8x redundant and the payoff variable
+  is distinct soil cells), and drops the taproot claim outright — `can_widen`
+  needs an `EMPTY` or own-`Leaf` neighbour, so a buried root can never
+  thicken. **And §2b is the result the whole line was after**: `break_root_tips`
+  already carries a six-bucket exit census, and across four beds and two
+  genotype draws the `water_status >= 0.95` gate refuses **95-99.6%** of
+  root-tip initiations while `poor` — the carbon exit — is **zero in all six
+  runs**. Root extension is bounded by neither the tip cap, nor sites, nor
+  the economy. It is bounded by a gate reading a **saturated** signal: the
+  plant reads "demand met, not thirsty" while the soil its roots touch sits
+  at 0.016. That also explains why every water lever failed — they all move
+  `water_status`, and the only way they open the gate is by starving the
+  whole plant. §2b-ii proposes the small change that follows (key the gate on
+  local soil scarcity, not on the tank) with the exit census as its guard and
+  a specific prediction: `gated` down, `FIRED` up, `poor` **still zero**.
+  **§2b-iii is that change built, now ON by default
+  (`PIXEL_PHYSICS_ROOT_GATE=whole` ablates it), and measured over 12 paired
+  seeds: root
+  cells 3.93x in 12/12 seeds with income FLAT (1.00x)** — the opposite shape
+  to the uptake lever, which bought the same root response at a cost of 89%
+  of income. It buys roots with reach rather than starvation: the root zone
+  goes 0.016 -> 0.570 available, uptake +32%, the worst-off plant 0.723 ->
+  fully watered, and **root:shoot 7.3% -> 23.3% against a real tree's
+  20-25%**. `poor` stays zero so the constraint did not move to carbon, the
+  gate still refuses 86-98% so it is not always-open, and `ascii`,
+  `acceptance.sh` and the full lib suite are green with it on. The one
+  measured cost is shallow beds losing canopy: the depth sweep puts it at
+  **0.12x income on a 6-row bed, 1.34x on 20 rows, neutral on 34**, and both
+  shipped worlds are deep (48-135 rows outdoors, 96 in the lab). **§2b-v is
+  the prerequisite that had to land with it** -- capping the water tank's
+  storage term, without which a droughted plant roots its way to a bigger
+  bucket, reads as well-watered and does not die.
+  **§9 is the method part**: three drafts, three classes of error, the last
+  being that three documents and two reviewers argued about how deep a
+  depletion zone was when one census answered it in thirty seconds.
 
 ## Licensing and distribution
 
