@@ -41,7 +41,7 @@
     // on a one-cell perch rolls off it, and a seed pile spreads to a low
     // cone the next seed can slide down instead of a steep heap that holds
     // every sibling above the soil.
-    friction_angle: 22.0,
+    friction_angle: 55.0,
     colors: [
         (126, 96, 52),
         (142, 110, 62),
@@ -49,6 +49,27 @@
         (156, 122, 70),
     ],
     // Burns easily and briefly, like the dry husk it is.
+    // **And it falls past a branch rather than sitting on it.** The same
+    // 2D-slice rule `MaterialDef::falls_through_organisms` states as data,
+    // and `windfall.ron`'s argument for it applies here a fortiori: a
+    // windfall is a fruit, this is the bare seed inside one, and if
+    // anything it is smaller and rounder. A one-cell-wide branch in this
+    // slice is not a shelf spanning the wood's whole depth.
+    //
+    // **It was set on the fruit and missed on the seed, and that omission
+    // is most of why nothing spreads.** Measured, `reseed_probe founders=1
+    // species=herb frames=60000`: of the ~200 seeds standing at any moment
+    // **157 were resting on plant tissue**, and the germination gate can
+    // never open on one of those -- it wants `water_capacity > 0` directly
+    // underneath and living tissue has none. So a plant's own canopy is
+    // where its seed goes to expire, while the fruit form of the same seed
+    // reaches the floor.
+    //
+    // The density argument runs the other way here exactly as it does on
+    // `windfall`, and is not the criterion: this is 0.6 against
+    // `deadwood`'s 0.7, and deadwood deliberately *does* hang up in a
+    // crown.
+    falls_through_organisms: true,
     flammability: 0.5,
     burn_temperature: 500.0,
     burn_duration: 30,
