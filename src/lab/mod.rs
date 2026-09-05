@@ -1125,6 +1125,22 @@ impl Lab {
             player::PlayerInput::default(),
             &self.player_tuning,
         );
+        // **Both series are sampled here, per simulated tick, and they used
+        // to be sampled in `advance` after the whole batch.** Each has its
+        // own cadence gate on `World::frame`, and a gate cannot fire more
+        // often than it is offered the chance to: at 256x one displayed frame
+        // is 256 ticks, so a per-batch call could only ever produce one
+        // sample per 256 frames however short the interval said it was. The
+        // x-axis of the bar's population strip was therefore the speed dial,
+        // and the faster you ran the box the less of it you could see -- the
+        // opposite of what the dial is for.
+        //
+        // **It is cheap because both gates are the first thing each does.**
+        // `stats::observe` early-returns before `take_census` unless the
+        // interval is up, and `History::observe` returns before counting
+        // organisms. Two integer comparisons per tick.
+        self.stats.observe(&self.world);
+        self.ui.observe(&self.world);
     }
 
     /// Run whatever this displayed frame's share of simulated time is, and
@@ -1156,11 +1172,9 @@ impl Lab {
             // with the numbers beside it. Re-taken on the next click.
             self.thumb = None;
         }
-        self.stats.observe(&self.world);
-        // Sampled here rather than in `draw` so that a frame which drew
-        // nothing still advances the series -- and gated on `World::frame`
-        // inside, so the x-axis is simulated time and not the speed dial.
-        self.ui.observe(&self.world);
+        // **Not sampled here.** Both series moved into `tick`; see the note
+        // there. A frame that drew nothing still advances them, because they
+        // no longer depend on this function being reached at all.
         advance
     }
 

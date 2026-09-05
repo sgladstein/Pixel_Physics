@@ -1512,6 +1512,15 @@ const HISTORY: usize = 56;
 
 #[derive(Clone, Copy, Default)]
 struct Sample {
+    /// **The simulated frame it was taken at**, which this did not carry.
+    ///
+    /// Without it a sample is a value with no position, so nothing
+    /// downstream can say whether the series is evenly spaced -- and while
+    /// `observe` was called once per *drawn* frame it was not. `stats::
+    /// Sample` has always carried one, which is why the same defect there
+    /// only cost resolution rather than the axis. Anything that wants to
+    /// plot these against time, or check the spacing, reads this.
+    frame: u64,
     plants: u32,
     ants: u32,
     germinations: u64,
@@ -1550,6 +1559,7 @@ impl History {
         let orgs = world.live_organism_count() as u32;
         let ants = world.live_creature_count() as u32;
         self.samples.push_back(Sample {
+            frame: world.frame,
             plants: orgs.saturating_sub(ants),
             ants,
             germinations: world.germinations,
@@ -6831,11 +6841,16 @@ mod tests {
         assert_eq!(fitted.len() - 1 + dropped, 200, "the marker's count does not account for every row that went");
     }
 
-    /// The population series is sampled on simulated frames, never on drawn
-    /// ones: at the top of the ladder one drawn frame is 256 ticks, and a
-    /// per-call sample would make the strip's x-axis the speed dial.
+    /// **A still world does not sample itself repeatedly** — the cadence
+    /// gate, on its own.
+    ///
+    /// This is only half the claim, and for a while it was the whole guard
+    /// under the name of the other half. See
+    /// `the_series_is_sampled_on_simulated_time_not_on_draws` below for why
+    /// driving `observe` in a loop cannot say anything about the call site,
+    /// which is where the defect was.
     #[test]
-    fn the_series_is_sampled_on_simulated_time_not_on_draws() {
+    fn a_still_world_yields_one_sample() {
         let mut history = History::default();
         let world = world();
         for _ in 0..500 {
@@ -6843,6 +6858,63 @@ mod tests {
         }
         assert_eq!(history.samples.len(), 1, "a still world sampled itself repeatedly");
         assert!(history.delta(|s| s.plants as i64).is_none(), "one sample is not a delta");
+    }
+
+    /// **The population series is sampled on simulated frames, never on
+    /// drawn ones**, driven through a real `Lab` at the top of the ladder.
+    ///
+    /// **The guard that carried this name for a while could not fail.** It
+    /// called `History::observe` five hundred times against a world whose
+    /// `frame` never moved, and asserted one sample came out. That exercises
+    /// the cadence gate — which was never wrong — and says nothing about the
+    /// call site, which was: both `observe` calls sat in `Lab::advance`,
+    /// after the tick loop, so at 256x the gate was offered one chance per
+    /// 256 simulated frames and could not fire at its own 120-frame interval
+    /// however short that interval was. The strip's x-axis was the speed
+    /// dial, and it stayed green through all of it.
+    ///
+    /// So this drives `advance` rather than `observe`, at a multiplier where
+    /// a batch is longer than `SAMPLE_EVERY` — the only regime in which the
+    /// two placements differ at all. **The assertion is the spacing, not the
+    /// count**, because how many ticks a batch actually runs depends on
+    /// `Plan::budget` and therefore on the machine: `CLAUDE.md`'s rule that a
+    /// wall-clock-dependent assertion is a flake generator. Spacing is exact
+    /// either way, since `tick` advances `World::frame` by one.
+    #[test]
+    fn the_series_is_sampled_on_simulated_time_not_on_draws() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            width: 256,
+            height: 192,
+            ground_y: 96,
+            soil_depth: 48,
+            founders: 2,
+            colonies: 0,
+            ..crate::lab::scene::LabBox::default()
+        });
+        lab.time.requested = 256;
+        lab.time.phase = crate::lab::time::Phase::Running;
+        // Enough batches that a per-batch sampler and a per-tick one cannot
+        // agree by luck, and enough frames for several intervals to elapse.
+        for _ in 0..40 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        let frames: Vec<u64> = lab.ui.history.samples.iter().map(|s| s.frame).collect();
+        assert!(
+            frames.len() >= 3,
+            "only {} samples over {} simulated frames -- the series is not being fed",
+            frames.len(),
+            lab.world.frame
+        );
+        for pair in frames.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                SAMPLE_EVERY,
+                "samples {} and {} are {} simulated frames apart, not {SAMPLE_EVERY} -- the cadence is following the draw loop, not the world. Frames: {frames:?}",
+                pair[0],
+                pair[1],
+                pair[1] - pair[0]
+            );
+        }
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried
