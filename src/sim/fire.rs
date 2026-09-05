@@ -271,6 +271,12 @@ const FLAME_DIRECTIONS: [(i32, i32); 6] = [(0, -1), (0, -1), (-1, -1), (1, -1), 
 /// burned out into something else) — callers that cache `cell.material` from
 /// before this call must re-read it.
 pub fn update<S: CellSurface>(surface: &mut S, x: i32, y: i32) -> bool {
+    // This is a per-cell entry point in its own right, not only a step inside
+    // `update::update_cell` -- 26 tests in this file call it directly. Opening
+    // the visit here means those callers need no ceremony, and
+    // `VisitRng::begin` is idempotent for a position already open, so the call
+    // `update_cell` already made is not disturbed. See `CellSurface::begin_visit`.
+    surface.begin_visit(x, y);
     let original = surface.get(x, y);
     if original.material == material::EMPTY {
         return false;

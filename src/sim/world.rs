@@ -732,6 +732,13 @@ pub struct World {
     cell_scale: f32,
     pub materials: MaterialRegistry,
     pub rng: Rng,
+    /// The CA sweep's per-visit draw when `PIXEL_PHYSICS_RNG=positional`;
+    /// inert under the default, where `rng` above is handed out unchanged.
+    /// Only `<World as CellSurface>` touches it — `World::rng` stays the
+    /// shared world stream that `decay.rs`, `explosion.rs`, `rigid.rs` and
+    /// `player.rs` draw from, and those are unaffected while the switch is
+    /// off. See `surface::VisitRng`.
+    visit_rng: super::surface::VisitRng,
     /// M8: coherent pieces of broken structure currently in flight
     /// (`rigid::ChunkBody`). A plain `Vec`, stepped in index order, because
     /// insertion order is the only tiebreak that stays identical run to run
@@ -2481,6 +2488,7 @@ impl World {
             clock: crate::sim::clock::Clock::default(),
             materials: MaterialRegistry::builtin(),
             rng: Rng::default(),
+            visit_rng: super::surface::VisitRng::new(),
             chunk_bodies: Vec::new(),
             player: None,
             springs: Vec::new(),
@@ -5850,8 +5858,17 @@ impl CellSurface for World {
     }
 
     #[inline]
+    fn begin_visit(&mut self, x: i32, y: i32) {
+        let (seed, frame) = (self.seed, self.frame);
+        self.visit_rng.begin(seed, x, y, frame);
+    }
+
+    #[inline]
     fn rng(&mut self) -> &mut Rng {
-        &mut self.rng
+        // Two field borrows, not two borrows of `self` -- `visit_rng` and
+        // `rng` are distinct fields, which is the whole reason `VisitRng::get`
+        // takes the fallback stream as an argument instead of reaching for it.
+        self.visit_rng.get(&mut self.rng)
     }
 
     #[inline]

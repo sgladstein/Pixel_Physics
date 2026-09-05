@@ -5574,8 +5574,20 @@ reach-1 writes make it safe under the existing checkerboard. A chunk-local
 *prefilter* was tried instead and was slower, because 88% of the marked region
 is soil and there was nothing to reject (`dead-ends.md`). The field's early-out
 remains all-or-nothing, so one awake chunk anywhere costs the whole box's
-solve. And per-row dirty spans measure a real 1.19x and ship **off** behind
-`PIXEL_PHYSICS_SWEEP=rows`: the sweep's random draws are consumed per *visited*
-cell, so any narrowing of the region — however provably it only drops cells no
-rule could act on — shifts the RNG stream and moves every pile in the world.
-The unlock is a positional RNG, not a better region.
+solve. And per-row dirty spans measure a real 1.19x on the phase and ship **off**
+behind `PIXEL_PHYSICS_SWEEP=rows`. The reason given for that used to be the
+RNG — the sweep's draws are consumed per *visited* cell, so narrowing the
+region shifts the per-chunk stream — with a positional draw named as the
+unlock. **Measured 2026-09-05, that is wrong twice.** The positional draw was
+built (`PIXEL_PHYSICS_RNG=positional`, off by default, bit-identical when
+off) and it costs **+0.149 ms/tick**, about the whole of what the spans save,
+so the two together are 2.631 → 2.636 ms with overlapping ranges — **no gain
+at all**. And the premise underneath both is false: with the RNG removed from
+the question entirely the two sweep arms **still diverge**, identical through
+frame 4,329 and first differing at **frame 4,330**. So narrowing the sweep
+region is not behaviour-neutral, and the RNG was one reason among at least
+two. The leading unmeasured hypothesis for the rest is chunk wakefulness
+feeding `field::step`'s `active_chunk_count()` gate. What the frame budget
+still wants is `active_sites`, which is serial — ~0.28 ms of a 2.63 ms tick,
+against this change's nil. Report §9,
+[`sweep-positional-rng-2026-09-05.md`](Reports/sweep-positional-rng-2026-09-05.md).
