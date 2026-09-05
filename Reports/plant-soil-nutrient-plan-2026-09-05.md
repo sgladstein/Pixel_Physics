@@ -109,7 +109,7 @@ or it measures root mass and calls it uptake.
 |---|---|---|---|
 | **1** | raise `SOIL_UPTAKE_PER_TICK` | **refuted — do not build** | §0a: monotone tax, no usable band, 12 seeds |
 | **2** | open the root-tip gate | **BUILT, default-off: key `break_root_tips` on local soil scarcity** | §2b-iii: roots 3.93x in 12/12 seeds, **income flat**, root:shoot 7.3% -> 23.3% |
-| **3** | root turnover | **promoted — it is what makes item 2 safe** | §2b-iv: without it the gate buys roots that earn zero, and a shallow bed loses 88% of its income |
+| **3** | root turnover | **built, measured, does not do the job** | §2b-v: every rate is worse than none on the failing bed — a shed/rebuild treadmill, not a counterweight |
 | **4** | *lower the water rates* | still withdrawn, and for a third reason | §1a |
 | **5** | immobile nutrient | unchanged, still second-order | §3 |
 | — | economy reads attachment | unchanged, cheap, independent | predecessor §7a |
@@ -302,6 +302,50 @@ worst pairing available** — separately measured, the shallow bed is already
 the hostile one (income 1.588 against 4.785 deep, worst-plant water status
 0.063 against 0.723), and the gate makes it worse rather than more
 interesting. The lab's 96 rows are not the problem to solve first.
+
+### 2b-v. Turnover was built and does NOT fix it — a null, and the reason is instructive
+
+§2b-iv predicted fine-root turnover was the missing counterweight. **Built,
+swept at three rates on the failing bed, and the prediction is refuted:**
+
+| arm (shallow, soil=6, 12 paired seeds) | income | root | shoot | root-zone |
+|---|---|---|---|---|
+| gate off (shipped) | **1.588** | 364 | 3,126 | 0.016 |
+| gate on, turnover 0 | 0.189 | 430 | 2,076 | 0.000 |
+| gate on, turnover 0.002 | **0.104** | 402 | 1,766 | 0.000 |
+| gate on, turnover 0.01 | **0.070** | 328 | 1,271 | 0.000 |
+| gate on, turnover 0.05 | **0.123** | 300 | 2,290 | 0.000 |
+
+Every rate is **worse** than turnover-0, and per-seed the direction is
+noise (income up in 7/12, 3/12, 5/12 against that arm). Turnover does not
+rescue the shallow bed; it deepens the hole.
+
+**Why, and it is a failure this repo has already recorded.** In a 6-row bed
+*every* cell is exhausted — the root-zone column reads **0.000 in all four
+arms**. So turnover does not shed the roots that stopped earning in favour
+of ones that are; it sheds roots indiscriminately, the gate immediately
+rebuilds them because local soil is still spent, and the plant pays
+construction twice. That is the treadmill `plant.rs`'s own die-back comment
+names — *"a starving plant re-lays almost exactly what die-back removes"* —
+which I had read while building this and did not connect.
+
+**What it actually says, which is bigger than turnover.** Both rules — the
+gate and turnover — assume a **gradient**: somewhere better to put a root.
+The gate's whole logic is *this soil is spent, go elsewhere*, and turnover's
+is *this root stopped earning, spend the carbon elsewhere*. **A bed with no
+unexhausted soil has no "elsewhere", so both rules become pure cost.** The
+deep bed has a gradient (root zone recovers 0.016 -> 0.570) and both the
+gate's gains and its neutrality on income follow from that.
+
+**And the shallow bed may be the wrong test.** At `soil=6` the bed is
+already marginal *before any change*: income 1.588 against the deep bed's
+4.785, and worst-plant water status **0.063**. Asking a root rule to rescue
+an environment that is nearly dead is not the same as asking whether the
+rule is sound. The measurement that decides it is **where the sign flips
+across depth**, which is running: `soil=12` and `soil=20` against the
+`soil=6` and `soil=34` already measured. If the gate is negative only in
+beds that are already marginal, it is shippable with a stated range; if it
+inverts somewhere in the middle of the useful range, it is not.
 
 ### 2c. Without root turnover there is no interior optimum
 
