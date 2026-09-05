@@ -98,6 +98,19 @@ fn glyph_for(c: char) -> Glyph {
         '?' => [0b01110, 0b10001, 0b00001, 0b00110, 0b00100, 0b00000, 0b00100],
         '+' => [0b00000, 0b00100, 0b00100, 0b11111, 0b00100, 0b00100, 0b00000],
         '=' => [0b00000, 0b00000, 0b11111, 0b00000, 0b11111, 0b00000, 0b00000],
+        // **The keep mark.** The roster tags a spared row `*1` so the keep
+        // list is readable at a glance, and this set had no `*` -- so the
+        // mark shipped as a blank gap and the only thing separating a spared
+        // row from an ordinary one was its tint, which is the single-channel
+        // readout the marker exists to avoid. Found the fourth time this
+        // exact omission has been found here, and again by looking at the
+        // rendered page rather than by any test.
+        //
+        // The params guard used to lean on this character's *absence* to
+        // catch markdown emphasis in a hover note. That check does not
+        // depend on the font any more -- it asserts on `**` directly, which
+        // is what it was always trying to say.
+        '*' => [0b00000, 0b10101, 0b01110, 0b11111, 0b01110, 0b10101, 0b00000],
         // Added for the tunables panel: `_` because every tunable's name is
         // a snake_case field name and rendering those as ragged gaps made
         // them read as two separate words, and `<`/`>` for the pinned

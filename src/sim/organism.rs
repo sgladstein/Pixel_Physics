@@ -4709,8 +4709,40 @@ pub struct OrganismState {
     /// descends from whom separates them (the same argument
     /// `examples/genome_drift.rs` opens with, one level up).
     pub lineage: u32,
+    /// **The frame this individual was allocated.**
+    ///
+    /// With the organism handle it is a **collision-proof identity**, and
+    /// that is what it is for: `encode_organism_id` gives the slot index 12
+    /// bits and the generation 4, so a handle is reused after 16 turns of a
+    /// slot (`World::organism_generation_wraps` counts the wrap). Anything
+    /// that pins one individual across frames -- the lab's roster and its
+    /// selection marker -- would follow a *different* organism into a
+    /// recycled slot on the handle alone. The frame does not recycle.
+    ///
+    /// **Within one world only.** `World` is `Clone` and a batch copies it
+    /// per worker, so fifty copies on the rack all hold the same pairs. It
+    /// is an identity for "this animal in this box", never a rack-wide key.
+    ///
+    /// Also the age: `world.frame - born_frame`. Note that a plant's
+    /// organism is allocated at **seed set** (`plant::set_seed`), not at
+    /// germination, so a plant's age includes however long it lay dormant.
+    pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **What this individual has done in its life.**
+    ///
+    /// Every field is mirrored from a site that already increments the
+    /// world-wide counter beside it, so the pair closes: the sum over the
+    /// living plus [`World::dead_life`] equals the world total. Without the
+    /// dead-side accumulator the live sum can only fall, and a per-individual
+    /// count that quietly loses its bearers is worse than none.
+    pub life: LifeCounters,
+    /// **Why it is `senescent`.** Meaningless while that flag is false.
+    ///
+    /// A one-way flag can carry a one-way cause at no risk: `senescent` is
+    /// declared once and never taken back, so this is written beside it and
+    /// read at [`World::free_organism`].
+    pub senescence_cause: DeathCause,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
     /// small integer per locus, inherited whole and mutated by *jumping*
     /// rather than drifting, which is what makes a population clump instead
@@ -4935,6 +4967,138 @@ impl DevelopmentalKey {
 /// phenotype, which is the property the never-renumber rule below exists
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
+/// **A running total of what one individual has done**, alongside the
+/// world-wide counters in `CreatureStats`.
+///
+/// **Every field here mirrors a site that already increments a world total**,
+/// and that pairing is the point rather than a coincidence: `CLAUDE.md`
+/// requires an "it fired" counter to have a far-side effect counter, and the
+/// arithmetic that closes these books is
+/// `sum over the living + World::dead_life == the world total`. A guard
+/// asserts exactly that.
+///
+/// **`bites` mirrors `pickups`, not `eats`, and that is measured rather than
+/// stylistic.** `eats` is incremented at two sites for one food cell -- into
+/// the crop in `act`, and again when a whole cell is absorbed in digestion --
+/// and the two comments disagree about what it means. On `ascii`'s colony it
+/// runs `eats 283 / pickups 265` at 2,000 frames and `1142 / 1017` at 12,000,
+/// so it cannot close against anything. `pickups` has exactly one site.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LifeCounters {
+    /// Steps taken. Mirrors `CreatureStats::moves`.
+    pub moves: u32,
+    /// Steps refused because something was in the way. Mirrors
+    /// `CreatureStats::moves_blocked`.
+    pub moves_blocked: u32,
+    /// Mouthfuls taken into the crop. Mirrors `CreatureStats::pickups` -- see
+    /// the note above about why not `eats`.
+    pub bites: u32,
+    /// Cells excavated. Mirrors `CreatureStats::digs`.
+    pub digs: u32,
+    /// Loads delivered to the nest. Mirrors `CreatureStats::deliveries`.
+    pub deliveries: u32,
+    /// Young this one has budded. Mirrors `CreatureStats::births`, and is
+    /// incremented on the **parent** rather than on the child.
+    pub offspring: u32,
+    /// Seeds set. Mirrors the plant-side `OrganismState::seeds_set`, and
+    /// exists here as well so one accumulator closes both kingdoms.
+    pub seeds_set: u32,
+}
+
+impl LifeCounters {
+    /// Add `other` into `self`, field by field. Used once, at the closing
+    /// seam, to roll a dead individual's life into the world's dead-side
+    /// total.
+    pub fn absorb(&mut self, other: &LifeCounters) {
+        self.moves += other.moves;
+        self.moves_blocked += other.moves_blocked;
+        self.bites += other.bites;
+        self.digs += other.digs;
+        self.deliveries += other.deliveries;
+        self.offspring += other.offspring;
+        self.seeds_set += other.seeds_set;
+    }
+}
+
+/// **Why an individual stopped being alive.**
+///
+/// Recorded because a roster that shows things disappearing for no stated
+/// reason reads as a broken table rather than as a box with mortality in it --
+/// and because one of these causes has never had an organism-level counter at
+/// all. See [`DeathCause::FelledOrLost`].
+// `Ord` so a roster row can carry the cause inside its state and still sort:
+// `lab::roster::RowState::Dead` holds one, and the STATE column is sortable.
+// The order is declaration order, which groups the causes as they are written
+// rather than alphabetically -- there is no meaningful ranking of ways to die.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DeathCause {
+    /// Nothing recorded a cause. A bug if it is common.
+    #[default]
+    Unknown,
+    /// The bank reached zero. Both kingdoms.
+    Starved,
+    /// The same, while airborne -- the flight verb charging an animal to
+    /// death is its own design question and is worth telling apart.
+    StarvedInFlight,
+    /// Its head went away: bitten, burned, blasted or brushed. The site knows
+    /// the head is gone and not what took it.
+    Killed,
+    /// The player's cull, or the gnome's axe.
+    Culled,
+    /// A plant that lost every vital cell but still owns tissue -- grazed,
+    /// burned, or shed until nothing could pay.
+    LostVitalTissue,
+    /// **A plant that left the world owning no cells and never declared
+    /// itself dead**, which until now was recorded nowhere.
+    ///
+    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
+    /// plant whole, and `plant.rs`'s senescence rule is guarded on
+    /// `!cells.is_empty()` -- so a whole-plant felling empties the list, the
+    /// guard is false, `senescent` is never set, and the organism falls
+    /// through to slot reclamation indistinguishable from one that was
+    /// allocated and never given a cell. §B2 has only ever had *cell-level*
+    /// numbers and cannot say how many plants died this way. This is that
+    /// count, for the price of one boolean at the closing seam.
+    FelledOrLost,
+}
+
+impl DeathCause {
+    /// The label a page shows.
+    pub fn label(self) -> &'static str {
+        match self {
+            DeathCause::Unknown => "UNKNOWN",
+            DeathCause::Starved => "STARVED",
+            DeathCause::StarvedInFlight => "STARVED ALOFT",
+            DeathCause::Killed => "KILLED",
+            DeathCause::Culled => "CULLED",
+            DeathCause::LostVitalTissue => "LOST ITS TISSUE",
+            DeathCause::FelledOrLost => "FELLED",
+        }
+    }
+}
+
+/// How many variants [`DeathCause`] has, for the world's by-cause histogram.
+pub const DEATH_CAUSES: usize = 7;
+
+/// Every cause, in the order the histogram indexes them.
+pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
+    DeathCause::Unknown,
+    DeathCause::Starved,
+    DeathCause::StarvedInFlight,
+    DeathCause::Killed,
+    DeathCause::Culled,
+    DeathCause::LostVitalTissue,
+    DeathCause::FelledOrLost,
+];
+
+impl DeathCause {
+    /// Its slot in the histogram. Positional, and asserted against
+    /// `DEATH_CAUSE_LIST` so the two cannot drift.
+    pub fn index(self) -> usize {
+        DEATH_CAUSE_LIST.iter().position(|c| *c == self).unwrap_or(0)
+    }
+}
+
 pub const GENOTYPE_TRAITS: usize = 10;
 
 /// How many heritable **body traits** a creature carries — the width of

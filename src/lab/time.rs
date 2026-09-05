@@ -1136,8 +1136,10 @@ mod tests {
     /// `has_glyph` that returns `true` for everything.
     #[test]
     fn the_glyph_check_can_fail() {
-        assert!(!crate::hud::has_glyph('*'), "the font gained a glyph this check relied on");
-        assert!(!crate::hud::has_glyph('~'));
+        // `*` used to be one of the two absent characters here and the
+        // message said what to do if it stopped being: the roster's keep mark
+        // needed it, so the font has it now. `~` still carries the control.
+        assert!(!crate::hud::has_glyph('~'), "the font gained a glyph this check relied on");
         assert!(crate::hud::has_glyph('X'));
     }
 

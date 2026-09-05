@@ -1,16 +1,20 @@
 # Ants
 
-*Current as of: 2026-09-05, when what an ant is carrying became visible —
-a heavy forager draws brighter than an empty one and a spoil-hauler darker,
-which is the first time anything an ant holds has been on screen at all (the
-exact colouring is still being judged and may change). The same day digging,
-trail-laying and hauling spoil stopped being free — an ant now pays for all three, at prices measured from
-what each is worth as a share of everything it burns, and each is a dial you
-can turn back to nothing. Across six beds that bought about a sixth less
-digging at no cost in ants. The same day it was measured that
-survival in this world tracks **how much an ant eats and essentially nothing
-else**, so a behaviour the world does not charge for is one it also cannot
-select for. Before that: 2026-09-02, when biting became something a mouth can fail at —
+*Current as of: 2026-09-05, a busy day with three things in it. What an ant is
+carrying became visible — a heavy forager draws brighter than an empty one and
+a spoil-hauler darker, which is the first time anything an ant holds has been
+on screen at all (the exact colouring is still being judged and may change).
+Digging, trail-laying and hauling spoil stopped being free — an ant now pays
+for all three, at prices measured from what each is worth as a share of
+everything it burns, and each is a dial you can turn back to nothing. Across
+six beds that bought about a sixth less digging at no cost in ants; it was
+also measured that survival in this world tracks **how much an ant eats and
+essentially nothing else**, so a behaviour the world does not charge for is
+one it also cannot select for. And the home scent below turned out not to have
+been laid at all for three days, and was put right — see the note under "They
+leave smells behind", which is worth reading beside the new trail-laying price,
+because the two interact directly. Before that: 2026-09-02, when biting became
+something a mouth can fail at —
 so a hard-shelled animal is harder to eat than a soft one, and a beetle simply
 cannot get through some of them — and when an animal that loses the middle of
 its body came apart at the bite instead of dying whole, the far half left lying
@@ -146,6 +150,22 @@ is a good idea is for the world to decide rather than for us.
 Both smells fade. A path nobody walks disappears; a path everybody walks
 gets stronger. Nothing decides where a trail goes: it is just the leftovers
 of where ants have been.
+
+**That was broken for three days, and it is worth knowing what it cost.**
+Between 2 and 5 September the home scent was not being laid at all — not
+faintly, not at all — because moving the fade out of the species and into what
+an ant inherits left the inherited setting a shade too quiet for the engine to
+hear. It is fixed. Ants find their way home by smell again.
+
+**Putting it back was not free, and the reason is worth the sentence.** Ants
+pay for laying a scent. That price was set while only the food trail was
+really being laid, so switching the home scent back on doubled what an ant was
+being charged for and roughly octupled it in practice — the food trail is only
+laid while carrying something, and the home scent on every step. At the old
+price a colony of twenty-seven went down to two survivors. The price per step
+came down by the same factor the work went up by, and the colony is back where
+it was. Digging is unaffected, which was the thing the price was introduced to
+make worth choosing.
 
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is
