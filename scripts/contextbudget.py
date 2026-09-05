@@ -147,13 +147,18 @@ RECORD = ROOT / ".claude" / "README.md"
 # (`Reports/two-games-one-repo-2026-08-30.md`) is still unbuilt, and this
 # script is what will be cited to say whether it worked.
 #
-# A rule **with** `paths:` is genuinely conditional and is counted separately,
-# because two live Claude Code bugs make that conditionality unreliable here:
-# #16299 (open, with a repro -- scoped rules loading regardless of the glob)
-# and #23569 (under a **git worktree** the filter is ignored, and `CLAUDE.md`
-# mandates working in worktrees). Until those are settled on this machine, the
-# honest reading of a scoped rule is "probably loaded", so it is reported and
-# excluded from the gate rather than silently assumed free either way.
+# A rule **with** `paths:` is genuinely conditional and is counted separately.
+# Two live Claude Code bugs used to make that conditionality unreliable here --
+# #16299 (scoped rules loading regardless of the glob) and #23569 (under a
+# **git worktree** the filter is ignored, and `CLAUDE.md` mandates worktrees) --
+# so a scoped rule was reported as "probably loaded" and excluded from the gate
+# rather than assumed free either way. **Measured 2026-09-05 on CLI 2.1.261,
+# neither reproduces**: a scoped rule loads on `path_glob_match` and not at
+# session start, a non-matching read pulls in nothing, and the worktree case
+# behaves as the main checkout does. So the separate count is now a real
+# saving rather than a hedge. `scripts/contextprobe.sh` is that measurement and
+# re-runs it in a command; if a future CLI regresses either bug, its
+# `--selftest` is what will say so.
 RULES_DIR = ROOT / ".claude" / "rules"
 
 
@@ -365,8 +370,8 @@ def report(m):
         for f, b in m["scoped_rule_files"]:
             print(
                 f"    scoped  .claude/rules/{f.name}  {b:,} B  (~{tokens(b):,} tok)"
-                f"  -- `paths:` declared, but see #23569: the filter is ignored"
-                f" inside a git worktree, which CLAUDE.md mandates"
+                f"  -- conditional: loads on `path_glob_match` only"
+                f" (measured, `bash scripts/contextprobe.sh --selftest`)"
             )
     else:
         print(f"contextbudget: CLAUDE.md {m['bytes']:,} B / {m['lines']:,} lines")
