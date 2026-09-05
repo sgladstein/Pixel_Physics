@@ -299,7 +299,9 @@ fn main() {
                 live.len(),
                 median(&mut b_status)
             );
-            println!("  frame  plants  cells  d_cells  unreached  shoot   root  contact   water/cap  status  demand  uptake  income");
+            println!(
+                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income"
+            );
 
             let mut last = cells_at_cut;
             let stops = 6u64;
@@ -329,16 +331,40 @@ fn main() {
                 let mut shoot: Vec<f32> = tracked(&now, &live, |r| r.shoot as f32);
                 let mut root: Vec<f32> = tracked(&now, &live, |r| r.root as f32);
                 let mut contact: Vec<f32> = tracked(&now, &live, |r| r.contact as f32);
-                let mut water: Vec<f32> = tracked(&now, &live, |r| r.water);
+                // **A per-plant fill fraction, not a ratio of medians.** The
+                // first version printed `median(water)` beside `median(cap)`
+                // and invited the reader to divide -- and those two medians
+                // come from *different plants*, so the pair describes no
+                // plant that exists. Measured on seed 1 at frame 32,000 it
+                // printed 202.6/1088 (0.19) where the plant carrying the rest
+                // of that row was at 969.7/1088 (0.89).
+                //
+                // `plant.rs`'s own stomatal-closure census records this exact
+                // mistake being made once before -- "stock/capacity was read
+                // as 0.41 ... from a ratio of *medians* taken across
+                // different plants at one final frame" -- so this is the
+                // second occurrence, and the fix is to divide inside the
+                // plant and take the median of the fractions.
+                let mut fill: Vec<f32> = tracked(&now, &live, |r| r.water / r.capacity.max(f32::EPSILON));
                 let mut cap: Vec<f32> = tracked(&now, &live, |r| r.capacity);
                 let mut status: Vec<f32> = tracked(&now, &live, |r| r.status);
+                // **The minimum beside the median, because the median hides
+                // the finding.** `status` is clipped at 1.0, so an upper
+                // median over four plants reads 1.000 whenever any two are
+                // saturated -- on seed 1 at frame 48,000 the median said
+                // 1.000 while the largest plant sat at 0.677. A ceiling-
+                // clipped channel needs its low tail printed or the run
+                // reports "the coupling is dead" when it is merely quiet.
+                let mut status_min: Vec<f32> = status.clone();
+                status_min.sort_unstable_by(f32::total_cmp);
+                let worst_status = status_min.first().copied().unwrap_or(f32::NAN);
                 let mut demand: Vec<f32> = tracked(&now, &live, |r| r.demand);
                 let mut uptake: Vec<f32> = tracked(&now, &live, |r| r.uptake);
                 let mut income: Vec<f32> = tracked(&now, &live, |r| r.income);
                 let alive = cells.len();
                 let m = median(&mut cells);
                 println!(
-                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>5.1}/{:<4.0}  {:>6.3}  {:>6.2}  {:>6.2}  {:>6.3}",
+                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}",
                     w.frame,
                     alive,
                     m,
@@ -347,9 +373,10 @@ fn main() {
                     median(&mut shoot),
                     median(&mut root),
                     median(&mut contact),
-                    median(&mut water),
+                    median(&mut fill),
                     median(&mut cap),
                     median(&mut status),
+                    worst_status,
                     median(&mut demand),
                     median(&mut uptake),
                     median(&mut income),

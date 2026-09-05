@@ -2195,34 +2195,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ranking is revised by `plant-soil-nutrient-plan-2026-09-05.md` below** —
   read that before acting on §7b, which is withdrawn there.
 - [plant-soil-nutrient-plan-2026-09-05.md](plant-soil-nutrient-plan-2026-09-05.md)
-  — **plan, 2026-09-05; nothing built.** What to do about the report above,
-  after comparing its findings against how roots work in nature. **The
-  headline is a withdrawal**: the diagnosis ranked "lower the per-cell water
-  rates" second, and that is wrong as a mechanism — water moves through soil
-  toward a drinking root, here (`update.rs` capillary, rest gap 60 of a
-  440-wide plant-usable band) and in nature, so the measured saturation is
-  the correct consequence of water being the world's only soil resource
-  rather than a defect in the water model. What makes real root systems large
-  and dense is the resource that does **not** move: phosphate's depletion
-  zone is a millimetre or two, so uptake tracks root length and density in
-  unexploited soil and never saturates. This engine has **no nutrient
-  dimension at all** — zero hits across `src/sim/` and `assets/species/` —
-  though `plant-simulation-research.md` §4 and `PLAN.md` both name one, and
-  `dead-ends.md` does not, so it is untried rather than rejected. Proposes one
-  immobile per-soil-cell nutrient as a second Liebig term, riding
-  `absorb_water`'s existing four-neighbour visit, with **recovery
-  event-driven at decay sites** so there is no per-frame recharge sweep —
-  which also closes `PLAN.md`'s "plant → dies → decays → nutrient → plant"
-  loop. **§3 is the part to read first**: a coarse field channel is
-  disqualified outright, because `FIELD_SCALE` is 16 while the measured
-  rooting zone is 13 rows deep, so one block spans the whole root system and
-  reproduces exactly the saturation being fixed. Carries three falsifiable
-  success claims (marginal roots pay; density and exploration pay
-  *separately*; two morphologies viable in different soils), a ship-inert-
-  then-sweep protocol for the weighted-budget re-derivation, and §6's
-  girdling case as the acceptance test for path-priced carbon — a real cut
-  that kills a tree root-first over a season, and is inexpressible today
-  because crown and roots share one undirected pool.
+  — **plan, 2026-09-05, second draft after three reviews; nothing built.**
+  What to do about the report above. **Its first draft proposed an immobile
+  soil nutrient as step one and was wrong about the cause**, which the
+  adversarial review found by reading a constant's doc and running
+  `git log -S`: `SOIL_UPTAKE_PER_TICK`'s own doc states this plan's goal as
+  its design intent (*"a root system competing with itself and its neighbours
+  for a finite local store"*) and calls itself untuned, and the capillary rest
+  gap that bounds the depletion zone fell **380 → 60** one day later, cutting
+  per-cell uptake loss **86% → 14%**. Filed as `open-bugs-handoff.md` §W2.
+  **So the cheapest lever is one constant** — raise `SOIL_UPTAKE_PER_TICK`,
+  which moves how fast the soil draws down and leaves income per drink
+  untouched, so none of the five calibrated economy constants need
+  re-deriving. Two blockers must be cleared for it to show anything, and
+  neither is about resources: `break_root_tips` returns early at
+  `water_status >= 0.95`, so wherever the water term is at its ceiling **the
+  plant cannot re-initiate root tips at all**; and without root turnover a
+  mined-out root earns nothing for ever while costing for ever, so there is no
+  interior optimum. The nutrient stays on the list, second, with a **smaller
+  job** — two viable morphologies in different beds, and decoupling root
+  income from rainfall — and with storage switched to a per-chunk dense array
+  plus a recovery stamp, because the first draft's sparse position-keyed
+  sidecar and its decay-site recovery are both in `dead-ends.md` (`:685`,
+  `:583`/`:585`, the latter with a measured runaway). §4 restates the success
+  claims so they can fail, and **drops the taproot-vs-fibrous claim**: roots
+  cannot thicken at all (`can_widen` needs an `EMPTY` or own-`Leaf`
+  neighbour), so that family is inexpressible at any resource setting. **§9
+  is the part worth reading** — seven things the first draft got wrong,
+  including grepping `dead-ends.md` for the subject rather than the
+  mechanism.
 
 ## Licensing and distribution
 
