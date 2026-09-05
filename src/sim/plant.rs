@@ -7157,11 +7157,13 @@ fn anchor_support(world: &mut World, organism_id: u16) {
 fn accumulate_support(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     let Some(collar) = state.collar_y else { return };
+    let species_id = state.species;
     let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     prologue_end(prologue, cells.len());
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
 
     // Roots first: everything at or below the collar is the anchor, so the
     // accumulation flows toward the ground the way sap pressure does.
@@ -7198,7 +7200,16 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
         .iter()
         .map(|&(x, y)| {
             let c = world.get(x, y);
-            if c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+            // **`is_foliage`, not `cell_type == Leaf`** -- see
+            // `allocate_to_frontier`'s income sum for the argument. It has to
+            // change here in the same commit as the income, because this is
+            // what a plant is *billed* for: giving a leafless species an
+            // income while leaving its `q_peak` at zero would hand it earnings
+            // with no maintenance, which is not a fix but a plant that grows
+            // without bound.
+            if c.organism_id() == organism_id
+                && organism::cell_type(c.aux()).is_some_and(|t| is_foliage(world, x, y, t, species_id, has_leaf_stage))
+            {
                 ambient_light_above(world, x, y)
             } else {
                 0.0
@@ -7489,6 +7500,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // has no shoot) scores every bud as position 1.0.
     let (collar, shoot_top) = (state.collar_y, state.shoot_top_y);
 
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
     let mut intercepted = 0.0f32;
     let mut tips = 0usize;
     let mut buds: Vec<(i32, i32, f32)> = Vec::new();
@@ -7501,8 +7513,17 @@ fn break_buds(world: &mut World, organism_id: u16) {
         match organism::cell_type(cell.aux()) {
             // Water-limited light, not raw light -- see
             // `allocate_to_frontier` for why the *same* weighting has to
-            // appear in both places.
-            Some(CellType::Leaf) => intercepted += ambient_light_above(world, x, y) * water_status(world, x, y),
+            // appear in both places. **`is_foliage` for the same reason**: the
+            // two gates are one number in two places, so a species whose
+            // earning tissue this arm cannot see would be funded by one and
+            // refused by the other. Bit-identical for every species with a
+            // leaf stage; today it reaches `grass`, which cannot flush a bud
+            // regardless because nothing creates one for it (no
+            // `SecondaryThicken`, and `plastochron: 0` means a tip never
+            // reaches `Node`), so this is kept in step rather than relied on.
+            Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
+                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y)
+            }
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
             Some(CellType::GrowingTip) => tips += 1,
@@ -7657,6 +7678,8 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
+    let species_id = state.species;
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
     // **This individual's** node size, for the income currency — see
     // `INCOME_PER_NODE`. A plant with no shoot `Grow` has no light economy
     // to allocate. (It read the *species'* until the parameter genome
@@ -7688,7 +7711,35 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
                 frontier.push((x, y));
                 frontier_is_root.push(t == CellType::RootTip);
             }
-            Some(CellType::Leaf) => {
+            // **The whole-plant income asks the species what its foliage is,
+            // rather than assuming `CellType::Leaf`.** This is
+            // `open-bugs-handoff.md` §0-z's central fact -- *leaves are the
+            // only channel a plant has* -- closed on the two terms that decide
+            // whether a plant grows and whether it breeds.
+            //
+            // For every species **with** a leaf stage `is_foliage` returns
+            // `cell_type == Leaf`, so this is bit-identical for tree, conifer,
+            // shrub, herb, creeper and scrambler, and no constant calibrated
+            // against them is re-derived by it.
+            //
+            // For a species **without** one it is the whole difference between
+            // a plant and an ornament. `grass` photosynthesises from
+            // `GrowingTip` and `MatureBody` and has no `Leaf` cell at all, so
+            // this sum was **identically zero** for it -- and since `surplus`
+            // is `income - maintenance` and `reproductive_share` is a fraction
+            // of the surplus, a grass plant had no growth pool and no seed
+            // budget, for ever, whatever it was actually earning per cell.
+            // Measured on `reseed_probe founders=1 species=grass frames=60000`
+            // before this: one plant, 13 cells, **zero seeds set in the whole
+            // run**, dead by frame 24,000, bed empty. `grass.ron`'s own header
+            // reasons its way to the same place from the other end and files
+            // it as somebody else's problem.
+            //
+            // Root tissue is excluded inside `is_foliage` by
+            // `reinforces_powder`, which is load-bearing rather than tidy:
+            // grass retires its root tips into the same `MatureBody` its
+            // blades retire into, and only the material tells them apart.
+            Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
                 // **Intercepted light, not leaf count** -- Palubicki's `Q`.
                 // A leaf buried inside the canopy sits under blocked field
                 // blocks and reads almost nothing, so it contributes almost
@@ -11501,9 +11552,9 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
     /// step rather than after it.
     #[test]
     fn a_spread_leaf_cluster_is_longer_than_a_blob() {
-        fn mean_elongation(spread: f32) -> f32 {
+        fn mean_elongation(world_seed: u64, spread: f32) -> f32 {
             let mut w = test_world();
-            w.seed = 11;
+            w.seed = world_seed;
             let tree = w.species.id_of("tree").expect("tree is compiled in");
             assert!(
                 w.species.set_param(tree, CellType::GrowingTip, organism::ParamId::LeafSpread, 0, spread),
@@ -11557,11 +11608,55 @@ The night factor belongs on income only -- see NIGHT_INCOME_FLOOR"
             assert!(n >= 3, "only {n} clusters of three or more cells grew -- this scene cannot answer the question");
             total / n as f32
         }
-        let blob = mean_elongation(0.0);
-        let line = mean_elongation(1.0);
+        // **Twelve world seeds and a median, because one tree is one sample
+        // from a wide distribution.** This asserted a single tree at world
+        // seed 11 against `line > blob * 1.15` until 2026-09-05, and that bar
+        // was sitting at 1.064 on that seed -- it passed on the tree it was
+        // written against and went red the first time anything changed the
+        // world around the plant, which `assets/materials/seed.ron`'s
+        // `falls_through_organisms` promptly did. Nothing was wrong with the
+        // mechanism: measured across seeds the ratio runs 0.97 to 1.68 with a
+        // median near 1.2, so seed 11 was simply one of the poor ones and a
+        // one-sample bar cannot tell that from a regression. This is
+        // `CLAUDE.md`'s rule for a guard over emergent behaviour -- gate an
+        // order statistic over N seeds rather than any single seed -- and
+        // its "compare two runs, not one run against a remembered number".
+        //
+        // **The bar is on the median with headroom under the measurement**,
+        // never sitting on it: the median measures **1.179** over these eleven
+        // seeds at the shipped materials (min 0.993, max 1.676), gated at
+        // **1.08** -- an 8% fall in the median trips it, and the property
+        // vanishing entirely puts it at 1.000. The minimum is
+        // deliberately *not* gated: individual seeds run below 1.0 and always
+        // did, so a min-based bar is a coin flip on which tree grew.
+        //
+        // Seed 2 grows no cluster of three or more cells at either spread, so
+        // `mean_elongation`'s own `n >= 3` assertion would fire on it; it is
+        // excluded by construction rather than by a skip, which is why the
+        // list below is not simply 1..=12.
+        const SEEDS: [u64; 11] = [1, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12];
+        let mut ratios: Vec<f32> = SEEDS
+            .iter()
+            .map(|&world_seed| {
+                let blob = mean_elongation(world_seed, 0.0);
+                let line = mean_elongation(world_seed, 1.0);
+                (line / blob, world_seed, blob, line)
+            })
+            .inspect(|(ratio, world_seed, blob, line)| {
+                println!("seed {world_seed:2}: blob {blob:.3} line {line:.3} ratio {ratio:.3}");
+            })
+            .map(|(ratio, _, _, _)| ratio)
+            .collect();
+        ratios.sort_by(f32::total_cmp);
+        let median = ratios[ratios.len() / 2];
         assert!(
-            line > blob * 1.15,
-            "a fully spread spray should be measurably longer per cell than a random one: blob {blob:.3}, line {line:.3}"
+            median > 1.08,
+            "a fully spread spray should be measurably longer per cell than a random one, \
+             across seeds rather than on one tree: median ratio {median:.3} over {} seeds, \
+             spread {:.3}..{:.3}",
+            ratios.len(),
+            ratios[0],
+            ratios[ratios.len() - 1]
         );
     }
 
@@ -17679,6 +17774,78 @@ floor {ROOT_INVERSION_BAR}. Measured 0.994 (SE 0.046) when this bar was set -- s
     ///
     /// Before this package both arms read 12: grass has no `Leaf` cell, and
     /// both rules gated on `CellType::Leaf`.
+    /// **A species with no leaf stage earns, is billed, and can pay for a
+    /// seed** — `open-bugs-handoff.md` §0-z closed on the two terms that
+    /// decide whether a plant grows and whether it breeds.
+    ///
+    /// The whole-plant income in `allocate_to_frontier` summed
+    /// `CellType::Leaf` and nothing else, so for `grass` — which
+    /// photosynthesises from `GrowingTip` and `MatureBody` and declares no
+    /// `Leaf` cell at all — it was **identically zero**. `surplus` is
+    /// `income - maintenance` and `reproductive_share` is a fraction of the
+    /// surplus, so a grass plant had no growth pool and no seed budget for
+    /// ever, whatever its cells were actually earning. Measured before the
+    /// fix on `reseed_probe founders=1 species=grass frames=60000`: one plant,
+    /// 13 cells, **zero seeds set in the whole run**, dead by frame 24,000,
+    /// bed empty. After: 7,965 borne, 2,493 germinated, 391 plants, **486 of
+    /// 512 columns**.
+    ///
+    /// **All three assertions are load-bearing and the middle one is the
+    /// point.** Income alone would be a species that earns without being
+    /// charged — `accumulate_support` writes `q_peak` from the same sum, so
+    /// leaving it reading `Leaf` would hand a leafless plant earnings with no
+    /// maintenance and it would grow without bound. That is the half-fix this
+    /// guard exists to catch, and it is the shape `CLAUDE.md` warns about:
+    /// changing what one term of a shared budget can express reallocates the
+    /// whole sum.
+    ///
+    /// Watched going red rather than assumed, and **the second assertion had
+    /// to be rewritten because the obvious form of it was blind**: with the
+    /// income sum put back to `cell_type == Leaf` this fails at `income
+    /// 0.0000`, and with only `accumulate_support` put back it fails at
+    /// `maintenance_basis 0.000000`. Asserting on `maintenance` instead —
+    /// the reading anyone would write first — **passes that second injection**,
+    /// because `MAINTENANCE_PER_CELL` is charged per cell whatever `q_peak`
+    /// says.
+    #[test]
+    fn a_species_with_no_leaf_stage_earns_is_billed_and_sets_seed() {
+        const BLADES: i32 = 12;
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            w.set(x, 40, Cell::new(material::STONE, 0));
+            for y in 32..40 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let id = place_grass(&mut w, 10, 32, BLADES, 3);
+        assert!(
+            !w.species.get(w.organism(id).expect("the sod is alive").species).has_leaf_stage(),
+            "test setup: this guard is about a species with NO leaf stage -- if grass grows one, it stops asking the question"
+        );
+        // Lit, because the quantity under test is intercepted light. `run`
+        // without fields leaves every cell dark and income legitimately zero,
+        // which would pass the negative it is trying to exclude.
+        run_with_fields(&mut w, 13_500);
+        let state = w.organism(id).expect("the sod is still alive");
+        let (income, basis, seeds) = (state.income, state.maintenance_basis, state.seeds_set);
+        println!("leafless economy: income {income:.4} maintenance_basis {basis:.6} seeds_set {seeds}");
+        assert!(income > 0.0, "a lit sward must earn: income {income:.4}");
+        // **`maintenance_basis`, not `maintenance`, and the difference is the
+        // whole reason this assertion is here.** `maintenance_cost` is
+        // `MAINTENANCE_PER_CELL` plus a girth term built from `q_peak`, so the
+        // mass term alone keeps `maintenance` above zero even when `q_peak` is
+        // identically zero — asserting on it passed the fault injection with
+        // `accumulate_support` still reading `Leaf`, which is a blind guard
+        // rather than a weak one. `maintenance_basis` is the `q_peak` sum
+        // itself and goes to exactly 0.0 in that case.
+        assert!(
+            basis > 0.0,
+            "...and must be billed for the foliage it carries, or it is income with no girth cost: maintenance_basis {basis:.6}"
+        );
+        assert!(seeds > 0, "...and must be able to afford a seed: seeds_set {seeds}");
+    }
+
     #[test]
     fn a_shaded_sward_thins_and_a_lit_one_does_not() {
         const BLADES: i32 = 12;
