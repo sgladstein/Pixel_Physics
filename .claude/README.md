@@ -18,6 +18,7 @@ by name.
 | Path | What it is |
 |---|---|
 | `settings.json` | the shared project baseline: the SessionStart hook, and the permission allow/deny/ask lists |
+| `rules/` | gotchas scoped to one part of the tree, loaded **only** when a matching file is read — see below |
 | `skills/review/` | the owner's visual review queue — post a rendered artifact, collect a verdict later |
 | `workflows/` | multi-agent harnesses, including the ten-agent census that produced `Reports/dead-ends.md` |
 
@@ -65,16 +66,45 @@ reasoning for `rebase`, `commit --amend`, `reset --hard` and `git add .`.
 Add to these lists rather than widening a pattern: the whole value is that the
 list is short enough to read.
 
+## `rules/` — the part of the guidance that is *not* always-loaded
+
+A `.claude/rules/*.md` file with `paths:` frontmatter loads only when Claude
+reads a file matching one of its globs. That is how eleven gotchas about
+`src/sim/`, `assets/` and `Cargo.toml` came out of `CLAUDE.md` without being
+lost: they arrive when the code they are about is opened, and cost nothing in
+every other session.
+
+**The criterion for putting a rule here, rather than in `CLAUDE.md`:** does
+reading the file precede the mistake the rule prevents? For a gotcha about
+`Cell::aux` it does — and an edit is always preceded by a read, so a rule that
+only matters when code is *changed* is always in time. For "the app locks its
+own exe", which bites at `cargo build` before anything is read, it does not;
+that one stays in `CLAUDE.md`.
+
+**A rule here with no `paths:` is loaded at launch exactly like `CLAUDE.md`**
+and saves nothing — `Reports/two-games-one-repo-2026-08-30.md` records a whole
+proposal that missed this. `scripts/contextbudget.py` counts unconditional
+rules inside the gated figure for that reason, and reports scoped ones
+separately.
+
+**Do not trust either claim without the instrument.** `bash
+scripts/contextprobe.sh <path>` reports what the runtime actually loads and
+why, over the `InstructionsLoaded` hook, and `--selftest` is the positive
+control: it plants a scoped rule and a nested `CLAUDE.md` and fails unless the
+probe reports both. Two upstream bugs (#16299, #23569) once made this
+conditionality unreliable and are measured not to reproduce on CLI 2.1.261 —
+if a future CLI regresses them, the selftest is what will say so.
+
 ## The always-loaded context budget
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~26,266 tokens** — `CLAUDE.md` at 105,063 B / 1,608 lines, bytes/4.0. Ceiling 28,000 (1,734 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~24,773 tokens** — `CLAUDE.md` at 99,092 B / 1,522 lines, bytes/4.0. Ceiling 28,000 (3,227 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~262,660 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~247,730 tokens before any of them reads source.
 
-Consulted by lookup, paid unconditionally: 62% (~16,389 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
+Consulted by lookup, paid unconditionally: 60% (~14,848 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-09-02 x2, 2026-08-30 x6. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-09-05 x1, 2026-09-02 x3, 2026-08-30 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->

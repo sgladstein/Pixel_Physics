@@ -1337,25 +1337,16 @@ consider it at all.
 
 ## Gotchas that have each caused a real bug
 
-- **Two conventions for `Cell::aux` point opposite ways.** On a `Liquid`,
-  `aux == 0` means **full**. On a `Powder`, `aux == 0` means **dry**
-  (`material::SOIL_SATURATED`). Both defaults are deliberate — liquids are
-  created full, soil is created dry — and getting either backwards
-  manufactures water out of nothing. A partly-drained liquid must be written
-  as `with_aux(remaining)`, and a fully-drained one as `Cell::EMPTY`, never
-  `with_aux(0)`.
-- **A traversal must use the same neighbourhood the writer used.** `Grow`
-  places organism cells at 8 neighbours; anything reading a grown organism
-  back has to traverse 8 or it sees disconnected fragments. Transport
-  (`diffuse_resource`) is the deliberate exception and stays at 4: an
-  exchange crosses a shared face, and diagonal cells share only a corner.
-- `Cell::is_empty()` is **managed-aware** — a promoted liquid body's container
-  cells are materially empty but read as not-empty. Use the raw
-  `cell.material == material::EMPTY` when the question is "is there material
-  here", not "is this position available".
-- `MAX_REACH == CHUNK_SIZE / 2` exactly, and that equality is load-bearing for
-  `parallel.rs`'s cross-chunk write-safety proof *and* for its
-  reinsert-then-replay loop. Changing it needs both re-derived.
+**Gotchas tied to one part of the tree are not in this list.** Eleven of them
+-- nine about the sweep and the cell, one about assets, one about the build
+profile -- live in `.claude/rules/` and arrive on their own when you read a
+matching file, which is measured rather than assumed
+(`bash scripts/contextprobe.sh src/sim/plant.rs`). Every one of them only
+matters when that code is *changed*, and an edit is always preceded by a read.
+What stays below is what fires before any file is read: the build, the suite,
+the measurement, and the record.
+
+
 - **A commit message is not evidence the change is in the file.** A `git
   stash` cycle restored an older blob over a source file, so a commit that
   claimed a behaviour change shipped only its *doc comment* — the code kept
@@ -1370,33 +1361,12 @@ consider it at all.
   to reach for with the app open. Separately, stale incremental artifacts
   produce bogus `LNK2019 unresolved external symbol anon.…` link errors —
   `rm -rf target/debug/incremental` clears it, and it is not a code error.
-- **An unstable sort's tie order is not a function of the comparator alone —
-  it depends on the element type.** `sort_unstable_by` (ipnsort) specialises
-  its small-sort strategy on the type's size and properties, so two sorts
-  that ask the comparator identical questions in identical order can still
-  order **equal** elements differently. Measured 2026-08-24 in
-  `plant.rs`'s `allocate_to_frontier`: caching the sort key to stop the
-  comparator calling `world.carbon_at` twice per comparison changed the
-  element from `(i32, i32)` to `(f32, (i32, i32))`, and the stand diverged —
-  tree heights 101 → 103, stem thickness 9 → 6, root depth histogram
-  [49, 43, 7] → [47, 38, 13]. Donor carbon is equal constantly (mature cells
-  sit pinned at `RESOURCE_SCALE`), so the tie order decides which donor is
-  drained. So: **any "cache the sort key" or "change the element type"
-  optimisation over an unstable sort is a behaviour change until the
-  comparator breaks ties explicitly**, and the free-looking half of that
-  trade does not exist. The standing risk this leaves, recorded in
-  `Reports/dead-ends.md`: a Rust upgrade that retunes the sort can silently
-  change how every plant in the world grows, and nothing in the suite would
-  catch it.
+- **Never `git add -A` here; stage explicit paths.** Enforced rather than
+  asked: it is the one entry in `.claude/settings.json`'s `deny` list, so this
+  line is a backstop and not the defence. (Force-push, rebase, amend and
+  `reset --hard` sit on `ask` instead -- forbidden on someone else's branch,
+  fine on your own, and a conditional rule can only be asked.)
 
-- **Never `git add -A` here** — and you now cannot: it is the one rule in
-  `.claude/settings.json`'s `deny` list, because it is the one this file
-  states unconditionally. Doing so once swept ~1,200 lines of someone else's
-  in-progress work into an unrelated commit. Stage explicit paths, and see
-  "Working alongside another session" above — `git add -A` is the symptom, a
-  shared checkout is the cause. Force-push, rebase, amend and `reset --hard`
-  are on `ask` rather than `deny`: those are forbidden *on someone else's
-  branch* and fine on your own, and a conditional rule can only be asked.
 - **A green local `cargo clippy` was not evidence that CI's clippy is green,
   and `rust-toolchain.toml` now makes it one.** The container shipped
   **1.94.1** while CI ran **1.98.0**, and a lint's heuristic can widen between
@@ -1484,13 +1454,6 @@ consider it at all.
   before believing any of it. Four occurrences to date, one of which bit a
   single session three times in an afternoon, and each produced another
   bullet rather than being caught by the last.
-- **Editing an asset `.ron` does nothing until the next build.** Materials
-  and species are compiled into the binary via `include_str!`; only the
-  app's F5 reload reads the directory, and headless harnesses do not. A
-  sweep that edits `tree.ron` and re-runs a prebuilt example produces
-  bit-identical "runs" — three of them, once, before anyone noticed the
-  knob was not connected. Identical output across settings is the tell;
-  rebuild between sweep points.
 - **`cargo build --release` does not rebuild the examples**, and every
   measurement in this repo comes out of an example. It builds the lib and the
   bin; `--examples` builds them all, `--example NAME` builds one — and a
@@ -1518,16 +1481,6 @@ consider it at all.
   there is no binary at all. Use `set -o pipefail` and read
   `${PIPESTATUS[0]}`, and never trust a bare `echo $?` after a pipe.
 
-- **A `cargo` flag can be a performance change, and the obvious half may be
-  the worthless half.** There was no `[profile.release]` in `Cargo.toml` at
-  all until 2026-08-24 — every release build ran without LTO at
-  `codegen-units = 16`. Adding it is worth ~4% of the frame, but the split
-  is the lesson: `lto = "thin"` **alone measured no gain at all** (10.58 ms
-  against a 9.84 ms baseline), and the entire win is `codegen-units = 1`,
-  which is also the whole of the +50% build-time cost. Measure the settings
-  separately before attributing a win to the one whose name sounds like it
-  did the work.
-
 - **The harness is as stale-able as the assets it reads, and an unknown
   argument is silently ignored.** A 3.5-hour detached megastudy (3 species x
   8 world seeds x 16 plants x 45,000 frames) produced eight *byte-identical*
@@ -1539,17 +1492,6 @@ consider it at all.
   species/trees/frames/worldseed, so a log that does not name its seed was
   written by a binary that never had one. A knob nobody can see the value of
   is a knob nobody can tell is disconnected.
-- **Do not add `schedule_structural_check_around` to an organism growth
-  path.** Growth only ever *adds* material, so it is not a disturbance, and
-  a `GrowingTip` is expected to be transiently unsupported until it
-  reconnects — checking it there prunes ordinary growth as if it were
-  damage (`plant.rs`'s `Grow` and germination both say so at the call
-  site). The historical reason was different and is now **stale**: the
-  hop-bounded `organism_is_supported` that amputated crowns no longer
-  exists, replaced by `plant::anchor_support`, a Dijkstra from the anchors
-  outward with no span budget. `open-bugs-handoff.md` §0d has that story
-  and the 26x measurement; read it before trusting any Phase 3 damage
-  result written while the old search was live.
 - **Assert the property, not two instants fitted to one trajectory.**
   `a_tree_eventually_stops_growing` compared wood counts at two fixed
   frames and broke the moment genotypes were re-keyed — the tree at that
@@ -1558,11 +1500,6 @@ consider it at all.
   consecutive windows inside a budget set from a measured curve"; it
   survives redraws and retunes because it asks the question the test is
   named for.
-- The liquid heightfield bodies in `liquid.rs` are **test-only today** —
-  nothing in production promotes a body, so bugs there are latent, not
-  live, and go live the moment promotion lands. Why promotion was
-  implemented and reverted is in `liquid.rs`'s own module doc and
-  `Reports/liquid-heightfield-design.md`.
 - **Grepping a prose phrase gives false negatives, and a false negative here
   reads as "the content is gone".** Two causes, both structural rather than
   careless. **The prose is hard-wrapped** at a median 72-73 characters, and
@@ -1583,27 +1520,3 @@ consider it at all.
   reader to strip the markup and collapse the whitespace by hand, mid-task,
   which is exactly the discipline this file's own recurrence audit found does
   not survive a real session.
-- **A coarse-field read is block-nearest, so neighbouring cells sample the
-  same value — never build a per-cell decision on the difference between
-  two of them.** At `FIELD_SCALE`, four sensors one cell apart land in the
-  same field block roughly seven times in eight, so their differences are
-  zero and whatever tie-break follows becomes a constant direction. **Hit
-  four times, on three different lines, and never once caught by a test:**
-  worm thermotaxis resolved to "always flee west"; tree phototropism
-  reproduced the identical degeneracy; a third proposal for per-candidate
-  self-avoidance was stopped only by a reviewer noticing the pattern; and
-  it stands recorded as a live trap for the first liquid code to read
-  pressure per cell. If a rule needs a *gradient*, interpolate or sample
-  far enough apart to cross a block boundary — and prove the two reads can
-  actually differ before trusting the sign.
-- **A channel needs a writer and a reader, and the compiler checks neither.**
-  A field that is written and never read is dead weight; one that is read
-  and never written is worse, because **every consumer of it is dead code
-  that looks alive** — the reads compile, the values are plausible, and the
-  behaviour they drive silently does not exist. `Reports/dead-ends.md` calls
-  this "the failure mode this project has hit three times": light with no
-  writer, canopy density with an always-zero reader, pressure with no liquid
-  consumer. It is a standing check, not three individual fixes — when you
-  add or inherit a per-cell or per-tile channel, name its writer and its
-  reader out loud before building on it, and if either is missing say so
-  rather than assuming the other end is somewhere you have not looked.
