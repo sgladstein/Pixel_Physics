@@ -1,7 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-05, when digging, trail-laying and hauling spoil
-stopped being free — an ant now pays for all three, at prices measured from
+*Current as of: 2026-09-05, when what an ant is carrying became visible —
+a heavy forager draws brighter than an empty one and a spoil-hauler darker,
+which is the first time anything an ant holds has been on screen at all (the
+exact colouring is still being judged and may change). The same day digging,
+trail-laying and hauling spoil stopped being free — an ant now pays for all three, at prices measured from
 what each is worth as a share of everything it burns, and each is a dial you
 can turn back to nothing. Across six beds that bought about a sixth less
 digging at no cost in ants. The same day it was measured that
@@ -238,6 +241,20 @@ born wanting to dig, and now they simply pay for wanting to. For the colony
 to actually dig *less* than it can afford, the wanting itself has to change,
 and that is bred rather than set — it needs far more ants over far more
 generations than a bed currently produces.
+
+**You can see what an ant is carrying, which you could not before.** An ant
+with a heavy load of food draws brighter than one nearly empty, in three
+steps, and one hauling a lump of dug earth draws darker. Nothing about the
+ants changed — this is only that a thing they were always doing is now on
+screen. Watch a bank of herbs for a while and the foraging shows itself: pale
+specks working up into the plants and back down again, and the odd dark one
+carrying spoil out of a burrow.
+
+Two things worth knowing about it. **Almost every ant is carrying food almost
+all the time** — better than nine in ten, at any moment — so the brightness is
+telling you *how much*, not *whether*; an ant that looks dull is a nearly
+empty one, not an idle one. And **an ant is never quite empty**, so the dullest
+step still means a quarter of a load.
 
 **And the ground it takes out has to go somewhere, which it did not used to.**
 Digging destroyed what it removed — the cell was simply gone from the world —
