@@ -3128,6 +3128,86 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub curvature_fraction: f32,
+    /// Charged per **unit of jaw force this animal carries** per tick, as a
+    /// fraction of `start_energy` — the muscular twin of `synapse_fraction`
+    /// and `sight_fraction`.
+    ///
+    /// **Strength was the last free capability.** `dig_force` is a threshold
+    /// tested against a material's `penetration_resistance`, so a higher one
+    /// is *strictly* more of the world you can cut and eat, at no cost —
+    /// exactly the ratchet `sight_range` was before `sight_fraction`, and
+    /// `curvature_radius` was before `curvature_fraction`. Owner's ruling,
+    /// 2026-09-05: *everything should be priced*.
+    ///
+    /// **A standing cost, not a per-swing one, and the distinction is the
+    /// whole design.** `dig_cost_in_moves` already charges for *using* the
+    /// jaw; this charges for *having* it. Pricing only the swing would leave
+    /// an animal free to carry mandibles it never opens, and then the gene
+    /// has no gradient for any lineage that does not happen to dig — which
+    /// is most of them. You grow the muscle and you feed it whether or not
+    /// you bite today.
+    ///
+    /// **On the larger of `dig_force` and `bite_force`, never their sum.**
+    /// One apparatus, rated for the harder job. `bite_force` defaults to
+    /// `dig_force`, so summing would silently bill every species that
+    /// authored only the one field twice over — a doubling nobody wrote and
+    /// nobody would see, since both numbers read correctly on the page.
+    ///
+    /// **What it buys is a capability, so the trade is legible**: the beetle
+    /// authors `dig_force: 0.3` against soil's `penetration_resistance` of
+    /// 0.8 and therefore cannot cut ground at all. Under this price a beetle
+    /// lineage *can* evolve to 0.8 and start burrowing — and pays for the
+    /// jaw every tick of its life, whether it digs or not. That is the
+    /// question "can a predator learn to make a nest" turned into an
+    /// affordable-or-not rather than a rule.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub force_fraction: f32,
+    /// **What processing food costs, as a share of the meal, per unit of
+    /// `digest_rate`** — the digestive overhead, and the last of the four
+    /// prices the locked-field audit named.
+    ///
+    /// **A fast gut was strictly better, and for two reasons rather than
+    /// one.** A higher `digest_rate` turns crop into body sooner *and*
+    /// lightens the animal, because `creature::carried_cells` charges
+    /// movement for whatever is still in the crop. Nothing anywhere pushed
+    /// back. Owner's ruling, 2026-09-05: *everything should be priced*.
+    ///
+    /// **An overhead on the meal, not a tax per tick, and that is the whole
+    /// design.** The two sensory prices and `force_fraction` are standing
+    /// costs because what they buy is a standing capability. Digestion is
+    /// not: what a fast gut buys is *throughput*, so the honest price is
+    /// paid per unit processed. It is also the real biology — specific
+    /// dynamic action, the metabolic cost of digesting a meal, which rises
+    /// with how fast the meal is pushed through.
+    ///
+    /// So the trade is two-sided in a way a per-tick tax could not make it:
+    ///
+    /// | | fast gut | slow gut |
+    /// |---|---|---|
+    /// | energy arrives | sooner | later |
+    /// | load carried | lighter | heavier, and `carried_cells` charges it |
+    /// | share of the meal kept | **less** | **more** |
+    ///
+    /// **The loss is multiplicative on the same value `diet_quality`
+    /// already scales**, which is what keeps the energy ledger honest: there
+    /// is already exactly one such loss on this path, booked by crediting
+    /// the post-loss figure rather than by opening a second sink, and this
+    /// is the second term in the same product. Crediting the gross and
+    /// subtracting afterwards would break the live identity between
+    /// `sum(state.energy)` and `expected_live_total`.
+    ///
+    /// Clamped at `creature::MAX_DIGEST_OVERHEAD`: an overhead of 1.0 is an
+    /// animal that eats and absorbs nothing, which is not a strategy but a
+    /// misconfiguration, and above 1.0 the arithmetic would pay the animal
+    /// to eat food it then owed energy for.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub digest_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3191,7 +3271,8 @@ pub struct CreatureDef {
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
     /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
-    /// slot 4 is `pace`. Each slot has its own `TRAIT_*` constant carrying
+    /// slot 4 is `pace`, slot 5 is `curvature_radius`, slot 6 is
+    /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`. Each slot has its own `TRAIT_*` constant carrying
     /// what its axis means; this list is the index and those are the
     /// definitions.
     ///
@@ -3436,9 +3517,9 @@ impl CreatureDef {
     /// | a length in cells | `k` | `body`, `sensor_offset`, `sight_range` |
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
-    /// | a rate per decision, per animal | `1/k` | `digest_rate` |
+    /// | a rate per decision, per animal | `1/k` | `digest_rate`, `force_fraction` |
     /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
-    /// | dimensionless, or an energy in joules | `1` | everything else |
+    /// | dimensionless, or an energy in joules | `1` | `digest_fraction`, everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
     /// steps one cell per decision (`creature::step_chain`), so at `k=2` a
@@ -3501,6 +3582,8 @@ impl CreatureDef {
             synapse_fraction,
             sight_fraction,
             curvature_fraction,
+            force_fraction,
+            digest_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3589,6 +3672,19 @@ impl CreatureDef {
             // already scaled as a length, so the read count carries `k*k` on
             // its own and only the per-cell rate is corrected here.
             curvature_fraction: curvature_fraction / (k * time_factor).max(f32::EPSILON),
+            // **`digest_rate`'s class, not the two sensory ones above.** The
+            // tax is `fraction * start_energy * force` -- joules per
+            // decision per *animal*, with no length and no cell count in it,
+            // because `dig_force` is a dimensionless threshold against
+            // `penetration_resistance` and does not scale with the grid. So
+            // only the decision rate has to be corrected.
+            force_fraction: force_fraction / time_factor.max(f32::EPSILON),
+            // **Dimensionless, and one of the few things here that really is.**
+            // It is a share of a meal per unit of `digest_rate`, and
+            // `digest_rate` is itself corrected by `time_factor` two lines
+            // below -- so the product is already right and correcting this
+            // as well would apply the same factor twice.
+            digest_fraction: *digest_fraction,
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
@@ -5208,7 +5304,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 5;
+pub const CREATURE_TRAITS: usize = 9;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5365,6 +5461,83 @@ pub const TRAIT_REPRODUCE_AT: usize = 2;
 /// A species authoring `tick_interval: 6` has descendants at 3 and at 12,
 /// and no author's constant stands in the way.
 pub const TRAIT_PACE: usize = 4;
+
+/// Slot 5 of `CREATURE_TRAITS`: **how wide a patch of ground this animal
+/// feels**, read through `creature::curvature_radius_of`.
+///
+/// **Additive, and with no species gate, for `TRAIT_SIGHT_RANGE`'s reason.**
+/// A multiplier makes zero absorbing, so a species authoring
+/// `curvature_radius: 0` — which is every one but the ant — could never grow
+/// the sense at any allele. The owner's ruling is that anything should be
+/// able to evolve, so a beetle lineage can develop a feel for the ground it
+/// was never authored with.
+///
+/// `CURVATURE_SPAN` is 8, four times the ant's authored 2, because the price
+/// is quadratic and the interesting range is small: `+1` on the ant is a
+/// radius-10 disc reading 440 cells a tick, already 17.8% of an idle
+/// lifetime. `CURVATURE_MAX` is 16 for the same reason — 1,088 cells, and an
+/// unbounded allele is an unbounded per-tick cost against a hard frame
+/// budget.
+pub const TRAIT_CURVATURE_RADIUS: usize = 5;
+
+/// Slot 6 of `CREATURE_TRAITS`: **how hard this animal's jaw is**, read
+/// through `creature::dig_force_of`. Scales `bite_force` with it, since one
+/// apparatus is what `force_fraction` bills for.
+///
+/// **Additive, span 1.0** — the ant's whole authored force, so `+1` doubles
+/// it and `-1` takes it to nothing. Two-sided in a way that matters:
+/// `dig_force` is a *threshold* against `penetration_resistance`, so the
+/// bottom of the axis is an animal that cannot cut anything and the top is
+/// one that cuts materials its species never could.
+///
+/// **What this slot does and does not do, corrected after its own guard
+/// failed.** The beetle authors 0.3 against soil's 0.8 and cannot break
+/// ground; at `+0.5` it reaches 0.8 and *can*, paying `force_fraction` for
+/// the jaw every tick whether it digs or not. So this removes the physical
+/// constraint on burrowing.
+///
+/// It does **not** make a beetle burrow. `beetle.ron` wires `Dig` exactly
+/// once, as `(FoodAdjacent, Dig)` — the verb is its bite — so with no food
+/// adjacent nothing drives the output and jaw strength is irrelevant.
+/// Measured: the strongest possible jaw in a bank of soil digs **zero
+/// cells**. `creature::tests::the_jaw_allele_decides_what_an_animal_can_cut`
+/// holds the drive fixed in both arms for exactly this reason.
+///
+/// The general form is worth carrying: **a price and a gene remove a
+/// constraint; they do not supply a motive.**
+pub const TRAIT_DIG_FORCE: usize = 6;
+
+/// Slot 7 of `CREATURE_TRAITS`: **how fast this animal's gut is**, read
+/// through `creature::digest_rate_of`.
+///
+/// **The reciprocal axis `TRAIT_PACE` uses**, and for the same reason: a
+/// rate wants a symmetry in *ratio*, so `-1` and `+1` are the same factor in
+/// opposite directions. `+1` is twice the species' rate and `-1` is half it.
+///
+/// Two-sided because `digest_fraction` prices the throughput: a quick gut
+/// converts sooner and carries less, and wastes more of every meal. Before
+/// that price landed this slot would have gone to its ceiling on the first
+/// generation and expressed nothing.
+pub const TRAIT_DIGEST_RATE: usize = 7;
+
+/// Slot 8 of `CREATURE_TRAITS`: **how much this animal's crop holds**, read
+/// through `creature::crop_capacity_of`.
+///
+/// **The reciprocal axis again**, a capacity being a scale rather than an
+/// offset.
+///
+/// **The only one of these four that needed no new price**, which
+/// `crop_capacity`'s own doc predicted: it called itself "the codomain of a
+/// future capacity gene" and named `creature::carried_cells` as what makes
+/// both ends reachable. A big crop means fewer trips and a heavier walk
+/// home; a small one means a light animal that has to come back.
+///
+/// Floored at `CROP_MIN` rather than at zero. `crop_capacity`'s doc records
+/// that a cell only leaves the crop at whole unit worth, so an animal whose
+/// capacity falls under one unit can never put anything down again — that is
+/// a broken animal rather than a strategy, and three units is the working
+/// floor it names.
+pub const TRAIT_CROP_CAPACITY: usize = 8;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.

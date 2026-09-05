@@ -351,6 +351,28 @@
         // Both brackets move if `start_energy`, the per-cell costs or the
         // food table move, and re-deriving them is part of that change rather
         // than after it.
+        // **The digestive overhead: what processing a meal costs, as a share
+        // of the meal, per unit of digest_rate.** Owner's ruling, 2026-09-05:
+        // *everything should be priced*. A faster gut was strictly better on
+        // two axes at once -- energy sooner, and a lighter animal, because
+        // `carried_cells` charges movement for whatever is still in the crop
+        // -- with nothing anywhere pushing back.
+        //
+        // **An overhead on the meal rather than a tax per tick**, unlike the
+        // three prices above it. Those buy standing capabilities and are
+        // charged for standing. A fast gut buys THROUGHPUT, so the honest
+        // price is per unit processed -- which is also the real biology,
+        // specific dynamic action rising with how fast a meal is pushed
+        // through.
+        //
+        //   0.05 of the meal lost at this species' digest_rate of 3.3
+        //   0.05 / 3.3 = 0.01515
+        //
+        // So the shipped gut keeps 95% of what it absorbs, a gut twice as
+        // fast keeps 90%, and one half as fast keeps 97.5% but carries its
+        // load twice as long and waits twice as long to be paid. Two-sided,
+        // which a per-tick tax could not have made it.
+        digest_fraction: 0.01515,
         digest_rate: 3.3,
 
         // **Detritus only, for now.** Owner open question #2: herbivory on
@@ -510,7 +532,7 @@
         // `place_creature` leaves a parent standing on one joule, which is
         // about three ticks of upkeep, so the low allele very nearly kills
         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
-        traits: (0.0, -0.2, 0.0, 0.0, 0.0),
+        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         // The width one birth may move the gut, the grant, and the bar.
         // Authored so it and the ancestral value it widens cannot drift apart
         // in separate commits -- see `CreatureDef::trait_variance`. Read by
@@ -522,7 +544,7 @@
         // threshold -- 165 J for this ant, about half a mouthful of flower.
         // That is a step a lineage can actually be selected on inside a run
         // this long; a tenth of it would drift and never arrive.
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is
@@ -713,6 +735,34 @@
         // (3.5), not stone. So a colony excavates its chamber out of soil
         // and is stopped by rock, which is the behaviour worth having and
         // it comes from two numbers rather than from a rule.
+        // **What that jaw costs to carry**, per unit of force per tick, as a
+        // fraction of start_energy. Owner's ruling, 2026-09-05: *everything
+        // should be priced*. `dig_force` is a threshold against a material's
+        // `penetration_resistance`, so a bigger one is strictly more of the
+        // world an ant can cut and eat -- the same ratchet `sight_range` was
+        // before `sight_fraction`, and the last free capability an animal
+        // had.
+        //
+        // **A standing cost, not a per-swing one.** `dig_cost_in_moves`
+        // already charges for using the jaw; this charges for having it.
+        // Pricing only the swing would leave an ant free to carry mandibles
+        // it never opens, and a lineage that does not dig would face no
+        // gradient at all.
+        //
+        // Derived the way the two sensory prices above are:
+        //
+        //   idle ticks = start_energy / (idle_cost_per_cell * cells)
+        //              = 200 / 0.10 = 2,000
+        //   S = 0.05 of an idle lifetime, at this species' dig_force of 1.0
+        //   0.05 / (2,000 * 1.0) = 2.5e-5
+        //
+        // **S = 0.05, half the brain's and half a full eye-sweep's.** Muscle
+        // is expensive tissue but a jaw is not a brain, and the number has a
+        // second job: it has to leave the shipped colony's economy where it
+        // was. At 0.005 J a tick against an idle 0.10 it is 5% of standing
+        // still, which is a gradient a lineage can be selected on without
+        // re-deriving every constant calibrated against the old budget.
+        force_fraction: 0.000025,
         dig_force: 1.0,
         // **The terrain-curvature disc, opt-in exactly as `sight_range` is.**
         // 2 is 24 `World::get` per decision, against 328-1,186 for one sight

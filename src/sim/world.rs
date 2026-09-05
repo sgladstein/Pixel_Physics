@@ -478,6 +478,16 @@ pub struct CreatureStats {
     /// shape this engine has hit three times.
     pub curvature_cells_read: u64,
     pub curvature_energy: f64,
+    /// What was billed for the jaw this animal carries -- `force_fraction`
+    /// times the larger of its two forces, every tick it is alive. No paired
+    /// "reads" counter here, unlike the two senses: there is no work to
+    /// count, because what is being charged for is the muscle existing
+    /// rather than anything it did.
+    pub force_energy: f64,
+    /// Face value lost to the digestive overhead -- what a fast gut wasted.
+    /// Counted rather than inferred: a loss that shows up only as a smaller
+    /// credit is indistinguishable from food that was never eaten.
+    pub digest_overhead_energy: f64,
     pub exposed_ticks: u64,
     /// **Cells of loose ground converted to a tunnel lining** by those digs
     /// — the effect counter on the far side of `digs`, which is a call
