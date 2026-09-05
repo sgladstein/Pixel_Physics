@@ -921,85 +921,52 @@ not the mean, whenever the question is whether something turned to dust.
 ### A timing number is only as trustworthy as the box was quiet
 
 Two runs of a **byte-identical** `examples/ascii` on bit-identical
-deterministic work disagreed **2.42x** on one scene, and reversed the
-serial/parallel ordering on another — one run reported the *parallel* stress
-scene slower than the serial one, backwards from M5's whole purpose, and the
-other reversed it. Both orderings cannot be true. Nothing in the simulation
-changed: the statistic was measuring the rest of the machine. Two rules come
-out of that, and neither depends on the machine it was measured on:
+deterministic work disagreed **2.42x**, and on another scene reversed the
+serial/parallel ordering. Both orderings cannot be true; the statistic was
+measuring the rest of the machine. Four rules come out of it, none depending
+on the machine it was measured on:
 
 - **Gate on counters, never on wall clock — but a counter is only
-  load-independent at fixed parallelism, and that qualifier is measured
-  rather than assumed.** This bullet read *"identical under any load"* until
-  2026-08-30, when the burrow lane got **610 digs idle and 278 loaded from
-  the same baseline binary** on `ascii`'s colony scene — a 2.2x swing in a
-  pure count, from rayon's thread count changing with the box. So the claim
-  holds for anything the serial driver decides and for a census of a settled
-  world, and **fails for any counter downstream of `parallel.rs`'s
-  checkerboard**, where how the sweep is cut across workers reaches the
-  result. The remedy is cheap and it is not "stop using counters": pin the
-  thread count (`RAYON_NUM_THREADS`) for any run whose counter you intend to
-  compare, or compare two arms **inside one run** so both see the same
-  parallelism. An A/B by env switch in a single binary — which is what
-  measured the 130-against-0 that this entry comes from — is immune either
-  way. A wall-clock assertion is still a flake generator — and usually the counter above it is the
-  stronger claim anyway, because "the pass did no work at all" cannot be
-  explained away by a busy box. Measured again independently 2026-08-25 by the
-  perf lane: a scheduler census recompiled between two runs of one scene came
-  back **byte-identical** (`produced 7042 / deferred 61488` at frame 4,800,
-  both times) while the wall-clock column on the same frame moved 9.54 → 8.16
-  ms. The counters reproduced exactly where the clock moved 17%.
-- **…and check what the counter counts.** A counter inherits the wall clock's
-  failure mode by a different route: it is exactly as trustworthy as the claim
-  that the thing it counts is the thing you care about. Measured 2026-08-25,
-  two hours after the rule above landed, and it nearly published a null: a
-  harness probing whether the pick leaks the way a blast does reported 200 cuts
-  and a queue flat at its idle 5,400 — a clean, counter-based negative. **The
-  counter was counting calls.** `rigid::is_tool_target` accepts
-  `Solid | Plant` and refuses bedrock, and the harness aimed at the topmost
-  `Solid | Powder` cell, which on a rolling world is soil — so every swing
-  landed in dirt. 23 swings, **0 cells removed**. With the aim corrected the
-  same 23 swings remove **1,157**, and the queue then goes to the scheduler's
-  cap and stays there. The cheap guard is to **pair every "it fired" counter
-  with an effect counter from the far side of the call**: `rigid::mine_swept`
-  returns its own loosened count, `rigid::strike` returns `()`, so the second
-  needs a census of the neighbourhood either side of the blow. This is *Ask
-  what a metric counts when nothing is wrong* (below) applied to counters
-  rather than to metrics — a null is where it hides, because a null looks the
-  same whether the mechanism is quiet or the probe never reached it.
+  load-independent at *fixed parallelism*, and that qualifier is measured
+  rather than assumed.** The burrow lane got **610 digs idle against 278
+  loaded from the same baseline binary**, a 2.2x swing in a pure count,
+  because rayon's thread count moves with the box. So the claim holds for
+  anything the serial driver decides and for a census of a settled world, and
+  **fails for any counter downstream of `parallel.rs`'s checkerboard**. The
+  remedy is not "stop using counters": pin `RAYON_NUM_THREADS` for any run
+  whose counter you will compare, or compare two arms **inside one run**.
+- **…and check what the counter counts.** A counter is exactly as trustworthy
+  as the claim that the thing it counts is the thing you care about, and **a
+  null is where that hides**, because a null looks the same whether the
+  mechanism is quiet or the probe never reached it. A clean counter-based
+  negative once turned out to be **23 swings removing 0 cells**, every one
+  landing in soil; with the aim corrected the same 23 remove **1,157**. So
+  **pair every "it fired" counter with an effect counter from the far side of
+  the call**.
 - **…and a *positive* hides from the opposite direction.** A null hides from
-  **inattention**: nothing demands an explanation. A positive hides from
-  **motivated reasoning**: it is the result you wanted, and every check you
-  reach for is one it passes. Worked case and remedy: *A cost that vanishes
-  may be work that vanished*, below.
+  **inattention**; a positive hides from **motivated reasoning** — it is the
+  result you wanted, and every check you reach for is one it passes. Worked
+  case and remedy: *A cost that vanishes may be work that vanished*, below.
 - **Measure one scene, not the suite.** A short run can land inside a quiet
   window; a long one structurally cannot, so a full-suite timing figure is
   untrustworthy by construction rather than by luck. Run the whole suite for
   the counter gates, where load is irrelevant.
 
 **A worst-frame figure is worthless unless an aggregate independently pins
-it.** This is the corrected form of the rule, and the correction came from the
-perf lane pushing back with a case the original got wrong. The original said
-flatly that an untrusted worst is worth nothing — true for the case it was
-drawn from, where the worst is one frame among thousands of *comparable* ones
-and a single scheduler preemption can set it (measured across three attempts at
-one scene: the worst moved **6x** with machine state while the median moved
-~30%).
+it**, and the test is arithmetic: **mean × frames ≈ worst**. Where the
+expensive event is *rare* the mean is not independent of the worst — it
+contains it, and pins it: 0.97 on the converged pass, 0.96 on its
+bedrock-only control. The `ascii` case above pins at nothing at all, and there
+the worst moved **6x** with machine state while the median moved ~30%. So run
+the ratio before quoting a worst; if it is an order statistic over many
+similar frames it is noise wearing a number. An untrusted *median* is worth
+something either way.
 
-It is false when the expensive event is **rare**, because then the mean is not
-independent of the worst — it contains it. The test is arithmetic: **mean ×
-frames ≈ worst**. One blast per run puts essentially all time ever spent in the
-blasts phase into a single frame, and the perf lane's converged-pass figure
-pins at 0.97 (mean 0.076 ms × frames = 456 ms against a 440.7 ms worst), its
-bedrock-only control at 0.96 — while the ascii case above pins at nothing at
-all. (Two further independent legs held there; they are in the report.)
+`Reports/measurement-under-contention.md` §7 has the derivations — the perf
+lane's pushback that produced the pinning test, the recompiled scheduler
+census that reproduced byte-identically while its clock moved 17%, and why the
+machine-wide lock the report designed was deliberately not landed.
 
-So: run the ratio before quoting a worst. If an aggregate pins it, quote it; if
-it is an order statistic over many similar frames, it is noise wearing a
-number. An untrusted *median* is worth something either way.
-
-`Reports/measurement-under-contention.md` has the evidence, and records why the
-machine-wide lock it designed was deliberately not landed.
 ### A cost that vanishes may be work that vanished
 
 The sharpest version of *look again for what you did not measure*, and it
