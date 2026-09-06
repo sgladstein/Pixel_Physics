@@ -751,7 +751,7 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
 /// `CREATURE_TRAITS`' constants from one table means a new slot is a row
 /// here or a compile error there, and `every_trait_slot_has_a_row` asserts
 /// the count.
-const TRAIT_ROWS: &[(usize, &str, &str)] = &[
+pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
     (organism::TRAIT_GUT_BIAS, "gut_bias",
         "WHERE THIS LINEAGE'S DIGESTION SITS BETWEEN PLANT MATTER (-1) AND FLESH (+1). IT IS HERITABLE, SO THIS ROW IS THE ANCESTRAL VALUE A NEWBORN STARTS FROM AND NOT WHAT ANY ANT ALIVE HAS -- CLICK ONE WITH THE LOOK TOOL TO SEE ITS OWN."),
     (organism::TRAIT_BIRTH_GRANT, "birth_grant",

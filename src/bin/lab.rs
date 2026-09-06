@@ -63,6 +63,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::time::Phase;
 use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
@@ -192,6 +193,26 @@ impl Handler {
         lab.reset();
         if let Some(dials) = pixel_physics::lab::params::Dials::load_saved() {
             dials.apply_to(&mut lab.world);
+        }
+        // **After the reload and the dials, so a scenario opens on top of
+        // the freshest asset tree** rather than the compiled-in snapshot
+        // `Lab::new` started from -- the env variable is what a launcher or
+        // a session script sets, the argv form is what a player typing
+        // `cargo run --bin lab -- scenario=two_larders` gets for free.
+        let scenario_name = std::env::var("PIXEL_PHYSICS_LAB_SCENARIO")
+            .ok()
+            .or_else(|| std::env::args().skip(1).find_map(|a| a.strip_prefix("scenario=").map(str::to_string)));
+        if let Some(name) = scenario_name {
+            match Scenario::load(&name) {
+                Ok(s) => {
+                    let msg = lab.load_scenario(s);
+                    lab.ui.say(msg);
+                }
+                // Never panics at startup: a typo in the name or a bad hand
+                // edit to the file opens the ordinary bed instead, with the
+                // reason on stderr rather than a crashed window.
+                Err(e) => eprintln!("scenario {name}: {e}"),
+            }
         }
         Self {
             window: None,

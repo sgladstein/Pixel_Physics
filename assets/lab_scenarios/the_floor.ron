@@ -1,0 +1,41 @@
+// S4 control -- "The floor", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// `the_bank.ron` without the `Fill`: the identical colony, beetles and
+// exposure setting on flat ground. This is the null already on record
+// (the non-digger wins 4 of 4) -- what matters here is that it is the *same
+// bed* apart from the terrain, so a difference between the two is the shape
+// of the ground and nothing else.
+(
+    name: "the_floor",
+    title: "THE FLOOR",
+    question: "The bank scenario's own colony and beetles, on flat ground -- does the null (a pit is not shelter) reproduce?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "ant", field: "exposure_cost_per_cell", value: 0.05),
+    ],
+    placements: [
+        Colony(species: "ant", x: 170, count: 52),
+        Animal(species: "beetle", x: 300),
+        Animal(species: "beetle", x: 350),
+        Animal(species: "beetle", x: 400),
+        Animal(species: "beetle", x: 450),
+    ],
+    timeline: [
+        (at: 3000, every: 6000, until: 0, what: Heap(material: "windfall", x: 150, cells: 20)),
+    ],
+    horizon: 24000,
+)

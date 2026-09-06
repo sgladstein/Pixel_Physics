@@ -55,7 +55,12 @@ use crate::sim::weather::Pin;
 use crate::sim::world::World;
 
 /// A lab box, as data. `build` is the only way a lab world is made.
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
+///
+/// **`PartialEq` added for `scenario::Scenario`'s sake** -- a scenario
+/// carries a `LabBox` and derives `PartialEq` itself (so two loaded copies
+/// of one file can be compared in a test without hand-rolling a field-by-
+/// field check), and a struct cannot derive past a field that does not.
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct LabBox {
     pub width: i32,
     pub height: i32,

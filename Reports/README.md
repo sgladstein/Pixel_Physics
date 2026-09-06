@@ -1996,6 +1996,39 @@ is **no food verb** although hand-placed food is the one intervention measured
 to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
+  — **design, 2026-09-06, with its one engine item built the same day
+  (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
+  §8 runs the first two — two larders moves the plant room's gut below
+  the flesh room's in 7 seeds of 8, and in 8 of 8 with the brain's wiring
+  frozen; Gause's jar loses nobody inside 36,000 frames at any wall
+  count. One gap found on the way: `mutation_rate` is the wiring rate, the
+  traits mutate under their own authored width, and that width is not a
+  page knob, so no scenario can yet run a clonal arm.**
+  The owner's approach — pick the behaviours worth seeing, then build the
+  bed that pays for each — assessed and then done: **right, and the only legitimate way
+  to want a behaviour out of a system whose rule is *the mechanism is code,
+  the policy is genome*, because a bed that pays for trails is not a
+  hardcoded ant.** One correction, from the day before: the behaviour is the
+  *third* thing to design, after the sense that fires on its trigger and the
+  currency the outcome moves (there are two), and every card here carries
+  that audit and the one `creature_arena -- arm=ablate` command that proves
+  the bed has teeth. One addition: a scenario changes the *world* and never
+  the *score*, and pairs of beds that select in opposite directions are the
+  design guide's specialisation score with no new instrument. Thirteen beds
+  in three tiers: five that run today on genes that already vary (diet
+  specialisation across two larders, life-history under pulsed against
+  steady food, trails to a far larder, shelter dug into a *bank* rather than
+  a floor — the environment-side half of a question the 2026-09-05 work
+  called all animal — and predator–prey persistence swept over
+  compartments), three behind one small change in the animal (the ant's eye
+  is one asset line), and five listed only so their block is visible (water
+  is not a currency; nothing shares food). **The one piece of engine work
+  the approach needs is a scenario file**: `LabBox` and the dials persist,
+  nothing the player paints does, so five of the eight designed beds can be
+  played once and put in a rack never. Sibling of
+  `selective-environments-2026-09-05.md` under Creatures, which holds the
+  method this applies
 - [lab-lamps-light-the-bed-2026-08-30.md](lab-lamps-light-the-bed-2026-08-30.md)
   — **built and measured.** The fixtures are what light the crop, and moving
   one moves what grows under it. **They used to contribute nothing**: `labshot
