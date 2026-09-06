@@ -433,8 +433,9 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
     let mut w = spec.build();
     let species_id = w.species.id_of(&spec.colony_species).expect("colony species is compiled in");
     // **The plasticity dial**, read exactly where `World::plasticity`'s own
-    // doc says it is. 0 is shipped: a developmental block on arm B is then
-    // carried and never expressed, which is the null the `dev=` race needs.
+    // doc says it is. It ships at 1 (`creature::PLASTICITY_DEFAULT`); at 0 a
+    // developmental block on arm B is carried and never expressed, which is
+    // the null the `dev=` race needs.
     if let Some(v) = arg::<f32>("plasticity") {
         w.plasticity = v;
     }
@@ -595,7 +596,7 @@ fn main() {
         "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders} predators={} plasticity={} dev={:?}",
         if mirror { "on" } else { "off" },
         arg::<i32>("predators").unwrap_or(0),
-        arg::<f32>("plasticity").unwrap_or(0.0),
+        arg::<f32>("plasticity").unwrap_or(pixel_physics::sim::creature::PLASTICITY_DEFAULT),
         dev.iter().map(|&(slot, w)| format!("{}:{w}", pixel_physics::lab::batch::trait_name(slot))).collect::<Vec<_>>(),
     );
     if arm == Arm::Same && mirror && dev.is_empty() {

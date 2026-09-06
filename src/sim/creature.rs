@@ -1605,6 +1605,17 @@ pub const ARMS_RACE_SLOTS: [usize; 2] = [TRAIT_ARMOUR, TRAIT_DIG_FORCE];
 /// plain `clamp(-1, 1)` it was before the dial existed.
 pub const TRAIT_REACH_DEFAULT: f32 = 1.0;
 
+/// **The shipped plasticity: on.** Owner's ruling, 2026-09-06 evening,
+/// against the card that offered 0 or 1: *"ship plasticity on."* At 1 the
+/// developmental block counts at face value -- a child's expressed body is
+/// its genotype plus `made x block` -- so a line can find a caste in the
+/// shipped box. Nothing changes until one does: every founder and every
+/// child of a line that has not wired `Provision` is made of exactly 0 and
+/// `expressed_traits` returns its genotype in one comparison, whatever this
+/// reads. 0 is the clonal control (`plasticity_moves_the_expressed_body_
+/// and_not_the_genotype`), not the shipped bed.
+pub const PLASTICITY_DEFAULT: f32 = 1.0;
+
 /// **What the parameters page will wind the reach up to.** Not a bound in the
 /// arithmetic -- nothing breaks above it -- but the top of the dial, chosen
 /// so that the top of the *armour* range is a graded fight rather than a new
@@ -1767,10 +1778,13 @@ fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_
 /// `Reports/creature-signature-and-castes-2026-09-06.md` §2c is the
 /// reasoning and §2d the measurement that tells "found" from "reachable".
 ///
-/// **At the shipped dial this is one comparison and a copy**, so the
-/// predicate the mouth, the eye and the kin sense call per neighbour per
-/// tick pays nothing for it; a founder's `made` is zero for the same
-/// reason. The genome is `mem::take`n during the brain's own evaluation,
+/// **For an animal made of nothing this is one comparison and a copy,
+/// whatever the dial says** -- every founder, every released jar, and every
+/// child of a line that has not wired `Provision` (an unwired output is
+/// exactly `squash(0) = 0`) -- so the predicate the mouth, the eye and the
+/// kin sense call per neighbour per tick pays nothing for it until a line
+/// finds the channel. The dial ships at `PLASTICITY_DEFAULT` (1); 0 is the
+/// clonal control. The genome is `mem::take`n during the brain's own evaluation,
 /// and a reader that lands inside that window sees no block rather than a
 /// panic.
 pub fn expressed_traits(state: &organism::OrganismState, plasticity: f32, reach: f32) -> [f32; CREATURE_TRAITS] {
@@ -11193,8 +11207,8 @@ mod tests {
 
     /// **Plasticity moves the body an animal expresses and never the genes
     /// it passes on.** One ant, `made = 1`, a developmental weight of `0.5`
-    /// on the armour slot: with the box's `plasticity` at the shipped zero
-    /// its expressed armour is its genotype's, and `armour_at` -- the
+    /// on the armour slot: with the box's `plasticity` at zero (the clonal
+    /// control; it ships at 1) its expressed armour is its genotype's, and `armour_at` -- the
     /// reader every bite goes through -- agrees; at `1.0` the expressed
     /// slot is `0.5` higher and `armour_at` moves with it, while
     /// `state.traits` reads exactly what it did. Both arms, so a dial that
@@ -11216,7 +11230,7 @@ mod tests {
         let cell = w.get(100, 100);
         w.plasticity = 0.0;
         let st = w.organism(id).expect("live");
-        assert_eq!(expressed_traits(st, w.plasticity, w.trait_reach), genotype, "at the shipped dial the expressed body is the genotype, whatever the block says");
+        assert_eq!(expressed_traits(st, w.plasticity, w.trait_reach), genotype, "at dial zero the expressed body is the genotype, whatever the block says");
         let armour_off = armour_at(&w, cell);
         w.plasticity = 1.0;
         let st = w.organism(id).expect("live");

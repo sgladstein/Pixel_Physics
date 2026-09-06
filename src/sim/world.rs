@@ -1567,9 +1567,12 @@ pub struct World {
     /// **How far a child's expressed body may move with the number its
     /// parent handed it** -- the one dial over the developmental block
     /// (`brain::TRAIT_SLOTS`), a multiplier on `made x block`, read by
-    /// `creature::expressed_traits`. Zero, the default, is the shipped bed:
-    /// every animal expresses its genotype exactly whatever its block and
-    /// its `Provision` wiring drift to, and the reader is one comparison.
+    /// `creature::expressed_traits`. **Ships at 1** (`creature::
+    /// PLASTICITY_DEFAULT`, the owner's ruling of 2026-09-06): the block
+    /// counts at face value, so a line can find a caste in the shipped box,
+    /// and until one wires `Provision` every animal is made of 0 and the
+    /// reader is one comparison. 0 is the clonal control, in which every
+    /// animal expresses its genotype exactly whatever its block drifts to.
     /// A rule of the box rather than a species field for `trait_reach`'s
     /// reason: the one place the expressed body is computed reads it with
     /// no species lookup, in the predicate the mouth, the eye and the kin
@@ -3016,7 +3019,7 @@ impl World {
             next_colony: 1,
             colony_parents: Vec::new(),
             trait_reach: creature::TRAIT_REACH_DEFAULT,
-            plasticity: 0.0,
+            plasticity: creature::PLASTICITY_DEFAULT,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
