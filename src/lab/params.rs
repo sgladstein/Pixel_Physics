@@ -676,6 +676,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "armour_fraction" => def.armour_fraction,
         "digest_fraction" => def.digest_fraction,
         "synapse_fraction" => def.synapse_fraction,
         "sight_fraction" => def.sight_fraction,
@@ -762,6 +763,8 @@ const TRAIT_ROWS: &[(usize, &str, &str)] = &[
         "HOW HARD THIS LINEAGE'S JAW IS, ON TOP OF WHAT THE SPECIES WAS AUTHORED WITH. IT IS A THRESHOLD RATHER THAN A SPEED: BELOW A MATERIAL'S HARDNESS YOU CANNOT CUT IT AT ALL, SO THIS DECIDES WHICH PARTS OF THE WORLD AN ANIMAL CAN EAT AND TUNNEL THROUGH. AT THE BOTTOM OF THE AXIS AN ANIMAL CAN CUT NOTHING. THE BITE MOVES WITH IT -- ONE SET OF JAWS."),
     (organism::TRAIT_DIGEST_RATE, "digest_rate",
         "HOW FAST THIS LINEAGE'S GUT IS: +1 IS TWICE THE SPECIES' RATE AND -1 IS HALF IT. A QUICK GUT TURNS FOOD INTO ANT SOONER AND LIGHTENS THE WALK HOME, AND WASTES MORE OF EVERY MEAL. A SLOW ONE KEEPS MORE BUT CARRIES ITS LOAD LONGER AND WAITS LONGER TO BE PAID."),
+    (organism::TRAIT_ARMOUR, "armour",
+        "HOW THICK THIS LINEAGE'S SHELL IS, AS A MULTIPLE OF WHAT ITS BODY IS MADE OF. IT IS NOT A SEPARATE NUMBER FROM THE MATERIAL -- AN ANT IS SOFT AND A BEETLE IS CHITIN, AND THIS SCALES WHICHEVER ONE YOU ARE. BITING IS WORN DOWN RATHER THAN PASSED OR FAILED, SO A THICKER SHELL MEANS MORE BITES TO GET THROUGH, NOT IMMUNITY: HALF THE MOUTH IS A QUARTER THE PROGRESS, AND ENOUGH SMALL MOUTHS AT ONCE STILL GET IN."),
     (organism::TRAIT_CROP_CAPACITY, "crop_capacity",
         "HOW MUCH THIS LINEAGE'S CROP HOLDS: +1 IS TWICE THE SPECIES' AND -1 IS HALF IT. A BIG CROP MEANS FEWER TRIPS AND A HEAVIER WALK BACK, SINCE CARRYING COSTS MOVEMENT; A SMALL ONE MEANS A LIGHT ANT THAT HAS TO KEEP COMING BACK. IT CANNOT SHRINK BELOW THE POINT WHERE A LOAD COULD NEVER BE PUT DOWN AGAIN."),
     (organism::TRAIT_PACE, "pace",
@@ -837,6 +840,8 @@ fn cost_rows(world: &World, out: &mut Vec<Param>) {
         "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
     cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
         "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
+    cr("armour_fraction", span(0.0, 0.001, 0.00001), false,
+        "WHAT WEARING ARMOUR COSTS, PER TURN, PER UNIT OF PLATE. IT IS CHARGED WHETHER OR NOT ANYTHING BITES YOU -- YOU GROW THE SHELL AND YOU FEED IT EITHER WAY -- WHICH IS WHAT GIVES A LINEAGE NOTHING EATS A REASON TO PUT IT DOWN. AT ZERO, ARMOUR IS FREE AND EVERY LINEAGE WILL TAKE AS MUCH OF IT AS IT CAN GET. AGAINST THE JAW PRICE THIS IS AN ARMS RACE: ONE SIDE PAYS FOR A HARDER MOUTH AND THE OTHER FOR A THICKER SHELL, EVERY TURN, FOREVER.");
     cr("digest_fraction", span(0.0, 0.1, 0.001), false,
         "WHAT PROCESSING FOOD COSTS, AS A SHARE OF THE MEAL, FOR EACH UNIT OF DIGEST RATE. IT IS THE ONE PRICE HERE CHARGED ON A MEAL RATHER THAN PER TURN, BECAUSE WHAT A FAST GUT BUYS IS THROUGHPUT RATHER THAN A CAPABILITY. WITHOUT IT A FAST GUT IS FREE TWICE OVER -- FOOD TURNS INTO ANT SOONER, AND THE ANT IS LIGHTER FOR THE WALK HOME, SINCE CARRYING A FULL CROP COSTS MOVEMENT. WITH IT, A QUICK GUT WASTES MORE OF EVERY MEAL AND A SLOW ONE KEEPS MORE BUT WAITS, AND CARRIES.");
     cr("synapse_fraction", span(0.0, 0.00002, 0.0000002), false,
@@ -1039,6 +1044,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "armour_fraction" => def.armour_fraction = value,
                 "digest_fraction" => def.digest_fraction = value,
                 "synapse_fraction" => def.synapse_fraction = value,
                 "sight_fraction" => def.sight_fraction = value,
@@ -2136,7 +2142,7 @@ mod tests {
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
             "synapse_fraction", "sight_fraction", "curvature_fraction",
-            "force_fraction", "digest_fraction",
+            "force_fraction", "digest_fraction", "armour_fraction",
         ];
         // Not scalars, and each needs more than a row before it can be one:
         //   body        a BodyPlan -- a shape, and changing it re-places the animal
@@ -2196,6 +2202,7 @@ mod tests {
             "curvature_fraction",
             "force_fraction",
             "digest_fraction",
+            "armour_fraction",
         ];
         let (world, spec) = bed();
         let costs: Vec<String> = registry(&world, &spec, None)

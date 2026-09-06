@@ -82,6 +82,27 @@
         // fast keeps 90%, and one half as fast keeps 97.5% but carries its
         // load twice as long and waits twice as long to be paid. Two-sided,
         // which a per-tick tax could not have made it.
+        // **What wearing armour costs, per tick, per unit of plate.** Owner's
+        // ruling, 2026-09-06: *"anyone can evolve to have more armor but it
+        // needs to have a cost."* Without this, TRAIT_ARMOUR is the purest
+        // ratchet in the game -- nothing anywhere makes a thicker plate
+        // worse, so the allele would sit at its ceiling from the first
+        // generation and express nothing.
+        //
+        // A STANDING cost, like the jaw: you grow the plate and you carry it
+        // whether or not anything bites you today. Charging only when hit
+        // would price *being attacked* rather than *being armoured*, and a
+        // lineage nothing happens to eat would wear it free.
+        //
+        //   idle ticks = 10666   this body's penetration_resistance = 0.8
+        //   S = 0.05 of an idle lifetime
+        //   0.05 / (10666 * 0.8) = 5.859e-06
+        //
+        // Same share as the jaw, because a plate and a mouth are the same
+        // kind of bet on the same fight -- and the two together are a
+        // deliberate arms race, each paying every tick for the other's
+        // existence.
+        armour_fraction: 5.859e-06,
         digest_fraction: 0.01515,
         digest_rate: 3.3,
         // Pure carnivore: both foods on this menu sit at `food_class: 1.0`,
@@ -90,8 +111,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
+        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **A beetle can breed, and until 2026-09-05 it could not — the
         // field was simply absent.** `#[serde(default)]` made it 0.0 and
