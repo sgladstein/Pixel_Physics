@@ -3363,7 +3363,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // designed. `leaf_construction_cost` below is the only
                 // reader.
                 let tissue_cost = cost;
-                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id);
+                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id, cell_type);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -8523,8 +8523,28 @@ pub(crate) fn nutrient_initial() -> u8 {
 /// cannot build still pays upkeep, so it stalls and then starves, which is
 /// the graded death `CLAUDE.md`'s first law asks for rather than a plant
 /// blinking out.
-fn nutrient_construction_multiplier(world: &World, organism_id: u16) -> f32 {
+fn nutrient_construction_multiplier(world: &World, organism_id: u16, cell_type: CellType) -> f32 {
     if nutrient_initial() == 0 {
+        return 1.0;
+    }
+    // **Root tissue is exempt, and the first measurement is why.** Charging
+    // nutrient-scarcity prices to build a root is a deadlock: roots are the
+    // only way to reach more nutrient, so a plant that is short of it cannot
+    // afford the one thing that would fix the shortage. Measured on the lab
+    // box at 30,000 frames with the penalty applied to everything, root
+    // reach went **34 rows -> 22** while the stand shrank 0.80x -- scarcity
+    // made plants forage *less*, which is backwards and works against the
+    // root gate #246 shipped.
+    //
+    // Exempting roots is preferred over adding a nutrient term to
+    // `allocate_to_frontier`'s `root_weight` (the existing prior art for a
+    // scarcity-driven allocation shift, beside `ROOT_BIAS_AT_FULL_WATER`).
+    // That weight sits in a sum whose terms are calibrated against each
+    // other, and `CLAUDE.md` is explicit that changing what one term can
+    // express reallocates the whole sum. This changes a price instead, and
+    // lets the existing economy do the shifting: under scarcity shoots get
+    // dear and roots do not, so growth goes below ground on its own.
+    if cell_type == CellType::RootTip {
         return 1.0;
     }
     let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
@@ -16311,7 +16331,14 @@ not, and the plant reported from the lab still cannot die"
         let id = w.get(50, 20).organism_id();
         for status in [1.0f32, 0.5, 0.0] {
             w.organism_mut(id).expect("alive").nutrient_status = status;
-            let mult = nutrient_construction_multiplier(&w, id);
+            let mult = nutrient_construction_multiplier(&w, id, CellType::GrowingTip);
+            let root_mult = nutrient_construction_multiplier(&w, id, CellType::RootTip);
+            assert_eq!(
+                root_mult, 1.0,
+                "root tissue must never pay the nutrient penalty: at status {status} a root costs x{root_mult}. \
+Charging scarcity prices to build the one thing that reaches more nutrient is a deadlock, and it measured as \
+root reach 34 -> 22 rows."
+            );
             assert_eq!(
                 mult, 1.0,
                 "the mechanism must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} the build \
