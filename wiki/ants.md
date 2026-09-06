@@ -4,7 +4,12 @@
 -- every animal carries a heritable scent and a heritable tolerance, two
 colonies start a little apart and drift, and a lineage that drifts out of its
 family is named as a new group on the ants page, so an ant is no longer
-always an ant; see "Who is family" below. The same day, **how far a lineage may get from its
+always an ant; see "Who is family" below. Also that day, **an animal being
+bitten started leaving a smell where it happened**, and **biting something you
+are not going to eat became a thing an animal can decide to do**; neither
+shows on screen yet, since no ant is born knowing what a cry of alarm means or
+when to pick a fight, and both are things a line has to grow into. And **how
+far a lineage may get from its
 ancestors, on the shell and on the jaw, became something you set** — the two
 things that are measured against each other in a fight shared the same narrow
 range as everything else, and that range was too narrow for an ant's shell
@@ -640,6 +645,27 @@ going it takes that one. Where there is not, it can spend itself on a shell it
 was never going to open. This is what makes armour worth growing at all:
 without a price on the attempt, a plate would only ever have slowed a meal
 down, never prevented one.
+
+**Being bitten leaves a smell, and it is not a trail.** An animal that
+something has hold of marks the ground where it is happening. It is a third
+smell, quite separate from the two an ant lays while it walks, and the
+difference that matters is how long it lasts: a trail is meant to survive
+being laid once and come back to minutes later, and this is gone in about a
+second and a half. That is the whole point of it. A smell of fighting that
+lingered would be a map of everywhere a fight has ever happened, which tells
+an animal nothing about now; one that fades this fast is news. Nothing that is
+born in the box yet knows what to do about it — whether to come running or to
+scatter is something a line would have to work out, and both are possible.
+
+**And an animal can bite something it is not going to eat.** Until now every
+bite in the world was a mouthful: an ant could only ever fight by being
+hungry next to something, so a colony had no way at all to see off a stranger
+it did not want to eat. Now it does, and it costs — the same jaw work as
+chewing through anything else, and nothing comes back. An animal that spends
+its day fighting starves, which is exactly what makes a guard a real choice
+against a forager instead of a free extra. It goes for the nearest thing in
+reach that is not family, rather than for the best meal in reach, because
+those are different questions. Nothing that ships is born doing it.
 
 **A body fights with all of itself.** An animal that is more than one cell can
 bite anything that has got hold of any part of it, not only what is in front
