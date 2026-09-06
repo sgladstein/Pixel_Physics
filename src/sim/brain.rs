@@ -1290,8 +1290,16 @@ mod tests {
         assert_eq!(IO_END, 4096);
         assert_eq!(IH_END, 8192);
         assert_eq!(HH_END, 8256);
-        assert_eq!(GENOME_LEN, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
-        assert_eq!(GENOME_LEN, 12352);
+        assert_eq!(HO_END, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
+        assert_eq!(HO_END, 12352);
+        // **The developmental block is the one block sized from a trait
+        // reserve rather than a brain one**, and it is the tail: the first
+        // append since the layout was reserved that changed `GENOME_LEN`,
+        // lawfully, because it is a pure append after every brain block --
+        // no existing weight moves, every stored genome pads with zeros
+        // (`specimen::padded_from`). 12,352 + 64.
+        assert_eq!(GENOME_LEN, HO_END + TRAIT_SLOTS);
+        assert_eq!(GENOME_LEN, 12416);
         // Every block sized from the *reserve*, never from a live count --
         // this is the assertion that fails if someone "tidies" a stride
         // back to BRAIN_INPUTS/BRAIN_OUTPUTS, which is what made the
@@ -1310,22 +1318,28 @@ mod tests {
         // *current* slots occupy are unchanged. This is what a growth is,
         // and it is the check the old layout could not have passed.
         let here: Vec<usize> = live_slots().collect();
-        let grown = |ins: usize, outs: usize, hid: usize| -> Vec<usize> {
+        let grown = |ins: usize, outs: usize, hid: usize, traits: usize| -> Vec<usize> {
             let mut v = Vec::new();
             v.extend((0..outs).flat_map(|o| (0..ins).map(move |i| o * INPUT_SLOTS + i)));
             v.extend((0..hid).flat_map(|h| (0..ins).map(move |i| IO_END + h * INPUT_SLOTS + i)));
             v.extend((0..hid).map(|h| IH_END + h));
             v.extend((0..outs).flat_map(|o| (0..hid).map(move |h| HH_END + o * HIDDEN_SLOTS + h)));
+            // The developmental block, after every brain block and sized
+            // from its own reserve (`TRAIT_SLOTS`), so a trait append lights
+            // one more slot of it and a brain append does not touch it.
+            v.extend((0..traits).map(|t| HO_END + t));
             v
         };
-        for (ins, outs, hid) in [
-            (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN),
-            (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN),
-            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN + 1),
+        let traits = crate::sim::organism::CREATURE_TRAITS;
+        for (ins, outs, hid, traits) in [
+            (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN + 1, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN, traits + 1),
         ] {
-            let after = grown(ins, outs, hid);
+            let after = grown(ins, outs, hid, traits);
             for slot in &here {
-                assert!(after.contains(slot), "growing to ({ins}, {outs}, {hid}) moved slot {slot}");
+                assert!(after.contains(slot), "growing to ({ins}, {outs}, {hid}, {traits}) moved slot {slot}");
             }
         }
     }
@@ -1345,7 +1359,14 @@ mod tests {
         assert!(is_live_slot(BRAIN_INPUTS - 1));
         assert!(!is_live_slot(BRAIN_INPUTS));
         assert!(!is_live_slot(BRAIN_OUTPUTS * INPUT_SLOTS));
-        assert_eq!(live_slots().count(), BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN);
+        assert_eq!(
+            live_slots().count(),
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + crate::sim::organism::CREATURE_TRAITS
+        );
+        // The corner cases of the tail block: its last live slot, and the
+        // first reserved one beside it.
+        assert!(is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS - 1));
+        assert!(!is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS));
     }
 
     #[test]
@@ -1797,7 +1818,22 @@ mod tests {
         // **Landed together on purpose**: two appends in one change is one
         // re-derivation and one break in birth-draw comparability instead of
         // two, and `CLAUDE.md` requires a seed sweep across either.
-        assert_eq!(genome_manifest(), 550_849_377);
+        //
+        // **Moved again 2026-09-06 evening by the developmental channel** --
+        // `Made` on the input axis (25 -> 26), `Provision` on the output axis
+        // (13 -> 14), both lighting reserve that already existed, *and* the
+        // developmental block (`TRAIT_SLOTS`), which is the first change to
+        // `GENOME_LEN` since the layout was reserved: 12,352 -> 12,416. It is
+        // still the lawful kind, and the reason is in the doc above -- "a
+        // change here that came with a changed `GENOME_LEN`" was written
+        // about a block growing *in the middle*; this block is appended
+        // after the last brain block, so not one existing index moves, and a
+        // stored genome pads with zeros (`specimen::padded_from`) into a
+        // block that at zero expresses nothing. `live_slots` 637 -> 706
+        // (+21 for the input column, +34 for the output row, +14 live trait
+        // slots) and every species' `mutation_rate` is re-derived to
+        // `3.18 / 706 = 0.0045042` in the same change.
+        assert_eq!(genome_manifest(), 2_611_525_623);
     }
 
     #[test]

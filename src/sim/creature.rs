@@ -8508,7 +8508,19 @@ mod tests {
             // decide and both arms report zero -- which is what the first
             // version of this test measured.
             let species = w.species.id_of("beetle").expect("beetle species");
-            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // **Children are clones here, and the reason is a measurement.**
+            // A beetle at 100,000 energy breeds inside 1,200 frames, and a
+            // child's mutations -- which slots, and so how many draws --
+            // depend on `mutation_rate`. Re-deriving that rate for the
+            // developmental block (0.0049922 -> 0.0045042, 2026-09-06)
+            // flipped this test from 1 dig to 0 at the top of the jaw axis
+            // with the jaw untouched: the arm was a function of what a child
+            // happened to inherit, not of the allele it is named for. At
+            // rate 0 the child is its parent, and no future re-derivation
+            // (every append re-derives it) can reach this guard.
+            def.mutation_rate = 0.0;
+            w.species.set_creature(species, def.clone());
             w.species.set_genome(
                 species,
                 brain::genome_from_wiring(
@@ -8927,6 +8939,19 @@ mod tests {
                 let mut w = test_world();
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
+                // **Clone children**, for the reason `the_jaw_allele_decides_
+                // what_an_animal_can_cut` gives: four ants at 100,000 energy
+                // breed inside the budget, and which slots a child mutates
+                // moves with `mutation_rate`, so the 2026-09-06 re-derivation
+                // (637 -> 706 live slots) left one defender of six standing
+                // at the shipped reach with the plate untouched. This guard
+                // is over a plate under a mouth, not over what a child drew.
+                {
+                    let ant = w.species.id_of("ant").expect("ant species");
+                    let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
+                    def.mutation_rate = 0.0;
+                    w.species.set_creature(ant, def);
+                }
                 // Ant against ant needs the two to be strangers; without
                 // this every ant is every other ant's nestmate and the scene
                 // holds no fight at all. Kin is a scent distance now, so the
