@@ -8,6 +8,18 @@ measured and ON by default** (`PIXEL_PHYSICS_ROOT_GATE=whole` and
 whose §7 ranking this revises and whose §3 evidence it corrects (that
 report's §3z).
 
+**(State 2026-09-06)** — §3's nutrient **was** built after all, and ships
+inert (`PIXEL_PHYSICS_NUTRIENT=0`); the header line above is about §1's
+proposal as *the cheapest lever to make roots pay*, which stays refuted.
+What is new, and what a reader should have before §3's own block: **every
+measurement of the nutrient so far was taken at `recovery=1`, which is a
+45:1 subsidy against a per-tick draw, so the mechanism could not bind.** A
+12-seed paired sweep reads it as a **null** (roots reach median 1.000,
+cells 0.998). Two defects were found on the way and one is fixed — a plant
+with no roots in soil read as *fully fed* — and one design gap is open:
+§3c prices construction only, so it cannot make a rootless plant die,
+which was §3's stated purpose. Details at the end of §3.
+
 **Third draft. The first proposed an immobile soil nutrient as step one;
 three reviews said build it second and one found what looked like the actual
 cause; then the experiment that cause implied was run over 12 seeds and
@@ -473,6 +485,179 @@ nutrient to the soil is the conservation §3 needs.
 > a tax should do. Still inert; the constants are still first guesses, and
 > founders=12 going the other way is the first thing a real sweep should
 > explain.
+>
+> **§3c amended again, 2026-09-06 — the mechanism did not reach the case it
+> was built for, and could not have.** Two findings, one from a run and one
+> from reading what `nutrient_status` is wired to.
+>
+> **1. A plant with no soil at all read as fully fed.** `organism_upkeep`
+> set `nutrient_status = 1.0` whenever `nutrient_faces == 0`, the same
+> "nothing to say" default `root_zone_water` takes on the line above it.
+> For water that is right — soil is not the only way to be wet, and a
+> seedling that has not rooted must not read as droughted. For nutrient it
+> was exactly backwards: a plant drinking only free water has `wet_faces >
+> 0` and `nutrient_faces == 0`, so **the drip-fed plant this section exists
+> for took the default and read full nutrient.** The mechanism taxed a plant
+> whose roots were in poor soil and exempted outright the plant with no soil.
+> Measured as `a_plant_drinking_only_free_water_reads_no_nutrient_not_full`:
+> root over soil **1.000**, root over free water **1.000** — two arms
+> identical, which is `CLAUDE.md`'s own tell for a number that is not
+> measuring what it is named for.
+>
+> **Fixed:** `nutrient_faces > 0` -> the mean; else `root_cells > 0` ->
+> **0.0**; else 1.0. Now soil **1.000** against drip **0.000**. The seedling
+> case still defers, which is why it is not a bare zero — before a plant has
+> put down any root there is nothing to be short of. `root_cells` is *this
+> walk's own local*, not `OrganismState::root_cells`, so it is not the
+> lagging-cache trap that got the anchor-rule exemption reverted the same
+> week.
+>
+> **2. §3c cannot deliver §3's stated purpose, and this is settled by
+> reachability rather than by a run.** `nutrient_status` has exactly one
+> consumer in the tree — `nutrient_construction_multiplier`, a scale on
+> `Grow.cost`. It is a limit on **building**, never on **living**. Death by
+> starvation is `income < MAINTENANCE_PER_CELL * (root_cells + shoot_cells)`,
+> and nutrient enters **neither side**. So the promise at the head of §3 —
+> that a lit, drip-fed plant can no longer live for ever on nothing —
+> is not something this mechanism can keep. Whatever it does to survival is
+> indirect, through allometry (fewer cells, and fewer leaves with them), and
+> the code does not determine its sign.
+>
+> **The gap is in this section's own words.** §3c is headed *"Where the term
+> enters income"* and the option it prefers never enters income. It ruled
+> out `min(water_status, nutrient_status)` — correctly, and that reasoning
+> stands — but it treated *"min"* and *"enters income"* as the same thing.
+> They are not. `water_status` is **already** a multiplier on income
+> (`allocate_to_frontier`: `intercepted += ambient_light_above(..) *
+> water_status(..)`), and this section says in as many words that
+> *"multiplying is correct for it"*. **A nutrient multiplier on income is a
+> third option this plan has never considered**, and it is the one that
+> would keep §3's promise: N maintains photosynthetic machinery, so a leaf
+> with no N supply earning less is the physiology, not a Liebig floor.
+>
+> **The risk, named rather than discovered later:** `dead-ends.md:892`
+> records gating root re-initiation on whole-plant solvency producing a
+> death spiral — *"water-limited income starves the roots that would fix
+> it"*, 6-8 founders established of 8 against 8 of 8. An income term has the
+> same shape, so it would need roots protected on the **income** side the
+> way #264 protected them on the **cost** side. That is an economy change
+> with a re-derivation attached, so it is put to the owner rather than taken.
+>
+> ---
+>
+> **Both measurements above were taken on a mechanism that was never
+> scarce, and the recipe they share is the reason. 2026-09-06.**
+>
+> **The 12-seed paired sweep, which is the one that should have been run
+> first.** `examples/labsoil soils=40 seeds=12 frames=30000`, the shipped
+> lab bed, `RAYON_NUM_THREADS` pinned, two processes of one binary paired
+> per seed — off against `initial=200 recovery=1 draw=1`:
+>
+> | column | median | direction |
+> |---|---|---|
+> | **roots reach** | **1.000** | up 5 / same 3 / **down 4** |
+> | **plant cells** | **0.998** | up 6 / down 6 |
+> | plants | 1.082 | up 8 / down 4 |
+> | biggest | 1.087 | up 8 / down 4 |
+>
+> **A null.** So the four-founder table above does not survive: its four
+> ratios (0.76x to 1.55x) span 2.0x, and **one arm's own spread over 12
+> seeds at fixed settings is 1.74x on that very column** — roots reach
+> ranges 23 to 40 rows with nothing varying but the seed, cells 2.32x,
+> plants 3.12x. Every entry in that table was a single draw. `founders=12`
+> at 0.76x needed no explanation; it *was* the spread. This is `CLAUDE.md`'s
+> recorded failure ("six seeds is not a sweep... pooling to a per-seed
+> median of zero with a third of seeds running the other way") happening
+> again, to the session that quoted it.
+>
+> **And this plan's own §5 already required it.** Order of work item 2 says
+> *"order statistic over **>=12 seeds** — six is not a sweep, and this line
+> has already had a 1.64x over six become a per-seed median of zero over
+> eighteen."* The instruction was written down, on this line, with this
+> failure named — and the two runs that followed were n=1 and n=4. A rule
+> in the plan is not a rule in the session; what actually changed the
+> outcome was reaching for a harness that takes `seeds=` (`labsoil`)
+> instead of one that does not (`labshot`).
+>
+> **And the null has an arithmetic cause, which is the part worth keeping.**
+> The two knobs are quoted in **different units** and nothing said so:
+> `PIXEL_PHYSICS_NUTRIENT_DRAW` is spent per organism **tick** (from
+> `absorb_water`, on the `Behavior::Absorb` dispatch) and
+> `PIXEL_PHYSICS_NUTRIENT_RECOVERY` is forgiven per **frame**. With
+> `ORGANISM_TICK_INTERVAL = 45`, `recovery=1 draw=1` is a **45:1 subsidy**.
+> Measured directly, in
+> `the_shipped_draw_cadence_cannot_outpace_the_shipped_recovery`: twenty
+> organism ticks of one root cell drawing on one face reach a **peak
+> deficit of 1 in 200** and end at 0. Soil never leaves 99.5% full,
+> `nutrient_status` never leaves ~1.0, and
+> `nutrient_construction_multiplier` never exceeds **x1.035**.
+>
+> **The mechanism was not broken — the recipe was.**
+> `nutrient_recovery_per_frame()` defaults to **0**, at which the deficit
+> does accumulate. `recovery=1` was carried in from §3's own exploratory
+> run above and copied into every measurement after it, including the
+> 12-seed sweep, so all of them switched the thing off before measuring it.
+> That is exactly the trap this plan warned about in §3d for a *different*
+> gate, in a form nobody looked for: not a gate that zeroes the mechanism,
+> but a **unit** that does.
+>
+> **Consequences for what is still owed.** The calibration sweep §3 has
+> never started; what is recorded above is not a calibration at a bad
+> setting but a set of runs at no setting at all. It has to begin by making
+> the cadence test fail — recovery strictly slower than the draw it
+> forgives — and the honest first arm is `recovery=0`, the shipped default.
+>
+> **The positive control, and it is emphatic.** One environment variable
+> changed, same binary, same twelve seeds, paired the same way —
+> `recovery=0`, which is `nutrient_recovery_per_frame()`'s **shipped
+> default**:
+>
+> | column | `recovery=1` (every prior measurement) | `recovery=0` (shipped) |
+> |---|---|---|
+> | plant cells | 0.998 — up 6 / down 6 | **0.780 — down 10, up 2** |
+> | plants | 1.082 | **0.733 — down 10, up 2** |
+> | **seeds borne** | 1.053 | **0.667 — down 11 of 12** |
+> | roots reach | 1.000 | **0.883 — down 7, same 2, up 3** |
+>
+> So the mechanism works perfectly well; it was switched off by a unit. This
+> is the control `CLAUDE.md` demands and nothing else could have given —
+> *"construct the case whose answer you know is non-zero and check the
+> instrument reports it"* — and it converts the null above from "the
+> nutrient does nothing" into "the nutrient did not run", which are opposite
+> findings that look identical in a table.
+>
+> **And it refutes #264 on its own terms.** With real scarcity the nutrient
+> makes roots **shallower** — median 0.883, down on 7 of 12 seeds — not
+> deeper. Root depth was the entire case for the root exemption, and it does
+> not appear at any setting yet measured. The exemption itself stays (it is
+> right on its own reasoning, and `dead-ends.md:892` records what charging a
+> starving plant for the organ that would save it costs), but **its
+> supporting measurement is withdrawn.**
+>
+> **What it says about §3c, read with the reachability finding above:** the
+> tax is real and it is a *shrink*, not a *redirect* — 22% of the biomass
+> and a third of the seed set, with root depth falling alongside everything
+> else. A price on construction cannot move carbon below ground, because it
+> is not a term in the allocation that chooses between root and shoot. That
+> is the same conclusion the one-consumer trace reaches from the other end.
+>
+> **`initial=200 draw=1 recovery=0` is therefore too harsh to ship and is
+> the right top of the range to sweep down from**, which is where the
+> calibration §3 owes should now begin.
+>
+> **Which tree these three arms were measured on, because it moved under
+> them.** All three (`off`, `recovery=1`, `recovery=0`) ran on the same
+> binary, so the pairings above are internally valid and the ratios stand.
+> They were taken **before #259 landed**, and that PR changes how a body
+> parts plant tissue — which is part of this bed. Re-running the *off* arm
+> on the post-merge binary, seed 1 alone, moves **cells 4,449 -> 2,751,
+> plants 200 -> 148, roots reach 23 -> 18** with the nutrient still off.
+> So the absolute census does not carry across that boundary and neither
+> does any comparison made across it: a later arm must re-measure its own
+> baseline rather than pair against the numbers above. That is
+> `CLAUDE.md`'s "re-measure the baseline in the same session" arriving as a
+> *merge* rather than as a slow machine, which is the form it is easy to
+> miss — the binary was rebuilt, so nothing looked stale.
 
 
 Restoring the depletion zone (§1 item 1) plausibly delivers **S1 and S2**
@@ -563,6 +748,165 @@ water's calibration literally untouched, matches the physiology better — N
 and P limit sink activity and leaf construction more than instantaneous
 photosynthesis per unit leaf — and adds a real second axis instead of
 competing for the first.
+
+### 3e. The income term, built and measured — 2026-09-06
+
+Built on the owner's instruction ("try it") after the reachability trace in
+§3c's amendment showed the first two options could not reach survival.
+`nutrient_income_multiplier`, weight `PIXEL_PHYSICS_NUTRIENT_INCOME`
+`0.0..=1.0`: 0 is the identity (construction price alone, what #262/#264
+shipped), 1 takes income linearly to zero at `nutrient_status` 0.
+
+**It reaches the case §3 was written for.** Measured with the switch on:
+
+```
+switch ON (initial 200, income weight 1):
+  root over soil:  status 1.000  income x1.000
+  root over drip:  status 0.000  income x0.000
+```
+
+A plant whose roots touch only free water now earns nothing, so it reaches
+`STARVATION_DEATH_TICKS`. That is the half a price on *building* could not
+do, because starvation compares income against cell count and a build price
+is in neither term.
+
+**Three arms, one binary, 12 seeds, paired per seed** (`labsoil soils=40
+seeds=12 frames=30000`, `RAYON_NUM_THREADS` pinned, `recovery=0`,
+post-#259 tree):
+
+| column | construction only | + income, weight 1 |
+|---|---|---|
+| plant cells | 0.812 — down 8 | **0.301 — down 12 of 12** |
+| plants | 0.804 — down 9 | **0.071 — down 12 of 12** |
+| seeds borne | 0.769 — down 10 | **0.102 — down 12 of 12** |
+| roots reach | 1.080 — up 8 | 0.795 — down 8 |
+
+**The income term is about ten times the construction price on the stand,
+and unanimous on three columns.** There is no noise question here: the
+baseline's own spread over these 12 seeds is cells 3.46x, plants 3.72x, and
+a 12-of-12 sign is not a draw from it. **At weight 1 with `recovery=0` it
+removes 93% of the stand** — the mechanism works and is far too strong to
+ship, which is what an uncalibrated first setting should look like.
+
+**It is terminal depletion rather than the recorded death spiral, and the
+distinction matters.** `dead-ends.md:892`'s spiral is income starving the
+roots that would fix it. Here the soil simply never comes back:
+`recovery=0` makes nutrient a one-shot stock, so *every* plant eventually
+mines out its root zone, not only the rootless ones. That is a property of
+the setting, not of the coupling.
+
+**Root depth is not moved reliably in either direction, and the two trees
+disagree on its sign** — the construction-only arm read **0.883, down on 7
+of 12** before #259 and **1.080, up on 8 of 12** after it, both far inside a
+seed spread of **2.22x**. So #264's case is refuted on the ground that the
+effect is *absent*, not that it reverses; an earlier draft of this section
+claimed "shallower" from the pre-merge arm alone and that claim is
+withdrawn. What survives across both trees is that the tax shrinks the
+stand and cuts seed set.
+
+**The recovery period, exercised — it helps and it does not rescue weight 1.**
+Same binary, 12 seeds, paired against a baseline measured on it
+(`p_off.log`), income weight 1, recovery period **180** (a quarter of the
+draw's own cadence) against the one-shot `recovery=0`:
+
+| column | `recovery=0` | period **180** |
+|---|---|---|
+| plants | 0.071 | **0.171** — 2.4x better, still down 12 of 12 |
+| seeds borne | 0.102 | **0.189** |
+| plant cells | 0.301 | **0.451** |
+| biggest plant | 0.777 | **1.191 — up on 7 of 12** |
+| roots reach | 0.795 | 0.987 |
+
+**Renewable soil more than doubles what survives, and the stand is still at
+17% of baseline.** So the collapse was not only terminal depletion: **weight
+1 is too strong at any recovery**, and the knob to turn down is the weight.
+
+**The shape of what survives is worth naming, because it is the first thing
+in this mechanism that looks like plant ecology rather than a tax.** The
+stand falls to 17% while the *largest* plant grows — up on 7 of 12 seeds,
+median 1.19x. Fewer, larger individuals under nutrient limitation is
+self-thinning, and it is the outcome §3's diversity argument wanted. It
+arrives here as a side effect of a setting that is too harsh to ship, which
+is a reason to calibrate the weight rather than to abandon the term.
+
+**Root depth stays unmoved at 0.987**, consistent with every other arm: this
+mechanism does not reach root depth in either direction at any setting yet
+measured.
+
+**The weight curve, and the usable range is far below where this shipped.**
+All arms at recovery period 180, 12 seeds, paired per seed against
+`p_off.log` — a baseline measured on the **same binary**:
+
+| income weight | plant cells | plants | seeds borne | biggest | roots reach |
+|---|---|---|---|---|---|
+| **0** (construction price alone) | 0.816 — down 11 | **0.688** — down 9 | 0.750 — down 12 | 0.974 — 6/6 | 1.003 |
+| **0.25** | 0.739 — down 10 | **0.507** — down 11 | 0.548 — down 11 | 1.024 — up 7 | 0.897 |
+| **0.5** | 0.652 — down 10 | **0.392** — down 12 | 0.386 — down 12 | 1.043 — up 6 | 1.013 |
+| **1.0** | 0.451 — down 11 | **0.171** — down 12 | 0.189 — down 12 | 1.191 — up 7 | 0.987 |
+
+**Monotone and clean on every column that moves**, with the sign unanimous
+or near-unanimous at every setting — this is a strong lever, not a marginal
+one. Halving the weight roughly doubles the surviving stand.
+**`1.0` was a bad first guess by more than an order of magnitude**: even at
+0.25 the stand halves, so a *mild* tax — the 10-20% a first shipping setting
+would want — lands somewhere near **0.05-0.1**, which is where a calibration
+sweep should now start rather than at 1.
+
+**`biggest` rises monotonically with the weight** (1.024 → 1.043 → 1.191)
+while the stand falls. The self-thinning signature strengthens with the tax,
+which is coherent and is the one genuinely ecological behaviour this
+mechanism has produced.
+
+**Root depth is flat at every setting** — 0.897, 1.013, 0.987 against a
+baseline seed spread of 2.22x. Together with the two construction-only arms
+(0.883 and 1.080 on different trees) that is **five independent arms with no
+reliable movement in either direction**. Whatever the nutrient does, it does
+not reach root depth.
+
+**The floor is measured, so the two terms are attributable.** Every arm
+carries the construction price *as well as* the income term — both are gated
+on `nutrient_initial()` — so the weight-0 row is what separates them. It
+costs **31% of the stand and 25% of the seed set on its own**, and the income
+term then takes the stand from **0.688 to 0.171** at weight 1: it removes
+three quarters of what the construction price left. Both terms are strong,
+and the income term is much the stronger of the two.
+
+**And the self-thinning is the income term's doing specifically.** `biggest`
+is flat at weight 0 (**0.974**, six up and six down) and climbs monotonically
+with the weight to **1.191**. Pricing *construction* shrinks a stand
+uniformly; pricing *income* is what converts it into fewer, larger
+individuals. That is the one result here that looks like plant ecology
+rather than a tax, and it belongs to the term §3c never considered.
+
+**A prediction this table falsified, recorded because it was wrong.** Before
+running the floor arm this section inferred it "sits near 0.8 rather than
+1.0", reasoning across binaries from the `recovery=0` construction arm. On
+cells that was close (0.816); on **plants it was 0.688**, well below the
+guess. Inferring a floor across two binaries was exactly the comparison this
+section refuses elsewhere, and it was wrong on the column that matters most.
+
+### 3f. The recovery knob had no usable setting, and now it does
+
+`owed = (frame - stamp) x rate`, with `rate` a `u16` **per frame**, against a
+draw of one unit per organism **tick** (45 frames). The only reachable
+settings were therefore **0** — soil is a one-shot stock — and **1**, a
+**45:1 subsidy** that pins the mechanism inert. The next value below 1 is 0.
+**There was no setting at which soil partially recovers**, which is exactly
+why the two measurements of this mechanism landed at opposite extremes and
+neither was informative: a flat null at `recovery=1` (cells 0.998) and a
+collapse at `recovery=0` (plants 0.071).
+
+**`PIXEL_PHYSICS_NUTRIENT_RECOVERY` is now a period — frames per unit
+forgiven — with `0` still meaning never.** Period **45** matches the draw
+exactly, **180** is a quarter of it, **9,000** a slow trickle; the whole
+range is reachable. `settle_nutrient` advances its stamp by the whole
+periods consumed rather than to `frame`, so the part-period is not forgiven
+every time something draws from the chunk — without which a busy chunk
+would never recover and a quiet one would.
+
+The cadence guard still passes at period 1, because a period of one frame
+*is* the old rate of one per frame; what changed is that everything between
+1 and "never" now exists.
 
 ### 3d. An implementation trap that would silently zero the mechanism
 
