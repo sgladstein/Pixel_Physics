@@ -200,6 +200,23 @@ fn stem_stiffness_override() -> Option<f32> {
     *OVERRIDE.get_or_init(|| std::env::var("STEM_STIFFNESS").ok().and_then(|v| v.parse().ok()))
 }
 
+/// Whether a root must keep ground against it to grow into an empty cell —
+/// §W6's rule. `PIXEL_PHYSICS_ROOT_SUBSTRATE=off` restores the behaviour
+/// where a `RootTip` could take any empty cell at all.
+///
+/// **An ablation rather than a dead switch, and it should have shipped with
+/// the rule.** §W6's remaining work is confirming the owner's actual
+/// sighting — roots in the sky over a rained-on grove — and that is a
+/// *paired* question: the same seed, the same frames, the rule on and off.
+/// `CLAUDE.md` is explicit that a switch is the only way to take both arms
+/// from one binary, and without one the comparison has to cross a rebuild,
+/// which is the confound this line has already been caught by twice today.
+fn roots_need_substrate() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOT_SUBSTRATE").as_deref(), Ok("off")))
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -257,7 +274,7 @@ fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
         // **`penetration_force` is the root/shoot discriminator and that is
         // checked rather than assumed**: across all seven shipped species it
         // is `0.0` on every shoot behaviour and non-zero only on `RootTip`.
-        return penetration_force <= 0.0 || touches_substrate(world, x, y);
+        return penetration_force <= 0.0 || !roots_need_substrate() || touches_substrate(world, x, y);
     }
     if penetration_force <= 0.0 {
         return false;
