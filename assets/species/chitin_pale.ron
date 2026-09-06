@@ -189,11 +189,11 @@
         // eating fallen leaves" is about. Specialising is what pays now --
         // a gut at -1.0 draws 480 from a leaf against this ant's 120 --
         // which is the trade S5 exists to create.
-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         // Read by nothing until S6. Authored here so the width and the
         // ancestral value it widens cannot drift apart in separate
         // commits -- see `CreatureDef::trait_variance`.
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

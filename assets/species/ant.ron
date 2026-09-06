@@ -372,6 +372,27 @@
         // fast keeps 90%, and one half as fast keeps 97.5% but carries its
         // load twice as long and waits twice as long to be paid. Two-sided,
         // which a per-tick tax could not have made it.
+        // **What wearing armour costs, per tick, per unit of plate.** Owner's
+        // ruling, 2026-09-06: *"anyone can evolve to have more armor but it
+        // needs to have a cost."* Without this, TRAIT_ARMOUR is the purest
+        // ratchet in the game -- nothing anywhere makes a thicker plate
+        // worse, so the allele would sit at its ceiling from the first
+        // generation and express nothing.
+        //
+        // A STANDING cost, like the jaw: you grow the plate and you carry it
+        // whether or not anything bites you today. Charging only when hit
+        // would price *being attacked* rather than *being armoured*, and a
+        // lineage nothing happens to eat would wear it free.
+        //
+        //   idle ticks = 2000   this body's penetration_resistance = 0.25
+        //   S = 0.05 of an idle lifetime
+        //   0.05 / (2000 * 0.25) = 0.0001
+        //
+        // Same share as the jaw, because a plate and a mouth are the same
+        // kind of bet on the same fight -- and the two together are a
+        // deliberate arms race, each paying every tick for the other's
+        // existence.
+        armour_fraction: 0.0001,
         digest_fraction: 0.01515,
         digest_rate: 3.3,
 
@@ -532,7 +553,7 @@
         // `place_creature` leaves a parent standing on one joule, which is
         // about three ticks of upkeep, so the low allele very nearly kills
         // whoever expresses it. See `TRAIT_REPRODUCE_AT`.
-        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        traits: (0.0, -0.2, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
         // The width one birth may move the gut, the grant, and the bar.
         // Authored so it and the ancestral value it widens cannot drift apart
         // in separate commits -- see `CreatureDef::trait_variance`. Read by
@@ -544,7 +565,7 @@
         // threshold -- 165 J for this ant, about half a mouthful of flower.
         // That is a step a lineage can actually be selected on inside a run
         // this long; a tenth of it would drift and never arrive.
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **Budding: the bank an ant must reach before it makes another
         // ant** (S6, `Reports/creature-evolution-plan.md` §2.6). This is

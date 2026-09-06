@@ -478,6 +478,20 @@ pub struct CreatureStats {
     /// shape this engine has hit three times.
     pub curvature_cells_read: u64,
     pub curvature_energy: f64,
+    /// Bites that wore a target down without taking a cell -- the graded
+    /// half of biting, which `bites_refused` used to count as a bounce.
+    /// Paired with `eats` deliberately: `eats` is the far side of the same
+    /// call, so a rising `gnaws` with a flat `eats` is a colony chewing on
+    /// something it will never get through.
+    pub gnaws: u64,
+    /// What gnawing cost -- the jaw work of a bite that wore a target down
+    /// without taking a cell. Free until 2026-09-06, and an unpriced verb
+    /// with no satiety limit: an animal that cannot swallow its target never
+    /// fills its crop, so it chews for ever at no cost.
+    pub gnaw_energy: f64,
+    /// What was billed for the plate this animal wears, every tick it is
+    /// alive, bitten or not.
+    pub armour_energy: f64,
     /// What was billed for the jaw this animal carries -- `force_fraction`
     /// times the larger of its two forces, every tick it is alive. No paired
     /// "reads" counter here, unlike the two senses: there is no work to
@@ -3428,6 +3442,10 @@ impl World {
             // `germination_frame` once the plant knows where it is. A
             // creature keeps all four at their zero values and never reads
             // them.
+            // Undamaged at birth. It does not heal, so this is the only
+            // place it is ever set to zero other than the bite that cashes
+            // a whole cell in.
+            gnawed: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
             origin: None,
