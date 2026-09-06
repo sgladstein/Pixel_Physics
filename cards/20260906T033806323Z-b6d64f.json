@@ -1,0 +1,56 @@
+{
+  "id": "20260906T033806323Z-b6d64f",
+  "created": "2026-09-06T03:38:06Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-plant-dynamics-16i1fu",
+    "commit": "1256bfa2",
+    "agent": null,
+    "session_id": "5625e4a4-fdd2-5a2e-a1d9-03dc7df98bdf",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A wood, with and without trees dying of old age",
+  "question": "Does the right-hand wood read as alive — opening up and filling back in — or just as a wood being thinned? And is anything wrong with the ground it is standing on?",
+  "context_md": "**The same command in both panels**: one tree seed in the middle of an empty bed, no ants, left alone. Each panel is four stops stacked top to bottom — **frame 50,000 / 100,000 / 150,000 / 200,000** — and the two arms come from one binary differing by exactly one number, the lifespan.\n\nThis is the change you asked for, after telling me my first idea was wrong. Trees used to stand for ever once they stopped growing, dropping seed onto ground they had drunk dry themselves. Now old age is a rising risk rather than a clock, so a seedling is all but safe and an old tree is not.\n\n**What the numbers say and the picture has to confirm or contradict**: the immortal wood peaks and then sinks, one way, 22,330 cells across 411 of 512 columns down to 9,736 across 255. The mortal one goes **up and down instead** — 18,643, then 11,146, then 19,455, then 11,094 cells — which is what a wood full of gaps opening and closing should do. That oscillation is the whole claim, and a still cannot show it; what the panels can show is whether the trees are in *different places* each time.\n\nThings I already know about and would rather you ignored unless they look worse than I think:\n\n- The wood sits in the **left two thirds** of the bed. From one seed at 200,000 frames that is as far as it has got, not a wall.\n- The soil surface gets **churned and uneven**, and the last panel has a dark cavity in it. I do not know what that is yet.\n\nOne run per arm. The lifespan itself is a band rather than a number — 30,000 measured better than the 60,000 shipped, but 15,000 wipes the species out, so I took the safer end. It is on the parameters page as **life_half_life**.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "immortal",
+      "files": [
+        "20260906T033806323Z-b6d64f/000-mort_before.png"
+      ],
+      "caption": "as before — trees never die of age",
+      "meta": {
+        "trees standing at the end": 17,
+        "living plant cells at the end": 9746,
+        "how much of the floor it held": "255 of 512 columns",
+        "shape over the run": "peaks once, then sinks"
+      },
+      "focus": null
+    },
+    {
+      "label": "mortal",
+      "files": [
+        "20260906T033806323Z-b6d64f/001-mort_after.png"
+      ],
+      "caption": "half a cohort gone by 60,000 frames of age",
+      "meta": {
+        "trees standing at the end": 18,
+        "living plant cells at the end": 11094,
+        "how much of the floor it held": "339 of 512 columns",
+        "shape over the run": "rises and falls, twice"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
