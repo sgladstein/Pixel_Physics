@@ -151,6 +151,19 @@ measurable advantage in this bed at this horizon to begin with, which is
 the honest starting point for any re-calibration under a narrower
 tolerance: there is no fitted advantage to lose.
 
+**And past the shipped tolerance the kin sense is still a null.** The
+same race with the ancestor authored at `tolerance -0.5` and `scent_drift
+0.3` (a temporary species-file edit, rebuilt, reverted before anything was
+committed), so children drift out of their parents' family within a few
+generations and `KinNear` sees fewer kin: arm B (ablated) share of animals
+median 41.7% (q1 40.7, q3 53.7), seeds below 50%: 4, above: 2. The median
+moved from 49.1% to 41.7% and the seed count did not — four against two is
+inside the harness's own floor. So the authored `KinNear`/`KinBearing`
+weights carry no advantage in this bed that a narrower family can lose,
+and the re-calibration the design report's §3c budgeted for has nothing
+to re-fit yet; the number to re-take is this one, on a bed where the kin
+sense is shown to pay at all.
+
 **The narrow end reproduces the rivalry switch it replaced** — `labstats
 rivalry=1`, now an alias for `tolerance=-1 spread=1`, two colonies, 24,000
 frames, three seeds, against the same bed at the shipped dials:
