@@ -903,7 +903,8 @@ cousins. At the authored radius of 1.0 two drift rates were byte-identical
 over the horizon, and the positive control (radius 0.1, drift 1.0) bit on
 the first birth and named nothing because the bed starves a colony under
 the three-animal floor first — the bed, not the drift, bounds what can be
-seen.
+seen. **Card `20260906T165111553Z-b2d7cb`** (board `lab`) puts the split
+in front of the owner with the two §7 decisions as its question.
 
 **For the Opus session:** `is_living_kin(world, cell, gut)` keeps its
 signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/

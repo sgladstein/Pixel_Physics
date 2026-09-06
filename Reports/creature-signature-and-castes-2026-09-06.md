@@ -248,6 +248,15 @@ again), `a_stranger_colony_is_kin_until_its_scent_leaves_my_tolerance`,
 `a_beetle_is_never_family_unless_its_kind_crosses_kinds` stays green under
 the first fault, correctly: it guards the species gate, not the distance.
 
+**Posted for the owner's judgement**: review card
+`20260906T165111553Z-b2d7cb` (board `lab`), an A/B of the ANTS page at
+frame 30,000 on seed 3 — the shipped dials against `drift 0.3, tolerance
+-0.5` — with the group counts and kills in `meta`, carrying the two §7
+decisions as its question: whether `ANT 2b` is the right kind of name for
+a split-off group (against numbering, or naming from the roster), and
+whether scent should be allowed to cross kinds (`kin_crosses_kinds`, off).
+Both ship as dials; the card decides the defaults.
+
 ### 1f. What it does not do, stated so nobody measures its absence as a bug
 
 - **Merge.** A tolerant lineage that drifts *into* another group's family is
