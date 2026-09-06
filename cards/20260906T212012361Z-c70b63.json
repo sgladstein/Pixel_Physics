@@ -1,0 +1,44 @@
+{
+  "id": "20260906T212012361Z-c70b63",
+  "created": "2026-09-06T21:20:12Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-signature-castes-gfm0r2",
+    "commit": "6d22dd54",
+    "agent": null,
+    "session_id": "1ff1c52a-2a03-564a-8ae3-fb2d6c9b5a35",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A child can be made differently from its genes: the plasticity dial, shipping at zero",
+  "question": "The castes work landed as one dial and no named caste: a parent hands each child one number from its own brain, heritable developmental weights turn that number into a body, and PLASTICITY on the GENOME page says how much any of it counts. It ships at 0, so the box is exactly what it was. Do you want it shipped at 0 (a line can carry the wiring but no body ever moves until you turn the dial), or at 1 (lines can find castes in the shipped box, and the first thing they will find is whatever pays -- armour under beetles, nothing without them)?",
+  "context_md": "The GENOME page as it now ships: ARMS RACE REACH from the other session and PLASTICITY under it, both saved with the dials. What is behind the row:\n\n- One brain output, PROVISION, read once when a parent buds. The child keeps that number (its page shows it as MADE) and can read it back as a sense.\n- A heritable block of developmental weights, one per body trait, mutated with the brain and kept by a jar. No shipped species authors one; a line finds them or does not.\n- The body an animal has is its genes plus PLASTICITY x MADE x the weights, each inside the same bound the arms race sets.\n\nNothing in the engine says what a caste is: an armoured child made when the alarm is up is one thing a line could find; a small quick one made when crowded is another; most lines will find nothing and make children of their genes.\n\n**Measured** (all in `meta`): at dial 0 the two-colony bed is the same distribution as before on three seeds, and the block reads zero on every slot. On the one seed that breeds, dial 1 with a bias into PROVISION and a 0.8 weight on armour spreads expressed armour 0.000 .. 0.647 inside one founding line, against 0.08 .. 0.32 from mutation alone; the same wiring at dial 0 still hands the number and moves no body.\n\nIgnore: the plant rows above; only the two genome rows are new.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "GENOME page, shipped",
+      "files": [
+        "20260906T212012361Z-c70b63/000-genome-params--genome-scrolled.png"
+      ],
+      "caption": "GENOME rows 9-21: ARMS RACE REACH 1.000, PLASTICITY 0.000, both saveable with the dials",
+      "meta": {
+        "children made at 0.5, dial 1 (seed 2)": "20 of 36 living",
+        "armour spread inside one line, dial 1": "0.000 .. 0.647",
+        "armour spread inside a line, dial 0 (mutation only)": "0.08 .. 0.32",
+        "children still handed the number at dial 0": "28 of 44 living",
+        "developmental weights at shipped dials, 3 seeds": "0.000 on every slot",
+        "births, before -> after, seeds 1/2/3": "3/32/11 -> 5/35/10"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
