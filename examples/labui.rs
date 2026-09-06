@@ -1183,6 +1183,32 @@ fn main() {
             lab.set_cursor(Some((r.x - 60, r.y + 4)));
         }
         tiles.push((format!("PARAMS: {}", group.label()), shot(&mut lab)));
+        // **The last window of a page that scrolls, as its own tile -- taken
+        // here, at the shipped values, before the sweep below moves every
+        // row.** The sheet showed only the first thirteen rows of a group, so
+        // a row added at the bottom (the GENOME page's `plasticity`, under
+        // the arms-race reach) was on no tile the owner could be shown; and
+        // a tile taken after the sweep shows the sweep's own click, not what
+        // ships.
+        {
+            let was = lab.ui.param_scroll();
+            while let Some(down) = lab.ui.widget_rect(Action::ParamScroll(1)) {
+                let before = lab.ui.param_scroll();
+                click(&mut lab, (down.x + down.w / 2, down.y + down.h / 2));
+                let _ = shot(&mut lab);
+                if lab.ui.param_scroll() == before {
+                    break;
+                }
+            }
+            if lab.ui.param_scroll() > was {
+                tiles.push((format!("PARAMS: {} SCROLLED", group.label()), shot(&mut lab)));
+            }
+            while lab.ui.param_scroll() > was {
+                let Some(up) = lab.ui.widget_rect(Action::ParamScroll(-1)) else { break };
+                click(&mut lab, (up.x + up.w / 2, up.y + up.h / 2));
+                let _ = shot(&mut lab);
+            }
+        }
     }
     lab.set_cursor(None);
 
