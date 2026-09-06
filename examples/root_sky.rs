@@ -87,6 +87,7 @@ fn main() {
     );
 
     let (mut tot_roots, mut tot_sky, mut worst) = (0usize, 0usize, 0usize);
+    let (mut tot_above, mut worst_rise_all) = (0usize, 0i32);
     for s in 0..seeds {
         let seed = seed0 + s;
         let mut world = common::PlantScene { trees: plants, seed: Some(seed), ..Default::default() }.build();
@@ -102,8 +103,17 @@ fn main() {
 
         let (mut roots, mut sky) = (0usize, 0usize);
         let mut highest: Option<(i32, i32)> = None;
+        // **The other reading of the complaint.** "Growing into the
+        // tree/sky" can mean root tissue *in the air*, which `sky` counts,
+        // or root tissue *inside the trunk* -- root-type cells well above
+        // the plant's own collar, where shoot tissue belongs. They are
+        // different defects and they look alike in a sentence, which is
+        // exactly the ambiguity `CLAUDE.md` says to resolve by measuring
+        // both rather than by picking one and building on it.
+        let (mut above_collar, mut worst_rise) = (0usize, 0i32);
         for id in world.live_organism_ids() {
             let Some(state) = world.organism(id) else { continue };
+            let collar = state.collar_y;
             let cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
             for (cx, cy) in cells {
                 let cell = world.get(cx, cy);
@@ -116,6 +126,16 @@ fn main() {
                     continue;
                 }
                 roots += 1;
+                if let Some(collar) = collar {
+                    // Above the collar by more than a couple of cells: a
+                    // root mat straddles the collar row normally, so a small
+                    // rise is the anatomy, not the defect.
+                    let rise = collar - cy;
+                    if rise > 2 {
+                        above_collar += 1;
+                        worst_rise = worst_rise.max(rise);
+                    }
+                }
                 if under_open_sky(&world, cx, cy) {
                     sky += 1;
                     if highest.is_none_or(|(_, hy)| cy < hy) {
@@ -125,11 +145,19 @@ fn main() {
             }
         }
         let pct = if roots > 0 { 100.0 * sky as f64 / roots as f64 } else { 0.0 };
-        println!("  seed {seed:>3}: {roots:>6} root cells, {sky:>5} under open sky ({pct:>5.1}%)  highest {highest:?}");
+        println!(
+            "  seed {seed:>3}: {roots:>6} root cells, {sky:>5} under open sky ({pct:>5.1}%)  highest {highest:?}  \
+| {above_collar:>4} inside the shoot, worst {worst_rise:>3} cells above the collar"
+        );
+        tot_above += above_collar;
+        worst_rise_all = worst_rise_all.max(worst_rise);
         tot_roots += roots;
         tot_sky += sky;
         worst = worst.max(sky);
     }
     let pct = if tot_roots > 0 { 100.0 * tot_sky as f64 / tot_roots as f64 } else { 0.0 };
-    println!("\n  TOTAL {tot_roots} root cells, {tot_sky} under open sky ({pct:.2}%), worst single seed {worst}");
+    println!(
+        "\n  TOTAL {tot_roots} root cells, {tot_sky} under open sky ({pct:.2}%), worst single seed {worst}\n\
+  TOTAL {tot_above} root cells inside the shoot (>2 above the collar), worst rise {worst_rise_all} cells"
+    );
 }
