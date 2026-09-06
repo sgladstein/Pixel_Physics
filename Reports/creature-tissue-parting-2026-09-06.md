@@ -142,21 +142,115 @@ run failed a third way — the ants never moved, because the loop advanced the
 scheduler without advancing `frame`, so nothing was ever due. The positive
 control caught a blind test on its first outing.
 
-## 5. What was deliberately not done, and what to do next
+## 5. The trunk half, and the mechanism that solved it
 
-**Wood was not made passable**, and should not be: an ant walking through a
-trunk is less realistic than one walking around it, and it would stop a tree
-being an object.
+§5 of the first draft of this report said wood should stay solid, on the
+grounds that an ant walking through a trunk is less realistic than one
+walking round it. **The owner overturned that and was right:**
 
-**But that is where the measured mass is** — 69–96% of tissue blocking — so
-the complaint is not fully answered and this is the honest statement of what
-is left. The mechanism is not passability, it is that **an ant meeting a
-trunk has no notion of following it round or climbing it deliberately.** All
-three of its forward candidates are inside the trunk, so it tumbles to a
-random new heading and tries again; it gets up the trunk eventually because
-`Plant` is a foothold and a vertical heading works, but only by chance.
+> *"in a 3D world, an ant can walk around the trunk of a tree. In this 2D
+> world, creatures are getting stuck if they get surrounded by branches or
+> between two plants."*
 
-The next measurement to take is whether biasing the re-roll toward headings
-that run *along* the obstruction — wall-following, one rule, no new
-passability — closes that 69–96% without making wood soft. It is a
-`tumble` change, not a `landing_is_placeable` one.
+A side-view grid has no depth axis, so a trunk a real animal steps around is
+an unbroken wall here. That is the same argument that justifies parting
+foliage — a correction for something the grid cannot represent — one step
+further. The consistency argument reinforces it: `Material::climbable` is
+authored on `wood` and `rootwood` already, the gnome has walked through
+living trunks since M16 on the owner's own ruling, and only the creature line
+never read the flag.
+
+### 5a. Letting a body occupy wood was built, and it kills plants
+
+The obvious mechanism — reuse `Parted` for wood — works beautifully for
+movement and is not shippable. On `scene=colony` seed 1 it took tissue blocks
+from 776 to **17**, blocked steps 18.5% to 5.0%, and moves 7,471 to 11,422.
+It also ends with the lab bed empty:
+`lab::tests::copies_carry_what_was_planted_and_still_diverge` finishes at
+`plant_cells 0` in all three copies with it on, passes with it off, and is
+green on `main`.
+
+**The mechanism is grid-resolved ownership.** `plant::is_structural_anchor`
+opens `if cell.organism_id() != organism_id { return false }` against the
+grid. A parted cell holds the animal, so it stops counting as an anchor, and
+a seedling whose single base stem an ant is standing in becomes an unanchored
+plant. Foliage never showed it because a leaf is never an anchor. The repair
+is not that one line — several per-organism passes resolve a plant's own
+cells through the grid and each would need to answer *"this is still mine, an
+animal is merely standing in it"*.
+
+One repair from that attempt was measured and is kept: a parted cell stays in
+its plant's `cells` list, so the connectivity graph is not cut while a body
+stands in it. Without it, seed 1 severed 7,845 cells against 1,773 and
+snapped 28 against 10; with it, snapped is **2**. `PART_KEEP_GRAPH=0` is the
+control.
+
+### 5b. What shipped instead: crossing, not occupying
+
+The owner's design, and it dissolves the problem rather than patching it:
+
+> *"if an ant tries to go through a trunk, they basically just teleport to
+> the other side with a delay long enough for however thick the trunk is, so
+> they don't actually overlap with the cells ever."*
+
+`organism::Crossing`. A body refused by living woody tissue looks along its
+heading for the first place it could stand; if there is one it waits
+`thickness x tick_interval` frames and appears there, charged the energy of
+the walk it replaced. **It never enters the wood**, so there is nothing to
+displace, nothing to restore, no hole in the connectivity graph and no anchor
+to lose — the whole class of failure in §5a stops existing.
+
+It is also graded for free. A one-cell stem is a blink and a bole is a long
+wait, so the outcome has a middle without a constant tuned to give it one,
+and the delay *is* the depth axis expressed in time.
+
+`scene=colony genome=authored` seed 1, 12,000 frames, both arms from one
+binary via `CROSS_TRUNK=0`:
+
+| | wood solid | crossing |
+|---|---|---|
+| blocked steps | 15.7% (1,446) | **7.3% (735)** |
+| tissue blocking | 656 | **216** |
+| what still blocks | wood 88% / rootwood 12% | wood 65% / rootwood 35% |
+| crossings | — | **243 begun, 243 completed, 0 abandoned** |
+| limb severing | 3,987 | **3,770** |
+
+Plants are very slightly *better* off, which is the check that matters: the
+mechanism costs them nothing. The 216 blocks that remain are encounters with
+no far side to come out on — inside a crown, or emerging into open air with
+no foothold — which is the rule declining rather than a gap.
+
+`grassblade` and `grassroot` gained `climbable` in the same change. They
+authored none, so a meadow was priced as a wall, and once trunks could be got
+round `grassblade` was **35% of everything still blocking an ant**.
+
+### 5c. What it covers, and the one thing it does not
+
+Both mechanisms sit in the shared `step_chain`/`relocate_chain` path and gate
+on material data rather than species names, so every walking species has them
+— `ant`, `ant_long`, `ancestor` (Chain) and `beetle`, `ant_block`,
+`ant_block_shaded`, `ant_wide`, `chitin_pale` (Rigid) — and so will any
+species or climbable plant material added later.
+
+**The worm has neither, deliberately.** It runs on `worm_tick`/`move_cost`, a
+separate path predating the chain creatures, where `MaterialKind::Plant`
+returns `None`. It also moves by *overwriting* the cell it enters, so making
+tissue enterable there would have it eat roots rather than pass them — §5a's
+failure in a different costume. Teaching the worm path parting or crossing
+properly is the open item.
+
+## 6. Two method notes this work paid for
+
+**An alarm raised from one seed.** "Foliage parting raises limb severing
+4.8x" was read off seed 1 alone (1,773 against 8,546). Seed 2 puts the three
+arms at 8,347 / 9,715 / 9,811 — the seed dominates, not the arm — and
+mouthfuls eaten do not move either. `CLAUDE.md` says outcomes here are
+chaotic in the seed and a six-seed sample is not a sweep; this was a
+one-seed sample used to raise an alarm about merged code.
+
+**A guard whose own census asked the wrong question.** The hedge guard
+counted leaf cells in the grid — but a leaf an animal is standing in is
+*deliberately* absent from the grid, so three ants living in the hedge read
+as six destroyed leaves with `eats`, `digs` and `deaths` all zero. It counts
+held cells too now. This is "ask what your number counts when nothing is
+wrong" in the form where the wrong number belongs to the guard.
