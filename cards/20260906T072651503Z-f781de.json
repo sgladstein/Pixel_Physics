@@ -1,0 +1,48 @@
+{
+  "id": "20260906T072651503Z-f781de",
+  "created": "2026-09-06T07:26:51Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creatures-walk-plants-qbo0pp",
+    "commit": "626a1337",
+    "agent": null,
+    "session_id": "e23715d2-1789-5d59-98ad-c0fb3b91307e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants meeting a hedge: does foliage stop them?",
+  "question": "One of these lets an ant push through leaves; the other treats the bush as a wall. Which reads like a real ant in undergrowth? Trunks stay solid in both.",
+  "context_md": "Same binary, same seed, same hedge -- one env switch is the only difference. Over the longer run of this scene: blocked steps 666 -> 180, tissue among the blockers 94% -> 69%, and leaf disappears from the blocker list entirely (it was 43% of it). What still blocks an ant is wood 82% and rootwood 18%, which is deliberate: an ant walks ON a trunk, not through it. Measured separately on the real world (scene=colony, 4 seeds): living tissue is 18-64% of every blocked step an ant takes in a wood, and 69-96% of THAT is tree trunk, not foliage.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "foliage solid (main)",
+      "files": [
+        "20260906T072651503Z-f781de/000-hedge_off.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 60
+    },
+    {
+      "label": "foliage parts",
+      "files": [
+        "20260906T072651503Z-f781de/001-hedge_on.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 60
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
