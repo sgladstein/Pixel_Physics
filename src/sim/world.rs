@@ -813,6 +813,16 @@ pub struct CreatureStats {
     /// mechanism is not worth building, the other says a `.ron` file is
     /// missing a number.
     pub blocked_tissue_freed_any: u64,
+    /// **Trunk crossings begun** -- an animal meeting a bole and starting to
+    /// work its way round it rather than turning away. See
+    /// `organism::Crossing`.
+    pub crossings: u64,
+    /// ...and the two ways one ends, which is the effect counter `CLAUDE.md`
+    /// asks for beside any "it fired" count. A crossing that begins and
+    /// never completes is an animal that spent the time and got nowhere, and
+    /// only the pair can tell that from one that worked.
+    pub crossings_completed: u64,
+    pub crossings_abandoned: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -3651,6 +3661,7 @@ impl World {
             energy: 0.0,
             crop: None,
             spoil: None,
+            crossing: None,
             parted: Vec::new(),
             since_nest: 0,
             forage_anchor: (0, 0),

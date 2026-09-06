@@ -17,6 +17,15 @@
     // Below `leaf`'s 0.25 is tempting and wrong: a blade is thin but it is
     // still turgid tissue, and going under litter's 0.3 would make cut
     // grass float on its own litter layer.
+    // Walk-through and climbable, while it is alive. A blade of grass is tissue an animal walks through and a gnome walks past --
+    // the same fact `leaf.ron` and `wood.ron` already state about themselves.
+    // Left unauthored it made a meadow a wall: measured on `scene=colony`,
+    // `grassblade` was 35% of everything still blocking an ant once trunks
+    // could be got round.
+    //
+    // Read only alongside `Cell::organism_id() != 0`, so a painted cell of
+    // this material is as solid as it ever was.
+    climbable: true,
     density: 0.3,
     // **Grass bends, and this is the number that makes it.** The owner's ask
     // in his own words: *"The system needs to make grass bend and not break.

@@ -2259,6 +2259,15 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // act; it is committed to the arc it launched on until it lands. See
     // `step_flight`, and `brain::BrainOutput::Impulse` for why it is a
     // separate path rather than a change to the walk.
+    // --- inside a trunk: wait, then come out the other side -------------
+    // **Before `sense`, exactly as flight is, and for the same reason**: an
+    // animal working its way round a bole is committed to it. It does not
+    // read the world, evaluate a brain or act until it is through. See
+    // `organism::Crossing` for why this is a wait-and-appear rather than a
+    // walk through the cells.
+    if world.organism(organism).is_some_and(|s| s.crossing.is_some()) {
+        return step_crossing(world, organism, def);
+    }
     if world.organism(organism).is_some_and(|s| s.flight.is_some()) {
         return step_flight(world, organism, def);
     }
@@ -4747,6 +4756,22 @@ fn step_chain(
         // of its life turning on the spot than walking. Uniform among the
         // *viable* directions costs one extra scan of eight cells on a path
         // that was about to do nothing anyway.
+        // **A trunk is gone round, not turned away from.** Tried before the
+        // tumble because turning away is what the animal does when there is
+        // nothing to be done, and there is something to be done here. It
+        // costs one ray along the heading on a tick that has already given
+        // up; `trunk_crossing` returns `None` immediately unless the very
+        // next cell is woody tissue.
+        if crossing_enabled() {
+            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, heading) {
+                let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
+                if let Some(state) = world.organism_mut(organism) {
+                    state.crossing = Some(organism::Crossing { to, heading, due, thickness });
+                }
+                world.creature_stats.crossings += 1;
+                return false;
+            }
+        }
         tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
         // **What was in the way — tissue, or the world?** `moves_blocked`
@@ -5251,6 +5276,60 @@ fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
 /// cannot eat, dig, drop, steer or lay pheromone until it lands. That is
 /// most of what the verb costs, and it is also why the extra frames are
 /// cheap: there is no `eval_brain` on any of them.
+/// One tick of an animal working its way round a trunk.
+///
+/// Not due yet: stay where you are and come back. Due: put the body down on
+/// the far side if it is still somewhere it can stand, and give up
+/// otherwise -- the world moves while an animal is inside a tree, and a
+/// landing that was clear when it went in may be under a rock by the time it
+/// comes out. Giving up leaves it where it started, which is the same
+/// position a blocked tick leaves it in.
+fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+    let Some(crossing) = world.organism(organism).and_then(|s| s.crossing) else {
+        return Vec::new();
+    };
+    let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let interval = organism_tick_interval(world, organism, def);
+    if world.frame < crossing.due {
+        return vec![ActiveSite { x: chain.first().map_or(0, |c| c.0), y: chain.first().map_or(0, |c| c.1), kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(interval) }];
+    }
+    let landing = body_after_step(def, &chain, crossing.to, crossing.heading, crossing.heading);
+    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
+        && body_has_foothold(world, def, &landing, crossing.to, None);
+    if emerged {
+        relocate_chain(world, organism, &chain, &landing);
+        world.creature_stats.crossings_completed += 1;
+    } else {
+        world.creature_stats.crossings_abandoned += 1;
+    }
+    let (hx, hy) = if emerged { crossing.to } else { chain.first().copied().unwrap_or((0, 0)) };
+    if let Some(state) = world.organism_mut(organism) {
+        state.crossing = None;
+        if emerged {
+            state.heading = crossing.heading;
+            state.life.moves += 1;
+        }
+    }
+    world.creature_stats.moves += u64::from(emerged);
+    // **Charged as the walk it stands in for.** Going round a bole is not a
+    // free ride: it costs the steps it replaced, so a wide trunk is never a
+    // shortcut and an animal can starve inside one exactly as it could
+    // walking the same distance in the open.
+    let body_cells = live_body_cells(world, organism, def);
+    let cost = def.move_cost_per_cell * (body_cells + carried_cells(world, organism, def)) * f32::from(crossing.thickness);
+    world.energy_ledger.moved += cost as f64;
+    apply_creature_energy(world, hx, hy, organism, -cost, def)
+}
+
+/// Whether an animal will work its way round a trunk at all. `CROSS_TRUNK=0`
+/// is the control -- the arm where wood is a wall, which is what every
+/// measurement of this mechanism has to be read against.
+fn crossing_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("CROSS_TRUNK").map(|v| v != "0").unwrap_or(true))
+}
+
 fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
     let (Some(mut flight), Some(mut cells)) =
         (world.organism(organism).and_then(|s| s.flight), world.organism(organism).map(|s| s.chain.clone()))
@@ -5526,16 +5605,79 @@ fn is_partable(world: &World, cell: Cell) -> bool {
         return false;
     }
     let material = world.materials.get(cell.material);
-    // `PART_WOOD=0` keeps foliage partable and puts trunks back to solid --
-    // the middle arm, so "walking through wood" can be measured apart from
-    // "walking through leaves" and apart from the ants simply being more
-    // active. Without it the only comparison available is all-or-nothing,
-    // and a colony that ranges further also digs more, which detaches trees
-    // for reasons that have nothing to do with parting.
-    if material.woody && !part_wood_enabled() {
+    // **Woody tissue is never parted, it is *crossed*.** Letting a body
+    // occupy wood was built and measured and it kills plants: every
+    // per-organism pass resolves a plant's own cells through the grid, so an
+    // animal standing in a stem stops that cell counting as an anchor
+    // (`plant::is_structural_anchor`) and a seedling with one base cell
+    // becomes an unanchored plant. The reproduction was
+    // `lab::tests::copies_carry_what_was_planted_and_still_diverge`, which
+    // finished at `plant_cells 0` in all three copies. `organism::Crossing`
+    // is what replaced it, and it never occupies the cell at all.
+    if material.woody {
         return false;
     }
     material.climbable
+}
+
+/// **How far a body will look for the far side of a trunk.**
+///
+/// Not a gate on whether crossing happens so much as a statement of what
+/// counts as a trunk: past this, what is ahead is not something an animal
+/// would walk round, it is a wall of wood. `CLAUDE.md` warns that a cap
+/// whose exhaustion produces an *answer* is the shape to be suspicious of,
+/// and this one does, so it is set well past anything a plant grows here --
+/// the widest bole measured on `scene=grove` is a few cells and the whole
+/// stand's `max_cantilever_reach` is 96 -- rather than tuned to taste. The
+/// abuse it might otherwise invite is priced out anyway: a crossing costs
+/// the time and the energy of walking the same distance, so a wide one is
+/// never a shortcut.
+const MAX_TRUNK_CROSSING: i32 = 48;
+
+/// **Can this body get round the trunk in front of it, and where does it
+/// come out?**
+///
+/// Looks along `heading` from the head, over an unbroken run of *woody*
+/// living tissue, for the first position the whole body can stand. `None`
+/// if what is ahead is not wood, if the run never ends, or if the far side
+/// is not somewhere this animal could be.
+///
+/// **Woody only.** Foliage is walked *into* (`organism::Parted`) because a
+/// bush is air with leaves in it and a body genuinely fits between them.
+/// Wood is walked *around*, which is a different fact about the world and
+/// gets a different mechanism.
+fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], heading: u8) -> Option<((i32, i32), u16)> {
+    let &(hx, hy) = chain.first()?;
+    let (dx, dy) = DIRS[heading as usize];
+    let mut thickness = 0i32;
+    loop {
+        thickness += 1;
+        if thickness > MAX_TRUNK_CROSSING {
+            return None;
+        }
+        let (tx, ty) = (hx + dx * thickness, hy + dy * thickness);
+        if !world.in_bounds(tx, ty) {
+            return None;
+        }
+        let cell = world.get(tx, ty);
+        if is_living_tissue(world, cell) && world.materials.get(cell.material).woody {
+            continue; // still inside the trunk
+        }
+        // First non-wood cell: this is where it would come out, if it fits.
+        let landing = body_after_step(def, chain, (tx, ty), heading, heading);
+        if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled()) {
+            return None;
+        }
+        // **And it has to be somewhere an animal could stand.** Emerging
+        // into open air on the far side of a trunk is the "walked off a
+        // ledge" failure wearing a tree, and `step_chain` refuses that on
+        // every ordinary step for the same reason.
+        if !body_has_foothold(world, def, &landing, (tx, ty), None) {
+            return None;
+        }
+        // The first cell was wood, or there is nothing to cross.
+        return (thickness > 1).then_some(((tx, ty), (thickness - 1) as u16));
+    }
 }
 
 /// Whether a parted cell stays in its plant's own cell list. `PART_KEEP_
@@ -5545,35 +5687,6 @@ fn keep_graph_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("PART_KEEP_GRAPH").map(|v| v != "0").unwrap_or(true))
-}
-
-/// Whether **woody** living tissue may be walked through, as against
-/// foliage. `PART_WOOD=1` turns it on.
-///
-/// **Off by default, and that is a measured blocker rather than caution.**
-/// The movement half works and works well -- on `scene=colony` seed 1 it
-/// takes tissue blocks from 776 to 17, and the 17 are only `grassblade` and
-/// `grassroot`, the two living materials with no `climbable` flag. What it
-/// also does is **kill plants**, and `lab::tests::copies_carry_what_was_
-/// planted_and_still_diverge` is the reproduction: three copies of the lab
-/// bed all finish at `plant_cells 0` with this on, and pass with it off.
-///
-/// The mechanism is `plant::is_structural_anchor`, which opens
-/// `if cell.organism_id() != organism_id { return false }` -- resolved
-/// through the **grid**. A parted cell holds the animal, so it stops
-/// counting as an anchor, and a seedling whose single base stem an ant is
-/// standing in becomes an unanchored plant and comes down. Foliage never
-/// showed this because a leaf is never an anchor.
-///
-/// The repair is not a patch at that one line: several per-organism passes
-/// resolve a plant's own cells through the grid, and each needs to be able
-/// to answer *"this is still mine, an animal is merely standing in it"*.
-/// That wants the parted cell reachable **from the plant** rather than only
-/// from the animal holding it. Until that exists this stays off.
-fn part_wood_enabled() -> bool {
-    use std::sync::OnceLock;
-    static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PART_WOOD").is_ok_and(|v| v != "0"))
 }
 
 /// `landing_is_placeable`, but with soft living tissue counted as free.
