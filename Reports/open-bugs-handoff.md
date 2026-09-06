@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**51 open, 99 bugs** (plus 20 landing-note items,
+**52 open, 100 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -26,125 +26,126 @@ point.
 
 | § | Status | Line | What it is |
 |---|---|---|---|
-| 0-z | **OPEN** | 153 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
-| 0-a | closed | 210 | Dark bands under overhangs, objects and open-cast digs (render) |
-| C1 | **OPEN** | 288 | A forest-floor bank is a wall the gnome has no way over |
-| D1 | closed | 325 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
-| D2 | **OPEN** | 482 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
-| D3 | **OPEN** | 505 | Near-surface blasts do not throw chunks into the air |
-| D4 | **OPEN** | 538 | At a bounded reach a collapse can stop part way and leave a slab in open air |
-| 0 | **OPEN** | 575 | Roofed water: ponds fills both sides of an overhang (worldgen) |
-| 0b | closed | 593 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
-| 0c | closed | 715 | Cave light is quantised to 8-cell squares (render) |
-| 0d | **OPEN** | 817 | The organism support search asks the wrong question |
-| 0e | closed | 859 | A decay site does not follow its cell |
-| NEW | closed | 922 | Plants grow nothing on generated terrain |
-| U | closed | 1082 | Water stress makes a tree BIGGER |
-| V | closed | 1127 | A tree with no seedlings under it never stops growing |
-| Z | decided | 1180 | The stand still reads as one mass |
-| Z3 | **OPEN** | 1314 | A settled piece is re-promoted for ever, at about one body every five frames |
-| Z2 | closed | 1373 | A free particle drops Cell::aux, so a blast under-prices a corpse |
-| Y | closed | 1491 | The gnome cannot get through the wood |
-| X | decided | 1642 | A desert with no desert plants |
-| -- | historic | 1691 | X (original). A desert with no desert plants |
-| W | decided | 1768 | The water-cycle branch and this one are two halves of one mechanic |
-| A | **OPEN** | 1842 | The slot-1 root spread has collapsed |
-| B | closed | 2142 | anchor_support runs over creature organisms, unguarded |
-| C | closed | 2229 | grass and creeper root branching is running a retired model |
-| D | closed | 2278 | Two smaller things the merge exposed |
-| E | closed | 2310 | A test scene can outlive the economy it was written for |
-| F | **OPEN** | 2328 | Cross-line seams neither branch's tests exercise |
-| P1 | **OPEN** | 2399 | The water book, the root-tip counter, and what they said about §A and §U |
-| P3 | **OPEN** | 2686 | The generation loop |
-| V3 | **OPEN** | 2882 | Die-back's shed tissue feeds a pile that grows up through the canopy |
-| V2 | closed | 2999 | A tree cannot die of drought |
-| P2 | **OPEN** | 3140 | The economy re-derivation |
-| G | **OPEN** | 3355 | Grassfire arrives with a standing negative verdict |
-| -- | historic | 3418 | G (original). Grassfire arrives with a standing negative verdict |
-| 0f | closed | 3440 | A melting Powder manufactures water |
-| 0g | closed | 3495 | scene=lavapour's pond simmers forever |
-| 0h | **OPEN** | 3557 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
-| 0i | **OPEN** | 3601 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
-| 1 | closed | 3641 | Whiskers on a spreading front |
-| 1l | **OPEN** | 3758 | Boiling never puts a bubble *in* the water |
-| 1m | **OPEN** | 3822 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
-| 1b | **OPEN** | 3893 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
-| 1c | **OPEN** | 3935 | A rigid body loses about a tenth of its cells when it lands |
-| 1d | **OPEN** | 3964 | A large lava lake never finishes solidifying |
-| 1h | closed | 3980 | Falling rock grinds itself to powder in deep water |
-| 1k | **OPEN** | 4086 | A splash droplet loses about 1% of a cell somewhere |
-| 1j | **OPEN** | 4118 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
-| 1i | closed | 4150 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
-| -- | historic | 4162 | (was) 1h. Falling rock grinds itself to powder in deep water |
-| 1e-ter | closed | 4229 | A boulder that never leaves the sky |
-| 1e-bis | closed | 4269 | Slabs of rock hanging over a solidifying lava lake |
-| 1e | **OPEN** | 4302 | One cell in a lava pour is still left hanging, and the route is unknown |
-| 1f | **OPEN** | 4329 | A pond with rock in it never stops shuffling fill |
-| 1g | **OPEN** | 4356 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
-| 2 | **OPEN** | 4372 | Sand-into-water displacement |
-| 3 | closed | 4399 | Scheduler under-enforces max_active_tips |
-| -- | historic | 4417 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
-| 4 | **OPEN** | 4457 | Levelling is O(width²) |
-| 4b | closed | 4477 | A cell alone in the air drops its column's skyline |
-| 5 | **OPEN** | 4510 | Automatic promotion |
-| 6 | **OPEN** | 4539 | The heightfield does not deliver the speed it was built for |
-| H | closed | 4590 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
-| H2 | closed | 4708 | The ascii colony has gone sessile |
-| H3 | closed | 4770 | Both worldgen at-rest tests are red on main, and both are water |
-| I | closed | 4893 | The disturbance-extent guard inverts once rubble stops anchoring |
-| J | **OPEN** | 4958 | A blocked substep still vents the smoke it was only *probing* |
-| Q | **OPEN** | 4988 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 5173 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 5320 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 5402 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 5470 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 5527 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | closed | 5737 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| -- | historic | 5797 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
-| L | closed | 5876 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 6008 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 6064 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 6126 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 7123 | The brush's anchor rule destroys structures the other two rules leave standing |
-| R3 | **OPEN** | 7287 | A creature chain above two cells overwrites its own head |
-| R4 | **OPEN** | 7400 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
-| V4 | **OPEN** | 7469 | breaking_free_writes_a_pressure_impulse never reaches break_free |
-| T2 | **OPEN** | 7527 | The colony forages and never brings anything home: 1,651 pickups, 4 deliveries |
-| S4 | **OPEN** | 7612 | Rock still crushes itself on an idle world |
-| S5 | closed | 7684 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| T | **OPEN** | 7805 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7849 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7898 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7989 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 8003 | Grow into soil destroys the soil's stored water |
-| 3 | note | 8015 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 8028 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 8147 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 8168 | A material-counting guard cannot see a species |
-| W1c | note | 8181 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8315 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8393 | The structural opt-out did not hold against bearing |
-| T1d | note | 8404 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8438 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8492 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8546 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8575 | §1c's settle loss is now a counter |
-| -- | note | 8592 | What landed |
-| -- | note | 8615 | Do not re-derive these |
-| -- | note | 8643 | Measurements that contradict something written |
-| -- | note | 8663 | Open |
-| -- | note | 8698 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8716 | grass sets zero seeds on main |
-| B2 | **OPEN** | 8909 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
-| Z4 | closed | 8977 | World::germinations can exceed the number of seeds that ever existed |
-| Z5 | closed | 9062 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
-| W2 | **OPEN** | 9267 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
-| W2a | **OPEN** | 9343 | The refutation, measured |
-| E2 | **OPEN** | 9424 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | closed | 9496 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
-| W4 | **OPEN** | 9616 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
-| W5 | **OPEN** | 9676 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | **OPEN** | 9727 | Free water outbids every soil, so roots climb out of the ground toward it |
+| 0-z | **OPEN** | 154 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
+| 0-a | closed | 211 | Dark bands under overhangs, objects and open-cast digs (render) |
+| C1 | **OPEN** | 289 | A forest-floor bank is a wall the gnome has no way over |
+| D1 | closed | 326 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
+| D2 | **OPEN** | 483 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
+| D3 | **OPEN** | 506 | Near-surface blasts do not throw chunks into the air |
+| D4 | **OPEN** | 539 | At a bounded reach a collapse can stop part way and leave a slab in open air |
+| 0 | **OPEN** | 576 | Roofed water: ponds fills both sides of an overhang (worldgen) |
+| 0b | closed | 594 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
+| 0c | closed | 716 | Cave light is quantised to 8-cell squares (render) |
+| 0d | **OPEN** | 818 | The organism support search asks the wrong question |
+| 0e | closed | 860 | A decay site does not follow its cell |
+| NEW | closed | 923 | Plants grow nothing on generated terrain |
+| U | closed | 1083 | Water stress makes a tree BIGGER |
+| V | closed | 1128 | A tree with no seedlings under it never stops growing |
+| Z | decided | 1181 | The stand still reads as one mass |
+| Z3 | **OPEN** | 1315 | A settled piece is re-promoted for ever, at about one body every five frames |
+| Z2 | closed | 1374 | A free particle drops Cell::aux, so a blast under-prices a corpse |
+| Y | closed | 1492 | The gnome cannot get through the wood |
+| X | decided | 1643 | A desert with no desert plants |
+| -- | historic | 1692 | X (original). A desert with no desert plants |
+| W | decided | 1769 | The water-cycle branch and this one are two halves of one mechanic |
+| A | **OPEN** | 1843 | The slot-1 root spread has collapsed |
+| B | closed | 2143 | anchor_support runs over creature organisms, unguarded |
+| C | closed | 2230 | grass and creeper root branching is running a retired model |
+| D | closed | 2279 | Two smaller things the merge exposed |
+| E | closed | 2311 | A test scene can outlive the economy it was written for |
+| F | **OPEN** | 2329 | Cross-line seams neither branch's tests exercise |
+| P1 | **OPEN** | 2400 | The water book, the root-tip counter, and what they said about §A and §U |
+| P3 | **OPEN** | 2687 | The generation loop |
+| V3 | **OPEN** | 2883 | Die-back's shed tissue feeds a pile that grows up through the canopy |
+| V2 | closed | 3000 | A tree cannot die of drought |
+| P2 | **OPEN** | 3141 | The economy re-derivation |
+| G | **OPEN** | 3356 | Grassfire arrives with a standing negative verdict |
+| -- | historic | 3419 | G (original). Grassfire arrives with a standing negative verdict |
+| 0f | closed | 3441 | A melting Powder manufactures water |
+| 0g | closed | 3496 | scene=lavapour's pond simmers forever |
+| 0h | **OPEN** | 3558 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
+| 0i | **OPEN** | 3602 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
+| 1 | closed | 3642 | Whiskers on a spreading front |
+| 1l | **OPEN** | 3759 | Boiling never puts a bubble *in* the water |
+| 1m | **OPEN** | 3823 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
+| 1b | **OPEN** | 3894 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
+| 1c | **OPEN** | 3936 | A rigid body loses about a tenth of its cells when it lands |
+| 1d | **OPEN** | 3965 | A large lava lake never finishes solidifying |
+| 1h | closed | 3981 | Falling rock grinds itself to powder in deep water |
+| 1k | **OPEN** | 4087 | A splash droplet loses about 1% of a cell somewhere |
+| 1j | **OPEN** | 4119 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
+| 1i | closed | 4151 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
+| -- | historic | 4163 | (was) 1h. Falling rock grinds itself to powder in deep water |
+| 1e-ter | closed | 4230 | A boulder that never leaves the sky |
+| 1e-bis | closed | 4270 | Slabs of rock hanging over a solidifying lava lake |
+| 1e | **OPEN** | 4303 | One cell in a lava pour is still left hanging, and the route is unknown |
+| 1f | **OPEN** | 4330 | A pond with rock in it never stops shuffling fill |
+| 1g | **OPEN** | 4357 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
+| 2 | **OPEN** | 4373 | Sand-into-water displacement |
+| 3 | closed | 4400 | Scheduler under-enforces max_active_tips |
+| -- | historic | 4418 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
+| 4 | **OPEN** | 4458 | Levelling is O(width²) |
+| 4b | closed | 4478 | A cell alone in the air drops its column's skyline |
+| 5 | **OPEN** | 4511 | Automatic promotion |
+| 6 | **OPEN** | 4540 | The heightfield does not deliver the speed it was built for |
+| H | closed | 4591 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
+| H2 | closed | 4709 | The ascii colony has gone sessile |
+| H3 | closed | 4771 | Both worldgen at-rest tests are red on main, and both are water |
+| I | closed | 4894 | The disturbance-extent guard inverts once rubble stops anchoring |
+| J | **OPEN** | 4959 | A blocked substep still vents the smoke it was only *probing* |
+| Q | **OPEN** | 4989 | Settled debris stands in one-cell vertical needles that never topple |
+| P | **OPEN** | 5174 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 5321 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 5403 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 5471 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 5528 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | closed | 5738 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| -- | historic | 5798 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
+| L | closed | 5877 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 6009 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | historic | 6065 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 6127 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 7124 | The brush's anchor rule destroys structures the other two rules leave standing |
+| R3 | **OPEN** | 7288 | A creature chain above two cells overwrites its own head |
+| R4 | **OPEN** | 7401 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
+| V4 | **OPEN** | 7470 | breaking_free_writes_a_pressure_impulse never reaches break_free |
+| T2 | **OPEN** | 7528 | The colony forages and never brings anything home: 1,651 pickups, 4 deliveries |
+| S4 | **OPEN** | 7613 | Rock still crushes itself on an idle world |
+| S5 | closed | 7685 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7806 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7850 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 7899 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 7990 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 8004 | Grow into soil destroys the soil's stored water |
+| 3 | note | 8016 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 8029 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 8148 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 8169 | A material-counting guard cannot see a species |
+| W1c | note | 8182 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8316 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8394 | The structural opt-out did not hold against bearing |
+| T1d | note | 8405 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8439 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8493 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8547 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8576 | §1c's settle loss is now a counter |
+| -- | note | 8593 | What landed |
+| -- | note | 8616 | Do not re-derive these |
+| -- | note | 8644 | Measurements that contradict something written |
+| -- | note | 8664 | Open |
+| -- | note | 8699 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8717 | grass sets zero seeds on main |
+| B2 | **OPEN** | 8910 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
+| Z4 | closed | 8978 | World::germinations can exceed the number of seeds that ever existed |
+| Z5 | closed | 9063 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
+| W2 | **OPEN** | 9268 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
+| W2a | **OPEN** | 9344 | The refutation, measured |
+| E2 | **OPEN** | 9425 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
+| W3 | closed | 9497 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W4 | **OPEN** | 9617 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
+| W5 | **OPEN** | 9677 | The lab's bed grows a water table on its stone floor, and it does not stop |
+| W6 | **OPEN** | 9728 | Free water outbids every soil, so roots climb out of the ground toward it |
+| W7 | **OPEN** | 9805 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 
 <!-- END GENERATED INDEX -->
 
@@ -9800,3 +9801,68 @@ shapes, neither measured:
 `decay.rs` leaving new soil dry and roots therefore *avoiding* it. Both are
 `moisture_pull` steering roots somewhere a player reads as wrong; a fix to
 the steering should be checked against both.
+
+### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **OPEN**
+
+Asked by the owner 2026-09-06: *"if a plant gets severed in the middle will
+it still function? will the roots that are in the soil still collect water?
+and will that somehow still feed the plant that it's not technically
+connected to anymore?"* Yes, yes, and yes.
+
+**The whole-organism channels do not check connectivity, and there is
+nothing to make them.**
+
+```rust
+pub fn water_at(&self, x: i32, y: i32) -> (f32, f32) {
+    let id = self.get(x, y).organism_id();
+    self.organism(id).map_or((0.0, 1.0), |s| (s.water, s.water_status))
+}
+```
+
+Every cell asks *who owns me* and gets the organism's tank. `credit_water`
+writes to that same tank keyed by `organism_id`, `water_status` multiplies
+every photosynthetic credit in `allocate_to_frontier`, and **no step in that
+path asks whether the cell can reach a root.** `state.nutrient_status` is
+the same shape and inherits the same blindness, so the soil nutrient shipped
+2026-09-06 is bought by roots the earning tissue is not attached to.
+
+**Nothing splits an organism on disconnection.** There is no
+`split_organism` in the tree. The only thing that removes a severed crown is
+structural, and it is switched off in the lab:
+
+```rust
+// structural.rs:1323
+if detached && !world.plant_load_failure && !senescent { return Vec::new(); }
+```
+
+**So which game you are in decides whether the defect is visible.** Outdoors,
+at the shipped default, a basal cut is correctly fatal — `plant_severance`
+measured the crown leaving the organism inside one stop via
+`rigid::fell_severed_tissue`, with the rootstock rotted 221 → 21 cells. **In
+the lab box, where `COLLAPSE UNDER LOAD` is off by the owner's own play, the
+crown stays and the economy feeds it indefinitely.** That is the original
+report this line has been chasing since #246: *"I have seen plants continue
+to grow after the trunk has been fully severed near the base."*
+
+**Carbon is the one channel that behaves, and the asymmetry is the clue.**
+`carbon_at` reads *that cell's* own carbon and `organism::transport` moves it
+only between touching four-neighbours, so a severed crown cannot draw the
+stump's reserves. It does not need to: its **income** is unaffected, because
+income is `intercepted x water_status` summed over the organism's leaves and
+both of those terms are whole-organism.
+
+**Two fix shapes, neither taken here.**
+
+- **Resolve the whole-organism reads per connected component.** Honest and
+  narrow — `water_at`, `desiccation_at` and the nutrient status would key on
+  the component rather than the id. It touches the economy, so it needs its
+  own paired measurement, and the component walk has to use the **eight**
+  neighbourhood growth places at, per `.claude/rules/src-sim-cells.md`.
+- **Split the organism on severance**, so two disconnected halves become two
+  organisms and every downstream channel follows for free. Conceptually
+  cleaner and much larger: it interacts with felling, `rot_remains`,
+  lineage and `OrganismState`'s identity.
+
+**Do not "fix" this by turning `plant_load_failure` back on in the lab.**
+`structural.rs`'s own note is explicit that the switch is a control and not a
+repair, and the owner turned it off because living trees were falling over.
