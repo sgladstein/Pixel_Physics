@@ -304,7 +304,11 @@ on with no wiring.** The trap that rides with it: widening what the body may
 consider food once cost `ascii`'s deposition-follows-moisture gate 1.03x →
 0.82x against a 0.9 bar; every `ascii` scene holds one colony so the dial
 cannot move it today, but a scene that ever holds two must re-run that gate
-across the dial.
+across the dial. The baseline to quote then is **1.36x on 237 drops from
+2,962 laden ants** (the fight session's re-measurement after the soil layer
+reshaped those scenes), not the 1.03x above; `PIXEL_PHYSICS_DROP_MOISTURE=
+off:0.9` reads 0.70x and is the control that tells a broken mechanism from a
+blind guard.
 
 ### 4b. Fighting is only eating — the missing verb
 
