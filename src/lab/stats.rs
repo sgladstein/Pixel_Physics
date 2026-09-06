@@ -149,7 +149,7 @@ impl Spread {
 /// The counters are stored **beside** the populations rather than
 /// differenced as they are taken, because the window they are read over is
 /// decided at draw time and changes as the ring decimates.
-#[derive(Clone, Copy, Default, Debug)]
+#[derive(Clone, Default, Debug)]
 pub struct Sample {
     pub frame: u64,
     pub plants: u32,
@@ -163,6 +163,20 @@ pub struct Sample {
     pub seeds_borne: u64,
     pub births: u64,
     pub deaths: u64,
+    /// Live animals per species name at this sample, uppercase like
+    /// [`Census::animal_species`], sorted by name. Empty when there are no
+    /// animals -- `animals` alone cannot say "two species, evenly split"
+    /// from "one species, two individuals", and S1/S5's own readouts need
+    /// exactly that split, per compartment or per seed.
+    ///
+    /// **Cost**: one `String` clone per species per sample. A sample only
+    /// ever holds a handful of species (the shipped bestiary is small), and
+    /// this lives on a ring that decimates itself down to [`HISTORY`]
+    /// entries, so the total is bounded and does not grow with run length.
+    /// This is why [`Sample`] can no longer derive `Copy` -- a `Vec` field
+    /// cannot -- and the one site that relied on that (`Stats::observe`'s
+    /// ring-halving `.copied()`) now clones instead.
+    pub by_species: Vec<(String, u32)>,
 }
 
 /// **What one birth needs, and what this animal can ever hold.**
@@ -328,6 +342,16 @@ pub struct Census {
     pub top_lineage: f32,
     /// The dominant animal species' name and its economy, when there is one.
     pub animal_species: Option<String>,
+    /// Live animals per species name, uppercase like [`Census::
+    /// animal_species`] and sorted by name -- the split `animal_species`
+    /// and `animals` cannot give between each other, needed to read a
+    /// predator-prey box (which species is still standing) rather than
+    /// only its dominant one. Empty when there are no animals.
+    ///
+    /// Computed inside `take_census`'s own organism loop, from the same
+    /// per-species grouping `animal_species`'s "who is dominant" pick
+    /// already builds -- not a second walk of the organism table.
+    pub by_species: Vec<(String, u32)>,
     pub animal_energy: Spread,
     pub animal_hungry: usize,
     pub breed: Option<BreedMargin>,
@@ -550,13 +574,13 @@ impl Stats {
             // be read from. Halving the resolution instead keeps frame 0 on
             // the left for the whole run.
             if self.history.len() >= HISTORY {
-                let mut keep: Vec<Sample> = self.history.iter().copied().step_by(2).collect();
+                let mut keep: Vec<Sample> = self.history.iter().cloned().step_by(2).collect();
                 // The newest sample is the one the eye is on; keep it even
                 // when the parity drops it, or the strip's right-hand end
                 // jumps backwards every time the ring halves.
                 if let Some(last) = self.history.last() {
                     if keep.last().map(|s| s.frame) != Some(last.frame) {
-                        keep.push(*last);
+                        keep.push(last.clone());
                     }
                 }
                 self.history = keep;
@@ -572,6 +596,7 @@ impl Stats {
                 seeds_borne: census.seeds_borne,
                 births: world.creature_stats.births,
                 deaths: world.creature_stats.deaths,
+                by_species: census.by_species.clone(),
             });
         }
         self.census = Some(census);
@@ -1138,6 +1163,7 @@ fn take_census(
         lineages: 0,
         top_lineage: 0.0,
         animal_species: None,
+        by_species: Vec::new(),
         animal_energy: Spread::default(),
         animal_hungry: 0,
         breed: None,
@@ -1231,6 +1257,15 @@ fn take_census(
     census.lineages = lineages.len();
     let top = lineages.iter().map(|(_, n)| *n).max().unwrap_or(0);
     census.top_lineage = if alive == 0 { 0.0 } else { top as f32 / alive as f32 };
+
+    // **From the same grouping the dominant-species pick below reorders --
+    // not a second walk of `ids`.** `animals_by_species` is already built,
+    // one entry per species seen, by the organism loop above; this is a
+    // pass over that (a handful of species, never the organism count) to
+    // name each one and sort by name, which the dominant-species sort
+    // (by count, descending) does not give.
+    census.by_species = animals_by_species.iter().map(|(sp, energies)| (world.species.get(*sp).name.to_uppercase(), energies.len() as u32)).collect();
+    census.by_species.sort_by(|a, b| a.0.cmp(&b.0));
 
     // The dominant animal species: one page cannot show two hunger lines or
     // two birth costs, and naming which one it is beats averaging them.
@@ -1556,6 +1591,35 @@ mod tests {
         assert_eq!(c.plant_cells, 0);
         assert!(c.breed.is_some(), "an ant has a birth cost and a hunger ceiling");
         assert!(c.animal_species.is_some());
+    }
+
+    /// **`animals` and `animal_species` cannot tell "two species, evenly
+    /// split" from "one species, two individuals" -- `by_species` is the
+    /// field built to answer that**, for S1's per-compartment trait table
+    /// and S5's per-species extinction reading, neither of which a single
+    /// dominant-species name and a total can support.
+    #[test]
+    fn the_census_splits_animals_by_species() {
+        let mut world = bed(0, 1);
+        // Two beetles, released the way `LabBox::build_counted` releases its
+        // own predators, at columns clear of the ant colony's own band so
+        // neither placement can fail on the other's account.
+        for x in [12, 244] {
+            let site = crate::sim::creature::plant_creature_seed(&mut world, x, 62, "beetle").expect("a beetle seats at this column");
+            world.schedule_active_site(site);
+        }
+        let stats = censused(&world);
+        let c = stats.census().expect("a census");
+
+        let ants = c.by_species.iter().find(|(name, _)| name == "ANT").map(|(_, n)| *n).unwrap_or(0);
+        assert!(ants > 0, "a colony was founded, by_species says 0 ants: {:?}", c.by_species);
+        let beetles = c.by_species.iter().find(|(name, _)| name == "BEETLE").map(|(_, n)| *n).unwrap_or(0);
+        assert_eq!(beetles, 2, "two beetles were released, by_species says {beetles}: {:?}", c.by_species);
+
+        assert_eq!(c.by_species, vec![("ANT".to_string(), ants), ("BEETLE".to_string(), beetles)], "by_species must be sorted by name");
+
+        let sum: u32 = c.by_species.iter().map(|(_, n)| n).sum();
+        assert_eq!(sum as usize, c.animals, "by_species ({sum}) does not sum to the animal total ({})", c.animals);
     }
 
     /// **The stand and the seed bank are counted apart, and nothing falls

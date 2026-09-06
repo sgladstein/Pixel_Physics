@@ -726,7 +726,24 @@ session cannot reconstruct is here.*
   `labnest`'s output since it was written and is the next thing in the way of
   the nest being a *place* on screen. It is a food problem, not a soil one.
 
-## Round eleven, 2026-09-06 — groups: who is who, and who is family
+## Round eleven, 2026-09-06 — scenarios
+
+`Reports/lab-behaviour-scenarios-2026-09-06.md` §4 item 1: a saved bed plus
+build-time placements, a running timeline and parameter settings
+(`src/lab/scenario.rs`), the one engine piece that report's whole approach
+was blocked on. Reached from the BOX page's new `SCENARIOS` row, `scenario=`
+at startup and on `labbatch`/`labshot`. Nine shipped
+(`assets/lab_scenarios/`), one per S1–S6 plus three paired controls. **One
+gap the third control found:** `mutation_rate` is the *wiring* rate; the
+nine traits mutate under `CreatureDef::trait_variance`, which is an array
+and not a page knob, so no scenario can switch trait mutation off yet and
+a clonal arm cannot be built from a `Setting`. **What it
+overturned:** nothing standing — `reset()` already carried the rule and
+heredity dials across a rebuild (Round nine), and a scenario rides the same
+seam rather than a new one. Full account in README's own "Lab scenarios
+status".
+
+## Round twelve, 2026-09-06 — groups: who is who, and who is family
 
 *Owner, after the first ant-and-beetle equilibrium ("the most fun I have had
 in the game yet"): could not tell the species apart without the gut overlay;

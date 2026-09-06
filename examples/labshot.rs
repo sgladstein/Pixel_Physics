@@ -25,6 +25,7 @@
 //! cargo run --release --example labshot -- founders=8 walls=4 frames=0,3000,12000,30000
 //! ```
 
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::explosion::Blasts;
@@ -99,44 +100,68 @@ fn main() {
     // the box an enclosure, so the identical world draws through the sky
     // path — same cells, same frame, same binary, one branch different.
     let interior: i32 = arg("interior").unwrap_or(1);
-    let spec = LabBox {
-        width: arg("width").unwrap_or(512),
-        height: arg("height").unwrap_or(320),
-        soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
-        founders: arg("founders").unwrap_or(8),
-        colonies: arg("colonies").unwrap_or(1),
-        // **Which animal, because the answer is now visibly different.**
-        // `ancestor` (`assets/species/ancestor.ron`) declares no home
-        // material, so `found_colony_of` paints no nest patch for it -- and
-        // the whole question `Reports/creature-genome-flexibility-2026-09-02.md`
-        // asks is what a colony looks like when the scene did not paint the
-        // precondition for one. That is a judge-by-eye question and this is
-        // the harness that answers it.
-        colony_species: arg::<String>("species").unwrap_or_else(|| LabBox::default().colony_species),
-        // **The *plant* species, which `species=` does not set.** That one
-        // names the animal a colony is founded from, and until this existed
-        // there was no way to point this harness at a different flora at all
-        // -- so a `species=tree` on the command line silently rendered the
-        // default herb bed and looked exactly like a correct run. Caught by
-        // the counts disagreeing with `lab_cost` on the same arguments
-        // (10,308 cells against 27,520), which is the only thing that could
-        // have caught it: `CLAUDE.md`'s "an unknown argument is silently
-        // ignored", and its sibling, a scene that contradicts the code looks
-        // like a bug in the code.
-        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
-        predators: arg("predators").unwrap_or(0),
-        compartments: arg("walls").unwrap_or(1),
-        ..LabBox::default()
+    // `scenario=<name>` builds the whole bed from a saved scenario instead
+    // of the flags below -- see `lab::scenario`. A bad name refuses at load
+    // rather than silently opening the default bed, same rule `bin/lab.rs`
+    // and `labbatch` follow for it.
+    let scenario_name: Option<String> = arg("scenario");
+    let scenario: Option<Scenario> = scenario_name.as_deref().map(|n| {
+        Scenario::load(n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(1);
+        })
+    });
+    let spec = match &scenario {
+        Some(s) => s.bed.clone(),
+        None => LabBox {
+            width: arg("width").unwrap_or(512),
+            height: arg("height").unwrap_or(320),
+            soil_depth: arg("soil").unwrap_or(LabBox::default().soil_depth),
+            founders: arg("founders").unwrap_or(8),
+            colonies: arg("colonies").unwrap_or(1),
+            // **Which animal, because the answer is now visibly different.**
+            // `ancestor` (`assets/species/ancestor.ron`) declares no home
+            // material, so `found_colony_of` paints no nest patch for it -- and
+            // the whole question `Reports/creature-genome-flexibility-2026-09-02.md`
+            // asks is what a colony looks like when the scene did not paint the
+            // precondition for one. That is a judge-by-eye question and this is
+            // the harness that answers it.
+            colony_species: arg::<String>("species").unwrap_or_else(|| LabBox::default().colony_species),
+            // **The *plant* species, which `species=` does not set.** That one
+            // names the animal a colony is founded from, and until this existed
+            // there was no way to point this harness at a different flora at all
+            // -- so a `species=tree` on the command line silently rendered the
+            // default herb bed and looked exactly like a correct run. Caught by
+            // the counts disagreeing with `lab_cost` on the same arguments
+            // (10,308 cells against 27,520), which is the only thing that could
+            // have caught it: `CLAUDE.md`'s "an unknown argument is silently
+            // ignored", and its sibling, a scene that contradicts the code looks
+            // like a bug in the code.
+            species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
+            predators: arg("predators").unwrap_or(0),
+            compartments: arg("walls").unwrap_or(1),
+            ..LabBox::default()
+        },
     };
     println!(
-        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}",
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}{}",
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
-        stops
+        stops,
+        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
-    let (mut world, placed) = spec.build_counted();
+    let (mut world, placed, scenario_placed) = match &scenario {
+        Some(s) => {
+            let (w, p, sp) = s.build();
+            (w, p, Some(sp))
+        }
+        None => {
+            let (w, p) = spec.build_counted();
+            (w, p, None)
+        }
+    };
     if interior == 0 {
         world.set_enclosure(None);
     }
@@ -212,6 +237,20 @@ fn main() {
         spec.lamp_columns().0,
         spec.partition_columns()
     );
+    // The scenario's own counter, beside the bed's -- "did it fire at all
+    // needs a counter, not a picture" applies twice over here, since a
+    // scenario's placements are exactly the part of the box a contact sheet
+    // cannot otherwise distinguish from a bed that happens to look similar.
+    if let Some(sp) = &scenario_placed {
+        println!(
+            "  scenario {}: {} cells, {} plants, {} animals, {} settings applied",
+            scenario.as_ref().expect("scenario_placed is only Some alongside a scenario").name,
+            sp.cells,
+            sp.plants,
+            sp.animals,
+            sp.settings
+        );
+    }
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
@@ -447,6 +486,9 @@ fn main() {
         }
         if f < last {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+            if let Some(s) = &scenario {
+                pixel_physics::lab::scenario::tick_timeline(s, &mut world, &spec);
+            }
         }
     }
 

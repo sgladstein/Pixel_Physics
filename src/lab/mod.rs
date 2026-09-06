@@ -36,6 +36,7 @@ pub mod batch;
 pub mod params;
 pub mod plainspeak;
 pub mod roster;
+pub mod scenario;
 pub mod scene;
 pub mod stats;
 pub mod time;
@@ -76,6 +77,13 @@ pub struct Lab {
     /// What the box was built from, kept so a reset rebuilds the same lab and
     /// so the stats page can say what bed these numbers are from.
     pub spec: scene::LabBox,
+    /// **The scenario the box on screen was opened from, if one.**
+    ///
+    /// `None` for an ordinary hand-built box. `reset()` re-applies it on
+    /// every rebuild -- a rebuild is exactly the moment a player expects
+    /// the scenario back -- and `tick()` runs its timeline after every
+    /// step. See `scenario::Scenario`'s own doc for what a scenario is.
+    pub scenario: Option<scenario::Scenario>,
     /// The key list. On by default on a fresh lab and dismissed by any key,
     /// because there is no other way to discover a control here — the sandbox
     /// grew its bindings a key at a time in front of somebody who already knew
@@ -182,6 +190,12 @@ pub struct Lab {
 pub struct Chamber {
     pub world: World,
     pub spec: scene::LabBox,
+    /// The scenario this chamber was opened from, if one -- travels with
+    /// `spec` wherever `spec` does (`switch_to`, `add_chamber`,
+    /// `duplicate_active`, `adopt_chamber`), so a parked scenario box comes
+    /// back with its timeline still attached rather than reverting to a
+    /// bare `LabBox` the moment it is not the one on screen.
+    pub scenario: Option<scenario::Scenario>,
     /// Which batch produced this chamber, `None` for one you made yourself.
     pub batch: Option<u32>,
     /// The swept setting this copy ran at, when it came from a sweep.
@@ -376,6 +390,7 @@ impl Lab {
             stats: stats::Stats::new(),
             ui,
             spec,
+            scenario: None,
             // Down only when something explicitly asks for it. The one caller
             // is a headless capture wanting to photograph what is *under* the
             // key list, which is otherwise unreachable without a keypress and
@@ -403,14 +418,20 @@ impl Lab {
                 // of them. Past it a run keeps its record and drops its world,
                 // and the row says so.
                 keep_bytes: 256 * 1024 * 1024,
+                // No scenario until `load_scenario` sets one -- an ordinary
+                // hand-built box has nothing for a batch's runs to reapply.
+                scenario: None,
             },
             thumb: None,
             view_dirty: false,
         }
     }
 
-    /// Rebuild the box from the same spec, keeping the view and the dial.
-    pub fn reset(&mut self) {
+    /// Rebuild the box on screen from `self.spec`, keeping the view and the
+    /// dial, and report what the scenario attached to it (if one) managed
+    /// to place -- `Placed::default()` when there is none, so a caller need
+    /// not match on `self.scenario` to use the count.
+    pub fn reset(&mut self) -> scenario::Placed {
         // **The rules and dials the player set survive the rebuild; the box
         // does not.** `spec.build()` returns a brand-new `World` at its
         // defaults, so a switch or a heredity number thrown on the
@@ -425,10 +446,52 @@ impl Lab {
         let dials = params::Dials::from_world(&self.world);
         self.world = self.spec.build();
         dials.apply_to(&mut self.world);
+        // **The scenario is the same list, one entry further along.** A
+        // rebuild is exactly the moment a player expects a loaded scenario
+        // back -- pressing REBUILD to see the same starting box again is
+        // the whole point of one being saved rather than only painted by
+        // hand -- so this runs on every reset, not only the first.
+        let placed = match &self.scenario {
+            Some(s) => s.apply(&mut self.world, &mut self.spec),
+            None => scenario::Placed::default(),
+        };
         earth_toned_nest(&mut self.world);
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
+        placed
+    }
+
+    /// **Load a scenario into the box on screen, right now.**
+    ///
+    /// Replaces `self.spec` with the scenario's own bed and rebuilds
+    /// through the ordinary `reset()` path -- so this is not a special
+    /// case, it is the *general* one: `reset()` always re-applies whatever
+    /// scenario is attached, and `REBUILD` after this call reproduces the
+    /// same starting box for the same reason.
+    ///
+    /// **The clock stops.** A scenario's `horizon` is the frame count the
+    /// report reads it at; running before the player has looked at what
+    /// got placed would spend some of that horizon on a box nobody saw.
+    ///
+    /// Returns a one-line message naming the title and what `apply` placed
+    /// -- callers pass it to `ui.say` themselves, so a caller that only
+    /// wants the box (a test, say) is not forced to also want a notice.
+    pub fn load_scenario(&mut self, s: scenario::Scenario) -> String {
+        self.spec = s.bed.clone();
+        self.batch_spec.base = s.bed.clone();
+        self.batch_spec.scenario = Some(s.clone());
+        if s.horizon > 0 {
+            self.batch_spec.frames = s.horizon;
+        }
+        let title = s.title.clone();
+        self.scenario = Some(s);
+        let placed = self.reset();
+        self.time.phase = time::Phase::Paused;
+        format!(
+            "{title} LOADED -- {} CELLS, {} PLANTS, {} ANIMALS, {} SETTINGS",
+            placed.cells, placed.plants, placed.animals, placed.settings
+        )
     }
 
     // ------------------------------------------------------------ the rack
@@ -563,6 +626,7 @@ impl Lab {
             batch: self.batch_id,
             world: std::mem::replace(&mut self.world, incoming.world),
             spec: std::mem::replace(&mut self.spec, incoming.spec),
+            scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
@@ -587,12 +651,34 @@ impl Lab {
     ///
     /// Returns its index. It is **not** switched to — adding a box and
     /// walking into it are two decisions, and a batch adds fifty.
+    ///
+    /// Carries no scenario -- a bed built from a bare spec is not a
+    /// scenario's box, and the two production callers that *do* want one
+    /// attached (`duplicate_active`, and a future "run this scenario in a
+    /// second chamber" verb) go through [`Lab::add_chamber_with`] instead.
     pub fn add_chamber(&mut self, spec: scene::LabBox) -> usize {
+        self.add_chamber_with(spec, None)
+    }
+
+    /// As [`Lab::add_chamber`], with a scenario applied to the fresh world
+    /// the same way [`Lab::reset`] applies one to the box on screen.
+    ///
+    /// Split out for [`Lab::duplicate_active`]: a duplicate of a scenario
+    /// box is another instance of the same question, so its placements and
+    /// settings have to land in the new world exactly as they land in this
+    /// one -- otherwise "duplicate this box" would silently hand back the
+    /// bare bed the scenario started from, with none of what made it that
+    /// scenario's box in the first place.
+    fn add_chamber_with(&mut self, mut spec: scene::LabBox, scenario: Option<scenario::Scenario>) -> usize {
         let mut world = spec.build();
+        if let Some(s) = &scenario {
+            s.apply(&mut world, &mut spec);
+        }
         earth_toned_nest(&mut world);
         self.rack.push(Some(Chamber {
             world,
             spec,
+            scenario,
             // A box you made yourself is not a point in a sweep, and belongs
             // to no batch.
             setting: None,
@@ -627,7 +713,7 @@ impl Lab {
         if reseed {
             spec.seed = self.next_unused_seed();
         }
-        self.add_chamber(spec)
+        self.add_chamber_with(spec, self.scenario.clone())
     }
 
     /// One past the highest seed anywhere in the rack.
@@ -712,6 +798,13 @@ impl Lab {
             setting: None,
             replicate: 0,
             spec: rec.spec.clone(),
+            // `OnRecord` does not carry a scenario -- the record already
+            // dropped its world for the memory budget, and a scenario's
+            // running timeline is exactly the kind of thing a dropped-world
+            // row cannot resume anyway (nothing observed it fire while the
+            // record was on the shelf). Rebuilt as a bare recipe, same as
+            // any other on-record row.
+            scenario: None,
         };
         self.on_record[k].rebuilding = true;
         // `u64::MAX` — the whole point of a rebuild is to get the world back,
@@ -843,6 +936,15 @@ impl Lab {
         self.rack.push(Some(Chamber {
             world,
             spec,
+            // `RunResult` does not carry the scenario a batch ran with back
+            // out -- only `PlannedRun` does, going in -- so a landed batch
+            // row adopts as a bare chamber. Its placements already happened
+            // (the run applied them before its first tick, same as any
+            // other scenario box), and what it loses is only a running
+            // timeline continuing if this row is later walked into and
+            // resumed, which none of the eight shipped scenarios' own
+            // batch use asks for.
+            scenario: None,
             setting,
             batch,
             stats: stats::Stats::restored(census, history),
@@ -960,6 +1062,9 @@ impl Lab {
                     setting: rec.setting,
                     replicate: 0,
                     spec: rec.spec.clone(),
+                    // `OnRecord` carries no scenario -- see `rebuild_record`'s
+                    // own note on the same gap.
+                    scenario: None,
                 });
                 carried.push(from);
                 self.on_record.remove(k);
@@ -967,6 +1072,7 @@ impl Lab {
                 let Some(Some(ch)) = self.rack.get_mut(row) else { continue };
                 let spec = ch.spec.clone();
                 let setting = ch.setting;
+                let scenario = ch.scenario.clone();
                 let world = std::mem::replace(&mut ch.world, spec.build());
                 worlds.insert(index, world);
                 plans.push(batch::PlannedRun {
@@ -976,6 +1082,12 @@ impl Lab {
                     setting,
                     replicate: 0,
                     spec,
+                    // A parked scenario chamber keeps its timeline running
+                    // through the extension -- `run_one`'s `Start::Resume`
+                    // arm applies no placements of its own (the resumed
+                    // world already carries them), so this is what lets
+                    // `tick_timeline` keep firing on the extra ticks.
+                    scenario,
                 });
                 carried.push(from);
                 self.remove_chamber(row);
@@ -1150,6 +1262,15 @@ impl Lab {
             player::PlayerInput::default(),
             &self.player_tuning,
         );
+        // **Immediately after `frame::step`, per `scenario::tick_timeline`'s
+        // own doc on why that ordering is the timing contract.** Cheap when
+        // there is nothing to do: `Scenario::due` returns before touching
+        // its timeline at all unless one is non-empty, so a box with no
+        // scenario -- or one whose timeline is empty, `gauses_jar` among the
+        // shipped set -- pays one `Option` check and nothing else.
+        if let Some(scenario) = &self.scenario {
+            scenario::tick_timeline(scenario, &mut self.world, &self.spec);
+        }
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -1958,7 +2079,26 @@ impl Lab {
                 self.ui.say(format!("ANIMALS WEAR {}", self.renderer.creature_colour.label()));
             }
             ui::Action::Help => self.show_help = !self.show_help,
-            ui::Action::Reset => self.reset(),
+            ui::Action::Reset => {
+                self.reset();
+            }
+            // An index into `Ui::scenarios()`, read fresh rather than
+            // stored: the list can change under a `RELOAD` between the page
+            // opening and a row being clicked, and a row that has gone is
+            // reported rather than silently loading its old neighbour.
+            ui::Action::ScenarioLoad(i) => {
+                match self.ui.scenarios().get(i).cloned() {
+                    Some(s) => {
+                        let msg = self.load_scenario(s);
+                        self.ui.say(msg);
+                    }
+                    None => self.ui.say("THAT SCENARIO IS NO LONGER THERE -- PRESS RELOAD".to_string()),
+                }
+                // The scenarios page is over the box, same as the rack's
+                // `ShelfPlace` -- leaving it open would arm a click at the
+                // page rather than at the box it just built.
+                self.ui.close_panel();
+            }
             ui::Action::ParamGroup(i) => self.ui.set_param_group(i),
             ui::Action::ParamScroll(d) => self.ui.scroll_params(d),
             ui::Action::RackScroll(d) => self.ui.scroll_rack(d),
@@ -2587,7 +2727,12 @@ fn earth_toned_nest(world: &mut World) {
 /// lands in soil, and a click aimed a hand's width into the bed should still
 /// plant rather than silently refusing. Past that the player is aiming at
 /// something buried and a seed is not what they meant.
-const MAX_PLANT_LIFT: i32 = 12;
+///
+/// `pub(crate)` rather than private: `scenario::apply_plant` and
+/// `scenario::apply_animal` mirror `plant_at`'s and `stock_one`'s own lift
+/// loops and use this exact constant rather than a second copy of it, which
+/// is how the two would silently drift apart the day one of them changes.
+pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 
 /// The key list, drawn over a dimmed screen.
 ///

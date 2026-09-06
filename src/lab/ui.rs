@@ -528,6 +528,10 @@ pub enum Action {
     RosterCompare,
     /// How many ticks each copy runs for, same.
     BatchFrames(i32),
+    /// **Load one saved scenario into the box on screen.** An index into
+    /// `Ui::scenarios()`, resolved fresh at the moment the row is clicked --
+    /// see `Lab::act`'s own note on why the index is not cached.
+    ScenarioLoad(usize),
 }
 
 /// **What a left-click on the world does.**
@@ -780,6 +784,11 @@ pub enum Panel {
     /// is no seventh chip. The roster is also where both individuals get
     /// chosen, so the verb sits where its operands do.
     Compare,
+    /// **Every saved scenario, one per row.** Reached from the BOX page by
+    /// exactly the mechanism `Log` uses -- a `Body::Head` row already
+    /// carries a hit target, and the bar was measured full twice over
+    /// before this page existed. See `scenario::Scenario` for what one is.
+    Scenarios,
 }
 
 impl Panel {
@@ -795,6 +804,7 @@ impl Panel {
             Panel::AntList => "EVERY ANIMAL",
             Panel::Log => "WHAT HAPPENED",
             Panel::Compare => "SIDE BY SIDE",
+            Panel::Scenarios => "SCENARIOS",
         }
     }
 }
@@ -2195,6 +2205,13 @@ pub struct Ui {
     /// hidden — a shelf that quietly shows four of five jars is worse than
     /// one that says so.
     shelf_skipped: usize,
+    /// **Every saved scenario, as it was last read off disk.**
+    ///
+    /// Read once in `new` and again wherever the shelf is reloaded
+    /// (`reload_shelf`), for exactly the shelf's own reason: a directory
+    /// read is a syscall storm to pay every frame for a question whose
+    /// answer changes only when a button is pressed.
+    scenarios: Vec<super::scenario::Scenario>,
     /// Which jar the `RELEASE` tool means. An index into `shelf`, cleared
     /// whenever the rack is reloaded, because the row a stored index names
     /// is not the jar it named before.
@@ -2387,6 +2404,10 @@ impl Ui {
                     .expect("the ladder carries the shipped colony size"),
                 0,
             ],
+            // Read once at construction, like the shelf -- so a scenario
+            // shipped in the tree is on the SCENARIOS page from the box's
+            // first frame, not only after the first `RELOAD`.
+            scenarios: super::scenario::Scenario::list(),
             ..Self::default()
         }
     }
@@ -3135,6 +3156,18 @@ impl Ui {
         self.shelf = jars;
         self.shelf_skipped = skipped.len();
         self.shelf_selected = armed.and_then(|name| self.shelf.iter().position(|j| j.name == name));
+        // **Piggybacked on the shelf's own reload rather than a separate
+        // button.** Every call site that wants a fresher shelf (a jar added
+        // from outside, `RELOAD`, the three places a verb changes the rack)
+        // wants a fresher scenario list for the identical reason, and a
+        // second reload verb nobody remembers to also press is how a
+        // shipped scenario goes unlisted until the app restarts.
+        self.scenarios = super::scenario::Scenario::list();
+    }
+
+    /// Every saved scenario, as of the last reload.
+    pub fn scenarios(&self) -> &[super::scenario::Scenario] {
+        &self.scenarios
     }
 
     pub fn shelf(&self) -> &[crate::sim::specimen::Specimen] {
@@ -3656,9 +3689,41 @@ impl Ui {
                     Action::Panel(Panel::Log),
                     "OPEN THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. EVERY OTHER PAGE SAYS WHAT THE BOX IS LIKE NOW; AT 1024X YOU CROSS TENS OF THOUSANDS OF FRAMES BETWEEN TWO GLANCES AT IT, AND A COUNT THAT MOVED DOES NOT SAY WHOSE LINE ENDED.",
                 ),
+                // Right after the log, on the identical mechanism: a saved
+                // starting box is exactly as much "what the box is like"
+                // as the run log is "what happened to it", and neither is
+                // one number that fits this page's own rows.
+                Row::head(
+                    "SCENARIOS",
+                    false,
+                    self.scenarios.len(),
+                    Action::Panel(Panel::Scenarios),
+                    "OPEN A SAVED STARTING BOX: A BED PLUS WHATEVER WAS PLACED IN IT AND ANY PARAMETER IT TURNS, WITH A QUESTION WRITTEN ON IT. LOADING ONE REPLACES THE BOX ON SCREEN AND STOPS THE CLOCK SO YOU CAN LOOK AT WHAT GOT PLACED BEFORE RUNNING IT.",
+                ),
             ],
             Panel::Log => self.log_rows(world),
+            Panel::Scenarios => self.scenario_rows(),
         }
+    }
+
+    /// The saved scenarios, one row each -- `Panel::Log`'s own mechanism,
+    /// reused rather than reinvented.
+    fn scenario_rows(&self) -> Vec<Row> {
+        let mut rows = vec![Row::head(
+            "BACK TO THE BOX",
+            false,
+            0,
+            Action::Panel(Panel::Box),
+            "RETURN TO THE BOX PAGE.",
+        )];
+        for (i, s) in self.scenarios.iter().enumerate() {
+            let mut note = s.question.to_uppercase();
+            if s.horizon > 0 {
+                note = format!("{note} -- READ AT {} FRAMES", s.horizon);
+            }
+            rows.push(Row::head(&s.title, false, 0, Action::ScenarioLoad(i), note));
+        }
+        rows
     }
 
     /// The run log as rows, newest first.
