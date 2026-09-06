@@ -1570,6 +1570,65 @@ pub const DIG_FORCE_SPAN: f32 = 1.0;
 /// of an axis built to remove one.
 pub const ARMOUR_MIN: f32 = 0.1;
 
+/// **How far a lineage may evolve on the two arms-race slots**, as a
+/// multiple of the shared `[-1, 1]` allele axis: 1.0 is the axis every other
+/// slot uses and is what the box ships at, so the default bed is
+/// byte-identical to the tree before this existed.
+///
+/// **Why these two slots and not all ten.** `armour` and `dig_force` are the
+/// only pair in `CREATURE_TRAITS` that are read against *each other* --
+/// `damage = clamp(bite/armour, 0, 1)^2` -- and their authored numbers sit
+/// four times apart: ant flesh resists 0.25 against an ant bite of 1.0, so
+/// the best plate a lineage could reach on the shared axis was 0.50 and
+/// **a maximally armoured ant was one-shot by any other ant at every point
+/// on the axis** (`Reports/lanes/creature-fight-handoff-2026-09-06.md`). A
+/// 2x range cannot close a 4x gap. Every other slot is read against a cost,
+/// not against another animal, and a wider reach there buys a bigger number
+/// rather than a different outcome.
+///
+/// **Together, never one of them**, and that is the ruling this constant
+/// exists to hold: widening the plate alone would hand the race to the
+/// defender at every setting, and widening the jaw alone to the attacker.
+/// At any reach a max-jaw ant still one-shots a max-plate one -- the ratio
+/// is scale-invariant -- and what the reach buys is the *spread between
+/// lineages*, which is the distribution the first law asks for.
+pub const ARMS_RACE_SLOTS: [usize; 2] = [TRAIT_ARMOUR, TRAIT_DIG_FORCE];
+
+/// The shipped reach, and the value at which every resolver below is the
+/// plain `clamp(-1, 1)` it was before the dial existed.
+pub const TRAIT_REACH_DEFAULT: f32 = 1.0;
+
+/// **What the parameters page will wind the reach up to.** Not a bound in the
+/// arithmetic -- nothing breaks above it -- but the top of the dial, chosen
+/// so that the top of the *armour* range is a graded fight rather than a new
+/// binary in the other direction: at 8 an ant's plate reaches `0.25 * 9 =
+/// 2.25` against a default bite of 1.0, which is `(1/2.25)^2 = 0.198` per
+/// bite, so five or six jaw closures rather than one. Both taxes are paid at
+/// that end -- see `armour_fraction` and `force_fraction`.
+///
+/// **And it is the last reach at which the *thin* end of the plate still
+/// means anything**, which is the harder constraint of the two: `ARMOUR_MIN`
+/// floors the multiplier at 0.1, an allele of `-r` gives `1 / (1 + r)`, and
+/// at `r = 9` that is exactly 0.1. Past 9 the axis is one-sided -- a lineage
+/// could go on thickening without limit while nothing could get thinner --
+/// and a one-sided axis is a ratchet, which is the shape every price in this
+/// file exists to prevent.
+pub const TRAIT_REACH_MAX: f32 = 8.0;
+
+/// How far this slot's allele may travel, in the world's current reach.
+///
+/// **One function, read by both the mutation clamp and every resolver**, for
+/// `ratio_factor`'s own reason: two copies of the same slot list is how the
+/// bed comes to breed an allele it then refuses to express. A slot outside
+/// the arms race is on the shared axis whatever the dial says.
+pub fn allele_bound(slot: usize, reach: f32) -> f32 {
+    if ARMS_RACE_SLOTS.contains(&slot) {
+        reach.max(0.0)
+    } else {
+        1.0
+    }
+}
+
 /// The smallest crop a lineage may evolve, in joules of face value.
 /// `CreatureDef::crop_capacity`'s own doc: a cell only leaves the crop at
 /// whole unit worth, so an animal under one unit can never put anything down
@@ -1688,7 +1747,20 @@ fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_
 }
 
 fn ratio_factor(t: f32) -> f32 {
-    let t = t.clamp(-1.0, 1.0);
+    ratio_factor_reach(t, 1.0)
+}
+
+/// `ratio_factor` on a widened axis -- the same curve, a further clamp.
+///
+/// **The clamp is the whole of the reach.** The curve itself is unbounded and
+/// well behaved on both sides, so nothing here needed a second shape: an
+/// allele of 4 is four times the plate exactly as an allele of 1 is twice it.
+/// Read only by `armour_of`; the other three slots that share `ratio_factor`
+/// (`digest_rate`, `crop_capacity`, `pace`) are priced against a cost rather
+/// than against another animal and stay on the shared axis.
+fn ratio_factor_reach(t: f32, reach: f32) -> f32 {
+    let bound = reach.max(0.0);
+    let t = t.clamp(-bound, bound);
     if t >= 0.0 {
         1.0 / (1.0 + t)
     } else {
@@ -1706,8 +1778,14 @@ fn ratio_factor(t: f32) -> f32 {
 /// Floored above zero. Armour of literally nothing would make a cell fall to
 /// any mouth in one bite regardless of force, which re-introduces a threshold
 /// at the bottom of the axis -- the shape this whole change removed.
-pub fn armour_of(traits: &[f32; CREATURE_TRAITS]) -> f32 {
-    (1.0 / ratio_factor(traits[TRAIT_ARMOUR]).max(f32::EPSILON)).max(ARMOUR_MIN)
+///
+/// **`reach` is `World::trait_reach`**, and it is a parameter rather than a
+/// constant because the range this slot may reach is the owner's dial: at 1
+/// the plate spans `[0.5, 2.0]` and the bed is the shipped one, and above it
+/// only a lineage that has *evolved* past the old ceiling reads differently
+/// -- an unevolved animal sits at allele 0 and is unmoved at every setting.
+pub fn armour_of(traits: &[f32; CREATURE_TRAITS], reach: f32) -> f32 {
+    (1.0 / ratio_factor_reach(traits[TRAIT_ARMOUR], reach).max(f32::EPSILON)).max(ARMOUR_MIN)
 }
 
 /// **The armour of whatever is standing at a cell**, material times the
@@ -1722,7 +1800,7 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     if organism == 0 {
         return base;
     }
-    base * world.organism(organism).map_or(1.0, |st| armour_of(&st.traits))
+    base * world.organism(organism).map_or(1.0, |st| armour_of(&st.traits, world.trait_reach))
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -1751,8 +1829,18 @@ pub fn curvature_radius_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -
 /// soil's 0.8; at `+0.5` it reaches 0.8 and can break ground. It then pays
 /// `force_fraction` for that jaw every tick whether it digs or not, so the
 /// bed decides whether the trade is worth taking.
-pub fn dig_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
-    (def.dig_force + traits[TRAIT_DIG_FORCE].clamp(-1.0, 1.0) * DIG_FORCE_SPAN).max(0.0)
+///
+/// **On the widened axis with the plate**, not on the shared one: `bite_
+/// force_of` reads this, the bite is the other half of `damage = clamp(bite/
+/// armour, 0, 1)^2`, and a reach that moved only the defence would be a
+/// ruling about who wins rather than a wider range for both. See
+/// `ARMS_RACE_SLOTS`. The dig comes with it because it is one apparatus --
+/// `bite_force` defaults to `dig_force` and `force_fraction` bills the larger
+/// -- so a lineage that evolves a jaw that opens a rival's plate can also cut
+/// harder ground, and pays for it every tick either way.
+pub fn dig_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], reach: f32) -> f32 {
+    let bound = allele_bound(TRAIT_DIG_FORCE, reach);
+    (def.dig_force + traits[TRAIT_DIG_FORCE].clamp(-bound, bound) * DIG_FORCE_SPAN).max(0.0)
 }
 
 /// **This animal's bite, moved by the same allele as its dig.**
@@ -1762,9 +1850,9 @@ pub fn dig_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
 /// them would let a lineage evolve a mouth its own jaw price never saw.
 /// Scaled by the ratio the dig gene produced rather than shifted by the same
 /// span, so a species whose bite and dig differ keeps that difference.
-pub fn bite_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f32 {
+pub fn bite_force_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS], reach: f32) -> f32 {
     let authored = def.dig_force.max(f32::EPSILON);
-    (def.bite_force() * (dig_force_of(def, traits) / authored)).max(0.0)
+    (def.bite_force() * (dig_force_of(def, traits, reach) / authored)).max(0.0)
 }
 
 /// **How fast this particular animal's gut is.**
@@ -1926,6 +2014,9 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
     // reused — see `RNG_SLOT_BIRTH`.
     let ActiveKind::Creature { organism: child } = site.kind else { return Some(site) };
     let mut draw = rng::stream(world.seed, child as u64, world.frame, RNG_SLOT_BIRTH);
+    // Read before the mutable borrow below, not because it is expensive but
+    // because `organism_mut` holds the world for the whole loop.
+    let reach = world.trait_reach;
     if let Some(state) = world.organism_mut(child) {
         let mut genome = std::mem::take(&mut state.genome);
         brain::mutate(&mut genome, def.mutation_rate, &mut draw);
@@ -1936,7 +2027,15 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
                 // `gut_bias` is a position on a `-1..=1` axis and every
                 // other slot in `CREATURE_TRAITS` is defined the same way,
                 // so the clamp is the axis rather than a tuning choice.
-                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-1.0, 1.0);
+                //
+                // **The two arms-race slots are the exception, and this line
+                // is what makes the reach dial mean anything at all.**
+                // Widening only the resolvers would have been *vacuous*:
+                // a birth clamps here, so no lineage could ever hold the
+                // allele the widened resolver was waiting to read. It is
+                // `CLAUDE.md`'s exactly-zero-delta shape, authored in.
+                let bound = allele_bound(slot, reach);
+                *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
             }
         }
     }
@@ -2367,7 +2466,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // read correctly on the page.
     let jaw_traits = traits_of(world, organism, def);
     let force_tax =
-        def.force_fraction * def.start_energy * dig_force_of(def, &jaw_traits).max(bite_force_of(def, &jaw_traits));
+        def.force_fraction * def.start_energy * dig_force_of(def, &jaw_traits, world.trait_reach).max(bite_force_of(def, &jaw_traits, world.trait_reach));
     // **The plate is carried whether or not anything bites today.** Charging
     // only when hit would price *being attacked* rather than *being
     // armoured*, and a lineage nothing happens to eat would wear it free.
@@ -2378,7 +2477,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     let armour_tax = def.armour_fraction
         * def.start_energy
         * world.materials.get(world.get(x, y).material).penetration_resistance
-        * armour_of(&jaw_traits);
+        * armour_of(&jaw_traits, world.trait_reach);
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -3162,7 +3261,7 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
         tolerance_sq: radius * radius,
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
-        bite: bite_force_of(def, &traits),
+        bite: bite_force_of(def, &traits, world.trait_reach),
     }
 }
 
@@ -4456,7 +4555,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             world.materials.kind(target.material),
             MaterialKind::Creature | MaterialKind::Plant
         );
-        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def)) {
+        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -4870,7 +4969,7 @@ fn step_chain(
         // from the RNG; the three re-tests are the same eight-cell scan the
         // loop above just did.
         {
-            let force = dig_force_of(def, &traits_of(world, organism, def));
+            let force = dig_force_of(def, &traits_of(world, organism, def), world.trait_reach);
             let mut tissue_seen = false;
             let mut freed = false;
             let mut freed_any = false;
@@ -5967,7 +6066,7 @@ fn push_force_of(world: &World, organism: u16, def: &CreatureDef) -> f32 {
         // every cell -- which is exactly the pre-parting predicate.
         return -1.0;
     }
-    dig_force_of(def, &traits_of(world, organism, def))
+    dig_force_of(def, &traits_of(world, organism, def), world.trait_reach)
 }
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of
@@ -8041,9 +8140,9 @@ mod tests {
         let at = |t: f32| {
             let mut tr = [0.0f32; CREATURE_TRAITS];
             tr[TRAIT_ARMOUR] = t;
-            armour_of(&tr)
+            armour_of(&tr, TRAIT_REACH_DEFAULT)
         };
-        assert_eq!(armour_of(&neutral), 1.0, "a neutral allele must leave the species' authored armour exactly alone");
+        assert_eq!(armour_of(&neutral, TRAIT_REACH_DEFAULT), 1.0, "a neutral allele must leave the species' authored armour exactly alone");
         assert!((at(1.0) - 2.0).abs() < 1e-6, "the top of the axis is twice the plate: {}", at(1.0));
         assert!((at(-1.0) - 0.5).abs() < 1e-6, "the bottom is half it: {}", at(-1.0));
         assert!(at(-1.0) >= ARMOUR_MIN, "armour must never reach nothing, or any mouth opens any cell in one bite again");
@@ -8160,6 +8259,259 @@ mod tests {
         );
     }
 
+    /// **The two arms-race slots reach further when the dial says so, and at
+    /// the shipped setting nothing moves at all.**
+    ///
+    /// Two claims, and the second is the one that keeps the bed byte-identical:
+    /// every resolver at `TRAIT_REACH_DEFAULT` is the `clamp(-1.0, 1.0)` that
+    /// was written there before the dial existed, for every allele, including
+    /// alleles outside the axis that no birth can currently produce.
+    #[test]
+    fn the_reach_widens_two_slots_and_leaves_the_shipped_bed_alone() {
+        let w = test_world();
+        let ant = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").clone();
+        let at = |slot: usize, t: f32| {
+            let mut traits = [0.0f32; CREATURE_TRAITS];
+            traits[slot] = t;
+            traits
+        };
+
+        // --- 1. at the shipped reach every resolver is the old clamp ---
+        for step in -30..=30 {
+            let t = step as f32 / 10.0;
+            let old_armour = {
+                let c = t.clamp(-1.0, 1.0);
+                let f = if c >= 0.0 { 1.0 / (1.0 + c) } else { 1.0 - c };
+                (1.0 / f.max(f32::EPSILON)).max(ARMOUR_MIN)
+            };
+            assert_eq!(
+                armour_of(&at(TRAIT_ARMOUR, t), TRAIT_REACH_DEFAULT),
+                old_armour,
+                "the shipped reach must reproduce the old plate exactly at allele {t}, or every animal in every bed moved the day the dial landed"
+            );
+            let old_jaw = (ant.dig_force + t.clamp(-1.0, 1.0) * DIG_FORCE_SPAN).max(0.0);
+            assert_eq!(
+                dig_force_of(&ant, &at(TRAIT_DIG_FORCE, t), TRAIT_REACH_DEFAULT),
+                old_jaw,
+                "the shipped reach must reproduce the old jaw exactly at allele {t}"
+            );
+        }
+
+        // --- 2. widened, the two slots express past the old ceiling ---
+        assert!(
+            (armour_of(&at(TRAIT_ARMOUR, 3.0), 4.0) - 4.0).abs() < 1e-5,
+            "an allele of 3 at reach 4 is four times the plate: {}",
+            armour_of(&at(TRAIT_ARMOUR, 3.0), 4.0)
+        );
+        assert!(
+            (dig_force_of(&ant, &at(TRAIT_DIG_FORCE, 3.0), 4.0) - (ant.dig_force + 3.0)).abs() < 1e-5,
+            "an allele of 3 at reach 4 is three spans of jaw on top of the authored one: {}",
+            dig_force_of(&ant, &at(TRAIT_DIG_FORCE, 3.0), 4.0)
+        );
+        // The bite moves with the dig on the widened axis too -- one
+        // apparatus, and a reach that moved only the dig would let a lineage
+        // evolve a mouth its own jaw price never saw.
+        assert!(
+            bite_force_of(&ant, &at(TRAIT_DIG_FORCE, 3.0), 4.0) > bite_force_of(&ant, &at(TRAIT_DIG_FORCE, 3.0), 1.0),
+            "the bite must follow the dig onto the wider axis"
+        );
+
+        // --- 3. and the eight slots that are not in the race do not move ---
+        for slot in 0..CREATURE_TRAITS {
+            if ARMS_RACE_SLOTS.contains(&slot) {
+                continue;
+            }
+            assert_eq!(
+                allele_bound(slot, 8.0),
+                1.0,
+                "slot {slot} is not read against another animal and must stay on the shared axis whatever the dial says"
+            );
+        }
+
+        // --- 4. zero is the clonal control, not a broken setting ---
+        assert_eq!(allele_bound(TRAIT_ARMOUR, 0.0), 0.0, "reach 0 pins the plate where the species authored it");
+        assert_eq!(
+            armour_of(&at(TRAIT_ARMOUR, 1.0), 0.0),
+            1.0,
+            "at reach 0 an evolved plate reads as the authored one, which is what makes it a control arm rather than a disabled feature"
+        );
+    }
+
+    /// **The dial reaches the birth, not only the resolvers — the positive
+    /// control, and the whole reason this test exists.**
+    ///
+    /// Widening the resolvers alone would have been *vacuous* in exactly
+    /// `CLAUDE.md`'s sense: a newborn's alleles are clamped where they are
+    /// drawn, so no lineage could ever hold the allele the widened resolver
+    /// was waiting to read, and the dial would have moved nothing across
+    /// every setting. The bar is the allele a child actually carries.
+    #[test]
+    fn a_lineage_cannot_evolve_past_a_reach_it_was_not_given() {
+        // The widest armour allele anywhere in the box after breeding a
+        // colony under `reach`.
+        let widest_at = |reach: f32| -> f32 {
+            let mut w = test_world();
+            w.trait_reach = reach;
+            let soil = w.materials.id_of("soil").expect("soil");
+            for x in 40..180 {
+                for y in 110..130 {
+                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
+                }
+            }
+            // Founders already at the old ceiling, so the question is only
+            // whether a birth may take one step past it. Starting at 0 would
+            // measure how fast a random walk covers the axis instead.
+            let mut ants = Vec::new();
+            for i in 0..12 {
+                let a = spawn(&mut w, "ant", 50 + i * 8, 109);
+                if let Some(st) = w.organism_mut(a) {
+                    st.traits[TRAIT_ARMOUR] = 1.0;
+                    // Rich enough to breed without the bed having to feed
+                    // them: this measures the clamp, not the economy.
+                    st.energy = 100_000.0;
+                }
+                ants.push(a);
+            }
+            run(&mut w, 3_000);
+            w.live_organism_ids()
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .map(|st| st.traits[TRAIT_ARMOUR])
+                .fold(0.0f32, f32::max)
+        };
+
+        let shipped = widest_at(1.0);
+        let wide = widest_at(4.0);
+        assert!(
+            (shipped - 1.0).abs() < 1e-6,
+            "at the shipped reach no lineage may hold an allele past the shared axis: widest {shipped}"
+        );
+        assert!(
+            wide > 1.0,
+            "no child was born past the old ceiling at reach 4, so the dial never reached the birth and every setting of it is the same bed: widest {wide} against {shipped} shipped"
+        );
+    }
+
+    /// **A maximally armoured ant survives an ant, once the reach is wide
+    /// enough for the plate to pass the bite — and at the shipped reach it
+    /// cannot, whatever it evolves.**
+    ///
+    /// This is the fight session's arithmetic as a running world
+    /// (`Reports/lanes/creature-fight-handoff-2026-09-06.md`): ant flesh
+    /// resists **0.25** and an ant bites at **1.0**, so on the shared axis the
+    /// best plate a lineage reaches is `0.25 x 2 = 0.5` and
+    /// `damage = clamp(bite/armour, 0, 1)^2` is **1.0 at every point on the
+    /// axis** — one bite, whoever bites first, which is the binary the owner
+    /// ruled against.
+    ///
+    /// **The quantity is time-to-first-breach**, for
+    /// `a_swarm_gets_through_what_one_mouth_cannot`'s reason: a finite body
+    /// takes a finite amount of chewing, so a bite count is conserved across
+    /// arms that both finish the job and reads as a dead heat. A run in which
+    /// the plate never gives at all scores the whole budget, because "never"
+    /// is the strongest version of "later" rather than a missing sample.
+    ///
+    /// Measured 2026-09-06, three attackers on one defender, six seeds,
+    /// 2,000 frames:
+    ///
+    /// | reach | plate | frames to first breach | defender alive |
+    /// |---|---|---|---|
+    /// | 1 (shipped) | 0.50 | 12, 18, 18, 18, 18, 582 | **0 of 6** |
+    /// | 2 | 0.75 | identical, digit for digit | 0 of 6 |
+    /// | 4 | 1.25 | 54, 84, 250, 300, 714, never | 4 of 6 |
+    /// | 8 | 2.25 | 261, 438, 1080, never x3 | 4 of 6 |
+    ///
+    /// **Reach 2 reproducing reach 1 exactly is the arithmetic, not a dead
+    /// dial**: the plate only passes the bite above `reach = 3`
+    /// (`0.25 * (1 + r) > 1.0`), and below that the fight is one bite at every
+    /// setting, so the two runs are the same stream of draws.
+    #[test]
+    fn a_maximally_armoured_ant_is_graded_only_when_the_reach_allows_it() {
+        // Median frames to the defender's first lost cell over six seeds,
+        // scoring a run that never breached as the whole budget.
+        const BUDGET: usize = 2_000;
+        let median_breach = |reach: f32| -> (usize, usize) {
+            let mut firsts = Vec::new();
+            let mut survived = 0usize;
+            for seed in 0..6u64 {
+                let mut w = test_world();
+                w.seed = 1234 + seed * 7919;
+                w.trait_reach = reach;
+                // Ant against ant needs the two to be strangers; without
+                // this every ant is every other ant's nestmate and the scene
+                // holds no fight at all. Kin is a scent distance now, so the
+                // two sides are given scents a whole channel apart and a
+                // tolerance of `-1` (radius 0): the narrow end the retired
+                // `colony_rivalry` switch became.
+                let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+                for x in 80..140 {
+                    w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+                }
+                let defender = spawn(&mut w, "ant", 100, 119);
+                assert_ne!(defender, 0, "the defender was not placed; this scene does not contain the situation the test is about");
+                if let Some(st) = w.organism_mut(defender) {
+                    // The top of whatever axis this arm was given -- the best
+                    // plate a lineage could ever reach at this reach.
+                    st.traits[TRAIT_ARMOUR] = reach;
+                    st.traits[TRAIT_TOLERANCE] = -1.0;
+                    st.colony = 1;
+                    // Rich, in both arms: this measures a plate, not a
+                    // starvation race.
+                    st.energy = 100_000.0;
+                }
+                let before = w.organism(defender).map_or(0, |st| st.chain.len());
+                // Three attackers, all at the authored jaw. More than one
+                // because two ants that wander apart make contact
+                // intermittent, and the question is how long the plate holds
+                // under a mouth rather than how long a blind animal takes to
+                // find one.
+                for i in 0..3 {
+                    let attacker = spawn(&mut w, "ant", 103 + i * 3, 119);
+                    if let Some(st) = w.organism_mut(attacker) {
+                        st.traits[SCENT_SLOTS[0]] = 1.0;
+                        st.traits[TRAIT_TOLERANCE] = -1.0;
+                        st.colony = 2;
+                        st.energy = 100_000.0;
+                    }
+                }
+                let mut first = BUDGET;
+                for f in 1..=BUDGET {
+                    run(&mut w, 1);
+                    if w.organism(defender).map_or(0, |st| st.chain.len()) < before {
+                        first = f;
+                        break;
+                    }
+                }
+                if w.organism(defender).is_some() {
+                    survived += 1;
+                }
+                firsts.push(first);
+            }
+            firsts.sort_unstable();
+            (firsts[firsts.len() / 2], survived)
+        };
+
+        let (shipped, shipped_alive) = median_breach(TRAIT_REACH_DEFAULT);
+        let (wide, wide_alive) = median_breach(TRAIT_REACH_MAX);
+        assert!(
+            shipped < 100,
+            "at the shipped reach a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {shipped}"
+        );
+        assert_eq!(
+            shipped_alive, 0,
+            "every defender must die at the shipped reach -- that binary is the defect this dial exists to open, and if it has gone the bar below is measuring something else"
+        );
+        // 5x, against a measured 85x (18 against 1,540): headroom rather
+        // than a bar on the value, and a ratio, so it does not care how fast
+        // the machine ran.
+        assert!(
+            wide >= shipped * 5,
+            "a plate the reach allows past the bite must hold far longer than one it does not: median frame {wide} at reach {} against {shipped} at {}, with {wide_alive} of 6 defenders surviving against {shipped_alive}",
+            TRAIT_REACH_MAX,
+            TRAIT_REACH_DEFAULT
+        );
+    }
+
     /// **The four fields the prices unlocked are heritable, each on the shape
     /// its quantity wants, and none of them gated on the species.**
     ///
@@ -8187,10 +8539,10 @@ mod tests {
         // --- generation zero is untouched, on every one of the four ---
         let zero = [0.0f32; CREATURE_TRAITS];
         assert_eq!(curvature_radius_of(&ant, &zero), ant.curvature_radius, "a neutral allele must reproduce the authored disc exactly");
-        assert_eq!(dig_force_of(&ant, &zero), ant.dig_force, "a neutral allele must reproduce the authored jaw exactly");
+        assert_eq!(dig_force_of(&ant, &zero, TRAIT_REACH_DEFAULT), ant.dig_force, "a neutral allele must reproduce the authored jaw exactly");
         assert_eq!(digest_rate_of(&ant, &zero), ant.digest_rate, "a neutral allele must reproduce the authored gut exactly");
         assert_eq!(crop_capacity_of(&ant, &zero), ant.crop_capacity, "a neutral allele must reproduce the authored crop exactly");
-        assert_eq!(bite_force_of(&ant, &zero), ant.bite_force(), "a neutral allele must reproduce the authored bite exactly");
+        assert_eq!(bite_force_of(&ant, &zero, TRAIT_REACH_DEFAULT), ant.bite_force(), "a neutral allele must reproduce the authored bite exactly");
 
         // --- the disc: additive, so a species with none can grow one ---
         assert_eq!(beetle.curvature_radius, 0, "the beetle is this test's senseless species and must author no disc, or the claim below is untested");
@@ -8205,16 +8557,16 @@ mod tests {
         let soil = w.materials.id_of("soil").map(|m| w.materials.get(m).penetration_resistance).unwrap_or(0.8);
         assert!(beetle.dig_force < soil, "the beetle must author a jaw too weak for soil, or the claim below is untested");
         assert!(
-            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0)) >= soil,
+            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0), TRAIT_REACH_DEFAULT) >= soil,
             "a beetle lineage must be able to evolve a jaw that breaks ground: {} against soil's {soil}",
-            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0))
+            dig_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0), TRAIT_REACH_DEFAULT)
         );
-        assert_eq!(dig_force_of(&ant, &at(TRAIT_DIG_FORCE, -1.0)), 0.0, "the bottom of the axis is an animal that cannot cut anything");
+        assert_eq!(dig_force_of(&ant, &at(TRAIT_DIG_FORCE, -1.0), TRAIT_REACH_DEFAULT), 0.0, "the bottom of the axis is an animal that cannot cut anything");
         // The bite moves with the dig -- one apparatus, and `force_fraction`
         // bills the larger of the two, so a gene moving only one of them
         // would let a lineage evolve a mouth its own price never saw.
         assert!(
-            bite_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0)) > beetle.bite_force(),
+            bite_force_of(&beetle, &at(TRAIT_DIG_FORCE, 1.0), TRAIT_REACH_DEFAULT) > beetle.bite_force(),
             "the bite must follow the jaw gene, or a lineage can grow a mouth the jaw price does not see"
         );
 

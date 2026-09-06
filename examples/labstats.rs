@@ -227,6 +227,62 @@ fn main() {
             def.dig_cost_in_moves, def.emit_cost_in_moves, def.spoil_weight_cells
         );
         lab.world.species.set_creature(id, def);
+        // **The arms-race arm above, aimed at the ant instead of the
+        // beetle.** "A maximally armoured, maximally jawed colony" means the
+        // species this box actually breeds a *population* of -- the beetle
+        // is exogenous stock, the ant is the lineage -- so costing that
+        // colony needs both slots moved on the ant, and `beetlearmour=`
+        // above cannot reach it.
+        //
+        // **Placed after this scope's own `set_creature(id, def)`, not
+        // beside it.** Both write the same ant `SpeciesId`; that call's
+        // `def` was cloned before either allele below existed, so a version
+        // of this sitting earlier would have its write to the ancestral
+        // vector undone the moment `set_creature(id, def)` ran -- the
+        // standing animals would still show the allele (`set_organism_trait`
+        // below is unconditional on ordering) but nothing born after would
+        // ever inherit it. Two counters that would have quietly stopped
+        // agreeing a generation apart, the trap `CLAUDE.md`'s birth-vs-
+        // resolver rule is written against.
+        if let Some(v) = arg::<f32>("antarmour") {
+            if let Some(def) = lab.world.species.get(id).creature.as_ref() {
+                let mut def = def.clone();
+                def.traits[pixel_physics::sim::organism::TRAIT_ARMOUR] = v;
+                lab.world.species.set_creature(id, def);
+            }
+            let living: Vec<u16> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|oid| lab.world.organism(*oid).is_some_and(|st| lab.world.species.get(st.species).name == "ant"))
+                .collect();
+            for oid in &living {
+                lab.world.set_organism_trait(*oid, pixel_physics::sim::organism::TRAIT_ARMOUR, v);
+            }
+            println!("labstats: ant armour allele {v}, applied to {} standing ant(s) and to what they breed", living.len());
+        }
+        // The jaw side of the same colony. `TRAIT_DIG_FORCE` is one
+        // apparatus for both digging and biting (`dig_force_of` and
+        // `bite_force_of` both read this slot, `creature.rs`'s own doc on
+        // `dig_force_of` says why) -- so this is also "how hard this colony
+        // bites", not only how it digs.
+        if let Some(v) = arg::<f32>("antjaw") {
+            if let Some(def) = lab.world.species.get(id).creature.as_ref() {
+                let mut def = def.clone();
+                def.traits[pixel_physics::sim::organism::TRAIT_DIG_FORCE] = v;
+                lab.world.species.set_creature(id, def);
+            }
+            let living: Vec<u16> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|oid| lab.world.organism(*oid).is_some_and(|st| lab.world.species.get(st.species).name == "ant"))
+                .collect();
+            for oid in &living {
+                lab.world.set_organism_trait(*oid, pixel_physics::sim::organism::TRAIT_DIG_FORCE, v);
+            }
+            println!("labstats: ant jaw allele {v}, applied to {} standing ant(s) and to what they breed", living.len());
+        }
     }
     // **The scent dials -- `tolerance=`, `spread=`, `drift=`, `crosskin=` --
     // and `rivalry=1`, which is the name the §2 table of the groups report
@@ -334,6 +390,27 @@ fn main() {
             ant.and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.scent_drift))
         );
     }
+    // **`reach=8` -- the arms-race ceiling, a world dial for the same reason
+    // the retired `rivalry` switch was** (`World::trait_reach`; `creature::TRAIT_REACH_DEFAULT`
+    // is the shipped 1.0, `TRAIT_REACH_MAX` is 8.0). It is read by *both*
+    // animals in a fight, so a per-species reach would let an ant and a
+    // beetle disagree about how wide the axis they are being compared on is
+    // -- the field's own doc in `world.rs` makes the same call for the same
+    // reason the retired `colony_rivalry` switch had.
+    //
+    // **Alleles are clamped to this reach at two places, not one: the
+    // resolvers (`armour_of`/`dig_force_of`, via `ratio_factor_reach` and
+    // `allele_bound`) and the birth mutation clamp.** Both read the trait
+    // through the identical bound no matter which of the two wrote its
+    // value, so setting `antarmour=8` with no `reach=` does not fail
+    // quietly -- it runs at reach's default of 1.0, the old
+    // `clamp(-1.0, 1.0)` this dial replaced, and the allele expresses as the
+    // shipped ceiling. That is the dial working as designed, not a bug in
+    // this harness.
+    if let Some(v) = arg::<f32>("reach") {
+        lab.world.trait_reach = v;
+    }
+    println!("labstats: trait_reach = {}", lab.world.trait_reach);
     // The cull control needs a moment of stand to cull; everything else runs
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };

@@ -832,7 +832,118 @@ predator; and it budgets the kin-sense re-calibration inside the signature
 work, not after it (`CLAUDE.md`'s shared-budget rule — `KinNear`'s authored
 weights were fitted against a kin that was every ant).
 
-## Round thirteen, 2026-09-06 — kin is a distance, and the castes verdict
+## Round thirteen, 2026-09-06 — the armour reach
+
+*Same branch and same line as round twelve. **What a later session cannot
+reconstruct is here**; the shipped half is README's "Creature groups status"
+and the player-facing half is `wiki/ants.md`.*
+
+**The three review verdicts from round twelve came back, and all three
+confirmed what shipped — so there is no code in this round from any of
+them.** By-colony beat the shipped draw; by-colony beat by-species as the
+lab's default (owner: *"open on colony"*), which `Lab::new` already did and
+`cycle_creature_colour_moves_the_renderer_and_the_ui_mirror_together` already
+asserted at construction; and the ANTS page's
+shared axis scored 5 with no comment. **Worth knowing for the next round of
+cards**: two of the three asked a question whose answer was already the
+shipped behaviour, which is a card spent on a decision nobody was going to
+change. Ask about the thing you would otherwise have to guess.
+
+**The reach, and what it overturned.** `World::trait_reach` widens the
+allele axis for `creature::ARMS_RACE_SLOTS` — armour and the jaw, together —
+and it ships at 1.0, where every clamp is the `clamp(-1.0, 1.0)` that was
+already written. What it overturns is a ruling nobody knew they had made:
+**a single shared `[-1, 1]` axis for all ten slots was a *decision about who
+wins fights*, not a normalisation.** Ant flesh resists 0.25 against a bite of
+1.0, so the best plate an ant lineage could reach was 0.50 and every ant was
+one-shot by every ant at every point on the axis. The axis was not neutral;
+it was four times too short on the one pair of slots that are read against
+each other, and nothing about it looked like a fight balance number.
+
+**Two traps, and the second is the one worth carrying forward.**
+
+- **A reach that only widened the resolvers would have been vacuous.** Alleles
+  are clamped where they are *drawn*, so no lineage could ever have held the
+  allele a widened resolver was waiting to read: every setting of the dial
+  would have produced the identical bed, which is `CLAUDE.md`'s
+  exactly-zero-delta shape arriving before the change rather than after it.
+  `a_lineage_cannot_evolve_past_a_reach_it_was_not_given` is the positive
+  control, and it goes red when the clamp is pinned back to 1.0 (checked, not
+  assumed).
+- **There are TWO places a creature's alleles are drawn**, and grepping the
+  subsystem is what found the second: the bud path in `creature.rs` and
+  `specimen::drift` — the jar. A jar clamping at the shared axis while a birth
+  clamps at the reach would breed a colony the box cannot produce, and it
+  would do it in the disarming direction, so a champion bred from a jar would
+  come out *weaker* than its parent with nothing on screen to say why. Both
+  now read `creature::allele_bound`, which exists to be the one list.
+
+**Measured — one maximally armoured ant against three ordinary ones, six
+seeds, 2,000 frames.** The defender dies in **6 of 6** at the shipped reach
+(median first breach frame 18) and lives in **4 of 6** at reach 8 (median
+1,540, three seeds never breached at all). **Reach 2 reproduces reach 1 digit
+for digit**, which is arithmetic and not a dead dial: the plate only passes
+the bite above `reach = 3`, and under that the fight is one bite at every
+setting. Anyone sweeping this dial in steps of 1 from the bottom will see
+nothing for the first three steps and should not conclude the knob is
+disconnected.
+
+**Two ceilings decide the top of the dial, and the tighter one is not the
+one you would expect.** Five or six bites at reach 8 is the *legible* answer;
+the binding one is `ARMOUR_MIN`, which floors the multiplier at 0.1 while an
+allele of `-r` gives `1 / (1 + r)` — equal at exactly `r = 9`. Past 9 the
+axis is one-sided: plates could thicken without limit and nothing could get
+thinner, which is a ratchet, which is the shape every price in `creature.rs`
+exists to prevent.
+
+**What the top of the range costs, which is the shared-budget check
+`CLAUDE.md` demands before a range is widened.** `armour_fraction` and
+`force_fraction` were both sized against a 2x range. Measured, an ant at the
+top of *both* axes at reach 8 (`labstats reach=8 antarmour=8 antjaw=8`, three
+seeds, 12,000 frames, `RAYON_NUM_THREADS` pinned): plate **1.6% -> 11.4% of
+burn** and jaw **1.6% -> 11.4%**, so the two together go 3.2% -> 22.8% and the
+animal has 77% of its budget left. It is a real bill and it is not a cliff:
+generation depth ever was 4/3/3 against the shipped 4/3/3, and survivors at
+12,000 frames 4/3/1 against 5/5/10. **The population arms are inside the
+bed's own spread and should not be quoted as an effect** — this bed starves
+52 ants to 5 by frame 12,000 all by itself (round ten's open problem), so a
+population census here is measuring the larder, not the plate. The tax
+percentages are the trustworthy half; they are arithmetic, not ecology.
+
+**The beetle seed sweep the fight handoff declared void has been re-taken**
+and is in `Reports/selective-environments-2026-09-05.md`. Every qualitative
+claim survived and **not one number did**: gnaws still dormant at authored
+armour (0, 2, 0) and hundreds at double (369, 134, 195), `eats` still holding
+while gnaws climbs, still more beetles and fewer ants at double armour, still
+no collapse. The populations are a third of the old ones **because the bed
+changed, not the beetle** — the soil layer and the plant dynamics landed in
+between. A re-run that reproduces every direction and no magnitude is what a
+voided table should look like; if the directions had moved too, the fix would
+have been the suspect.
+
+**The `ascii` deposition gate across the rivalry dial, with both controls:**
+
+| arm | attributed drops | laden ants | ratio |
+|---|---|---|---|
+| shipped (one colony, dial off) | 237 | 2,962 | **1.36x** |
+| one colony, dial **on** | 237 | 2,962 | **1.36x**, digit for digit |
+| 55 colonies, dial on — the scene as it stood | 22 | 2,590 | 1.14x |
+| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9`, dial off | 438 | 4,631 | **0.69x** |
+
+The last row is the sensitivity control and it fires the assertion, so the
+gate is not blind. The third row is the finding: the scene was fifty-five
+colonies. And `ascii` on this branch against `ascii` on `main`, timings
+normalised out, differs on **two lines out of 1,150 — a build-time ratio and
+a timing delta**. Every deterministic counter in the outdoor game is
+identical.
+
+**What the dial does not do, and the owner will ask.** It is a ceiling, not a
+speed: `trait_variance` is 0.15 a birth on every slot, so winding the reach
+to 8 does not make lineages armour faster, it only stops them hitting a wall.
+A bed left to itself at reach 8 will look exactly like a bed at reach 1 for a
+long time.
+
+## Round fourteen, 2026-09-06 — kin is a distance, and the castes verdict
 
 *Owner: "once creatures evolve, is an ant always an ant?" and can a colony
 naturally differentiate into workers and soldiers? Branch

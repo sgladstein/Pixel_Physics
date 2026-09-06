@@ -126,6 +126,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use super::creature;
 use super::brain;
 use super::organism::{self, CellType, Fate, OrganismState, Species};
 use super::rng::Rng;
@@ -488,7 +489,18 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
                         // The bud path's own clamp, and it is the axis
                         // rather than a tuning choice — every slot in
                         // `CREATURE_TRAITS` is defined on `-1..=1`.
-                        let next = (*t + (rng.unit_f32() * 2.0 - 1.0) * width).clamp(-1.0, 1.0);
+                        //
+                        // **Through `creature::allele_bound`, which is the
+                        // whole reason that function exists rather than a
+                        // literal here.** The two arms-race slots travel as
+                        // far as `World::trait_reach` says, and this is the
+                        // *second* place a creature's alleles are drawn: a
+                        // jar that clamped at the shared axis while a birth
+                        // clamped at the reach would breed a colony the box
+                        // could not have produced, in the direction that
+                        // quietly disarms it.
+                        let bound = creature::allele_bound(slot, world.trait_reach);
+                        let next = (*t + (rng.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
                         if next != *t {
                             moved += 1;
                         }

@@ -4,7 +4,14 @@
 -- every animal carries a heritable scent and a heritable tolerance, two
 colonies start a little apart and drift, and a lineage that drifts out of its
 family is named as a new group on the ants page, so an ant is no longer
-always an ant; see "Who is family" below. Earlier the same day, **an animal
+always an ant; see "Who is family" below. The same day, **how far a lineage may get from its
+ancestors, on the shell and on the jaw, became something you set** — the two
+things that are measured against each other in a fight shared the same narrow
+range as everything else, and that range was too narrow for an ant's shell
+ever to catch up with an ant's bite, so ants killed ants in one bite whoever
+bit first. The box still opens exactly where it always did; wound up, a line
+can grow a shell that takes half a dozen bites, and another can grow the jaw
+that answers it. Earlier the same day, **an animal
 that can see gained a sense for what hunts it** — the nearest animal whose stomach would take its flesh, how
 near and which way — so running, hiding and warning the nest are things a
 lineage can now be born knowing, where before nothing in the animal could
@@ -588,6 +595,29 @@ away at it for a long time, and eight ants working on the same beetle get
 through in a fraction of that. A hard animal is not safe, it is *expensive*,
 and a crowd is how the expense gets paid. That is the whole of what armour
 does: it buys the wearer time, and time is what lets it turn around and bite.
+
+**How far a shell can get from the one your kind was born with is a number
+you set.** Every inherited thing in an animal moves within the same range —
+about half of what its kind was authored with, up to about twice it — and for
+the shell and the jaw that range turned out to be a ruling nobody had made.
+An ant's flesh is soft and an ant's bite is hard: four times harder than the
+flesh, so even the very toughest ant a line could ever produce was still
+opened in a single bite by any ordinary ant. Ant against ant was not a fight,
+it was whoever bit first. Wind the reach up on the genome page and the two of
+them can get further from where they started: at the top of the dial a
+maximally shelled ant takes five or six bites from an ordinary one, and
+usually survives the encounter — measured, three attackers on one defender,
+the defender died in six runs out of six as the box ships and lived in four
+out of six at the top of the dial.
+
+**The shell and the jaw move together, and that is deliberate.** Letting only
+the shell reach further would decide every fight in favour of whoever is being
+bitten; letting only the jaw reach further does the same for the biter. Moved
+together, a line that grows an answer to your shell is always possible — what
+the reach buys is not an advantage, it is how far apart two lines can get. The
+other end of the dial is worth knowing about too: at zero, those two things
+stop drifting altogether while everything else goes on changing, which is how
+you ask what the rest of the animal is doing on its own.
 
 **And a shell costs its wearer.** Being tougher is not a free upgrade any more
 than being bigger or faster is — an armoured animal pays for the plate every
