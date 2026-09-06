@@ -5991,6 +5991,11 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **Digging, beside the moving.** A colony that ranges further also
+    // excavates more, and excavation undermines roots -- so a tree count
+    // that moves with a mobility change cannot be read as damage from the
+    // mobility mechanism until this is on the page next to it.
+    println!("  ...and dug: {} cells, packed {}, spoil dumped {}; ate {} mouthfuls", st.digs, st.packed, st.spoil_dumped, st.eats);
     // **What the blocking was made of.** `blocked` alone cannot separate a
     // colony wedged against rock from one wedged against a bush, and those
     // want opposite fixes. `tissue` is how many blocked ticks had living

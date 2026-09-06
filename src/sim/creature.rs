@@ -4644,8 +4644,8 @@ fn step_chain(
         // that walked into a crown must be able to fall out of it, and a
         // fall refused because a leaf is in the way is the frozen-on-water
         // failure `colony_ant_site` records, wearing foliage.
-        if landing_is_placeable_through_tissue(world, &chain, &fallen, push_force_of(world, organism, def)) {
-            relocate_chain(world, organism, def, &chain, &fallen);
+        if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled()) {
+            relocate_chain(world, organism, &chain, &fallen);
             world.creature_stats.falls += 1;
             return true;
         }
@@ -4673,7 +4673,7 @@ fn step_chain(
     // ...and so is the push force, for the same reason: it is a per-animal
     // constant over this tick and the candidate loop would otherwise
     // re-derive it three times.
-    let push = push_force_of(world, organism, def);
+    let push = parting_enabled();
     for (i, &d) in dirs.iter().enumerate() {
         let (dx, dy) = DIRS[d as usize];
         let (tx, ty) = (hx + dx, hy + dy);
@@ -4692,7 +4692,7 @@ fn step_chain(
         // tunnel.
         let landing = body_after_step(def, &chain, (tx, ty), heading, d);
         // **Soft living tissue is not a wall.** See
-        // `landing_is_placeable_through_tissue` and `is_soft_tissue`: a
+        // `landing_is_placeable_through_tissue` and `is_partable`: a
         // grid cell cannot hold the air inside a bush, so foliage draws
         // solid when it physically is not, and this is the correction for
         // that rather than a licence to walk through wood.
@@ -4756,7 +4756,7 @@ fn step_chain(
         // from the RNG; the three re-tests are the same eight-cell scan the
         // loop above just did.
         {
-            let force = dig_force_of(def, &traits_of(world, organism, def));
+
             let mut tissue_seen = false;
             let mut freed = false;
             let mut freed_any = false;
@@ -4771,11 +4771,11 @@ fn step_chain(
                 // the same force gate the remedy uses would make a trunk
                 // invisible to the census that is supposed to say trunks are
                 // the problem.
-                if landing.iter().any(|&(px, py)| is_soft_tissue(world, world.get(px, py), f32::INFINITY)) {
+                if landing.iter().any(|&(px, py)| is_living_tissue(world, world.get(px, py))) {
                     tissue_seen = true;
                     for &(px, py) in landing.iter() {
                         let m = world.get(px, py).material;
-                        if is_soft_tissue(world, world.get(px, py), f32::INFINITY) {
+                        if is_living_tissue(world, world.get(px, py)) {
                             let idx = m.0 as usize;
                             if world.blocked_tissue_by_material.len() <= idx {
                                 world.blocked_tissue_by_material.resize(idx + 1, 0);
@@ -4784,10 +4784,10 @@ fn step_chain(
                         }
                     }
                 }
-                if landing_is_placeable_through_tissue(world, &chain, &landing, force) {
+                if landing_is_placeable_through_tissue(world, &chain, &landing, true) {
                     freed = true;
                 }
-                if landing_is_placeable_through_tissue(world, &chain, &landing, f32::INFINITY) {
+                if landing_is_placeable_all_tissue(world, &chain, &landing) {
                     freed_any = true;
                 }
             }
@@ -4824,7 +4824,7 @@ fn step_chain(
     let (tx, ty) = (hx + dx, hy + dy);
 
     let next = body_after_step(def, &chain, (tx, ty), heading, new_heading);
-    relocate_chain(world, organism, def, &chain, &next);
+    relocate_chain(world, organism, &chain, &next);
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
@@ -5301,7 +5301,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             break;
         }
         if let Some(to) = translated_if_free(world, &cells, sx, sy) {
-            relocate_chain(world, organism, def, &cells, &to);
+            relocate_chain(world, organism, &cells, &to);
             cells = to;
             flight.fx -= sx as f32;
             flight.fy -= sy as f32;
@@ -5313,7 +5313,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         // slide along it, not stop dead in the air.
         if sy != 0 {
             if let Some(to) = translated_if_free(world, &cells, 0, sy) {
-                relocate_chain(world, organism, def, &cells, &to);
+                relocate_chain(world, organism, &cells, &to);
                 cells = to;
                 flight.fy -= sy as f32;
                 moves += 1;
@@ -5326,7 +5326,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         }
         if sx != 0 {
             if let Some(to) = translated_if_free(world, &cells, sx, 0) {
-                relocate_chain(world, organism, def, &cells, &to);
+                relocate_chain(world, organism, &cells, &to);
                 cells = to;
                 flight.fx -= sx as f32;
                 moves += 1;
@@ -5465,7 +5465,12 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
             // Body-aware, like the candidate scan: a wide creature must not
             // re-orient into a heading its shape cannot occupy.
             let landing = body_after_step(def, &chain, (tx, ty), d, d);
-            landing_is_placeable(world, &chain, &landing) && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
+            // **The same predicate the walk uses.** These had drifted apart:
+            // a body could step into tissue on its ordinary move and then
+            // refuse to *re-orient* into it when blocked, so the two halves
+            // of one animal disagreed about what a wall was.
+            landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
+                && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
     if let Some(state) = world.organism_mut(organism) {
@@ -5474,6 +5479,111 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
     world.creature_stats.tumbles += 1;
 }
 
+/// **Is this cell living plant tissue at all** — alive, and a plant.
+///
+/// The attribution predicate, and the base of every other test here. Kept
+/// separate from the passability question because "what was in the way" and
+/// "what may I move through" are different questions, and answering the
+/// first with the second's gate makes a trunk invisible to the census that
+/// exists to say trunks are the problem.
+fn is_living_tissue(world: &World, cell: Cell) -> bool {
+    cell.organism_id() != 0 && world.materials.kind(cell.material) == MaterialKind::Plant
+}
+
+/// **May a body move through this cell?**
+///
+/// `Material::climbable` and nothing else, read behind the same
+/// `organism_id() != 0` the flag has always been read behind.
+///
+/// **This is the owner's own rule, applied to everything with legs.**
+/// `climbable` was authored as a *player* property and `wood.ron` states it
+/// plainly -- *"walk-through and climbable, while it is alive. A growing
+/// tree is scenery you move past and go up, not a wall you stop against."*
+/// The gnome has moved through living trunks since M16 on that ruling; the
+/// creature line simply never read the flag.
+///
+/// **Why the flag and not the armour table.** The first version of parting
+/// gated on `penetration_resistance <= dig_force`, which is right for
+/// foliage and wrong as a general rule, because that field is *shared*:
+/// `act`'s ingest gate, the dig gate and root penetration all read it. To
+/// let a body through a trunk it would have to be repriced down to the
+/// softest shipped bite, and that same number decides whether a mouth can
+/// cut wood and whether a root can grow through it. One lever, three
+/// meanings -- `CLAUDE.md`'s "a term in a weighted sum is not an
+/// independent knob", in the form where the knob is a material field.
+/// `climbable` already means exactly this and means only this.
+///
+/// **The 2D argument, which is the whole justification.** Owner, 2026-09-06:
+/// *"in a 3D world, an ant can walk around the trunk of a tree. In this 2D
+/// world, creatures are getting stuck if they get surrounded by branches or
+/// between two plants."* A side-view grid has no depth axis, so a trunk that
+/// a real animal would step around is an unbroken wall here. Passing through
+/// is the projection of going around, exactly as parting foliage is the
+/// correction for air the grid cannot hold. Neither is a claim that wood is
+/// soft.
+fn is_partable(world: &World, cell: Cell) -> bool {
+    if !is_living_tissue(world, cell) {
+        return false;
+    }
+    let material = world.materials.get(cell.material);
+    // `PART_WOOD=0` keeps foliage partable and puts trunks back to solid --
+    // the middle arm, so "walking through wood" can be measured apart from
+    // "walking through leaves" and apart from the ants simply being more
+    // active. Without it the only comparison available is all-or-nothing,
+    // and a colony that ranges further also digs more, which detaches trees
+    // for reasons that have nothing to do with parting.
+    if material.woody && !part_wood_enabled() {
+        return false;
+    }
+    material.climbable
+}
+
+/// Whether a parted cell stays in its plant's own cell list. `PART_KEEP_
+/// GRAPH=0` takes it out again, which is the isolating control for anything
+/// this insert is suspected of causing.
+fn keep_graph_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PART_KEEP_GRAPH").map(|v| v != "0").unwrap_or(true))
+}
+
+/// Whether **woody** living tissue may be walked through, as against
+/// foliage. `PART_WOOD=1` turns it on.
+///
+/// **Off by default, and that is a measured blocker rather than caution.**
+/// The movement half works and works well -- on `scene=colony` seed 1 it
+/// takes tissue blocks from 776 to 17, and the 17 are only `grassblade` and
+/// `grassroot`, the two living materials with no `climbable` flag. What it
+/// also does is **kill plants**, and `lab::tests::copies_carry_what_was_
+/// planted_and_still_diverge` is the reproduction: three copies of the lab
+/// bed all finish at `plant_cells 0` with this on, and pass with it off.
+///
+/// The mechanism is `plant::is_structural_anchor`, which opens
+/// `if cell.organism_id() != organism_id { return false }` -- resolved
+/// through the **grid**. A parted cell holds the animal, so it stops
+/// counting as an anchor, and a seedling whose single base stem an ant is
+/// standing in becomes an unanchored plant and comes down. Foliage never
+/// showed this because a leaf is never an anchor.
+///
+/// The repair is not a patch at that one line: several per-organism passes
+/// resolve a plant's own cells through the grid, and each needs to be able
+/// to answer *"this is still mine, an animal is merely standing in it"*.
+/// That wants the parted cell reachable **from the plant** rather than only
+/// from the animal holding it. Until that exists this stays off.
+fn part_wood_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PART_WOOD").is_ok_and(|v| v != "0"))
+}
+
+/// `landing_is_placeable`, but with soft living tissue counted as free.
+///
+/// **Measurement only for now** — nothing moves through anything on the
+/// strength of this. It exists so the blocked path can say what a
+/// pass-through rule would be *worth* before one is built, which is the
+/// positive control `CLAUDE.md` asks for: a candidate refused by a leaf and
+/// a rock at once is still refused, and only the difference between the two
+/// predicates says which blocked ticks tissue actually owns.
 /// Is this landing a body the world can actually hold?
 ///
 /// **Two clauses, and the second one is the repair for §R3.** Every cell of
@@ -5502,50 +5612,27 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
 /// and only the longer bodies, which are broken today, change. A fall is a
 /// translation and cannot duplicate either; it goes through here anyway so
 /// that "can this body stand in these cells" is one rule and not three.
-fn landing_is_placeable(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)]) -> bool {
-    landing.iter().enumerate().all(|(i, &p)| (world.is_empty(p.0, p.1) || chain.contains(&p)) && !landing[..i].contains(&p))
-}
-
-/// **Is this cell living plant tissue soft enough for a body of `force` to
-/// push through?**
 ///
-/// Three conditions, and each one is load-bearing:
-///
-/// - **`MaterialKind::Plant`**, so this is about tissue and never about
-///   rock, powder, clutter or another animal.
-/// - **`organism_id() != 0` — it has to be *alive*.** The same gate
-///   `Material::climbable` is read behind, for the identical reason
-///   `wood.ron` states: a grown tree and a `wood` wall someone painted are
-///   the same material and must behave differently. Debris is no softer for
-///   having once been a leaf, so `deadleaf` and `litter` (both `Powder`)
-///   are excluded by the kind test above regardless.
-/// - **`penetration_resistance <= force`**, which is the pattern roots and
-///   `act`'s dig gate already use and is deliberately *not* a material-name
-///   whitelist: a future soft tissue becomes passable with no code change,
-///   and heartwood stays solid because it never authored a resistance and
-///   sits at the 100.0 default.
-///
-/// The armour table is already authored for this and was not invented here:
-/// `leaf`, `flower` and `moss` at 0.1 and `fruit` at 0.2 against `ant.ron`'s
-/// `dig_force: 1.0` and `beetle.ron`'s 0.3, while `wood` and `rootwood`
-/// author none at all.
-fn is_soft_tissue(world: &World, cell: Cell, force: f32) -> bool {
-    cell.organism_id() != 0
-        && world.materials.kind(cell.material) == MaterialKind::Plant
-        && world.materials.get(cell.material).penetration_resistance <= force
-}
-
-/// `landing_is_placeable`, but with soft living tissue counted as free.
-///
-/// **Measurement only for now** — nothing moves through anything on the
-/// strength of this. It exists so the blocked path can say what a
-/// pass-through rule would be *worth* before one is built, which is the
-/// positive control `CLAUDE.md` asks for: a candidate refused by a leaf and
-/// a rock at once is still refused, and only the difference between the two
-/// predicates says which blocked ticks tissue actually owns.
-fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)], force: f32) -> bool {
+/// **`allow` is what makes this one function rather than two.** With it
+/// false the predicate is exactly the pre-parting rule -- world-empty or my
+/// own cell -- which is what `TISSUE_PARTING=0` and the guards below want,
+/// and is why there is no second copy to drift out of step with this one.
+fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)], allow: bool) -> bool {
     landing.iter().enumerate().all(|(i, &p)| {
-        (world.is_empty(p.0, p.1) || chain.contains(&p) || is_soft_tissue(world, world.get(p.0, p.1), force)) && !landing[..i].contains(&p)
+        (world.is_empty(p.0, p.1) || chain.contains(&p) || (allow && is_partable(world, world.get(p.0, p.1)))) && !landing[..i].contains(&p)
+    })
+}
+
+/// The same, with **every** living plant cell counted as free, whatever it
+/// is made of -- the ceiling for the attribution counters.
+///
+/// It differs from the predicate above by exactly the tissue that is alive,
+/// is a plant, and is not `climbable`. Without it a small
+/// `blocked_tissue_freed` cannot be told apart from a large one whose data
+/// has a hole in it, and those want opposite fixes.
+fn landing_is_placeable_all_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)]) -> bool {
+    landing.iter().enumerate().all(|(i, &p)| {
+        (world.is_empty(p.0, p.1) || chain.contains(&p) || is_living_tissue(world, world.get(p.0, p.1))) && !landing[..i].contains(&p)
     })
 }
 
@@ -5725,7 +5812,7 @@ impl Kin {
 /// P-1: the `Cell` values are moved, not rebuilt, so temperature,
 /// `FLAG_BURNING` and the burn timer ride along for every cell. A chain is
 /// where that matters most — a rebuild forgets once per cell per step.
-fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, from: &[(i32, i32)], to: &[(i32, i32)]) {
+fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(i32, i32)]) {
     // **The two ways this silently loses a cell, made loud.** `zip` is the
     // trap: a `to` shorter than `from` drops the tail's `Cell` on the floor
     // and a longer one leaves `state.chain` claiming a position that holds
@@ -5748,13 +5835,13 @@ fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, from: &[(
     // cleared and a `to` position that is also a `from` position holds the
     // animal rather than a plant. Only genuinely new ground is parted; a
     // cell the body already occupies is already accounted for in `parted`.
-    let force = push_force_of(world, organism, def);
+    let allow = parting_enabled();
     let newly_parted: Vec<organism::Parted> = to
         .iter()
         .filter(|p| !from.contains(p))
         .filter_map(|&(px, py)| {
             let cell = world.get(px, py);
-            is_soft_tissue(world, cell, force).then(|| organism::Parted {
+            (allow && is_partable(world, cell)).then(|| organism::Parted {
                 x: px,
                 y: py,
                 cell,
@@ -5785,6 +5872,41 @@ fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, from: &[(
         world.set(cx, cy, cell);
     }
     still_held.extend(newly_parted);
+
+    // **Leave the cell in the plant's own list, even though the grid now
+    // holds an animal.** Without this, walking through a trunk tears the
+    // tree apart -- measured, `scene=colony` seed 1, 12,000 frames: the
+    // support check severed **7,845 cells against 1,773** with everything
+    // else identical, snapped 28 against 10, and the standing stand ended
+    // 22,923 cells against 28,004. The crowns were coming off.
+    //
+    // The mechanism is that `plant::anchor_support` builds the plant's
+    // connectivity graph from `OrganismState::cells`, **not from the grid**
+    // -- so a parted cell is not a cell temporarily hidden, it is a hole in
+    // the tree's own graph, and every cell beyond it stops being reachable
+    // from the anchors. Foliage did not show this because a leaf holds up
+    // nothing by design (`leaf.ron` opts out of the cantilever rule); a
+    // trunk cell is a load path and every one of them is a cut.
+    //
+    // **The list and the grid disagreeing is a state this code already
+    // has**, which is why the repair is this small: `plant.rs`'s
+    // `accumulate_support` says so at its own call site -- *"the two can
+    // disagree for a tick"*, *"the list can outlive the grid by a tick"* --
+    // and resolves material through the grid for exactly that reason. This
+    // makes that window deliberate and a little longer rather than
+    // introducing a new kind of inconsistency.
+    //
+    // The saved scalars go back in with it, not a default, so the plant's
+    // own passes see the carbon that is still notionally in the cell.
+    if keep_graph_enabled() {
+        for entry in &still_held {
+            let plant = entry.cell.organism_id();
+            if let Some(state) = world.organism_mut(plant) {
+                state.cells.insert((entry.x, entry.y), entry.scalars.clone());
+            }
+        }
+    }
+
     if let Some(state) = world.organism_mut(organism) {
         state.chain = to.to_vec();
         state.parted = still_held;
@@ -5837,23 +5959,6 @@ fn parting_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("TISSUE_PARTING").map(|v| v != "0").unwrap_or(true))
-}
-
-/// **How hard this animal can push through living tissue.**
-///
-/// The dig gene, deliberately, rather than a new one: shouldering through a
-/// stand of foliage and cutting into packed ground are the same apparatus,
-/// and the genome already prices one allele for it. A species that has
-/// evolved a stronger dig gets a wider range of tissue it can enter for
-/// free, which is the coupling worth having.
-fn push_force_of(world: &World, organism: u16, def: &CreatureDef) -> f32 {
-    if !parting_enabled() {
-        // Nothing in the armour table is priced below zero, and
-        // `is_soft_tissue` compares with `<=`, so a force of `-1` refuses
-        // every cell -- which is exactly the pre-parting predicate.
-        return -1.0;
-    }
-    dig_force_of(def, &traits_of(world, organism, def))
 }
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of
@@ -9061,12 +9166,12 @@ mod tests {
         // `relocate_chain` wrote it twice with the Segment last.
         let into_body = body_after_step(&def, &chain, (11, 10), 2, 2);
         assert_eq!(into_body, vec![(11, 10), (10, 10), (11, 10)], "the duplicate this rule exists to refuse");
-        assert!(!landing_is_placeable(&w, &chain, &into_body), "a body must not arrive with two cells in one place");
+        assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false), "a body must not arrive with two cells in one place");
 
         // Into the tail, which does vacate: the same three cells, no repeat.
         let into_tail = body_after_step(&def, &chain, (11, 11), 2, 2);
         assert_eq!(into_tail, vec![(11, 11), (10, 10), (11, 10)]);
-        assert!(landing_is_placeable(&w, &chain, &into_tail), "following your own tail is legal and must stay legal");
+        assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false), "following your own tail is legal and must stay legal");
     }
 
     /// `Reports/creature-chain-head-loss-2026-08-30.md` §3, as a guard.
@@ -11748,7 +11853,7 @@ mod tests {
             }
         }
         // A hedge standing on the floor, owned by an organism so it is
-        // *living* tissue -- `is_soft_tissue` refuses anything with no
+        // *living* tissue -- `is_partable` refuses anything with no
         // owner, which is the same gate `Material::climbable` is read
         // behind, and a hedge painted with no organism would be testing the
         // wrong branch.
@@ -11762,6 +11867,15 @@ mod tests {
                 }
             }
         }
+        // **Grid cells plus held cells, and the second term is the whole
+        // point.** A leaf an animal is standing in is deliberately *absent
+        // from the grid* -- that is what parting is -- so a census that
+        // reads only `World::get` counts every animal currently inside the
+        // hedge as a destroyed leaf. The first version of this guard did
+        // exactly that and reported "the hedge lost 6 leaf cells" for three
+        // ants standing in it, with `eats`, `digs` and `deaths` all zero.
+        // `CLAUDE.md`'s "ask what your number counts when nothing is wrong",
+        // in the form where the wrong number is the guard's own.
         let census = |w: &World| -> (usize, f32) {
             let mut n = 0;
             let mut carbon = 0.0;
@@ -11770,6 +11884,15 @@ mod tests {
                     if w.get(x, y).material == leaf {
                         n += 1;
                         carbon += w.organism_cell(x, y).map_or(0.0, |c| c.carbon);
+                    }
+                }
+            }
+            for id in w.live_organism_ids() {
+                let Some(state) = w.organism(id) else { continue };
+                for held in &state.parted {
+                    if held.cell.material == leaf && (88..112).contains(&held.x) && ((floor - 10)..floor).contains(&held.y) {
+                        n += 1;
+                        carbon += held.scalars.carbon;
                     }
                 }
             }
@@ -11875,9 +11998,8 @@ mod tests {
         let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
         // Pick it up off the shelf: nothing within 8 of it any more.
         let chain = w.organism(ant).expect("live").chain.clone();
-        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         let aloft: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x, y - 20)).collect();
-        relocate_chain(&mut w, ant, &def, &chain, &aloft);
+        relocate_chain(&mut w, ant, &chain, &aloft);
 
         assert!(!launch(&mut w, ant, 0), "there is nothing to push off");
         assert_eq!(w.creature_stats.impulses, 0, "and it must not be counted as a launch");
@@ -11902,7 +12024,7 @@ mod tests {
             // Off the end of the shelf, over open air down to row 199.
             let chain = w.organism(id).expect("live").chain.clone();
             let out: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x + 22, y)).collect();
-            relocate_chain(&mut w, id, &def, &chain, &out);
+            relocate_chain(&mut w, id, &chain, &out);
             let start = w.organism(id).expect("live").chain[0];
             // Put it back in touch with the shelf for one instant so the
             // launch is legal, then let it go: a plinth of one cell.
