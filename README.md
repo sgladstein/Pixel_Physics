@@ -5847,7 +5847,16 @@ four ancestral rows on GENOME beside `scent_drift`, `scent_spread` and
 `kin_crosses_kinds` on ANTS under COLONIES — and every jar on the shelf
 pads its missing tail from the *species'* ancestral vector now
 (`specimen::padded_from`) rather than from zero, so a pre-signature beetle
-jar lands on the beetle's scent and not the ant's. Report:
+jar lands on the beetle's scent and not the ant's. **Measured**: on the shipped two-colony bed at `tolerance=-0.5 drift=0.3`
+every one of three seeds speciates inside 48,000 frames — `ANT 1b` named
+at frames 32,793 / 36,504 / 23,028, a second split on two of them — and
+nearly every kill before the split is booked *within* the label: drifted
+cousins bite each other while the cluster is still under the floor, so
+under drift intolerance is cannibalism until the bitten can bite back. At
+the authored radius of 1.0, drifts of 0.15 and 0.3 are byte-identical over
+the same horizon (no pair ever parts far enough for a predicate to flip),
+and the bed's own starvation, not the drift, is what bounds how often a
+cluster of three drifted cousins is alive at once. Report:
 [`Reports/creature-signature-and-castes-2026-09-06.md`](Reports/creature-signature-and-castes-2026-09-06.md),
 which also carries the castes verdict: feasible as a heritable reaction
 norm along one morph axis, not built yet.

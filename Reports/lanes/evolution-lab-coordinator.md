@@ -895,6 +895,15 @@ so there is no fitted kin-sense advantage to lose; the narrow end
 (12/6, 8/10, 7/6 against 0/0 at the defaults); and a tolerant colony beside
 an intolerant one loses **14, 14 and 15 ants** to it over three seeds while
 killing **none** of it — the raid and the adoption are the same asymmetry.
+**Speciation fires on the shipped bed**: at `tolerance=-0.5 drift=0.3` all
+three seeds name a split-off group inside 48,000 frames (`ANT 1b` at
+32,793 / 36,504 / `ANT 2b` at 23,028; a second split on two seeds), and
+almost every kill before the split is a colony eating its own drifted
+cousins. At the authored radius of 1.0 two drift rates were byte-identical
+over the horizon, and the positive control (radius 0.1, drift 1.0) bit on
+the first birth and named nothing because the bed starves a colony under
+the three-animal floor first — the bed, not the drift, bounds what can be
+seen.
 
 **For the Opus session:** `is_living_kin(world, cell, gut)` keeps its
 signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/

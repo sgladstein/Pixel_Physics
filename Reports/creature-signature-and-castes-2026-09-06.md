@@ -142,7 +142,7 @@ quoted, only counters.
 | `ascii`, *deposition follows the moisture gradient* | 237 drops, 2,962 laden ants, 2.5692 vs 1.8838, **1.36x** | 237 drops, 2,962 laden ants, 2.5692 vs 1.8838, **1.36x** | digit for digit -- the gate the fight handoff named as the one that notices a widened kin |
 | `ascii`, every non-timing line of the whole run (1,121 lines) | — | **0 lines differ** | the outdoor game is untouched |
 | `labstats colonies=2 founders=8 frames=24000`, seeds 1–3, every frame line and the group tally | — | **identical on all three seeds** | the lab at the shipped dials is untouched |
-| `creature_arena species=ancestor arm=ablate input=KinNear frames=24000 seeds=6` | B share of animals median 49.1% (q1 42.9, q3 50.0); seeds below 50%: 4, above 1, tied 1 | *(below)* | the kin-sense null the design report's §3c asked for first |
+| `creature_arena species=ancestor arm=ablate input=KinNear frames=24000 seeds=6` | B share of animals median 49.1% (q1 42.9, q3 50.0); seeds below 50%: 4, above 1, tied 1 | **the same six rows, digit for digit** | the kin-sense null the design report's §3c asked for first, and the branch reproduces it exactly |
 
 The `KinNear` ablation on `main` is a **null**: four seeds under 50%, one
 over, one tied, inside the harness's own 2.4-3.1x seed floor. So the
@@ -187,6 +187,56 @@ report says adoption is visible in the kill tally rather than the legend.
 attacker, which is the severed-half path that dies as `Killed` without a
 bite booking it — pre-existing, and worth a line in the fight lane's
 handoff rather than a fix here.)
+
+**Speciation by drift, on the shipped bed, named on the page** — two
+colonies, `tolerance=-0.5` (radius 0.5), 48,000 frames, three seeds, the
+`regroup_by_scent` counter printed at the moment it fires:
+
+| seed | drift 0.3 | end state | kills booked before and after the split |
+|---|---|---|---|
+| 1 | **`ANT 1b` named at frame 32,793** (3 animals), `ANT 1c` at 37,755 (4) | ANT 1 3, ANT 1b 5, ANT 1c 3 alive; ANT 2 starved out | ANT 1 lost 13 (11 to its own label before the split, 2 to 1c); 1b lost 4; 1c lost 3 |
+| 2 | `ANT 1b` at 36,504, `ANT 2b` at 42,738, `ANT 1c` at 45,072 | ANT 1 1, ANT 2 3, 1b 3, 2b 2, 1c 3 alive | ANT 1 lost 16 and ANT 2 11, every one to its own label |
+| 3 | **`ANT 2b` named at 23,028** (10 animals) | ANT 1 6, ANT 2b 5 alive; ANT 2 starved out | 2b lost 15 (12 to its own label, 2 to ANT 2); ANT 1 lost 5 |
+
+| seed | drift 0.6 | end state | kills |
+|---|---|---|---|
+| 1 | **no split** — the colony never holds three drifted cousins at once (7 → 5 animals from frame 12k on) | ANT 1 3 alive; ANT 2 starved out | ANT 1 lost 8, all to its own label |
+| 2 | `ANT 1b` at 12,355, `ANT 2b` at 13,206, `ANT 2c` at 21,948, **`ANT 1bb` at 43,376** — a split off a split | six labels, 6 animals alive across them | 1b lost 11, all to its own label; ANT 1 lost 8 (6 own, 2 to 1b) |
+| 3 | `ANT 1b` at 30,288 (3 animals) | ANT 1 3, ANT 2 3, 1b 1 alive | ANT 1 lost 11 (9 own, 1 to 1b); ANT 2 lost 7 (6 own); 1b lost 3 |
+
+Doubling the drift halves the time to the first split where the colony
+can afford one (12k against 33k on seed 2) and does nothing where it
+cannot (seed 1) — the bed, not the rate, is the binding constraint on the
+shipped bed, and the rate is what the owner will turn to see it on a fed
+one.
+
+Every seed speciates inside the run, and the name lands on the legend the
+frame the cluster parts — the owner's question *"do they ever change into
+new creatures separate from the original"* answered by a counter and a
+row. Three things the table says that the design report only predicted:
+
+- **A colony eats its own before it splits.** Nearly every kill above is
+  booked *within* a label (`killed by ANT 1 x11`): drifted cousins bite each
+  other while the drifting cluster is still under `MIN_SPLIT_GROUP` or the
+  mutual-kin graph is still connected through intermediates. Under drift,
+  intolerance is a cannibalism strategy until the bitten can bite back —
+  the `Attack` verb and the alarm plane (other session) are what turn it
+  into war. This is the shared-budget rule landing on kin: nothing prices
+  biting a cousin who cannot retaliate.
+- **The bed decides whether drift can be seen at all.** At the authored
+  tolerance (radius 1.0) `drift=0.15` and `0.3` are **byte-identical** to
+  each other over 48,000 frames — the scent values differ and no pair ever
+  reaches 1.0 apart, so no predicate ever flips and the two worlds are the
+  same world. The positive control (`tolerance=-0.9 drift=1.0`) bites on
+  the first birth and names nothing, because this bed starves both
+  colonies to three animals by frame 24,000 and a cluster of three is the
+  floor. Speciation needs a colony that stays big enough to have three
+  drifted cousins alive at once, which the shipped bed barely manages.
+- **The split is graded in the two ways the first law asks for.** It
+  arrives at different frames on different seeds (23k–45k), in different
+  sizes (3–10 animals), sometimes twice off one parent (`1b`, `1c`) and
+  sometimes off both (`1b`, `2b`); and the tally beside it says what each
+  new group did to whom.
 
 **The guards go red when the fault is put back** (2026-09-06, one test
 build): with `is_living_kin` made to ignore the distance (kin = same kind

@@ -498,14 +498,37 @@ fn main() {
 
     if let Some(path) = png {
         let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
-        let touched = lab.world.take_touched_chunks();
-        lab.renderer.draw(&lab.world, &lab.particles, &touched, &mut buf, (WIDTH, HEIGHT), true);
-        // A cursor over the first row, so the hover the page carries is in
-        // the picture rather than described in a caption.
-        let hover: Option<i32> = arg("hover");
-        match hover {
-            Some(row) => lab.stats.draw_at(&mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
-            None => lab.stats.draw(&mut buf, &lab.world),
+        // **`page=ants` draws the whole lab frame with the ANTS page open**
+        // -- the bar, the per-group graph and the legend that names a
+        // split-off group `ANT 1b` -- through `Lab::draw`, the path the
+        // player sees. The default is the biosphere overlay over the bare
+        // world, as before. A group's colour in the box and its legend row
+        // come from one function (`render::group_colour`), so this is the
+        // picture the ANTS page's naming is judged by.
+        let page: Option<String> = arg("page");
+        if page.as_deref() == Some("ants") {
+            // The start-up help page would cover the box; a harness frame
+            // is the box. (`PIXEL_PHYSICS_LAB_HELP=0` does the same.)
+            lab.show_help = false;
+            // The biosphere overlay is up in a fresh headless lab and would
+            // cover the page; `Lab::act` closes it when a page opens, and
+            // this is that rule by hand.
+            if lab.stats.showing() {
+                lab.stats.toggle();
+            }
+            lab.ui.toggle_panel(pixel_physics::lab::ui::Panel::Ants);
+            lab.ui.observe(&lab.world);
+            lab.draw(&mut buf, 60.0);
+        } else {
+            let touched = lab.world.take_touched_chunks();
+            lab.renderer.draw(&lab.world, &lab.particles, &touched, &mut buf, (WIDTH, HEIGHT), true);
+            // A cursor over the first row, so the hover the page carries is in
+            // the picture rather than described in a caption.
+            let hover: Option<i32> = arg("hover");
+            match hover {
+                Some(row) => lab.stats.draw_at(&mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
+                None => lab.stats.draw(&mut buf, &lab.world),
+            }
         }
         // **Nearest-neighbour, integer factor.** The page is 5x7 glyphs on a
         // 512-wide framebuffer and the review queue's own note is that the
