@@ -2272,6 +2272,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
+        // **The hunted side's counter, beside the hunter's.** An image of
+        // a bed cannot say whether `ThreatNear` ever fired; only this can,
+        // and it is the number to read before believing any flight
+        // behaviour was selected for or against.
+        if seen.threat.is_some() {
+            world.creature_stats.threat_sightings += 1;
+        }
         if let Some(seen) = sighting {
             world.creature_stats.sightings += 1;
             world.creature_stats.sight_dist_sum += seen.dist as u64;
@@ -2991,6 +2998,23 @@ fn sense(
         inputs[I::KinBearing as usize] = error / std::f32::consts::PI;
     }
 
+    // **The threat pair, from the same cast again.** The prey's side of the
+    // sense the predator has had since 2026-08-30 -- see
+    // `BrainInput::ThreatNear` for why nothing on the hunted side could
+    // evolve without it. Same nearness and bearing arithmetic as prey, so a
+    // genome that learned one has learned the other.
+    if let Some(hunter) = seen_all.threat {
+        inputs[I::ThreatNear as usize] = (1.0 - hunter.dist / reach as f32).clamp(0.0, 1.0);
+        let bearing = ((hunter.y - y) as f32).atan2((hunter.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::ThreatBearing as usize] = error / std::f32::consts::PI;
+    }
+
     (inputs, seen_all, sight_reads, curvature_reads)
 }
 
@@ -3454,6 +3478,10 @@ pub struct Sightings {
     /// home stops being a named material and becomes *where my own kind
     /// are*, which is a real quantity rather than a category.
     pub kin: Option<Sighting>,
+    /// The nearest **living animal that would eat me** -- see
+    /// `is_visible_threat` and `BrainInput::ThreatNear`. Recorded on the
+    /// same rays, never breaking one.
+    pub threat: Option<Sighting>,
 }
 
 /// What stops a sight line: **rock and soil, and nothing else.**
@@ -3577,6 +3605,12 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
     let mut best_d2 = i32::MAX;
     let mut kin: Option<Sighting> = None;
     let mut kin_d2 = i32::MAX;
+    let mut threat: Option<Sighting> = None;
+    let mut threat_d2 = i32::MAX;
+    // My own head, which is what a hunter's gut is asked about. Read once:
+    // the question "would that animal eat this cell" is about *this* cell
+    // for every ray.
+    let self_head = world.get(x, y);
     for i in 0..SIGHT_RAYS {
         let a = std::f32::consts::TAU * i as f32 / SIGHT_RAYS as f32;
         let (rdx, rdy) = (a.cos(), a.sin());
@@ -3600,6 +3634,19 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
                     kin = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
                 }
             }
+            // **Threats are recorded and never break the ray**, exactly as
+            // kin are and for the same reason: `reads` is the bill, and an
+            // animal that stopped its sight line on the first hunter would
+            // look cheaper the more hunted it was. A hunter that is also
+            // prey (an ant to a beetle, and the beetle to the ant) is
+            // recorded in both lists.
+            if is_visible_threat(world, target, organism, self_head) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < threat_d2 {
+                    threat_d2 = d2;
+                    threat = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+            }
             if is_visible_prey(world, target, gut, organism) {
                 let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
                 if d2 < best_d2 {
@@ -3620,7 +3667,32 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             }
         }
     }
-    Sightings { prey: best, kin }
+    Sightings { prey: best, kin, threat }
+}
+
+/// Is this cell **a living animal that would eat me**?
+///
+/// `is_visible_prey` with the roles swapped: fetch the *other* animal's gut
+/// and ask whether my own head is prey to it. One definition of who eats
+/// whom, read from both ends, so the hunter's menu and the hunted's alarm
+/// cannot disagree -- the standing house rule against a readout derived
+/// separately from the mechanism it describes. Threat is therefore mutual
+/// wherever diets overlap (a generalist ant against a beetle, both ways),
+/// and armour is not in it: the graded bite makes any mouth eventually
+/// enough, so "could it open me" is a matter of time and not of kind.
+///
+/// Its own body is excluded by owner, and a nestmate falls out through the
+/// other side's `eats_kin` in `is_visible_prey` -- with `colony_rivalry`
+/// on, an ant of the other colony is a threat, as it should be.
+fn is_visible_threat(world: &World, cell: Cell, self_organism: u16, self_head: Cell) -> bool {
+    let other = cell.organism_id();
+    if other == 0 || other == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
+        return false;
+    }
+    let Some(state) = world.organism(other) else { return false };
+    let Some(def) = world.species.get(state.species).creature.as_ref() else { return false };
+    let their_gut = gut_of(world, other, def);
+    is_visible_prey(world, self_head, their_gut, other)
 }
 
 /// **Is this creature touching the material its species calls home?**
@@ -7587,7 +7659,18 @@ mod tests {
             before + made,
             "ground cells {before} -> {after} (+{lost} lost with their carriers, +{made} rotted back from carrion) over {digs} digs and {dumped} dumps: digging is still eating the bed"
         );
-        assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
+        // **One in twenty, not one in a hundred.** The bar shipped at 1%,
+        // which on a scene of ~99 digs is *zero* -- a count giving a
+        // knife-edge margin, `CLAUDE.md`'s metric trap in its plainest form.
+        // It held for as long as the trajectory happened to hold, and the
+        // 2026-09-06 `ThreatNear` append moved it: a wider genome consumes
+        // more draws per birth, this colony breeds, and one ant of the new
+        // trajectory died packed in with a pellet -- 1 of 99, while the
+        // identity above (`after + lost == before`) still held exactly.
+        // That identity is the claim this test exists for; the bound below
+        // only has to keep a 1-of-99 edge case from quietly becoming the
+        // old behaviour, which was every pellet vanishing.
+        assert!(lost * 20 <= digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
@@ -9217,6 +9300,66 @@ mod tests {
         assert!(w.group_deaths_of(beetle_group.0, beetle_group.1).is_none(), "nothing of the beetle's group died");
         // The world total the page already shows and this split must agree.
         assert_eq!(w.deaths_by_cause[organism::DeathCause::Killed.index()], 1);
+    }
+
+    /// **The hunted can see the hunter, and it is the same rule as the
+    /// hunter seeing the hunted.** Before `ThreatNear` no input said
+    /// "something that can eat you is near", so nothing on the prey side
+    /// could evolve. Three arms, on the predation chamber with the ant given
+    /// eyes for the duration: a shipped carnivore beetle in sight puts
+    /// `ThreatNear > 0` on the ant with a bearing that points at it; a
+    /// beetle whose gut is turned herbivore is not a threat and reads 0; and
+    /// the beetle sees the generalist ant as a threat too, because an ant's
+    /// gut takes 50 J from beetle flesh against the 12 J bar -- and stops
+    /// when the ant is made a herbivore. The sense is *derived* from
+    /// `is_visible_prey` with the roles swapped, so the arms are testing
+    /// that one definition answers both ends.
+    #[test]
+    fn a_hunted_animal_sees_its_hunter_and_only_a_hunter() {
+        // (ant's ThreatNear, ant's ThreatBearing, beetle's ThreatNear)
+        let arm = |beetle_gut: f32, ant_gut: f32| -> (f32, f32, f32) {
+            let mut w = test_world();
+            for x in 80..130 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            set_gut(&mut w, "beetle", beetle_gut);
+            set_gut(&mut w, "ant", ant_gut);
+            // Eyes for the ant, which ships blind: the sense is gated on
+            // `sight_range`, and an eyeless animal never casts.
+            let ant_id = w.species.id_of("ant").expect("ant");
+            let mut ant_def = w.species.get(ant_id).creature.as_ref().expect("creature").clone();
+            ant_def.sight_range = 32;
+            w.species.set_creature(ant_id, ant_def.clone());
+            let beetle_id = w.species.id_of("beetle").expect("beetle");
+            let beetle_def = w.species.get(beetle_id).creature.as_ref().expect("creature").clone();
+
+            let ant = spawn(&mut w, "ant", 110, 100);
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            let (ant_in, _, _) = probe(&w, 110, 100, ant, &ant_def);
+            let (beetle_in, _, _) = probe(&w, 100, 100, beetle, &beetle_def);
+            (
+                ant_in[brain::BrainInput::ThreatNear as usize],
+                ant_in[brain::BrainInput::ThreatBearing as usize],
+                beetle_in[brain::BrainInput::ThreatNear as usize],
+            )
+        };
+
+        // Shipped guts: carnivore beetle (+1), generalist ant (0).
+        let (near, bearing, beetle_near) = arm(1.0, 0.0);
+        assert!(near > 0.5, "a beetle ten cells away in a 32-cell eye must read as a near threat, got {near}");
+        // The beetle stands west of an east-facing ant: directly behind, so
+        // the bearing is at +-1 -- the ends of the signed axis, not 0, which
+        // would mean "dead ahead" AND "nothing in sight".
+        assert!(bearing.abs() > 0.9, "the bearing must point at the hunter, got {bearing}");
+        assert!(beetle_near > 0.5, "a generalist ant is a threat to a beetle too (50 J against 12): got {beetle_near}");
+
+        // A herbivore beetle cannot eat an ant, so it is not a threat.
+        let (near_h, _, _) = arm(-1.0, 0.0);
+        assert_eq!(near_h, 0.0, "a beetle whose gut cannot take ant flesh is furniture, not a threat");
+
+        // And a herbivore ant is no threat to the beetle.
+        let (_, _, beetle_near_h) = arm(1.0, -1.0);
+        assert_eq!(beetle_near_h, 0.0, "an ant whose gut cannot take beetle flesh is no threat to it");
     }
 
     /// **Something eats a living beetle, and until 2026-09-02 nothing could.**

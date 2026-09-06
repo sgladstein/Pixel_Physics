@@ -165,6 +165,20 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::KinNear, O::Persist) => ("STAYS WITH THE COLONY", "BREAKS FROM THE COLONY"),
         (I::KinBearing, O::Turn) => ("TURNS TOWARD ITS KIN", "TURNS AWAY FROM ITS KIN"),
 
+        // -- **the hunter, seen from the hunted side.** `ThreatNear`/
+        //    `ThreatBearing` are `PreyNear`/`PreyBearing` with the roles
+        //    swapped (2026-09-06): the nearest animal whose gut would take
+        //    this one's flesh. A negative bearing weight onto `Turn` is
+        //    flight and a positive one is facing it; a scent laid on threat
+        //    is the nearest thing this genome has to an alarm.
+        (I::ThreatNear, O::Move) => ("HURRIES WHEN HUNTED", "FREEZES WHEN HUNTED"),
+        (I::ThreatNear, O::Feed) => ("KEEPS EATING WHEN HUNTED", "STOPS EATING WHEN HUNTED"),
+        (I::ThreatNear, O::Dig) => ("DIGS IN WHEN HUNTED", "STOPS DIGGING WHEN HUNTED"),
+        (I::ThreatNear, O::Persist) => ("HOLDS COURSE WHEN HUNTED", "BREAKS OFF WHEN HUNTED"),
+        (I::ThreatNear, O::EmitA) => ("RAISES AN ALARM SCENT", "GOES QUIET WHEN HUNTED"),
+        (I::ThreatNear, O::EmitB) => ("RAISES AN ALARM SCENT", "GOES QUIET WHEN HUNTED"),
+        (I::ThreatBearing, O::Turn) => ("TURNS TO FACE A HUNTER", "TURNS AWAY FROM A HUNTER"),
+
         // -- **depth, and it is deliberately not called damp.** `MoistureGrad`
         //    reads as a moisture gradient and measurably is not one: a convex
         //    crest and a flat plateau at the same elevation read 1.012x apart,

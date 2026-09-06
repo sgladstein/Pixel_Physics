@@ -216,7 +216,48 @@ exactly this.
 **For anything the owner would call "war", no**, and the gaps are specific.
 In the order they block things:
 
-### 4a. The prey cannot see the predator — the missing sense
+### 4a. The prey cannot see the predator — the missing sense (built the same night)
+
+**Built:** `ThreatNear`/`ThreatBearing`, slots 22 and 23, derived from
+`is_visible_prey` with the roles swapped; `threat_sightings` counts it;
+nothing shipped is wired to it and the ant is blind, so the picture is
+unchanged and the *reach* is what moved. The paragraph below is the case as
+it stood.
+
+**And raced, the same night, to a null.** `creature_arena` grew an `arm=wire`
+(arm B *gains* named weights nothing shipped carries) and `sight=N` (both
+arms get an eye), and two eyed colonies were raced at 12,000 frames, six
+seeds, mirrored: B wired to flee (`ThreatBearing→Turn −0.8`, `ThreatNear→Move
++0.6`), A not.
+
+| bed | B share of animals, median | seeds B > 50% |
+|---|---|---|
+| six beetles | 53.8% (q1 46.4, q3 54.2) | 4 of 6 |
+| no beetles | 52.2% (q1 47.9, q3 56.0) | 3 of 6, 1 tied |
+
+Both inside the seed noise (the harness's own floor is 2.4–3.1x on the world
+seed alone), and the harness prints why this horizon cannot discriminate:
+*the founding grant lasts 12,000 frames of doing nothing; this run is
+12,000*. So at this length the bed reads who was given more, not who ran —
+the coordinator note's Gate 2 finding arriving on the prey side. What the
+null does **not** say is that flight cannot pay: it says the measurement
+has to be taken past the grant (24,000+ frames), with `threat_sightings`
+printed beside it as the positive control that the wired arm ever saw a
+hunter, and against beetles that actually kill (six beetles at 12,000
+frames took few enough ants that the arms could not separate).
+
+**Run past the grant — 24,000 frames, eight beetles, six seeds — and still
+a null**: B share of animals median 55.0% (q1 48.8, q3 57.1), 3 seeds above
+50%, 2 below, 1 tied; the widest seed 64.3% for the fleeing arm and
+35.3% against it on another — which is the spread the harness warns about,
+not a signal. So flight *as wired here* does not pay measurably
+in this bed at this horizon, and the honest reading is not "flight is
+useless" but three named unknowns: whether the wired arm ever saw a hunter
+(`threat_sightings` is not yet printed by the arena — the positive control
+this measurement lacks), whether eight beetles kill enough for a defence
+to matter (§2's tallies say beetle kills run a tenth of deaths), and
+whether `−0.8` onto `Turn` is a flight at all rather than a spin. Each is a
+cheap next run; none was taken tonight. "Does flight pay" is open.
 
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a
@@ -263,7 +304,11 @@ on with no wiring.** The trap that rides with it: widening what the body may
 consider food once cost `ascii`'s deposition-follows-moisture gate 1.03x →
 0.82x against a 0.9 bar; every `ascii` scene holds one colony so the dial
 cannot move it today, but a scene that ever holds two must re-run that gate
-across the dial.
+across the dial. The baseline to quote then is **1.36x on 237 drops from
+2,962 laden ants** (the fight session's re-measurement after the soil layer
+reshaped those scenes), not the 1.03x above; `PIXEL_PHYSICS_DROP_MOISTURE=
+off:0.9` reads 0.70x and is the control that tells a broken mechanism from a
+blind guard.
 
 ### 4b. Fighting is only eating — the missing verb
 
