@@ -9071,8 +9071,42 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // a root down yet must not read as droughted.
         state.root_zone_water =
             if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
-        state.nutrient_status =
-            if nutrient_faces > 0 { nutrient_available / nutrient_faces as f32 } else { 1.0 };
+        // **Zero when a plant has roots and none of them reach soil, and
+        // that is the opposite of the line above it.** The two look like
+        // the same "nothing to say" default and only one of them is.
+        //
+        // For water, 1.0 is right: soil is not the only way to be wet, and
+        // a seedling that has not put a root down must not read as
+        // droughted. For nutrient it was exactly backwards. The whole
+        // premise of `plant-soil-nutrient-plan-2026-09-05.md` §3 is that
+        // **soil supplies something water cannot**, so that the lit,
+        // drip-fed plant reported from the lab can no longer live for ever
+        // on nothing -- and such a plant has `wet_faces > 0` with
+        // `nutrient_faces == 0`, so it took the default and read FULL. The
+        // mechanism taxed a plant whose roots were in poor soil and exempted
+        // outright the plant with no soil at all. Measured as
+        // `a_plant_drinking_only_free_water_reads_no_nutrient_not_full`,
+        // which read 1.000 against soil's 1.000 -- the two arms identical,
+        // which is `CLAUDE.md`'s own tell.
+        //
+        // **`root_cells` is this walk's own local, not the cached field**,
+        // and the distinction is load-bearing rather than stylistic: an
+        // organism-level "has it any roots" test keyed on
+        // `OrganismState::root_cells` is the lagging-cache trap recorded on
+        // `is_structural_anchor` above, where a plant reads rootless for up
+        // to `ORGANISM_TICK_INTERVAL` after germinating. Here the count was
+        // produced by the loop directly above, so it cannot lag.
+        //
+        // The seedling case still defers, which is why this is not a bare
+        // 0.0: before a plant has put down any root at all there is nothing
+        // to be short of, and taxing it would price the founder grant.
+        state.nutrient_status = if nutrient_faces > 0 {
+            nutrient_available / nutrient_faces as f32
+        } else if root_cells > 0 {
+            0.0
+        } else {
+            1.0
+        };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;
@@ -16348,6 +16382,84 @@ cost is x{mult}"
         assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
     }
 
+    /// **The floating plant reads as fully fed, and it is the case the
+    /// nutrient was built for.**
+    ///
+    /// `organism_upkeep` sets `nutrient_status` to `1.0` when a plant has no
+    /// soil faces at all -- the same "nothing to say" default
+    /// `root_zone_water` takes one line above it, where it is right (a
+    /// seedling that has not rooted yet must not read as droughted).
+    ///
+    /// For nutrient it is exactly backwards. The premise §3 was built on is
+    /// that **soil supplies something water cannot**, so that a lit plant
+    /// with a drip on it can no longer live for ever on nothing. A plant
+    /// drinking only free water has `wet_faces > 0` and `nutrient_faces ==
+    /// 0`, so it takes the default and reads **full nutrient** -- the
+    /// mechanism penalises a plant whose roots are in *poor* soil and
+    /// exempts entirely the plant with no soil at all.
+    ///
+    /// This is `CLAUDE.md`'s "check that a planned step can demonstrate
+    /// itself": the step shipped without its own purpose ever being put to
+    /// it. The assertion below is written against the **fixed** behaviour --
+    /// no soil faces reads 0.0, not 1.0 -- with the drinking half beside it,
+    /// because the two arms differ only in what is under the root and any
+    /// difference must therefore be about nutrient rather than reach.
+    #[test]
+    fn a_plant_drinking_only_free_water_reads_no_nutrient_not_full() {
+        /// -> (contact roots, root-zone water, nutrient status) after one
+        /// upkeep, with `source` the only thing under the root cell.
+        fn upkeep(source: &str) -> (u32, f32, f32) {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::RootTip, (0.0, 0.0));
+            // Painted by each material's OWN convention, which is the trap
+            // `CLAUDE.md` records costing a whole reproduction: on a Powder
+            // `aux == 0` is bone dry, on a Liquid `aux == 0` is FULL.
+            let cell = match source {
+                "soil" => {
+                    let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                    Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                }
+                _ => Cell::new(material::WATER, 0),
+            };
+            w.set(60, 61, cell);
+            organism_upkeep(&mut w, id);
+            let st = w.organism(id).expect("alive");
+            (st.contact_root_cells, st.root_zone_water, st.nutrient_status)
+        }
+
+        let (soil_contact, soil_water, soil_nutrient) = upkeep("soil");
+        let (drip_contact, drip_water, drip_nutrient) = upkeep("water");
+        println!(
+            "root over soil:  contact {soil_contact}  water {soil_water:.3}  nutrient {soil_nutrient:.3}\n\
+             root over drip:  contact {drip_contact}  water {drip_water:.3}  nutrient {drip_nutrient:.3}"
+        );
+
+        // The control: both arms drink. #256 made free water a face a root
+        // can take water from, so the arms are equal on the water axis and
+        // any difference below is the nutrient axis alone.
+        assert_eq!(soil_contact, 1, "test setup: a root over wet soil must count as contact");
+        assert_eq!(drip_contact, 1, "test setup: a root over free water must count as contact -- that is #256");
+        assert!(
+            drip_water > 0.5,
+            "test setup: a root over full free water must read wet, not {drip_water:.3} -- a Liquid at aux 0 is FULL"
+        );
+
+        assert!(
+            soil_nutrient > 0.0,
+            "a root over soil must read some nutrient, not {soil_nutrient:.3}, or soil buys nothing"
+        );
+        assert_eq!(
+            drip_nutrient, 0.0,
+            "a plant whose roots touch no soil at all reads nutrient {drip_nutrient:.3}. At 1.0 it is the \
+'nothing to say' default, and it exempts precisely the drip-fed plant the nutrient was built to reach: the \
+mechanism then taxes a plant in POOR soil and leaves the plant in NO soil untouched."
+        );
+    }
+
     /// **A plant is held up from below, or by its roots — not by whatever it
     /// happens to lean on.** The lab's floating plant, reduced to two cells.
     ///
@@ -16718,6 +16830,73 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
         let (dir, strength) = pull.expect("a real off-axis water pocket should produce a nonzero moisture gradient");
         assert!(strength >= MIZ_THRESHOLD, "moisture gradient too weak to trigger hydrotropism: {strength}");
         assert!(dir.0 > 0.0, "the gradient should point right, toward the off-axis water pocket, got {dir:?}");
+    }
+
+    /// **Free water above a root outbids any soil below it, so the root
+    /// steers up** — the owner's report from the roots-on/off card,
+    /// 2026-09-06: *"There is an issue in option a where the roots are
+    /// growing into the tree/sky."*
+    ///
+    /// `Grow`'s `RootTip` arm lets MIZ1 hydrotropism **override**
+    /// gravitropism outright whenever the gradient clears `MIZ_THRESHOLD`,
+    /// and `organism::soil_water_fraction` returns a **Liquid cell's fill**
+    /// on the same 0..1 scale it returns soil moisture on. So free water
+    /// reads **1.0** where soil at field capacity reads 0.62, and any
+    /// standing water — rain on the surface, a drip, a puddle — is a
+    /// maximal attractor that no soil can outbid.
+    ///
+    /// Hydrotropism toward wetter *soil* is the biology `MIZ_THRESHOLD` was
+    /// tuned for and is not in question here. What this pins is the sign
+    /// and the size of the pull toward water that is **not in the ground**,
+    /// which is what takes a root out of the soil and up the trunk.
+    #[test]
+    fn free_water_above_a_root_outbids_the_soil_and_points_it_up() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for y in 40..90 {
+            for x in 40..90 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+
+        // The control: uniform damp soil has no gradient, so a root here
+        // falls through to plain gravitropism. If this is not flat the
+        // scene is wrong and the arm below means nothing.
+        let flat = organism::moisture_pull(&w, 60.0, 60.0);
+        assert!(
+            flat.is_none_or(|(_, m)| m < MIZ_THRESHOLD),
+            "test setup: uniform soil must not pull, got {flat:?}"
+        );
+
+        // One row of free water, ABOVE the root and inside the sensor's
+        // reach -- `MOISTURE_SENSOR_OFFSET` is 4, so this is the cell the
+        // upper sample actually reads.
+        for x in 50..70 {
+            w.set(x, 56, Cell::new(material::WATER, 0));
+        }
+        let ((dx, dy), strength) = organism::moisture_pull(&w, 60.0, 60.0).expect("water above must pull");
+        println!("pull toward free water above: dir ({dx:.3}, {dy:.3})  strength {strength:.3}  \
+threshold {MIZ_THRESHOLD}  (+y is DOWN)");
+
+        assert!(
+            strength >= MIZ_THRESHOLD,
+            "a row of free water four cells above reads {strength:.3}, under the {MIZ_THRESHOLD} threshold"
+        );
+        assert!(
+            dy < 0.0,
+            "the pull points {dy:.3} on y. Free water above a root must not read as a reason to grow DOWN; \
++y is down in this engine"
+        );
+        // The size is the finding, not just the sign: soil at field
+        // capacity is 620/1000 and a full Liquid is 1.0, so the bid is
+        // 0.38 against a threshold of 0.05 -- water out of the ground beats
+        // any soil gradient by more than seven times the bar, and
+        // `Grow`'s RootTip arm takes it INSTEAD of gravity rather than
+        // blending the two.
+        assert!(
+            strength > 7.0 * MIZ_THRESHOLD,
+            "expected free water to outbid soil by a wide margin, got {strength:.3}"
+        );
     }
 
     /// **The guard the test above could not be**, and the one whose

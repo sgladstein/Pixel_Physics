@@ -935,6 +935,66 @@ mod tests {
         assert!(c.nutrient_deficit.is_none(), "a fully recovered chunk must drop its buffer rather than keep 4 KB of zeroes");
     }
 
+    /// **At the numbers §3 was measured with, a root cannot deplete a soil
+    /// cell at all — the draw is repaid forty-five times over before it can
+    /// take again.** This is the arithmetic behind the null, and it is
+    /// checkable without a run.
+    ///
+    /// The two knobs are quoted in **different units** and nothing said so:
+    /// `PIXEL_PHYSICS_NUTRIENT_DRAW` is per organism *tick* (it is spent
+    /// from `absorb_water`, on the `Behavior::Absorb` dispatch) while
+    /// `PIXEL_PHYSICS_NUTRIENT_RECOVERY` is per *frame*. With
+    /// `ORGANISM_TICK_INTERVAL = 45` that is a 45:1 subsidy at draw=1,
+    /// recovery=1 — so `soil_nutrient_fraction` never leaves 1.0,
+    /// `nutrient_construction_multiplier` never leaves x1.0, and the
+    /// mechanism is **inert even when switched on**.
+    ///
+    /// Measured before this test existed: a 12-seed paired sweep of the lab
+    /// bed at 30,000 frames, `initial=200 recovery=1 draw=1` against off,
+    /// read **roots reach median 1.000** (up 5 / same 3 / down 4) and
+    /// **cells median 0.998** (up 6 / down 6). That is what a switched-off
+    /// mechanism looks like, and `CLAUDE.md`'s rule is the one that applies:
+    /// a null needs a counter saying the thing fired, and there was none.
+    ///
+    /// **This is a statement about the two defaults, not about the design.**
+    /// Recovery has to be strictly slower than the draw it forgives for any
+    /// scarcity to exist; the calibration sweep §3 still owes has to start
+    /// by making this test fail.
+    #[test]
+    fn the_shipped_draw_cadence_cannot_outpace_the_shipped_recovery() {
+        use crate::sim::plant::ORGANISM_TICK_INTERVAL;
+        const INITIAL: u8 = 200;
+        // `PIXEL_PHYSICS_NUTRIENT_RECOVERY=1`, per FRAME.
+        const RECOVERY: u16 = 1;
+        // `PIXEL_PHYSICS_NUTRIENT_DRAW=1`, per organism TICK. The whole
+        // finding is that these two lines are not in the same unit.
+        const DRAW: u8 = 1;
+
+        let mut c = Chunk::new(ChunkCoord::new(0, 0));
+        let (x, y) = (5, 7);
+        let mut frame = 0u64;
+        let mut peak = 0u8;
+        // Twenty organism ticks of one root cell drawing on one soil face --
+        // 900 frames, and the most sustained draw a single face can make.
+        for _ in 0..20 {
+            c.draw_nutrient(x, y, frame, RECOVERY, INITIAL, DRAW);
+            peak = peak.max(c.nutrient_deficit(x, y, frame, RECOVERY));
+            frame += ORGANISM_TICK_INTERVAL;
+        }
+        let owed = c.nutrient_deficit(x, y, frame, RECOVERY);
+        println!(
+            "20 organism ticks ({frame} frames) at draw {DRAW}/tick vs recovery {RECOVERY}/frame: \
+peak deficit {peak} of {INITIAL}, ending at {owed}"
+        );
+
+        assert_eq!(owed, 0, "the cell must end owing nothing at a 45:1 subsidy, not {owed}");
+        assert!(
+            u32::from(peak) * 20 < u32::from(INITIAL),
+            "the peak deficit reached {peak} of {INITIAL}; if a sustained draw can bite, this test is \
+no longer describing the shipped defaults and the sweep above should be re-read"
+        );
+    }
+
     #[test]
     fn local_index_stays_in_range_across_the_origin() {
         for x in -200..200 {
