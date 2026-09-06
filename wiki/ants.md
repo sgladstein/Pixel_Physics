@@ -3,9 +3,10 @@
 *Current as of: 2026-09-06, when **foliage stopped being a wall** — an ant
 walks into a bush now and comes out the other side, and the leaves close
 behind it undamaged. A trunk is still a trunk: something to walk up, not
-through. The same day, **a tamped gallery wall stopped giving way in ordinary
-damp ground** and **carrion started rotting back into the soil**, so a nest in
-a planted bed stays open and a body no longer plugs the passage it died in.
+through. The same day, **every part of the ground became able to hold a
+tunnel** — a worked wall no longer comes apart however wet it gets, and a
+flooded burrow drowns rather than caving in — and **carrion started rotting
+back into the soil**, so a body no longer plugs the passage it died in.
 Before that: 2026-09-05, when **how fast an animal lives stopped being
 fixed for its whole kind** — one lineage takes its turn twice as often as its
 neighbours and another half as often, so a bed can hold ants that scurry and
@@ -261,15 +262,17 @@ itself up (see [Powders](powders.md)), so the tunnel is lined as fast as it
 is opened and the roof has something to rest on. The verb and the thing it
 leaves behind are the same act.
 
-**A tamped wall gives way when the ground is waterlogged, and only then.**
-For a while it gave way far sooner than that — at the moisture ordinary damp
-soil sits at, which is most soil most of the time — so a bed with anything
-growing in it dissolved every gallery in the box as fast as the colony could
-cut them, and the holes filled back in with loose earth. What decides it now
-is whether the ground is genuinely waterlogged: a nest in damp earth stands
-indefinitely, one dug down into wet ground gives way at the wet end first,
-and one that floods comes in altogether. It is a wet burrow that fails, not
-a damp one.
+**A tamped wall does not give way, and every part of the ground will hold a
+tunnel.** For a while a wet wall came apart — first at the moisture ordinary
+damp soil sits at, so a bed with anything growing in it lost every gallery as
+fast as the colony could cut them, and then only when genuinely soaked, which
+sounded like a fair hazard and was not: in a sealed box the water drains to
+the bottom and stays, so the deepest part of the bed was becoming ground no
+nest could ever stand in. Now a worked wall stays worked wherever it is dug.
+
+**Water is still a hazard, it just drowns a burrow instead of collapsing
+it.** Flood a shaft and it is a shaft full of water until the ground drinks
+it back — nothing walks it, nothing works in it. A wet nest is a wet nest.
 
 **And a body no longer plugs the passage it died in.** A dead animal is loose
 matter that falls like any other, so an ant that starved deep in the nest

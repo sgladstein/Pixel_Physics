@@ -6299,8 +6299,70 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool
         // beside the stump and held the whole crown up -- 2,360 cells
         // severed became 0 on `scripts/acceptance.sh`'s `fell` case, with
         // the cut working perfectly. See `MaterialDef::anchors_organisms`.
-        (m.kind == MaterialKind::Solid && m.anchors_organisms) || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
+        let ground = (m.kind == MaterialKind::Solid && m.anchors_organisms)
+            || (m.kind == MaterialKind::Powder && m.water_capacity > 0);
+        // **Direction is the whole of the tightening.** Root tissue anchors
+        // on ground in any direction -- gripping sideways and upward
+        // through a crevice is what a root is for. Other tissue anchors
+        // only on ground *directly beneath* it: a stem resting on the floor
+        // is held up, a branch touching a wall beside it is not.
+        //
+        // **An organism-level "has it any roots at all" exemption was tried
+        // here and reverted.** It would have let the two wall-socket
+        // cantilever scenes in `structural.rs` keep their sideways anchor,
+        // but it keys on `OrganismState::root_cells`, which only
+        // `organism_upkeep` refreshes -- so a plant reads rootless for up to
+        // `ORGANISM_TICK_INTERVAL` after germinating and anchors on anything
+        // it touches during that window. That is the lagging-cache trap
+        // `load.rs`'s own `is_anchor` doc says to avoid by reading the world
+        // directly, and it made this file's own guard pass for the wrong
+        // reason.
+        ground && (root_tissue || dy == 1 || !anchoring_is_a_roots_job())
     })
+}
+
+/// Whether holding the plant up is **a root's job** — the 2026-09-06 rule.
+/// `PIXEL_PHYSICS_PLANT_ANCHOR=any` restores the old one, where any cell of
+/// the plant touching anchoring ground anchored the whole organism.
+///
+/// **Reported from play, in the evolution lab.** A plant sprawling across
+/// the box with water dripping on it would not fall, and the reason was
+/// this rule rather than anything about water: the lab box is
+/// `material::STONE` on every side, only `deadleaf` and `log` opt out of
+/// `anchors_organisms`, and the old predicate anchored an organism on *any*
+/// of its cells touching an anchoring solid. So one branch brushing a wall
+/// braced the entire plant, permanently, and in a sealed box a sprawling
+/// plant touches stone almost at once.
+///
+/// **The tightening is about direction, and that was measured rather than
+/// designed.** Banning non-root anchoring outright turned **19 lib tests and
+/// `acceptance.sh` red** — almost all of them hand-built `wood` beams
+/// resting on a stone floor with no root cell anywhere, which is how nearly
+/// every structural and bending scene in this file is built. That is not
+/// felling and climbing being fragile; it is the rule being wrong. A stem
+/// lying *on* the floor genuinely is held up.
+///
+/// So non-root tissue anchors only on ground **directly beneath it**
+/// (`dy == 1`), and root tissue still anchors on ground in any direction —
+/// a root grips sideways and upward through a crevice, which is what a root
+/// is for. The lab plant is braced *sideways* against a wall, so it loses
+/// its anchor; a beam on a floor keeps one.
+///
+/// **What did not change**: what counts as ground, and the `anchors_organisms`
+/// flag that keeps a chip off a felled bole from propping a crown up. A root
+/// gripping *stone* still anchors, which is a tree in a rock crevice and is
+/// what keeps bare-rock scenes standing.
+///
+/// **The known cost, stated rather than discovered**: a seed that germinates
+/// with no room below it gets a `GrowingTip` and no `RootTip` — `germinate`
+/// places the companion root only `if growable(..)` — and such a plant is
+/// now unanchored from its first tick. That is the rootless-plant case
+/// `open-bugs-handoff.md` already calls live, and this rule makes it visible
+/// instead of letting it stand on a wall.
+fn anchoring_is_a_roots_job() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_PLANT_ANCHOR").as_deref(), Ok("any")))
 }
 
 /// What one plant cell is carrying, and how hard that is bending it.
@@ -16065,6 +16127,80 @@ they are the same world. Got {median}, which means something other than the leve
     /// partly-drunk one as 1.0, backwards and self-cancelling. This pins
     /// both ends: the soil function still says what it always said, and the
     /// face reading no longer agrees with it about liquids.
+    /// **A plant is held up from below, or by its roots — not by whatever it
+    /// happens to lean on.** The lab's floating plant, reduced to two cells.
+    ///
+    /// Reported from play: a plant sprawling across the evolution lab with
+    /// water dripping on it, reading ROOT IN SOIL 0% and refusing to fall.
+    /// The lab box is `material::STONE` on all six sides and
+    /// `is_structural_anchor` used to anchor an organism on **any** of its
+    /// cells touching anchoring ground in **any** direction — so a single
+    /// branch against a side wall braced the whole plant for ever.
+    ///
+    /// Four arms, because the rule turns on the *direction* and both halves
+    /// have to hold. Banning non-root anchoring outright was tried first and
+    /// took 19 lib tests and `acceptance.sh` with it: nearly every
+    /// structural scene in this file is a `wood` beam lying on a stone floor
+    /// with no root cell, and such a beam genuinely is held up.
+    #[test]
+    fn a_shoot_is_anchored_from_below_but_not_by_a_wall_beside_it() {
+        /// -> is the lone plant cell an anchor?  `side` puts the ground
+        /// beside it rather than beneath it.
+        fn anchored(tissue: &str, ground: material::MaterialId, side: bool) -> bool {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let (mat, ty) = match tissue {
+                "root" => (w.materials.id_of("rootwood").expect("rootwood is compiled in"), CellType::RootTip),
+                _ => (w.materials.id_of("wood").expect("wood is compiled in"), CellType::GrowingTip),
+            };
+            place(&mut w, (60, 60), mat, id, ty, (0.0, 0.0));
+            let cell = if w.materials.get(ground).kind == MaterialKind::Powder {
+                Cell::new(ground, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(ground, 0)
+            };
+            let (gx, gy) = if side { (61, 60) } else { (60, 61) };
+            w.set(gx, gy, cell);
+            is_structural_anchor(&w, 60, 60, id)
+        }
+
+        let soil = {
+            let w = test_world();
+            w.materials.id_of("soil").expect("soil is compiled in")
+        };
+        let shoot_on_wall = anchored("shoot", material::STONE, true);
+        let shoot_on_floor = anchored("shoot", material::STONE, false);
+        let root_beside_soil = anchored("root", soil, true);
+        let root_on_stone = anchored("root", material::STONE, false);
+        println!(
+            "anchored?  shoot against a wall {shoot_on_wall}  |  shoot on a floor {shoot_on_floor}  |  \
+root beside soil {root_beside_soil}  |  root on stone {root_on_stone}"
+        );
+
+        assert!(
+            !shoot_on_wall,
+            "a shoot touching stone BESIDE it still anchors the plant, so anything that reaches a wall of the lab \
+box is braced there for ever -- which is the floating plant this rule was tightened for"
+        );
+        assert!(
+            shoot_on_floor,
+            "a stem resting ON the floor must still anchor: it genuinely is held up, and nearly every structural \
+scene in this file is a rootless wood beam lying on stone"
+        );
+        assert!(
+            root_beside_soil,
+            "a root must anchor on ground in any direction, sideways included -- gripping is what a root does, and \
+this is the half of the rule the lab plant never had"
+        );
+        assert!(
+            root_on_stone,
+            "a root gripping stone must still anchor: that is a tree in a rock crevice, and every bare-rock scene \
+in this file stands on it"
+        );
+    }
+
     #[test]
     fn a_full_water_cell_is_fully_available_and_the_soil_reading_says_the_opposite() {
         let w = test_world();
