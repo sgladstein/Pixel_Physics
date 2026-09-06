@@ -3896,9 +3896,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
                 let victim = bite.organism_id();
+                // **Who the victim was, read before the bite lands**, because
+                // `reconcile_chain` frees the slot when the mouthful was the
+                // deciding cell and the identity goes with it. Only an animal
+                // can be a kill: a leaf's owner is a tree and stays a tree.
+                let victim_group = (victim != 0 && victim != organism)
+                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
+                    .flatten();
                 world.set(fxx, fyy, Cell::EMPTY);
-                if victim != 0 && victim != organism {
-                    reconcile_chain(world, victim);
+                if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
+                    // The bite killed. Booked here rather than at the death
+                    // because this is the one site that knows both parties
+                    // -- see `World::tally_kill`.
+                    if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
+                        world.tally_kill(v, me);
+                    }
                 }
                 // **Into the crop at face value, and nothing is booked
                 // here.** The ledger's live identity is an *equality*
@@ -8702,6 +8714,44 @@ mod tests {
         assert_eq!(leftovers, 0, "no orphaned ant cell may be left standing -- reconcile_chain is what stops that");
     }
 
+
+    /// **A kill is booked on the victim's group against the killer's** --
+    /// the number a war is read off, and the one `DeathCause::Killed` alone
+    /// cannot give, because the corpse does not know who bit it.
+    ///
+    /// The predation chamber above, unchanged: a carnivore beetle and an ant
+    /// placed touching. After the run the ant's group carries one `KILLED`
+    /// and one entry naming the beetle's group; the beetle's group has no
+    /// row at all, because nothing of it died. The `killed_by` assertion is
+    /// the one that discriminates -- `by_cause` would also be satisfied by
+    /// a fire, and a tally written at `free_organism` could never fill it.
+    #[test]
+    fn a_kill_is_booked_on_the_victims_group_against_the_killers() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+            w.set(x, 96, Cell::new(material::STONE, 0));
+        }
+        for y in 96..102 {
+            w.set(92, y, Cell::new(material::STONE, 0));
+            w.set(111, y, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 108, 100);
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        let ant_group = w.organism(ant).map(|s| (s.species, s.colony)).expect("ant");
+        let beetle_group = w.organism(beetle).map(|s| (s.species, s.colony)).expect("beetle");
+        assert_ne!(ant_group.1, beetle_group.1, "two placements are two colonies");
+
+        run(&mut w, 1200);
+
+        assert!(w.organism(ant).is_none(), "the scene must actually kill the ant for the tally to have anything to say");
+        let dead = w.group_deaths_of(ant_group.0, ant_group.1).expect("a dead ant puts a row on its group");
+        assert_eq!(dead.by_cause[organism::DeathCause::Killed.index()], 1, "one ant, killed: {dead:?}");
+        assert_eq!(dead.killed_by, vec![(beetle_group.0, beetle_group.1, 1)], "the kill names the beetle's group: {dead:?}");
+        assert!(w.group_deaths_of(beetle_group.0, beetle_group.1).is_none(), "nothing of the beetle's group died");
+        // The world total the page already shows and this split must agree.
+        assert_eq!(w.deaths_by_cause[organism::DeathCause::Killed.index()], 1);
+    }
 
     /// **Something eats a living beetle, and until 2026-09-02 nothing could.**
     ///

@@ -205,6 +205,14 @@ fn main() {
         );
         lab.world.species.set_creature(id, def);
     }
+    // **`rivalry=1` -- the colony rule, which is a world dial rather than a
+    // species knob** (`World::colony_rivalry`). Echoed either way, per the
+    // harness rule: a bed with two colonies that never bite each other is
+    // the same picture whether the dial is off or disconnected.
+    if let Some(v) = arg::<i32>("rivalry") {
+        lab.world.colony_rivalry = v != 0;
+    }
+    println!("labstats: colony_rivalry = {} | colonies placed = {:?}", lab.world.colony_rivalry, lab.world.live_creature_groups().iter().map(|g| (g.colony, g.alive)).collect::<Vec<_>>());
     // The cull control needs a moment of stand to cull; everything else runs
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
@@ -316,6 +324,41 @@ fn main() {
             "--- eyes --- sight casts {} | cells read {} | sightings {}",
             st.sight_casts, st.sight_cells_read, st.sightings
         );
+    }
+
+    // **Per group: who is left, what killed the rest, and who did the
+    // killing.** The population line says *that* a colony fell; only this
+    // says whether it starved or was eaten, and by whom -- which is the
+    // whole question a rivalry bed is run to answer. A group with nothing
+    // alive still prints if it has dead, so a wiped-out colony is a row
+    // reading `alive 0` rather than a row that vanished.
+    {
+        let w = &lab.world;
+        let name = |sp: pixel_physics::sim::organism::SpeciesId, col: u32| format!("{} {col}", w.species.get(sp).name.to_uppercase());
+        let mut groups: Vec<(pixel_physics::sim::organism::SpeciesId, u32, u32)> =
+            w.live_creature_groups().iter().map(|g| (g.species, g.colony, g.alive)).collect();
+        for d in &w.group_deaths {
+            if !groups.iter().any(|(sp, col, _)| *sp == d.species && *col == d.colony) {
+                groups.push((d.species, d.colony, 0));
+            }
+        }
+        groups.sort_unstable_by_key(|(sp, col, _)| (*col, sp.0));
+        println!("\n--- groups ---");
+        for (sp, col, alive) in groups {
+            let mut line = format!("  {:<10} alive {alive:>4}", name(sp, col));
+            if let Some(d) = w.group_deaths_of(sp, col) {
+                for cause in pixel_physics::sim::organism::DEATH_CAUSE_LIST {
+                    let n = d.by_cause[cause.index()];
+                    if n > 0 {
+                        line.push_str(&format!("  {} {n}", cause.label().to_lowercase()));
+                    }
+                }
+                for (asp, acol, n) in &d.killed_by {
+                    line.push_str(&format!("  | killed by {} x{n}", name(*asp, *acol)));
+                }
+            }
+            println!("{line}");
+        }
     }
 
     println!("\n--- the page, as text ---");

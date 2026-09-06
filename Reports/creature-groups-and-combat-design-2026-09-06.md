@@ -104,6 +104,29 @@ colonies together; the beetle is unchanged because its kin was never an ant.
 What it does not do: give either colony a reason to seek the other out, a way
 to tell the other's trail from its own, or any response to being bitten.
 
+**Measured, the same evening** — `labstats colonies=2 founders=8
+frames=24000 rivalry=0|1`, three seeds, the per-group tally
+`World::group_deaths` prints (alive / starved / killed, and by whom):
+
+| seed | rivalry | ANT 1 | ANT 2 |
+|---|---|---|---|
+| 1 | off | 15 alive, 49 starved, **0 killed** | 7 alive, 39 starved, 0 killed |
+| 2 | off | 14 alive, 42 starved, 0 killed | 7 alive, 40 starved, 0 killed |
+| 3 | off | 17 alive, 39 starved, 0 killed | 14 alive, 41 starved, 0 killed |
+| 1 | on | 13 alive, 35 starved, **9 killed by ANT 2** | 10 alive, 31 starved, 6 killed by ANT 1 |
+| 2 | on | 44 alive, 36 starved, 5 killed by ANT 2 | 10 alive, 36 starved, 5 killed by ANT 1 |
+| 3 | on | 15 alive, 42 starved, 3 killed by ANT 2 | 9 alive, 35 starved, 6 killed by ANT 1 |
+
+So the dial does exactly and only what §1 said it would: with it off no ant
+has ever killed an ant, and with it on both colonies kill each other **in
+small numbers, both ways, on every seed** — a tenth to a fifth of the
+deaths, the rest still starvation. That is a graded outcome and not a
+war, and it is the honest size of "rivalry as predation": a hungry ant
+beside a stranger bites, and nothing sends it looking for one. Seed 2's
+44-ant colony is the world diverging, not the rule — its food came 93% from
+plants against 73–81% elsewhere. Nothing here is tuned; the numbers are
+what the readout in §4e was built to show.
+
 ---
 
 ## 3. Friend and foe: from a bit to a distance
@@ -251,14 +274,17 @@ cheapest first:
 Order: 3 before 2. Alarm changes what a fight looks like on screen; private
 trails change a number.
 
-### 4e. Nothing scores a fight
+### 4e. Nothing scored a fight — half closed the same evening
 
-`creature_stats` counts births and deaths; nothing counts *kills*, *cells
-bitten off*, *bites received* per group. The owner's question "one almost
-got wiped out, then came back" can be read off the population graph now,
-but *why* — starved or eaten — cannot. `Grave` carries `cause`, and
-`DeathCause` distinguishes starvation from a lost head, so a per-group deaths-
-by-cause row on the legend is cheap and is the next readout.
+`creature_stats` counted births and deaths; nothing counted *kills* per
+group, and `DeathCause::Killed` cannot say who bit. `World::group_deaths`
+now tallies each animal group's deaths by cause **and kills by attacking
+group**, booked at the bite where both parties are in scope
+(`World::tally_kill`; guarded by
+`a_kill_is_booked_on_the_victims_group_against_the_killers`). `labstats`
+prints it as the `--- groups ---` block the table in §2 came from. What is
+still missing is the *page*: the ANTS legend should carry `KILLED n
+STARVED n` under each group, and the run log a line naming the killer.
 
 ### 4f. What is sufficient in the evolutionary machinery, and what is not
 

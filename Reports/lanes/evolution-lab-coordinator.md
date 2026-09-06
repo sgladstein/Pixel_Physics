@@ -722,6 +722,13 @@ re-derive:**
   selector; the graph line under each group is the same colour through one
   function, `render::group_colour`.
 
+**Rivalry measured the same evening, three seeds x 24,000 frames**: off,
+zero ant-on-ant kills anywhere; on, 3–9 kills per side per run, both
+directions, against 35–42 starvations per side. Predation, not war — the
+report's §2 table. `World::group_deaths` (deaths by cause and kills by
+attacking group, booked at the bite) is the readout, and `labstats
+rivalry=1` prints it.
+
 **Two things that bind on what comes next:** the report's order (§6) puts
 `ThreatNear` before anything on the prey side, because *a bed cannot select
 for what the animal cannot perceive* and the prey has no sense for the

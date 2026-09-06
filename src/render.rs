@@ -1289,8 +1289,8 @@ impl CreatureColour {
 /// neighbouring entries are far apart on the wheel (the first two groups a
 /// player places are the pair they most need to tell apart). Eight rather
 /// than `LINEAGE_COLOURS`' six because a colony is something the player
-/// counts up by hand and eight is about where that stops; past it the
-/// palette wraps and the legend says so by number.
+/// counts up by hand and eight is about where that stops; past it
+/// [`group_palette`] generates a fresh hue per group rather than wrapping.
 ///
 /// **Deliberately not `LINEAGE_COLOURS`.** That palette is a false-colour
 /// readout you switch on to ask a question; this one is what the animals
@@ -1312,18 +1312,99 @@ pub const GROUP_COLOURS: [[f32; 3]; 8] = [
 /// Grey rather than a palette slot so it cannot be mistaken for a group.
 pub const GROUP_NONE: [f32; 3] = [150.0, 150.0, 150.0];
 
+/// **The `n`th group's colour, for any `n`.** The first eight are the
+/// authored palette above; past it, a hue stepped round the wheel by the
+/// golden angle from where the palette left off, at the palette's own
+/// brightness, so the ninth group is still a colour nobody else is wearing
+/// and the twentieth is a different one from the nineteenth.
+///
+/// **Generated rather than wrapped, on the owner's verdict.** The palette
+/// shipped wrapping at eight, on `LINEAGE_COLOURS`' reasoning that a colour
+/// per line is noise past a handful. The owner, on the lineage overlay
+/// card of 2026-09-06 (`20260906T012148093Z-257516`): *"every line should
+/// have its own colour even when there are twenty."* Twenty golden-angle
+/// steps are ~18 degrees apart at the closest pair, which is still two
+/// colours at play zoom; past thirty or so they are not, and nothing here
+/// pretends otherwise -- the legend keeps the number beside the swatch.
+pub fn group_palette(n: usize) -> [f32; 3] {
+    /// How many generated entries are tabled. A box with more colonies than
+    /// this is not a box anyone reads by colour; past it the raw golden step
+    /// is used with no collision check.
+    const TABLED: usize = 64;
+    /// The closest two group colours may sit in RGB. Set with headroom
+    /// under the guard's 40: at 24.6 a generated amber landed on the
+    /// authored one and read as the same colony.
+    const MIN_APART: f32 = 56.0;
+    static TABLE: std::sync::OnceLock<Vec<[f32; 3]>> = std::sync::OnceLock::new();
+    let table = TABLE.get_or_init(|| {
+        let mut out: Vec<[f32; 3]> = GROUP_COLOURS.to_vec();
+        let apart = |a: [f32; 3], b: [f32; 3]| (0..3).map(|k| (a[k] - b[k]).powi(2)).sum::<f32>().sqrt();
+        for i in 0..TABLED {
+            // 137.508 is the golden angle: successive steps never land near
+            // each other for any run length, which a fixed division of the
+            // wheel by an assumed count cannot promise. The authored eight
+            // were not placed on that sequence, so a step can still land on
+            // one of them -- the first draft did, 24.6 apart from amber --
+            // and a colliding candidate is rotated on until it is clear of
+            // everything already handed out. Three lightnesses widen the
+            // search past what one ring of hues can hold.
+            let mut hue = (i as f32 * 137.508 + 30.0) % 360.0;
+            let mut light = [0.62, 0.54, 0.74][i % 3];
+            let mut tries = 0;
+            let colour = loop {
+                let (r, g, b) = hsl_to_rgb(hue, 0.85, light);
+                let c = [r * 255.0, g * 255.0, b * 255.0];
+                // Bright enough to stand off soil as well as apart from
+                // its neighbours: a saturated blue at half lightness is a
+                // colour nobody sees on brown ground (luma 86, caught by
+                // the guard).
+                let luma = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+                if tries >= 48 || (luma >= 105.0 && out.iter().all(|&e| apart(e, c) >= MIN_APART)) {
+                    break c;
+                }
+                hue = (hue + 23.0) % 360.0;
+                if tries % 8 == 7 {
+                    light = [0.62, 0.54, 0.74][(i + tries / 8) % 3];
+                }
+                tries += 1;
+            };
+            out.push(colour);
+        }
+        out
+    });
+    if let Some(c) = table.get(n) {
+        return *c;
+    }
+    let hue = ((n - GROUP_COLOURS.len()) as f32 * 137.508 + 30.0) % 360.0;
+    let (r, g, b) = hsl_to_rgb(hue, 0.85, 0.62);
+    [r * 255.0, g * 255.0, b * 255.0]
+}
+
+/// Plain HSL to RGB, `h` in degrees, `s` and `l` in `0..=1`, out in `0..=1`.
+fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let hp = (h.rem_euclid(360.0)) / 60.0;
+    let x = c * (1.0 - (hp % 2.0 - 1.0).abs());
+    let (r1, g1, b1) = match hp as u32 {
+        0 => (c, x, 0.0),
+        1 => (x, c, 0.0),
+        2 => (0.0, c, x),
+        3 => (0.0, x, c),
+        4 => (x, 0.0, c),
+        _ => (c, 0.0, x),
+    };
+    let m = l - c / 2.0;
+    (r1 + m, g1 + m, b1 + m)
+}
+
 /// **The one definition of a group's colour**, read by the renderer for the
 /// animal and by the lab's ANTS page for the graph line and legend swatch.
 /// `None` under `Off`, where the animal wears its material.
 pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32) -> Option<[f32; 3]> {
     match mode {
         CreatureColour::Off => None,
-        CreatureColour::Species => Some(GROUP_COLOURS[species.0 as usize % GROUP_COLOURS.len()]),
-        CreatureColour::Colony => Some(if colony == 0 {
-            GROUP_NONE
-        } else {
-            GROUP_COLOURS[(colony as usize - 1) % GROUP_COLOURS.len()]
-        }),
+        CreatureColour::Species => Some(group_palette(species.0 as usize)),
+        CreatureColour::Colony => Some(if colony == 0 { GROUP_NONE } else { group_palette(colony as usize - 1) }),
     }
 }
 
@@ -7955,6 +8036,35 @@ mod tests {
         assert_eq!(seen.len(), 7);
         r.cycle_grain();
         assert_eq!(r.grain, GrainMode::Position, "cycling should wrap back round");
+    }
+
+    /// **Twenty groups are twenty colours**, on the owner's ruling, and the
+    /// first eight are the authored palette untouched. The closest pair
+    /// among the first twenty is checked to stay apart in RGB, so a future
+    /// tweak to the hue step cannot quietly hand two colonies one colour.
+    #[test]
+    fn every_group_has_its_own_colour_past_the_authored_palette() {
+        for (i, c) in GROUP_COLOURS.iter().enumerate() {
+            assert_eq!(group_palette(i), *c, "the authored palette must come first, unchanged");
+        }
+        let colours: Vec<[f32; 3]> = (0..20).map(group_palette).collect();
+        let mut closest = f32::MAX;
+        for a in 0..colours.len() {
+            for b in a + 1..colours.len() {
+                let d = (0..3).map(|k| (colours[a][k] - colours[b][k]).powi(2)).sum::<f32>().sqrt();
+                closest = closest.min(d);
+            }
+        }
+        // 40 of 441 is a visibly different colour at any zoom; the measured
+        // value is well above it and the bar is set with headroom.
+        assert!(closest > 40.0, "two of the first twenty group colours are only {closest:.1} apart in RGB");
+        for c in &colours {
+            let luma = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
+            assert!(luma > 90.0, "a group colour must stand off dark soil: {c:?} has luma {luma:.0}");
+        }
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0), Some(GROUP_NONE));
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
+        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1), None);
     }
 
     #[test]

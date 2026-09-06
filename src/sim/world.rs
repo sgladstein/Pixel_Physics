@@ -219,6 +219,25 @@ pub const RUN_LOG_CAP: usize = 2048;
 ///
 /// `LifeCounters` comes across whole rather than as a summary, so the cell
 /// page's LIFE group reads the same for a dead individual as for a live one.
+/// **What has happened to one colony's dead** — deaths by cause, and who
+/// killed the killed. `World::group_deaths`'s row; never ages out, unlike
+/// the graveyard it is tallied beside.
+///
+/// The readout the owner's *"one almost got wiped out, then came back"*
+/// needs under it: the population line says *that* a colony fell and this
+/// says *why* — starved, or eaten, and by whom. `killed_by` is per attacking
+/// group, because "ANT 1 killed 12 of ANT 2" is the number a war is read
+/// off, and it is written at the bite (`creature.rs`, the eat branch) where
+/// the attacker is in scope; `DeathCause::Killed` alone cannot say who.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupDeaths {
+    pub species: organism::SpeciesId,
+    pub colony: u32,
+    pub by_cause: [u64; organism::DEATH_CAUSES],
+    /// `(attacker species, attacker colony, kills)`.
+    pub killed_by: Vec<(organism::SpeciesId, u32, u64)>,
+}
+
 /// One colony's standing count — `World::live_creature_groups`'s row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CreatureGroup {
@@ -1392,6 +1411,9 @@ pub struct World {
     /// The far side of the run log's `died` events, and the only place §B2's
     /// whole-plant fellings are counted as *organisms* rather than as cells.
     pub deaths_by_cause: [u64; organism::DEATH_CAUSES],
+    /// `deaths_by_cause`, split by `(species, colony)` for animals — see
+    /// `GroupDeaths`. A `Vec` because a box holds a handful of groups.
+    pub group_deaths: Vec<GroupDeaths>,
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
@@ -2852,6 +2874,7 @@ impl World {
             organisms_died: 0,
             dead_life: organism::LifeCounters::default(),
             deaths_by_cause: [0; organism::DEATH_CAUSES],
+            group_deaths: Vec::new(),
             run_log: RunLog::default(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
@@ -3826,6 +3849,9 @@ impl World {
         });
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
+        if creature {
+            self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
+        }
         self.run_log.push(LogEvent {
             frame: self.frame,
             id: organism_id,
@@ -4117,6 +4143,36 @@ impl World {
     ///
     /// Plants never appear: the split is on `Species::creature`, the same
     /// test `live_creature_count` makes, so the counts here sum to it.
+    /// This group's death tally, creating the row on first use.
+    fn group_deaths_mut(&mut self, species: organism::SpeciesId, colony: u32) -> &mut GroupDeaths {
+        let at = match self.group_deaths.iter().position(|g| g.species == species && g.colony == colony) {
+            Some(i) => i,
+            None => {
+                self.group_deaths.push(GroupDeaths { species, colony, by_cause: [0; organism::DEATH_CAUSES], killed_by: Vec::new() });
+                self.group_deaths.len() - 1
+            }
+        };
+        &mut self.group_deaths[at]
+    }
+
+    /// This group's death tally, or `None` if nothing of it has died.
+    pub fn group_deaths_of(&self, species: organism::SpeciesId, colony: u32) -> Option<&GroupDeaths> {
+        self.group_deaths.iter().find(|g| g.species == species && g.colony == colony)
+    }
+
+    /// **A kill, booked on the victim's group against the attacker's.**
+    /// Called from the bite that took a victim's deciding cell, which is the
+    /// one site that knows both parties; `free_organism` sees only the
+    /// corpse. Plants are never victims here (a bitten leaf does not kill a
+    /// tree) and never attackers, so both ids are animals by construction.
+    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32)) {
+        let row = self.group_deaths_mut(victim.0, victim.1);
+        match row.killed_by.iter_mut().find(|(sp, col, _)| *sp == attacker.0 && *col == attacker.1) {
+            Some((_, _, n)) => *n += 1,
+            None => row.killed_by.push((attacker.0, attacker.1, 1)),
+        }
+    }
+
     pub fn live_creature_groups(&self) -> Vec<CreatureGroup> {
         let mut out: Vec<CreatureGroup> = Vec::new();
         for slot in self.organisms.iter() {
