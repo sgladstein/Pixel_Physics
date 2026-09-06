@@ -1,0 +1,56 @@
+{
+  "id": "20260906T012148093Z-257516",
+  "created": "2026-09-06T01:21:48Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tracking-e6o5eo",
+    "commit": "e8070c78",
+    "agent": null,
+    "session_id": "5ab42928-53c2-5437-a51b-bce70dafe472",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lineage overlay: which line is taking the bed",
+  "question": "Does the bed read as divided between founding lines -- can you see at a glance that one line holds half of it? And is six colours plus grey the right call, or would you rather every line had its own colour even when there are twenty?",
+  "context_md": "Both modes are on the **`L`** cycle in the lab, beside the other organism overlays.\n\n**FOUNDING LINES** gives the six heaviest lines a colour each and greys the rest. **ONE LINE** highlights whichever individual you have pinned in the roster and greys everything else -- pick your line in the list, press BACK, look at the bed.\n\n**Ranked by cells, not by head-count**, because forty seedlings and four mature trees are not the same claim on the ground.\n\nSix colours rather than one per line is the decision I'd most like checked. `lineage` is an unbounded counter -- this bed already has twenty lines and a long run has hundreds -- so a colour each is a hash into noise. Six is about what the eye can hold apart, and the tail says \"not one of the ones winning\", which I think is the fact worth carrying. But it does mean a line loses its colour when the ranking shifts.\n\nIt costs nothing on a settled bed: the ranking moved on **0 of 600 ticks**, so nothing repaints. That null has its control -- cull the heaviest line and it moves 18 times in 6,000.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "FOUNDING LINES",
+      "files": [
+        "20260906T012148093Z-257516/000-labui-lineage--founding-lines.png"
+      ],
+      "caption": "Three plants, three founding lines, plus ants in orange. The red line is over half the bed on its own.",
+      "meta": {
+        "lines in the bed": 20,
+        "cells total": 1306,
+        "top 6 hold": "1277 (97%)",
+        "heaviest line": "677 cells (51%)"
+      },
+      "focus": null
+    },
+    {
+      "label": "ONE LINE",
+      "files": [
+        "20260906T012148093Z-257516/001-labui-lineage--one-line.png"
+      ],
+      "caption": "The same bed with the heaviest line pinned from the roster. The plant on the right is a different line and greys out.",
+      "meta": {
+        "pinned line holds": "677 of 1306 cells (51%)",
+        "of how many lines": 20,
+        "ranking moves per 600 ticks": 0,
+        "control, heaviest line culled": "18 per 6000"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
