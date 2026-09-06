@@ -10225,6 +10225,26 @@ fn is_foliage(world: &World, x: i32, y: i32, cell_type: CellType, species_id: or
 /// thins away over a few thousand frames rather than blinking out — the
 /// graded outcome the ethos asks for, and what a real cut branch does.
 fn shed_cut_off_tissue(world: &mut World, organism_id: u16, contact_roots: &[(i32, i32)]) -> usize {
+    // **Only where the structural path is not already doing this job, and
+    // that is not a scoping convenience -- it is the whole reason §W7 is a
+    // lab bug rather than a game-wide one.**
+    //
+    // With `plant_load_failure` on, a detached crown is felled within one
+    // stop by `structural.rs` through `rigid::fell_severed_tissue`: it comes
+    // down *as pieces*, which is the `Felling status` milestone and what the
+    // ethos means by a verb delivering something. Withering it away first
+    // steals that event, and the cost is not theoretical --
+    // `scripts/acceptance.sh`'s `fell` case went from severing over a
+    // thousand cells of living tissue to **109**, because this rule had
+    // already turned most of the crown into litter before the support check
+    // looked. Caught by CI, not by the lib suite.
+    //
+    // So the two are alternatives for one job. Outdoors the crown falls;
+    // in the lab, where the owner has switched falling off and nothing can
+    // remove it, it withers instead. Neither should run when the other does.
+    if world.plant_load_failure {
+        return 0;
+    }
     if contact_roots.is_empty() {
         return 0;
     }
@@ -16740,8 +16760,15 @@ of a saturating curve over a linear ramp", at(0.5));
     #[test]
     fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
         /// -> (cells shed as cut off, cells the plant still owns)
-        fn run(cut: bool) -> (u64, usize) {
+        fn run(cut: bool, load_failure: bool) -> (u64, usize) {
             let mut w = test_world();
+            // **The lab's configuration, which is where the bug lives.**
+            // With `plant_load_failure` on -- the shipped default, and the
+            // outdoor game -- a detached crown is felled as pieces within a
+            // stop and there is nothing for this rule to do. The owner plays
+            // the box with it off, nothing removes the crown, and the
+            // economy goes on feeding it.
+            w.plant_load_failure = load_failure;
             plant_tree_on_ground(&mut w, 100, 60);
             let id = w.get(100, 60).organism_id();
             assert_ne!(id, 0, "test setup: the planted seed should own its cell");
@@ -16770,10 +16797,13 @@ of a saturating curve over a linear ramp", at(0.5));
             (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
         }
 
-        let (intact_shed, intact_cells) = run(false);
-        let (cut_shed, cut_cells) = run(true);
+        let (intact_shed, intact_cells) = run(false, false);
+        let (cut_shed, cut_cells) = run(true, false);
+        let (felling_shed, felling_cells) = run(true, true);
         println!(
-            "intact: shed {intact_shed}, {intact_cells} cells left\ncut:    shed {cut_shed}, {cut_cells} cells left"
+            "intact (no falling):  shed {intact_shed}, {intact_cells} cells left\n\
+cut    (no falling):  shed {cut_shed}, {cut_cells} cells left\n\
+cut    (falling on):  shed {felling_shed}, {felling_cells} cells left"
         );
 
         // **The specificity half.** Nothing severed anything, so this rule
@@ -16791,6 +16821,20 @@ tissue it should not -- check the traversal is still eight-neighbour, the one `G
             cut_shed > 0,
             "a plant cut free of its roots shed nothing. The crown is still attached to the economy, which \
 is §W7 exactly: water_at resolves on organism_id with no connectivity check."
+        );
+
+        // **The arm that guards the acceptance case**, and the one whose
+        // absence let a green lib suite hide a red CI. With falling on, the
+        // structural path fells the crown *as pieces* -- the `Felling
+        // status` verb -- and this rule must keep out of its way. It did
+        // not, and `scripts/acceptance.sh`'s `fell` case fell from over a
+        // thousand severed cells of living tissue to 109 because the crown
+        // had already been turned to litter before the support check looked.
+        assert_eq!(
+            felling_shed, 0,
+            "with COLLAPSE UNDER LOAD on, the crown is felling's to take and this rule shed {felling_shed} \
+cells out from under it. That is what broke acceptance's `fell` case: withering the crown away steals the \
+pieces the verb exists to produce."
         );
     }
 
