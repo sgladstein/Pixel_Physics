@@ -839,6 +839,7 @@ All arms at recovery period 180, 12 seeds, paired per seed against
 
 | income weight | plant cells | plants | seeds borne | biggest | roots reach |
 |---|---|---|---|---|---|
+| **0** (construction price alone) | 0.816 — down 11 | **0.688** — down 9 | 0.750 — down 12 | 0.974 — 6/6 | 1.003 |
 | **0.25** | 0.739 — down 10 | **0.507** — down 11 | 0.548 — down 11 | 1.024 — up 7 | 0.897 |
 | **0.5** | 0.652 — down 10 | **0.392** — down 12 | 0.386 — down 12 | 1.043 — up 6 | 1.013 |
 | **1.0** | 0.451 — down 11 | **0.171** — down 12 | 0.189 — down 12 | 1.191 — up 7 | 0.987 |
@@ -862,14 +863,27 @@ baseline seed spread of 2.22x. Together with the two construction-only arms
 reliable movement in either direction**. Whatever the nutrient does, it does
 not reach root depth.
 
-**The floor of this curve is not measured on this binary.** Every arm above
-carries the construction price *as well as* the income term, because both are
-gated on `nutrient_initial()`; there is no weight-0 arm at period 180 here,
-so the split between the two terms is not attributable from this table. On
-the other binary at `recovery=0` the construction price alone cost about 20%
-of the stand, which suggests the weight-0 floor sits near 0.8 rather than
-1.0 — but that is an inference across binaries and is exactly the comparison
-this section elsewhere refuses to make.
+**The floor is measured, so the two terms are attributable.** Every arm
+carries the construction price *as well as* the income term — both are gated
+on `nutrient_initial()` — so the weight-0 row is what separates them. It
+costs **31% of the stand and 25% of the seed set on its own**, and the income
+term then takes the stand from **0.688 to 0.171** at weight 1: it removes
+three quarters of what the construction price left. Both terms are strong,
+and the income term is much the stronger of the two.
+
+**And the self-thinning is the income term's doing specifically.** `biggest`
+is flat at weight 0 (**0.974**, six up and six down) and climbs monotonically
+with the weight to **1.191**. Pricing *construction* shrinks a stand
+uniformly; pricing *income* is what converts it into fewer, larger
+individuals. That is the one result here that looks like plant ecology
+rather than a tax, and it belongs to the term §3c never considered.
+
+**A prediction this table falsified, recorded because it was wrong.** Before
+running the floor arm this section inferred it "sits near 0.8 rather than
+1.0", reasoning across binaries from the `recovery=0` construction arm. On
+cells that was close (0.816); on **plants it was 0.688**, well below the
+guess. Inferring a floor across two binaries was exactly the comparison this
+section refuses elsewhere, and it was wrong on the column that matters most.
 
 ### 3f. The recovery knob had no usable setting, and now it does
 
