@@ -8573,10 +8573,14 @@ fn nutrient_construction_multiplier(world: &World, organism_id: u16, cell_type: 
         return 1.0;
     }
     let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
-    // Reciprocal in the *scarcity*, floored so the multiplier is bounded:
-    // at full nutrient this is exactly 1.0, at empty it is
-    // `NUTRIENT_STARVED_COST`.
-    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - status.clamp(0.0, 1.0))
+    // **Priced off `nutrient_availability`, not off the raw status, so the
+    // two nutrient prices cannot disagree about the same soil.** Bounded
+    // either way: exactly 1.0 at full nutrient, exactly
+    // `NUTRIENT_STARVED_COST` at empty. What changes is the middle, which
+    // is where a stand actually lives -- see that function for the 33% the
+    // disagreement cost.
+    let available = nutrient_availability(status, nutrient_half_saturation());
+    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - available)
 }
 
 /// What a cell costs to build in fully exhausted soil, as a multiple of its
@@ -8682,10 +8686,30 @@ fn nutrient_income_multiplier(world: &World, organism_id: u16) -> f32 {
     if half <= 0.0 {
         return 1.0;
     }
-    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status).clamp(0.0, 1.0);
-    // Michaelis-Menten, normalised so a plant in full soil earns exactly
-    // its whole income: `s (1 + Km) / (s + Km)`. Zero at s = 0 for any Km,
-    // which is the property the whole mechanism turns on.
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
+    nutrient_availability(status, half)
+}
+
+/// **What a plant's nutrient standing is actually worth to it, `0.0..=1.0`
+/// — the one curve BOTH nutrient prices read.**
+///
+/// Michaelis-Menten, normalised so full soil is exactly 1.0:
+/// `s (1 + Km) / (s + Km)`. Zero at `s = 0` for any `Km`, which is the
+/// property the whole mechanism turns on.
+///
+/// **Shared, because the two prices disagreeing about what "half-depleted"
+/// means is a measured 33% of the stand.** When the income term was
+/// saturating and `nutrient_construction_multiplier` was still the linear
+/// `1 + 7(1 - status)`, soil at status 0.5 was worth **0.955** to income
+/// and cost **x4.5** to build in — the same soil, called fine by one term
+/// and dire by the other. Measured at the shipped defaults over 8 paired
+/// seeds before the two were joined: cells **0.665**, plants **0.672**,
+/// down on 8 of 8. Reading one curve puts that same soil at x1.31.
+fn nutrient_availability(status: f32, half: f32) -> f32 {
+    let status = status.clamp(0.0, 1.0);
+    if half <= 0.0 {
+        return status;
+    }
     (status * (1.0 + half) / (status + half)).clamp(0.0, 1.0)
 }
 
