@@ -181,6 +181,9 @@ TOPICS = {
         "Plain-speech status — the genome read back as sentences",
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
         "Life record status — what an individual has done, and what killed it",
+        # Why a dug gallery now stays dug, and why a corpse no longer plugs
+        # the passage its owner died in.
+        "Lab soil status — a hole that stays a hole, and a bed that stops running out",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -208,6 +211,9 @@ TOPICS = {
     "powders and granular flow": [
         "Materials",
         "Architecture",
+        # The un-pack line: what moisture takes a worked wall back to loose
+        # soil, and the census the new threshold is sited from.
+        "Lab soil status — a hole that stays a hole, and a bed that stops running out",
     ],
     "the coarse field grid — pressure, heat, light": [
         "The coarse field grid",
@@ -255,6 +261,9 @@ TOPICS = {
     # on the GAME map above pointed at nothing.
     "the evolution lab — the box and its lights": [
         "Lab lighting status — the fixtures are what light the crop",
+        # The bed itself, as distinct from what is grown in it: why a dug
+        # gallery stays open and why the box stops running out of earth.
+        "Lab soil status — a hole that stays a hole, and a bed that stops running out",
     ],
     # The lab's readouts, as distinct from its physics: what the interface
     # tells you about one individual, and how it fits that on a 512x320
