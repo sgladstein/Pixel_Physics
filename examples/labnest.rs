@@ -377,7 +377,7 @@ fn main() {
             );
             let (filled, by) = refill.census(world, x0, x1, y0, y1);
             let show = |v: &[(String, usize)]| {
-                v.iter().take(6).map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")
+                v.iter().take(9).map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")
             };
             let (mean, total, free) = soil_water(world, x0, x1, y0, y1);
             println!(
