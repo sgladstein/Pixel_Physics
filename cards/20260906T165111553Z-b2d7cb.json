@@ -1,0 +1,59 @@
+{
+  "id": "20260906T165111553Z-b2d7cb",
+  "created": "2026-09-06T16:51:11Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-signature-castes-gfm0r2",
+    "commit": "b34a30b2",
+    "agent": null,
+    "session_id": "1ff1c52a-2a03-564a-8ae3-fb2d6c9b5a35",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "An ant is no longer always an ant: a colony splits into ANT 2 and ANT 2b",
+  "question": "Two questions on one picture. (1) Does the split read on the ANTS page -- is 'ANT 2B' the right kind of name for a group that drifted out of ANT 2, or would you rather it were numbered (ANT 3) or named by you from the roster? (2) Should scent be allowed to cross kinds -- an ant lineage that drifts onto a beetle's scent becomes the beetle's family, and the other way round? It ships OFF (a beetle is never an ant's family); say ON if you want the pure rule.",
+  "context_md": "Same bed, same seed (3), frame 30,000, the ANTS page open. **A** is the shipped dials: two clicks, two colours, one family, no kills. **B** turns two dials the shipped game leaves at zero -- scent drift 0.3 (how far a newborn's scent moves from its parent's) and tolerance -0.5 (how far another scent may be from mine and still be family: a radius of 0.5) -- and nothing else.\n\nIn **B** the page named `ANT 2b` at frame 23,028: ten of ANT 2's animals had drifted out of the rest's family, and the box minted them a group of their own, with its own colour in the box and its own line here. `K` on a row is how many of that group were killed by another animal; the hover note names the killer. ANT 2 itself starved out before frame 30,000 (0 alive, so its row is gone from this one sample).\n\nWhat I already measured: at the shipped dials the whole engine is byte-identical to main (ascii, the two-colony census, the kin-sense race). At these dials all three seeds speciate inside 48,000 frames, and almost every kill *before* the split is a colony biting its own drifted cousins -- under drift, intolerance is cannibalism until the bitten can bite back, which is the other session's Attack verb.\n\nIgnore: the ants themselves are two pixels at this zoom; judge the legend and the graph, not the box.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- shipped dials (no drift)",
+      "files": [
+        "20260906T165111553Z-b2d7cb/000-ants_default_s3_f30000.png"
+      ],
+      "caption": "two clicks, one family",
+      "meta": {
+        "groups on the page": 2,
+        "groups named by drift": 0,
+        "ants killed by ants": 0,
+        "first colony alive": 13,
+        "second colony alive": 16
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- scent drift 0.3, tolerance -0.5",
+      "files": [
+        "20260906T165111553Z-b2d7cb/001-ants_split_s3_f30000.png"
+      ],
+      "caption": "ANT 2b named at frame 23,028",
+      "meta": {
+        "groups on the page": 2,
+        "groups named by drift": 1,
+        "ants killed by ants": 9,
+        "first colony alive": 9,
+        "split-off group alive": 11,
+        "second colony alive": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
