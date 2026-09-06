@@ -925,8 +925,21 @@ drift that two of these documents still reflect.**
   byte-identical, which is a statement about the gate (its creature scenes
   hold no living tissue) and not evidence about the mechanism. **§5 is the
   open half**: wood was deliberately left solid, that is where the measured
-  mass is, and the fix indicated is wall-following in `tumble` rather than
-  passability
+  mass is — **and §5 now records that the owner overturned that and was
+  right**: a side-view grid has no depth axis, so a trunk a real animal steps
+  *around* is an unbroken wall here. Letting a body occupy wood the way it
+  occupies foliage was then built and measured and it **kills plants** —
+  `plant::is_structural_anchor` resolves ownership through the grid, so an
+  animal standing in a stem stops that cell being an anchor and a seedling
+  with one base cell becomes unanchored (`lab::tests::copies_carry_what_was_
+  planted_and_still_diverge` at `plant_cells 0` in all three copies). What
+  shipped is the owner's own design, `organism::Crossing`: the body waits
+  `thickness x tick_interval` and appears on the far side, **never occupying
+  the wood at all**, so the class of failure stops existing rather than being
+  patched — blocked steps 15.7% → 7.3%, 243 crossings with 243 completed, and
+  limb severing slightly *down*. §6 carries two method notes this cost: an
+  alarm raised off one seed and refuted by the second, and a guard whose own
+  census counted grid cells when the quantity was cells the plant still owns
 - [creature-groups-and-combat-design-2026-09-06.md](creature-groups-and-combat-design-2026-09-06.md)
   — **design of record for groups, kin and combat on the creature line,
   2026-09-06; the first half is shipped.** Answers the owner's questions from

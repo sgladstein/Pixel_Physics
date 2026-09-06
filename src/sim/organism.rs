@@ -4350,6 +4350,46 @@ impl Crop {
 /// which is the whole reason the two reverted airborne attempts
 /// (`Reports/creature-motion-design.md` §2d) cannot come back through it.
 /// The walk still refuses to step into unsupported air exactly as it did.
+/// **An animal working its way around a trunk**, which in a side-view grid
+/// with no depth axis has to be modelled as working its way *through* one.
+///
+/// Owner's design, 2026-09-06: *"if an ant tries to go through a trunk, they
+/// basically just teleport to the other side with a delay long enough for
+/// however thick the trunk is, so they don't actually overlap with the cells
+/// ever."*
+///
+/// **The whole value of it is the last clause.** The obvious mechanism --
+/// let the body occupy the wood the way it occupies foliage
+/// (`Parted`) -- was built and measured and it kills plants: every
+/// per-organism pass resolves a plant's own cells through the grid, so an
+/// animal standing in a stem stops that cell counting as an anchor
+/// (`plant::is_structural_anchor`), and a seedling with one base cell
+/// becomes an unanchored plant. Never occupying the cell means there is
+/// nothing to displace, nothing to restore, no hole in the tree's
+/// connectivity graph and no anchor to lose -- the entire class of failure
+/// stops existing rather than being patched.
+///
+/// It is also the honest physics. A real ant goes *round* the trunk, in the
+/// axis this world does not have; the time that takes is the axis, expressed
+/// as a delay. And it is graded by construction: a one-cell stem is a blink
+/// and a bole is a long wait, so the outcome has a middle without a constant
+/// being tuned to give it one.
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct Crossing {
+    /// Where the head emerges.
+    pub to: (i32, i32),
+    /// The heading it emerges on -- kept because a rigid body lays its cells
+    /// out from the heading, so arriving on a different one would re-shape
+    /// the animal mid-crossing.
+    pub heading: u8,
+    /// The frame it emerges on.
+    pub due: u64,
+    /// How much wood is being crossed, in cells. Carried for the energy
+    /// charge and for the counters: a crossing that cost nothing to make
+    /// would be a free tunnel through the world's only remaining walls.
+    pub thickness: u16,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Flight {
     /// Cells per frame, +x east.
@@ -4885,6 +4925,9 @@ pub struct OrganismState {
     /// `creature::creature_dies` drops it beside the corpse. There is no
     /// third.
     pub spoil: Option<Spoil>,
+    /// **Set while this animal is inside a trunk**, working round it. See
+    /// [`Crossing`]. `None` for everything else, which is almost always.
+    pub crossing: Option<Crossing>,
     /// **The foliage this body is currently standing in**, lifted out of the
     /// grid and owed back to the plant it came from. See [`Parted`].
     ///

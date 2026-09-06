@@ -26,10 +26,12 @@ than one line for everything alive. The same day a rule appeared, off unless
 you turn it on, under which two colonies of one kind are strangers: a hungry
 ant will then eat an ant from the other colony exactly as it would eat a
 beetle, and the two stop drawing together. See "Who is family" below for
-what that does and does not change. Earlier the same day, **foliage stopped being a wall** — an ant
-walks into a bush now and comes out the other side, and the leaves close
-behind it undamaged. A trunk is still a trunk: something to walk up, not
-through. The same day, **an animal could finally bite back at
+what that does and does not change. Earlier the same day, **plants stopped
+being walls** — an ant walks into a bush and comes out the other side with
+the leaves closing behind it undamaged, and an ant that meets a tree trunk
+works its way round it instead of turning away, taking as long as the trunk
+is thick. Neither costs the plant anything: the foliage is put back exactly
+as it was found, and the trunk is never entered at all. The same day, **an animal could finally bite back at
 something chewing on its flank** — a long body used to be able to fight only
 with the cell at the front of it, so anything that attached itself further
 back was safe, and every cell that was not the mouth was a liability rather
@@ -169,18 +171,23 @@ off by the passage. A bush is drawn as a solid block of green because the
 grid has no way to draw the air between the leaves, and an animal small
 enough to use that air now behaves as though it is there.
 
-**Wood is not soft, and that is on purpose.** A trunk, a branch or a root is
-something an ant walks *up*, not through, and walking into one still stops
-it. If you watch a colony in a wood and wonder why they keep turning on the
-spot, that is what they are turning against: measured across four worlds,
-living plant tissue is what blocks between a fifth and two thirds of every
-step an ant fails to take, and between seven and nine tenths of that is
-trunk rather than leaf. Ants have no notion of following a wall round or
-climbing it deliberately — they turn at random until a direction happens to
-work — so a wood is still slow going for them.
+**And they get round a trunk, by going round it.** Wood is not soft and an
+animal never walks into it — but an ant that meets a bole no longer turns
+away either. It works its way round, and because this world is seen from the
+side and has no depth to walk into, that shows as a pause at the trunk and
+then the ant appearing on the far side. The pause is as long as the trunk is
+thick: a stem is a blink, a big bole is a real wait, and it costs the energy
+the walk round would have cost. Nothing is damaged and nothing is eaten — the
+tree never knows it happened.
 
-How much an animal can shoulder aside is the same strength it digs with, so
-a lineage that evolves a stronger bite also gets through thicker growth.
+It will not do it where there is nowhere to come out: into open air with no
+foothold, or into the middle of a crown. There it turns away as it always
+did, and that is most of what still stops an ant in a wood.
+
+A colony in a wood is a great deal less stuck than it was. Blocked steps
+roughly halve, and where growing plants used to be what stopped an ant on
+two thirds of its failed steps, the handful left are trunks with no far side
+to reach.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than

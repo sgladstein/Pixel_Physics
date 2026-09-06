@@ -19,6 +19,13 @@
     kind: Plant,
     // Under `rootwood`'s heartwood but above `grassblade`: fine fibrous
     // roots, still denser than the blade above them.
+    // Walk-through and climbable, while it is alive. Root tissue underground, and `rootwood` -- a tree's roots, the same thing
+    // one tier up -- has carried this since M16. A grass's roots are no more a
+    // wall than a tree's are.
+    //
+    // Read only alongside `Cell::organism_id() != 0`, so a painted cell of
+    // this material is as solid as it ever was.
+    climbable: true,
     density: 0.35,
     colors: [
         (162, 152, 108),
