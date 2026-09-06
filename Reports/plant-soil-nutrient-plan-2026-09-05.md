@@ -908,6 +908,76 @@ The cadence guard still passes at period 1, because a period of one frame
 *is* the old rate of one per frame; what changed is that everything between
 1 and "never" now exists.
 
+
+### 3g. Turned ON, 2026-09-06 — and there was no ideal *setting* to pick
+
+Owner: *"things should not ship inert! turn it on at the ideal setting."*
+There was no setting to pick, and the weight curve in §3e is what says so.
+
+**The linear form welded the two goals together.** `1 - w(1 - status)` is
+`1 - w` at status 0, so one number set both how hard a healthy stand is
+taxed and whether a plant with no soil at all can die:
+
+| weight | stand kept | a rootless plant earns |
+|---|---|---|
+| 0.25 | 0.507 | 75% — lives comfortably |
+| 0.5 | 0.392 | 50% — probably lives |
+| 1.0 | **0.171** | 0% — dies, and so does the stand |
+
+No row does both. **The shape was the problem, not the number.**
+
+**`nutrient_availability` is Michaelis-Menten**, `s(1 + Km)/(s + Km)` — the
+standard kinetic for nutrient uptake, flat where soil is fine and **exactly
+zero at status 0 for any `Km`**. So "no soil at all is fatal" is structural
+rather than a tuning outcome, and `Km` is left to say only what *poor* soil
+costs:
+
+| `nutrient_status` | 1.00 | 0.50 | 0.30 | 0.10 | 0.05 | 0.00 |
+|---|---|---|---|---|---|---|
+| multiplier | 1.000 | 0.955 | 0.900 | 0.700 | 0.525 | **0.000** |
+
+**Both prices read that one curve, and the first attempt proved why they
+must.** Shipped with the income term saturating and
+`nutrient_construction_multiplier` still linear, soil at status 0.5 was
+worth 0.955 to income and cost **x4.5** to build in — the same soil called
+fine by one term and dire by the other. Measured, 12 paired seeds: cells
+**0.665**, plants **0.672**, down on 11 of 12. **A third of the stand was
+that disagreement**, not a setting. Joined to one curve, the same soil
+prices at **x1.32**.
+
+**The shipped defaults, and what they cost.** Stock **200**, draw **1**/tick,
+recovery period **45**, `Km` **0.05**. Period 45 matches exactly one root's
+draw, so a soil cell supports one root indefinitely and depletes only where
+roots *crowd* — the competition the mechanism is for, rather than a flat tax
+on everything. Measured against `PIXEL_PHYSICS_NUTRIENT=0`, 12 seeds paired:
+
+| column | median | direction |
+|---|---|---|
+| plant cells | **0.843** | down 8 / up 4 |
+| plants | **0.842** | down 8 / up 4 |
+| seeds borne | 0.858 | down 8 / up 4 |
+| biggest | 0.903 | down 7 / up 5 |
+| roots reach | 0.989 | 6 / 6 |
+
+**About 16% of the stand, and not unanimous — 4 of 12 seeds improve.**
+Against a baseline whose own spread over these seeds is cells 3.46x and
+plants 3.72x, that is a real but modest cost, which is what a resource
+limitation should be. It buys the thing §3 was written for: a lit,
+drip-fed plant now earns **nothing** and starves.
+
+**What it does not buy, stated so nobody re-derives it.** Root depth is
+0.989 here, flat as in every other arm — **seven now**. And the
+self-thinning that §3e found (fewer, larger plants) does **not** appear at
+these settings: `biggest` is 0.903, so the stand shrinks roughly uniformly.
+That behaviour lived at weights which cost 60-80% of the stand, and whether
+there is a middle setting that produces it without the collapse is unswept
+and is the obvious next question.
+
+**Carried into the open bugs, because it undercuts all of the above in the
+lab:** `nutrient_status` is a whole-organism channel with no connectivity
+check, so a severed crown reads the nutrient standing of roots it is not
+attached to — §W7.
+
 ### 3d. An implementation trap that would silently zero the mechanism
 
 `absorb_water`'s Powder arm gates its body on `available > 0.0` **and** on
