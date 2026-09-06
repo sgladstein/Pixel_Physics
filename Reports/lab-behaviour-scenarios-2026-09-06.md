@@ -9,9 +9,10 @@ environment scenarios to make it happen. What do you think about this
 approach?"*
 
 **Status: design, with §4's first item built the same day** — the scenario
-file is `src/lab/scenario.rs`, and §7 below records what building it found.
-Nothing else in the catalogue is built, and no scenario has been run to its
-horizon yet. Read off `main` at `a9744f9d`. Every number in it is quoted
+file is `src/lab/scenario.rs`, §7 below records what building it found, and
+**§8 carries the scenarios run to a horizon so far**, two larders first.
+Nothing else in the catalogue is built. Read off `main` at
+`a9744f9d`. Every number in it is quoted
 from a report that measured it, and each one is cited; a claim with no
 citation is a prediction and says so.
 
@@ -644,3 +645,65 @@ And one placement fact worth carrying: a 52-ant colony's band is ~204 cells
 wide and centred on its column, so the smallest column at which all 52 place
 on the shipped bed is **x = 107** (35 of 52 at x = 40; 64, 80, 96, 102 and
 106 all lose at least one).
+
+---
+
+## 8. The first two scenarios, run
+
+Both through `labbatch scenario=<name> arm=seeded runs=8`, seeds 1–8, on
+the shipped files at the head of this branch; the tables are the harness's
+own output. Read as direction statistics over paired seeds, never as means
+— the seed alone spans 3x on every census column here (plants 9–27, animals
+30–92 over the eight two-larders runs).
+
+### S1 · Two larders — the plant room's gut moves, the flesh room's does not
+
+60,000 frames. Compartment 0 is the plant larder (four herbs plus 30
+windfall per 6,000 frames), compartment 1 the flesh larder (60 corpse per
+6,000 frames); the two rooms are the same seed and the same founding jar.
+Mean `gut_bias` over the room's live ants at the horizon (−1 is a pure
+grazer, +1 a pure carnivore, 0 the authored generalist):
+
+| seed | plant room | flesh room | plant − flesh | ants, plant room | ants, flesh room |
+|---|---|---|---|---|---|
+| 1 | −0.14 | +0.04 | −0.18 | 41 | 18 |
+| 2 | −0.44 | +0.03 | −0.47 | 45 | 16 |
+| 3 | −0.04 | 0.00 | −0.04 | 16 | 17 |
+| 4 | −0.03 | +0.01 | −0.04 | 26 | 18 |
+| 5 | −0.30 | 0.00 | −0.30 | 73 | 19 |
+| 6 | +0.04 | +0.21 | −0.17 | 9 | 21 |
+| 7 | −0.15 | +0.01 | −0.16 | 25 | 19 |
+| 8 | −0.02 | −0.04 | +0.02 | 31 | 16 |
+
+**The plant room's gut sits below its own flesh room's in 7 seeds of 8**,
+paired difference median −0.17, and the rooms differ in nothing but the
+larder. That is the bed selecting on the trait the scenario was built to
+select on, and it is the first evolution result in this box that has a
+paired control inside the same run.
+
+Three things to read beside it:
+
+- **The flesh room did not move.** Median gut +0.01, and only one seed (6)
+  drifted toward flesh at all. The plant room's median is only −0.04 too;
+  the signal is in the pairing and in four seeds (1, 2, 5, 7) that moved
+  −0.14 to −0.44, all of them rooms that bred: the plant room held 25–73
+  ants where it moved and 9–31 where it did not, while **every flesh room
+  sat at 16–21 ants** at the horizon whatever its seed. A room that is not
+  breeding is not selecting, and the flesh larder as sized holds a colony
+  at the edge of that. The next move on S1 is a bigger flesh heap, or the
+  same reading at 120,000 frames, before concluding anything about the
+  carnivore side.
+- **The other eight traits barely moved, and `birth_grant` moved in both
+  rooms.** Its authored allele is −0.20 (the smoke run read −0.20 in every
+  room one generation in); at the horizon the room medians are −0.18 and
+  −0.15, up in both larders. Not this scenario's question, and a
+  single-horizon reading, but the one lever besides the gut that the bed
+  appears to be pushing, and in the direction of a better-provisioned young.
+- **No mutation-off control has been run yet.** The paired difference is
+  the test the report asked for, and the clonal arm (the same file with the
+  ant's `mutation_rate` at 0) is the one that would say how much of the
+  −0.17 is selection on new mutation against survivorship of the founders'
+  standing variation. It is queued behind Gause's jar below.
+
+The whole batch is 422 s of wall on four cores, 52.7 s per run — a
+60,000-frame two-larders reading is a seven-minute question.
