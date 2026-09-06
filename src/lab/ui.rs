@@ -1971,8 +1971,7 @@ fn group_losses(world: &World, species: SpeciesId, colony: Option<u32>) -> (u64,
         starved += d.by_cause[crate::sim::organism::DeathCause::Starved.index()]
             + d.by_cause[crate::sim::organism::DeathCause::StarvedInFlight.index()];
         for (asp, acol, n) in &d.killed_by {
-            let name = world.species.get(*asp).name.to_uppercase();
-            let who = if colony.is_some() { format!("{name} {acol}") } else { name };
+            let who = if colony.is_some() { world.group_label(*asp, *acol) } else { world.species.get(*asp).name.to_uppercase() };
             match killers.iter_mut().find(|(k, _)| *k == who) {
                 Some((_, m)) => *m += n,
                 None => killers.push((who, *n)),
@@ -3536,8 +3535,7 @@ impl Ui {
                     .map(|(&(species, colony, alive), (s, group_tint))| {
                         let gd = (s.len() >= 2).then(|| s[s.len() - 1] as i64 - s[s.len() - 2] as i64);
                         let (gd_text, _) = delta_text(gd);
-                        let name = world.species.get(species).name.to_uppercase();
-                        let label = if colony_mode { format!("{name} {colony}") } else { name };
+                        let label = if colony_mode { world.group_label(species, colony) } else { world.species.get(species).name.to_uppercase() };
                         // **What the dead died of, on the row and not only
                         // in the note**, because *"one almost got wiped
                         // out, then came back"* is a line on the chart and
