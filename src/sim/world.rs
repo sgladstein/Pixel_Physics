@@ -1564,6 +1564,18 @@ pub struct World {
     /// lane could not build: it pins both alleles at 0, so those two traits
     /// stop drifting while every other slot goes on mutating.
     pub trait_reach: f32,
+    /// **How far a child's expressed body may move with the number its
+    /// parent handed it** -- the one dial over the developmental block
+    /// (`brain::TRAIT_SLOTS`), a multiplier on `made x block`, read by
+    /// `creature::expressed_traits`. Zero, the default, is the shipped bed:
+    /// every animal expresses its genotype exactly whatever its block and
+    /// its `Provision` wiring drift to, and the reader is one comparison.
+    /// A rule of the box rather than a species field for `trait_reach`'s
+    /// reason: the one place the expressed body is computed reads it with
+    /// no species lookup, in the predicate the mouth, the eye and the kin
+    /// sense call per neighbour per tick. On the GENOME page; carried
+    /// across a rebuild by `lab::params::Dials`.
+    pub plasticity: f32,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -2992,6 +3004,7 @@ impl World {
             next_colony: 1,
             colony_parents: Vec::new(),
             trait_reach: creature::TRAIT_REACH_DEFAULT,
+            plasticity: 0.0,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
@@ -3621,6 +3634,7 @@ impl World {
             // place it is ever set to zero other than the bite that cashes
             // a whole cell in.
             gnawed: 0.0,
+            made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
             origin: None,
@@ -4374,7 +4388,10 @@ impl World {
                 continue;
             }
             let key = (state.species, state.colony);
-            let member = Member { id, lineage: state.lineage, traits: state.traits };
+            let member = Member { id, lineage: state.lineage, // The expressed body, not the genotype: what an animal smells
+                // like is what it is made of, and a provisioned child may be
+                // made of something its genes alone would not say.
+                traits: crate::sim::creature::expressed_traits(state, self.plasticity, self.trait_reach) };
             match groups.iter_mut().find(|(k, _)| *k == key) {
                 Some((_, members)) => members.push(member),
                 None => groups.push((key, vec![member])),

@@ -3592,6 +3592,13 @@ pub struct CreatureDef {
     /// unable to describe.
     #[serde(default)]
     pub recurrence: Vec<super::brain::Recurrence>,
+    /// **The developmental block a species is born with** -- one weight per
+    /// `CREATURE_TRAITS` slot, `brain::TRAIT_SLOTS`. Empty for every
+    /// shipped species: no animal that ships is made of anything, and the
+    /// block is what a lineage evolves. `#[serde(default)]` so a species
+    /// file that never heard of it still loads.
+    #[serde(default)]
+    pub plastic: Vec<super::brain::Plastic>,
 }
 
 impl CreatureDef {
@@ -3709,6 +3716,7 @@ impl CreatureDef {
             hidden_wiring,
             hidden_outputs,
             recurrence,
+            plastic,
         } = self;
 
         let body_scaled = body.scaled(ki);
@@ -3844,6 +3852,7 @@ impl CreatureDef {
             hidden_wiring: hidden_wiring.clone(),
             hidden_outputs: hidden_outputs.clone(),
             recurrence: recurrence.clone(),
+            plastic: plastic.clone(),
         }
     }
 }
@@ -4116,7 +4125,7 @@ impl Species {
 
 impl From<SpeciesDef> for Species {
     fn from(def: SpeciesDef) -> Self {
-        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence)).unwrap_or_default();
+        let genome = def.creature.as_ref().map(|c| super::brain::genome_from_wiring_plastic(&c.instincts, &c.hidden_wiring, &c.hidden_outputs, &c.recurrence, &c.plastic)).unwrap_or_default();
         Self {
             name: def.name,
             foliage_bands: def.foliage_bands,
@@ -4870,6 +4879,13 @@ pub struct OrganismState {
     /// and a body block that grows independently is what keeps S8 from
     /// shifting brain offsets.
     pub traits: [f32; CREATURE_TRAITS],
+    /// **The number this animal was made with**: its parent's
+    /// `BrainOutput::Provision` at the moment it was budded, `-1..=1`. A
+    /// phenotype, not a gene -- it is never inherited and a jar does not
+    /// keep it -- and `0` for every founder, every released specimen and
+    /// every plant. `creature::expressed_traits` reads it against the
+    /// developmental block; `BrainInput::Made` feeds it back to the brain.
+    pub made: f32,
     pub chain: Vec<(i32, i32)>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.
