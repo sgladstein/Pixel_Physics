@@ -111,6 +111,10 @@ fn main() {
         // exactly the ambiguity `CLAUDE.md` says to resolve by measuring
         // both rather than by picking one and building on it.
         let (mut above_collar, mut worst_rise) = (0usize, 0i32);
+        // Positions, not just a count: a number says whether it happened and
+        // only a coordinate says where to point a camera. `CLAUDE.md` --
+        // an image tells you what and where, a metric how much.
+        let mut intruders: Vec<(i32, i32, i32)> = Vec::new();
         for id in world.live_organism_ids() {
             let Some(state) = world.organism(id) else { continue };
             let collar = state.collar_y;
@@ -134,6 +138,7 @@ fn main() {
                     if rise > 2 {
                         above_collar += 1;
                         worst_rise = worst_rise.max(rise);
+                        intruders.push((rise, cx, cy));
                     }
                 }
                 if under_open_sky(&world, cx, cy) {
@@ -149,6 +154,10 @@ fn main() {
             "  seed {seed:>3}: {roots:>6} root cells, {sky:>5} under open sky ({pct:>5.1}%)  highest {highest:?}  \
 | {above_collar:>4} inside the shoot, worst {worst_rise:>3} cells above the collar"
         );
+        if !intruders.is_empty() {
+            intruders.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+            println!("           root tissue inside the shoot at (rise, x, y): {:?}", &intruders[..intruders.len().min(6)]);
+        }
         tot_above += above_collar;
         worst_rise_all = worst_rise_all.max(worst_rise);
         tot_roots += roots;
