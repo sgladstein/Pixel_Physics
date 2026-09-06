@@ -46,9 +46,11 @@ use std::collections::VecDeque;
 
 use crate::hud;
 use crate::render;
-use crate::sim::world::World;
+use crate::sim::world::{self, World};
 
 use super::params;
+use super::plainspeak;
+use super::roster;
 use super::scene::LabBox;
 use super::{HEIGHT as H, WIDTH as W};
 
@@ -484,6 +486,41 @@ pub enum Action {
     /// too long clicking + if you want to run a really long experiment"*.
     BatchType(TypedField),
     BatchCopies(i32),
+    /// **Pin one individual from the roster** -- an index into the rows as
+    /// they are currently sorted and filtered, which is what was on screen
+    /// when the click landed.
+    ///
+    /// The index is resolved to an `Individual` *inside the same draw* and
+    /// never stored. `Reports/dead-ends.md` records the shape: any selection
+    /// stored as a position into a list a neighbouring verb rewrites has this
+    /// bug, and a roster is rewritten by every birth, every death and every
+    /// click on a column heading.
+    RosterSelect(usize),
+    /// Scroll the roster by one page, `-1` or `+1`.
+    RosterScroll(i32),
+    /// Sort the roster on one column; clicking the sorted column reverses it.
+    RosterSort(usize),
+    /// Cycle the roster's filter: everything, only what is in trouble, only
+    /// the pinned individual's founding line.
+    RosterFilter,
+    /// Keep the camera on the pinned individual. The other half of the
+    /// marker: a marker says *where it is*, following says *watch this one*,
+    /// and at play zoom an ant is two dark cells.
+    RosterFollow,
+    /// Let the pinned individual go.
+    RosterRelease,
+    /// Spare the pinned individual, or stop sparing it. The set is what
+    /// `RosterCullRest` keeps.
+    RosterSpare,
+    /// Cull the pinned individual.
+    RosterCull,
+    /// Cull every individual in this table that is not spared.
+    RosterCullRest,
+    /// Hold the pinned individual as the thing to compare against, or --
+    /// when one is already held and the pin has moved -- open the
+    /// comparison. One chip rather than two, because the state it is in
+    /// is written on its own face and in the notice it leaves.
+    RosterCompare,
     /// How many ticks each copy runs for, same.
     BatchFrames(i32),
 }
@@ -691,6 +728,53 @@ pub enum Panel {
     /// bar only reach the first five, so this is the page a rack of fifty is
     /// read through.
     Chambers,
+    /// **Every plant in the box, one per row.** Draws itself for `Params`'
+    /// reason and is a [`Panel`] for the same two.
+    ///
+    /// **Reached from the PLANTS page rather than from the bar**, which is
+    /// not a stylistic choice: the bar was measured full on 2026-08-31 and
+    /// again on 2026-09-01 -- row 1 at exactly 508 of 508 px and row 0 with
+    /// two pixels spare, at the tightest spacing `layout` will accept. There
+    /// is no seventh chip. So the aggregate page becomes the cover of the
+    /// roster, and the row that opens it is a `Body::Head`, which already
+    /// carries a hit target and so cost no new painter code.
+    PlantList,
+    /// Every animal in the box, one per row. `PlantList`'s twin.
+    ///
+    /// **Two tables rather than one page with a kingdom switch**, because the
+    /// columns differ: a plant has seeds, a water status and a shoot, an
+    /// animal has a bank and a crop. A shared table would read `--` down half
+    /// of every column, which is the haystack `specimen_sections` splits the
+    /// two kingdoms to avoid.
+    AntList,
+    /// **What happened while you were not looking.** `World::run_log`, newest
+    /// first.
+    ///
+    /// The one page in the lab whose subject is *time* rather than a standing
+    /// quantity: every other page answers "what is the box like now", and at
+    /// 1024x a player crosses tens of thousands of frames between two glances
+    /// at it. A count that moved from 15 to 64 does not say a lineage died.
+    ///
+    /// **Narrative only. Never count anything off it** -- the log is bounded
+    /// (`world::RUN_LOG_CAP`) and drops its oldest lines, so counting rows
+    /// would give an undercount wearing the shape of an answer. Every number
+    /// in this interface comes from `LifeCounters` and `CreatureStats`, which
+    /// are unbounded.
+    Log,
+    /// **Two individuals, side by side, with what differs marked.**
+    ///
+    /// The question a selection experiment is actually asking -- *why did
+    /// this one do better than that one* -- and nothing on this interface
+    /// could answer it. Every other page is about one individual or about the
+    /// whole box; a difference between two is neither, and reading it by
+    /// flipping between two cell pages means holding thirty numbers in your
+    /// head and comparing them from memory.
+    ///
+    /// **Reached from the roster's own footer, not from the bar**, for
+    /// `PlantList`'s reason: the bar has been measured full twice and there
+    /// is no seventh chip. The roster is also where both individuals get
+    /// chosen, so the verb sits where its operands do.
+    Compare,
 }
 
 impl Panel {
@@ -702,6 +786,10 @@ impl Panel {
             Panel::Params => "PARAMETERS",
             Panel::Shelf => "THE SHELF",
             Panel::Chambers => "THE RACK",
+            Panel::PlantList => "EVERY PLANT",
+            Panel::AntList => "EVERY ANIMAL",
+            Panel::Log => "WHAT HAPPENED",
+            Panel::Compare => "SIDE BY SIDE",
         }
     }
 }
@@ -1452,9 +1540,194 @@ const HISTORY: usize = 56;
 
 #[derive(Clone, Copy, Default)]
 struct Sample {
+    /// **The simulated frame it was taken at**, which this did not carry.
+    ///
+    /// Without it a sample is a value with no position, so nothing
+    /// downstream can say whether the series is evenly spaced -- and while
+    /// `observe` was called once per *drawn* frame it was not. `stats::
+    /// Sample` has always carried one, which is why the same defect there
+    /// only cost resolution rather than the axis. Anything that wants to
+    /// plot these against time, or check the spacing, reads this.
+    frame: u64,
     plants: u32,
     ants: u32,
     germinations: u64,
+}
+
+/// **One sample of one watched individual.**
+///
+/// Distinct from `Sample` above, which is the whole box's population: this is
+/// about a single organism and is sampled far more often, because what it is
+/// for is a *path*. A trail sampled at the population strip's 120 frames
+/// would be nine dots across a run.
+#[derive(Clone, Copy, Default, Debug)]
+struct Track {
+    /// The simulated frame it was taken at. Carried for the same reason
+    /// `Sample::frame` now is -- a value with no position cannot be checked
+    /// for even spacing, and the population strip spent a while unevenly
+    /// spaced without anything being able to say so.
+    frame: u64,
+    /// Where it was: a creature's head, a plant's collar. `roster::anchor_of`,
+    /// which is the same point the roster's marker aims at, so the trail ends
+    /// where the marker sits rather than a few cells off it.
+    at: (i32, i32),
+    /// A creature's bank; a plant's water status.
+    energy: f32,
+    cells: u16,
+}
+
+/// **How often the watched individual is sampled**, in simulated frames.
+///
+/// An ant runs on `CreatureDef::tick_interval`, which is 6 for the shipped
+/// one, so this is every second move. Fine enough that the trail is a path
+/// rather than a scatter, coarse enough that `WATCH_SAMPLES` covers a useful
+/// stretch of run.
+const WATCH_EVERY: u64 = 12;
+
+/// **How many samples the watch ring holds.** At `WATCH_EVERY` this is 1,536
+/// simulated frames of history -- long enough to show a foraging excursion
+/// out and back, which is the shape the trail exists to show.
+const WATCH_SAMPLES: usize = 128;
+
+/// **The trail and the per-individual series, for whoever is pinned.**
+///
+/// Per-box state, and it is on `Chamber` for exactly the reason `History` is:
+/// a trail is a set of world coordinates, so one left shared would draw
+/// chamber A's path across chamber B's bed. That is the bleed the chamber
+/// table warns about, one level further down.
+///
+/// **Keyed on the individual, not on the pin.** The ring clears itself when
+/// `who` changes, so it can never show one animal's path under another's
+/// name -- including the case a shared ring would get wrong silently, where a
+/// slot is re-used and the new occupant inherits the old one's trail.
+#[derive(Clone, Debug, Default)]
+pub struct Watch {
+    who: Option<roster::Individual>,
+    samples: VecDeque<Track>,
+    next_at: u64,
+}
+
+impl Watch {
+    /// Sample `who`, if there is one and it is due.
+    fn observe(&mut self, world: &World, who: Option<roster::Individual>) {
+        if self.who != who {
+            self.who = who;
+            self.samples.clear();
+            self.next_at = 0;
+        }
+        let Some(who) = who else { return };
+        // A rebuild puts the frame counter back, and a trail carried across it
+        // would draw a path between two different worlds. Same guard
+        // `History::observe` carries, and it is needed here for a stronger
+        // reason: those are counts, these are coordinates.
+        if self.samples.back().is_some_and(|t| world.frame < t.frame) {
+            self.samples.clear();
+            self.next_at = 0;
+        }
+        if world.frame < self.next_at && !self.samples.is_empty() {
+            return;
+        }
+        // **A dead individual stops adding to its trail and keeps it.** It
+        // resolves to nothing once `free_organism` has run, and the path it
+        // left is the most interesting thing about it -- where it got to
+        // before it starved is exactly what the graveyard row cannot say.
+        let Some(state) = who.resolve(world) else { return };
+        let Some(at) = roster::anchor_of(state) else { return };
+        self.samples.push_back(Track {
+            frame: world.frame,
+            at,
+            energy: state.energy,
+            cells: state.cells.len().min(u16::MAX as usize) as u16,
+        });
+        while self.samples.len() > WATCH_SAMPLES {
+            self.samples.pop_front();
+        }
+        self.next_at = world.frame + WATCH_EVERY;
+    }
+
+    /// The path, oldest first.
+    fn path(&self) -> impl Iterator<Item = (i32, i32)> + '_ {
+        self.samples.iter().map(|t| t.at)
+    }
+
+    /// One channel as a series the sparkline painter can take, **scaled to
+    /// its own range rather than to zero.**
+    ///
+    /// `draw_spark` normalises against the series' peak, which is right for
+    /// the population strip it was written for -- a count of zero means
+    /// extinction and belongs on the floor. It is wrong for a per-individual
+    /// channel, and measurably so: the shipped ant's bank runs 264 to 349
+    /// over a full ring, so every bar lands between 76% and 100% of the peak
+    /// and the strip draws as a solid block. The sawtooth of an animal
+    /// spending and refilling -- the one thing the row exists to show, and
+    /// what its own explanation promises -- is invisible.
+    ///
+    /// This is the same failure `CLAUDE.md` records for the canopy-density
+    /// overlay, where a magnitude-scaled blend produced a sheet that read as
+    /// blank and the obvious conclusion was "the mechanism is dead". The
+    /// remedy there was a full ramp over the real range, and it is the remedy
+    /// here.
+    ///
+    /// **The caption carries the absolute range, so the floor is never
+    /// implied to be zero.** Without that this would be the more dangerous
+    /// error of the two: a bank hovering at 95% of full and one swinging from
+    /// empty would draw identically.
+    ///
+    /// A channel that does not vary at all draws flat rather than dividing by
+    /// zero -- an ant's body is 2 cells for its whole life, and a flat line is
+    /// the true answer for it.
+    fn series(&self, pick: fn(&Track) -> f32) -> Vec<u32> {
+        let (lo, hi) = self.range(pick);
+        let span = hi - lo;
+        if span <= f32::EPSILON {
+            return self.samples.iter().map(|_| 1u32).collect();
+        }
+        self.samples.iter().map(|t| (((pick(t) - lo) / span) * 100.0).clamp(0.0, 100.0) as u32 + 1).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.samples.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.samples.is_empty()
+    }
+
+    /// Whether the ring is about the organism in `id`.
+    ///
+    /// **Gated on this and not merely on "something is pinned"**, because the
+    /// cell page follows the cursor and the pin does not: click a second ant
+    /// while the first is pinned and an ungated page draws the *pinned* one's
+    /// series under the *clicked* one's numbers. Every row on that page is
+    /// about one individual or the page is worse than having none.
+    fn about(&self, id: u16) -> bool {
+        self.who.is_some_and(|w| w.id == id) && !self.samples.is_empty()
+    }
+
+    /// The lowest and highest a channel reached across the ring.
+    ///
+    /// The caption needs both, because `draw_spark` normalises against the
+    /// series' own peak -- so a bank that never left 95.4..95.9 draws exactly
+    /// like one that swung from empty to full. Without the range printed, the
+    /// shape is unreadable in the one case a player most wants to trust it.
+    fn range(&self, pick: fn(&Track) -> f32) -> (f32, f32) {
+        let mut lo = f32::MAX;
+        let mut hi = f32::MIN;
+        for t in &self.samples {
+            let v = pick(t);
+            lo = lo.min(v);
+            hi = hi.max(v);
+        }
+        if lo > hi { (0.0, 0.0) } else { (lo, hi) }
+    }
+
+    /// How many simulated frames the trail spans.
+    fn span(&self) -> u64 {
+        match (self.samples.front(), self.samples.back()) {
+            (Some(a), Some(b)) => b.frame.saturating_sub(a.frame),
+            _ => 0,
+        }
+    }
 }
 
 /// The bar's short population strip for **one** chamber.
@@ -1490,6 +1763,7 @@ impl History {
         let orgs = world.live_organism_count() as u32;
         let ants = world.live_creature_count() as u32;
         self.samples.push_back(Sample {
+            frame: world.frame,
             plants: orgs.saturating_sub(ants),
             ants,
             germinations: world.germinations,
@@ -1513,6 +1787,25 @@ impl History {
             return None;
         }
         Some(pick(&self.samples[n - 1]) - pick(&self.samples[n - 2]))
+    }
+
+    /// **How many simulated frames the last delta actually spans.**
+    ///
+    /// The `CHANGE` row's explanation used to say "120 SIMULATED FRAMES
+    /// APART" as a literal, and while `observe` was called once per drawn
+    /// frame that was simply untrue -- the real gap was whatever a batch
+    /// happened to be, drifting around 140 and set by how fast the machine
+    /// was. Reading it off the samples means the page states a measured fact
+    /// about the run in front of it rather than a property it assumes, and a
+    /// cadence that comes adrift again shows up in the tooltip instead of
+    /// being invisible. It is also the only reader `Sample::frame` has, which
+    /// is the point: a field with a writer and no reader is dead weight.
+    fn gap(&self) -> Option<u64> {
+        let n = self.samples.len();
+        if n < 2 {
+            return None;
+        }
+        Some(self.samples[n - 1].frame.saturating_sub(self.samples[n - 2].frame))
     }
 }
 
@@ -1625,6 +1918,30 @@ pub struct Ui {
     /// exactly the numbers the page exists to show.
     inspect_organism: Option<u16>,
     pub(crate) history: History,
+    /// The pinned individual's trail and per-individual series.
+    /// Per-box, and swapped with the chamber like `history`.
+    pub(crate) watch: Watch,
+    /// **The other individual**, for `Panel::Compare`.
+    ///
+    /// Deliberately not a second pin: only one individual is marked in the
+    /// box and followed at a time, because two markers on a 512-wide bed is
+    /// two things to find rather than one. This is a *held* identity, and
+    /// like the pin it is `(organism_id, born_frame)` -- never a row index,
+    /// which reorders under a sort, and never a cell, which the individual
+    /// walks off.
+    held: Option<roster::Individual>,
+    /// **The individuals a cull-the-rest will keep.**
+    ///
+    /// A set rather than a second pin, because the question it answers is
+    /// *"keep these"* and there is no reason that is one. Identities, like
+    /// everything else that names an individual here -- a row index reorders
+    /// under a sort and a cell is somewhere the animal walks off.
+    ///
+    /// **Not pruned when its members die.** A spared individual that starves
+    /// is simply no longer in the table, and a set that quietly forgot it
+    /// would make `SPARE` look like it had failed. `CULL REST` resolves
+    /// against the world each time it runs, so a dead entry costs nothing.
+    spared: Vec<roster::Individual>,
     /// Last frame's layout. See the module doc: a click arrives between
     /// frames, so this is the bar the player was looking at.
     bar: Bar,
@@ -1717,6 +2034,52 @@ pub struct Ui {
     /// Index 1 (`STATE`) is the default: it is the block that moves while the
     /// box runs, and it is what a player opened the page to watch.
     specimen_section: usize,
+    /// **The individual the interface is holding on to**, across frames and
+    /// across the thing moving.
+    ///
+    /// An identity rather than an index or a cell, and both of those were the
+    /// obvious wrong answers. An index into the roster names a different
+    /// animal the moment anything is born, dies or the sort changes. A cell
+    /// -- which is what `inspect` is, deliberately -- names whatever is
+    /// standing there now, so a walking ant leaves its own page behind. This
+    /// is the third thing: `(handle, born_frame)`, checked both halves, and a
+    /// pin that stops resolving is a **death** rather than a lookup failure.
+    ///
+    /// While it holds, `inspect` is re-pointed at the individual's own cell
+    /// every frame, so the cell page follows the animal instead of the ground
+    /// and every verb already on that page keeps working unchanged.
+    pinned: Option<roster::Individual>,
+    /// Whether the camera is chasing the pin.
+    following: bool,
+    /// The roster page's own clickable rectangles, for `params_bar`'s reason.
+    roster_bar: Bar,
+    roster_box: Option<Rect>,
+    /// **How each roster is being read, one entry per kingdom.**
+    ///
+    /// Per kingdom rather than shared, and that is a correctness matter
+    /// rather than a convenience. A sort is stored as a **column index**, and
+    /// column 1 is SEED on the plants table and BANK on the animals' -- so
+    /// one shared index means "sort on the second column, whatever that is
+    /// here", which is not a thing anybody asked for. Caught by the harness
+    /// on its first run: sorting the plants list and then opening the animals
+    /// list drew the animals in a sort nobody had chosen, and a click on the
+    /// third row pinned ant 41 where ant 11 was expected. Scroll and filter
+    /// go with it for the ordinary reason -- coming back to a list you had
+    /// scrolled and finding it at the top is a list that forgot what you were
+    /// doing.
+    roster_view: [RosterView; 2],
+    /// **The generic pages' own clickable rectangles.**
+    ///
+    /// `paint_page` has always collected `Body::Head` rows into a `taps` vec
+    /// and the one caller that draws a `Panel` through it passed
+    /// `&mut Vec::new()` -- so every heading on the PLANTS, ANTS and BOX pages
+    /// was a hit target that was built, thrown away, and could never fire.
+    /// Nothing noticed because those pages had no clickable headings yet; the
+    /// roster's way in is the first, and it would have shipped as a row that
+    /// looks like a button and does nothing. `CLAUDE.md`'s standing check --
+    /// a channel needs a writer and a reader, and the compiler checks
+    /// neither -- in its "read and never written" direction.
+    panel_bar: Bar,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -1773,10 +2136,19 @@ impl Ui {
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
             brush: 6,
-            // `STATE`, not `LIFE`: the group that moves while the box runs is
-            // what a player opened the page to watch, and `Default`'s own 0
-            // would land them on three rows that never change.
-            specimen_section: 1,
+            // **`WORDS`, and this reverses an argued decision.** It used to
+            // be `STATE` -- the group that moves while the box runs, and what
+            // a player opened the page to watch -- against `Default`'s own 0,
+            // which was then `LIFE`, three rows that never change.
+            //
+            // `WORDS` is now 0, and it answers the question the page is most
+            // often opened with: *what kind of thing is this*. The old
+            // reasoning still holds for the second page you open and every
+            // one after, and it does not have to be paid for -- the field is
+            // sticky, so one click on `STATE` puts every later page there and
+            // leaves it there. Defaulting to the summary costs a returning
+            // player one click and costs a new one nothing.
+            specimen_section: 0,
             // The shipped colony for `COLONY` and a single individual for a
             // release, so both verbs do for an untouched dial exactly what
             // they have always done.
@@ -1816,6 +2188,7 @@ impl Ui {
             || self.params_box.is_some_and(|r| r.contains(x, y))
             || self.shelf_box.is_some_and(|r| r.contains(x, y))
             || self.rack_box.is_some_and(|r| r.contains(x, y))
+            || self.roster_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -2037,6 +2410,11 @@ impl Ui {
 
     pub fn observe(&mut self, world: &World) {
         self.history.observe(world);
+        // **The watch ring is fed from the pin rather than from a separate
+        // selection.** A second way to choose an individual is a second thing
+        // that can disagree with the marker on screen, and the pin is already
+        // the thing that means "this one" everywhere else on this interface.
+        self.watch.observe(world, self.pinned);
     }
 
     /// Where the button for `action` was drawn last frame.
@@ -2058,6 +2436,8 @@ impl Ui {
             // panicking on `ALL` the first time it was asked to open the rack.
             .chain(self.tabs.widgets.iter())
             .chain(self.rack_bar.widgets.iter())
+            .chain(self.roster_bar.widgets.iter())
+            .chain(self.panel_bar.widgets.iter())
             .chain(self.inspect_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
             .map(|wid| wid.rect)
@@ -2073,6 +2453,8 @@ impl Ui {
             .or_else(|| self.params_bar.hit(x, y))
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
+            .or_else(|| self.roster_bar.hit(x, y))
+            .or_else(|| self.panel_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
             .or_else(|| self.inspect_bar.hit(x, y))
     }
@@ -2092,6 +2474,293 @@ impl Ui {
         // top: staying at row 30 of a list that has just been reordered shows
         // you a window you did not choose.
         self.rack_scroll = 0;
+    }
+
+    // ------------------------------------------------------------- roster
+
+    /// The individual the interface is holding on to, if any.
+    pub fn pinned(&self) -> Option<roster::Individual> {
+        self.pinned
+    }
+
+    /// Hold on to one individual. Pinning the one already pinned lets it go,
+    /// which is `inspect`'s own gesture and the one a player already knows
+    /// from this interface.
+    pub fn pin(&mut self, who: roster::Individual) -> bool {
+        if self.pinned == Some(who) {
+            self.pinned = None;
+            self.following = false;
+            false
+        } else {
+            self.pinned = Some(who);
+            true
+        }
+    }
+
+    /// Let the pinned individual go, and stop chasing it.
+    pub fn release_pin(&mut self) {
+        self.pinned = None;
+        self.following = false;
+    }
+
+    /// How many samples the watch ring holds — the count a contact sheet
+    /// must print beside a trail. An image says *what* and *where*; only a
+    /// number says the ring fired at all, and a trail of one dot and a trail
+    /// that was never sampled look identical.
+    pub fn watch_len(&self) -> usize {
+        self.watch.len()
+    }
+
+    /// How many simulated frames the trail spans.
+    pub fn watch_span(&self) -> u64 {
+        self.watch.span()
+    }
+
+    /// Whether `who` is on the spare list.
+    pub fn is_spared(&self, who: roster::Individual) -> bool {
+        self.spared.contains(&who)
+    }
+
+    /// How many individuals are spared.
+    pub fn spared_count(&self) -> usize {
+        self.spared.len()
+    }
+
+    /// Who is spared. For a harness or a guard that has to check the *right*
+    /// ones lived: a population count cannot, because the box breeds while
+    /// the culled bodies rot and a birth looks exactly like a survival.
+    pub fn spared_list(&self) -> &[roster::Individual] {
+        &self.spared
+    }
+
+    /// Spare the pinned individual, or stop sparing it. Returns what to say.
+    pub fn toggle_spared(&mut self) -> String {
+        let Some(who) = self.pinned else {
+            return "PIN ONE FIRST".to_string();
+        };
+        match self.spared.iter().position(|s| *s == who) {
+            Some(i) => {
+                self.spared.remove(i);
+                format!("NO LONGER SPARED -- {} KEPT", self.spared.len())
+            }
+            None => {
+                self.spared.push(who);
+                format!("SPARED -- {} KEPT", self.spared.len())
+            }
+        }
+    }
+
+    /// Forget every spared individual.
+    pub fn clear_spared(&mut self) {
+        self.spared.clear();
+    }
+
+    /// **Who a cull-the-rest would take**, resolved against the world now.
+    ///
+    /// Returned rather than acted on, so `Lab` owns the killing and this owns
+    /// the selection -- the same split every other verb on this page uses.
+    /// Computed from the *kingdom*, not from the visible rows: culling only
+    /// what a filter happens to be showing would make the same button mean
+    /// different things depending on a chip pressed two clicks ago, and a
+    /// destructive verb is the last place for that.
+    ///
+    /// **Already-rotting rows are not targets**, and that is what makes the
+    /// count on the button honest. A cull is graded, so the culled stay in
+    /// the table saying ROTTING for thousands of frames; counting them left
+    /// the face reading `CULL REST 13` immediately after a press that had
+    /// taken all thirteen, so a button whose whole job is to say what it will
+    /// do was promising thirteen deaths and delivering none.
+    pub fn cull_rest_targets(&self, world: &World, kingdom: roster::Kingdom) -> Vec<roster::Individual> {
+        roster::rows(world, kingdom, roster::SortKey::Slot, false, roster::Filter::All)
+            .into_iter()
+            .filter(|r| !matches!(r.state, roster::RowState::Senescent))
+            .map(|r| r.who)
+            .filter(|w| !self.spared.contains(w))
+            .collect()
+    }
+
+    /// The individual held for comparison, if any.
+    pub fn held(&self) -> Option<roster::Individual> {
+        self.held
+    }
+
+    /// **The `VS` gesture.** Returns what to say about it.
+    ///
+    /// Hold the pin when nothing is held, or when the held one *is* the pin
+    /// (so pressing it twice on one row is a no-op that reads as one); open
+    /// the comparison once the pin has moved to somebody else. Returning the
+    /// notice rather than setting it keeps `Ui` out of the business of
+    /// phrasing, which is `Lab::act`'s throughout this interface.
+    pub fn compare_or_hold(&mut self) -> (String, bool) {
+        let Some(pin) = self.pinned else {
+            return ("PIN ONE FIRST".to_string(), false);
+        };
+        if self.held == Some(pin) {
+            self.held = None;
+            return ("LET THE FIRST ONE GO".to_string(), false);
+        }
+        match self.held {
+            None => {
+                self.held = Some(pin);
+                ("HELD. NOW PIN ANOTHER AND PRESS VS".to_string(), false)
+            }
+            Some(_) => ("SIDE BY SIDE".to_string(), true),
+        }
+    }
+
+    /// Forget the held individual. Called when the pin is released, because a
+    /// half-set comparison outliving the thing that set it is a chip that
+    /// says VS and does nothing recognisable.
+    pub fn clear_held(&mut self) {
+        self.held = None;
+    }
+
+    pub fn following(&self) -> bool {
+        self.following
+    }
+
+    /// Chase the pin, or stop. Refused with no pin: following nothing would
+    /// latch a button that does nothing, which is worse than a button that
+    /// says no.
+    pub fn toggle_following(&mut self) -> bool {
+        self.following = self.pinned.is_some() && !self.following;
+        self.following
+    }
+
+    /// **Which roster is open**, or `None` when neither is.
+    ///
+    /// Every roster mutator below goes through this rather than taking a
+    /// kingdom argument: the page that is open is the page the click landed
+    /// on, and a caller passing the other one would be a second source of
+    /// truth about which table is on screen.
+    pub fn roster_kingdom(&self) -> Option<roster::Kingdom> {
+        match self.panel {
+            Some(Panel::PlantList) => Some(roster::Kingdom::Plants),
+            Some(Panel::AntList) => Some(roster::Kingdom::Creatures),
+            _ => None,
+        }
+    }
+
+    fn view(&self, kingdom: roster::Kingdom) -> RosterView {
+        self.roster_view[view_slot(kingdom)]
+    }
+
+    fn view_mut(&mut self, kingdom: roster::Kingdom) -> &mut RosterView {
+        &mut self.roster_view[view_slot(kingdom)]
+    }
+
+    /// Which column the open roster is sorted on, and which way.
+    pub fn roster_sort(&self) -> Option<(usize, bool)> {
+        self.roster_kingdom().and_then(|k| self.view(k).sort)
+    }
+
+    /// What the open roster is filtered to.
+    pub fn roster_filter(&self) -> roster::Filter {
+        self.roster_kingdom().map(|k| self.view(k).filter).unwrap_or_default()
+    }
+
+    /// The sort the roster page is *actually* drawn with, resolved through the
+    /// kingdom's own column list.
+    ///
+    /// **The one accessor `Lab` rebuilds the row list through**, so a click
+    /// cannot be resolved against a different order than the one on screen.
+    /// The alternative -- `Lab` re-deriving the key from the column index --
+    /// is the second copy of the arithmetic this module exists to avoid.
+    pub fn roster_sort_key(&self, kingdom: roster::Kingdom) -> (roster::SortKey, bool) {
+        match self.view(kingdom).sort {
+            Some((c, desc)) => {
+                let cols = roster_cols(kingdom);
+                (cols[c.min(cols.len() - 1)].2, desc)
+            }
+            None => (roster::SortKey::Slot, false),
+        }
+    }
+
+    /// Stop chasing, without letting go. What a death does: the pin is worth
+    /// keeping (the page has something to say about it) and the chase is not.
+    pub fn stop_following(&mut self) {
+        self.following = false;
+    }
+
+    /// Point the cell page at a world cell **without the toggle**.
+    ///
+    /// `inspect` toggles, which is right for a click on the ground and wrong
+    /// for this: the pin re-points the page every frame, and a toggle would
+    /// make the page flicker on and off at sixty hertz the moment an animal
+    /// stood still. Same distinction, and the same reason, as `arm_tool`
+    /// against `set_tool`.
+    ///
+    /// **It takes the individual too, and that is not decoration.** The cell
+    /// page keeps a second field, `inspect_organism`, and `follow_inspected`
+    /// re-points the page at *that* organism's nearest cell once per frame.
+    /// Setting only the cell left the latch on whoever was clicked in the
+    /// world last, so `follow_inspected` dragged the page straight back one
+    /// frame later: pinning an ant from the roster put the marker and the
+    /// FOLLOW camera on the ant and left the page reading a plant across the
+    /// bed, for as long as the pin was held. Found by cropping a contact
+    /// sheet -- the row was highlighted, the pin resolved, and the page was
+    /// simply somebody else's.
+    pub fn inspect_at(&mut self, cell: (i32, i32), organism: u16) {
+        self.inspect = Some(cell);
+        self.inspect_organism = Some(organism);
+    }
+
+    /// Sort the open roster on a column, or reverse it if it is already the
+    /// one.
+    ///
+    /// **Descending first**, for `sort_chambers`' reason: every column here
+    /// is a "how much", and the row worth looking at in a bed of a hundred is
+    /// the extreme one, so one click puts it at the top rather than at the
+    /// bottom.
+    pub fn sort_roster(&mut self, col: usize) {
+        let Some(k) = self.roster_kingdom() else { return };
+        let v = self.view_mut(k);
+        v.sort = match v.sort {
+            Some((c, desc)) if c == col => Some((c, !desc)),
+            _ => Some((col, true)),
+        };
+        // A sort moves rows under the cursor, so the window goes back to the
+        // top: staying at row 30 of a list that has just been reordered shows
+        // you a window you did not choose.
+        v.scroll = 0;
+    }
+
+    /// Move the open roster's window by one page. Clamped in `paint_roster`
+    /// against the list as it actually is, which matters more here than
+    /// anywhere else on this interface: a roster changes length between two
+    /// frames with nobody touching anything.
+    pub fn scroll_roster(&mut self, direction: i32) {
+        let Some(k) = self.roster_kingdom() else { return };
+        let page = ROSTER_ROWS.max(1);
+        let v = self.view_mut(k);
+        v.scroll = (v.scroll as i32 + direction * page as i32).max(0) as usize;
+    }
+
+    pub fn roster_scroll(&self) -> usize {
+        self.roster_kingdom().map(|k| self.view(k).scroll).unwrap_or(0)
+    }
+
+    /// Cycle what the open roster shows. `line` is the pinned individual's
+    /// founding line, or `None` when nothing is pinned -- in which case the
+    /// LINE state is skipped rather than shown empty, because a filter on a
+    /// line nobody chose keeps nothing and reads as a broken page.
+    pub fn cycle_roster_filter(&mut self, line: Option<u32>) -> String {
+        let Some(k) = self.roster_kingdom() else { return String::new() };
+        let v = self.view_mut(k);
+        // ALL -> IN TROUBLE -> DEAD -> (LINE n) -> ALL. The graveyard sits
+        // after the living states and before the lineage cut, so the cycle
+        // reads as "everything, then what is going wrong, then what already
+        // did" -- and a player who only wants the living never passes through
+        // two thousand dead rows to get back.
+        v.filter = match (v.filter, line) {
+            (roster::Filter::All, _) => roster::Filter::Trouble,
+            (roster::Filter::Trouble, _) => roster::Filter::Dead,
+            (roster::Filter::Dead, Some(l)) => roster::Filter::Lineage(l),
+            (roster::Filter::Dead, None) => roster::Filter::All,
+            (roster::Filter::Lineage(_), _) => roster::Filter::All,
+        };
+        v.scroll = 0;
+        format!("SHOWING {}", v.filter.label())
     }
 
     /// Highlight one row of the rack page.
@@ -2348,6 +3017,134 @@ impl Ui {
 // count was zero all run.
 
 impl Ui {
+    /// **Two individuals, paired by row label, with what differs marked.**
+    ///
+    /// Built out of `params::specimen_rows` rather than out of a second copy
+    /// of that arithmetic, so a number can never read one way here and
+    /// another way on the cell page -- which would be the worst possible
+    /// defect on a page whose entire job is comparison.
+    ///
+    /// **Paired by label, and the union rather than the intersection.** Two
+    /// animals produce the same rows, but a plant against an animal does not,
+    /// and the rows that exist for only one of them are exactly the ones
+    /// worth seeing (`SEEDS SET` against `DELIVERED` says which kingdom you
+    /// picked by mistake). A missing side reads `--`, which is a fact about
+    /// that individual rather than a gap in the page.
+    ///
+    /// **Rows whose label carries a frame number never pair, by design.**
+    /// `specimen_rows` stamps a few life events into the label itself
+    /// (`F636 FIRST FED`), so two individuals that both fed produce two rows
+    /// rather than one, each with `--` on the other side. That reads
+    /// correctly -- it says when *each* of them first fed, which is the fact
+    /// -- and it does inflate the differing count by one per such event.
+    ///
+    /// **The difference is marked, not computed.** A numeric delta was the
+    /// obvious build and is wrong here: half these rows are not numbers
+    /// (`ORIGIN FOUNDER`, `CROP EMPTY`, `STARVING NO`), and a page that
+    /// subtracts where it can and does not where it cannot is a page whose
+    /// blank cells mean two different things. Same-or-different is defined
+    /// for every row.
+    fn compare_rows(&self, world: &World) -> Vec<Row> {
+        let (Some(a), Some(b)) = (self.held, self.pinned) else {
+            return vec![Row::value(
+                "NOTHING TO COMPARE",
+                "--",
+                FAINT,
+                "PIN AN INDIVIDUAL, PRESS HOLD, THEN PIN A SECOND ONE AND PRESS VS. THIS PAGE NEEDS TWO.".to_string(),
+            )];
+        };
+        let name = |who: roster::Individual| -> String {
+            match who.resolve(world) {
+                Some(st) => format!("{} {}", param_label(&world.species.get(st.species).name), who.id),
+                // **Dead is a legitimate side of a comparison and is the
+                // interesting one.** "Why did this one die and that one not"
+                // is the question; a page that refused to show a corpse would
+                // refuse exactly when it is most wanted. The graveyard keeps
+                // the record, so the rows below still have something to read.
+                None => format!("#{} (DIED)", who.id),
+            }
+        };
+        // **Back to the list it was opened from, not to a fixed page.** Both
+        // individuals were chosen there, so it is where a player who wants a
+        // different pair is going; `paint_roster` learned the same lesson the
+        // hard way, that a page a click cannot leave is a page a player
+        // cannot leave.
+        let home = match self.pinned.and_then(|w| w.resolve(world)) {
+            Some(st) if world.species.get(st.species).creature.is_some() => Panel::AntList,
+            _ => Panel::PlantList,
+        };
+        let mut rows = vec![
+            Row::head("BACK TO THE LIST", false, 0, Action::Panel(home), "RETURN TO THE ROSTER BOTH OF THESE WERE PICKED FROM."),
+            Row::value(
+                "HELD",
+                name(a),
+                TITLE,
+                "THE ONE YOU PRESSED HOLD ON. IT IS NOT MARKED IN THE BOX -- ONLY THE PIN IS, BECAUSE TWO MARKERS ON ONE BED IS TWO THINGS TO FIND RATHER THAN ONE.".to_string(),
+            ),
+            Row::value(
+                "PINNED",
+                name(b),
+                TITLE,
+                "THE ONE CURRENTLY PINNED, MARKED IN THE BOX. PIN A DIFFERENT ROW AND COME BACK AND THIS SIDE CHANGES -- THE HELD ONE STAYS PUT.".to_string(),
+            ),
+            Row::gap(),
+        ];
+
+        let left = params::specimen_rows(world, a.id);
+        let right = params::specimen_rows(world, b.id);
+        let find = |rs: &[(String, String, String)], label: &str| -> Option<(String, String)> {
+            rs.iter().find(|(l, _, _)| l == label).map(|(_, v, n)| (v.clone(), n.clone()))
+        };
+        let mut seen: Vec<String> = Vec::new();
+        let mut differing = 0usize;
+        let (mut unlike, mut alike): (Vec<Row>, Vec<Row>) = (Vec::new(), Vec::new());
+        for (label, _, _) in left.iter().chain(right.iter()) {
+            if seen.iter().any(|s| s == label) {
+                continue;
+            }
+            seen.push(label.clone());
+            let lv = find(&left, label);
+            let rv = find(&right, label);
+            let note = lv.as_ref().or(rv.as_ref()).map(|(_, n)| n.clone()).unwrap_or_default();
+            let (lt, rt) = (
+                lv.map(|(v, _)| v).unwrap_or_else(|| "--".to_string()),
+                rv.map(|(v, _)| v).unwrap_or_else(|| "--".to_string()),
+            );
+            let same = lt == rt;
+            if !same {
+                differing += 1;
+            }
+            let row = Row::value(label, format!("{lt}  |  {rt}"), if same { FAINT } else { VALUE }, note);
+            if same { alike.push(row) } else { unlike.push(row) }
+        }
+        // **What differs comes first, and that is the page's whole argument.**
+        // Kept in specimen order the two shipped ants put fourteen identical
+        // plain-speech lines above the nine rows that actually differed, so
+        // the answer to "why is this one doing better" was below the fold on
+        // a page opened to ask exactly that. `fit_rows` trims from the
+        // bottom, so ordering is also what decides which rows survive a page
+        // that overruns -- the identical ones are the right ones to lose.
+        let alike_count = alike.len();
+        rows.extend(unlike);
+        rows.extend(alike);
+        // **The count, and it is not decoration.** A page of forty rows all
+        // dimmed reads identically to a page that failed to load, and this
+        // interface has already paid for that once -- a collapse read as
+        // "chunks are working" off a picture whose body count was zero all
+        // run. Two clones of one genome legitimately differ nowhere, and the
+        // number is what says so out loud.
+        rows.insert(
+            3,
+            Row::value(
+                "DIFFER",
+                format!("{differing} OF {}", differing + alike_count),
+                if differing == 0 { FAINT } else { VALUE },
+                "HOW MANY ROWS BELOW ARE NOT IDENTICAL. THEY ARE LISTED FIRST, BRIGHT, WITH THE MATCHING ONES DIMMED UNDER THEM -- SO WHAT YOU OPENED THIS PAGE TO SEE IS AT THE TOP OF IT. ZERO IS A REAL ANSWER AND NOT A BROKEN PAGE: TWO COPIES OF ONE JAR, PLACED THE SAME MOMENT, DIFFER NOWHERE UNTIL THE BOX HAS DONE SOMETHING TO THEM.".to_string(),
+            ),
+        );
+        rows
+    }
+
     fn panel_rows(&self, panel: Panel, world: &World, spec: &LabBox, fps: f32) -> Vec<Row> {
         let orgs = world.live_organism_count();
         let ants = world.live_creature_count();
@@ -2357,7 +3154,8 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params | Panel::Shelf | Panel::Chambers => Vec::new(),
+            Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList => Vec::new(),
+            Panel::Compare => self.compare_rows(world),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -2374,7 +3172,13 @@ impl Ui {
                         "CHANGE",
                         d,
                         tint,
-                        "HOW THE STANDING COUNT MOVED ACROSS THE LAST TWO SAMPLES, 120 SIMULATED FRAMES APART. A STILL PICTURE CANNOT SHOW WHETHER A BOX FULL OF GREEN IS BREEDING OR DYING; THIS CAN.",
+                        format!(
+                            "HOW THE STANDING COUNT MOVED ACROSS THE LAST TWO SAMPLES, {} SIMULATED FRAMES APART. A STILL PICTURE CANNOT SHOW WHETHER A BOX FULL OF GREEN IS BREEDING OR DYING; THIS CAN.",
+                            match self.history.gap() {
+                                Some(g) => g.to_string(),
+                                None => "--".to_string(),
+                            }
+                        ),
                     ),
                     Row::value(
                         "GERMINATED",
@@ -2400,6 +3204,18 @@ impl Ui {
                         series,
                         GOOD,
                         "THE STANDING PLANT COUNT OVER THE LAST 56 SAMPLES, OLDEST ON THE LEFT. ONE SAMPLE EVERY 120 SIMULATED FRAMES, SO THE SHAPE IS THE SAME WHATEVER SPEED YOU WATCHED IT AT.",
+                    ),
+                    // **The way in to the roster**, and the reason it is a
+                    // heading rather than a chip: `Body::Head` already pushes
+                    // a full-width invisible hit target, so this cost no new
+                    // painter code -- and the bar has no room for a seventh
+                    // button, measured twice (see `Panel::PlantList`).
+                    Row::head(
+                        "LIST EVERY PLANT",
+                        false,
+                        plants,
+                        Action::Panel(Panel::PlantList),
+                        "OPEN THE ROSTER: ONE ROW PER PLANT, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT PLANT IN THE BOX AND ITS NUMBERS ON SCREEN. THIS PAGE IS THE STAND; THAT ONE IS THE INDIVIDUALS IN IT.",
                     ),
                 ]
             }
@@ -2445,6 +3261,13 @@ impl Ui {
                         series,
                         FAIR,
                         "THE ANIMAL COUNT OVER THE LAST 56 SAMPLES, OLDEST ON THE LEFT. ONE SAMPLE EVERY 120 SIMULATED FRAMES.",
+                    ),
+                    Row::head(
+                        "LIST EVERY ANIMAL",
+                        false,
+                        ants,
+                        Action::Panel(Panel::AntList),
+                        "OPEN THE ROSTER: ONE ROW PER ANIMAL, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT ANIMAL AND ITS NUMBERS ON SCREEN. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, WHICH IS THE WHOLE REASON THIS LIST EXISTS.",
                     ),
                 ]
             }
@@ -2497,8 +3320,90 @@ impl Ui {
                     if fps >= 30.0 { GOOD } else { FAIR },
                     "DRAWN FRAMES PER SECOND. THIS IS THE WINDOW, NOT THE SIMULATION -- THE SPEED READOUT ON THE BAR IS THE SIMULATION.",
                 ),
+                // The way in to the log, on the same mechanism as the two
+                // rosters: a `Body::Head` already carries a hit target, and
+                // the bar has no room for a seventh chip.
+                Row::head(
+                    "WHAT HAPPENED",
+                    false,
+                    world.run_log.len(),
+                    Action::Panel(Panel::Log),
+                    "OPEN THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. EVERY OTHER PAGE SAYS WHAT THE BOX IS LIKE NOW; AT 1024X YOU CROSS TENS OF THOUSANDS OF FRAMES BETWEEN TWO GLANCES AT IT, AND A COUNT THAT MOVED DOES NOT SAY WHOSE LINE ENDED.",
+                ),
             ],
+            Panel::Log => self.log_rows(world),
         }
+    }
+
+    /// The run log as rows, newest first.
+    ///
+    /// **Bounded twice, and both bounds are stated on the page.** The log
+    /// itself drops its oldest lines past `world::RUN_LOG_CAP`, and this page
+    /// shows only the newest `LOG_ROWS` of what survives. Neither is allowed
+    /// to read as *nothing happened*: the last row says how many lines are
+    /// off the bottom and how many are gone for good. A trimmed history that
+    /// looks like a quiet one is the same failure as a zero body count read
+    /// as "chunks are working".
+    fn log_rows(&self, world: &World) -> Vec<Row> {
+        let mut rows = vec![Row::head(
+            "BACK TO THE BOX",
+            false,
+            0,
+            Action::Panel(Panel::Box),
+            "RETURN TO THE BOX PAGE.",
+        )];
+        let shown: Vec<&world::LogEvent> = world.run_log.recent().take(LOG_ROWS).collect();
+        if shown.is_empty() {
+            rows.push(Row::value(
+                "NOTHING YET",
+                "--".to_string(),
+                FAINT,
+                "NO BIRTH, DEATH OR FIRST HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
+            ));
+        }
+        for e in shown.iter() {
+            let who = param_label(&world.species.get(e.species).name);
+            let (what, tint, note) = match e.kind {
+                world::LogKind::Born => (
+                    format!("{who} {} BORN", e.id),
+                    GOOD,
+                    format!(
+                        "A SEED GERMINATED, OR AN ANIMAL BUDDED FROM {}. THE NUMBER IS THE SLOT IT HOLDS, WHICH IS REUSED AFTER 16 TURNS -- THE ROSTER PINS BY SLOT AND BIRTH FRAME TOGETHER FOR THAT REASON.",
+                        if e.other == 0 { "NOTHING".to_string() } else { format!("PARENT {}", e.other) }
+                    ),
+                ),
+                world::LogKind::Died => (
+                    format!("{who} {} {}", e.id, cause_of(e.other)),
+                    POOR,
+                    "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED OR LOST IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
+                ),
+                world::LogKind::FirstFeed => (
+                    format!("{who} {} FIRST FED", e.id),
+                    VALUE,
+                    "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
+                ),
+                world::LogKind::FirstSeed => (
+                    format!("{who} {} FIRST SEED", e.id),
+                    VALUE,
+                    "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
+                ),
+                world::LogKind::LineEnded => (
+                    format!("LINE {} ENDED", e.other),
+                    POOR,
+                    "THE LAST LIVING MEMBER OF A LINEAGE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
+                ),
+            };
+            rows.push(Row::value(format!("F{}", e.frame), what, tint, note));
+        }
+        let below = world.run_log.len().saturating_sub(shown.len());
+        let dropped = world.run_log.dropped();
+        rows.push(Row::value(
+            "OLDER",
+            if dropped == 0 { format!("{below} MORE") } else { format!("{below} MORE, {dropped} LOST") },
+            FAINT,
+            "HOW MANY LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
+        ));
+        rows
     }
 
     /// **The cell page's one button**, or `None` when the cell it is open on
@@ -2561,6 +3466,36 @@ impl Ui {
     /// than of the cursor, and the inspector is pinned by a click and not by
     /// hover, so it moves when the world moves — an ant walking out from under
     /// it — which is the honest reading of "what is here now".
+    /// **The pinned individual's own series** — two sparklines for the group
+    /// that moves.
+    ///
+    /// Empty unless the pin is on the organism whose page this is, so a page
+    /// never carries somebody else's history. Empty is the right answer and
+    /// not a failure: nothing is pinned yet, or the ring has not filled, and
+    /// in both cases the page is simply the page it always was.
+    fn watch_rows(&self, id: u16) -> Vec<Row> {
+        if !self.watch.about(id) {
+            return Vec::new();
+        }
+        let span = self.watch.span();
+        let (lo, hi) = self.watch.range(|t| t.energy);
+        let (clo, chi) = self.watch.range(|t| t.cells as f32);
+        let mut out = Vec::new();
+        out.push(Row::spark(
+            format!("BANK {lo:.0}-{hi:.0}"),
+            self.watch.series(|t| t.energy),
+            if hi > 0.0 && lo < hi * 0.5 { FAIR } else { GOOD },
+            format!("THIS ONE'S OWN ENERGY OVER THE LAST {} SIMULATED FRAMES, OLDEST ON THE LEFT, ONE SAMPLE EVERY {WATCH_EVERY}. THE BARS ARE SCALED TO ITS OWN PEAK, SO THE CAPTION CARRIES THE RANGE -- A FLAT FULL STRIP AT 95-96 AND ONE AT 0-200 DRAW THE SAME SHAPE. AN ANIMAL WHOSE SAWTOOTH STOPS CLIMBING BACK IS ONE THAT HAS STOPPED FINDING FOOD.", span),
+        ));
+        out.push(Row::spark(
+            format!("BODY {clo:.0}-{chi:.0} CELLS"),
+            self.watch.series(|t| t.cells as f32),
+            VALUE,
+            "HOW MANY CELLS IT HAS HELD OVER THE SAME WINDOW. FOR A PLANT THIS IS GROWTH, AND A STEP DOWN IS SOMETHING EATING IT OR A BRANCH COMING OFF; FOR AN ANIMAL IT IS FLAT UNLESS SOMETHING HAS BITTEN A PIECE OUT OF IT.".to_string(),
+        ));
+        out
+    }
+
     fn inspect_rows(&self, world: &World, at: (i32, i32)) -> Vec<Row> {
         let (x, y) = at;
         let cell = world.get(x, y);
@@ -2618,8 +3553,37 @@ impl Ui {
         // a page whose groups all fit -- an ant's -- never folds at all, so
         // that page is exactly what it always was.
         let chosen = self.specimen_section.min(sections.len() - 1);
-        for i in std::iter::once(chosen).chain(0..sections.len()) {
-            let cost = sections[i].2.len() as i32 * LINE;
+        // **The chosen group opens whether or not it fits, and that is a
+        // change.** The rule used to be `cost <= room` for every group
+        // including the chosen one, which reads as "serve it first" and is
+        // not: a group *larger than the whole budget* could never satisfy it,
+        // so clicking its heading did nothing at all, for ever. Nothing had
+        // hit it while the biggest group was eleven rows against a
+        // fourteen-row budget; `WORDS` is eighteen and hit it immediately.
+        //
+        // A group that overruns is trimmed by `fit_rows` at the end of this
+        // function, which prints how many rows it dropped -- so an oversized
+        // group is shown short and says so, rather than being silently
+        // unopenable. A heading that does nothing when clicked is the worse
+        // of the two by a long way.
+        // **The watched individual's own series, which belong in `STATE` and
+        // nowhere else.** `STATE` is defined as the group that moves while
+        // the box runs, and a series is precisely the record of it moving.
+        // The alternative -- a fifth group of its own -- was measured and does
+        // not fit: giving the run-log timeline its own heading cost ~15px and
+        // put the page over the screen, and that is the same ~15px again.
+        let mut sparks = self.watch_rows(cell.organism_id());
+        let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
+        let spark_h: i32 = sparks.iter().map(Row::height).sum();
+
+        open[chosen] = true;
+        room -= sections[chosen].2.len() as i32 * LINE;
+        if state_at == Some(chosen) {
+            room -= spark_h;
+        }
+        for i in 0..sections.len() {
+            let cost = sections[i].2.len() as i32 * LINE
+                + if state_at == Some(i) { spark_h } else { 0 };
             if !open[i] && cost <= room {
                 open[i] = true;
                 room -= cost;
@@ -2641,6 +3605,12 @@ impl Ui {
             if open {
                 for (label, value, note) in section {
                     rows.push(Row::value(label, value, VALUE, note));
+                }
+                if state_at == Some(i) {
+                    // Moved rather than copied: `Row` is not `Clone` and does
+                    // not need to be -- there is one `STATE` group, so these
+                    // rows have exactly one destination.
+                    rows.append(&mut sparks);
                 }
             }
         }
@@ -2938,6 +3908,146 @@ const RACK_HEAD: i32 = 11;
 /// gains a digit cannot shove its own `+` button sideways under the cursor.
 const BATCH_VALUE_W: i32 = 34;
 
+/// How many roster rows a page will draw at most. The ceiling; the floor is
+/// whatever is left after the header, the verbs and the pager, and
+/// `paint_roster` computes it.
+const ROSTER_ROWS: usize = 14;
+
+/// How one roster is being read: where it is scrolled to, what it is sorted
+/// on, and what it is filtered to. One per kingdom -- see `Ui::roster_view`.
+#[derive(Clone, Copy, Default)]
+struct RosterView {
+    scroll: usize,
+    /// `None` is registry order, which carries no opinion.
+    sort: Option<(usize, bool)>,
+    filter: roster::Filter,
+}
+
+/// Which slot of `Ui::roster_view` a kingdom reads.
+fn view_slot(kingdom: roster::Kingdom) -> usize {
+    match kingdom {
+        roster::Kingdom::Plants => 0,
+        roster::Kingdom::Creatures => 1,
+    }
+}
+
+
+/// **The roster's columns: a heading, the widest value it can hold, and what
+/// sorting on it means.**
+///
+/// The third term is what stops a table and its sort drifting apart. The rack
+/// keys its sort on a bare column index in a `match`, which works and means
+/// an inserted column silently sorts on its neighbour; carrying the key on
+/// the column makes an insert a compile-time move instead.
+///
+/// The second string is the **widest value the column can ever hold**, not a
+/// typical one. A column sized to what it usually shows is a column that
+/// breaks the first time a run gets big, which is the run you most want to
+/// read. Measured through `hud::text_width` and never counted by hand -- the
+/// rack's offsets were hand-counted first and overlapped by eight pixels.
+type RosterCol = (&'static str, &'static str, roster::SortKey);
+
+const PLANT_COLS: [RosterCol; 8] = [
+    ("SPECIES", "SPECIES--", roster::SortKey::Species),
+    ("CELLS", "CELLS", roster::SortKey::Cells),
+    ("SEED", "SEED", roster::SortKey::Score),
+    ("WATER", "WATER", roster::SortKey::Energy),
+    ("AGE", "999.9K", roster::SortKey::Age),
+    ("GEN", "GEN", roster::SortKey::Generation),
+    ("LINE", "LINE9", roster::SortKey::Lineage),
+    ("STATE", "STARVING", roster::SortKey::State),
+];
+
+const ANT_COLS: [RosterCol; 8] = [
+    ("SPECIES", "SPECIES--", roster::SortKey::Species),
+    ("BANK", "BANK9", roster::SortKey::Energy),
+    ("CROP", "CROP", roster::SortKey::Carrying),
+    // **`YOUNG` replaced `BODY`, and that is a judgement about what a
+    // hundred-row table is for.** Body size is the same two cells on every
+    // ant in the box, so the column carried no information; young is the
+    // fitness figure, it is the one you sort a colony on to find what is
+    // actually breeding, and it did not exist until the life record.
+    ("YOUNG", "YOUNG", roster::SortKey::Score),
+    ("AGE", "999.9K", roster::SortKey::Age),
+    ("GEN", "GEN", roster::SortKey::Generation),
+    ("LINE", "LINE9", roster::SortKey::Lineage),
+    ("STATE", "STARVING", roster::SortKey::State),
+];
+
+fn roster_cols(kingdom: roster::Kingdom) -> &'static [RosterCol; 8] {
+    match kingdom {
+        roster::Kingdom::Plants => &PLANT_COLS,
+        roster::Kingdom::Creatures => &ANT_COLS,
+    }
+}
+
+/// Where each roster column starts, relative to the page's left margin.
+/// Derived once and read by both the header and the rows, so the two cannot
+/// drift -- a header that no longer sits over its column is worse than none.
+fn roster_col_x(kingdom: roster::Kingdom) -> [i32; 8] {
+    let mut out = [0i32; 8];
+    // The row number sits first, outside the table.
+    let mut x = hud::text_width("999") + RACK_GAP;
+    for (i, (_, widest, _)) in roster_cols(kingdom).iter().enumerate() {
+        out[i] = x;
+        x += hud::text_width(widest) + RACK_GAP;
+    }
+    out
+}
+
+/// The page's width: the sum of its own columns, so it is exactly as wide as
+/// it has to be and no wider.
+fn roster_page_width(kingdom: roster::Kingdom) -> i32 {
+    let col = roster_col_x(kingdom);
+    let last = roster_cols(kingdom).last().expect("eight columns");
+    (col[7] + hud::text_width(last.1) + PAGE_PAD * 2).min(W as i32 - MARGIN * 2)
+}
+
+/// **The widest the cell page can ever be drawn.**
+///
+/// Not a measurement of the page as it is -- a bound on every page it can
+/// become. The roster's header has to stay clear of it and is painted
+/// *first*, so anything read off the cell page's own rectangle is a frame
+/// stale, and the one frame that matters is the frame the WORDS group opens
+/// and the page suddenly widens.
+///
+/// The bound holds because `plainspeak` caps every phrase at
+/// [`plainspeak::PHRASE_COLUMNS`] and guards it, in a test whose message
+/// already says why: a wider one *"will widen the cell page and slide it
+/// over the roster"*. Built through `Row::width` and `page_rect`'s own
+/// arithmetic rather than written down, so it cannot drift from them.
+fn widest_cell_page() -> i32 {
+    let phrase = "W".repeat(plainspeak::PHRASE_COLUMNS);
+    Row::value(&phrase, "", VALUE, "").width().max(120) + PAGE_PAD * 2
+}
+
+/// **What a spared row's number carries in front of it.**
+///
+/// A const rather than an inline `format!("*{}", ..)` so the glyph guard can
+/// reach it: as a literal buried in `paint_roster` it was drawable only by
+/// luck, and it was not -- the 5x7 set had no `*` and the mark shipped as a
+/// blank gap. `every_string_the_bar_can_draw_is_drawable` could not have
+/// caught that, because nothing it walks contained the character.
+pub(crate) const SPARED_MARK: &str = "*";
+
+/// **Every fixed string the roster page draws, in one list.**
+///
+/// Named rather than inlined so `every_string_the_bar_can_draw_is_drawable`
+/// can reach them: this page paints itself, so nothing in `panel_rows` covers
+/// it, and `hud::draw_text` renders a character outside its 5x7 set as a
+/// **silent blank**. That trap has shipped three times here.
+const ROSTER_LITERALS: [&str; 5] = [
+    "NOTHING ALIVE IN THIS BOX YET",
+    "NOTHING MATCHES THIS FILTER",
+    "THIS ONE HAS DIED",
+    "CLICK A ROW TO PIN ONE",
+    // The graveyard's own empty state. "NOTHING MATCHES THIS FILTER" is true
+    // and useless here: an empty graveyard is a box where nothing has died
+    // yet, which is a fact about the run and not a filter the player should
+    // go and undo.
+    "NOTHING HAS DIED YET",
+];
+
 /// **The rack page's columns: a heading and the widest thing it can hold.**
 ///
 /// The offsets were hand-counted at first and they overlapped — reported as
@@ -3199,6 +4309,23 @@ impl Line {
 /// shipped three times here; a name arriving from an asset file is exactly the
 /// path a test over hardcoded strings would not cover, so an unknown character
 /// becomes a visible `?` rather than a gap in the middle of a word.
+/// **Rows of the log this page draws.** The roster's own page height, for the
+/// same reason: it is what fits above the bar with a header and a footer.
+const LOG_ROWS: usize = 14;
+
+/// The cause index a `Died` line carries, as words.
+///
+/// `LogEvent::other` is a `u16` because a birth puts a parent handle there;
+/// on a death it is `DeathCause::index()`. An index this does not recognise
+/// prints as `DIED` rather than as a wrong cause -- a log that confidently
+/// names the wrong killer is worse than one that admits it does not know.
+fn cause_of(index: u16) -> &'static str {
+    match crate::sim::organism::DEATH_CAUSE_LIST.get(index as usize) {
+        Some(c) => c.label(),
+        None => "DIED",
+    }
+}
+
 fn param_label(name: &str) -> String {
     name.chars()
         .map(|c| if c == '_' { ' ' } else { c })
@@ -3767,6 +4894,381 @@ impl Ui {
         note
     }
 
+    /// **The roster page: one row per living thing, and a click pins one.**
+    ///
+    /// Draws itself for `paint_params`' reason -- its rows carry verbs, so
+    /// they are not `Row`s -- and follows `paint_rack`'s shape throughout,
+    /// deliberately: a rack of a hundred chambers and a bed of a hundred
+    /// plants are the same problem, and two different table gestures in one
+    /// interface is one to learn twice.
+    ///
+    /// **The row list is built first and the panel sized from it**, never
+    /// painted with a running cursor. `Reports/dead-ends.md` rejected the
+    /// running-cursor panel once its contents became variable, and the
+    /// condition it recorded was *the row list being variable* -- which a
+    /// roster is more than anything else on screen: it changes length between
+    /// two frames with nobody touching anything.
+    fn paint_roster(&mut self, frame: &mut [u8], world: &World, kingdom: roster::Kingdom) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        let cols = roster_cols(kingdom);
+        let view = self.view(kingdom);
+        let (sort_key, desc) = self.roster_sort_key(kingdom);
+        let rows = roster::rows(world, kingdom, sort_key, desc, view.filter);
+        let total = rows.len();
+
+        // How many rows fit is computed rather than assumed, for the reason
+        // `paint_rack` records: a fixed count made that page 327 px tall on a
+        // 320 px screen and everything past the fold fell behind the bar.
+        let verbs_h = if self.pinned.is_some() { 14 } else { 0 };
+        let fixed = PAGE_HEADER + RACK_HEAD + verbs_h + PAGE_PAD + 13 + 13;
+        let room = ((bar_top() - 4 - MARGIN - fixed) / RACK_ROW).max(1) as usize;
+        let shown = total.min(ROSTER_ROWS).min(room);
+        self.view_mut(kingdom).scroll = view.scroll.min(total.saturating_sub(shown));
+        let scroll = self.view(kingdom).scroll;
+
+        let pager_h = if total > shown { 13 } else { 0 };
+        let h = PAGE_HEADER + RACK_HEAD + RACK_ROW * shown.max(1) as i32 + pager_h + verbs_h + 13 + PAGE_PAD;
+        let w = roster_page_width(kingdom);
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.roster_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        let title = if kingdom == roster::Kingdom::Plants { "EVERY PLANT" } else { "EVERY ANIMAL" };
+        text(frame, left, rect.y + 6, title, TITLE);
+
+        // BACK, in the header, to the page this one was opened from.
+        //
+        // **Not a nicety: without it the roster is a dead end.** Every other
+        // page here is closed by pressing the bar chip that opened it, and
+        // the roster has no chip -- that is the whole reason it hangs off the
+        // PLANTS page. So the only way out was the bar's own PLANTS button,
+        // which is one row up and reads as "open the page I am already
+        // inside". Found by the harness, which got stuck here on its second
+        // pass: `widget_rect` could not aim a click at a page it could not
+        // leave, which is exactly the player's problem in miniature.
+        let cover = if kingdom == roster::Kingdom::Plants { Panel::Plants } else { Panel::Ants };
+        // **The header buttons stop short of where the cell page can reach.**
+        // The two pages are open together by design -- pinning a row is how
+        // the cell page gets pointed at an individual -- and the cell page is
+        // painted after this one, sized to its own widest row and slid left
+        // when it will not fit beside this one. A wide one reaches into this
+        // page's header and simply paints over whatever is there. It has been
+        // eating the right-hand end of BACK for as long as both pages have
+        // existed; adding a destructive verb to this row is what made it
+        // worth fixing, because a CULL REST hidden under another panel is a
+        // different order of problem from a clipped `K`. The *table* keeps
+        // its full width -- its last column is STATE and its values are
+        // short -- so only the buttons move.
+        //
+        // **The bound is the widest the cell page can ever be, not the width
+        // it happens to have.** `inspect_box` is last frame's rectangle, and
+        // one frame is exactly the error: opening the WORDS group is the
+        // event that widens the page, so the frame that clips is the frame
+        // last frame's rectangle knows nothing about. That is the version
+        // that shipped and was photographed.
+        let bar_right = if self.inspect.is_some() {
+            right.min(W as i32 - MARGIN - widest_cell_page() - 3)
+        } else {
+            right
+        };
+        let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: bar_right - bw, y: rect.y + 3, w: bw, h: 11 },
+            line1: "BACK".into(),
+            line2: String::new(),
+            action: Some(Action::Panel(cover)),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "BACK TO THE COUNTS THIS LIST HANGS OFF. THAT PAGE IS THE POPULATION; THIS ONE IS THE INDIVIDUALS IN IT.".into(),
+        });
+
+        // FILTER, beside it. One chip cycling three states rather than three
+        // chips: the page is already at its width, and the state it is in is
+        // written on the chip's own face, which a set of latches is not.
+        let filter_label = view.filter.label();
+        let fw = cell_width(hud::text_width(&filter_label), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: bar_right - bw - fw - 4, y: rect.y + 3, w: fw, h: 11 },
+            line1: filter_label,
+            line2: String::new(),
+            action: Some(Action::RosterFilter),
+            latched: view.filter != roster::Filter::All,
+            icon: None,
+            ratio: None,
+            note: "WHAT THE LIST IS SHOWING. IN TROUBLE KEEPS ONLY THE ONES STARVING, ROTTING OR HUNGRY, WHICH IS THE QUESTION A LIST OF A HUNDRED IS OPENED TO ASK. LINE KEEPS ONE FOUNDING LINE, AND IT NEEDS A ROW PINNED FIRST BECAUSE OTHERWISE THERE IS NO LINE TO MEAN.".into(),
+        });
+
+        // **CULL REST, on the table's own bar and not on the pinned row.**
+        // It is a verb about the *whole list*, and it has to work with
+        // nothing pinned -- the gesture is walk the list sparing the few you
+        // want, then press this once. A verb that needed a pin would make
+        // "keep these, kill the rest" require an arbitrary survivor to be
+        // selected as well.
+        //
+        // **The count is on the face of it.** `CULL REST 48` says what the
+        // press will do before it is pressed, which for the one destructive
+        // verb on this page is the difference between a button and a trap.
+        // It is also the only feedback available at the moment of pressing:
+        // a cull is graded, so nothing vanishes and an unlabelled button
+        // would read as having done nothing.
+        let doomed = self.cull_rest_targets(world, kingdom).len();
+        let kept = self.spared.len();
+        let cull_label = format!("CULL REST {doomed}");
+        let cw = cell_width(hud::text_width(&cull_label), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: bar_right - bw - fw - cw - 8, y: rect.y + 3, w: cw, h: 11 },
+            line1: cull_label,
+            line2: String::new(),
+            action: Some(Action::RosterCullRest),
+            latched: kept > 0,
+            icon: None,
+            ratio: None,
+            note: format!(
+                "KILL EVERY {} IN THE BOX EXCEPT THE {kept} YOU HAVE SPARED. THE NUMBER ON THE BUTTON IS HOW MANY THAT IS RIGHT NOW. IT IGNORES THE FILTER ON PURPOSE -- CULLING ONLY WHAT A FILTER HAPPENS TO BE SHOWING WOULD MAKE ONE BUTTON MEAN DIFFERENT THINGS DEPENDING ON A CHIP PRESSED TWO CLICKS AGO. USE SPARE ON A PINNED ROW TO BUILD THE KEEP LIST.",
+                if kingdom == roster::Kingdom::Plants { "PLANT" } else { "ANIMAL" }
+            ),
+        });
+
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // ---- the column header. Measured through `hud::text_width` against
+        // the widest value each column can ever hold, never counted by hand:
+        // the rack's own columns were hand-counted first and overlapped by
+        // eight pixels, reported from play.
+        let mut y = rect.y + PAGE_HEADER;
+        let col = roster_col_x(kingdom);
+        for (i, (head, widest, _)) in cols.iter().enumerate() {
+            let sorted_on = view.sort.map(|(c, _)| c) == Some(i);
+            let label = match view.sort {
+                Some((c, d)) if c == i => format!("{head}{}", if d { "\\" } else { "/" }),
+                _ => (*head).to_string(),
+            };
+            text(frame, left + col[i], y, &label, if sorted_on { TITLE } else { FAINT });
+            // The whole column is the target: a three-character heading is
+            // not something a person can reliably hit.
+            widgets.push(Widget {
+                rect: Rect { x: left + col[i] - 2, y: y - 2, w: hud::text_width(widest) + 4, h: RACK_HEAD },
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::RosterSort(i)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+        }
+        y += RACK_HEAD;
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, y - 2, DIVIDER);
+        }
+
+        // ---- the rows.
+        if total == 0 {
+            // An empty state that says which empty it is. A box with no
+            // plants and a filter hiding all of them look identical
+            // otherwise, and the second one is a mistake the player made two
+            // clicks ago.
+            let why = match view.filter {
+                roster::Filter::All => ROSTER_LITERALS[0],
+                roster::Filter::Dead => ROSTER_LITERALS[4],
+                _ => ROSTER_LITERALS[1],
+            };
+            text(frame, left, y + 2, why, FAINT);
+            y += RACK_ROW;
+        }
+        for (n, r) in rows.iter().enumerate().skip(scroll).take(shown) {
+            let selected = self.pinned == Some(r.who);
+            let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: RACK_ROW };
+            // Before the text, for `paint_rack`'s reason: a hover fill
+            // painted over the row erases the line you are pointing at, which
+            // looks exactly like a row with no data in it.
+            let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
+            if selected {
+                fill(frame, band, FACE_ON);
+            } else if hovered {
+                fill(frame, band, FACE_HOVER);
+            }
+            // The whole row is the button, and it is aimed with the position
+            // in the *sorted* list -- which `Lab::act` resolves to an identity
+            // in the same frame rather than storing.
+            widgets.push(Widget {
+                rect: band,
+                line1: String::new(),
+                line2: String::new(),
+                action: Some(Action::RosterSelect(n)),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: String::new(),
+            });
+
+            // **A spared row says so in its number.** The keep list is built
+            // by walking the table pressing SPARE, so the one thing it has to
+            // be possible to see at a glance is which rows are already in it
+            // -- otherwise building a list of six out of a hundred means
+            // remembering which six. `*` rather than a colour, because the
+            // number column is already tinted for selection and two meanings
+            // on one channel is how a readout stops being read.
+            let spared = self.is_spared(r.who);
+            let tint = if selected {
+                TITLE
+            } else if spared {
+                GOOD
+            } else {
+                FAINT
+            };
+            let label = if spared { format!("{SPARED_MARK}{}", n + 1) } else { format!("{}", n + 1) };
+            text(frame, left, y + 2, &label, tint);
+            let species = param_label(&world.species.get(r.species).name);
+            let state_tint = match r.state {
+                roster::RowState::Senescent | roster::RowState::Starving => POOR,
+                roster::RowState::Hungry => FAIR,
+                // `Far` is neutral, not a warning: it says an animal is deep
+                // in an excursion, which is what a forager is for. See
+                // `roster::RowState::Far` for why it stopped being `LOST`.
+                roster::RowState::Far => VALUE,
+                roster::RowState::Carrying => GOOD,
+                // Dimmer than POOR, which is a warning about something still
+                // alive. Nothing can be done about this row.
+                roster::RowState::Dead(_) => FAINT,
+                roster::RowState::Ok => FAINT,
+            };
+            // **A grave's age is the life it had, not the time since it was
+            // born.** See `RosterRow::died_frame`.
+            let age = r.died_frame.unwrap_or(world.frame).saturating_sub(r.born_frame);
+            let values: [(String, [u8; 4]); 8] = if kingdom == roster::Kingdom::Plants {
+                [
+                    (species, VALUE),
+                    (format!("{}", r.cells), GOOD),
+                    (format!("{}", r.score), if r.score > 0 { GOOD } else { FAINT }),
+                    (format!("{:.2}", r.energy), if r.energy < 0.5 { FAIR } else { FAINT }),
+                    (compact(age as f64), FAINT),
+                    (format!("{}", r.generation), FAINT),
+                    (format!("{}", r.lineage), FAINT),
+                    (r.state.label().to_string(), state_tint),
+                ]
+            } else {
+                [
+                    (species, VALUE),
+                    (format!("{:.0}", r.energy), if r.state == roster::RowState::Hungry { FAIR } else { GOOD }),
+                    (format!("{}", r.carrying), if r.carrying > 0 { GOOD } else { FAINT }),
+                    (format!("{}", r.score), if r.score > 0 { GOOD } else { FAINT }),
+                    (compact(age as f64), FAINT),
+                    (format!("{}", r.generation), FAINT),
+                    (format!("{}", r.lineage), FAINT),
+                    (r.state.label().to_string(), state_tint),
+                ]
+            };
+            for (i, (v, t)) in values.iter().enumerate() {
+                text(frame, left + col[i], y + 2, v, *t);
+            }
+            y += RACK_ROW;
+        }
+
+        // ---- the pager, only when there is something off the page. Spelled
+        // out rather than implied by a bar, because "13-24 OF 100" is the
+        // sentence that says there are seventy-six you have not looked at.
+        if total > shown {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (scroll + shown).min(total);
+            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            for (r, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::RosterScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THE LIST. SORTING A COLUMN JUMPS BACK TO THE TOP, SO THE FASTEST WAY TO THE ONE YOU WANT IS USUALLY TO SORT ON IT RATHER THAN TO PAGE THROUGH.".into(),
+                });
+            }
+            y += 13;
+        }
+
+        // ---- the verbs on the pinned row.
+        //
+        // Under the table for `paint_rack`'s reason, which it learned the
+        // hard way: drawn last, after everything else the page can hold, a
+        // selected row pushed its own verbs out of the panel and behind the
+        // bar -- present to `widget_rect`, invisible to a player.
+        let vy = y + 3;
+        if let Some(who) = self.pinned {
+            let mut vx = left;
+            let alive = who.alive(world);
+            for (label, action, on, why) in [
+                ("FOLLOW", Action::RosterFollow, alive,
+                 "KEEP THE CAMERA ON THIS ONE WHILE IT MOVES. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, SO A MARKER ALONE IS HALF AN ANSWER: THIS IS THE OTHER HALF."),
+                ("LINE", Action::RosterFilter, alive,
+                 "SHOW ONLY THIS ONE'S FOUNDING LINE. TWO INDIVIDUALS WITH THE SAME LINE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT, SO THIS IS HOW YOU WATCH ONE LINE TAKE THE BOX OVER."),
+                (if self.is_spared(who) { "SPARED" } else { "SPARE" }, Action::RosterSpare, true,
+                 "KEEP THIS ONE OUT OF A CULL-THE-REST. PRESS IT AGAIN TO STOP SPARING IT. THE SET SURVIVES CHANGING THE PIN, SO THE WAY TO CLEAR A BOX DOWN TO THE FEW YOU WANT IS TO WALK THE LIST SPARING THEM AND THEN PRESS CULL REST ONCE."),
+                ("CULL", Action::RosterCull, alive,
+                 "KILL THIS ONE. IT IS THE SAME GRADED DEATH THE BRUSH DEALS -- IT KEEPS ITS CELLS UNTIL THEY ROT AND ITS ROW SAYS ROTTING WHILE THEY DO, SO NOTHING VANISHES OFF THE SCREEN THE INSTANT YOU PRESS IT."),
+                (if self.held.is_some() { "VS" } else { "HOLD" }, Action::RosterCompare, true,
+                 "HOLD THIS ONE, THEN PIN ANOTHER AND PRESS IT AGAIN TO PUT THE TWO SIDE BY SIDE. THE QUESTION A SELECTION EXPERIMENT IS ACTUALLY ASKING IS WHY ONE DID BETTER THAN ANOTHER, AND READING THAT OFF TWO CELL PAGES MEANS COMPARING THIRTY NUMBERS FROM MEMORY."),
+                ("RELEASE", Action::RosterRelease, true,
+                 "LET GO OF THIS ONE. THE MARKER COMES OFF THE BOX, THE PAGE STOPS FOLLOWING IT, AND ANY HELD COMPARISON IS FORGOTTEN."),
+            ] {
+                let bw = cell_width(hud::text_width(label), "", PAD) + 6;
+                if on {
+                    widgets.push(Widget {
+                        rect: Rect { x: vx, y: vy, w: bw, h: 11 },
+                        line1: label.into(),
+                        line2: String::new(),
+                        action: Some(action),
+                        latched: label == "FOLLOW" && self.following,
+                        icon: None,
+                        ratio: None,
+                        note: why.into(),
+                    });
+                } else {
+                    // Drawn dead rather than hidden, for the rack's reason: a
+                    // verb that vanishes when it does not apply teaches
+                    // nothing, and one that is visibly unavailable says why
+                    // when you hover it.
+                    text(frame, vx + PAD, vy + 2, label, SUB);
+                }
+                vx += bw + 4;
+            }
+            // **The pin's own death, said out loud.** The page would
+            // otherwise simply stop having numbers on it, which reads as the
+            // interface having broken rather than as the animal having died.
+            if !alive {
+                text(frame, vx + 4, vy + 2, ROSTER_LITERALS[2], POOR);
+            }
+        } else {
+            text(frame, left, vy + 2, ROSTER_LITERALS[3], FAINT);
+        }
+
+        // Retained first, then painted from what was retained -- the house
+        // idiom, so an invisible hit target cannot be drawn as a blank chip.
+        for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        self.roster_bar = Bar { widgets, dividers: Vec::new() };
+        if let Some(wid) = self.roster_bar.hovered(self.cursor) {
+            if !wid.note.is_empty() {
+                note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
+            }
+        }
+        note
+    }
+
     fn paint_shelf(&mut self, frame: &mut [u8]) -> Option<(String, Rect, i32)> {
         let mut widgets: Vec<Widget> = Vec::new();
         let mut note: Option<(String, Rect, i32)> = None;
@@ -4232,7 +5734,7 @@ fn draw_note(frame: &mut [u8], note: &str, avoid: Rect, row_y: i32, place: Note)
 /// Break `text` into lines of at most `columns` characters, on spaces. A word
 /// longer than the column count overruns rather than being split — most of
 /// them are numbers, and a number cut in half reads as two numbers.
-fn wrap_words(text: &str, columns: usize) -> Vec<String> {
+pub(crate) fn wrap_words(text: &str, columns: usize) -> Vec<String> {
     let mut lines: Vec<String> = Vec::new();
     for word in text.split_whitespace() {
         match lines.last_mut() {
@@ -4271,6 +5773,107 @@ impl Ui {
         // The inspected cell, marked in the world. The verb has to leave a
         // mark: a panel that names a cell without showing which cell it is
         // makes the player find it again by counting pixels.
+        // **The whole body of the pinned individual, before its cell marker.**
+        //
+        // A single-cell reticle is the right answer for a cell you clicked and
+        // the wrong one for an individual you picked off a list: it says
+        // *here* when the question was *which one*, and on a tree it marks one
+        // cell of two thousand. The box is drawn under the reticle so the two
+        // read as one mark rather than as two things.
+        //
+        // **A full replace on a fixed colour, never a blend into the cells
+        // underneath.** A magnitude-scaled blend was tried elsewhere in this
+        // engine and produced a sheet that read as blank -- the ramp was red,
+        // the wood was brown, and a mid-range value moved one colour byte from
+        // 139 to 155. The obvious reading, "the mechanism is dead", would have
+        // sent a fix at working code.
+        //
+        // And it is **static**, which is the whole point: the design guide's
+        // own measurement is that an ant is findable only because it moves,
+        // and a dead one has stopped. A marker that needed motion would fail
+        // on exactly the individual you most want to find.
+        // **Where it has been**, under the marker that says where it is.
+        //
+        // Drawn first so the marker sits on top: the trail is context and the
+        // mark is the answer, and a bright dot buried under a path reads as
+        // one more sample. Oldest is dimmest, so the direction of travel is
+        // legible without an arrowhead -- an arrow at this scale is three
+        // pixels and reads as noise.
+        //
+        // **Nothing here needs the individual to still exist.** The ring is
+        // the record; a starved ant's last excursion is exactly the thing its
+        // graveyard row cannot tell you, and it stays on screen while it is
+        // pinned. That is the whole reason the trail is kept on the ring
+        // rather than recomputed from the world every frame.
+        if self.pinned.is_some() {
+            let n = self.watch.len();
+            for (i, (wx, wy)) in self.watch.path().enumerate() {
+                let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
+                let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
+                if cy >= bar_top() {
+                    continue;
+                }
+                // Fades from a third of full to full across the ring. Not to
+                // zero: the oldest sample is where the excursion *started*,
+                // which is half of what makes a path a path.
+                let t = if n > 1 { i as f32 / (n - 1) as f32 } else { 1.0 };
+                let k = 0.33 + 0.67 * t;
+                let tint = [
+                    (MARKER[0] as f32 * k) as u8,
+                    (MARKER[1] as f32 * k) as u8,
+                    (MARKER[2] as f32 * k) as u8,
+                    255,
+                ];
+                render::put(frame, W, H, cx, cy, tint);
+            }
+        }
+
+        if let Some(who) = self.pinned {
+            if let Some(state) = who.resolve(world) {
+                let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+                for &(x, y) in state.cells.keys() {
+                    b.0 = b.0.min(x);
+                    b.1 = b.1.min(y);
+                    b.2 = b.2.max(x);
+                    b.3 = b.3.max(y);
+                }
+                // A body of two cells is already covered by the reticle, and a
+                // box drawn round it is the reticle again one pixel out. The
+                // bar is four cells, which is where a box starts saying
+                // something the reticle does not.
+                let big = b.0 <= b.2 && (b.2 - b.0 >= 3 || b.3 - b.1 >= 3);
+                if big {
+                    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(b.0, b.1, b.2, b.3);
+                    let (x0, y0) = (x0 - 2, y0 - 2);
+                    let (x1, y1) = (x1 + 2, y1 + 2);
+                    if y0 < bar_top() {
+                        // Corner ticks rather than a closed rectangle. A box
+                        // round a tree is a box round most of the screen, and
+                        // a closed one reads as a panel border; corners read
+                        // as a bracket and leave the plant visible inside it.
+                        let box_rect = Rect { x: x0, y: y0, w: x1 - x0 + 1, h: (y1.min(bar_top() - 1)) - y0 + 1 };
+                        let arm = 4;
+                        for i in 0..arm {
+                            for (cx, cy) in [
+                                (box_rect.x + i, box_rect.y),
+                                (box_rect.x, box_rect.y + i),
+                                (box_rect.right() - 1 - i, box_rect.y),
+                                (box_rect.right() - 1, box_rect.y + i),
+                                (box_rect.x + i, box_rect.bottom() - 1),
+                                (box_rect.x, box_rect.bottom() - 1 - i),
+                                (box_rect.right() - 1 - i, box_rect.bottom() - 1),
+                                (box_rect.right() - 1, box_rect.bottom() - 1 - i),
+                            ] {
+                                if cy < bar_top() {
+                                    render::put(frame, W, H, cx, cy, MARKER);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         if let Some((wx, wy)) = self.inspect {
             let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(wx, wy, wx, wy);
             let (x0, y0) = (x0 - 3, y0 - 3);
@@ -4317,8 +5920,11 @@ impl Ui {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         } else if self.panel == Some(Panel::Chambers) {
             // Its own painter, for `Params`' and `Shelf`'s reason: a row here
             // is a chamber with two verbs attached, not a label.
@@ -4326,18 +5932,43 @@ impl Ui {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         } else if self.panel == Some(Panel::Shelf) {
             // The same deal, and the same reason: a jar row is a verb.
             if let Some((body, avoid, y)) = self.paint_shelf(frame) {
                 note = Some((body, avoid, y, Note::BesidePage));
             }
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
+        } else if matches!(self.panel, Some(Panel::PlantList) | Some(Panel::AntList)) {
+            // Its own painter, for the same reason as the three above: a row
+            // here is an individual with three verbs attached, not a label.
+            let kingdom = if self.panel == Some(Panel::PlantList) {
+                roster::Kingdom::Plants
+            } else {
+                roster::Kingdom::Creatures
+            };
+            if let Some((body, avoid, y)) = self.paint_roster(frame, world, kingdom) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+            self.panel_bar = Bar::default();
+            self.params_box = None;
+            self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
             self.rack_box = None;
             self.rack_bar = Bar::default();
         } else if let Some(panel) = self.panel {
@@ -4347,6 +5978,8 @@ impl Ui {
             self.shelf_bar = Bar::default();
             self.rack_box = None;
             self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -4361,22 +5994,34 @@ impl Ui {
                 .map_or(MARGIN, |wid| wid.rect.x);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
-            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut Vec::new()) {
+            let mut taps: Vec<Widget> = Vec::new();
+            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut taps) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
+            self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
         } else {
             self.panel_box = None;
+            self.panel_bar = Bar::default();
             self.params_box = None;
             self.params_bar = Bar::default();
             self.shelf_box = None;
             self.shelf_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         }
 
-        if let Some(at) = self.inspect {
+        // **Not beside `Panel::Compare`, which is the one page that already
+        // holds it.** Every other page answers a different question from the
+        // cell page, so the two sit side by side. Compare's left column *is*
+        // the pinned individual's cell page, row for row, and a pin forces
+        // `inspect` open -- so leaving both up draws the same numbers twice,
+        // takes the width that made the comparison legible, and puts the
+        // duplicate on the side the reader is scanning toward.
+        if let Some(at) = self.inspect.filter(|_| self.panel != Some(Panel::Compare)) {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
-            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).map_or(MARGIN, |r| r.right() + 6);
+            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).or(self.roster_box).map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             // The group headings are hit targets, and they are collected by
@@ -4474,7 +6119,7 @@ impl Ui {
         // left column is free below the clock.
         if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
             let (wx, wy) = renderer.screen_to_world(cx, cy);
-            paint_hover_cell(frame, world, (wx, wy));
+            paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
         }
 
         // The last verb's notice, over everything, just above the bar.
@@ -4512,7 +6157,21 @@ impl Ui {
 ///   a `Powder` it is *dry*), so this goes through `update::liquid_fill` for
 ///   the first rather than reading `aux` and getting it backwards;
 /// - the organism owning the cell, and its whole-body energy.
-fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32)) {
+///
+/// **It docks clear of whatever is already parked there.** `avoid` is the
+/// cell page's rectangle, when one is open. Both want the
+/// top-left -- the readout at a fixed `HOVER_TOP`, the page anchored at
+/// `MARGIN` when no panel is open -- and until the roster landed they were
+/// rarely both up, because opening the cell page took a deliberate click on
+/// the world. A pin opens it as a matter of course, so the collision went
+/// from occasional to constant: the sheet showed `EMPTY 172.85 / 20C / DRY /
+/// NO ORGANISM` painted over the page's own AT and MATERIAL rows, which reads
+/// as one panel contradicting itself.
+///
+/// **The transient one moves.** The readout follows the cursor and is gone
+/// the moment it leaves; the page is pinned and is what the player is
+/// reading.
+fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32), avoid: Option<Rect>) {
     use crate::sim::material::MaterialKind;
     let cell = world.get(x, y);
     let def = world.materials.get(cell.material);
@@ -4543,7 +6202,21 @@ fn paint_hover_cell(frame: &mut [u8], world: &World, (x, y): (i32, i32)) {
         life,
     ];
     let w = lines.iter().map(|l| hud::text_width(l)).max().unwrap_or(0) + 12;
-    let r = Rect { x: MARGIN, y: HOVER_TOP, w, h: lines.len() as i32 * LINE + 8 };
+    let h = lines.len() as i32 * LINE + 8;
+    let mut r = Rect { x: MARGIN, y: HOVER_TOP, w, h };
+    if let Some(page) = avoid {
+        if page.contains(r.x, r.y) || page.contains(r.right(), r.bottom()) || (r.x < page.right() && r.right() > page.x && r.y < page.bottom() && r.bottom() > page.y) {
+            // Beside it if there is room, under it if there is not, and back
+            // where it started if neither -- a readout squeezed off the
+            // screen is worse than one overlapping something.
+            let beside = page.right() + 6;
+            r.x = if beside + w <= W as i32 - MARGIN { beside } else { r.x };
+            if r.x == MARGIN {
+                let under = page.bottom() + 6;
+                r.y = if under + h <= bar_top() - MARGIN { under } else { r.y };
+            }
+        }
+    }
     fill(frame, r, READOUT_BG);
     outline(frame, r, PANEL_EDGE);
     for (i, line) in lines.iter().enumerate() {
@@ -4979,6 +6652,64 @@ mod tests {
         assert_eq!(all.action, Some(Action::Panel(Panel::Chambers)));
     }
 
+    /// **The roster's header buttons are never under the cell page.**
+    ///
+    /// Both pages are open together by design and the cell page is painted
+    /// second, sized to its own widest row and slid left when it will not fit
+    /// beside this one -- so a wide one silently overpaints this page's
+    /// header. It had been eating the right-hand end of BACK since both pages
+    /// existed, found by cropping a contact sheet rather than by anything
+    /// here, and the row now also carries CULL REST.
+    ///
+    /// **Asserted against the bound, not against a rendered page.** The first
+    /// version of this guard read `inspect_box` -- last frame's rectangle --
+    /// and passed for the broken build, because the frame that clips is the
+    /// frame the WORDS group opens and the page has not been that wide
+    /// before. Blind, in the way `CLAUDE.md` means it.
+    #[test]
+    fn the_roster_header_stays_clear_of_the_cell_page() {
+        let world = world();
+        let edge = W as i32 - MARGIN - widest_cell_page();
+        // 177 is what the widest cell page actually measured in
+        // `labui-roster--plants-pinned.png`, WORDS open, read off the pixels;
+        // BACK ended at 339 there and the page began at 331.
+        assert!(widest_cell_page() >= 177, "the bound is under the widest page ever photographed");
+        for open in [false, true] {
+            for kingdom in [roster::Kingdom::Plants, roster::Kingdom::Creatures] {
+                let mut ui = Ui::new();
+                ui.panel = Some(if kingdom == roster::Kingdom::Plants {
+                    Panel::PlantList
+                } else {
+                    Panel::AntList
+                });
+                if open {
+                    ui.inspect = Some((10, 10));
+                }
+                let mut buf = vec![0u8; (W * H * 4) as usize];
+                let _ = ui.paint_roster(&mut buf, &world, kingdom);
+                let mut seen = 0;
+                for wid in &ui.roster_bar.widgets {
+                    let Some(action) = wid.action else { continue };
+                    if !matches!(action, Action::Panel(_) | Action::RosterFilter | Action::RosterCullRest) {
+                        continue;
+                    }
+                    seen += 1;
+                    if open {
+                        assert!(
+                            wid.rect.right() <= edge,
+                            "{kingdom:?}: {action:?} ends at {} and the cell page can reach {edge}",
+                            wid.rect.right()
+                        );
+                    }
+                    // ...and still on the page rather than shoved off its left
+                    // side, which is the way a clamp fails quietly.
+                    assert!(wid.rect.x > MARGIN, "{kingdom:?}: {action:?} was pushed off the page");
+                }
+                assert_eq!(seen, 3, "{kingdom:?}: the header should carry CULL REST, the filter and BACK");
+            }
+        }
+    }
+
     /// **The font cannot draw everything, and what it cannot draw it draws as
     /// nothing.** `[`/`]`, then `_`/`<`/`>`, then `;`/`'` have each shipped
     /// blank in this engine's UI for as long as they were bound — three
@@ -5035,6 +6766,13 @@ mod tests {
             for literal in RACK_LITERALS {
                 check(literal, "rack literal");
             }
+            for literal in ROSTER_LITERALS {
+                check(literal, "roster literal");
+            }
+            // The keep mark, which is drawn in front of a spared row's number
+            // and is the one string on this page that is neither a widget
+            // face nor an empty state. It shipped blank.
+            check(SPARED_MARK, "roster keep mark");
         }
 
         // **The parameters page's own rows, and this was a blind spot.**
@@ -5063,6 +6801,12 @@ mod tests {
                     check(&param_label(&p.tunable.name), "parameter name");
                     check(&p.tunable.category.to_uppercase(), "parameter category");
                     check(&p.note, "parameter explanation");
+                    // **Markdown emphasis, asserted directly.** This used to
+                    // ride on `*` having no glyph; the roster's keep mark
+                    // gave the font one, so the note that found the bed's
+                    // `**bold**` would now draw asterisks instead of gaps --
+                    // visible, but still not what the page means to say.
+                    assert!(!p.note.contains("**"), "markdown emphasis in a hover note: {:?}", p.note);
                     if let Some(shown) = &p.shown {
                         check(shown, "parameter value");
                     }
@@ -5368,6 +7112,420 @@ mod tests {
         }
     }
 
+
+    // ------------------------------------------------------------- roster
+
+    /// A world with `plants` plants and `ants` ants, each a single cell, so a
+    /// roster test can say exactly how many rows it expects.
+    fn peopled(plants: usize, ants: usize) -> World {
+        let mut world = world();
+        for (name, n) in [("tree", plants), ("ant", ants)] {
+            let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be a loaded species"));
+            let shoot = world.species.get(species).shoot_material.clone();
+            let material = world.materials.id_of(&shoot).unwrap_or_else(|| panic!("{shoot} must be loaded"));
+            for i in 0..n {
+                let id = world.push_organism(species).expect("organism slots free");
+                let (x, y) = (2 + (i as i32 % 20) * 3, if name == "ant" { 40 } else { 10 });
+                world.set(x, y, crate::sim::cell::Cell::new(material, 0).with_organism_id(id));
+                if name == "ant" {
+                    world.organism_mut(id).expect("just made").chain = vec![(x, y)];
+                }
+            }
+        }
+        world
+    }
+
+    /// **The roster lists every live individual of its kingdom and no other.**
+    ///
+    /// The plainest thing it does, and the one a cached list would break: a
+    /// roster is rebuilt every frame precisely because the population moves
+    /// underneath it.
+    #[test]
+    fn a_roster_lists_every_live_organism_of_its_kingdom_and_no_other() {
+        let mut world = peopled(5, 7);
+        let plants = roster::rows(&world, roster::Kingdom::Plants, roster::SortKey::Slot, false, roster::Filter::All);
+        let ants = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert_eq!(plants.len(), 5, "the plants table must hold every plant and nothing else");
+        assert_eq!(ants.len(), 7, "the animals table must hold every animal and nothing else");
+        assert_eq!(
+            plants.len() + ants.len(),
+            world.live_organism_count(),
+            "the two tables together are the whole registry -- a row in neither is an individual you cannot reach"
+        );
+        assert_eq!(ants.len(), world.live_creature_count(), "the animals table is the creature count");
+
+        // A death takes its row with it, which is the half a cached list
+        // fails. Freed through the engine's own seam rather than by editing
+        // the list, so this is a statement about the world and not about the
+        // table.
+        let doomed = ants[0].who;
+        world.free_organism(doomed.id);
+        let after = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert_eq!(after.len(), 6, "a freed organism kept its row");
+        assert!(!after.iter().any(|r| r.who == doomed), "the dead individual is still listed");
+        assert!(!doomed.alive(&world), "and it does not resolve any more");
+    }
+
+    /// **An identity survives its slot being handed to somebody else.**
+    ///
+    /// The guard `born_frame` exists for, and the reason a bare handle is not
+    /// an identity: `encode_organism_id` gives the slot index 12 bits and the
+    /// generation 4, so a handle comes back after 16 turns of one slot. A pin
+    /// keyed on the handle alone would silently follow whatever animal landed
+    /// in the recycled slot -- which is a different creature wearing the
+    /// number of the one you were watching.
+    #[test]
+    fn an_individual_survives_slot_reuse_as_an_identity() {
+        let mut world = peopled(0, 1);
+        let species = world.species.id_of("ant").expect("ant loaded");
+        let first = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All)[0].who;
+
+        // Turn the slot over until the four generation bits wrap and the
+        // handle comes back. Sixteen reuses is the whole cycle, so this is
+        // bounded and it is the real mechanism rather than a simulated one.
+        // **Free the handle you have, not the one you started with.** A
+        // freed slot comes back with its generation bumped, so the second
+        // turn of the loop holds a *different* handle -- and `free_organism`
+        // checks the generation, so freeing the original silently does
+        // nothing and the next push takes a fresh slot instead. The first
+        // version of this loop did exactly that and never collided.
+        let mut current = first.id;
+        let mut collided = None;
+        for _ in 0..64 {
+            world.free_organism(current);
+            world.frame += 1;
+            current = world.push_organism(species).expect("the slot was just freed");
+            if current == first.id {
+                collided = Some(current);
+                break;
+            }
+        }
+        let id = collided.expect("sixteen reuses of one slot must bring the handle back");
+        let born = world.organism(id).expect("just made").born_frame;
+
+        // The positive control: the halves the identity is made of really do
+        // collide, or the assertion below is about nothing.
+        assert_eq!(id, first.id, "the handle came back -- that is the situation being guarded");
+        assert_ne!(born, first.born_frame, "and the frame did not, which is what tells them apart");
+
+        assert!(
+            first.resolve(&world).is_none(),
+            "the original individual resolved to the stranger now holding its slot -- the exact bug born_frame exists to stop"
+        );
+        let now = roster::Individual { id, born_frame: born };
+        assert!(now.alive(&world), "the new occupant is findable by its own identity");
+    }
+
+    /// **A pin is not disturbed by the list moving underneath it.**
+    ///
+    /// Sorting reorders every row; the pin must still name the individual it
+    /// named. `Reports/dead-ends.md` records the general shape -- a selection
+    /// stored as a position into a list a neighbouring verb rewrites -- and a
+    /// sort is that verb.
+    #[test]
+    fn a_pin_survives_a_sort_and_a_filter() {
+        let mut world = peopled(0, 9);
+        // Spread the banks so a sort on energy is a real reorder rather than
+        // a no-op over equal values -- otherwise this passes on a comparator
+        // that does nothing.
+        // Scrambled rather than monotone: energies handed out in registry
+        // order make a descending sort the identity permutation, and the
+        // control below would then fail for a comparator that works.
+        for (i, id) in world.live_organism_ids().into_iter().enumerate() {
+            world.organism_mut(id).expect("live").energy = [40.0, 10.0, 90.0, 20.0, 70.0, 30.0, 80.0, 50.0, 60.0][i];
+        }
+        let by_slot = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        let by_bank = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Energy, true, roster::Filter::All);
+        assert_eq!(by_slot.len(), by_bank.len(), "a sort must not lose rows");
+        assert_ne!(
+            by_slot.iter().map(|r| r.who.id).collect::<Vec<_>>(),
+            by_bank.iter().map(|r| r.who.id).collect::<Vec<_>>(),
+            "the sort changed nothing, so this test is not testing a reorder"
+        );
+        assert!(by_bank.windows(2).all(|w| w[0].energy >= w[1].energy), "descending sort is not descending");
+
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::AntList);
+        let pinned = by_slot[3].who;
+        ui.pin(pinned);
+        ui.sort_roster(1);
+        assert_eq!(ui.pinned(), Some(pinned), "a sort moved the pin");
+        ui.cycle_roster_filter(Some(0));
+        assert_eq!(ui.pinned(), Some(pinned), "a filter moved the pin");
+        assert!(pinned.alive(&world), "and the individual it names is still there");
+    }
+
+    /// **The two tables keep their own sort, scroll and filter.**
+    ///
+    /// A sort is stored as a *column index*, and column 1 is SEED on the
+    /// plants table and BANK on the animals'. Shared, one index means "the
+    /// second column, whatever that is here", which is nobody's request --
+    /// and the harness caught it doing real damage: sorting the plants list
+    /// and then opening the animals list drew the animals in an order nobody
+    /// had chosen, so a click on the third row pinned ant 41 where ant 11 was
+    /// expected.
+    #[test]
+    fn each_roster_keeps_its_own_sort_and_filter() {
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::PlantList);
+        ui.sort_roster(2);
+        ui.cycle_roster_filter(None);
+        let plant_sort = ui.roster_sort();
+        let plant_filter = ui.roster_filter();
+        assert_eq!(plant_sort, Some((2, true)), "the plants table did not take the sort");
+
+        ui.panel = Some(Panel::AntList);
+        assert_eq!(ui.roster_sort(), None, "the animals table inherited the plants table's sort");
+        assert_eq!(ui.roster_filter(), roster::Filter::All, "the animals table inherited the plants table's filter");
+        ui.sort_roster(5);
+
+        ui.panel = Some(Panel::PlantList);
+        assert_eq!(ui.roster_sort(), plant_sort, "the plants table lost its sort to the animals table");
+        assert_eq!(ui.roster_filter(), plant_filter, "the plants table lost its filter");
+
+        // And the two column lists really do disagree about what index 1
+        // means, or the whole hazard above is theoretical.
+        assert_ne!(
+            PLANT_COLS[1].0, ANT_COLS[1].0,
+            "the two tables now agree on column 1, so this guard is guarding nothing -- re-derive it"
+        );
+    }
+
+    /// **A roster taller than the page can be scrolled, and the two halves
+    /// are asserted separately.**
+    ///
+    /// The rack shipped `rack_scroll` written, clamped and honoured by the
+    /// renderer with **nothing bound to move it** -- a rack of a hundred
+    /// showed rows 1-12 for ever and every guard over it passed. So: the
+    /// control **exists**, and it **changes which rows are drawn**.
+    #[test]
+    fn a_roster_taller_than_the_page_can_be_scrolled() {
+        let world = peopled(0, 40);
+        let mut ui = Ui::new();
+        ui.panel = Some(Panel::AntList);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+
+        let drawn = |ui: &Ui| -> Vec<usize> {
+            ui.roster_bar
+                .widgets
+                .iter()
+                .filter(|w| w.line1.is_empty())
+                .filter_map(|w| match w.action {
+                    Some(Action::RosterSelect(i)) => Some(i),
+                    _ => None,
+                })
+                .collect()
+        };
+
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let first = drawn(&ui);
+        assert!(!first.is_empty() && first.len() < 40, "the page must show a window of a 40-row list, not all of it or none");
+        assert_eq!(first[0], 0, "and it starts at the top");
+        assert!(
+            ui.roster_bar.widgets.iter().any(|w| w.action == Some(Action::RosterScroll(1))),
+            "the roster has more rows than fit and drew no way to scroll -- the exact bug this guards"
+        );
+
+        ui.scroll_roster(1);
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let second = drawn(&ui);
+        assert!(
+            second.iter().all(|i| !first.contains(i)),
+            "paging forward redrew rows the first page had shown: {first:?} then {second:?}"
+        );
+
+        // Clamped at the far end, and the end is reachable.
+        for _ in 0..10 {
+            ui.scroll_roster(1);
+        }
+        ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+        let last = drawn(&ui);
+        assert_eq!(*last.last().expect("rows"), 39, "the end of the list is not reachable");
+        assert_eq!(last.len(), first.len(), "scrolled off the end and drew a short page");
+
+        ui.scroll_roster(-20);
+        assert_eq!(ui.roster_scroll(), 0, "scrolling back must not go negative");
+        ui.scroll_roster(1);
+        ui.sort_roster(1);
+        assert_eq!(ui.roster_scroll(), 0, "a sort must jump back to the top");
+
+        // A roster that fits draws no pager: a control that does nothing is
+        // worse than no control.
+        let small = peopled(0, 3);
+        let mut tiny = Ui::new();
+        tiny.panel = Some(Panel::AntList);
+        tiny.paint_roster(&mut buf, &small, roster::Kingdom::Creatures);
+        assert!(
+            !tiny.roster_bar.widgets.iter().any(|w| w.action == Some(Action::RosterScroll(1))),
+            "a roster that fits on one page still drew a pager"
+        );
+    }
+
+    /// **The roster page stays on the screen, at every length it can be.**
+    ///
+    /// Its height is a sum of terms and every one of them was added by
+    /// somebody: the rack's pager and its verbs were each added without a
+    /// term, which put that panel 327 px tall on a 320 px screen and dropped
+    /// its own ENTER button behind the bar.
+    #[test]
+    fn the_roster_page_stays_on_the_screen() {
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        for n in [0usize, 1, 5, 14, 15, 40, 200] {
+            let world = peopled(0, n.min(60));
+            for pinned in [false, true] {
+                let mut ui = Ui::new();
+                ui.panel = Some(Panel::AntList);
+                if pinned {
+                    let rows = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+                    if let Some(r) = rows.first() {
+                        ui.pin(r.who);
+                    }
+                }
+                ui.paint_roster(&mut buf, &world, roster::Kingdom::Creatures);
+                let rect = ui.roster_box.expect("the page was drawn");
+                assert!(rect.y >= MARGIN, "n={n} pinned={pinned}: the page starts at y={} -- off the top", rect.y);
+                assert!(rect.bottom() <= bar_top(), "n={n} pinned={pinned}: the page runs into the bar");
+                assert!(rect.x >= 0 && rect.right() <= W as i32, "n={n} pinned={pinned}: the page runs off the side");
+                // **Every widget inside its own panel.** The assertion the
+                // rack was missing: a page can be the right height and still
+                // draw its verbs below itself.
+                for wid in &ui.roster_bar.widgets {
+                    assert!(
+                        wid.rect.y >= rect.y && wid.rect.bottom() <= rect.bottom(),
+                        "n={n} pinned={pinned}: a {:?} widget at y={} is outside the panel {}..{}",
+                        wid.action,
+                        wid.rect.y,
+                        rect.y,
+                        rect.bottom()
+                    );
+                }
+            }
+        }
+    }
+
+    /// **A roster with no way out is a page a player is stuck on.**
+    ///
+    /// No bar chip carries `Action::Panel(PlantList)` -- that is the whole
+    /// reason the roster hangs off the PLANTS page -- so "press whatever
+    /// opened it" cannot close this one. The harness found it twice by
+    /// panicking; this is the same finding as a test.
+    #[test]
+    fn a_roster_can_be_left_by_a_button_on_it() {
+        let world = peopled(2, 2);
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        for (panel, kingdom, back_to) in [
+            (Panel::PlantList, roster::Kingdom::Plants, Panel::Plants),
+            (Panel::AntList, roster::Kingdom::Creatures, Panel::Ants),
+        ] {
+            let mut ui = Ui::new();
+            ui.panel = Some(panel);
+            ui.paint_roster(&mut buf, &world, kingdom);
+            assert!(
+                ui.widget_rect(Action::Panel(back_to)).is_some(),
+                "{panel:?} drew no way back to {back_to:?}"
+            );
+            // And the way out is not the page's own action, which is what a
+            // caller would reach for and which is not on screen.
+            assert!(
+                ui.widget_rect(Action::Panel(panel)).is_none(),
+                "{panel:?} is reachable from itself, so this guard is not testing what it says"
+            );
+        }
+    }
+
+    /// **The sort keys are pinned to their columns.**
+    ///
+    /// The rack keys its sort on a bare column index in a `match`, so
+    /// inserting a column there silently sorts on its neighbour; carrying the
+    /// key on the column makes an insert a compile-time move. This asserts
+    /// the pairing anyway, so a *reordering* -- which the compiler cannot see
+    /// -- breaks loudly. PR 3 inserts an offspring column into both tables.
+    #[test]
+    fn the_roster_columns_and_their_sort_keys_agree() {
+        assert_eq!(PLANT_COLS[0].0, "SPECIES");
+        assert_eq!(PLANT_COLS[2].0, "SEED");
+        assert_eq!(PLANT_COLS[2].2, roster::SortKey::Score, "the SEED column must sort on what it shows");
+        assert_eq!(ANT_COLS[1].0, "BANK");
+        assert_eq!(ANT_COLS[3].0, "YOUNG");
+        assert_eq!(ANT_COLS[3].2, roster::SortKey::Score, "the YOUNG column must sort on what it shows");
+        assert_eq!(ANT_COLS[1].2, roster::SortKey::Energy, "the BANK column must sort on what it shows");
+        assert_eq!(PLANT_COLS[7].0, "STATE");
+        assert_eq!(ANT_COLS[7].0, "STATE");
+        for cols in [&PLANT_COLS, &ANT_COLS] {
+            for (head, widest, _) in cols {
+                assert!(
+                    hud::text_width(head) <= hud::text_width(widest),
+                    "column {head:?} is wider than the widest value it claims to hold ({widest:?}) -- the header will overlap its neighbour"
+                );
+            }
+        }
+    }
+
+    /// **The roster's order is total**, so no sort implementation ever has a
+    /// tie to break.
+    ///
+    /// This started as "sort the same list eight times and check the answer
+    /// does not move", and that guard was **blind**: it stayed green with the
+    /// tie-break deleted and the sort switched to `sort_unstable_by`, because
+    /// a sort is deterministic within one build whatever its comparator says.
+    /// The hazard `CLAUDE.md` records is that ipnsort picks its small-sort
+    /// strategy from the *element type*, so two sorts asking the comparator
+    /// identical questions can still order equal elements differently -- and
+    /// nothing inside one build can see that.
+    ///
+    /// So this asserts the property that makes the hazard harmless instead:
+    /// `roster::compare` returns `Equal` only for a row against itself. With
+    /// no ties there is nothing for an implementation to choose.
+    #[test]
+    fn a_roster_sort_is_total_over_ties() {
+        use std::cmp::Ordering;
+        let world = peopled(4, 12);
+        for (kingdom, n) in [(roster::Kingdom::Plants, 4), (roster::Kingdom::Creatures, 12)] {
+            let rows = roster::rows(&world, kingdom, roster::SortKey::Slot, false, roster::Filter::All);
+            assert_eq!(rows.len(), n, "the positive control: {n} rows to compare");
+            for key in [
+                roster::SortKey::Slot,
+                roster::SortKey::Species,
+                roster::SortKey::Cells,
+                roster::SortKey::Energy,
+                roster::SortKey::Carrying,
+                roster::SortKey::Score,
+                roster::SortKey::Generation,
+                roster::SortKey::Lineage,
+                roster::SortKey::Age,
+                roster::SortKey::State,
+            ] {
+                for desc in [false, true] {
+                    for a in &rows {
+                        assert_eq!(
+                            roster::compare(a, a, key, desc),
+                            Ordering::Equal,
+                            "{key:?}: a row does not compare equal to itself"
+                        );
+                        for b in &rows {
+                            if a.who == b.who {
+                                continue;
+                            }
+                            assert_ne!(
+                                roster::compare(a, b, key, desc),
+                                Ordering::Equal,
+                                "{key:?} desc={desc}: two distinct rows are tied, so the sort has a choice to make and the toolchain makes it"
+                            );
+                        }
+                    }
+                }
+            }
+        }
+        // The positive control for the control: these rows really are tied on
+        // the underlying quantity, or "no ties" is true for an uninteresting
+        // reason.
+        let ants = roster::rows(&world, roster::Kingdom::Creatures, roster::SortKey::Slot, false, roster::Filter::All);
+        assert!(
+            ants.iter().all(|r| r.generation == ants[0].generation),
+            "every ant here should share a generation -- otherwise the tie-break is not being exercised"
+        );
+    }
+
     /// **The cell page fits on the screen, for something alive of each
     /// kingdom** -- and the plant arm proves the fold is what makes it fit.
     ///
@@ -5385,19 +7543,36 @@ mod tests {
             let mut world = world();
             let species = world.species.id_of(name).unwrap_or_else(|| panic!("{name} must be a loaded species"));
             let id = world.push_organism(species).expect("a fresh world has organism slots free");
+            // **Give the animal the brain its species ships with.**
+            // `push_organism` allocates the slot; `place_creature` is what
+            // normally fills the genome in, and this test does not go through
+            // it. Without this the ant's `WORDS` group reads `NO BRAIN YET`
+            // and is seven rows instead of fourteen -- so the page fits, the
+            // fold never fires, and the guard is measuring a specimen no
+            // player will ever open a page on.
+            let species_genome = world.species.get(species).genome.clone();
+            world.organism_mut(id).expect("just pushed").genome = species_genome;
             let shoot = world.species.get(species).shoot_material.clone();
             let material = world.materials.id_of(&shoot).unwrap_or_else(|| panic!("{name}'s shoot material {shoot} must be loaded"));
             world.set(10, 10, crate::sim::cell::Cell::new(material, 0).with_organism_id(id));
             let ui = Ui::new();
 
-            // The positive control, and it is the whole reason the plant arm
+            // The positive control, and it is the whole reason either arm
             // means anything: laid out flat this page has to be too tall, or
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
-            assert_eq!(sections.len(), 3, "{name}: every kingdom gets the same three groups");
+            assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
+            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
+            assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
+            // **Both kingdoms overflow now, where only the plant did.** The
+            // `WORDS` group added eight to fourteen rows, so the fold is
+            // load-bearing on an ant's page too -- and this stays an equality
+            // against a literal rather than becoming `assert!(over)`, so that
+            // a future change making either page fit flat fails here and says
+            // the fold has stopped being tested, instead of passing quietly.
             let over = flat > page_content_budget();
-            assert_eq!(over, kingdom == "plant", "{name}: flat page is {flat}px against a {}px budget -- the fold is being tested against the wrong kingdom", page_content_budget());
+            assert!(over, "{name}: flat page is {flat}px against a {}px budget -- it fits without folding, so the fold is not being tested at all", page_content_budget());
 
             let rows = ui.inspect_rows(&world, (10, 10));
             for anchor in [0, 200, W as i32 - 10] {
@@ -5414,14 +7589,20 @@ mod tests {
                 !rows.iter().any(|row| matches!(&row.body, Body::Value { value, .. } if value.ends_with("MORE"))),
                 "the {kingdom} cell page fits only because rows were dropped"
             );
+            // **Both kingdoms fold now**, where only the plant did before:
+            // the `WORDS` group adds eight to fourteen rows and neither page
+            // holds all four groups at once. What matters is not how many are
+            // shut but that the page fits *because* it folded rather than
+            // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
-            assert_eq!(shut, if kingdom == "plant" { 1 } else { 0 }, "{name}: wrong number of groups folded away");
+            assert!(shut >= 1, "{name}: nothing folded, so the fold is not being tested on this kingdom");
+            assert!(shut < sections.len(), "{name}: every group is shut, so the page shows no rows at all");
 
             // **A click opens what it says, whichever group it is.** The half
             // the fit assertions cannot reach: a rule that served the groups
             // strictly from the top would fit the page perfectly and ignore
             // the player, and every assertion above would still be green.
-            for chosen in 0..3 {
+            for chosen in 0..sections.len() {
                 let mut ui = Ui::new();
                 ui.show_specimen_section(chosen);
                 let heads: Vec<bool> = ui
@@ -5432,7 +7613,7 @@ mod tests {
                         _ => None,
                     })
                     .collect();
-                assert_eq!(heads.len(), 3, "{name}: the page lost a group heading");
+                assert_eq!(heads.len(), sections.len(), "{name}: the page lost a group heading");
                 assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
             }
         }
@@ -5456,11 +7637,16 @@ mod tests {
         assert_eq!(fitted.len() - 1 + dropped, 200, "the marker's count does not account for every row that went");
     }
 
-    /// The population series is sampled on simulated frames, never on drawn
-    /// ones: at the top of the ladder one drawn frame is 256 ticks, and a
-    /// per-call sample would make the strip's x-axis the speed dial.
+    /// **A still world does not sample itself repeatedly** — the cadence
+    /// gate, on its own.
+    ///
+    /// This is only half the claim, and for a while it was the whole guard
+    /// under the name of the other half. See
+    /// `the_series_is_sampled_on_simulated_time_not_on_draws` below for why
+    /// driving `observe` in a loop cannot say anything about the call site,
+    /// which is where the defect was.
     #[test]
-    fn the_series_is_sampled_on_simulated_time_not_on_draws() {
+    fn a_still_world_yields_one_sample() {
         let mut history = History::default();
         let world = world();
         for _ in 0..500 {
@@ -5468,6 +7654,233 @@ mod tests {
         }
         assert_eq!(history.samples.len(), 1, "a still world sampled itself repeatedly");
         assert!(history.delta(|s| s.plants as i64).is_none(), "one sample is not a delta");
+    }
+
+    /// **The population series is sampled on simulated frames, never on
+    /// drawn ones**, driven through a real `Lab` at the top of the ladder.
+    ///
+    /// **The guard that carried this name for a while could not fail.** It
+    /// called `History::observe` five hundred times against a world whose
+    /// `frame` never moved, and asserted one sample came out. That exercises
+    /// the cadence gate — which was never wrong — and says nothing about the
+    /// call site, which was: both `observe` calls sat in `Lab::advance`,
+    /// after the tick loop, so at 256x the gate was offered one chance per
+    /// 256 simulated frames and could not fire at its own 120-frame interval
+    /// however short that interval was. The strip's x-axis was the speed
+    /// dial, and it stayed green through all of it.
+    ///
+    /// So this drives `advance` rather than `observe`, at a multiplier where
+    /// a batch is longer than `SAMPLE_EVERY` — the only regime in which the
+    /// two placements differ at all. **The assertion is the spacing, not the
+    /// count**, because how many ticks a batch actually runs depends on
+    /// `Plan::budget` and therefore on the machine: `CLAUDE.md`'s rule that a
+    /// wall-clock-dependent assertion is a flake generator. Spacing is exact
+    /// either way, since `tick` advances `World::frame` by one.
+    #[test]
+    fn the_series_is_sampled_on_simulated_time_not_on_draws() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            width: 256,
+            height: 192,
+            ground_y: 96,
+            soil_depth: 48,
+            founders: 2,
+            colonies: 0,
+            ..crate::lab::scene::LabBox::default()
+        });
+        lab.time.requested = 256;
+        lab.time.phase = crate::lab::time::Phase::Running;
+        // Enough batches that a per-batch sampler and a per-tick one cannot
+        // agree by luck, and enough frames for several intervals to elapse.
+        for _ in 0..40 {
+            lab.advance(std::time::Duration::from_millis(16));
+        }
+        let frames: Vec<u64> = lab.ui.history.samples.iter().map(|s| s.frame).collect();
+        assert!(
+            frames.len() >= 3,
+            "only {} samples over {} simulated frames -- the series is not being fed",
+            frames.len(),
+            lab.world.frame
+        );
+        for pair in frames.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                SAMPLE_EVERY,
+                "samples {} and {} are {} simulated frames apart, not {SAMPLE_EVERY} -- the cadence is following the draw loop, not the world. Frames: {frames:?}",
+                pair[0],
+                pair[1],
+                pair[1] - pair[0]
+            );
+        }
+    }
+
+    /// **The comparison pairs by label, counts what differs, and puts those
+    /// rows first.**
+    ///
+    /// The ordering is the claim worth guarding, not the pairing: kept in
+    /// specimen order, the two shipped ants put fourteen identical
+    /// plain-speech lines above the nine rows that actually differed, so a
+    /// page opened to ask "why is this one doing better" answered below the
+    /// fold. `fit_rows` trims from the bottom, so this is also what decides
+    /// which rows survive an overrun.
+    #[test]
+    fn the_comparison_leads_with_what_differs() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        for _ in 0..2000 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "need two animals to compare, got {}", live.len());
+        let (a, b) = (live[0].who, live[1].who);
+
+        // **Nothing held: the page says so rather than drawing blank.**
+        lab.ui.pin(b);
+        let none = lab.ui.compare_rows(&lab.world);
+        assert!(
+            none.iter().any(|r| matches!(&r.body, Body::Value { label, .. } if label == "NOTHING TO COMPARE")),
+            "a half-set comparison drew something other than its own empty state"
+        );
+
+        // **The positive control, and it is an individual against itself.**
+        // Every row must match, so a `DIFFER` that is not zero here means the
+        // pairing is wrong rather than the individuals being different --
+        // which no comparison of two *different* animals could tell apart.
+        lab.ui.held = Some(b);
+        let mirror = lab.ui.compare_rows(&lab.world);
+        let differ_of = |rows: &[Row]| -> (usize, usize) {
+            for r in rows {
+                if let Body::Value { label, value, .. } = &r.body {
+                    if label == "DIFFER" {
+                        let mut it = value.split(" OF ");
+                        let d = it.next().and_then(|v| v.parse().ok()).unwrap_or(usize::MAX);
+                        let t = it.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+                        return (d, t);
+                    }
+                }
+            }
+            panic!("the comparison page has no DIFFER row at all, in {} rows", rows.len())
+        };
+        let (d, total) = differ_of(&mirror);
+        assert_eq!(d, 0, "an individual differs from itself in {d} of {total} rows");
+        assert!(total > 10, "only {total} rows were paired at all; the page is not reading the specimen");
+
+        // **Two different animals differ somewhere**, or the page is
+        // reporting sameness it cannot have established.
+        lab.ui.held = Some(a);
+        let real = lab.ui.compare_rows(&lab.world);
+        let (d, total) = differ_of(&real);
+        assert!(d > 0, "two different animals compared identical across all {total} rows");
+
+        // ...and those rows lead. Every bright row before every dim one.
+        let tints: Vec<[u8; 4]> = real
+            .iter()
+            .skip_while(|r| !matches!(&r.body, Body::Value { label, .. } if label != "DIFFER" && label != "HELD" && label != "PINNED"))
+            .filter_map(|r| match &r.body {
+                Body::Value { tint, .. } => Some(*tint),
+                _ => None,
+            })
+            .collect();
+        let last_bright = tints.iter().rposition(|t| *t == VALUE);
+        let first_dim = tints.iter().position(|t| *t == FAINT);
+        if let (Some(bright), Some(dim)) = (last_bright, first_dim) {
+            assert!(bright < dim, "a matching row ({dim}) sorts above a differing one ({bright})");
+        }
+    }
+
+    /// **The watch ring is about one individual, samples on simulated time,
+    /// and keeps what it saw after that individual dies.**
+    ///
+    /// Three claims in one guard because they share an expensive fixture (a
+    /// bed with a live colony, run far enough to fill a ring), and because
+    /// the third is only meaningful given the first two.
+    #[test]
+    fn the_watch_ring_follows_one_individual_and_outlives_it() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "the bed has no colony to watch: {} animals", live.len());
+        let (a, b) = (live[0].who, live[1].who);
+
+        // **Nothing is sampled without a pin.** The ring is fed from the pin
+        // and from nothing else, so an unpinned box must leave it empty --
+        // otherwise it is quietly walking every organism every tick.
+        for _ in 0..200 {
+            lab.tick_for_harness();
+        }
+        assert!(lab.ui.watch.is_empty(), "the ring sampled with nothing pinned");
+
+        lab.ui.pin(a);
+        for _ in 0..(WATCH_EVERY as usize * 6) {
+            lab.tick_for_harness();
+        }
+        let frames: Vec<u64> = lab.ui.watch.samples.iter().map(|t| t.frame).collect();
+        assert!(frames.len() >= 4, "only {} samples: the ring is not being fed", frames.len());
+        for pair in frames.windows(2) {
+            assert_eq!(
+                pair[1] - pair[0],
+                WATCH_EVERY,
+                "samples are {} simulated frames apart, not {WATCH_EVERY}: {frames:?}",
+                pair[1] - pair[0]
+            );
+        }
+        assert!(lab.ui.watch.about(a.id), "the ring does not know who it is about");
+        assert!(!lab.ui.watch.about(b.id), "the ring answers for an individual it is not watching");
+
+        // **Re-pinning clears it.** A ring carried across a change of subject
+        // draws one animal's path under another's name, which is worse than
+        // drawing nothing: it is a wrong answer that looks like a right one.
+        lab.ui.release_pin();
+        lab.ui.pin(b);
+        lab.tick_for_harness();
+        assert!(
+            lab.ui.watch.samples.iter().all(|t| t.frame >= frames[frames.len() - 1]),
+            "the ring kept the previous individual's samples after the pin moved"
+        );
+
+        // **And it survives the death of its subject**, which is the whole
+        // reason the path lives on the ring rather than being recomputed from
+        // the world. Where an ant got to before it starved is exactly what
+        // its graveyard row cannot say.
+        lab.ui.release_pin();
+        lab.ui.pin(a);
+        for _ in 0..(WATCH_EVERY as usize * 8) {
+            lab.tick_for_harness();
+        }
+        let held = lab.ui.watch.len();
+        assert!(held > 0, "nothing to lose before the death");
+        lab.world.mark_organism_senescent(a.id);
+        lab.world.free_organism(a.id);
+        assert!(!a.alive(&lab.world), "the cull did not take");
+        for _ in 0..(WATCH_EVERY as usize * 4) {
+            lab.tick_for_harness();
+        }
+        assert_eq!(
+            lab.ui.watch.len(),
+            held,
+            "the trail changed after its subject died -- it should stop growing and lose nothing"
+        );
+        assert!(lab.ui.watch.about(a.id), "the ring stopped answering for a dead individual it still holds");
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried

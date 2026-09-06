@@ -34,6 +34,8 @@
 
 pub mod batch;
 pub mod params;
+pub mod plainspeak;
+pub mod roster;
 pub mod scene;
 pub mod stats;
 pub mod time;
@@ -169,6 +171,7 @@ pub struct Lab {
 /// | `world`, `spec` | the obvious one |
 /// | `stats` | one box's census drawn over another's bed |
 /// | `history` | `Ui`'s population strip, same failure one level down |
+/// | `watch` | the pinned individual's trail, drawn over a bed it never walked |
 /// | `particles`, `blasts` | a blast's debris following you into a box that never had one |
 ///
 /// `Renderer` is deliberately *not* here — it is shared, because it is pure
@@ -195,6 +198,10 @@ pub struct Chamber {
     /// The population strip `Ui` keeps for the bar. Parked with its box for
     /// the reason the table above gives.
     pub history: ui::History,
+    /// The pinned individual's trail. Parked for the same reason and a
+    /// sharper one: it is a list of world coordinates, so a shared ring draws
+    /// one box's path across another's bed.
+    pub watch: ui::Watch,
     /// The last still taken of this box, if any. See [`Thumb`].
     pub thumb: Option<Thumb>,
     /// What to call it on the rack page. `None` is "its number", which is
@@ -543,6 +550,7 @@ impl Lab {
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
+            watch: std::mem::replace(&mut self.ui.watch, incoming.watch),
             // The outgoing box gets a fresh still on the way out -- this is
             // the one moment its picture is both wanted and free, because the
             // frame just drawn *is* that picture.
@@ -576,6 +584,7 @@ impl Lab {
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
+            watch: ui::Watch::default(),
             thumb: None,
             label: None,
         }));
@@ -823,6 +832,7 @@ impl Lab {
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
+            watch: ui::Watch::default(),
             thumb: None,
             label: Some(label),
         }));
@@ -1123,6 +1133,36 @@ impl Lab {
             player::PlayerInput::default(),
             &self.player_tuning,
         );
+        // **Both series are sampled here, per simulated tick, and they used
+        // to be sampled in `advance` after the whole batch.** Each has its
+        // own cadence gate on `World::frame`, and a gate cannot fire more
+        // often than it is offered the chance to: at 256x one displayed frame
+        // is 256 ticks, so a per-batch call could only ever produce one
+        // sample per 256 frames however short the interval said it was. The
+        // x-axis of the bar's population strip was therefore the speed dial,
+        // and the faster you ran the box the less of it you could see -- the
+        // opposite of what the dial is for.
+        //
+        // **It is cheap because both gates are the first thing each does.**
+        // `stats::observe` early-returns before `take_census` unless the
+        // interval is up, and `History::observe` returns before counting
+        // organisms. Two integer comparisons per tick.
+        self.stats.observe(&self.world);
+        self.ui.observe(&self.world);
+    }
+
+    /// **One tick, for a harness that needs to advance the world without the
+    /// speed dial in the way.**
+    ///
+    /// `tick` is private for a good reason -- how many run per displayed
+    /// frame is `time`'s decision and splitting that across two callers is
+    /// how a speed dial stops being honest. This is not that: it is for a
+    /// harness driving the box to a known state (a cull that has to rot
+    /// before the slot is released, say), where the dial is not under test
+    /// and `advance`'s wall-clock budget would make the tick count depend on
+    /// the machine.
+    pub fn tick_for_harness(&mut self) {
+        self.tick();
     }
 
     /// Run whatever this displayed frame's share of simulated time is, and
@@ -1154,11 +1194,9 @@ impl Lab {
             // with the numbers beside it. Re-taken on the next click.
             self.thumb = None;
         }
-        self.stats.observe(&self.world);
-        // Sampled here rather than in `draw` so that a frame which drew
-        // nothing still advances the series -- and gated on `World::frame`
-        // inside, so the x-axis is simulated time and not the speed dial.
-        self.ui.observe(&self.world);
+        // **Not sampled here.** Both series moved into `tick`; see the note
+        // there. A frame that drew nothing still advances them, because they
+        // no longer depend on this function being reached at all.
         advance
     }
 
@@ -1168,6 +1206,11 @@ impl Lab {
     /// in rather than measured here so that the number on the box page is the
     /// same one the title bar shows.
     pub fn draw(&mut self, frame_buf: &mut [u8], fps: f32) {
+        // **Before the camera is read, because it can move the camera.** The
+        // pin re-points the cell page at the individual's current cell and,
+        // while FOLLOW is on, walks the view after it -- so doing this after
+        // `renderer.draw` would draw one frame behind the animal.
+        self.follow_pin();
         // Anything drawn over the terrain has no footprint tracked between
         // frames, so the dirty-rect skip cannot know to erase last frame's.
         // Same rule, and the same reasoning, as `App::draw`'s. The bar is
@@ -1669,6 +1712,74 @@ impl Lab {
 
     /// The selected plantable species: its name in the bar's uppercase, and
     /// the line the chip's hover explanation shows.
+    /// **Pin the individual drawn at row `n` of the roster.**
+    ///
+    /// Rebuilds the list with the sort and filter the page was drawn with, so
+    /// the row this resolves is the row the player pointed at. The index goes
+    /// no further than this function: what is stored is the identity.
+    ///
+    /// A row that no longer exists -- the population changed between the draw
+    /// and the click, which at 1,024 ticks a frame is a real window -- says so
+    /// rather than pinning its neighbour.
+    fn pin_roster_row(&mut self, n: usize) -> String {
+        let Some(panel) = self.ui.panel else { return "NO LIST OPEN".to_string() };
+        let kingdom = match panel {
+            ui::Panel::PlantList => roster::Kingdom::Plants,
+            ui::Panel::AntList => roster::Kingdom::Creatures,
+            _ => return "NO LIST OPEN".to_string(),
+        };
+        let (key, desc) = self.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&self.world, kingdom, key, desc, self.ui.roster_filter());
+        let Some(row) = rows.get(n) else {
+            return "THAT ROW HAS GONE".to_string();
+        };
+        let species = self.world.species.get(row.species).name.to_uppercase();
+        if self.ui.pin(row.who) {
+            // **The cell page is pointed at it too**, which is what makes one
+            // click do the whole job: the page, the marker and the numbers
+            // are the ones that already existed, aimed by identity instead of
+            // by wherever the player happened to click on the ground.
+            self.ui.inspect_at(row.at, row.who.id);
+            format!("PINNED {species} AT {},{}", row.at.0, row.at.1)
+        } else {
+            "LET GO".to_string()
+        }
+    }
+
+    /// **Keep the pin honest, once per drawn frame.**
+    ///
+    /// Two jobs, and both of them are why the pin is an identity rather than
+    /// a cell. It re-points the cell page at the individual's *current* cell,
+    /// so the page follows the animal rather than the ground it was standing
+    /// on when you clicked. And it notices a pin that has stopped resolving
+    /// -- a death, or a slot reused by something else -- and says so, rather
+    /// than letting the page quietly become a different animal.
+    fn follow_pin(&mut self) {
+        let Some(who) = self.ui.pinned() else { return };
+        let Some(state) = who.resolve(&self.world) else {
+            // The pin is kept rather than dropped: the page says THIS ONE HAS
+            // DIED, which is the thing worth knowing, and RELEASE is how you
+            // put it away. A pin that vanished on its own would leave the
+            // player wondering whether they mis-clicked.
+            self.ui.stop_following();
+            return;
+        };
+        let at = roster::anchor_of(state);
+        if let Some(at) = at {
+            self.ui.inspect_at(at, who.id);
+            if self.ui.following() {
+                // `Renderer::follow`, not a hard centring: it is a dead-zone
+                // follow, and the reason is a frame cost rather than a feel.
+                // A camera move forces a full redraw, so a strictly-centred
+                // view repaints the whole screen every frame the animal is
+                // walking -- the dirty-rect skip paid away for nothing. This
+                // is the same call the outdoor game follows the gnome with.
+                let bounds = self.world.bounds();
+                self.renderer.follow(at, (WIDTH, HEIGHT), bounds);
+            }
+        }
+    }
+
     fn selected_species(&self) -> (String, String) {
         let Some(id) = self.ui.species_of(&self.world) else {
             return ("NONE".to_string(), "NO PLANTABLE SPECIES IS LOADED.".to_string());
@@ -1917,6 +2028,85 @@ impl Lab {
                 self.ui.say(said);
             }
             ui::Action::ChamberSort(c) => self.ui.sort_chambers(c),
+            // ---- the roster.
+            //
+            // **The index is resolved to an identity here, in the same frame
+            // the click landed in, and never stored.** `Reports/dead-ends.md`
+            // records the general shape -- a selection stored as a position
+            // into a list a neighbouring verb rewrites names something else
+            // the moment the list moves -- and a roster is rewritten by every
+            // birth, every death and every click on a column heading. The
+            // list is rebuilt with the same sort and filter the page drew, so
+            // row `n` here is the row the player pointed at.
+            ui::Action::RosterSelect(n) => {
+                let said = self.pin_roster_row(n);
+                self.ui.say(said);
+            }
+            ui::Action::RosterScroll(d) => self.ui.scroll_roster(d),
+            ui::Action::RosterSort(c) => self.ui.sort_roster(c),
+            ui::Action::RosterFilter => {
+                let line = self.ui.pinned().and_then(|w| w.resolve(&self.world)).map(|s| s.lineage);
+                let said = self.ui.cycle_roster_filter(line);
+                self.ui.say(said);
+            }
+            ui::Action::RosterFollow => {
+                let on = self.ui.toggle_following();
+                self.ui.say(if on { "FOLLOWING".into() } else { "NOT FOLLOWING".to_string() });
+            }
+            ui::Action::RosterRelease => {
+                self.ui.release_pin();
+                // The held one goes with it: a half-set comparison outliving
+                // the pin that set it is a chip that says VS and does
+                // something the player cannot predict.
+                self.ui.clear_held();
+                self.ui.say("LET GO".to_string());
+            }
+            ui::Action::RosterSpare => {
+                let said = self.ui.toggle_spared();
+                self.ui.say(said);
+            }
+            // **The same graded death the brush deals, not a deletion.** Both
+            // of these go through `mark_organism_senescent`, so a culled thing
+            // keeps its cells until they rot and its row keeps saying
+            // ROTTING while they do. That is the owner's own ruling that a
+            // cull is graded rather than a disappearance, and it is also what
+            // puts the individual in the graveyard with `CULLED` on it rather
+            // than making it vanish from every page at once.
+            ui::Action::RosterCull => {
+                let Some(who) = self.ui.pinned() else {
+                    self.ui.say("PIN ONE FIRST".to_string());
+                    return;
+                };
+                if self.world.mark_organism_senescent(who.id) {
+                    self.ui.say(format!("CULLED {}", who.id));
+                } else {
+                    self.ui.say("ALREADY GONE".to_string());
+                }
+            }
+            ui::Action::RosterCullRest => {
+                let Some(kingdom) = self.ui.roster_kingdom() else { return };
+                let targets = self.ui.cull_rest_targets(&self.world, kingdom);
+                let kept = self.ui.spared_count();
+                let mut took = 0;
+                for who in targets {
+                    if self.world.mark_organism_senescent(who.id) {
+                        took += 1;
+                    }
+                }
+                // **The count is the whole feedback.** Nothing on screen
+                // changes for a while -- a culled thing rots rather than
+                // vanishing -- so a verb that said nothing would read as a
+                // button that did nothing, which is exactly how the graded
+                // cull was misread the first time it shipped.
+                self.ui.say(format!("CULLED {took}, KEPT {kept}"));
+            }
+            ui::Action::RosterCompare => {
+                let (said, open) = self.ui.compare_or_hold();
+                if open {
+                    self.ui.toggle_panel(ui::Panel::Compare);
+                }
+                self.ui.say(said);
+            }
             ui::Action::ChamberClear => {
                 let said = self.clear_rack();
                 self.ui.say(said);
@@ -3880,6 +4070,132 @@ mod tests {
             .map(|(x, y)| u32::from(lab.world.get(x, y).material == corpse))
             .sum();
         assert!(corpses > 0, "the culled ant vanished instead of leaving meat");
+    }
+
+    /// **Pinning a row from the list moves the cell page to *that* one.**
+    ///
+    /// The page keeps two things -- a cell and the individual it is following
+    /// -- and `follow_inspected` re-points the cell from the individual every
+    /// drawn frame. A pin that set only the cell was therefore undone one
+    /// frame later by the latch that was still on whatever had been clicked
+    /// in the world: the roster row highlighted, the marker sat on the ant,
+    /// and the page went on reading the plant. Nothing said so -- the pin
+    /// resolved, the verbs worked, and only a cropped contact sheet showed
+    /// the page was somebody else's.
+    ///
+    /// **The draw is the test.** Asserting straight after the click passes
+    /// for the broken build, because the drag happens in `follow_inspected`
+    /// and `follow_inspected` runs from `draw`.
+    #[test]
+    fn pinning_a_row_moves_the_cell_page_off_whatever_was_clicked_before() {
+        let mut lab = bench();
+        let x = lab.spec.width / 2;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+
+        lab.act(ui::Action::Panel(ui::Panel::Ants));
+        lab.act(ui::Action::Panel(ui::Panel::AntList));
+        let rows = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(rows.len() >= 2, "test setup: {} animals, need two", rows.len());
+        let (wanted, other, other_at) = (rows[0].who, rows[1].who, rows[1].at);
+
+        // Open the cell page on the *other* one by clicking the ground it is
+        // standing on, which is what latches `inspect_organism` on somebody
+        // else. Two animals rather than a plant and an animal, only because
+        // `bench()`'s bed has no plants in it -- the defect is about the
+        // latch, not about kingdoms.
+        lab.act(ui::Action::Tool(ui::Tool::Look));
+        click_cell(&mut lab, other_at.0, other_at.1);
+        assert_eq!(lab.ui.inspected_organism(), Some(other.id), "test setup: the click did not latch the other one");
+
+        lab.act(ui::Action::RosterSelect(0));
+        assert_eq!(lab.ui.pinned(), Some(wanted), "test setup: row 0 pinned somebody else");
+
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+        assert_eq!(
+            lab.ui.inspected_organism(),
+            Some(wanted.id),
+            "the cell page went back to the one that was clicked before the pin"
+        );
+        let at = lab.ui.inspecting().expect("the cell page is open");
+        assert_eq!(
+            lab.world.get(at.0, at.1).organism_id(),
+            wanted.id,
+            "the page is pointed at a cell the pinned animal does not own"
+        );
+    }
+
+    /// **CULL REST keeps the marked ones and takes everything else.**
+    ///
+    /// Asserted on *individuals*, never on a population count. The box breeds
+    /// while the culled bodies rot, so "sixteen animals became ten" is
+    /// equally consistent with the cull having missed and ten having been
+    /// born -- `labui`'s own tile printed exactly that number and it said
+    /// nothing. `Individual` is `(organism_id, born_frame)`, so a slot reused
+    /// by a newborn cannot read as the spared one surviving either.
+    ///
+    /// Both halves are asserted because a verb that spares everything and a
+    /// verb that spares nothing each pass one of them: the spared must live
+    /// (sensitivity) *and* the rest must die (specificity).
+    #[test]
+    fn cull_rest_keeps_the_spared_and_takes_the_others() {
+        let mut lab = bench();
+        let x = lab.spec.width / 2;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+        lab.act(ui::Action::Panel(ui::Panel::Ants));
+        lab.act(ui::Action::Panel(ui::Panel::AntList));
+
+        let kingdom = roster::Kingdom::Creatures;
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let rows = roster::rows(&lab.world, kingdom, key, desc, roster::Filter::All);
+        assert!(rows.len() >= 4, "test setup: only {} animals to cull from", rows.len());
+
+        // Spare the first two through the real gesture -- pin, then SPARE --
+        // rather than by writing the list, because the gesture is the half
+        // most likely to be wrong.
+        let spared: Vec<roster::Individual> = rows.iter().take(2).map(|r| r.who).collect();
+        for who in &spared {
+            lab.ui.pin(*who);
+            lab.act(ui::Action::RosterSpare);
+        }
+        assert_eq!(lab.ui.spared_list(), spared.as_slice(), "SPARE did not build the keep list");
+
+        let doomed: Vec<roster::Individual> =
+            rows.iter().map(|r| r.who).filter(|w| !spared.contains(w)).collect();
+        assert!(!doomed.is_empty(), "test setup: nothing left to cull");
+
+        lab.act(ui::Action::RosterCullRest);
+        for who in &spared {
+            assert!(
+                lab.world.organism_state(who.id).is_some_and(|st| !st.senescent),
+                "a spared animal was culled: {who:?}"
+            );
+        }
+        for who in &doomed {
+            let st = lab.world.organism_state(who.id);
+            assert!(
+                st.is_none() || st.is_some_and(|st| st.senescent || st.energy == 0.0),
+                "CULL REST left {who:?} untouched"
+            );
+        }
+        // **And the button now says nothing is left to take.** The count on
+        // its face is the only feedback at the moment of pressing -- a graded
+        // cull makes nothing vanish -- so a face still reading the old number
+        // is a button promising a cull it will not perform.
+        assert!(
+            lab.ui.cull_rest_targets(&lab.world, kingdom).is_empty(),
+            "CULL REST still offers to kill the ones it has already taken"
+        );
     }
 
     /// **The two `aux` conventions point opposite ways, and getting either

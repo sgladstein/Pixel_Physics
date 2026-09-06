@@ -44,7 +44,7 @@
 
 use crate::sim::material;
 use crate::sim::organism::{self, Behavior, CellType, SpeciesId};
-use crate::sim::world::World;
+use crate::sim::world::{self, World};
 use crate::tunables::{self, Tunable, TunableGroup};
 
 use super::scene::LabBox;
@@ -66,6 +66,31 @@ pub enum Group {
     Ants,
     /// The bed itself, and the lamps over it.
     Box,
+    /// **What a lineage inherits** — the ancestral value of every heritable
+    /// slot, and the two kin rules.
+    ///
+    /// Its own page for the reason `Costs` has one, and it went over
+    /// `no_page_is_longer_than_two_screens`' ceiling the moment the four
+    /// priced fields were unlocked: nine slots is a page, not a footer on
+    /// one.
+    ///
+    /// **Named to match the cell page.** Click an animal with the look tool
+    /// and its inherited numbers are under `GENOME`; this is the same list,
+    /// showing what the *kind* starts from rather than what one individual
+    /// drifted to. The gap between the two is the whole readout — a page
+    /// called something else would hide that they are the same nine numbers.
+    Genome,
+    /// **Everything an ant pays for** — its own page for the reason
+    /// `Heredity` has one: the ants page was mixing *what an animal is* with
+    /// *what it costs to be one*, and those are two different questions.
+    ///
+    /// **And this list only grows.** Owner's ruling, 2026-09-05:
+    /// *everything should be priced*. Every capability an animal has is
+    /// getting a price, so the page that holds them was always going to
+    /// outgrow a shared tab — it went over `no_page_is_longer_than_two_
+    /// screens`' ceiling the moment the jaw was priced, which is that
+    /// guard working rather than being in the way.
+    Costs,
     /// **How heredity itself works** — global to the world rather than to any
     /// one species, and its own page because there are now six of them and
     /// the plant page was mixing *this species' numbers* with *how breeding
@@ -76,7 +101,7 @@ pub enum Group {
 
 /// In tab order. One list, so the tab strip, the key and the tests cannot
 /// disagree about what pages exist — `ui::TOOLS`' reason.
-pub const GROUPS: [Group; 5] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Box];
+pub const GROUPS: [Group; 7] = [Group::Ground, Group::Plant, Group::Heredity, Group::Ants, Group::Genome, Group::Costs, Group::Box];
 
 impl Group {
     pub fn label(self) -> &'static str {
@@ -84,6 +109,8 @@ impl Group {
             Group::Ground => "GROUND",
             Group::Plant => "PLANT",
             Group::Ants => "ANTS",
+            Group::Genome => "GENOME",
+            Group::Costs => "COSTS",
             Group::Box => "BOX",
             Group::Heredity => "HEREDITY",
         }
@@ -95,6 +122,8 @@ impl Group {
             Group::Ground => "WHAT THE BED IS MADE OF. SOIL IS WHAT ROOTS GO INTO AND ANTS DIG THROUGH; PACKED SOIL IS WHAT AN ANT LEAVES BEHIND WHEN IT DIGS, AND IT IS THE ONLY REASON A TUNNEL STAYS OPEN. CHANGES HERE ARE FELT ON THE NEXT TICK.",
             Group::Plant => "THE PLANT THE SPECIES CHIP ON THE BAR HAS ARMED. THESE ARE THE SPECIES' OWN NUMBERS, NOT ONE INDIVIDUAL'S -- MOVING ONE CHANGES EVERY PLANT OF THAT SPECIES ALREADY STANDING, ON THE NEXT TICK, AS WELL AS EVERY SEED YOU PLANT AFTERWARDS.",
             Group::Ants => "THE COLONY SPECIES. SAME RULE AS THE PLANT PAGE: THESE ARE THE SPECIES' NUMBERS AND THEY REACH EVERY ANT ALIVE. AN INDIVIDUAL'S OWN INHERITED TRAITS ARE ON THE CELL PAGE -- CLICK AN ANT WITH THE LOOK TOOL.",
+            Group::Genome => "WHAT A LINEAGE INHERITS. THESE ARE THE ANCESTRAL VALUES A NEWBORN STARTS FROM, NOT WHAT ANY ANT ALIVE HAS -- CLICK ONE WITH THE LOOK TOOL AND THE SAME NINE NUMBERS ARE UNDER ITS OWN GENOME HEADING. THE GAP BETWEEN THE TWO IS HOW FAR THAT LINEAGE HAS DRIFTED, AND IT IS THE WHOLE POINT OF THE BOX. EVERY ONE OF THEM IS PAID FOR ON THE COSTS PAGE, WHICH IS WHAT STOPS A LINEAGE TAKING ALL OF EVERYTHING.",
+            Group::Costs => "EVERYTHING AN ANT PAYS FOR, IN ONE PLACE. AN ANIMAL DIES OF EXACTLY TWO THINGS IN THIS WORLD -- RUNNING OUT OF ENERGY, OR BEING EATEN -- SO THIS PAGE IS ONE OF THE TWO WAYS ANYTHING HERE CAN EVER MATTER. A CAPABILITY THAT COSTS NOTHING CANNOT BE SELECTED AGAINST, WHICH IS WHY EVERY ONE OF THEM NOW HAS A LINE HERE: TURN ONE TO ZERO AND THAT PART OF AN ANT BECOMES FREE, AND THE COLONY WILL TAKE AS MUCH OF IT AS IT CAN GET.",
             Group::Box => "THE BED AND THE LAMPS OVER IT. THE LAMP IS LIVE. EVERYTHING ELSE HERE IS THE SPEC THE BOX IS BUILT FROM, SO IT TAKES EFFECT WHEN YOU REBUILD -- CHANGE IT, THEN PRESS REBUILD.",
             Group::Heredity => "HOW BREEDING BEHAVES, FOR EVERY PLANT IN THE BOX AT ONCE -- NOT ONE SPECIES' NUMBERS. THIS IS THE PAGE THE LAB IS ACTUALLY FOR. EVERYTHING HERE IS FELT AT THE NEXT SEED RATHER THAN THE NEXT TICK, SO GIVE IT A GENERATION BEFORE DECIDING IT DID NOTHING, AND NONE OF IT IS SAVED TO A SPECIES FILE -- IT LASTS THE SESSION.",
         }
@@ -204,7 +233,21 @@ impl Param {
             a if a >= 1000.0 => format!("{v:.0}"),
             a if a >= 100.0 => format!("{v:.1}"),
             a if a >= 10.0 => format!("{v:.2}"),
-            _ => format!("{v:.3}"),
+            // **Below a thousandth, three decimals is not a rounding, it is a
+            // blank.** Every price expressed as a fraction of `start_energy`
+            // lives here -- `synapse_fraction` at 2.2e-6, `sight_fraction`
+            // and `curvature_fraction` at 8.1e-8, `force_fraction` at 2.5e-5
+            // -- and all four rendered as a flat `0.000` that never changed
+            // however far the row was turned. Four rows indistinguishable
+            // from each other, from zero, and from a control that does not
+            // work. `clicking_a_parameters_row_moves_it` is what caught it,
+            // and it caught it as "did not move on a click", because from
+            // outside the panel those are the same thing.
+            //
+            // Zero keeps the decimal form: a price that is switched off
+            // should read `0.000` like every other off knob, not `0.0e0`.
+            a if a >= 0.001 || a == 0.0 => format!("{v:.3}"),
+            _ => format!("{v:.1e}"),
         }
     }
 
@@ -356,6 +399,8 @@ pub fn registry(world: &World, spec: &LabBox, plant: Option<SpeciesId>) -> Vec<P
         plant_rows(world, &name, &mut out);
     }
     ant_rows(world, &mut out);
+    genome_rows(world, &mut out);
+    cost_rows(world, &mut out);
     box_rows(world, spec, &mut out);
     out
 }
@@ -634,6 +679,20 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "dig_cost_in_moves" => def.dig_cost_in_moves,
         "emit_cost_in_moves" => def.emit_cost_in_moves,
         "spoil_weight_cells" => def.spoil_weight_cells,
+        "digest_fraction" => def.digest_fraction,
+        "synapse_fraction" => def.synapse_fraction,
+        "sight_fraction" => def.sight_fraction,
+        "force_fraction" => def.force_fraction,
+        "sight_range" => def.sight_range as f32,
+        "curvature_radius" => def.curvature_radius as f32,
+        "sensor_offset" => def.sensor_offset as f32,
+        // **`bite_force` is an Option and its None means "as hard as it
+        // digs"**, so the row shows the effective value rather than a blank.
+        // Reading it as 0 would say this animal cannot bite, which is the
+        // opposite of what None means.
+        "bite_force" => def.bite_force(),
+        "climbs_over_kin" => f32::from(u8::from(def.climbs_over_kin)),
+        "eats_kin" => f32::from(u8::from(def.eats_kin)),
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
         _ => return None,
@@ -667,31 +726,17 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "HOW MUCH ENERGY AN ANT MUST HAVE BANKED BEFORE IT WILL BREED. ZERO TURNS BREEDING OFF ENTIRELY. THIS AND START ENERGY TOGETHER DECIDE WHETHER A COLONY EVER REACHES A SECOND GENERATION, WHICH THE ANTS PAGE'S TREND STRIP IS THE READOUT FOR.");
     cr("mutation_rate", span(0.0, 0.5, 0.005), false,
         "HOW MUCH A NEWBORN'S BRAIN DIFFERS FROM ITS PARENT'S. ZERO IS CLONING AND EVOLUTION CANNOT HAPPEN; HIGH IS A COLONY THAT NEVER KEEPS WHAT WORKED.");
+    cr("sight_range", span(0.0, 128.0, 4.0), true,
+        "HOW FAR THIS KIND CAN SEE ANOTHER ANIMAL, IN CELLS. ZERO IS BLIND, WHICH IS WHAT ANTS ARE BORN AS -- THE BEETLE IS THE ONLY KIND IN THE GAME WITH EYES. THIS IS THE STARTING POINT A LINEAGE INHERITS FROM; THE SIGHT RANGE ROW ON THE GENOME SIDE IS HOW FAR ONE LINEAGE HAS DRIFTED FROM IT. SEEING IS CHARGED PER CELL LOOKED AT, SO TURNING THIS UP IS A REAL BILL.");
+    cr("curvature_radius", span(0.0, 16.0, 1.0), true,
+        "HOW WIDE A PATCH OF GROUND THIS KIND FEELS, IN CELLS. IT IS THE SENSE THAT TELLS A HOLLOW FROM A RIDGE, AND IT IS WHAT DECIDES WHERE AN ANT PUTS SPOIL DOWN. ZERO MEANS NO SUCH SENSE. THE PATCH IS A SQUARE, SO TWICE THE REACH IS FOUR TIMES THE COST.");
+    cr("sensor_offset", span(1.0, 16.0, 1.0), true,
+        "HOW FAR AHEAD OF ITSELF AN ANT SMELLS, IN CELLS. IT IS THE ONE NUMBER HERE WITH A MEASURED BEST VALUE RATHER THAN A DIRECTION: TRAIL-FOLLOWING PEAKS AT 6 AND FALLS OFF ON BOTH SIDES, SO MOVING IT EITHER WAY MAKES ANTS WORSE AT KEEPING TO A ROUTE. THAT IS WHY IT IS NOT SOMETHING THEY INHERIT -- THERE IS NO DIRECTION FOR SELECTION TO PUSH IT.");
+    cr("bite_force", span(0.0, 4.0, 0.05), false,
+        "HOW HARD THIS KIND CAN BITE, AGAINST HOW TOUGH A THING IS. UNSET IT MATCHES THE DIGGING FORCE, WHICH IS WHY THE ROW SHOWS THAT NUMBER UNTIL YOU MOVE IT. IT IS WHAT DECIDES WHICH FOODS AN ANIMAL CAN ACTUALLY GET THROUGH -- A HARD-SHELLED ANIMAL IS SIMPLY INEDIBLE TO A WEAK MOUTH.");
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
-    cr("idle_cost_per_cell", span(0.0, 2.0, 0.01), false,
-        "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
-    cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
-        "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
-    cr("dig_cost_in_moves", span(0.0, 40.0, 0.5), false,
-        "WHAT DIGGING ONE CELL COSTS, COUNTED IN STEPS -- AT 3 IT COSTS AN ANT THE SAME AS WALKING THREE CELLS. IT SHIPS AT ZERO, WHICH MEANS EXCAVATION IS FREE AND THE COLONY WILL DIG WHATEVER IT DIGS WITHOUT EVER PAYING FOR IT. THAT IS WHY A BED WITH ANTS IN IT ENDS UP AS ONE ENORMOUS HOLE: THE ANTS ARE BORN WANTING TO DIG AND NOTHING IN THE WORLD CAN TALK THEM OUT OF IT. TURN IT UP AND DIGGING BECOMES A CHOICE THEY CAN GET WRONG.");
-    cr("emit_cost_in_moves", span(0.0, 40.0, 0.5), false,
-        "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
-    cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
-        "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
-    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
-        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
-    cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
-        "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
 
-    if let Some(id) = world.species.id_of(species) {
-        if let Some(def) = world.species.get(id).creature.as_ref() {
-            for (slot, name, note) in TRAIT_ROWS {
-                out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
-                    def.traits[*slot], span(-1.0, 1.0, 0.05), note));
-            }
-        }
-    }
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -714,9 +759,94 @@ const TRAIT_ROWS: &[(usize, &str, &str)] = &[
         "HOW RICH AN ANT WAITS TO BE BEFORE IT BREEDS, AS A MULTIPLIER ON THE REPRODUCE THRESHOLD ROW ABOVE: -1 IS THE EARLIEST THE ARITHMETIC ALLOWS AND +1 IS TWICE THE BAR. LOW IS VERY NEARLY A SUICIDE PACT -- A PARENT THAT BREEDS THE INSTANT IT CAN AFFORD TO IS LEFT STANDING ON ONE JOULE. HIGH IS FEWER CHILDREN AND A LONGER LIFE TO HAVE THEM IN."),
     (organism::TRAIT_SIGHT_RANGE, "sight_range",
         "HOW FAR THIS LINEAGE CAN SEE, SHIFTED FROM WHAT THE SPECIES WAS AUTHORED WITH: 0 IS THE AUTHORED EYE, +1 ADDS SIXTY-FOUR CELLS OF REACH AND -1 TAKES IT AWAY. IT IS ADDITIVE, SO A SPECIES BORN BLIND -- WHICH IS EVERY ONE OF THEM BUT THE BEETLE -- CAN EVOLVE EYES. SEEING IS CHARGED PER CELL LOOKED AT, SO A BIGGER EYE IS A REAL BILL AND NOT A FREE UPGRADE."),
+    (organism::TRAIT_CURVATURE_RADIUS, "curvature_radius",
+        "HOW WIDE A PATCH OF GROUND THIS LINEAGE FEELS, SHIFTED FROM WHAT THE SPECIES WAS AUTHORED WITH. IT IS THE SENSE AN ANT USES TO TELL A HOLLOW FROM A RIDGE, AND IT IS WHAT DECIDES WHERE SPOIL GETS PUT DOWN. LIKE SIGHT IT IS ADDITIVE, SO A KIND BORN WITHOUT IT CAN GROW ONE. A WIDER PATCH COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH, SO IT DOES NOT RUN AWAY."),
+    (organism::TRAIT_DIG_FORCE, "dig_force",
+        "HOW HARD THIS LINEAGE'S JAW IS, ON TOP OF WHAT THE SPECIES WAS AUTHORED WITH. IT IS A THRESHOLD RATHER THAN A SPEED: BELOW A MATERIAL'S HARDNESS YOU CANNOT CUT IT AT ALL, SO THIS DECIDES WHICH PARTS OF THE WORLD AN ANIMAL CAN EAT AND TUNNEL THROUGH. AT THE BOTTOM OF THE AXIS AN ANIMAL CAN CUT NOTHING. THE BITE MOVES WITH IT -- ONE SET OF JAWS."),
+    (organism::TRAIT_DIGEST_RATE, "digest_rate",
+        "HOW FAST THIS LINEAGE'S GUT IS: +1 IS TWICE THE SPECIES' RATE AND -1 IS HALF IT. A QUICK GUT TURNS FOOD INTO ANT SOONER AND LIGHTENS THE WALK HOME, AND WASTES MORE OF EVERY MEAL. A SLOW ONE KEEPS MORE BUT CARRIES ITS LOAD LONGER AND WAITS LONGER TO BE PAID."),
+    (organism::TRAIT_CROP_CAPACITY, "crop_capacity",
+        "HOW MUCH THIS LINEAGE'S CROP HOLDS: +1 IS TWICE THE SPECIES' AND -1 IS HALF IT. A BIG CROP MEANS FEWER TRIPS AND A HEAVIER WALK BACK, SINCE CARRYING COSTS MOVEMENT; A SMALL ONE MEANS A LIGHT ANT THAT HAS TO KEEP COMING BACK. IT CANNOT SHRINK BELOW THE POINT WHERE A LOAD COULD NEVER BE PUT DOWN AGAIN."),
     (organism::TRAIT_PACE, "pace",
         "HOW FAST THIS LINEAGE LIVES: +1 IS AN ANT THAT TAKES ITS TURN TWICE AS OFTEN AND -1 ONE THAT TAKES IT HALF AS OFTEN. IT MOVES THE TICK INTERVAL ROW ABOVE, AND IT IS THE ONE ROW ON THIS PAGE YOU CAN WATCH WITHOUT AN OVERLAY -- A QUICK ANT SCURRIES AND A SLOW ONE PLODS. IT IS NOT A FREE SPEED-UP: EVERY COST AN ANT PAYS IS CHARGED ONCE PER TURN, SO LIVING TWICE AS FAST BURNS TWICE AS FAST."),
 ];
+
+/// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
+/// priced fields took that page to 23 rows against a ceiling of 20 — the same
+/// split, for the same reason, that gave `Costs` and `Heredity` their pages.
+fn genome_rows(world: &World, out: &mut Vec<Param>) {
+    let species = COLONY_SPECIES;
+    let sp = species.to_string();
+    let g = Group::Genome;
+    if let Some(id) = world.species.id_of(species) {
+        if let Some(def) = world.species.get(id).creature.as_ref() {
+            // **The two kin rules, as toggles.** They decide whether a colony
+            // is a colony: `climbs_over_kin` is why a crowd of ants is a
+            // moving mass rather than a traffic jam, and `eats_kin` is the
+            // difference between a bad hour and a colony that eats itself.
+            // Neither is a scalar, so neither could ride the `cr` helper --
+            // which is exactly why both were unreachable.
+            out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "climbs_over_kin" }, species, "climbs_over_kin",
+                def.climbs_over_kin,
+                "WHETHER AN ANT WILL WALK OVER ONE OF ITS OWN. ON, A CROWD FLOWS AND PILES; OFF, ANTS BLOCK EACH OTHER AND A BUSY NEST GRIDLOCKS. IT IS THE SINGLE ROW THAT MOST CHANGES WHAT A CROWD LOOKS LIKE."));
+            out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
+                def.eats_kin,
+                "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
+            for (slot, name, note) in TRAIT_ROWS {
+                out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
+                    def.traits[*slot], span(-1.0, 1.0, 0.05), note));
+            }
+        }
+    }
+}
+
+/// **Everything an ant pays for.** Split off `ant_rows` when the jaw price
+/// took the ants page over `no_page_is_longer_than_two_screens`' ceiling --
+/// the same split, for the same reason, that gave `Heredity` its own page.
+///
+/// **`synapse_fraction` and `sight_fraction` are here for the first time.**
+/// Neither had ever been registered anywhere, so two of the prices an ant
+/// pays were unreachable and unviewable from the lab -- the identical defect
+/// that had left two of the four trait slots off the ants page, found by
+/// listing the prices in one place and noticing the list was short. That is
+/// the argument for a page per question rather than per struct: a gap in a
+/// mixed page looks like a page that happens to be long.
+fn cost_rows(world: &World, out: &mut Vec<Param>) {
+    let g = Group::Costs;
+    let species = COLONY_SPECIES;
+    let sp = species.to_string();
+    let mut cr = |field: &'static str, s: Span, integral, note: &str| {
+        let Some(value) = creature_value(world, species, field) else { return };
+        let knob = Knob::Creature { species: sp.clone(), field };
+        out.push(if integral {
+            integer(g, knob, species, field, value, s, note)
+        } else {
+            float(g, knob, species, field, value, s, note)
+        });
+    };
+    cr("idle_cost_per_cell", span(0.0, 2.0, 0.01), false,
+        "WHAT IT COSTS AN ANT TO SIMPLY EXIST, PER CELL OF BODY, PER TURN. IT IS THE CLOCK ON EVERY ANIMAL IN THE BOX.");
+    cr("move_cost_per_cell", span(0.0, 4.0, 0.02), false,
+        "WHAT IT COSTS TO MOVE, PER CELL OF BODY. AGAINST THE IDLE COST IT IS THE PRICE OF LOOKING FOR FOOD VERSUS THE PRICE OF WAITING FOR IT.");
+    cr("dig_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT DIGGING ONE CELL COSTS, COUNTED IN STEPS -- AT 3 IT COSTS AN ANT THE SAME AS WALKING THREE CELLS. IT SHIPS AT ZERO, WHICH MEANS EXCAVATION IS FREE AND THE COLONY WILL DIG WHATEVER IT DIGS WITHOUT EVER PAYING FOR IT. THAT IS WHY A BED WITH ANTS IN IT ENDS UP AS ONE ENORMOUS HOLE: THE ANTS ARE BORN WANTING TO DIG AND NOTHING IN THE WORLD CAN TALK THEM OUT OF IT. TURN IT UP AND DIGGING BECOMES A CHOICE THEY CAN GET WRONG.");
+    cr("emit_cost_in_moves", span(0.0, 40.0, 0.5), false,
+        "WHAT LAYING A FULL-STRENGTH SCENT TRAIL COSTS, COUNTED IN STEPS. ALSO ZERO ON ARRIVAL, AND FOR THE SAME REASON IT MATTERS: A TRAIL THAT COSTS NOTHING IS ALWAYS WORTH LAYING, SO NOTHING SEPARATES AN ANT THAT MARKS A ROUTE FROM ONE THAT MARKS EVERYWHERE IT GOES.");
+    cr("spoil_weight_cells", span(0.0, 8.0, 0.1), false,
+        "WHAT A LUMP OF DUG EARTH WEIGHS WHILE AN ANT CARRIES IT, IN CELLS OF ITS OWN BODY. CARRYING FOOD HAS ALWAYS COST SOMETHING; CARRYING SPOIL HAS NOT, SO AN ANT COULD HAUL DIRT ONE HUNDRED AND SIXTY CELLS FOR FREE. AT 1 A PELLET IS AS HEAVY AS HALF THE ANT.");
+    cr("force_fraction", span(0.0, 0.0002, 0.000005), false,
+        "WHAT AN ANT'S JAW COSTS TO CARRY, PER UNIT OF DIGGING FORCE, PER TURN. IT IS CHARGED WHETHER OR NOT THE ANT DIGS -- YOU FEED THE MUSCLE EITHER WAY -- WHICH IS WHAT GIVES A LINEAGE THAT NEVER DIGS A REASON TO PUT THE JAW DOWN. DIGGING FORCE IS A THRESHOLD: BELOW A MATERIAL'S HARDNESS YOU CANNOT CUT IT AT ALL, SO WHAT THIS PRICES IS WHICH PARTS OF THE WORLD AN ANIMAL CAN EAT AND TUNNEL THROUGH. A BEETLE'S IS SET BELOW SOIL, SO IT CANNOT CUT GROUND -- THOUGH RAISING IT ALONE WILL NOT MAKE ONE DIG, BECAUSE A BEETLE'S BRAIN ONLY EVER DIGS AT FOOD.");
+    cr("curvature_fraction", span(0.0, 0.000001, 0.00000001), false,
+        "WHAT IT COSTS AN ANT TO FEEL THE SHAPE OF THE GROUND UNDER IT, PER CELL OF GROUND IT FEELS, PER TURN. THE SENSE READS A SQUARE PATCH AROUND THE ANT, SO WIDENING IT COSTS FOUR TIMES AS MUCH FOR TWICE THE REACH -- WHICH IS WHY NO CAP IS NEEDED TO KEEP IT HONEST. IT IS SET TO THE SAME PRICE PER CELL AS EYESIGHT, BECAUSE LOOKING AT A CELL COSTS WHAT IT COSTS WHICHEVER SENSE DOES THE LOOKING; THE ANT'S PATCH IS SMALL, SO IT COMES TO A FORTIETH OF WHAT A FULL SWEEP OF EYESIGHT WOULD.");
+    cr("exposure_cost_per_cell", span(0.0, 1.0, 0.01), false,
+        "WHAT IT COSTS TO STAND IN THE OPEN, PER CELL OF BODY, PER TURN -- ON TOP OF THE IDLE COST ABOVE. AN ANT IS SHELTERED WHEN THERE IS GROUND OVER ITS HEAD, WHICH IS THE SAME TEST THE ANTS THEMSELVES USE FOR THE INSIDE OF A BURROW. IT SHIPS AT ZERO, AND AT ZERO A ROOFED CELL IS WORTH EXACTLY AS MUCH AS AN OPEN ONE -- WHICH IS WHY DIGGING A NEST HAS NEVER PAID. TURN IT UP AND BEING CAUGHT OUTSIDE COSTS SOMETHING. BE WARNED THAT ON ITS OWN IT IS MOSTLY A FLAT TAX ON BEING ALIVE: MEASURED, ANTS ARE IN THE OPEN TWO TICKS IN THREE AND A PRICE WORTH A FIFTH OF EVERYTHING THEY BURN STILL DID NOT MAKE DIGGING WORTH IT.");
+    cr("digest_fraction", span(0.0, 0.1, 0.001), false,
+        "WHAT PROCESSING FOOD COSTS, AS A SHARE OF THE MEAL, FOR EACH UNIT OF DIGEST RATE. IT IS THE ONE PRICE HERE CHARGED ON A MEAL RATHER THAN PER TURN, BECAUSE WHAT A FAST GUT BUYS IS THROUGHPUT RATHER THAN A CAPABILITY. WITHOUT IT A FAST GUT IS FREE TWICE OVER -- FOOD TURNS INTO ANT SOONER, AND THE ANT IS LIGHTER FOR THE WALK HOME, SINCE CARRYING A FULL CROP COSTS MOVEMENT. WITH IT, A QUICK GUT WASTES MORE OF EVERY MEAL AND A SLOW ONE KEEPS MORE BUT WAITS, AND CARRIES.");
+    cr("synapse_fraction", span(0.0, 0.00002, 0.0000002), false,
+        "WHAT ONE LIVE CONNECTION IN AN ANT'S BRAIN COSTS PER TURN, AS A SHARE OF ITS WHOLE BUDGET. THINKING IS EXPENSIVE TISSUE IN REAL ANIMALS AND IT IS HERE TOO: A CONNECTION THAT DOES NOT EARN ITS KEEP GETS PRUNED BY SELECTION, WHICH IS BOTH WHY EVOLVED BRAINS STAY SMALL ENOUGH TO READ AND A REAL TRADE AN ANT CAN GET WRONG. AT ZERO, BRAINS GROW DENSE AND MEAN NOTHING.");
+    cr("sight_fraction", span(0.0, 0.0000005, 0.000000005), false,
+        "WHAT LOOKING COSTS, PER CELL AN ANIMAL'S EYE ACTUALLY READS, PER TURN. CHARGED ON CELLS READ RATHER THAN ON RANGE, SO A RAY THAT STOPS AT A WALL COSTS ONLY WHAT IT CROSSED -- AN ANIMAL IN A TUNNEL PAYS LESS TO LOOK THAN ONE SWEEPING OPEN GROUND, WHICH MEANS SHELTER PAYS FOR ITSELF TWICE. NOBODY WROTE THAT RULE; IT FALLS OUT OF CHARGING FOR THE WORK HONESTLY. THE SHIPPED ANT IS BORN BLIND, SO IT PAYS THIS ONLY ONCE A LINEAGE HAS GROWN EYES.");
+}
 
 fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     let g = Group::Box;
@@ -912,6 +1042,19 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "dig_cost_in_moves" => def.dig_cost_in_moves = value,
                 "emit_cost_in_moves" => def.emit_cost_in_moves = value,
                 "spoil_weight_cells" => def.spoil_weight_cells = value,
+                "digest_fraction" => def.digest_fraction = value,
+                "synapse_fraction" => def.synapse_fraction = value,
+                "sight_fraction" => def.sight_fraction = value,
+                "force_fraction" => def.force_fraction = value,
+                "sight_range" => def.sight_range = value.max(0.0).round() as i32,
+                "curvature_radius" => def.curvature_radius = value.max(0.0).round() as i32,
+                "sensor_offset" => def.sensor_offset = value.max(0.0).round() as i32,
+                // Writing it makes the Option concrete, which is right: the
+                // owner has now said what this mouth is, so it stops
+                // defaulting to whatever the jaw happens to be.
+                "bite_force" => def.bite_force = Some(value.max(0.0)),
+                "climbs_over_kin" => def.climbs_over_kin = value >= 0.5,
+                "eats_kin" => def.eats_kin = value >= 0.5,
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
                         _ => return false,
@@ -1300,8 +1443,9 @@ pub type SpecimenRow = (String, String, String);
 pub type SpecimenSection = (&'static str, &'static str, Vec<SpecimenRow>);
 
 /// What each group's heading means, as the page's hover note reads it.
-const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM AND HOW FAR DOWN THE LINE IT IS. NONE OF IT CHANGES WHILE YOU WATCH -- IT IS SETTLED THE MOMENT THE THING IS BORN.";
+const LIFE_NOTE: &str = "WHERE THIS INDIVIDUAL CAME FROM, HOW FAR DOWN THE LINE IT IS, AND THE DATED LINES IT PUT IN THE RUN LOG. NOTHING HERE CHANGES ONCE IT IS WRITTEN -- A FRAME NUMBER IS SETTLED THE MOMENT THE THING HAPPENS, WHICH IS WHAT SEPARATES THIS GROUP FROM STATE.";
 const STATE_NOTE: &str = "HOW IT IS DOING RIGHT NOW. THIS IS THE GROUP THAT MOVES WHILE THE BOX RUNS, AND THE ONE TO HAVE OPEN IF YOU ARE WATCHING SOMETHING GET INTO TROUBLE.";
+const WORDS_NOTE: &str = "THE SAME GENOME, IN SENTENCES. WHAT KIND OF THING THIS IS, RATHER THAN WHAT ITS NUMBERS ARE -- EVERY LINE HERE IS DERIVED FROM A ROW UNDER GENOME, AND HOVERING ONE SAYS WHICH.";
 const GENOME_NOTE: &str = "WHAT IT WAS DEALT AND CANNOT CHANGE, DRAWN WHEN IT WAS BORN AND CARRIED FOR LIFE. TWO INDIVIDUALS OF ONE SPECIES DIFFER HERE AND NOWHERE ELSE AT BIRTH -- THIS IS WHAT A JAR ON THE SHELF KEEPS.";
 
 /// **The same readout, in the three groups the cell page folds it into.**
@@ -1334,8 +1478,26 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
     // thing the player did on purpose). A release is its own origin and says
     // so, or the rack's whole point -- did the line I picked do better --
     // cannot be read off a cell.
+    // **`BORN` is `LIFE`, `AGE` is `STATE`.** The frame it was allocated is
+    // settled the moment the thing exists, which is what this group is for;
+    // how long ago that was moves every tick, which is what the next one is.
+    row("BORN", format!("FRAME {}", state.born_frame),
+        "THE FRAME THIS INDIVIDUAL WAS ALLOCATED. WITH ITS ORGANISM NUMBER IT IS WHAT PINS IT: A SLOT IS HANDED OUT AGAIN AFTER SIXTEEN REUSES, SO THE NUMBER ALONE WOULD FOLLOW WHATEVER LANDED IN IT NEXT. THE FRAME DOES NOT COME BACK.");
     row("ORIGIN", if state.stocked { "RELEASED FROM A JAR".into() } else if state.inherited { "BORN HERE".into() } else { "FOUNDER".into() },
         "WHERE THIS INDIVIDUAL CAME FROM. BORN HERE MEANS THE BOX BRED IT. FOUNDER MEANS IT WAS PLACED OUT OF NOTHING. RELEASED FROM A JAR MEANS YOU PUT IT BACK OFF THE SHELF, CARRYING A GENOME YOU KEPT. A BOX WHERE NOTHING EVER SAYS BORN HERE IS A BOX THAT HAS NOT REPRODUCED YET.");
+
+    // **The individual's own lines out of the run log, filed under `LIFE`.**
+    //
+    // They belong here by the group's own contract: a frame number is settled
+    // the moment the thing happens and never moves again, which is exactly
+    // what separates `LIFE` from `STATE`. They were briefly a fifth group of
+    // their own and that is why they are not: one extra heading is 15px, the
+    // ant's page had about that much slack, and
+    // `the_cell_page_fits_on_the_screen_for_a_plant_and_for_an_ant` went red
+    // saying the page now fitted only because rows had been **dropped** --
+    // which is the one thing that guard exists to refuse. A group that costs
+    // a heading to say five short lines is not worth a trimmed page.
+    life.extend(story(world, id, state.born_frame));
 
     // A second closure over `rows`, so the borrow of `life` ends here. The
     // shadowing is deliberate: every `row(...)` below this line files into
@@ -1361,8 +1523,19 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             genome.push((name.to_uppercase(), format!("{:+.3}", state.traits[*slot]),
                 format!("THIS ANIMAL'S OWN {}, INHERITED WITH JITTER RATHER THAN THE SPECIES VALUE ON THE ANTS PAGE. COMPARE THE TWO AND YOU ARE LOOKING AT HOW FAR THIS LINEAGE HAS DRIFTED.", name.replace('_', " ").to_uppercase())));
         }
-        row("SINCE NEST", state.since_nest.to_string(),
-            "TICKS SINCE IT LAST TOUCHED THE NEST. IT CLIMBS WHILE A FORAGER IS OUT AND RESETS WHEN IT GETS HOME, SO A NUMBER THAT ONLY EVER CLIMBS IS AN ANT THAT IS LOST.");
+        // **`forage_max`, not `since_nest`, and the swap is the same one the
+        // roster's `FAR` row made.** This row read `SINCE NEST` and told the
+        // reader that *"a number that only ever climbs is an ant that is
+        // lost"*. Both halves stopped being true: `since_nest` counts ticks
+        // at a species' `tick_interval`, so its scale is a constant rather
+        // than a distance, and it is incremented unconditionally, so an ant
+        // standing *on* the nest accrues it -- 136 of 142 of its resets were
+        // loitering. It is documented measurement-only for exactly that
+        // reason, and a per-individual row is precisely the case its own doc
+        // warns about. It also disagreed with the `STATE` column beside it,
+        // which is the worse failure on a page whose job is to be read.
+        row("RANGE", state.forage_max.to_string(),
+            "HOW FAR THIS ONE HAS GOT FROM THE LAST PLACE IT TOUCHED HOME, IN CELLS, ON THE TRIP IT IS ON NOW. IT RE-ANCHORS EVERY TIME IT TOUCHES THE NEST, SO STANDING AT HOME CANNOT RUN IT UP -- WHICH IS THE FAULT IN THE TICK COUNTER THIS ROW USED TO SHOW. PAST 30 THE ANIMALS PAGE CALLS IT FAR.");
         row("CROP", match &state.crop {
                 Some(c) => format!("{} x{}", world.materials.get(c.material).display.to_uppercase(), c.cells),
                 None => "EMPTY".into(),
@@ -1370,13 +1543,36 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             "WHAT IT IS CARRYING AND HOW MUCH OF IT IS LEFT. THE NUMBER FALLS AS IT WALKS -- AN ANT DIGESTS ITS LOAD ON THE WAY HOME, SO A LONG TRIP DELIVERS LESS THAN A SHORT ONE.");
         row("BODY", state.cells.len().to_string(),
             "HOW MANY CELLS THIS ANIMAL IS. EVERY PER-CELL COST ON THE ANTS PAGE IS MULTIPLIED BY THIS.");
-        return vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)];
+        row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+            "HOW LONG THIS ONE HAS BEEN ALIVE, IN SIMULATED TICKS. AGAINST THE ANIMALS PAGE'S OWN TURNOVER IT SAYS WHETHER YOU ARE LOOKING AT A FOUNDER THAT HAS OUTLASTED EVERYTHING OR AT SOMETHING BORN THIS MINUTE.");
+        row("YOUNG", state.life.offspring.to_string(),
+            "HOW MANY THIS ONE HAS BUDDED. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES FOR AN ANIMAL -- AND A COLONY WHERE NOBODY'S NUMBER EVER LEAVES ZERO IS A COLONY THAT IS NOT BREEDING, WHICH A HEADCOUNT ALONE CANNOT TELL YOU.");
+        row("FED", state.life.bites.to_string(),
+            "MOUTHFULS TAKEN INTO THE CROP OVER ITS WHOLE LIFE. IT COUNTS PICKING FOOD UP AND NOT DIGESTING IT, WHICH ARE DIFFERENT EVENTS -- AN ANIMAL WITH A HIGH COUNT AND NO DELIVERIES IS EATING EVERYTHING IT FINDS WHERE IT FINDS IT.");
+        row("DELIVERED", state.life.deliveries.to_string(),
+            "LOADS IT HAS BROUGHT HOME. AGAINST FED IT IS THE HALF OF THE FORAGING LOOP THAT CLOSES: PICKUPS WITHOUT DELIVERIES IS A COLONY THAT FEEDS ITSELF AND NEVER STOCKS THE NEST.");
+        row("DUG", state.life.digs.to_string(),
+            "CELLS IT HAS EXCAVATED IN ITS LIFE. THE GALLERIES IN THE BED ARE THE SUM OF THESE.");
+        row("WALKED", format!("{} / {} BLOCKED", state.life.moves, state.life.moves_blocked),
+            "STEPS TAKEN, AND STEPS IT TRIED AND COULD NOT MAKE. THE SECOND NUMBER IS NOT WASTE -- A COLONY SPENDS A THIRD OF ITS LIFE TURNING ON THE SPOT -- BUT AN ANIMAL WHOSE BLOCKED COUNT DWARFS ITS MOVES IS ONE WEDGED SOMEWHERE.");
+        return vec![
+            ("WORDS", WORDS_NOTE, words(world, id)),
+            ("LIFE", LIFE_NOTE, life),
+            ("STATE", STATE_NOTE, rows),
+            ("GENOME", GENOME_NOTE, genome),
+        ];
     }
 
     row("SHOOT", state.shoot_cells.to_string(),
         "HOW MUCH SHOOT IT HAS GROWN. THIS IS THE NUMBER THE PLANT PAGE'S SEED MATURITY IS COMPARED AGAINST -- BELOW THAT FENCE THIS PLANT CANNOT SET A SEED AT ALL, HOWEVER MUCH ENERGY IT HAS.");
     row("ROOT", state.root_cells.to_string(),
         "HOW MUCH ROOT IT HAS. AGAINST THE SHOOT COUNT IT IS THE ROOT-TO-SHOOT BALANCE, WHICH IS WHAT DECIDES WHETHER IT DIES OF THIRST OR OF SHADE.");
+    // **A plant's clock starts at seed set, not at germination**, because
+    // that is when `bear_seed_at` allocates its organism. So this includes
+    // however long it lay in the seed bank, and the row says so rather than
+    // printing a number that means something different for the two kingdoms.
+    row("AGE", format!("{} TICKS", world.frame.saturating_sub(state.born_frame)),
+        "HOW LONG SINCE THIS INDIVIDUAL WAS CREATED, IN SIMULATED TICKS. FOR A PLANT THE CLOCK STARTS WHEN ITS PARENT SET THE SEED AND NOT WHEN IT GERMINATED, SO A LONG-DORMANT SEED READS OLD ON ITS FIRST DAY ABOVE GROUND. AN ANIMAL'S CLOCK STARTS AT ITS BIRTH.");
     row("SEEDS SET", state.seeds_set.to_string(),
         "SEEDS THIS INDIVIDUAL HAS SET IN ITS LIFE. IT IS ITS FITNESS, IN THE ONLY SENSE THE BOX MEASURES.");
     row("ROOT IN SOIL", {
@@ -1423,7 +1619,92 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             format!("THIS INDIVIDUAL'S OWN MULTIPLIER ON ITS SPECIES' {label}, DRAWN WHEN IT GERMINATED AND CARRIED FOR LIFE. 1.00 IS THE SPECIES VALUE; ITS SPECIES ALLOWS UP TO {:.0}% EITHER WAY. THIS IS WHY TWO SEEDS OF ONE SPECIES DO NOT GROW INTO THE SAME PLANT.", width * 100.0),
         ));
     }
-    vec![("LIFE", LIFE_NOTE, life), ("STATE", STATE_NOTE, rows), ("GENOME", GENOME_NOTE, genome)]
+    vec![
+        ("WORDS", WORDS_NOTE, words(world, id)),
+        ("LIFE", LIFE_NOTE, life),
+        ("STATE", STATE_NOTE, rows),
+        ("GENOME", GENOME_NOTE, genome),
+    ]
+}
+
+/// **One individual's own lines out of the run log**, newest first.
+///
+/// The counters under `STATE` say *how much*; this says *when*, which is the
+/// one question a standing number cannot answer -- at 1024x a player crosses
+/// tens of thousands of frames between two glances, and "fed 41 times" does
+/// not say whether it started this minute or has been foraging all run.
+///
+/// **Bounded by construction rather than by a cap**, which is the distinction
+/// `CLAUDE.md`'s size-cap rule turns on: each of the five kinds fires at most
+/// once in a life, so this is at most five rows however long the individual
+/// lives, and there is no budget whose exhaustion could turn into an answer.
+/// What the log *does* drop is old lines wholesale, and the row below says so
+/// -- an individual older than the log's window has a truncated story, and a
+/// truncated story must not read as an uneventful one.
+fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+    let mut rows: Vec<SpecimenRow> = world
+        .run_log
+        .about(id, born_frame)
+        .map(|e| {
+            (
+                format!("F{}", e.frame),
+                match e.kind {
+                    world::LogKind::Born => "BORN".to_string(),
+                    world::LogKind::Died => organism::DEATH_CAUSE_LIST
+                        .get(e.other as usize)
+                        .map(|c| c.label().to_string())
+                        .unwrap_or_else(|| "DIED".to_string()),
+                    world::LogKind::FirstFeed => "FIRST FED".to_string(),
+                    world::LogKind::FirstSeed => "FIRST SEED".to_string(),
+                    world::LogKind::LineEnded => format!("LINE {} ENDED", e.other),
+                },
+                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S WHAT HAPPENED LIST IS THE SAME LOG WITH EVERYBODY IN IT.".to_string(),
+            )
+        })
+        .collect();
+    if rows.is_empty() {
+        rows.push((
+            "NO LINES".into(),
+            "--".into(),
+            "NOTHING THIS INDIVIDUAL DID HAS REACHED THE RUN LOG. EITHER IT HAS NOT YET DONE ANYTHING NOTABLE, OR IT IS OLD ENOUGH THAT ITS LINES HAVE AGED OUT OF THE LOG -- THE WHAT HAPPENED PAGE SAYS HOW MANY HAVE BEEN LOST FOR GOOD.".into(),
+        ));
+    }
+    rows
+}
+
+/// **The genome read back as sentences** -- `plainspeak::describe`, as
+/// specimen rows.
+///
+/// A row with no value column, because a phrase *is* the value: the label
+/// column is 150 px and a sentence in it with a number beside it would wrap
+/// or truncate, and the number is already in `GENOME` two headings down. The
+/// explanation carries the weight or the allele it came from, so hovering any
+/// sentence says why it was said.
+fn words(world: &World, id: u16) -> Vec<SpecimenRow> {
+    crate::lab::plainspeak::describe(world, id)
+        .into_iter()
+        .flat_map(|p| {
+            // **A backstop, not the mechanism.** `page_rect` sizes the page
+            // to its widest row and then clamps it onto the screen, so a long
+            // sentence does not wrap of its own accord -- it widens the whole
+            // page and slides it left over whatever it was opened from. A
+            // thirty-character phrase took the cell page to 250 px and hid
+            // three of the roster's eight columns behind it.
+            //
+            // So the phrases are *written* to fit, and
+            // `plainspeak::every_phrase_fits_the_column` holds them to it over
+            // every genome and every allele rather than over the ones anybody
+            // thought of. This wrap is what happens if one ever slips through:
+            // two short rows rather than a page that eats its neighbour. The
+            // continuation carries the same explanation, so hovering either
+            // half says the same thing.
+            let note = p.detail;
+            crate::lab::ui::wrap_words(&p.text, crate::lab::plainspeak::PHRASE_COLUMNS)
+                .into_iter()
+                .map(move |line| (line, String::new(), note.clone()))
+                .collect::<Vec<_>>()
+        })
+        .collect()
 }
 
 /// The genome's slot map, as `organism::GENOTYPE_TRAITS`' own doc names it.
@@ -1448,6 +1729,10 @@ const GENOTYPE_SLOTS: [&str; organism::GENOTYPE_TRAITS] = [
 /// separation is what lets a root and a shoot diverge inside one individual,
 /// and a reader that took whichever arm came first would report the wrong
 /// width for three of ten rows.
+pub fn genotype_variance_of(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
+    genotype_width(world, species, slot)
+}
+
 fn genotype_width(world: &World, species: SpeciesId, slot: usize) -> Option<f32> {
     let cell_type = if matches!(slot, 1 | 5 | 8) { CellType::RootTip } else { CellType::GrowingTip };
     world.species.get(species).behaviors(cell_type).iter().find_map(|b| match b {
@@ -1828,6 +2113,110 @@ mod tests {
 
     /// A tuple or a list must not be mistaken for a number, or the span edit
     /// replaces up to the first comma and leaves `, -0.2)` dangling.
+    /// **Every scalar an ant is made of is reachable from the lab.**
+    ///
+    /// Owner's ruling, 2026-09-05: **everything currently available from
+    /// within the lab evolution game.** The same defect had by then happened
+    /// three times — two trait slots, two prices, and then `sight_range`,
+    /// `curvature_radius`, `sensor_offset` and `bite_force`, which were
+    /// unreachable *while their own genes were on the genome page*. So an
+    /// owner could move a lineage's allele and not the value it drifts from.
+    ///
+    /// **The list is the mechanism, and it is deliberately exhaustive rather
+    /// than a sample.** Rust cannot enumerate a struct's fields at runtime,
+    /// so this cannot derive itself from `CreatureDef` — naming every scalar
+    /// here makes the next omission a failing test instead of something
+    /// noticed a month later. The non-scalars are named in the second list
+    /// and excluded on purpose, with the reason each one needs more than a
+    /// row.
+    #[test]
+    fn every_scalar_an_ant_is_made_of_is_reachable() {
+        // Every f32/i32/bool on `CreatureDef` that describes the animal.
+        const REACHABLE: &[&str] = &[
+            "start_energy", "body_energy", "crop_capacity", "digest_rate",
+            "reproduce_threshold", "mutation_rate", "tick_interval",
+            "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
+            "climbs_over_kin", "eats_kin",
+            "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
+            "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
+            "synapse_fraction", "sight_fraction", "curvature_fraction",
+            "force_fraction", "digest_fraction",
+        ];
+        // Not scalars, and each needs more than a row before it can be one:
+        //   body        a BodyPlan -- a shape, and changing it re-places the animal
+        //   shade_rule  an enum, wanting a cycling row this page does not have
+        //   nest        a material name, wanting a picker
+        //   instincts, hidden_wiring, hidden_outputs, recurrence
+        //               the authored brain -- the cell page reads it as
+        //               sentences, and a wiring editor is its own feature
+        // **Keyed on the KNOB, not the row name, and that is the whole
+        // correctness of this test.** The first version matched names, and a
+        // fault injection walked straight through it: `TRAIT_ROWS` carries a
+        // row called `sight_range` for the *allele*, so deleting the species
+        // row left the name still present and the guard green. A blind guard
+        // over exactly the defect it was written for.
+        let (world, spec) = bed();
+        let fields: Vec<&str> = registry(&world, &spec, None)
+            .iter()
+            .filter_map(|p| match &p.knob {
+                Knob::Creature { field, .. } => Some(*field),
+                _ => None,
+            })
+            .collect();
+        let missing: Vec<&&str> = REACHABLE.iter().filter(|f| !fields.contains(&**f)).collect();
+        assert!(
+            missing.is_empty(),
+            "these are part of what an ant IS and cannot be seen or set from the lab: {missing:?} -- \
+             which is how sight_range stayed unreachable while its own gene sat on the genome page"
+        );
+    }
+
+    /// **Every price an ant pays has a row on the costs page.**
+    ///
+    /// The sibling of `every_trait_slot_has_a_row`, and it exists because the
+    /// same defect has now happened twice for the same reason: rows are
+    /// registered one call at a time, so a field that lands without one is
+    /// invisible and nothing says so. `reproduce_at` and `sight_range` were
+    /// the trait half; `synapse_fraction` and `sight_fraction` were the price
+    /// half, both unregistered since the day they were authored.
+    ///
+    /// **The list is the mechanism, and a new price goes in it.** Rust cannot
+    /// enumerate a struct's fields at runtime, so this cannot derive itself
+    /// from `CreatureDef` — but naming them here makes the omission a failing
+    /// test rather than a thing somebody notices a month later. Owner's
+    /// ruling, 2026-09-05: *everything should be priced*; this is what stops
+    /// "priced" from meaning "priced and unreachable".
+    #[test]
+    fn every_price_an_ant_pays_has_a_row() {
+        const PRICES: &[&str] = &[
+            "idle_cost_per_cell",
+            "move_cost_per_cell",
+            "dig_cost_in_moves",
+            "emit_cost_in_moves",
+            "spoil_weight_cells",
+            "exposure_cost_per_cell",
+            "synapse_fraction",
+            "sight_fraction",
+            "curvature_fraction",
+            "force_fraction",
+            "digest_fraction",
+        ];
+        let (world, spec) = bed();
+        let costs: Vec<String> = registry(&world, &spec, None)
+            .iter()
+            .filter(|p| p.group == Group::Costs)
+            .map(|p| p.tunable.name.to_string())
+            .collect();
+        for price in PRICES {
+            assert!(
+                costs.iter().any(|c| c == price),
+                "{price} is a price an ant pays and has no row on the costs page, so it can be neither seen nor set -- \
+                 which is how synapse_fraction and sight_fraction stayed unreachable from the day they were authored"
+            );
+        }
+        assert_eq!(costs.len(), PRICES.len(), "the costs page has a row this list does not name: {costs:?}");
+    }
+
     /// **Every heritable trait slot is reachable from this page.**
     ///
     /// The guard for the failure that prompted `TRAIT_ROWS`: `reproduce_at`

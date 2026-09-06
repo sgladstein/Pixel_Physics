@@ -61,6 +61,28 @@
         // See `ant.ron` for the derivation; this variant differs only in body
         // plan, so it carries the same stomach.
         crop_capacity: 1440.0,
+        // **The digestive overhead: what processing a meal costs, as a share
+        // of the meal, per unit of digest_rate.** Owner's ruling, 2026-09-05:
+        // *everything should be priced*. A faster gut was strictly better on
+        // two axes at once -- energy sooner, and a lighter animal, because
+        // `carried_cells` charges movement for whatever is still in the crop
+        // -- with nothing anywhere pushing back.
+        //
+        // **An overhead on the meal rather than a tax per tick**, unlike the
+        // three prices above it. Those buy standing capabilities and are
+        // charged for standing. A fast gut buys THROUGHPUT, so the honest
+        // price is per unit processed -- which is also the real biology,
+        // specific dynamic action rising with how fast a meal is pushed
+        // through.
+        //
+        //   0.05 of the meal lost at this species' digest_rate of 3.3
+        //   0.05 / 3.3 = 0.01515
+        //
+        // So the shipped gut keeps 95% of what it absorbs, a gut twice as
+        // fast keeps 90%, and one half as fast keeps 97.5% but carries its
+        // load twice as long and waits twice as long to be paid. Two-sided,
+        // which a per-tick tax could not have made it.
+        digest_fraction: 0.01515,
         digest_rate: 3.3,
         // Pure carnivore: both foods on this menu sit at `food_class: 1.0`,
         // so `+1.0` is the faithful translation and it costs the beetle
@@ -68,8 +90,8 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0, 0.0, 0.0, 0.0),
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15),
+        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
 
         // **A beetle can breed, and until 2026-09-05 it could not — the
         // field was simply absent.** `#[serde(default)]` made it 0.0 and
@@ -142,6 +164,37 @@
         mutation_rate: 0.0058456,
 
         nest: "nest",
+        // **The jaw price, derived at this animal's own constants** -- see
+        // `ant.ron`'s for the argument. A beetle is much larger and much
+        // longer-lived, so the same share of a lifetime is a different
+        // fraction:
+        //
+        //   idle ticks = 1600 / (0.0375 * 4) = 10,666.7
+        //   S = 0.05 at this species' dig_force of 0.3
+        //   0.05 / (10,666.7 * 0.3) = 1.5625e-5
+        //
+        // **What this does and does not make possible, corrected after the
+        // guard for it failed.** `dig_force: 0.3` is below soil's
+        // `penetration_resistance` of 0.8, so a beetle cannot cut ground at
+        // all -- which is why adding beetles to a bed has never made shelter
+        // pay (`Reports/selective-environments-2026-09-05.md`). Priced and
+        // heritable, the force can now evolve past 0.8, so burrowing becomes
+        // AFFORDABLE and PHYSICALLY POSSIBLE for this lineage.
+        //
+        // **It does not make a beetle a burrower, and the first version of
+        // this comment said it did.** The brain below wires `Dig` exactly
+        // once, as `(FoodAdjacent, Dig, 2.0)`: the verb is this animal's
+        // BITE, not an excavation drive. With no food adjacent nothing drives
+        // the output and jaw strength is irrelevant -- measured, a beetle
+        // with the strongest possible jaw in a bank of soil digs ZERO cells.
+        // The drive would have to evolve separately, and there is a free
+        // `(Bias, Dig)` slot for it to evolve into.
+        //
+        // The rule that would have caught this before the claim was made is
+        // in this project's own plan: audit the animal before the
+        // environment -- can it perceive the thing, can it express the
+        // response.
+        force_fraction: 0.000015625,
         dig_force: 0.3,
         // **The eye, and it is the whole of what this animal was missing.**
         // 64 cells, all-round, sized before it was built by

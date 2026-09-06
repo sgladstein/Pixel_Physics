@@ -3160,6 +3160,86 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub curvature_fraction: f32,
+    /// Charged per **unit of jaw force this animal carries** per tick, as a
+    /// fraction of `start_energy` — the muscular twin of `synapse_fraction`
+    /// and `sight_fraction`.
+    ///
+    /// **Strength was the last free capability.** `dig_force` is a threshold
+    /// tested against a material's `penetration_resistance`, so a higher one
+    /// is *strictly* more of the world you can cut and eat, at no cost —
+    /// exactly the ratchet `sight_range` was before `sight_fraction`, and
+    /// `curvature_radius` was before `curvature_fraction`. Owner's ruling,
+    /// 2026-09-05: *everything should be priced*.
+    ///
+    /// **A standing cost, not a per-swing one, and the distinction is the
+    /// whole design.** `dig_cost_in_moves` already charges for *using* the
+    /// jaw; this charges for *having* it. Pricing only the swing would leave
+    /// an animal free to carry mandibles it never opens, and then the gene
+    /// has no gradient for any lineage that does not happen to dig — which
+    /// is most of them. You grow the muscle and you feed it whether or not
+    /// you bite today.
+    ///
+    /// **On the larger of `dig_force` and `bite_force`, never their sum.**
+    /// One apparatus, rated for the harder job. `bite_force` defaults to
+    /// `dig_force`, so summing would silently bill every species that
+    /// authored only the one field twice over — a doubling nobody wrote and
+    /// nobody would see, since both numbers read correctly on the page.
+    ///
+    /// **What it buys is a capability, so the trade is legible**: the beetle
+    /// authors `dig_force: 0.3` against soil's `penetration_resistance` of
+    /// 0.8 and therefore cannot cut ground at all. Under this price a beetle
+    /// lineage *can* evolve to 0.8 and start burrowing — and pays for the
+    /// jaw every tick of its life, whether it digs or not. That is the
+    /// question "can a predator learn to make a nest" turned into an
+    /// affordable-or-not rather than a rule.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub force_fraction: f32,
+    /// **What processing food costs, as a share of the meal, per unit of
+    /// `digest_rate`** — the digestive overhead, and the last of the four
+    /// prices the locked-field audit named.
+    ///
+    /// **A fast gut was strictly better, and for two reasons rather than
+    /// one.** A higher `digest_rate` turns crop into body sooner *and*
+    /// lightens the animal, because `creature::carried_cells` charges
+    /// movement for whatever is still in the crop. Nothing anywhere pushed
+    /// back. Owner's ruling, 2026-09-05: *everything should be priced*.
+    ///
+    /// **An overhead on the meal, not a tax per tick, and that is the whole
+    /// design.** The two sensory prices and `force_fraction` are standing
+    /// costs because what they buy is a standing capability. Digestion is
+    /// not: what a fast gut buys is *throughput*, so the honest price is
+    /// paid per unit processed. It is also the real biology — specific
+    /// dynamic action, the metabolic cost of digesting a meal, which rises
+    /// with how fast the meal is pushed through.
+    ///
+    /// So the trade is two-sided in a way a per-tick tax could not make it:
+    ///
+    /// | | fast gut | slow gut |
+    /// |---|---|---|
+    /// | energy arrives | sooner | later |
+    /// | load carried | lighter | heavier, and `carried_cells` charges it |
+    /// | share of the meal kept | **less** | **more** |
+    ///
+    /// **The loss is multiplicative on the same value `diet_quality`
+    /// already scales**, which is what keeps the energy ledger honest: there
+    /// is already exactly one such loss on this path, booked by crediting
+    /// the post-loss figure rather than by opening a second sink, and this
+    /// is the second term in the same product. Crediting the gross and
+    /// subtracting afterwards would break the live identity between
+    /// `sum(state.energy)` and `expected_live_total`.
+    ///
+    /// Clamped at `creature::MAX_DIGEST_OVERHEAD`: an overhead of 1.0 is an
+    /// animal that eats and absorbs nothing, which is not a strategy but a
+    /// misconfiguration, and above 1.0 the arithmetic would pay the animal
+    /// to eat food it then owed energy for.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub digest_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3223,7 +3303,8 @@ pub struct CreatureDef {
     /// **The ancestral value of every heritable body trait**, indexed by
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
     /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
-    /// slot 4 is `pace`. Each slot has its own `TRAIT_*` constant carrying
+    /// slot 4 is `pace`, slot 5 is `curvature_radius`, slot 6 is
+    /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`. Each slot has its own `TRAIT_*` constant carrying
     /// what its axis means; this list is the index and those are the
     /// definitions.
     ///
@@ -3468,9 +3549,9 @@ impl CreatureDef {
     /// | a length in cells | `k` | `body`, `sensor_offset`, `sight_range` |
     /// | a time in ticks per decision | `1/k` | `tick_interval` |
     /// | a rate charged per body cell per decision | `1/(cells x k)` | `idle_cost_per_cell`, `move_cost_per_cell` |
-    /// | a rate per decision, per animal | `1/k` | `digest_rate` |
+    /// | a rate per decision, per animal | `1/k` | `digest_rate`, `force_fraction` |
     /// | a rate per cell *read* per decision | `1/(k x k)` | `sight_fraction`, `curvature_fraction` |
-    /// | dimensionless, or an energy in joules | `1` | everything else |
+    /// | dimensionless, or an energy in joules | `1` | `digest_fraction`, everything else |
     ///
     /// **`tick_interval` is the row that is easy to miss.** A creature
     /// steps one cell per decision (`creature::step_chain`), so at `k=2` a
@@ -3533,6 +3614,8 @@ impl CreatureDef {
             synapse_fraction,
             sight_fraction,
             curvature_fraction,
+            force_fraction,
+            digest_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3621,6 +3704,19 @@ impl CreatureDef {
             // already scaled as a length, so the read count carries `k*k` on
             // its own and only the per-cell rate is corrected here.
             curvature_fraction: curvature_fraction / (k * time_factor).max(f32::EPSILON),
+            // **`digest_rate`'s class, not the two sensory ones above.** The
+            // tax is `fraction * start_energy * force` -- joules per
+            // decision per *animal*, with no length and no cell count in it,
+            // because `dig_force` is a dimensionless threshold against
+            // `penetration_resistance` and does not scale with the grid. So
+            // only the decision rate has to be corrected.
+            force_fraction: force_fraction / time_factor.max(f32::EPSILON),
+            // **Dimensionless, and one of the few things here that really is.**
+            // It is a share of a meal per unit of `digest_rate`, and
+            // `digest_rate` is itself corrected by `time_factor` two lines
+            // below -- so the product is already right and correcting this
+            // as well would apply the same factor twice.
+            digest_fraction: *digest_fraction,
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
@@ -4830,8 +4926,40 @@ pub struct OrganismState {
     /// descends from whom separates them (the same argument
     /// `examples/genome_drift.rs` opens with, one level up).
     pub lineage: u32,
+    /// **The frame this individual was allocated.**
+    ///
+    /// With the organism handle it is a **collision-proof identity**, and
+    /// that is what it is for: `encode_organism_id` gives the slot index 12
+    /// bits and the generation 4, so a handle is reused after 16 turns of a
+    /// slot (`World::organism_generation_wraps` counts the wrap). Anything
+    /// that pins one individual across frames -- the lab's roster and its
+    /// selection marker -- would follow a *different* organism into a
+    /// recycled slot on the handle alone. The frame does not recycle.
+    ///
+    /// **Within one world only.** `World` is `Clone` and a batch copies it
+    /// per worker, so fifty copies on the rack all hold the same pairs. It
+    /// is an identity for "this animal in this box", never a rack-wide key.
+    ///
+    /// Also the age: `world.frame - born_frame`. Note that a plant's
+    /// organism is allocated at **seed set** (`plant::set_seed`), not at
+    /// germination, so a plant's age includes however long it lay dormant.
+    pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **What this individual has done in its life.**
+    ///
+    /// Every field is mirrored from a site that already increments the
+    /// world-wide counter beside it, so the pair closes: the sum over the
+    /// living plus [`World::dead_life`] equals the world total. Without the
+    /// dead-side accumulator the live sum can only fall, and a per-individual
+    /// count that quietly loses its bearers is worse than none.
+    pub life: LifeCounters,
+    /// **Why it is `senescent`.** Meaningless while that flag is false.
+    ///
+    /// A one-way flag can carry a one-way cause at no risk: `senescent` is
+    /// declared once and never taken back, so this is written beside it and
+    /// read at [`World::free_organism`].
+    pub senescence_cause: DeathCause,
     /// **This individual's discrete genes** — see [`DISCRETE_LOCI`]. One
     /// small integer per locus, inherited whole and mutated by *jumping*
     /// rather than drifting, which is what makes a population clump instead
@@ -5056,6 +5184,138 @@ impl DevelopmentalKey {
 /// phenotype, which is the property the never-renumber rule below exists
 /// to protect. The megastudy re-baselines at this re-map; only slots
 /// 0/2/3/4, whose meanings did not move, are comparable across it.
+/// **A running total of what one individual has done**, alongside the
+/// world-wide counters in `CreatureStats`.
+///
+/// **Every field here mirrors a site that already increments a world total**,
+/// and that pairing is the point rather than a coincidence: `CLAUDE.md`
+/// requires an "it fired" counter to have a far-side effect counter, and the
+/// arithmetic that closes these books is
+/// `sum over the living + World::dead_life == the world total`. A guard
+/// asserts exactly that.
+///
+/// **`bites` mirrors `pickups`, not `eats`, and that is measured rather than
+/// stylistic.** `eats` is incremented at two sites for one food cell -- into
+/// the crop in `act`, and again when a whole cell is absorbed in digestion --
+/// and the two comments disagree about what it means. On `ascii`'s colony it
+/// runs `eats 283 / pickups 265` at 2,000 frames and `1142 / 1017` at 12,000,
+/// so it cannot close against anything. `pickups` has exactly one site.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct LifeCounters {
+    /// Steps taken. Mirrors `CreatureStats::moves`.
+    pub moves: u32,
+    /// Steps refused because something was in the way. Mirrors
+    /// `CreatureStats::moves_blocked`.
+    pub moves_blocked: u32,
+    /// Mouthfuls taken into the crop. Mirrors `CreatureStats::pickups` -- see
+    /// the note above about why not `eats`.
+    pub bites: u32,
+    /// Cells excavated. Mirrors `CreatureStats::digs`.
+    pub digs: u32,
+    /// Loads delivered to the nest. Mirrors `CreatureStats::deliveries`.
+    pub deliveries: u32,
+    /// Young this one has budded. Mirrors `CreatureStats::births`, and is
+    /// incremented on the **parent** rather than on the child.
+    pub offspring: u32,
+    /// Seeds set. Mirrors the plant-side `OrganismState::seeds_set`, and
+    /// exists here as well so one accumulator closes both kingdoms.
+    pub seeds_set: u32,
+}
+
+impl LifeCounters {
+    /// Add `other` into `self`, field by field. Used once, at the closing
+    /// seam, to roll a dead individual's life into the world's dead-side
+    /// total.
+    pub fn absorb(&mut self, other: &LifeCounters) {
+        self.moves += other.moves;
+        self.moves_blocked += other.moves_blocked;
+        self.bites += other.bites;
+        self.digs += other.digs;
+        self.deliveries += other.deliveries;
+        self.offspring += other.offspring;
+        self.seeds_set += other.seeds_set;
+    }
+}
+
+/// **Why an individual stopped being alive.**
+///
+/// Recorded because a roster that shows things disappearing for no stated
+/// reason reads as a broken table rather than as a box with mortality in it --
+/// and because one of these causes has never had an organism-level counter at
+/// all. See [`DeathCause::FelledOrLost`].
+// `Ord` so a roster row can carry the cause inside its state and still sort:
+// `lab::roster::RowState::Dead` holds one, and the STATE column is sortable.
+// The order is declaration order, which groups the causes as they are written
+// rather than alphabetically -- there is no meaningful ranking of ways to die.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
+pub enum DeathCause {
+    /// Nothing recorded a cause. A bug if it is common.
+    #[default]
+    Unknown,
+    /// The bank reached zero. Both kingdoms.
+    Starved,
+    /// The same, while airborne -- the flight verb charging an animal to
+    /// death is its own design question and is worth telling apart.
+    StarvedInFlight,
+    /// Its head went away: bitten, burned, blasted or brushed. The site knows
+    /// the head is gone and not what took it.
+    Killed,
+    /// The player's cull, or the gnome's axe.
+    Culled,
+    /// A plant that lost every vital cell but still owns tissue -- grazed,
+    /// burned, or shed until nothing could pay.
+    LostVitalTissue,
+    /// **A plant that left the world owning no cells and never declared
+    /// itself dead**, which until now was recorded nowhere.
+    ///
+    /// `Reports/open-bugs-handoff.md` §B2: the support check severs a *living*
+    /// plant whole, and `plant.rs`'s senescence rule is guarded on
+    /// `!cells.is_empty()` -- so a whole-plant felling empties the list, the
+    /// guard is false, `senescent` is never set, and the organism falls
+    /// through to slot reclamation indistinguishable from one that was
+    /// allocated and never given a cell. §B2 has only ever had *cell-level*
+    /// numbers and cannot say how many plants died this way. This is that
+    /// count, for the price of one boolean at the closing seam.
+    FelledOrLost,
+}
+
+impl DeathCause {
+    /// The label a page shows.
+    pub fn label(self) -> &'static str {
+        match self {
+            DeathCause::Unknown => "UNKNOWN",
+            DeathCause::Starved => "STARVED",
+            DeathCause::StarvedInFlight => "STARVED ALOFT",
+            DeathCause::Killed => "KILLED",
+            DeathCause::Culled => "CULLED",
+            DeathCause::LostVitalTissue => "LOST ITS TISSUE",
+            DeathCause::FelledOrLost => "FELLED",
+        }
+    }
+}
+
+/// How many variants [`DeathCause`] has, for the world's by-cause histogram.
+pub const DEATH_CAUSES: usize = 7;
+
+/// Every cause, in the order the histogram indexes them.
+pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
+    DeathCause::Unknown,
+    DeathCause::Starved,
+    DeathCause::StarvedInFlight,
+    DeathCause::Killed,
+    DeathCause::Culled,
+    DeathCause::LostVitalTissue,
+    DeathCause::FelledOrLost,
+];
+
+impl DeathCause {
+    /// Its slot in the histogram. Positional, and asserted against
+    /// `DEATH_CAUSE_LIST` so the two cannot drift.
+    pub fn index(self) -> usize {
+        DEATH_CAUSE_LIST.iter().position(|c| *c == self).unwrap_or(0)
+    }
+}
+
 pub const GENOTYPE_TRAITS: usize = 10;
 
 /// How many heritable **body traits** a creature carries — the width of
@@ -5092,7 +5352,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 5;
+pub const CREATURE_TRAITS: usize = 9;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5249,6 +5509,83 @@ pub const TRAIT_REPRODUCE_AT: usize = 2;
 /// A species authoring `tick_interval: 6` has descendants at 3 and at 12,
 /// and no author's constant stands in the way.
 pub const TRAIT_PACE: usize = 4;
+
+/// Slot 5 of `CREATURE_TRAITS`: **how wide a patch of ground this animal
+/// feels**, read through `creature::curvature_radius_of`.
+///
+/// **Additive, and with no species gate, for `TRAIT_SIGHT_RANGE`'s reason.**
+/// A multiplier makes zero absorbing, so a species authoring
+/// `curvature_radius: 0` — which is every one but the ant — could never grow
+/// the sense at any allele. The owner's ruling is that anything should be
+/// able to evolve, so a beetle lineage can develop a feel for the ground it
+/// was never authored with.
+///
+/// `CURVATURE_SPAN` is 8, four times the ant's authored 2, because the price
+/// is quadratic and the interesting range is small: `+1` on the ant is a
+/// radius-10 disc reading 440 cells a tick, already 17.8% of an idle
+/// lifetime. `CURVATURE_MAX` is 16 for the same reason — 1,088 cells, and an
+/// unbounded allele is an unbounded per-tick cost against a hard frame
+/// budget.
+pub const TRAIT_CURVATURE_RADIUS: usize = 5;
+
+/// Slot 6 of `CREATURE_TRAITS`: **how hard this animal's jaw is**, read
+/// through `creature::dig_force_of`. Scales `bite_force` with it, since one
+/// apparatus is what `force_fraction` bills for.
+///
+/// **Additive, span 1.0** — the ant's whole authored force, so `+1` doubles
+/// it and `-1` takes it to nothing. Two-sided in a way that matters:
+/// `dig_force` is a *threshold* against `penetration_resistance`, so the
+/// bottom of the axis is an animal that cannot cut anything and the top is
+/// one that cuts materials its species never could.
+///
+/// **What this slot does and does not do, corrected after its own guard
+/// failed.** The beetle authors 0.3 against soil's 0.8 and cannot break
+/// ground; at `+0.5` it reaches 0.8 and *can*, paying `force_fraction` for
+/// the jaw every tick whether it digs or not. So this removes the physical
+/// constraint on burrowing.
+///
+/// It does **not** make a beetle burrow. `beetle.ron` wires `Dig` exactly
+/// once, as `(FoodAdjacent, Dig)` — the verb is its bite — so with no food
+/// adjacent nothing drives the output and jaw strength is irrelevant.
+/// Measured: the strongest possible jaw in a bank of soil digs **zero
+/// cells**. `creature::tests::the_jaw_allele_decides_what_an_animal_can_cut`
+/// holds the drive fixed in both arms for exactly this reason.
+///
+/// The general form is worth carrying: **a price and a gene remove a
+/// constraint; they do not supply a motive.**
+pub const TRAIT_DIG_FORCE: usize = 6;
+
+/// Slot 7 of `CREATURE_TRAITS`: **how fast this animal's gut is**, read
+/// through `creature::digest_rate_of`.
+///
+/// **The reciprocal axis `TRAIT_PACE` uses**, and for the same reason: a
+/// rate wants a symmetry in *ratio*, so `-1` and `+1` are the same factor in
+/// opposite directions. `+1` is twice the species' rate and `-1` is half it.
+///
+/// Two-sided because `digest_fraction` prices the throughput: a quick gut
+/// converts sooner and carries less, and wastes more of every meal. Before
+/// that price landed this slot would have gone to its ceiling on the first
+/// generation and expressed nothing.
+pub const TRAIT_DIGEST_RATE: usize = 7;
+
+/// Slot 8 of `CREATURE_TRAITS`: **how much this animal's crop holds**, read
+/// through `creature::crop_capacity_of`.
+///
+/// **The reciprocal axis again**, a capacity being a scale rather than an
+/// offset.
+///
+/// **The only one of these four that needed no new price**, which
+/// `crop_capacity`'s own doc predicted: it called itself "the codomain of a
+/// future capacity gene" and named `creature::carried_cells` as what makes
+/// both ends reachable. A big crop means fewer trips and a heavier walk
+/// home; a small one means a light animal that has to come back.
+///
+/// Floored at `CROP_MIN` rather than at zero. `crop_capacity`'s doc records
+/// that a cell only leaves the crop at whole unit worth, so an animal whose
+/// capacity falls under one unit can never put anything down again — that is
+/// a broken animal rather than a strategy, and three units is the working
+/// floor it names.
+pub const TRAIT_CROP_CAPACITY: usize = 8;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.

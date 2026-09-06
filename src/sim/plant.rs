@@ -2541,8 +2541,28 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     }
     world.set(sx, sy, Cell::new(seed_material, shade).with_organism_id(child).with_aux(organism::pack_cell_type(CellType::Seed)));
     world.schedule_active_site(reschedule_organism(sx, sy, child, 0, 0, world.frame + SEED_TICK_INTERVAL));
+    let mut first_seed = false;
     if let Some(parent) = world.organism_mut(parent_id) {
         parent.seeds_set += 1;
+        parent.life.seeds_set += 1;
+        first_seed = parent.life.seeds_set == 1;
+    }
+    // **Only the first, and this is the measurement that set the log's
+    // shape.** The shipped bed bears 3,099 seeds against 279 germinations in
+    // 90,000 frames, so a line per seed would be 90% seed-set and would bury
+    // every birth and death in the run. The first is the moment a plant
+    // becomes a parent, which happens once.
+    if first_seed {
+        if let Some((born_frame, species)) = world.organism(parent_id).map(|s| (s.born_frame, s.species)) {
+            world.run_log.push(crate::sim::world::LogEvent {
+                frame: world.frame,
+                id: parent_id,
+                born_frame,
+                species,
+                kind: crate::sim::world::LogKind::FirstSeed,
+                other: child,
+            });
+        }
     }
     // Beside the parent's own tally rather than instead of it: `seeds_set`
     // dies with its parent and is keyed on a re-usable organism slot, so it
@@ -8755,6 +8775,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // traversal per organism per tick for one boolean.
         if vital_cells == 0 && !cells.is_empty() && has_economy {
             state.senescent = true;
+            state.senescence_cause = organism::DeathCause::LostVitalTissue;
         }
         // **Death by starvation — the economy's own killer.** See
         // `STARVATION_DEATH_TICKS`, including why the comparison is the
@@ -8809,6 +8830,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 state.starving_ticks = state.starving_ticks.saturating_add(1);
                 if state.starving_ticks >= STARVATION_DEATH_TICKS {
                     state.senescent = true;
+                    state.senescence_cause = organism::DeathCause::Starved;
                 }
             } else {
                 state.starving_ticks = 0;
@@ -9800,6 +9822,22 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // that fires a few hundred times a run. See `World::germinations_in_place`.
     if world.organism(organism_id).is_some_and(|st| st.cells.len() > 1) {
         world.germinations_in_place += 1;
+    }
+    // **A plant's "born" is its germination, not its allocation.** Its
+    // organism was created when its parent set the seed, which may have been
+    // thousands of frames earlier -- that is what `OrganismState::born_frame`
+    // records, and why the AGE row says a dormant seed reads old. The line in
+    // the log is about the plant arriving above ground, which is the event a
+    // reader means.
+    if let Some((born_frame, species)) = world.organism(organism_id).map(|s| (s.born_frame, s.species)) {
+        world.run_log.push(crate::sim::world::LogEvent {
+            frame: world.frame,
+            id: organism_id,
+            born_frame,
+            species,
+            kind: crate::sim::world::LogKind::Born,
+            other: 0,
+        });
     }
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child

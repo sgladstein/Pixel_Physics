@@ -72,8 +72,8 @@ property of the animal gets priced and opened.
 | `sight_range` | *was* | yes | unlocked 2026-09-05 |
 | `crop_capacity` | **yes** | **yes**, `carried_cells` charges a load | **ready — next** |
 | `body` (cell count) | **yes** | **yes**, every cost is per cell | **ready**, but it is S8 and larger than a slot |
-| `dig_force` | **yes** | **no** | price to author — next |
-| `bite_force` | **yes** | **no** | price to author, with `dig_force` |
+| `dig_force` | *was* | **now yes**, `force_fraction` | **priced here**; unlock next |
+| `bite_force` | *was* | **now yes**, the same `force_fraction` | **priced here**, on the max of the two |
 | `curvature_radius` | *was* | **now yes**, `curvature_fraction` | **priced here**; unlock next |
 | `digest_rate` | **yes** | **no** | price to author |
 | `sensor_offset` | **yes** | no — but see below | **safe unpriced**, uniquely |
@@ -220,6 +220,43 @@ change of its own with those re-derived, which is `CLAUDE.md`'s
 *name the constants calibrated against the current behaviour* rule and not a
 reason to refuse it.
 
+## What the prices actually cost, measured
+
+Three seeds, the sealed bed, 9,000 frames, all four prices at their authored
+values. **One of these numbers contradicts the derivation that set it, and the
+derivation was the thing that was loosely stated.**
+
+| lever | share of burn | derived as |
+|---|---|---|
+| `curvature_fraction` | **0.13%** | 0.39% of an *idle* lifetime |
+| `force_fraction` | **1.6%** | 0.05 of an *idle* lifetime |
+| `exposure_cost_per_cell` | 0.00% | ships at 0 |
+| `digest_fraction` | **4.5–4.6% of intake** | 0.05 of the meal |
+
+**`S = 0.05 of an idle lifetime` is not 5% of what an animal spends, and the
+two got conflated.** An idle lifetime prices standing still; a working ant
+also *moves*, and `moved` (8,346 J) is larger than everything metabolic put
+together (6,913 J). So a lever sized against idle alone lands at roughly a
+third of that share of the real bill. The derivations are arithmetically right
+and each says "of an idle lifetime" in its own comment — but read quickly they
+invite "5% of the budget", which is wrong by 3x.
+
+The remedy is not to re-tune: the sizes are defensible and the ratios between
+them are what was being chosen. It is to **quote both**, which is what
+`labstats`' *priced levers* line now does, and to size any future price
+against **burn** if that is the share meant.
+
+The digestive overhead is the exception and lands where it was aimed, because
+it was derived against the meal rather than against a lifetime — a share of
+throughput priced per unit of throughput.
+
+**What this does not show.** These runs sit on a `main` that also landed
+roots-on-by-default (+30% plant income), so the colony numbers here — 19–21
+animals and 2 births at 9,000 frames against 13–17 and 0–1 earlier in the day
+— are **not** attributable to the prices and are not claimed to be. Comparing
+those would need the paired arms, which is the standing rule about a baseline
+measured on a different tree.
+
 ## The queue
 
 Under the ruling this is a work list with a known end — every row priced, every
@@ -236,13 +273,42 @@ row open — rather than a set of candidates.
 2. **`crop_capacity`** — locked, already priced by `carried_cells`, and its own
    doc names it as "the codomain of a future capacity gene". No price to
    author; it is an unlock.
-3. **A price for strength**, then `dig_force` and `bite_force`. The verb price
-   exists (`dig_cost_in_moves`) but is flat in force, so a stronger jaw is free
-   today. The idiom is settled by the two sensory prices: a per-tick fraction
-   of `start_energy` per unit of force, since what you are paying for is the
-   muscle you carry whether or not you swing it. Charged on the **max** of the
-   two rather than the sum — one apparatus, rated for the harder job — so an
-   animal authoring only `dig_force` is not billed twice.
+3. **`force_fraction`** — **done, this change.** A per-tick fraction of
+   `start_energy` per unit of force, on the **max** of `dig_force` and
+   `bite_force` and never their sum: `bite_force` defaults to `dig_force`, so
+   summing would silently bill every species authoring only the one field
+   twice over, with both asset lines still reading correctly.
+
+   **A standing cost, not a per-swing one, and that is the design rather than
+   a detail.** `dig_cost_in_moves` already charges for *using* the jaw. This
+   charges for *having* it — otherwise an animal carries mandibles it never
+   opens for free, and any lineage that does not happen to dig faces no
+   gradient at all. Derived at each species' own constants, S = 0.05 of an
+   idle lifetime: 2.5e-5 for the ant (0.005 J a tick against an idle 0.10),
+   1.5625e-5 for the beetle. Half the brain's share and half a full eye
+   sweep's — a jaw is expensive tissue but it is not a brain, and the number
+   also has to leave the shipped colony's economy where it was.
+
+   **What it makes possible, and the overclaim that had to be withdrawn.**
+   The beetle authors `dig_force: 0.3` against soil's `penetration_resistance`
+   of 0.8, so it cannot cut ground at all — which is why adding beetles to a
+   bed has never made shelter pay. Priced and heritable, the force can evolve
+   past 0.8, so burrowing becomes **affordable and physically possible**.
+
+   **It does not make a beetle a burrower, and this report said it did until
+   the guard for it failed.** `beetle.ron` wires `Dig` exactly once, as
+   `(FoodAdjacent, Dig, 2.0)` — the verb is its *bite*. With no food adjacent
+   nothing drives the output, so jaw strength is irrelevant: measured, a
+   beetle with the strongest possible jaw in a bank of soil digs **zero
+   cells at every allele**. The drive would have to evolve separately, into
+   the free `(Bias, Dig)` slot.
+
+   This report's own companion states the rule that would have caught it
+   before the claim was made — *audit the animal before the environment: can
+   it perceive the thing, can it express the response* — and it was written
+   down one document away and still skipped. Worth recording as the recurrence
+   rather than quietly fixing: **a price and a gene remove a constraint; they
+   do not supply a motive.**
 4. **A price for digestion**, then `digest_rate`. The least settled of the
    four, and the reason is worth stating: a fast gut is strictly better today
    (energy sooner, and less weight carried, since `carried_cells` charges for
@@ -250,9 +316,38 @@ row open — rather than a set of candidates.
    overhead* — a fraction of what is processed, lost to processing it — which
    makes the trade real in both directions: quick and wasteful against slow
    and efficient, with the crop's weight as the counterweight.
-5. **`body` cell count (S8)** — priced since per-cell metabolism landed. Not a
-   trait slot: a body is a structure, so this is a real change rather than a
-   tuple element.
+5. **`body` cell count (S8) — NOT READY, and the reason is the queue's own
+   rule turned around.** Investigated 2026-09-06 and stopped before building.
+
+   It is priced, and generously: metabolism is per live cell, movement is per
+   cell, and the `body_energy` stamp at birth is per cell — 960 J for the
+   shipped two-cell ant, which `birth_cost_of`'s doc calls the term that makes
+   reproduction unreachable at any grant. Three costs scale with size.
+
+   **What size *buys* is one thing only, and it is absent from the default
+   bed.** `reconcile_chain` kills an animal outright when the head goes,
+   whatever its length — its own comment records that "one bite on the right
+   cell killed a two-cell ant and a twenty-cell animal identically" — so extra
+   cells buy exactly one advantage: surviving a bite that lands somewhere
+   else. That is worth having only where something is biting, and the sealed
+   bed ships with no predator.
+
+   So the lever is **priced on one side only**. In the bed the owner actually
+   plays, bigger is pure cost and the allele goes to its floor on the first
+   generation: every ant a one-cell dot. That is the ratchet this whole
+   document exists to prevent, arriving from the other direction — *a cost
+   with no matching benefit is as degenerate as a benefit with no cost*, and
+   the second is easier to spot because "unpriced" has a name.
+
+   **What it needs first is not a price but a payoff**: predation as a live
+   pressure in the default bed, so that a larger body is buying something. The
+   breeding beetle landed 2026-09-05 and the seed sweep asking whether it
+   changes the ecology is still unrun. That measurement is the prerequisite
+   for this row, not more pricing.
+
+   Recorded rather than half-built, because the failure mode here is visible
+   and unpleasant: a colony of dots is a worse game than a colony of ants, and
+   nothing in the suite would have called it a regression.
 6. **`body_energy`** — what a corpse is worth, so a heritable version is prey
    evolving to be **unpalatable**. Real and attractive, and it is three
    couplings rather than one: it is also the divisor in `carried_cells` and a
