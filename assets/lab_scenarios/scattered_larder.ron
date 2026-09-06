@@ -1,0 +1,48 @@
+// S3 control -- "Scattered larder", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// `far_larder.ron`'s paired control: the identical colony and the identical
+// mass of food, spread evenly along the ground instead of piled at the far
+// wall. A route can form over a heap and cannot form over an even spread,
+// so the difference between the two overlays is the trail-following
+// question's own measurement, not a guess about it.
+//
+// **The colony sits at x: 107, the same fix and the same reason as
+// `far_larder.ron`**: x: 40 placed only 35 of 52 ants (the 52-ant band is
+// 204 cells wide and ran off the world's west edge), and x: 107 is the
+// smallest column at which the identical bed and colony place all 52 --
+// confirmed with a rebuilt `labshot` against this file too, not assumed
+// from the paired file.
+//
+// **Food per 6,000-frame window**: identical mass to `far_larder.ron`'s
+// heap, so the same arithmetic applies -- 60 cells at build (57,600) then
+// 30 every 6,000 frames (28,800, 92.3% of the colony's 52 * 0.10 * 6000 =
+// 31,200 idle burn), already over half.
+(
+    name: "scattered_larder",
+    title: "SCATTERED LARDER",
+    question: "The far larder's own food, spread evenly instead of piled -- does the route on the pheromone overlay disappear?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Colony(species: "ant", x: 107, count: 52),
+        Scatter(material: "windfall", x0: 60, x1: 480, cells: 60),
+    ],
+    timeline: [
+        (at: 6000, every: 6000, until: 0, what: Scatter(material: "windfall", x0: 60, x1: 480, cells: 30)),
+    ],
+    horizon: 24000,
+)
