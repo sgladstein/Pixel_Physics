@@ -274,14 +274,26 @@ impl Default for FieldCell {
 /// The field data for one chunk: an 8x8 grid of [`FieldCell`], plus which of
 /// those cells are blocked by CA-solid material and which contain a
 /// `Liquid` CA cell.
+///
+/// **Every array below is inline (`[T; FIELD_TILE_AREA]`), not `Box<[T]>`.**
+/// `field::step` builds a fresh `FieldTile` per solved coord every frame
+/// (~25/frame in the lab bed), and seven boxed slices meant seven heap
+/// allocations and seven frees for that, ~3% of the profile
+/// (`examples/lab_cost`, tree bed, 32k frames). `FieldCell` is already
+/// `Copy`, which is what makes `[FieldCell::AMBIENT; N]` a literal rather
+/// than a loop. `Reports/dead-ends.md`'s `skip_momentum` (per-tile form)
+/// entry names this tile's storage as "walked by pointer-chasing" and says
+/// to retry once it is not; this is that condition met for the tile's own
+/// arrays (the outer `World::fields` is still a `ChunkMap`, deliberately —
+/// see that field's own doc).
 #[derive(Clone)]
 pub struct FieldTile {
-    cells: Box<[FieldCell]>,
+    cells: [FieldCell; FIELD_TILE_AREA],
     /// Recomputed from the CA grid every step — see `rebuild_blocked`. Kept
     /// alongside the field cells rather than derived on demand during the
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
-    blocked: Box<[bool]>,
+    blocked: [bool; FIELD_TILE_AREA],
     /// **What fraction of a downward ray this block passes**, quantized to
     /// 0..=255, recomputed in the same scan as `blocked`.
     ///
@@ -321,7 +333,7 @@ pub struct FieldTile {
     ///
     /// Costs one `u8` per field block and no extra scanning —
     /// `rebuild_blocked` already visits every CA cell in the block.
-    transmission: Box<[u8]>,
+    transmission: [u8; FIELD_TILE_AREA],
     /// Also recomputed every step, in the same scan as `blocked` — whether
     /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
     /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
@@ -339,7 +351,7 @@ pub struct FieldTile {
     /// ground, and moss would not grow on damp earth. Grading the source is
     /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
     /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
-    moisture_source: Box<[f32]>,
+    moisture_source: [f32; FIELD_TILE_AREA],
     /// Light emitted by the cells of each block — `Material::glow`, maxed
     /// over the block in the same scan `blocked`/`moisture_source` already
     /// run (`rebuild_blocked`). Recomputed per solve like both of those,
@@ -349,7 +361,7 @@ pub struct FieldTile {
     /// a soft halo for free and then converges — a static floor, exactly
     /// so the tile can sleep lit (the owner's local-light decision,
     /// 2026-08; the whole design is in `Material::glow`'s doc).
-    glow: Box<[f32]>,
+    glow: [f32; FIELD_TILE_AREA],
     /// Whether any block of this tile glows — the renderer's cheap gate
     /// for "is it worth sampling the field under this pixel".
     pub has_glow: bool,
@@ -372,7 +384,7 @@ pub struct FieldTile {
     /// cell moves an eighth of a block's worth of light from the trailing
     /// edge to the leading one. `Reports/lab-lamps-light-the-bed-2026-08-30.md`
     /// has the measured step profile at `FIELD_SCALE` 8 and 16.
-    beam: Box<[f32]>,
+    beam: [f32; FIELD_TILE_AREA],
     /// Whether any block of this tile beams — the descent's cheap gate. A
     /// world with no lamp in it takes `apply_sky_to`'s original loop
     /// verbatim, which is what makes this free for the outdoor game.
@@ -395,7 +407,7 @@ pub struct FieldTile {
     /// normally, so surface humidity, puddles and rain all behave as before —
     /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
     /// for, not a second moisture channel.
-    moisture_floor: Box<[f32]>,
+    moisture_floor: [f32; FIELD_TILE_AREA],
     /// Whether every cell of this tile came out of its last solve with
     /// pressure, `vx` and `vy` at **exactly** zero.
     ///
@@ -449,17 +461,17 @@ impl FieldTile {
     /// painting impulses, but the internal storage stays out of its hands.
     pub(crate) fn new() -> Self {
         Self {
-            cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
-            blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            cells: [FieldCell::AMBIENT; FIELD_TILE_AREA],
+            blocked: [false; FIELD_TILE_AREA],
             // 255 is *clear*: a fresh tile passes light until the scan says
             // otherwise. Zero would mean "perfectly opaque", which is the
             // wrong default for a block nobody has looked at yet.
-            transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
-            glow: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            transmission: [u8::MAX; FIELD_TILE_AREA],
+            moisture_source: [0.0; FIELD_TILE_AREA],
+            moisture_floor: [0.0; FIELD_TILE_AREA],
+            glow: [0.0; FIELD_TILE_AREA],
             has_glow: false,
-            beam: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            beam: [0.0; FIELD_TILE_AREA],
             has_beam: false,
             // False, so a tile nobody has scanned is always scanned rather
             // than carried. See the field's own doc.
