@@ -5064,6 +5064,13 @@ impl World {
     // elements don't alias each other the way two `&mut` borrows into the
     // same `HashMap` would. See `parallel.rs` for the full picture.
 
+    /// [`Chunk::take_stale_blocks`] for the chunk at `coord`; a chunk that is
+    /// not resident answers "everything", which makes the field rescan the
+    /// whole tile, the safe direction.
+    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> u16 {
+        self.chunks.get_mut(&coord).map_or(u16::MAX, |c| c.take_stale_blocks())
+    }
+
     pub(crate) fn take_chunk(&mut self, coord: ChunkCoord) -> Option<Chunk> {
         self.chunks.remove(&coord)
     }

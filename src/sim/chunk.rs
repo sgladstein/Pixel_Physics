@@ -41,6 +41,16 @@ pub const CHUNK_AREA: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
 ///   smaller than `MAX_REACH` would be safe for one.
 pub const MAX_REACH: i32 = 32;
 
+/// Side of the square blocks [`Chunk::stale_blocks`] tracks writes at. It
+/// is the field's own block -- `field::FIELD_SCALE` -- and `field.rs` pins
+/// the two together with a compile-time assertion, so this constant is a
+/// statement about the field's geometry made where the chunk can see it,
+/// not a second knob.
+pub const STALE_BLOCK: i32 = 16;
+/// Blocks per chunk side: `CHUNK_SIZE / STALE_BLOCK`, 4, so a chunk's
+/// sixteen blocks fit the `u16` mask exactly.
+pub const STALE_BLOCKS_PER_SIDE: i32 = CHUNK_SIZE / STALE_BLOCK;
+
 /// Address of a chunk in the chunk grid. Signed, because the world extends in
 /// every direction once streaming arrives in M10.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
@@ -319,6 +329,25 @@ pub struct Chunk {
     /// and for the same reason: a write made during the pass must land in
     /// the *next* pass's set, not grow the one being walked.
     pending_moist_rows: [(i16, i16); SPAN_ROWS],
+    /// **Which 16x16 blocks have had a cell written since the field last
+    /// rescanned this chunk**, one bit per block, row-major, `u16::MAX` on a
+    /// fresh or woken chunk. `field::rebuild_blocked` derives five per-block
+    /// arrays (`blocked`, `transmission`, `moisture_source`, `glow`, `beam`)
+    /// from the CA cells under a tile, and used to rescan all sixteen blocks
+    /// of every awake chunk every frame -- 4,096 cell reads a chunk, and on
+    /// the evolution lab's beds the largest single field pass (measured
+    /// 2026-09-06: `blocked` 0.20-0.38 ms of a 0.29-0.47 ms field). A block
+    /// whose cells have not changed since its last scan derives to exactly
+    /// what it derived to then, so the field rescans only the blocks marked
+    /// here and inherits the rest. **Both write channels set it**: ordinary
+    /// writes through `mark_dirty`, and the quiet soil-moisture writes
+    /// through `mark_moist_dirty`, because `moisture_source` reads soil
+    /// wetness -- a mask fed only by the sweep's channel would let a damp
+    /// block go stale under a sleeping tile. Cleared by `take_stale_blocks`,
+    /// which only the field calls. Travels with the chunk through
+    /// `take_chunk`/`put_chunk`, so a chunk out on a rayon worker keeps its
+    /// marks.
+    stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -483,6 +512,7 @@ impl Chunk {
             // generated terrain arrives with whatever wetness worldgen gave
             // it and needs one pass to find its own equilibrium.
             pending_moist_rows: full_rows(coord),
+            stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
             nutrient_recovered_at: 0,
@@ -620,6 +650,7 @@ impl Chunk {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
+        self.stale_blocks |= self.block_bit(x, y);
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
         // is dropped here rather than clamped, which is the whole of the
@@ -773,6 +804,9 @@ impl Chunk {
     /// [`Self::pending_moist_rows`].
     #[inline]
     pub fn mark_moist_dirty(&mut self, x: i32, y: i32) {
+        // See `stale_blocks`: soil wetness is one of the things the field
+        // derives from a block, and this is the only channel it moves on.
+        self.stale_blocks |= self.block_bit(x, y);
         let ly = y - self.coord.bounds().min_y;
         if !(-1..=CHUNK_SIZE).contains(&ly) {
             return;
@@ -866,6 +900,29 @@ impl Chunk {
         self.dirty = Some(self.coord.bounds());
         self.dirty_rows = full_rows(self.coord);
         self.pending_moist_rows = full_rows(self.coord);
+        self.stale_blocks = u16::MAX;
+    }
+
+    /// The bit in [`Self::stale_blocks`] for the block holding world cell
+    /// `(x, y)`, or `0` when the cell is not in this chunk -- `mark_dirty`
+    /// and `mark_moist_dirty` are both called on *neighbour* chunks with the
+    /// writer's own coordinates, and a write outside this chunk changes none
+    /// of its cells.
+    #[inline]
+    fn block_bit(&self, x: i32, y: i32) -> u16 {
+        let (ox, oy) = self.coord.origin();
+        let (lx, ly) = (x - ox, y - oy);
+        if !(0..CHUNK_SIZE).contains(&lx) || !(0..CHUNK_SIZE).contains(&ly) {
+            return 0;
+        }
+        1u16 << ((ly / STALE_BLOCK) * STALE_BLOCKS_PER_SIDE + lx / STALE_BLOCK)
+    }
+
+    /// Take the stale-block mask, leaving it clear: the field has rescanned
+    /// those blocks and everything written from here on is new.
+    #[inline]
+    pub fn take_stale_blocks(&mut self) -> u16 {
+        std::mem::take(&mut self.stale_blocks)
     }
 
     pub fn cells(&self) -> &[Cell] {

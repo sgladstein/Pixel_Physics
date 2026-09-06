@@ -53,6 +53,11 @@ pub const FIELD_SCALE: i32 = 16;
 /// with no consistent size.
 pub const FIELD_TILE_SIZE: i32 = CHUNK_SIZE / FIELD_SCALE;
 pub const FIELD_TILE_AREA: usize = (FIELD_TILE_SIZE * FIELD_TILE_SIZE) as usize;
+// `Chunk::stale_blocks` marks writes per field block; the chunk states the
+// block size where it can see it, and this is what keeps the two the same.
+const _: () = assert!(super::chunk::STALE_BLOCK == FIELD_SCALE);
+const _: () = assert!(super::chunk::STALE_BLOCKS_PER_SIDE == FIELD_TILE_SIZE);
+const _: () = assert!(FIELD_TILE_AREA <= u16::BITS as usize);
 
 // --- Tuning constants -------------------------------------------------------
 //
@@ -206,6 +211,12 @@ pub struct FieldStats {
     pub passes: u64,
     /// Tiles actually solved, summed across every pass.
     pub tiles_solved: u64,
+    /// 16x16 blocks `rebuild_blocked` actually rescanned from the CA grid,
+    /// summed across every pass -- against `tiles_solved * FIELD_TILE_AREA`,
+    /// the number the full rescan used to pay. The "did it fire" counter for
+    /// `Chunk::stale_blocks`: a partial rescan that never took a partial
+    /// path reads as the full count here and as nothing in a timing.
+    pub blocks_scanned: u64,
 }
 
 /// One coarse cell: ambient conditions for an `FIELD_SCALE`-sided block of the
@@ -1343,7 +1354,12 @@ pub fn step(world: &mut World) {
     // existed; a design for a light-only fast path written without it would
     // have been a guess about which of the five it was avoiding.
     let mut timing = PassTiming::new();
-    timing.time("blocked", || rebuild_blocked(world, &rescan, &mut next));
+    // Which blocks of each rescanned tile have actually been written since
+    // the field last looked -- see `Chunk::stale_blocks`. Taken here, before
+    // the shared borrow below, because taking clears the mark.
+    let stale: Vec<u16> = rescan.iter().map(|&c| world.take_stale_blocks(c)).collect();
+    let scanned = timing.time("blocked", || rebuild_blocked(world, &rescan, &stale, &mut next));
+    world.field_stats.blocks_scanned += scanned;
     timing.time("glowseed", || seed_light_from_glow(&carried, &mut next));
     timing.time("pressure", || step_pressure(world, momentum, &mut next));
     timing.time("velocity", || step_velocity(world, momentum, &read_coords, &mut next));
@@ -1432,7 +1448,7 @@ pub fn step(world: &mut World) {
     timing.time("converged", || mark_converged(world.fields_ref(), &solve, &mut next));
 
     let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
-    timing.report(world.frame, solve.len(), momentum.len());
+    timing.report(world.frame, solve.len(), momentum.len(), scanned);
     debug_drift(world, &solve, &next);
     world.merge_fields(next);
     world.set_fields_settled(all_settled);
@@ -1692,7 +1708,7 @@ impl PassTiming {
     /// out of any number it reaches, and sampling `frame % every == 0` does
     /// the opposite -- it pins the reading to whichever phase that lands on.
     /// The window spans many days and averages the phase out.
-    fn report(&self, frame: u64, solved: usize, momentum: usize) {
+    fn report(&self, frame: u64, solved: usize, momentum: usize, blocks: u64) {
         use std::sync::atomic::Ordering::Relaxed;
         if self.every == 0 {
             return;
@@ -1709,6 +1725,7 @@ impl PassTiming {
         PASS_FRAMES.fetch_add(1, Relaxed);
         PASS_SOLVED.fetch_add(solved as u64, Relaxed);
         PASS_MOMENTUM.fetch_add(momentum as u64, Relaxed);
+        PASS_BLOCKS.fetch_add(blocks, Relaxed);
         if !frame.is_multiple_of(self.every) {
             return;
         }
@@ -1719,9 +1736,10 @@ impl PassTiming {
         acc.clear();
         println!(
             "  [pass] frame {frame:>6} per frame over {frames:.0}: solved {:>7.1} momentum {:>7.1} \
-             total {total:>7.3}ms | {}",
+             blocks {:>7.1} total {total:>7.3}ms | {}",
             PASS_SOLVED.swap(0, Relaxed) as f64 / frames,
             PASS_MOMENTUM.swap(0, Relaxed) as f64 / frames,
+            PASS_BLOCKS.swap(0, Relaxed) as f64 / frames,
             detail.join("  ")
         );
     }
@@ -1734,6 +1752,7 @@ static PASS_ACC: std::sync::Mutex<Vec<(&'static str, f64)>> = std::sync::Mutex::
 static PASS_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PASS_SOLVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PASS_MOMENTUM: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PASS_BLOCKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Per-channel attribution of *why* the solve set is not shrinking, printed
 /// when `FIELD_DRIFT=<every N frames>` is set. Off by default and reading one
@@ -2804,30 +2823,40 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>)
 fn seed_light_from_glow(coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     for &coord in coords {
         let Some(tile) = next.get_mut(&coord) else { continue };
-        if !tile.has_glow {
-            continue;
-        }
-        for ly in 0..FIELD_TILE_SIZE {
-            for lx in 0..FIELD_TILE_SIZE {
-                let glow = tile.glow_local(lx, ly);
-                if glow <= 0.0 {
-                    continue;
-                }
-                // Max, never assignment — same rule as the scan this
-                // replaces: sunlight down a shaft may already be brighter
-                // than the crystal.
-                let mut cell = tile.get_local(lx, ly);
-                if cell.light < glow {
-                    cell.light = glow;
-                    tile.set_local(lx, ly, cell);
-                }
+        seed_tile_light_from_glow(tile);
+    }
+}
+
+/// The per-tile half of [`seed_light_from_glow`], shared with the partial
+/// rescan in `rebuild_blocked`: a `max` per block, so applying it to a tile
+/// whose scanned blocks already wrote their floor changes nothing there and
+/// gives the inherited blocks the floor a full scan would have written.
+fn seed_tile_light_from_glow(tile: &mut FieldTile) {
+    if !tile.has_glow {
+        return;
+    }
+    for ly in 0..FIELD_TILE_SIZE {
+        for lx in 0..FIELD_TILE_SIZE {
+            let glow = tile.glow_local(lx, ly);
+            if glow <= 0.0 {
+                continue;
+            }
+            // Max, never assignment — same rule as the scan this
+            // replaces: sunlight down a shaft may already be brighter
+            // than the crystal.
+            let mut cell = tile.get_local(lx, ly);
+            if cell.light < glow {
+                cell.light = glow;
+                tile.set_local(lx, ly, cell);
             }
         }
     }
 }
 
-fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
-    for &coord in coords {
+fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &mut ChunkMap<FieldTile>) -> u64 {
+    debug_assert_eq!(coords.len(), stale.len(), "one stale-block mask per rescanned coord");
+    let mut scanned = 0u64;
+    for (&coord, &mask) in coords.iter().zip(stale) {
         // Fetched once per chunk instead of once per *CA cell scanned*
         // (previously up to `FIELD_TILE_SIZE^2 * FIELD_SCALE^2` = 4096
         // `World::get` calls per chunk, each a bounds check plus a
@@ -2843,23 +2872,46 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fie
         // pointer is invariant across every field cell in this chunk, but
         // was previously looked up fresh on every single one of them.
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
-        // `has_glow` is a max over the scan below, so it has to start false
-        // each solve or it can only ever latch on: `set_glow_local` raises
-        // it and nothing else lowers it, and a tile cloned from its last
-        // solve arrives with the old answer. Without this reset, mining out
-        // the last of a lining would leave the renderer sampling the field
-        // under that tile forever.
-        tile.has_glow = false;
-        // Same reset, same reason (`set_beam_local` only latches on): pull
-        // the fixture out of the ceiling and the block under it must stop
-        // beaming, not beam for ever.
-        tile.has_beam = false;
+        // **Only the blocks written since this tile's last scan**, when the
+        // last scan is still there to inherit from -- see
+        // `Chunk::stale_blocks`. A block nothing has written derives to the
+        // same five values it derived to last time, so this is exact, not
+        // approximate; what changes is that an awake chunk with an ant
+        // walking across one block costs one block's 256 cells rather than
+        // sixteen blocks' 4,096. `has_glow`/`has_beam` are latches the scan
+        // raises, so a partial scan recomputes them from all sixteen blocks
+        // at the end, and the glow light floor the scan writes per block is
+        // re-applied to the whole tile through `seed_tile_light_from_glow`,
+        // which is a `max` and therefore harmless where the scan already
+        // wrote it. `FIELD_CARRY=0` forces the full scan, the same switch
+        // that forces `inherit_derived` off for settled chunks.
+        let previous = world.fields_ref().get(&coord);
+        let partial = mask != u16::MAX && carry_derived() && previous.is_some_and(|p| p.derived_valid);
+        if let (true, Some(previous)) = (partial, previous) {
+            tile.inherit_derived(previous);
+        } else {
+            // `has_glow` is a max over the scan below, so it has to start false
+            // each solve or it can only ever latch on: `set_glow_local` raises
+            // it and nothing else lowers it, and a tile cloned from its last
+            // solve arrives with the old answer. Without this reset, mining out
+            // the last of a lining would leave the renderer sampling the field
+            // under that tile forever.
+            tile.has_glow = false;
+            // Same reset, same reason (`set_beam_local` only latches on): pull
+            // the fixture out of the ceiling and the block under it must stop
+            // beaming, not beam for ever.
+            tile.has_beam = false;
+        }
         // This scan is what makes the five arrays below real, and the flag is
         // what lets the next frame trust them.
         tile.derived_valid = true;
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
+                if partial && mask & (1u16 << (ly * FIELD_TILE_SIZE + lx)) == 0 {
+                    continue; // unchanged since its last scan: inherited above
+                }
+                scanned += 1;
                 let bx0 = ox + lx * FIELD_SCALE;
                 let by0 = oy + ly * FIELD_SCALE;
                 let mut blocked = false;
@@ -3035,7 +3087,16 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fie
                 }
             }
         }
+        if partial {
+            // The latches, recomputed over every block rather than raised
+            // by the few that were scanned; and the light floor for the
+            // blocks that were inherited rather than scanned.
+            tile.has_glow = tile.glow.iter().any(|g| *g > 0.0);
+            tile.has_beam = tile.beam.iter().any(|b| *b > 0.0);
+            seed_tile_light_from_glow(tile);
+        }
     }
+    scanned
 }
 
 /// `pv += divergence(velocity) * coupling`, damped. Matches Air.cpp's
@@ -3092,6 +3153,11 @@ fn step_velocity(
     read: &[ChunkCoord],
     next: &mut ChunkMap<FieldTile>,
 ) {
+    // The momentum skip hands this an empty solve set; the ring snapshot
+    // below is the only cost left in that case and it feeds nothing.
+    if coords.is_empty() {
+        return;
+    }
     let old = world.fields_ref();
     let bounds = world.bounds();
     // Read the just-computed pressure from `next` as an immutable snapshot
@@ -3504,6 +3570,10 @@ fn step_advection(
     old: &ChunkMap<FieldTile>,
     next: &mut ChunkMap<FieldTile>,
 ) {
+    // As in `step_velocity`: an empty solve set has nothing to snapshot for.
+    if coords.is_empty() {
+        return;
+    }
     // Snapshot `next` as it stands after pressure/velocity/diffusion, so the
     // sampling below reads a fixed pre-advection state rather than a mix of
     // advected and not-yet-advected cells depending on iteration order.
