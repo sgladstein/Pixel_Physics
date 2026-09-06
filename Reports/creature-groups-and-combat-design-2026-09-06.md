@@ -224,6 +224,29 @@ nothing shipped is wired to it and the ant is blind, so the picture is
 unchanged and the *reach* is what moved. The paragraph below is the case as
 it stood.
 
+**And raced, the same night, to a null.** `creature_arena` grew an `arm=wire`
+(arm B *gains* named weights nothing shipped carries) and `sight=N` (both
+arms get an eye), and two eyed colonies were raced at 12,000 frames, six
+seeds, mirrored: B wired to flee (`ThreatBearing→Turn −0.8`, `ThreatNear→Move
++0.6`), A not.
+
+| bed | B share of animals, median | seeds B > 50% |
+|---|---|---|
+| six beetles | 53.8% (q1 46.4, q3 54.2) | 4 of 6 |
+| no beetles | 52.2% (q1 47.9, q3 56.0) | 3 of 6, 1 tied |
+
+Both inside the seed noise (the harness's own floor is 2.4–3.1x on the world
+seed alone), and the harness prints why this horizon cannot discriminate:
+*the founding grant lasts 12,000 frames of doing nothing; this run is
+12,000*. So at this length the bed reads who was given more, not who ran —
+the coordinator note's Gate 2 finding arriving on the prey side. What the
+null does **not** say is that flight cannot pay: it says the measurement
+has to be taken past the grant (24,000+ frames), with `threat_sightings`
+printed beside it as the positive control that the wired arm ever saw a
+hunter, and against beetles that actually kill (six beetles at 12,000
+frames took few enough ants that the arms could not separate). That run is
+queued; until it lands, "does flight pay" is open, not answered.
+
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a
 gallery, warning a nestmate — none of them is selectable, because the

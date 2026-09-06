@@ -87,7 +87,9 @@ fn arg_str(name: &str) -> Option<String> {
 ///
 /// Each rung is a handicap of known direction except `Same` (no change) and
 /// `Random` (genuinely ambiguous, and the interesting one).
-#[derive(Clone, Copy, PartialEq)]
+// `Clone` and not `Copy` since `Wire` carries its edge list; the harness
+// passes the arm by reference and clones it once per world.
+#[derive(Clone, PartialEq)]
 enum Arm {
     /// The control. Both arms carry `ant.ron`'s authored instincts.
     Same,
@@ -128,6 +130,15 @@ enum Arm {
     /// input=Crowding output=Dig`. The sharpest form: a single edge of the
     /// brain, which is the unit selection actually acts on.
     AblateEdge(brain::BrainInput, brain::BrainOutput),
+    /// **Named direct weights SET on arm B** -- `arm=wire
+    /// wire=ThreatBearing:Turn:-0.8,ThreatNear:Move:0.6`. The inverse of an
+    /// ablation: instead of asking what the world does to an animal that has
+    /// lost a pathway, it asks what the world does to one that has *gained*
+    /// an instinct nothing shipped carries. Built for the threat sense, whose
+    /// two slots no authored genome wires -- so `ablate` on them is a no-op
+    /// by construction, and the only way to ask "does flight pay in this bed"
+    /// is to give one arm a flight and race it.
+    Wire(Vec<(brain::BrainInput, brain::BrainOutput, f32)>),
 }
 
 /// Look an input up by the name `brain::INPUT_NAMES` gives it, so the
@@ -148,6 +159,19 @@ impl Arm {
             "nofeed" => Arm::NoFeed,
             "notrail" => Arm::NoTrail,
             "random" => Arm::Random,
+            "wire" => {
+                let spec = arg_str("wire").expect("arm=wire needs wire=<Input>:<Output>:<weight>[,...]");
+                let mut edges = Vec::new();
+                for part in spec.split(',') {
+                    let bits: Vec<&str> = part.split(':').collect();
+                    assert_eq!(bits.len(), 3, "wire entry {part:?} wants Input:Output:weight");
+                    let input = input_by_name(bits[0]).unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+                    let output = output_by_name(bits[1]).unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+                    let w: f32 = bits[2].parse().expect("a weight");
+                    edges.push((input, output, w));
+                }
+                Arm::Wire(edges)
+            }
             "ablate" => {
                 let input = arg_str("input").expect("arm=ablate needs input=<name>, e.g. input=Crowding");
                 let input = input_by_name(&input)
@@ -248,6 +272,15 @@ impl Arm {
                     moved += 1;
                 }
             }
+            Arm::Wire(ref edges) => {
+                for &(input, output, w) in edges {
+                    let slot = brain::io_slot(input, output);
+                    if g[slot] != w {
+                        g[slot] = w;
+                        moved += 1;
+                    }
+                }
+            }
         }
         (g, moved)
     }
@@ -335,7 +368,7 @@ fn direction(shares: &[f64]) -> (usize, usize, usize) {
 }
 
 /// One world, one mirror setting.
-fn run_world(spec: &LabBox, frames: u64, arm: Arm, mirror: bool, arm_seed: u64) -> Outcome {
+fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64) -> Outcome {
     let mut w = spec.build();
     let species_id = w.species.id_of(&spec.colony_species).expect("colony species is compiled in");
     // **The economy, as arguments — because "does this environment select
@@ -363,6 +396,12 @@ fn run_world(spec: &LabBox, frames: u64, arm: Arm, mirror: bool, arm_seed: u64) 
         if let Some(v) = arg::<f32>("exposure") {
             def.exposure_cost_per_cell = v;
         }
+        // **`sight=N` gives BOTH arms an eye.** The shipped ant is blind, so
+        // a threat instinct wired onto it is a weight on a constant zero; the
+        // fair race is two eyed colonies, one of which also knows to run.
+        if let Some(v) = arg::<i32>("sight") {
+            def.sight_range = v;
+        }
         w.species.set_creature(species_id, def);
     }
     let life = idle_life(w.species.get(species_id).creature.as_ref().expect("the colony species is a creature"));
@@ -373,8 +412,8 @@ fn run_world(spec: &LabBox, frames: u64, arm: Arm, mirror: bool, arm_seed: u64) 
     // Drawing it from the world's own generator would put the two mirror
     // runs on different draws, and the mirror's whole job is that the pair
     // differs in the arm assignment and in nothing else.
-    let (arm_b, moved) = arm.apply(&base, 0x_A470_0000 ^ arm_seed);
-    if arm != Arm::Same {
+    let (arm_b, moved) = arm.clone().apply(&base, 0x_A470_0000 ^ arm_seed);
+    if *arm != Arm::Same {
         assert!(moved > 0, "arm= matched no live slot, so both arms carry one genome. Two identical arms read as a clean 50/50, which is indistinguishable from the finding this harness exists to make");
     }
 
@@ -494,7 +533,7 @@ fn main() {
         let (mut a, mut b) = (Tally::default(), Tally::default());
         let (mut ea, mut eb) = (0usize, 0usize);
         for m in runs {
-            let o = run_world(&spec, frames, arm, m, seed);
+            let o = run_world(&spec, frames, &arm, m, seed);
             if seed == 1 && !m {
                 println!("  founding grant lasts {} frames of doing nothing; this run is {frames}. {}", o.idle_life, if frames >= o.idle_life {
                     "The horizon outlasts the endowment, so an arm that never feeds must die inside it."
