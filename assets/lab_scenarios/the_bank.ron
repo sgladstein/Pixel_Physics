@@ -1,0 +1,72 @@
+// S4 -- "The bank", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// The environment-side half of the shelter question the 2026-09-05 work
+// concluded was all animal: from a flat floor, `(Bias, Dig)` digs a pit open
+// to the sky, and a pit is not shelter -- ants were in the open on 66.2% of
+// ticks and the non-digger still won. From the foot of a *vertical face* the
+// same verb produces a horizontal gallery on the first bite, so the bed's
+// job here is to give the ant's existing dig verb the right shape to work
+// with rather than to change the verb.
+//
+// The bank is 16 rows of soil raised over the right 308 columns (`x=200` to
+// the shell at `508`), the colony founded at its foot so digging *into* the
+// face is the short route home, and beetles placed on top where they can
+// walk but a one-wide gallery keeps them out. `exposure_cost_per_cell` is
+// turned up from its shipped 0.0 -- shelter cannot be selected for while
+// standing outside costs nothing -- to 0.05, the setting the flat null
+// (`the_floor.ron`) was measured at.
+//
+// **Soil is a Powder, so the bed's real shape is a slope, not the vertical
+// face it is authored as.** Measured with a rebuilt `labshot scenario=
+// the_bank frames=0,3000,24000`, reading the leftmost column (right of the
+// stone shell) whose surface still stands above y=160: the wall starts
+// exactly at x=200 (the fill's own left edge, width 308) at frame 0, and by
+// frame 3000 that leftmost raised column is x=50 -- unchanged at frame
+// 24000, so the slump is not still running; it finished inside the first
+// eighth of the horizon. **Read that number for what it counts**: a single
+// grain that rolled to x=50 moves it as far as a whole ramp would, and the
+// contact sheet shows the bulk of the slope inside the last fifty columns
+// before x=200, with the bank top untouched at full height. So whoever runs
+// S4 meets a short ramp up to the face rather than a cliff: a route to the
+// face is partly a walk up a slope before any digging happens.
+//
+// **Food per 6,000-frame window against the colony's idle burn**: an ant
+// idles at 0.10 energy/tick, so 52 ants burn 52 * 0.10 * 6000 = 31,200 per
+// window. The 20-cell windfall heap is 19,200 (61.5% of the burn), already
+// over half and left at the size `the_floor.ron`'s identical colony runs
+// at.
+(
+    name: "the_bank",
+    title: "THE BANK",
+    question: "A colony founded at the foot of a raised soil bank, with beetles patrolling its top -- does it dig a gallery into the face rather than a pit in the open?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "ant", field: "exposure_cost_per_cell", value: 0.05),
+    ],
+    placements: [
+        Fill(material: "soil", x: 200, y: 144, w: 308, h: 16),
+        Colony(species: "ant", x: 170, count: 52),
+        Animal(species: "beetle", x: 300),
+        Animal(species: "beetle", x: 350),
+        Animal(species: "beetle", x: 400),
+        Animal(species: "beetle", x: 450),
+    ],
+    timeline: [
+        (at: 3000, every: 6000, until: 0, what: Heap(material: "windfall", x: 150, cells: 20)),
+    ],
+    horizon: 24000,
+)

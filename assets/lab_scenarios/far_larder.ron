@@ -1,0 +1,59 @@
+// S3 -- "The far larder", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// A colony at one wall and a single heap at the other, so a route between
+// them has somewhere to form -- `selective-environments-2026-09-05.md` §4
+// already measured a far larder against a scattered one at 3 of 4 seeds,
+// median 37.8% for the trail-less arm. One open compartment (no walls to
+// isolate the route from itself) and shallow digging is not a confound
+// here: nothing in this bed asks an ant to tunnel.
+//
+// **The caveat is the report's own**: the trail pathway is worth most of the
+// move decision at ~60% laden and under 1% empty or full, and a far larder
+// sends ants out empty and home full -- exactly where it is worth least. A
+// null here would be a finding about the carry-band gate, not a failed
+// scenario. See `scattered_larder.ron` for the paired control.
+//
+// **The colony sits at x: 107, not the wall.** `labshot scenario=far_larder`
+// found only 35 of 52 ants placeable at x: 40 -- `creature::colony_stations`
+// centres a 52-ant band on the cursor, and at spacing 4 that band runs 204
+// cells wide, so a cursor at 40 puts its left third off the west edge of the
+// world where no site exists. x: 107 is the smallest column (of
+// 64/80/96/102/104-107 tried against a rebuilt `labshot`) at which the
+// whole band lands in bounds and all 52 place; 106 still loses one. The heap
+// stays at x: 470, 363 cells clear of the band's right edge.
+//
+// **Food per 6,000-frame window against the colony's idle burn**: an ant
+// idles at 0.10 energy/tick, so 52 ants burn 52 * 0.10 * 6000 = 31,200 over
+// a window. The heap is 60 cells at build (57,600, covering the first
+// window and the founding cost) and repeats at 30 cells every 6,000 frames
+// after that (28,800, 92.3% of the burn) -- the same ratio `two_larders.ron`
+// documents, already over half and left alone.
+(
+    name: "far_larder",
+    title: "FAR LARDER",
+    question: "A colony at one wall, one heap at the other -- does a route form on the pheromone overlay that the scattered control never draws?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Colony(species: "ant", x: 107, count: 52),
+        Heap(material: "windfall", x: 470, cells: 60),
+    ],
+    timeline: [
+        (at: 6000, every: 6000, until: 0, what: Heap(material: "windfall", x: 470, cells: 30)),
+    ],
+    horizon: 24000,
+)

@@ -82,10 +82,12 @@ use std::time::{Duration, Instant};
 
 use crate::sim::explosion::Blasts;
 use crate::sim::frame;
+use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::player;
 use crate::sim::world::World;
 
+use super::scenario::Scenario;
 use super::scene::LabBox;
 use super::{params, stats};
 
@@ -125,6 +127,14 @@ pub struct BatchSpec {
     /// How many bytes of finished worlds to hold before dropping them and
     /// keeping only the record. See [`RunResult::world`].
     pub keep_bytes: u64,
+    /// **The scenario `base` was opened from, if one.** Carried here rather
+    /// than only on `base` itself, because a scenario is *behaviour*
+    /// (settings, placements, a running timeline) and `base` is only ever
+    /// read as geometry (`LabBox::build`/`build_counted`) -- `runs()` reads
+    /// this to hand every `PlannedRun` its own copy, and `run_one` is what
+    /// actually applies it. `BatchSpec` has no `Serialize`/`Deserialize` of
+    /// its own to keep in step with `Scenario`'s.
+    pub scenario: Option<Scenario>,
 }
 
 impl BatchSpec {
@@ -153,7 +163,15 @@ impl BatchSpec {
                         sw.field
                     );
                 }
-                out.push(PlannedRun { index: out.len(), frames: None, setting_index: si, setting: *setting, replicate: j, spec });
+                out.push(PlannedRun {
+                    index: out.len(),
+                    frames: None,
+                    setting_index: si,
+                    setting: *setting,
+                    replicate: j,
+                    spec,
+                    scenario: self.scenario.clone(),
+                });
             }
         }
         out
@@ -174,6 +192,16 @@ impl BatchSpec {
         let pheromones = 4 * w * h;
         cells + pheromones
     }
+}
+
+/// The trait name the parameters page labels heritable slot `slot` with --
+/// reused from `params::TRAIT_ROWS` rather than re-derived, so the S1
+/// compartment table and the page it mirrors cannot drift apart into two
+/// answers for "what is slot 3 called". `pub` (unlike `TRAIT_ROWS` itself)
+/// because a harness outside this crate's own modules -- `examples/
+/// labbatch.rs` -- is exactly who needs to label the table it prints.
+pub fn trait_name(slot: usize) -> &'static str {
+    params::TRAIT_ROWS.iter().find(|(s, ..)| *s == slot).map(|(_, name, _)| *name).unwrap_or("?")
 }
 
 /// A copy still in flight: enough to draw a rack row for it.
@@ -202,6 +230,11 @@ pub struct PlannedRun {
     pub setting: Option<f32>,
     pub replicate: u32,
     pub spec: LabBox,
+    /// The scenario `spec` was built from, if one -- cloned onto every run
+    /// rather than looked up once per batch, because it is small (a bed
+    /// plus a handful of placements) beside the `World` each run builds,
+    /// and a run travels alone onto its own worker thread.
+    pub scenario: Option<Scenario>,
 }
 
 /// What a finished run leaves behind.
@@ -233,6 +266,221 @@ pub struct RunResult {
     /// this run landed. `None` means the row is on record and openable by
     /// rebuilding from `spec`, which is exact.
     pub world: Option<World>,
+}
+
+/// **S5's reading, one species: its standing at the last sample, and the
+/// first sample frame it dropped to zero after having been above it.**
+///
+/// `None` means the species never went extinct across `history` -- printed
+/// as `alive`, never as a frame, so a species that is merely absent from the
+/// run's *start* (a colony arriving on a scenario's timeline, say) cannot be
+/// misread as one that died before the count ever moved.
+#[derive(Clone, Debug, PartialEq)]
+pub struct SpeciesRun {
+    pub species: String,
+    pub last_count: u32,
+    pub extinct_at: Option<u64>,
+}
+
+/// Every species that ever appears in `history`, sorted by name, each
+/// reduced to [`SpeciesRun`]. **Pure over one run's samples** -- no `World`,
+/// no `RunResult` -- so this is the whole of what a guard needs to construct
+/// by hand.
+pub fn species_runs(history: &[stats::Sample]) -> Vec<SpeciesRun> {
+    let mut names: Vec<String> = Vec::new();
+    for s in history {
+        for (name, _) in &s.by_species {
+            if !names.contains(name) {
+                names.push(name.clone());
+            }
+        }
+    }
+    names.sort();
+    names
+        .into_iter()
+        .map(|species| {
+            let mut was_alive = false;
+            let mut extinct_at = None;
+            let mut last_count = 0u32;
+            for s in history {
+                let n = s.by_species.iter().find(|(name, _)| *name == species).map(|(_, n)| *n).unwrap_or(0);
+                last_count = n;
+                if n > 0 {
+                    was_alive = true;
+                } else if was_alive && extinct_at.is_none() {
+                    // **First**, and never overwritten -- a species that
+                    // dies and is later re-founded (a fresh colony on a
+                    // repeating timeline event, say) still reads the frame
+                    // it *first* went to zero at, which is the question S5
+                    // asks.
+                    extinct_at = Some(s.frame);
+                }
+            }
+            SpeciesRun { species, last_count, extinct_at }
+        })
+        .collect()
+}
+
+/// **S5's per-setting summary**: one row per species per setting, the
+/// min/median/max of its extinction frame across that setting's runs (an
+/// `alive` run counts its own `ticks_run`, so a longer horizon does not
+/// silently outrank a shorter one that never lost the species either), and
+/// how many of the setting's runs it survived to the end of.
+#[derive(Clone, Debug, PartialEq)]
+pub struct ExtinctionSummary {
+    pub setting: Option<f32>,
+    pub species: String,
+    pub min: u64,
+    pub median: u64,
+    pub max: u64,
+    pub survived: usize,
+    pub of: usize,
+}
+
+/// Built from `&[RunResult]` and nothing else -- a guard constructs its
+/// input by hand, with `world: None` throughout, and never runs a tick.
+pub fn extinction_summary(rows: &[RunResult]) -> Vec<ExtinctionSummary> {
+    let per_run: Vec<(Option<f32>, u64, Vec<SpeciesRun>)> = rows.iter().map(|r| (r.setting, r.ticks_run, species_runs(&r.history))).collect();
+    let mut settings: Vec<Option<f32>> = per_run.iter().map(|(s, ..)| *s).collect();
+    settings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    settings.dedup();
+
+    let mut out = Vec::new();
+    for setting in settings {
+        let group: Vec<&(Option<f32>, u64, Vec<SpeciesRun>)> = per_run.iter().filter(|(s, ..)| *s == setting).collect();
+        let mut species: Vec<String> = Vec::new();
+        for (_, _, sr) in &group {
+            for s in sr {
+                if !species.contains(&s.species) {
+                    species.push(s.species.clone());
+                }
+            }
+        }
+        species.sort();
+
+        for name in species {
+            let mut frames: Vec<u64> = Vec::new();
+            let mut survived = 0usize;
+            for (_, ticks_run, sr) in &group {
+                let alive = match sr.iter().find(|s| s.species == name) {
+                    // Present and never extinct, or never present at all --
+                    // either way there is nothing to call "extinct", so this
+                    // run counts toward survival and reads its own length.
+                    Some(s) => s.extinct_at.is_none(),
+                    None => true,
+                };
+                let frame = sr.iter().find(|s| s.species == name).and_then(|s| s.extinct_at).unwrap_or(*ticks_run);
+                if alive {
+                    survived += 1;
+                }
+                frames.push(frame);
+            }
+            frames.sort_unstable();
+            let n = frames.len();
+            out.push(ExtinctionSummary {
+                setting,
+                species: name,
+                min: frames[0],
+                median: frames[n / 2],
+                max: frames[n - 1],
+                survived,
+                of: group.len(),
+            });
+        }
+    }
+    out
+}
+
+/// **S1's reading, one run, one compartment**: how many animals stood in it
+/// (by head cell x) and the mean of every heritable trait slot over them.
+/// `None` in `means` where no animal stood there to average.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompartmentMeans {
+    pub setting: Option<f32>,
+    pub replicate: u32,
+    pub compartment: usize,
+    pub animals: usize,
+    pub means: Vec<Option<f32>>,
+}
+
+/// Read `world`'s live animals into `spec.compartment_spans()`. **Needs a
+/// live `World`** -- a trait is per-organism state, not a sampled count, so
+/// unlike [`species_runs`] this cannot be answered from `history` alone.
+pub fn compartment_means(world: &World, spec: &LabBox, setting: Option<f32>, replicate: u32) -> Vec<CompartmentMeans> {
+    let spans = spec.compartment_spans();
+    let mut sums = vec![[0f32; organism::CREATURE_TRAITS]; spans.len()];
+    let mut counts = vec![0usize; spans.len()];
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        let Some(&(hx, _)) = state.chain.first() else { continue };
+        let Some(ci) = spans.iter().position(|&(lo, hi)| hx >= lo && hx <= hi) else { continue };
+        counts[ci] += 1;
+        for (slot, sum) in sums[ci].iter_mut().enumerate() {
+            *sum += state.traits[slot];
+        }
+    }
+    (0..spans.len())
+        .map(|ci| CompartmentMeans {
+            setting,
+            replicate,
+            compartment: ci,
+            animals: counts[ci],
+            means: (0..organism::CREATURE_TRAITS).map(|slot| (counts[ci] > 0).then(|| sums[ci][slot] / counts[ci] as f32)).collect(),
+        })
+        .collect()
+}
+
+/// **S1's per-setting summary**: per compartment, the median across
+/// replicates of each trait's mean. A trait with no animal in some
+/// replicate's compartment is excluded from that trait's median rather than
+/// counted as zero -- an empty compartment is not evidence the trait is low,
+/// it is evidence nothing stood there to measure.
+///
+/// Pure over `&[CompartmentMeans]` -- a guard builds these by hand, no
+/// `World` involved at all.
+#[derive(Clone, Debug, PartialEq)]
+pub struct CompartmentMedians {
+    pub setting: Option<f32>,
+    pub compartment: usize,
+    /// How many of the group's runs actually had an animal in this
+    /// compartment to average -- `0/N` on a row says the row is a gap, not
+    /// a real reading of "no trait".
+    pub runs: usize,
+    pub medians: Vec<Option<f32>>,
+}
+
+pub fn compartment_medians(rows: &[CompartmentMeans]) -> Vec<CompartmentMedians> {
+    let mut settings: Vec<Option<f32>> = rows.iter().map(|r| r.setting).collect();
+    settings.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+    settings.dedup();
+
+    let mut out = Vec::new();
+    for setting in settings {
+        let group: Vec<&CompartmentMeans> = rows.iter().filter(|r| r.setting == setting).collect();
+        let mut compartments: Vec<usize> = group.iter().map(|r| r.compartment).collect();
+        compartments.sort_unstable();
+        compartments.dedup();
+        for ci in compartments {
+            let same: Vec<&&CompartmentMeans> = group.iter().filter(|r| r.compartment == ci).collect();
+            let runs = same.iter().filter(|r| r.animals > 0).count();
+            let medians: Vec<Option<f32>> = (0..organism::CREATURE_TRAITS)
+                .map(|slot| {
+                    let mut vals: Vec<f32> = same.iter().filter_map(|r| r.means[slot]).collect();
+                    if vals.is_empty() {
+                        None
+                    } else {
+                        vals.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+                        Some(vals[vals.len() / 2])
+                    }
+                })
+                .collect();
+            out.push(CompartmentMedians { setting, compartment: ci, runs, medians });
+        }
+    }
+    out
 }
 
 /// Live counts, read by the interface while the batch runs.
@@ -378,6 +626,7 @@ impl Batch {
             frames,
             seed0: runs.first().map(|r| r.spec.seed).unwrap_or(0),
             keep_bytes,
+            scenario: runs.first().and_then(|r| r.scenario.clone()),
         };
         let shared = Arc::new(Shared {
             done: Mutex::new(Vec::new()),
@@ -496,6 +745,17 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
     let mut world = match start {
         Start::Fresh => {
             let mut w = run.spec.build();
+            // **The run's own (swept) spec, not the batch's `base`.** A
+            // sweep over `compartments` -- say -- has already written the
+            // swept value into `run.spec` by the time `runs()` handed this
+            // plan out, so applying the scenario against a fresh clone of
+            // *that* spec is what keeps a scenario's placements landing on
+            // the bed this particular run actually has, not the template
+            // every other setting also started from.
+            if let Some(scenario) = &run.scenario {
+                let mut spec = run.spec.clone();
+                scenario.apply(&mut w, &mut spec);
+            }
             super::earth_toned_nest(&mut w);
             w
         }
@@ -527,6 +787,15 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
             .and_then(|mut t| t.remove(&run.index))
             .unwrap_or_else(|| {
                 let mut w = run.spec.build();
+                // Same reasoning as `Start::Fresh` just above: this is the
+                // rebuild-from-recipe fallback for a row whose world was not
+                // in the table (an on-record row extended past its budget),
+                // and it needs the scenario applied for the identical
+                // reason a fresh run does.
+                if let Some(scenario) = &run.scenario {
+                    let mut spec = run.spec.clone();
+                    scenario.apply(&mut w, &mut spec);
+                }
                 super::earth_toned_nest(&mut w);
                 w
             }),
@@ -546,6 +815,13 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
     }
     while ran < frames {
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        // Same call, same timing contract, as `Lab::tick`'s own -- see
+        // `scenario::tick_timeline`'s doc. Cheap when the timeline is empty
+        // or there is no scenario at all, which is every setting sweep run
+        // that has ever used this function until now.
+        if let Some(scenario) = &run.scenario {
+            super::scenario::tick_timeline(scenario, &mut world, &run.spec);
+        }
         ran += 1;
         // **Inside the loop.** `Stats::observe` gates on `frame >= last +
         // interval` — a `>=`, so it never skips *and never catches up*.
@@ -609,7 +885,7 @@ mod tests {
     }
 
     fn spec(replicates: u32, sweep: Option<Sweep>) -> BatchSpec {
-        BatchSpec { base: bed(), replicates, sweep, frames: 300, seed0: 1, keep_bytes: u64::MAX }
+        BatchSpec { base: bed(), replicates, sweep, frames: 300, seed0: 1, keep_bytes: u64::MAX, scenario: None }
     }
 
     /// **The seed varies with the replicate and not with the setting.**
@@ -795,5 +1071,128 @@ mod tests {
             log.recent().any(|e| e.frame == 999_999),
             "EXTEND threw away the chamber's own history -- that is the same run carrying on, not a copy"
         );
+    }
+
+    /// A hand-made [`Sample`](stats::Sample) at `frame`, carrying only
+    /// `by_species` -- every other field is zero, which nothing under test
+    /// here reads.
+    fn sample(frame: u64, by_species: &[(&str, u32)]) -> stats::Sample {
+        stats::Sample { frame, by_species: by_species.iter().map(|(n, c)| (n.to_string(), *c)).collect(), ..Default::default() }
+    }
+
+    /// A hand-made [`RunResult`], `world: None` throughout -- these guards
+    /// never build a world or run a tick.
+    fn run_result(index: usize, setting: Option<f32>, replicate: u32, ticks_run: u64, history: Vec<stats::Sample>) -> RunResult {
+        RunResult { index, setting, replicate, spec: bed(), census: stats::Census::default(), history, ticks_run, world: None }
+    }
+
+    /// **The guard for item 2b/S5, and its own positive control.** Three
+    /// hand-made runs, one setting, `world: None` throughout -- this proves
+    /// the reading without a tick ever running, per `CLAUDE.md`'s "does the
+    /// planned step actually demonstrate itself" and the coordinator's own
+    /// ask that this not run the whole scenario.
+    ///
+    /// ANT goes extinct at 3,000 in run 0, at 2,000 in run 1, and never in
+    /// run 2 (5 standing at the last sample) -- min 2,000, and at n=3 this
+    /// median convention (`frames[len/2]`, the same `Spread::of` uses)
+    /// lands on 3,000, survived 1 of 3. **BEETLE is the positive control**:
+    /// never zero in any run, so every run reads `alive` and contributes its
+    /// own `ticks_run` (3,000 in all three) rather than a manufactured
+    /// frame -- min = median = max = 3,000, survived 3 of 3.
+    #[test]
+    fn the_extinction_summary_reads_the_frame_each_species_first_hit_zero() {
+        let run0 = run_result(
+            0,
+            None,
+            0,
+            3000,
+            vec![
+                sample(0, &[]),
+                sample(1000, &[("ANT", 26)]),
+                sample(2000, &[("ANT", 10), ("BEETLE", 4)]),
+                sample(3000, &[("ANT", 0), ("BEETLE", 4)]),
+            ],
+        );
+        let run1 = run_result(
+            1,
+            None,
+            1,
+            3000,
+            vec![
+                sample(0, &[]),
+                sample(1000, &[("ANT", 26)]),
+                sample(2000, &[("ANT", 0), ("BEETLE", 4)]),
+                sample(3000, &[("ANT", 0), ("BEETLE", 4)]),
+            ],
+        );
+        let run2 = run_result(
+            2,
+            None,
+            2,
+            3000,
+            vec![
+                sample(0, &[]),
+                sample(1000, &[("ANT", 26)]),
+                sample(2000, &[("ANT", 15), ("BEETLE", 4)]),
+                sample(3000, &[("ANT", 5), ("BEETLE", 4)]),
+            ],
+        );
+
+        // Per-run reading first -- the layer under the summary, checked on
+        // its own so a wrong summary cannot hide a right per-run answer or
+        // vice versa.
+        let sr0 = species_runs(&run0.history);
+        let ant0 = sr0.iter().find(|s| s.species == "ANT").expect("ANT appears in run 0");
+        assert_eq!(ant0.extinct_at, Some(3000), "run 0's ANT hit zero at frame 3000");
+        assert_eq!(ant0.last_count, 0);
+        let beetle2 = species_runs(&run2.history).into_iter().find(|s| s.species == "BEETLE").expect("BEETLE appears in run 2");
+        assert_eq!(beetle2.extinct_at, None, "BEETLE never hit zero in run 2 -- it must read alive, not a frame");
+        assert_eq!(beetle2.last_count, 4);
+
+        let summary = extinction_summary(&[run0, run1, run2]);
+        let ant = summary.iter().find(|s| s.species == "ANT").expect("ANT has a summary row");
+        assert_eq!((ant.min, ant.median, ant.max), (2000, 3000, 3000), "ANT's extinction spread: {ant:?}");
+        assert_eq!(ant.survived, 1, "only run 2's ant colony was still standing: {ant:?}");
+        assert_eq!(ant.of, 3);
+
+        let beetle = summary.iter().find(|s| s.species == "BEETLE").expect("BEETLE has a summary row");
+        assert_eq!((beetle.min, beetle.median, beetle.max), (3000, 3000, 3000), "the positive control: an always-alive species reads its own ticks_run, not a manufactured extinction: {beetle:?}");
+        assert_eq!(beetle.survived, 3, "BEETLE survived every run: {beetle:?}");
+    }
+
+    /// **The guard for item 2c/S1's aggregation half** -- pure over
+    /// hand-made [`CompartmentMeans`], no `World` and no tick. The
+    /// `World`-reading half ([`compartment_means`] itself) is exercised live
+    /// by the `two_larders` smoke run, which is the one thing here that
+    /// cannot be faked: a trait mean is a property of live organism state,
+    /// not of a sampled count.
+    #[test]
+    fn the_compartment_medians_take_the_median_across_replicates_and_skip_empty_compartments() {
+        let mut means_a = vec![None; organism::CREATURE_TRAITS];
+        means_a[0] = Some(1.0);
+        let mut means_b = vec![None; organism::CREATURE_TRAITS];
+        means_b[0] = Some(3.0);
+        // Compartment 1's replicate 0 has no animal in it at all -- its
+        // slot-0 mean is `None`, and the median must skip it rather than
+        // read it as zero.
+        let means_c = vec![None; organism::CREATURE_TRAITS];
+        let mut means_d = vec![None; organism::CREATURE_TRAITS];
+        means_d[0] = Some(5.0);
+
+        let rows = vec![
+            CompartmentMeans { setting: None, replicate: 0, compartment: 0, animals: 2, means: means_a },
+            CompartmentMeans { setting: None, replicate: 1, compartment: 0, animals: 2, means: means_b },
+            CompartmentMeans { setting: None, replicate: 0, compartment: 1, animals: 0, means: means_c },
+            CompartmentMeans { setting: None, replicate: 1, compartment: 1, animals: 1, means: means_d },
+        ];
+        let medians = compartment_medians(&rows);
+
+        let c0 = medians.iter().find(|m| m.compartment == 0).expect("compartment 0 has a row");
+        assert_eq!(c0.medians[0], Some(3.0), "median of [1.0, 3.0] at n=2 (frames[len/2] convention) is 3.0: {c0:?}");
+        assert_eq!(c0.runs, 2);
+
+        let c1 = medians.iter().find(|m| m.compartment == 1).expect("compartment 1 has a row");
+        assert_eq!(c1.medians[0], Some(5.0), "compartment 1's empty replicate must be skipped, not read as 0: {c1:?}");
+        assert_eq!(c1.runs, 1, "only one of compartment 1's two replicates actually had an animal in it");
     }
 }
