@@ -2297,10 +2297,28 @@ fn nest_dig_scene() {
     if std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() == Ok("destroy") {
         return;
     }
+    // **Carrion is a *source* of ground, and the identity has to carry it.**
+    // `corpse` gained a `decays_into: "soil"` on 2026-09-06, so an ant that
+    // dies in this scene and rots puts a soil cell back into the bank -- and
+    // 55 of them die here. Measured when this was a bare equality: `3600 ->
+    // 3602`, which reads as "digging is manufacturing ground" and is the
+    // opposite of what happened.
+    //
+    // `rotted_to_solid - rotted_onward` is the count of decays that *ended* a
+    // chain, which in this scene can only be corpse -> soil: nothing else here
+    // decays, and `soil` has no `decays_into` of its own so it can never be
+    // the onward half. The same term is in `creature.rs`'s
+    // `digging_moves_the_ground_rather_than_eating_it`, which is this
+    // assertion's unit-test sibling.
+    //
+    // Kept as an equality rather than relaxed to `<=`. A one-sided bound
+    // would pass for an engine that mints ground freely, which is half of
+    // what this assertion exists to catch.
+    let rotted_back = (world.rotted_to_solid - world.rotted_onward) as usize;
     assert_eq!(
         soil_after + laden + st.spoil_lost as usize,
-        soil_before,
-        "the bank is not conserved: {soil_before} -> {soil_after} standing, {laden} in mandibles, {} lost with their carriers",
+        soil_before + rotted_back,
+        "the bank is not conserved: {soil_before} -> {soil_after} standing, {laden} in mandibles, {} lost with their carriers, {rotted_back} rotted back from carrion",
         st.spoil_lost
     );
     assert_eq!(stone_floor as i32, w, "ants must not have dug through stone -- dig_force 1.0 is below stone's penetration_resistance");
