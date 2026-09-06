@@ -732,6 +732,37 @@ pub struct CreatureStats {
     /// question is whether anything ever got close, not whether anything is
     /// close right now.
     pub peak_bank: f32,
+    /// **Blocked ticks in which living plant tissue was what stood in the
+    /// way** — the attribution `moves_blocked` cannot make on its own.
+    ///
+    /// A colony blocked against rock and a colony blocked against a bush
+    /// read identically in `moves_blocked`, and they want opposite fixes.
+    /// Counted at the one site that refuses a step, over the candidate
+    /// landings that failed.
+    pub blocked_by_plant: u64,
+    /// **…and of those, the ticks a pass-through rule would have turned
+    /// back into moves.** The far-side counter for `blocked_by_plant`:
+    /// tissue being *present* among the obstructions is not the same claim
+    /// as tissue being *the reason*, since a candidate can be refused by a
+    /// leaf and a rock at once and a wall of rock behind the bush leaves
+    /// the animal just as stuck.
+    ///
+    /// Incremented when treating soft tissue as free would have left at
+    /// least one candidate placeable — i.e. this is the headroom the change
+    /// is worth, measured before making it.
+    pub blocked_tissue_freed: u64,
+    /// **The ceiling for the counter above: freed if *every* living plant
+    /// cell were passable, whatever it is made of.**
+    ///
+    /// The two differ by exactly the tissue the armour table prices above
+    /// the animal's force — heartwood, and (until one is authored) any
+    /// tissue that never declared a `penetration_resistance` at all and so
+    /// sits at the 100.0 default. Without this, a small
+    /// `blocked_tissue_freed` cannot be told apart from a large one whose
+    /// data has a hole in it, and those want opposite fixes: one says the
+    /// mechanism is not worth building, the other says a `.ron` file is
+    /// missing a number.
+    pub blocked_tissue_freed_any: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -1319,6 +1350,16 @@ pub struct World {
     /// convincingly for a whole run while its body count said the feature
     /// had never once executed).
     pub creature_stats: CreatureStats,
+    /// **Which material stopped a creature**, counted per blocked tick and
+    /// indexed by `MaterialId` — the breakdown `CreatureStats::
+    /// blocked_by_plant` deliberately does not carry, because that struct is
+    /// `Copy` and a per-material array does not belong in it.
+    ///
+    /// Diagnostic. A single number saying "tissue blocked the ant" cannot
+    /// choose between the two remedies it might be asking for — a trunk you
+    /// should be climbing and a root you should be cutting through are the
+    /// same count and opposite fixes — so this says which material it was.
+    pub blocked_tissue_by_material: Vec<u64>,
     /// **Evolution is a fuzzer for your conservation laws.** Every surveyed
     /// sim that evolved anything eventually evolved an exploit of an
     /// energy-accounting bug — Karl Sims' creatures harvesting integration
@@ -2792,6 +2833,7 @@ impl World {
             field_stats: field::FieldStats::default(),
             soil_water_stats: SoilWaterStats::default(),
             creature_stats: CreatureStats::default(),
+            blocked_tissue_by_material: Vec::new(),
             energy_ledger: EnergyLedger::default(),
             organisms: Vec::new(),
             free_organism_slots: Vec::new(),
@@ -3492,6 +3534,7 @@ impl World {
             energy: 0.0,
             crop: None,
             spoil: None,
+            parted: Vec::new(),
             since_nest: 0,
             forage_anchor: (0, 0),
             forage_max: 0,

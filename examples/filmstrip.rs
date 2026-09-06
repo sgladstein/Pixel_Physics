@@ -1476,6 +1476,104 @@ fn build_scene(args: &Args) -> World {
                 w.set(24 + 5 * 24 + dx, floor - 1, Cell::new(corpse, 0));
             }
         }
+        // **Ants meeting a hedge** — whether foliage is a wall, in the one
+        // form the question can be read in: motion.
+        //
+        // A block of living leaf standing on a floor, with ants walking into
+        // it from both sides. On `main` they mill along its face; with
+        // tissue parting they go in one side and out the other, and the
+        // hedge closes behind them.
+        //
+        // **The hedge is grown from nothing and owned by an organism**,
+        // because `is_soft_tissue` refuses tissue with no owner — the same
+        // gate `Material::climbable` is read behind, so a `leaf` block
+        // someone painted is as solid as it ever was and a scene that
+        // painted one would be demonstrating the wrong branch.
+        //
+        // **The ants are pinned to meat guts.** With the shipped gut they
+        // eat the hedge, and a hedge that was eaten and a hedge that was
+        // walked through are the same photograph. `gut=1` is the arm that
+        // separates them; `gut=0` puts the shipped diet back if what you
+        // want to look at is grazing.
+        //
+        //   cargo run --release --example filmstrip -- scene=hedge gif=1 \
+        //     out=hedge.gif start=0 every=25 count=40 zoom=4 crop=60,120,110,50
+        "hedge" => {
+            use pixel_physics::sim::creature::plant_creature_seed;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            // **Soil on stone, not soil on nothing.** `soil` is a `Powder`
+            // and `with_attached` is a `Solid` property, so the first
+            // version of this scene laid a slab at mid-height, watched all
+            // 4,096 cells of it fall to the bottom of the world, grew its
+            // shrubs down there and left the ants standing in mid-air --
+            // 1,345 falls and 31 moves. The bbox that found it is the same
+            // "check the scene still contains the situation you think it
+            // does" `CLAUDE.md` names.
+            let bed = HEIGHT - FLOOR_THICKNESS;
+            for x in 0..WIDTH {
+                for y in bed..HEIGHT {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+                // **Wet, at field capacity.** A seed on dry powder cannot
+                // germinate at all -- 0 of 16 against 16 of 16 on a damp bed
+                // (`dead-ends.md`, the capillary rest-threshold entry). The
+                // lab bed is built at this same value.
+                for y in (bed - 8)..bed {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(pixel_physics::sim::material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let ground = bed - 9;
+            // **Grown, not painted.** `is_soft_tissue` refuses tissue with
+            // no organism -- the same gate `Material::climbable` is read
+            // behind -- so a block of `leaf` laid down by hand is as solid
+            // as it ever was, and a scene that painted one would be
+            // demonstrating the wrong branch entirely. These are real
+            // shrubs, with foliage in the shape the growth rules put it.
+            let planted = (0..7).filter(|i| w.plant_tree_species(226 + i * 8, ground, "shrub")).count();
+            assert!(planted > 0, "test setup: no shrub seed was accepted");
+            for _ in 0..6000 {
+                pixel_physics::sim::parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            // Ants walking in from both sides, so the stand is crossed
+            // rather than brushed.
+            //
+            // **Pinned to meat guts by default.** With the shipped gut they
+            // eat the foliage, and a hedge that was eaten and a hedge that
+            // was walked through are the same photograph. `gut=0` puts the
+            // shipped diet back if what you want to look at is grazing.
+            let gut = args.hedge_gut;
+            for i in 0..12 {
+                let x = if i % 2 == 0 { 200 - i * 4 } else { 296 + i * 4 };
+                let top = (0..HEIGHT).find(|&y| !w.is_empty(x, y)).unwrap_or(ground) - 1;
+                if let Some(site) = plant_creature_seed(&mut w, x, top, "ant") {
+                    let organism = w.get(x, top).organism_id();
+                    w.schedule_active_site(site);
+                    if gut != 0.0 {
+                        w.set_organism_trait(organism, pixel_physics::sim::organism::TRAIT_GUT_BIAS, gut);
+                    }
+                }
+            }
+            let mut tissue = 0usize;
+            let (mut x0, mut y0, mut x1) = (i32::MAX, i32::MAX, i32::MIN);
+            for x in 0..WIDTH {
+                for y in 0..HEIGHT {
+                    let c = w.get(x, y);
+                    if w.materials.kind(c.material) == pixel_physics::sim::material::MaterialKind::Plant && c.organism_id() != 0 {
+                        tissue += 1;
+                        x0 = x0.min(x);
+                        y0 = y0.min(y);
+                        x1 = x1.max(x);
+                    }
+                }
+            }
+            // **The count and the box, under the picture.** A stand too
+            // small to see and a stand that never germinated are the same
+            // photograph, and only the number says which -- and the box is
+            // what a `crop=` can be aimed with instead of guessed at.
+            println!("scene=hedge gut={gut} : {tissue} cells of living tissue in x{x0}..{x1}, ground at y={ground}");
+        }
         // **A beetle finding an ant it did not bump into** — E15's whole
         // claim, on screen, in the one form it can be read in: motion.
         //
@@ -2542,6 +2640,9 @@ struct Args {
     /// can see; a blind beetle on the identical world is the only thing
     /// that makes that a claim rather than an anecdote.
     blind: bool,
+    /// `scene=hedge`'s diet allele. Defaults to the carnivore end so the
+    /// hedge is scenery rather than lunch -- see that scene's own note.
+    hedge_gut: f32,
     /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
     /// knobs (`sim::clock`), each "N times slower than baseline".
     ///
@@ -3291,6 +3392,7 @@ fn parse() -> Args {
         zoom: 1,
         genome: String::from("authored"),
         blind: false,
+        hedge_gut: 1.0,
         impulse: HOP_IMPULSE_WEIGHT,
         hop_body: String::new(),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
@@ -3421,6 +3523,7 @@ fn parse() -> Args {
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
             "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
+            "gut" => a.hedge_gut = v.parse::<f32>().expect("gut=<-1.0..1.0>"),
             "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
             "body" => a.hop_body = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
@@ -5888,6 +5991,40 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **What the blocking was made of.** `blocked` alone cannot separate a
+    // colony wedged against rock from one wedged against a bush, and those
+    // want opposite fixes. `tissue` is how many blocked ticks had living
+    // plant tissue among the obstructions; `freed-if-soft` is the far-side
+    // counter -- how many of them a pass-through rule would actually turn
+    // back into moves, since a candidate refused by a leaf and a rock at
+    // once stays refused either way.
+    if st.blocked_by_plant > 0 || st.moves_blocked > 0 {
+        let of_blocked = |n: u64| if st.moves_blocked > 0 { n as f64 / st.moves_blocked as f64 } else { 0.0 };
+        println!(
+            "  blocked by: tissue {} ({:.3} of blocked) | freed-if-soft {} ({:.3}) | freed-if-any-tissue {} ({:.3})",
+            st.blocked_by_plant,
+            of_blocked(st.blocked_by_plant),
+            st.blocked_tissue_freed,
+            of_blocked(st.blocked_tissue_freed),
+            st.blocked_tissue_freed_any,
+            of_blocked(st.blocked_tissue_freed_any)
+        );
+        // Which tissue, by name. A trunk and a root are the same count above
+        // and opposite fixes below.
+        let mut by: Vec<(String, u64)> = world
+            .blocked_tissue_by_material
+            .iter()
+            .enumerate()
+            .filter(|(_, &n)| n > 0)
+            .map(|(i, &n)| (world.materials.get(pixel_physics::sim::material::MaterialId(i as u16)).name.clone(), n))
+            .collect();
+        by.sort_by_key(|e| std::cmp::Reverse(e.1));
+        if !by.is_empty() {
+            let total: u64 = by.iter().map(|(_, n)| n).sum();
+            let line: Vec<String> = by.iter().map(|(m, n)| format!("{m} {n} ({:.0}%)", 100.0 * *n as f64 / total as f64)).collect();
+            println!("  ...the tissue was: {}", line.join(", "));
+        }
+    }
     // **The sight counters, and all three of them.** `CLAUDE.md` asks for
     // the discrete event count beside any picture, and here one number is
     // not enough: an eye that never ran, an eye that ran over an empty

@@ -904,6 +904,29 @@ drift that two of these documents still reflect.**
   ~60% laden and under 1% empty or full. Carries the ant's full separability
   audit
 
+- [creature-tissue-parting-2026-09-06.md](creature-tissue-parting-2026-09-06.md)
+  — **built and measured, 2026-09-06.** The owner's *"it feels unrealistic
+  that plants are solid walls to ants"*, answered — and the measurement moved
+  the answer. Living tissue is **18–64% of every blocked step** an ant takes
+  in a wood (4 seeds, `scene=colony`), and **69–96% of that is `wood`**, not
+  foliage: the intuition that ants are stopped by leaves, or by roots
+  underground, is wrong in both directions. Pricing `grassblade` (which
+  authored no `penetration_resistance` and so sat at the 100.0 default,
+  a meadow priced like heartwood) is correct and moves the number barely at
+  all. What shipped is **parting**: soft living tissue is passable and a body
+  that enters it *holds* the cell — material and `OrganismCell` scalars both —
+  and puts it back as it moves off, so the foliage closes behind the animal
+  undamaged. Gated on `penetration_resistance <= dig_force` and
+  `organism_id() != 0`, never a material name, so a painted `wood` wall is as
+  solid as ever and heartwood stays solid because it authored no price. On
+  `scene=hedge`, one binary and `TISSUE_PARTING=0` for the control: blocked
+  steps **666 → 180**, and `freed-if-soft` **→ 0**, which is the check that
+  the mechanism took its own class and nothing else. `examples/ascii` is
+  byte-identical, which is a statement about the gate (its creature scenes
+  hold no living tissue) and not evidence about the mechanism. **§5 is the
+  open half**: wood was deliberately left solid, that is where the measured
+  mass is, and the fix indicated is wall-following in `tumble` rather than
+  passability
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
