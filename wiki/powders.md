@@ -1,8 +1,9 @@
 # Powders
 
-*Current as of: 2026-09-01, when worked soil stopped holding itself up on
-nothing. Before that: 2026-08-30, when soil gained a worked form that holds
-itself up at all.*
+*Current as of: 2026-09-06, when worked soil stopped coming apart in ordinary
+damp ground and started needing to be genuinely waterlogged. Before that:
+2026-09-01, when worked soil stopped holding itself up on nothing; and
+2026-08-30, when soil gained a worked form that holds itself up at all.*
 
 Sand, gravel, ash, soil, and a handful of debris materials all behave the
 same basic way: they fall under gravity, and instead of spreading out flat
@@ -49,6 +50,17 @@ natural resting angle, the way real loose material does.
   floods loses the wettest of it — the shaft nearest the water — and keeps
   the rest. So a burrow is not a permanent hole in the world. It is a dry
   one, and staying dry is the whole of what keeps it standing.
+
+  **"Dry" means not waterlogged, not bone dry, and for a while it did not.**
+  The line sat at the wetness ordinary damp ground rests at, which is where
+  most ground is most of the time — so a wall came apart in soil nobody would
+  call wet, and a bed with anything growing in it lost every gallery in it as
+  fast as a colony could cut them, the holes filling back up with loose earth.
+  The line is halfway wetter now: damp ground holds, ground with water
+  standing in its pores does not. What that buys is a middle. Before, a burrow
+  either stood in an artificially dry bank or dissolved everywhere else; now a
+  nest holds in damp earth, gives way at its wet end if it is driven down into
+  wet ground, and comes in altogether if it floods.
 
   **Grains pressed into contact need something to be pressed against, too.**
   A wall stands because it is part of a wall. Undermine a piece of worked

@@ -109,7 +109,8 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // buried and dug back out as something else entirely by the time this
     // check comes due. Reading the material *here* rather than remembering
     // what scheduled the site is what makes all of those a quiet no-op.
-    let here = world.materials.get(world.get(x, y).material);
+    let cell = world.get(x, y);
+    let here = world.materials.get(cell.material);
     let (rate_damp, rate_dry) = (here.decay_chance_damp, here.decay_chance_dry);
     // Copied out with the rates, not read at the write site below: `here`
     // borrows `world`, and the counters between here and there take it
@@ -209,6 +210,25 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // `a_reseeded_organism_keeps_growing_after_its_first_tick`, which is a
     // test about ash and has nothing to do with this field. A field whose
     // documented default is "changes nothing" must not perturb the stream.
+    // **The fourth `meat_lost` site, and the condition a dead end recorded.**
+    //
+    // `EnergyLedger::max_standing_meat` is a *bound* rather than an estimate
+    // only because every path that destroys a stamped cell books what it
+    // destroyed. `Reports/dead-ends.md` lists three -- fire, explosion, the
+    // brush -- and closes with *"Decay needed no hook: `corpse.ron` declares
+    // no `decays_into`"*. That was true of the ledger and never a claim about
+    // carrion, and `corpse.ron` now declares one, so this is the hook that
+    // clause was waiting on.
+    //
+    // Booked before either branch writes, because both destroy the cell: the
+    // yield roll decides what is *left behind*, not whether the corpse is
+    // gone. Through the same shared `meat_worth_of` predicate the other three
+    // use, so the four cannot drift apart on what counts -- an unstamped
+    // corpse (`aux == 0`, which `fire.rs`'s burnout writes) books nothing
+    // here exactly as it books nothing there.
+    if let Some(worth) = crate::sim::world::EnergyLedger::meat_worth_of(&world.materials, cell) {
+        world.energy_ledger.meat_lost += worth;
+    }
     let yield_fraction = decay_yield_override().unwrap_or(material_yield);
     if yield_fraction < 1.0 && !world.rng.chance(yield_fraction) {
         world.set(x, y, Cell::EMPTY);
@@ -333,6 +353,89 @@ mod tests {
 
         assert_eq!(w.get(14, 100).material, soil, "damp ash never decayed into soil");
         assert_eq!(w.get(dry_x0 + 4, 100).material, ash, "dry ash decayed as readily as damp ash");
+    }
+
+    /// **Carrion rots, and the meat it was worth is booked as it goes** —
+    /// the two halves of giving `corpse` a `decays_into`, and the second one
+    /// is the condition a `dead-ends.md` entry left standing.
+    ///
+    /// `corpse` was the one dead-organic material in the tree with no decay
+    /// path, so an animal that died and was not eaten stood where it fell for
+    /// the rest of the run: measured on `examples/labmass control=empty
+    /// colonies=1`, **104 of 104 pool cells locked, 100%**, and on
+    /// `examples/labnest` 37 of 178 refilled void cells were corpse, standing
+    /// unchanged from frame 6,000 to 18,000. That is the owner's *"the holes
+    /// fill up"* with the filler named.
+    ///
+    /// **The ledger half is not decoration.** `EnergyLedger::max_standing_
+    /// meat` is a bound only because every path that destroys a stamped cell
+    /// books it, and `Reports/dead-ends.md` closed that seam with *"Decay
+    /// needed no hook: `corpse.ron` declares no `decays_into`"*. It does now,
+    /// so decay is the fourth destruction path and has to book like the other
+    /// three. Without the booking this test's first assertion passes and the
+    /// bound silently becomes a lie -- which is why both are here.
+    #[test]
+    fn carrion_rots_away_and_books_the_meat_it_was_worth() {
+        let mut w = test_world();
+        let corpse = w.materials.id_of("corpse").expect("corpse is a compiled-in material");
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        assert_eq!(
+            w.materials.get(corpse).decays_into,
+            Some(soil),
+            "test setup: this test is about carrion weathering to soil, and that is not what the data says"
+        );
+
+        // The same walled damp trough the litter and ash tests use: an open
+        // puddle drains before the moisture field registers it, and `run`
+        // steps the field and the scheduler but not the CA sweep, so nothing
+        // moves out from under a scheduled site.
+        const LEFT: i32 = 10;
+        const RIGHT: i32 = 190;
+        // One ant body cell's worth (`ant.ron`'s `body_energy`), stamped into
+        // `aux` exactly as `creature_dies` stamps it -- an unstamped corpse
+        // books nothing anywhere, by `meat_worth_of`'s own gate, so a test
+        // written on `aux == 0` could not see the booking at all.
+        const WORTH: u16 = 120;
+        for x in LEFT..RIGHT {
+            w.set(x, 100, Cell::new(corpse, 0).with_aux(WORTH));
+            w.schedule_active_site(ActiveSite { x, y: 100, kind: ActiveKind::Decay, next_frame: DECAY_TICK_INTERVAL });
+        }
+        w.set(LEFT - 1, 99, Cell::new(material::STONE, 0));
+        w.set(RIGHT, 99, Cell::new(material::STONE, 0));
+        for x in (LEFT + 2)..(RIGHT - 2) {
+            w.set(x, 99, Cell::new(material::WATER, 0));
+        }
+        let placed = (RIGHT - LEFT) as u32;
+
+        run(&mut w, 20_000);
+
+        // **It fired at all.** Counted rather than read off a soil census:
+        // at a 0.05 yield "no soil" reads the same whether the channel is
+        // dead or merely stingy.
+        let resolved = w.rotted_to_solid + w.rotted_to_nothing;
+        assert!(
+            resolved > placed / 2,
+            "the decay channel barely fired on carrion: {resolved} of {placed} cells resolved"
+        );
+        let standing = (LEFT..RIGHT).filter(|&x| w.get(x, 100).material == corpse).count();
+        assert!(
+            standing < (placed / 4) as usize,
+            "{standing} of {placed} corpses are still standing after 20,000 damp frames; \
+             carrion that never clears is a plug in every gallery an animal dies in"
+        );
+
+        // **The ledger.** One booking per cell that went, at the stamp it
+        // carried, so the total is the count times the worth -- and it is
+        // asserted as an identity rather than as "greater than zero", which
+        // a single stray booking would also satisfy.
+        let gone = placed as usize - standing;
+        assert_eq!(
+            w.energy_ledger.meat_lost,
+            gone as f64 * WORTH as f64,
+            "{gone} corpses rotted and {} was booked to meat_lost; decay is the fourth \
+             destruction path and max_standing_meat stops being a bound if it does not book",
+            w.energy_ledger.meat_lost
+        );
     }
 
     /// **The generalisation, tested on the material it was made for.**

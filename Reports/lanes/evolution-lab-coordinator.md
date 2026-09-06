@@ -681,7 +681,52 @@ bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
 file is a separate, gitignored, runtime-only state file rather than a
 species field, so that argument still holds and was not re-litigated.
 
-## Round ten, 2026-09-06 — scenarios
+## Round ten, 2026-09-06 — the soil layer
+
+*Owner, from play: "when ants dig, the holes often fill up with loose soil"
+and "over time it seems like the soil is disappearing." Branch
+`claude/evolution-lab-soil-layer-tjkyv4`. Shipped behaviour is README's **Lab
+soil status**; the cost is `open-bugs-handoff.md` **§W4**. Only what a later
+session cannot reconstruct is here.*
+
+- **Round three's "the tunnels were never collapsing — `overcap` is 0 in every
+  frame of both arms" is overturned, and the reason is the scene.** `labnest`
+  defaults to `founders: 0`, and a bed with no plants in it is a bed in which
+  **nothing moves the water**. At `founders=8` the same harness reproduces the
+  report outright: `overcap` 0 → **34,779 of 48,000 cells**, lining **234 →
+  40** with the colony still digging. An instrument's default scene is an
+  input like any other.
+- **The un-pack line was `SOIL_FIELD_CAPACITY`, which is where drained ground
+  *rests*, and the lab's bed is built exactly on it.** So every gallery in the
+  box dissolved as soon as anything was planted. `packedsoil.ron`'s own
+  justification — *"above field capacity the pore space is full"* — is right
+  about the physics and named the wrong constant; field capacity is by
+  definition where the drainable pore space has already emptied.
+  `material::SOIL_WATERLOGGED` now, sited in a measured gap (the bed is
+  bimodal: 32,936 damp, 1,476 saturated, **367 anywhere between**).
+- **`corpse` was the only dead-organic material with no `decays_into`**, so a
+  body plugged the gallery it died in for the whole run and locked its matter
+  out of a sealed box (104 of 104 pool cells, 100%). The `dead-ends.md` entry
+  that recorded the silence as deliberate is about the **energy ledger**, not
+  about carrion — read as the latter it kept a real bug alive for months.
+- **The bed drains through *root turnover*, and a single-cohort census cannot
+  see it.** A root borrows a bed cell and used to return 5% of it. `labmass`
+  with no cull reads −1,893 with 1,756 standing as roots (residual 137, looks
+  fine); the same bed culled every 4,000 frames reads **−950 with 282
+  standing — 842 cells destroyed**. Any future claim about this box's mass
+  needs the turnover arm.
+- **The moisture of a returned cell is most of its effect, which nobody would
+  have predicted.** Writing the cell dry, drawing its water off neighbours
+  greedily, and levelling the neighbourhood span **418 / 459 / 411** shed cells
+  on the `reinforces_powder` guard; only *minting* it back at field capacity
+  recovers the number (198), and that cannot ship. In `dead-ends.md`.
+- **The lab's colony still cannot be photographed digging.** The wall census
+  moves 40 → 182 and `roofed` void does not, because the colony starves 52 →
+  17 ants by frame 12,000 and `digs` plateaus. That die-off has been in
+  `labnest`'s output since it was written and is the next thing in the way of
+  the nest being a *place* on screen. It is a food problem, not a soil one.
+
+## Round eleven, 2026-09-06 — scenarios
 
 `Reports/lab-behaviour-scenarios-2026-09-06.md` §4 item 1: a saved bed plus
 build-time placements, a running timeline and parameter settings

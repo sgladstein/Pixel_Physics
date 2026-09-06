@@ -6794,7 +6794,17 @@ mod tests {
 
         let corpse_id = w.materials.id_of("corpse").unwrap();
         assert_eq!(w.get(100, 100).material, corpse_id, "a permanently trapped worm should have starved into a corpse");
-        assert_eq!(w.active_site_count(), 0, "a dead worm should not still be scheduled");
+        // **The dead worm's own site, not every site in the world** -- see the
+        // same narrowing in `a_worm_catches_fire_and_burns_into_a_corpse`. A
+        // corpse schedules a decay site now that carrion has a `decays_into`,
+        // and counting that as "still scheduled" reads the rot channel as a
+        // creature leak.
+        let creature_sites = w
+            .active_sites_for_test()
+            .iter()
+            .filter(|s| !matches!(s.kind, scheduler::ActiveKind::Decay))
+            .count();
+        assert_eq!(creature_sites, 0, "a dead worm should not still be scheduled; sites left: {:?}", w.active_sites_for_test());
         // The half the old scheme could not do at all: the state comes back.
         // `World::creatures` never shrank, so a dead worm's entry stayed
         // allocated for the life of the process.
@@ -6888,7 +6898,21 @@ mod tests {
             w.end_step();
         }
         assert!(w.live_organism_ids().is_empty(), "a worm consumed by fire should have released its organism slot -- the leak the old CreatureState vector could not close");
-        assert_eq!(w.active_site_count(), 0, "and its site should have dropped itself");
+        // **The *creature* site dropped itself.** This asserted a bare
+        // `active_site_count() == 0` until 2026-09-06, which was the same
+        // claim only for as long as a corpse could schedule nothing: giving
+        // `corpse` a `decays_into` means the settled chunk now schedules a
+        // decay site over the body, and the assertion went red for carrion
+        // rotting -- which is the mechanism working, not the leak this test
+        // is named for. `CLAUDE.md`: a guard's green must depend on the thing
+        // it guards, and this one's depended on the absence of a second
+        // mechanism.
+        let creature_sites = w
+            .active_sites_for_test()
+            .iter()
+            .filter(|s| !matches!(s.kind, scheduler::ActiveKind::Decay))
+            .count();
+        assert_eq!(creature_sites, 0, "and its site should have dropped itself; sites left: {:?}", w.active_sites_for_test());
     }
 
     #[test]
@@ -7158,10 +7182,24 @@ mod tests {
         // colony died packed together, and one that demanded zero would be a
         // test of how crowded the scene happened to get. The bound is what
         // keeps it from becoming the old behaviour by degrees.
+        // **Carrion is now a *source* of ground, and the identity has to say
+        // so.** `corpse` gained a `decays_into: "soil"` on 2026-09-06, so an
+        // ant that dies in this scene and rots puts a soil cell back into the
+        // census -- measured at `296 -> 298` when this was a bare equality,
+        // which read as "digging is manufacturing ground" and is the opposite
+        // of what happened. `rotted_to_solid - rotted_onward` is the count of
+        // decays that ended a chain, which here can only be corpse -> soil:
+        // nothing else in this scene decays, and `soil` has no `decays_into`
+        // of its own so it can never be the *onward* half.
+        //
+        // Kept as an equality rather than relaxed to `>=`. A one-sided bound
+        // would pass for an engine that mints ground freely, which is the
+        // failure this test exists to catch from the other direction.
+        let made = (w.rotted_to_solid - w.rotted_onward) as usize;
         assert_eq!(
             after + lost,
-            before,
-            "ground cells {before} -> {after} (+{lost} lost with their carriers) over {digs} digs and {dumped} dumps: digging is still eating the bed"
+            before + made,
+            "ground cells {before} -> {after} (+{lost} lost with their carriers, +{made} rotted back from carrion) over {digs} digs and {dumped} dumps: digging is still eating the bed"
         );
         assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
