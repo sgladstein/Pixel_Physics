@@ -420,6 +420,61 @@ nutrient to the soil is the conservation §3 needs.
 
 ## 3. The nutrient, and its now-smaller job
 
+> **BUILT 2026-09-06, and shipped INERT.** §3a's storage, §3b's time
+> recovery, §3c's construction pricing and §3d's placement are all in the
+> tree behind `PIXEL_PHYSICS_NUTRIENT=<initial>`, default `0` = off. What is
+> **not** done is the calibration sweep, and that is deliberate rather than
+> unfinished: `CLAUDE.md` says a correct mechanism at inherited constants is
+> a regression, and every number below (`initial`, the per-tick draw,
+> recovery, `NUTRIENT_STARVED_COST`) is a first guess.
+>
+> **Why it was built after all**, given §1 ranked it second and the roots
+> work then refuted the premise it was ranked on: the refutation was of an
+> immobile nutrient *as the cheapest lever to make roots pay*. The gate was
+> that lever and it shipped in #246. This is a different claim, reported
+> from play and never tested here — **soil must supply something water
+> cannot**, or a lit plant with a drip on it has everything the engine
+> prices and cannot die. That was the evolution lab's floating plant.
+>
+> **One exploratory run, n=1, unswept**, lab box at 30,000 frames,
+> `initial=200 recovery=1 draw=1`, paired against off with
+> `RAYON_NUM_THREADS` pinned: cells **9,393 → 7,509** (0.80x), plants 481 →
+> 456, biggest 497 → 480, and **roots reach 34 → 22 rows**.
+>
+> **That last column was the finding, and it pointed at §3c.** Pricing
+> *construction* taxed root growth along with everything else, so a nutrient
+> shortage made a plant build **fewer** roots — the opposite of foraging,
+> and against the root gate #246 shipped.
+>
+> **§3c amended 2026-09-06: root tissue is exempt from the construction
+> penalty.** Charging scarcity prices to build a root is a deadlock — roots
+> are the only way to reach more nutrient, so a plant short of it cannot
+> afford the one thing that fixes the shortage. Preferred over adding a
+> nutrient term to `allocate_to_frontier`'s `root_weight` (the prior art
+> beside `ROOT_BIAS_AT_FULL_WATER`) because that weight sits in a sum whose
+> terms are calibrated against each other, and `CLAUDE.md` is explicit that
+> changing what one term can express reallocates the whole sum. Changing a
+> *price* lets the existing economy do the shifting: under scarcity shoots
+> get dear and roots do not.
+>
+> **Measured, four paired founder counts, lab box at 30,000 frames,
+> `RAYON_NUM_THREADS` pinned:**
+>
+> | founders | cells off → on | roots reach off → on |
+> |---|---|---|
+> | 4 | 0.84x | **1.17x** |
+> | 6 | 0.92x | **1.38x** |
+> | 8 | 1.07x | **1.55x** |
+> | 12 | 0.84x | 0.76x |
+>
+> **Root depth up on 3 of 4, median ≈1.28x** — against **0.65x** on the one
+> arm measured before the exemption, so the sign is reversed. It is *not*
+> unanimous, and the stand shrinks on 3 of 4 (median ≈0.88x), which is what
+> a tax should do. Still inert; the constants are still first guesses, and
+> founders=12 going the other way is the first thing a real sweep should
+> explain.
+
+
 Restoring the depletion zone (§1 item 1) plausibly delivers **S1 and S2**
 below. What it cannot deliver is **S3**, because two viable root
 morphologies need two resource axes with *different spatial distributions* —
