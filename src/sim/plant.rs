@@ -16522,6 +16522,80 @@ cluster {leaf_cluster} gave {got}, expected {want}"
         }
     }
 
+    /// **The switched-on half, which the test above cannot give.**
+    ///
+    /// A `OnceLock` is read once per process, so the inert assertions
+    /// above and this one cannot live in the same run. This is the arm
+    /// that says the mechanism does what it was built for:
+    ///
+    /// ```text
+    /// PIXEL_PHYSICS_NUTRIENT=200 cargo test --lib --release -- --ignored \
+    ///     a_plant_with_no_soil_earns_nothing_once_the_switch_is_on
+    /// ```
+    ///
+    /// **What it proves, and what it leaves to code already under test.**
+    /// It proves the two ends that are new: a plant whose roots touch only
+    /// free water reads `nutrient_status` **0**, and at that status the
+    /// income multiplier is **0**. The link from there to death is
+    /// `organism_upkeep`'s existing starvation rule — `income <
+    /// MAINTENANCE_PER_CELL * (root_cells + shoot_cells)` for
+    /// `STARVATION_DEATH_TICKS` — which §V2 already owns and guards.
+    ///
+    /// Deliberately *not* a grown-plant scene. Taking the soil out from
+    /// under a live plant also takes its anchor (`is_structural_anchor`
+    /// wants soil or anchoring solid, and water is neither), so such a
+    /// scene cannot separate "starved" from "fell apart" — which is
+    /// exactly the confound `CLAUDE.md` warns a scene error produces.
+    #[test]
+    #[ignore = "needs PIXEL_PHYSICS_NUTRIENT set; see the doc comment"]
+    fn a_plant_with_no_soil_earns_nothing_once_the_switch_is_on() {
+        assert!(
+            nutrient_initial() > 0,
+            "this arm is meaningless with the mechanism off -- run it with PIXEL_PHYSICS_NUTRIENT=200"
+        );
+        assert!(
+            nutrient_income_weight() > 0.0,
+            "this arm is meaningless at income weight 0 -- that setting is the identity by design"
+        );
+
+        /// -> (nutrient status, income multiplier) for a root whose only
+        /// drinkable face is `source`.
+        fn arm(source: &str) -> (f32, f32) {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::RootTip, (0.0, 0.0));
+            let cell = match source {
+                "soil" => {
+                    let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                    Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                }
+                _ => Cell::new(material::WATER, 0),
+            };
+            w.set(60, 61, cell);
+            organism_upkeep(&mut w, id);
+            let status = w.organism(id).expect("alive").nutrient_status;
+            (status, nutrient_income_multiplier(&w, id))
+        }
+
+        let (soil_status, soil_income) = arm("soil");
+        let (drip_status, drip_income) = arm("water");
+        println!(
+            "switch ON (initial {}, income weight {}):\n  root over soil:  status {soil_status:.3}  income x{soil_income:.3}\n  root over drip:  status {drip_status:.3}  income x{drip_income:.3}",
+            nutrient_initial(),
+            nutrient_income_weight(),
+        );
+
+        assert!(soil_income > 0.5, "a root in fresh soil must still earn: x{soil_income:.3}");
+        assert_eq!(
+            drip_income, 0.0,
+            "a plant whose roots touch no soil must earn NOTHING at income weight 1, not x{drip_income:.3}. \
+This is the whole of what the construction price could not do: starvation reads income against cell count, \
+and a price on building is in neither side of it."
+        );
+    }
+
     /// **The floating plant reads as fully fed, and it is the case the
     /// nutrient was built for.**
     ///
