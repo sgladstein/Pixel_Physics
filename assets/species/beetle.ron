@@ -111,8 +111,14 @@
         // mouthful it took before. It also makes the beetle blind to every
         // plant food in the world for free, which the name-list was doing
         // by omission.
-        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0),
-        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15),
+        // Scent authored at (0.8, 0.8, 0.8) against the ant's origin -- 1.39
+        // apart, outside an authored tolerance radius of 1.0, so a beetle is
+        // not already inside an ant's family the day `kin_crosses_kinds`
+        // is turned on.
+        traits: (1.0, 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.8, 0.8, 0.8, 0.0),
+        // The last four entries (the scent signature and tolerance) are not
+        // read -- their width is the `scent_drift` field, not a tuple entry.
+        trait_variance: (0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.15, 0.0, 0.0, 0.0, 0.0),
 
         // **A beetle can breed, and until 2026-09-05 it could not — the
         // field was simply absent.** `#[serde(default)]` made it 0.0 and

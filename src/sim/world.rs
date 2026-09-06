@@ -239,6 +239,13 @@ pub struct GroupDeaths {
     pub killed_by: Vec<(organism::SpeciesId, u32, u64)>,
 }
 
+/// The fewest animals a drifted cluster needs before `World::regroup_by_scent`
+/// names it as a group of its own. Three, because a line on the ANTS page
+/// drawn for one animal is noise, and because a lone wanderer that keeps its
+/// old label is still counted, coloured and bitten correctly -- only its
+/// name is behind.
+pub const MIN_SPLIT_GROUP: usize = 3;
+
 /// One colony's standing count — `World::live_creature_groups`'s row.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CreatureGroup {
@@ -1517,29 +1524,13 @@ pub struct World {
     /// contract as `next_lineage`: starts at 1 so 0 means "no colony", only
     /// ever goes up, is not an index into anything.
     next_colony: u32,
-    /// **Whether two colonies of one species are strangers to each other.**
-    ///
-    /// Off, kin is the species: every ant is every other ant's nestmate,
-    /// whichever click put it down, and two colonies founded a screen apart
-    /// aggregate on each other, follow each other's trails and never bite
-    /// each other. That is the shipped behaviour and this defaults to it.
-    ///
-    /// On, `creature::is_living_kin` also requires the same
-    /// `OrganismState::colony`, so an ant from the other colony is not kin
-    /// -- and therefore, to a gut whose diet axis reaches flesh, is prey.
-    /// Nothing else changes: there is no aggression verb, so what "rivalry"
-    /// buys today is that hungry ants eat the other colony's ants exactly
-    /// as they would eat a beetle, and the kin sense stops pulling the two
-    /// colonies together. What it does *not* buy, and is recorded in
-    /// `Reports/creature-groups-and-combat-design-2026-09-06.md`, is
-    /// separate scent: both colonies still lay and read the same two
-    /// pheromone planes.
-    ///
-    /// A field on the world rather than a species field, for
-    /// `plant_load_failure`'s reason: it is a rule of the box, reachable
-    /// from the parameters page while the box runs, and carried across a
-    /// rebuild by `lab::params::Dials`.
-    pub colony_rivalry: bool,
+    /// **Which colony labels were minted off which**, as `(child, parent)`
+    /// in minting order -- the record behind `group_label`, so a group the
+    /// box named when a lineage drifted out of its colony reads `ANT 3b`
+    /// on the legend rather than `ANT 7`. Written only by
+    /// `regroup_by_scent`; a founding gesture's label has no parent. Small
+    /// and append-only, for `next_colony`'s reason: a label is never reused.
+    pub colony_parents: Vec<(u32, u32)>,
     /// **How far a lineage may evolve on the two arms-race slots** --
     /// `creature::ARMS_RACE_SLOTS`, which is armour and the jaw -- as a
     /// multiple of the `[-1, 1]` axis every other trait shares.
@@ -1550,7 +1541,7 @@ pub struct World {
     /// a lineage that has *evolved* past the old ceiling reads differently.
     ///
     /// **Why it is a rule of the box and not a species field**: the same
-    /// reasoning as `colony_rivalry` beside it, plus one that is specific to
+    /// reasoning the retired `colony_rivalry` switch had, plus one that is specific to
     /// this number -- it is read by *both* animals in a fight, and a reach
     /// authored per species would let an ant and a beetle disagree about how
     /// wide the axis they are being compared on is.
@@ -2997,7 +2988,7 @@ impl World {
             organism_generation_wraps: 0,
             next_lineage: 1,
             next_colony: 1,
-            colony_rivalry: false,
+            colony_parents: Vec::new(),
             trait_reach: creature::TRAIT_REACH_DEFAULT,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
@@ -4294,6 +4285,169 @@ impl World {
             Some((_, _, n)) => *n += 1,
             None => row.killed_by.push((attacker.0, attacker.1, 1)),
         }
+    }
+
+    /// **What a group is called on the legend and in every readout**: the
+    /// species in capitals and the label -- `ANT 3` is the third thing the
+    /// player put down -- and, for a label the box minted when part of a
+    /// colony drifted out of it, the parent's name with a letter: `ANT 3b`
+    /// is the first group to split off `ANT 3`, `ANT 3c` the second,
+    /// `ANT 3bb` the first to split off `3b`. One definition, read by the
+    /// ANTS page, the legend's killer notes, the roster and `labstats`, so
+    /// the name a war is read off cannot be spelt two ways.
+    pub fn group_label(&self, species: organism::SpeciesId, colony: u32) -> String {
+        let name = self.species.get(species).name.to_uppercase();
+        match self.colony_parents.iter().find(|(child, _)| *child == colony) {
+            None => format!("{name} {colony}"),
+            Some(&(_, parent)) => {
+                // Which child of its parent this is, in minting order:
+                // the first gets `b` (the parent itself is the implicit
+                // `a`), the 25th `z`, and past that the raw number so the
+                // name stays unique rather than pretty.
+                let nth = self.colony_parents.iter().filter(|(_, p)| *p == parent).position(|(c, _)| *c == colony).unwrap_or(0);
+                let suffix = if nth < 25 { ((b'b' + nth as u8) as char).to_string() } else { format!("-{}", nth + 1) };
+                format!("{}{suffix}", self.group_label(species, parent))
+            }
+        }
+    }
+
+    /// **Let the colony label follow the scent.** Within every `(species,
+    /// label)` group, the animals that are still mutually family -- each
+    /// inside the other's tolerance, `creature::scent_accepts` both ways --
+    /// stay one group; every connected cluster of them that has parted from
+    /// the cluster holding the group's oldest founding line is given a
+    /// fresh label minted as that group's child (`colony_parents`), so the
+    /// ANTS page draws it as its own line under its own name and the kill
+    /// tally books its deaths to it. Returns how many labels were minted.
+    ///
+    /// **The label is a *name* for a cluster that already exists in the
+    /// data, not the thing that makes the cluster** -- the design report's
+    /// own words (`creature-groups-and-combat-design-2026-09-06.md` §3b),
+    /// and the reason this rewrites `OrganismState::colony` rather than
+    /// carrying a second partition beside it: one partition means the
+    /// colour an animal wears, the line it is counted on, the group its
+    /// death is booked to and the kin it bites are all the same fact.
+    ///
+    /// **Splits only; never merges.** Two clicks that smell alike are still
+    /// two groups -- placement identity is the player's and the shipped
+    /// behaviour, and a pass that folded them together the moment the
+    /// scent dials were at zero would erase the census PR #255 built.
+    /// Adoption (a lineage drifting *into* another group's family) is
+    /// therefore visible in the kill tally and the kin sense, not yet as a
+    /// relabelling; that is a deliberate first cut and is recorded in the
+    /// signature report.
+    ///
+    /// **Which cluster keeps the name**: the one holding the lowest
+    /// `lineage` -- the group's oldest surviving founding line -- and the
+    /// rest are minted in the order of their own lowest lineage. A
+    /// founder's lineage is the most stable identity an animal carries, so
+    /// a split colony keeps its name across samples for as long as any
+    /// descendant of its earliest founder lives; nothing here depends on a
+    /// previous sample, hash order or float iteration order, and two
+    /// identical worlds mint identical names.
+    ///
+    /// **Cost**: a group whose every signature is one point -- which is
+    /// every group while `scent_spread` and `scent_drift` are zero -- is
+    /// one pass over its members and no pairwise work at all, so the
+    /// shipped bed pays a comparison per animal per sample. A drifted group
+    /// of `k` pays `k(k-1)/2` three-term distances, which at the lab's few
+    /// hundred animals is well under a millisecond; it is run at the ANTS
+    /// page's sample cadence, never per tick. Clusters under
+    /// `MIN_SPLIT_GROUP` animals are not minted: a single wanderer is not a
+    /// new kind, it is an ant on its own, and it keeps its old label until
+    /// it has descendants enough to be a line on the graph.
+    pub fn regroup_by_scent(&mut self) -> usize {
+        use crate::sim::creature::scent_accepts;
+        /// One animal as the pass sees it: its handle, its founding line
+        /// and the traits its scent and tolerance are read from.
+        struct Member {
+            id: u16,
+            lineage: u32,
+            traits: [f32; organism::CREATURE_TRAITS],
+        }
+        // Members per (species, label).
+        let mut groups: Vec<((organism::SpeciesId, u32), Vec<Member>)> = Vec::new();
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let key = (state.species, state.colony);
+            let member = Member { id, lineage: state.lineage, traits: state.traits };
+            match groups.iter_mut().find(|(k, _)| *k == key) {
+                Some((_, members)) => members.push(member),
+                None => groups.push((key, vec![member])),
+            }
+        }
+        let mut minted = 0;
+        for ((species, label), members) in groups {
+            if members.len() < 2 {
+                continue;
+            }
+            // The fast path: one scent, one family, nothing to do.
+            let first = crate::sim::creature::scent_of(&members[0].traits);
+            if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
+                continue;
+            }
+            // Union-find over mutual kin.
+            let n = members.len();
+            let mut parent: Vec<usize> = (0..n).collect();
+            fn find(p: &mut [usize], i: usize) -> usize {
+                let mut i = i;
+                while p[i] != i {
+                    p[i] = p[p[i]];
+                    i = p[i];
+                }
+                i
+            }
+            for i in 0..n {
+                for j in (i + 1)..n {
+                    if scent_accepts(&members[i].traits, &members[j].traits) && scent_accepts(&members[j].traits, &members[i].traits) {
+                        let (a, b) = (find(&mut parent, i), find(&mut parent, j));
+                        if a != b {
+                            parent[a.max(b)] = a.min(b);
+                        }
+                    }
+                }
+            }
+            // Clusters, each carrying its lowest lineage.
+            let mut clusters: Vec<(u32, Vec<u16>)> = Vec::new();
+            let mut root_of: Vec<(usize, usize)> = Vec::new();
+            for (i, member) in members.iter().enumerate() {
+                let r = find(&mut parent, i);
+                let at = match root_of.iter().find(|(root, _)| *root == r) {
+                    Some(&(_, at)) => at,
+                    None => {
+                        clusters.push((u32::MAX, Vec::new()));
+                        root_of.push((r, clusters.len() - 1));
+                        clusters.len() - 1
+                    }
+                };
+                clusters[at].0 = clusters[at].0.min(member.lineage);
+                clusters[at].1.push(member.id);
+            }
+            if clusters.len() < 2 {
+                continue;
+            }
+            clusters.sort_by_key(|(lineage, ids)| (*lineage, ids[0]));
+            // The first keeps the label; the rest, if big enough to be a
+            // line, are minted as its children in that order.
+            for (_, ids) in clusters.iter().skip(1) {
+                if ids.len() < MIN_SPLIT_GROUP {
+                    continue;
+                }
+                let child = self.claim_colony();
+                self.colony_parents.push((child, label));
+                for &id in ids {
+                    if let Some(state) = self.organism_mut(id) {
+                        debug_assert_eq!(state.species, species);
+                        state.colony = child;
+                    }
+                }
+                minted += 1;
+            }
+        }
+        minted
     }
 
     pub fn live_creature_groups(&self) -> Vec<CreatureGroup> {

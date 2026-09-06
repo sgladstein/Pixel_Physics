@@ -1,14 +1,18 @@
 # Ants
 
-*Current as of: 2026-09-06, when **how far a lineage may get from its
+*Current as of: 2026-09-06, when **who is family became a matter of scent**
+-- every animal carries a heritable scent and a heritable tolerance, two
+colonies start a little apart and drift, and a lineage that drifts out of its
+family is named as a new group on the ants page, so an ant is no longer
+always an ant; see "Who is family" below. The same day, **how far a lineage may get from its
 ancestors, on the shell and on the jaw, became something you set** — the two
 things that are measured against each other in a fight shared the same narrow
 range as everything else, and that range was too narrow for an ant's shell
 ever to catch up with an ant's bite, so ants killed ants in one bite whoever
 bit first. The box still opens exactly where it always did; wound up, a line
 can grow a shell that takes half a dozen bites, and another can grow the jaw
-that answers it. Earlier the same day, **an animal that can see gained a sense for
-what hunts it** — the nearest animal whose stomach would take its flesh, how
+that answers it. Earlier the same day, **an animal
+that can see gained a sense for what hunts it** — the nearest animal whose stomach would take its flesh, how
 near and which way — so running, hiding and warning the nest are things a
 lineage can now be born knowing, where before nothing in the animal could
 notice a hunter at all. Nothing that ships is born using it, and the ants
@@ -248,26 +252,41 @@ it was. Digging is unaffected, which was the thing the price was introduced to
 make worth choosing.
 
 **Who is family.** An ant knows one thing about another animal: whether it
-is *its own kind*. Its own kind it will never bite, will walk over rather
-than around, and will drift toward when it can sense one nearby; anything
-else is either food, if its stomach can digest that sort of flesh, or
-furniture. There is no notion of an enemy — a beetle eats an ant because an
-ant is meat and the beetle is hungry, not because they are at war, and an
-ant standing next to a beetle will bite it for the same reason and no
-other. Since 2026-09-06 "its own kind" can be narrower than the species.
-Every group you put down — a colony from one click, a single animal, a jar
-you release — is a colony of its own, and a child belongs to its parent's.
-Left alone that is only a label: it decides the colour an animal wears and
-which line on the ants page counts it. Turn on colony rivalry (on the
-parameters page, under the ants) and it decides family too: an ant from
-another colony is a stranger, so a hungry one will eat it, and the two
-colonies stop gathering together. What rivalry does *not* do is make
-anyone fight for its own sake — nobody attacks a stranger it is not going
-to eat, nobody runs from one, and both colonies still lay and follow one
-shared set of scent trails, so a rival's path to food is as good as your
-own. An ant is still always an ant: however far its line drifts, it never
-becomes a new kind that other ants treat as foreign. That is the next thing
-on the creature line and it is written up, not built.
+is *family*. Family it will never bite, will walk over rather than around,
+and will drift toward when it can sense one nearby; anything else is either
+food, if its stomach can digest that sort of flesh, or furniture. There is
+no notion of an enemy — a beetle eats an ant because an ant is meat and the
+beetle is hungry, not because they are at war, and an ant standing next to
+a beetle will bite it for the same reason and no other. Since 2026-09-06
+family is a matter of **scent**. Every animal carries a scent it was born
+with — three numbers, inherited from its parent with a little drift — and a
+**tolerance**: how far another animal's scent may be from its own and still
+count as family. Both are heritable. A beetle never counts as an ant's
+family, however alike they smell, unless you turn that rule off on the
+parameters page. Every group you put down — a colony from one click, a
+single animal, a jar you release — starts at its kind's scent plus a small
+offset of its own, and its children inherit that; so two clicks are one
+family while they smell alike and strangers once they have drifted apart,
+and a hungry ant will then eat one from the other click exactly as it would
+eat a beetle. Two dials set how fast that happens. **Colony scent spread**
+is how different two clicks smell to begin with (at the shipped setting of
+zero they are identical, and every ant is every ant's family, which is what
+the box always did); **scent drift** is how far a newborn's scent moves from
+its parent's (at zero, never). Turn drift up and a colony's lineages wander
+apart until some of them are strangers to the rest — at which point the ants
+page names the wanderers as a new group of their own (`ANT 1b`, split off
+`ANT 1`), draws them as their own line in their own colour, and the two
+start to bite each other when hungry. That is the answer to *is an ant
+always an ant*: no longer. Tolerance is judged from each animal's own side,
+so a tolerant lineage next to an intolerant one keeps walking up to animals
+that will bite it — which is what being raided looks like, and what being
+adopted looks like, and nobody wrote a rule for either. The old *colony
+rivalry* switch is gone: what it did (every click a stranger to every other)
+is spread at 1 and tolerance at −1. What scent does *not* do: nobody attacks
+a stranger it is not going to eat, nobody runs from one, and both colonies
+still lay and follow one shared set of trails. A colony that has split
+keeps only its name and its line apart; the two halves do not yet merge back
+if they drift together again.
 
 **They can see what hunts them, if they can see at all.** An animal with
 eyes used to see two things at a distance: something it could eat, and its
