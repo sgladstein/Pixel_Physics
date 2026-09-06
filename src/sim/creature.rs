@@ -4568,8 +4568,12 @@ fn step_chain(
     });
     if !supported {
         let fallen: Vec<(i32, i32)> = chain.iter().map(|&(cx, cy)| (cx, cy + 1)).collect();
-        if landing_is_placeable(world, &chain, &fallen) {
-            relocate_chain(world, organism, &chain, &fallen);
+        // Tissue-aware for the same reason the step below is: an animal
+        // that walked into a crown must be able to fall out of it, and a
+        // fall refused because a leaf is in the way is the frozen-on-water
+        // failure `colony_ant_site` records, wearing foliage.
+        if landing_is_placeable_through_tissue(world, &chain, &fallen, push_force_of(world, organism, def)) {
+            relocate_chain(world, organism, def, &chain, &fallen);
             world.creature_stats.falls += 1;
             return true;
         }
@@ -4594,6 +4598,10 @@ fn step_chain(
     let mut passable = [false; 3];
     // Resolved once for all three candidates -- see `kin_footing`.
     let kin = kin_footing(world, organism, def);
+    // ...and so is the push force, for the same reason: it is a per-animal
+    // constant over this tick and the candidate loop would otherwise
+    // re-derive it three times.
+    let push = push_force_of(world, organism, def);
     for (i, &d) in dirs.iter().enumerate() {
         let (dx, dy) = DIRS[d as usize];
         let (tx, ty) = (hx + dx, hy + dy);
@@ -4611,7 +4619,12 @@ fn step_chain(
         // the reason a wide predator cannot follow a narrow ant into its
         // tunnel.
         let landing = body_after_step(def, &chain, (tx, ty), heading, d);
-        passable[i] = landing_is_placeable(world, &chain, &landing);
+        // **Soft living tissue is not a wall.** See
+        // `landing_is_placeable_through_tissue` and `is_soft_tissue`: a
+        // grid cell cannot hold the air inside a bush, so foliage draws
+        // solid when it physically is not, and this is the correction for
+        // that rather than a licence to walk through wood.
+        passable[i] = landing_is_placeable_through_tissue(world, &chain, &landing, push);
         // **Footing, not just emptiness — and this was measured, not
         // anticipated.** Without it the counters read 16,451 falls against
         // 22,138 moves: an ant on flat ground steps diagonally up into open
@@ -4664,6 +4677,58 @@ fn step_chain(
         // that was about to do nothing anyway.
         tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
+        // **What was in the way — tissue, or the world?** `moves_blocked`
+        // alone cannot say, and a colony stuck against a bush and one stuck
+        // against rock want opposite fixes. Off the hot path in the sense
+        // that it only runs on a tick that has already given up and drawn
+        // from the RNG; the three re-tests are the same eight-cell scan the
+        // loop above just did.
+        {
+            let force = dig_force_of(def, &traits_of(world, organism, def));
+            let mut tissue_seen = false;
+            let mut freed = false;
+            let mut freed_any = false;
+            for (i, &d) in dirs.iter().enumerate() {
+                if passable[i] {
+                    continue;
+                }
+                let (dx, dy) = DIRS[d as usize];
+                let landing = body_after_step(def, &chain, (hx + dx, hy + dy), heading, d);
+                // **Any living tissue, not only the soft kind** -- this is the
+                // attribution ("what was in the way"), and answering it with
+                // the same force gate the remedy uses would make a trunk
+                // invisible to the census that is supposed to say trunks are
+                // the problem.
+                if landing.iter().any(|&(px, py)| is_soft_tissue(world, world.get(px, py), f32::INFINITY)) {
+                    tissue_seen = true;
+                    for &(px, py) in landing.iter() {
+                        let m = world.get(px, py).material;
+                        if is_soft_tissue(world, world.get(px, py), f32::INFINITY) {
+                            let idx = m.0 as usize;
+                            if world.blocked_tissue_by_material.len() <= idx {
+                                world.blocked_tissue_by_material.resize(idx + 1, 0);
+                            }
+                            world.blocked_tissue_by_material[idx] += 1;
+                        }
+                    }
+                }
+                if landing_is_placeable_through_tissue(world, &chain, &landing, force) {
+                    freed = true;
+                }
+                if landing_is_placeable_through_tissue(world, &chain, &landing, f32::INFINITY) {
+                    freed_any = true;
+                }
+            }
+            if tissue_seen {
+                world.creature_stats.blocked_by_plant += 1;
+            }
+            if freed {
+                world.creature_stats.blocked_tissue_freed += 1;
+            }
+            if freed_any {
+                world.creature_stats.blocked_tissue_freed_any += 1;
+            }
+        }
         // The hot one: 29,344 blocked ticks against 41,843 moves on the
         // colony scene. Still one decode plus a `Vec::get_mut`, on a path
         // that has just scanned eight cells and drawn from the RNG.
@@ -4687,7 +4752,7 @@ fn step_chain(
     let (tx, ty) = (hx + dx, hy + dy);
 
     let next = body_after_step(def, &chain, (tx, ty), heading, new_heading);
-    relocate_chain(world, organism, &chain, &next);
+    relocate_chain(world, organism, def, &chain, &next);
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
@@ -5164,7 +5229,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             break;
         }
         if let Some(to) = translated_if_free(world, &cells, sx, sy) {
-            relocate_chain(world, organism, &cells, &to);
+            relocate_chain(world, organism, def, &cells, &to);
             cells = to;
             flight.fx -= sx as f32;
             flight.fy -= sy as f32;
@@ -5176,7 +5241,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         // slide along it, not stop dead in the air.
         if sy != 0 {
             if let Some(to) = translated_if_free(world, &cells, 0, sy) {
-                relocate_chain(world, organism, &cells, &to);
+                relocate_chain(world, organism, def, &cells, &to);
                 cells = to;
                 flight.fy -= sy as f32;
                 moves += 1;
@@ -5189,7 +5254,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         }
         if sx != 0 {
             if let Some(to) = translated_if_free(world, &cells, sx, 0) {
-                relocate_chain(world, organism, &cells, &to);
+                relocate_chain(world, organism, def, &cells, &to);
                 cells = to;
                 flight.fx -= sx as f32;
                 moves += 1;
@@ -5369,6 +5434,49 @@ fn landing_is_placeable(world: &World, chain: &[(i32, i32)], landing: &[(i32, i3
     landing.iter().enumerate().all(|(i, &p)| (world.is_empty(p.0, p.1) || chain.contains(&p)) && !landing[..i].contains(&p))
 }
 
+/// **Is this cell living plant tissue soft enough for a body of `force` to
+/// push through?**
+///
+/// Three conditions, and each one is load-bearing:
+///
+/// - **`MaterialKind::Plant`**, so this is about tissue and never about
+///   rock, powder, clutter or another animal.
+/// - **`organism_id() != 0` — it has to be *alive*.** The same gate
+///   `Material::climbable` is read behind, for the identical reason
+///   `wood.ron` states: a grown tree and a `wood` wall someone painted are
+///   the same material and must behave differently. Debris is no softer for
+///   having once been a leaf, so `deadleaf` and `litter` (both `Powder`)
+///   are excluded by the kind test above regardless.
+/// - **`penetration_resistance <= force`**, which is the pattern roots and
+///   `act`'s dig gate already use and is deliberately *not* a material-name
+///   whitelist: a future soft tissue becomes passable with no code change,
+///   and heartwood stays solid because it never authored a resistance and
+///   sits at the 100.0 default.
+///
+/// The armour table is already authored for this and was not invented here:
+/// `leaf`, `flower` and `moss` at 0.1 and `fruit` at 0.2 against `ant.ron`'s
+/// `dig_force: 1.0` and `beetle.ron`'s 0.3, while `wood` and `rootwood`
+/// author none at all.
+fn is_soft_tissue(world: &World, cell: Cell, force: f32) -> bool {
+    cell.organism_id() != 0
+        && world.materials.kind(cell.material) == MaterialKind::Plant
+        && world.materials.get(cell.material).penetration_resistance <= force
+}
+
+/// `landing_is_placeable`, but with soft living tissue counted as free.
+///
+/// **Measurement only for now** — nothing moves through anything on the
+/// strength of this. It exists so the blocked path can say what a
+/// pass-through rule would be *worth* before one is built, which is the
+/// positive control `CLAUDE.md` asks for: a candidate refused by a leaf and
+/// a rock at once is still refused, and only the difference between the two
+/// predicates says which blocked ticks tissue actually owns.
+fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)], force: f32) -> bool {
+    landing.iter().enumerate().all(|(i, &p)| {
+        (world.is_empty(p.0, p.1) || chain.contains(&p) || is_soft_tissue(world, world.get(p.0, p.1), force)) && !landing[..i].contains(&p)
+    })
+}
+
 /// Where this creature's cells end up if its head steps to `head`.
 ///
 /// The two body plans differ **only here**, which is the whole reason
@@ -5545,7 +5653,7 @@ impl Kin {
 /// P-1: the `Cell` values are moved, not rebuilt, so temperature,
 /// `FLAG_BURNING` and the burn timer ride along for every cell. A chain is
 /// where that matters most — a rebuild forgets once per cell per step.
-fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(i32, i32)]) {
+fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, from: &[(i32, i32)], to: &[(i32, i32)]) {
     // **The two ways this silently loses a cell, made loud.** `zip` is the
     // trap: a `to` shorter than `from` drops the tail's `Cell` on the floor
     // and a longer one leaves `state.chain` claiming a position that holds
@@ -5562,15 +5670,118 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         "a body cannot occupy one cell twice: {to:?} — the caller skipped landing_is_placeable"
     );
     let cells: Vec<Cell> = from.iter().map(|&(cx, cy)| world.get(cx, cy)).collect();
+
+    // **Lift the foliage this step is about to stand in.** Read before
+    // anything is written, because the body's own cells are about to be
+    // cleared and a `to` position that is also a `from` position holds the
+    // animal rather than a plant. Only genuinely new ground is parted; a
+    // cell the body already occupies is already accounted for in `parted`.
+    let force = push_force_of(world, organism, def);
+    let newly_parted: Vec<organism::Parted> = to
+        .iter()
+        .filter(|p| !from.contains(p))
+        .filter_map(|&(px, py)| {
+            let cell = world.get(px, py);
+            is_soft_tissue(world, cell, force).then(|| organism::Parted {
+                x: px,
+                y: py,
+                cell,
+                scalars: world.organism_cell(px, py).cloned().unwrap_or_default(),
+            })
+        })
+        .collect();
+
     for &(cx, cy) in from {
         world.set(cx, cy, Cell::EMPTY);
     }
+
+    // **Close the foliage behind the animal**, before the body is laid down
+    // and after `from` is cleared -- so a leaf owed back to a cell the body
+    // is stepping off lands in ground that is empty again. Anything still
+    // under the new body stays held and is carried forward below.
+    let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
+    let mut still_held: Vec<organism::Parted> = Vec::new();
+    for entry in held {
+        if to.contains(&(entry.x, entry.y)) {
+            still_held.push(entry);
+            continue;
+        }
+        restore_parted(world, &entry);
+    }
+
     for (&(cx, cy), &cell) in to.iter().zip(&cells) {
         world.set(cx, cy, cell);
     }
+    still_held.extend(newly_parted);
     if let Some(state) = world.organism_mut(organism) {
         state.chain = to.to_vec();
+        state.parted = still_held;
     }
+}
+
+/// Put one lifted tissue cell back exactly as it was, scalars included.
+///
+/// **The scalars are a second write and not a nicety.** `World::set`'s seam
+/// hands a cell a fresh, zeroed `OrganismCell` whenever its owner changes,
+/// so the write above restores the leaf and forgets its carbon; this is
+/// what puts the carbon back. See `organism::Parted`.
+fn restore_parted(world: &mut World, entry: &organism::Parted) {
+    world.set(entry.x, entry.y, entry.cell);
+    if let Some(scalars) = world.organism_cell_mut(entry.x, entry.y) {
+        *scalars = entry.scalars.clone();
+    }
+}
+
+/// **Everything this animal is holding out of the world, given back.**
+///
+/// The death exit named in `OrganismState::parted`'s doc. Called before the
+/// corpse is written, so tissue reclaims its own cells and the corpse is
+/// laid only where there is room for it: a bush closes over an ant that
+/// dies inside it, which is both the right picture and the only ordering
+/// that cannot leave a leaf deleted.
+fn return_parted(world: &mut World, organism: u16) {
+    let held = world.organism(organism).map_or(Vec::new(), |state| state.parted.clone());
+    for entry in &held {
+        restore_parted(world, entry);
+    }
+    if let Some(state) = world.organism_mut(organism) {
+        state.parted.clear();
+    }
+}
+
+/// **Whether an animal can push through living tissue at all.**
+///
+/// On by default -- this is the shipped behaviour, not a probe. The switch
+/// exists so an A/B can be run from **one binary**, which is how every
+/// paired comparison here is supposed to be built: `TISSUE_PARTING=0`
+/// against the default puts the two arms in the same build, with no
+/// recompile sitting between them to become the thing that actually
+/// changed (`CLAUDE.md`'s stale-binary gotcha, and the reason `climbs_over_
+/// kin`'s own re-test was run through `climb=`).
+///
+/// It is also the control the *cost* of the mechanism has to be measured
+/// against, for the same reason.
+fn parting_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("TISSUE_PARTING").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **How hard this animal can push through living tissue.**
+///
+/// The dig gene, deliberately, rather than a new one: shouldering through a
+/// stand of foliage and cutting into packed ground are the same apparatus,
+/// and the genome already prices one allele for it. A species that has
+/// evolved a stronger dig gets a wider range of tissue it can enter for
+/// free, which is the coupling worth having.
+fn push_force_of(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    if !parting_enabled() {
+        // Nothing in the armour table is priced below zero, and
+        // `is_soft_tissue` compares with `<=`, so a force of `-1` refuses
+        // every cell -- which is exactly the pre-parting predicate.
+        return -1.0;
+    }
+    dig_force_of(def, &traits_of(world, organism, def))
 }
 
 /// Charge energy, reschedule or die. The chain-creature counterpart of
@@ -5808,6 +6019,13 @@ pub fn slay(world: &mut World, x: i32, y: i32) -> bool {
 }
 
 fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) {
+    // **Give the foliage back before anything else happens.** An animal
+    // that dies inside a bush is holding cells of it (`organism::Parted`),
+    // and this is the death exit that doc names. First, deliberately: the
+    // corpse is written over `state.cells` below, so restoring afterwards
+    // would overwrite the corpse, and restoring here lets the bush close
+    // and the corpse take whatever the tissue did not reclaim.
+    return_parted(world, organism);
     // **The cause is recorded here and read at `World::free_organism`.** Each
     // of the four callers already knows which death this is -- the site that
     // notices a bank at zero is not the site that notices a head has gone --
@@ -11364,6 +11582,108 @@ mod tests {
         organism
     }
 
+    /// **A hedge an ant walks through is still a hedge afterwards.**
+    ///
+    /// The conservation guard for `organism::Parted`. Walking through
+    /// foliage lifts it out of the grid, and the whole mechanism turns on
+    /// giving every lifted cell back; a missed exit path does not crash or
+    /// fail any other test, it quietly deletes leaves, one per ant per step,
+    /// which is invisible until a wood has been eaten.
+    ///
+    /// Censuses the leaf cells and their **carbon**, not just the count: the
+    /// scalars are a second write (`restore_parted`) and restoring the
+    /// material while zeroing the sidecar would pass a count-only assertion
+    /// while starving the plant.
+    #[test]
+    fn an_ant_walking_through_foliage_leaves_it_intact() {
+        let mut w = test_world();
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let floor = 150;
+        for x in 20..180 {
+            for y in floor..(floor + 6) {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // A hedge standing on the floor, owned by an organism so it is
+        // *living* tissue -- `is_soft_tissue` refuses anything with no
+        // owner, which is the same gate `Material::climbable` is read
+        // behind, and a hedge painted with no organism would be testing the
+        // wrong branch.
+        let tree_species = w.species.id_of("tree").expect("tree");
+        let hedge = w.push_organism(tree_species).expect("an organism slot");
+        for x in 90..110 {
+            for y in (floor - 8)..floor {
+                w.set(x, y, Cell::new(leaf, 0).with_organism_id(hedge));
+                if let Some(scalars) = w.organism_cell_mut(x, y) {
+                    scalars.carbon = 0.5;
+                }
+            }
+        }
+        let census = |w: &World| -> (usize, f32) {
+            let mut n = 0;
+            let mut carbon = 0.0;
+            for x in 88..112 {
+                for y in (floor - 10)..floor {
+                    if w.get(x, y).material == leaf {
+                        n += 1;
+                        carbon += w.organism_cell(x, y).map_or(0.0, |c| c.carbon);
+                    }
+                }
+            }
+            (n, carbon)
+        };
+        let before = census(&w);
+        assert!(before.0 > 100, "test setup: the hedge is not there ({} cells)", before.0);
+
+        // Ants walking into it from both sides, so the hedge is crossed
+        // rather than merely brushed.
+        let ants: Vec<u16> = (0..6)
+            .map(|i| {
+                let x = if i % 2 == 0 { 80 + i } else { 118 - i };
+                spawn(&mut w, "ant", x, floor - 1)
+            })
+            .collect();
+        assert!(ants.iter().all(|&a| a != 0), "test setup: the ants were not placed");
+        // **Meat guts, so the hedge is not lunch.** An ant with the shipped
+        // gut eats foliage, and a leaf that was eaten and a leaf that was
+        // deleted by a missed exit path are the same census. Pinning the
+        // diet allele to the carnivore end puts `diet_yield` on leaf under
+        // `EAT_YIELD_THRESHOLD`, so the only thing that can move a leaf cell
+        // here is walking through it -- which is what this guard is about.
+        for &ant in &ants {
+            assert!(w.set_organism_trait(ant, TRAIT_GUT_BIAS, 1.0), "the gut allele must be settable");
+        }
+
+        // **`begin_step` as well as the scheduler, and that is not
+        // boilerplate.** A creature reschedules itself to an exact future
+        // frame (`World::creature_due`), so a loop that never advances
+        // `frame` leaves every site permanently not-yet-due and the ants
+        // stand still -- which is what the positive control below caught on
+        // the first run of this test. The CA sweep is deliberately *not*
+        // run: this hedge is hand-painted rather than grown, so it has no
+        // anchors, and a structural pass would shed it and make a scene
+        // error look like a lost-leaf bug.
+        for _ in 0..3_000 {
+            w.begin_step();
+            w.step_active_sites();
+        }
+        let after = census(&w);
+
+        // **The positive control, in the same test**: the ants have to have
+        // actually been in the hedge, or this asserts that nothing happened.
+        assert!(
+            w.creature_stats.moves > 0,
+            "the ants never moved, so nothing was parted and this guard is blind"
+        );
+        assert_eq!(before.0, after.0, "the hedge lost {} leaf cells to being walked through", before.0 as i64 - after.0 as i64);
+        assert!(
+            (before.1 - after.1).abs() < 0.001,
+            "the leaves came back but their carbon did not: {} -> {}",
+            before.1,
+            after.1
+        );
+    }
+
     #[test]
     fn a_launch_leaves_the_ground_and_comes_back_down() {
         // The verb end to end: it fires, the creature is airborne for a
@@ -11412,8 +11732,9 @@ mod tests {
         let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
         // Pick it up off the shelf: nothing within 8 of it any more.
         let chain = w.organism(ant).expect("live").chain.clone();
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         let aloft: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x, y - 20)).collect();
-        relocate_chain(&mut w, ant, &chain, &aloft);
+        relocate_chain(&mut w, ant, &def, &chain, &aloft);
 
         assert!(!launch(&mut w, ant, 0), "there is nothing to push off");
         assert_eq!(w.creature_stats.impulses, 0, "and it must not be counted as a launch");
@@ -11438,7 +11759,7 @@ mod tests {
             // Off the end of the shelf, over open air down to row 199.
             let chain = w.organism(id).expect("live").chain.clone();
             let out: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x + 22, y)).collect();
-            relocate_chain(&mut w, id, &chain, &out);
+            relocate_chain(&mut w, id, &def, &chain, &out);
             let start = w.organism(id).expect("live").chain[0];
             // Put it back in touch with the shelf for one instant so the
             // launch is legal, then let it go: a plinth of one cell.

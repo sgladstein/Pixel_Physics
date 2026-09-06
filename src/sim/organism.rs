@@ -4238,6 +4238,35 @@ pub struct Crop {
 /// allowed to land; the owner's ruling was that where the tailings go is the
 /// ants' problem and not the author's, so the drop is now the food drop's own
 /// roll (`creature::act`) and neither field has a reader.
+/// **A cell of living plant tissue an animal is currently standing in**,
+/// held out of the grid until the body moves off it and then put back
+/// exactly as it was.
+///
+/// This is what "walking through a bush" is made of. The grid holds one
+/// thing per cell, so a body that enters foliage has to displace it, and
+/// the three ways to do that are: destroy it (an ant that eats a tunnel
+/// through every bush it crosses), move it (which breaks the plant's own
+/// geometry, since a leaf one cell over may no longer be attached to
+/// anything), or hold it. Holding is the only one that leaves the plant as
+/// it was found.
+///
+/// **Both halves are stored, and the second is not optional.** `cell` alone
+/// restores the material and loses the tissue's `OrganismCell` — its
+/// carbon, its canopy density, its anchor distance — because `World::set`'s
+/// seam gives a cell a fresh, zeroed `OrganismCell` whenever it changes
+/// hands, and passing through a creature and back is two changes of hands.
+/// Without `scalars` an ant walking a crown would quietly zero the carbon
+/// of every leaf it touched.
+#[derive(Clone, Debug)]
+pub struct Parted {
+    pub x: i32,
+    pub y: i32,
+    /// The tissue cell exactly as it was lifted, organism id included.
+    pub cell: Cell,
+    /// Its sidecar scalars, so the plant gets its carbon back too.
+    pub scalars: OrganismCell,
+}
+
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Spoil {
     /// The cell as it will be written back — already tamped, the way
@@ -4807,6 +4836,19 @@ pub struct OrganismState {
     /// `creature::creature_dies` drops it beside the corpse. There is no
     /// third.
     pub spoil: Option<Spoil>,
+    /// **The foliage this body is currently standing in**, lifted out of the
+    /// grid and owed back to the plant it came from. See [`Parted`].
+    ///
+    /// Empty for all but a creature inside a plant, which is the common
+    /// case, so this costs an empty `Vec` per organism and no work.
+    ///
+    /// **The exits, named the way `spoil`'s doc names its own**, because a
+    /// held cell that is never given back is a leaf deleted from the world:
+    /// `creature::relocate_chain` gives back whatever the new body position
+    /// no longer covers, and `creature::creature_dies` gives back all of it.
+    /// There is no third — every other path that moves or unmakes a body
+    /// goes through one of those two.
+    pub parted: Vec<Parted>,
     /// **Damage worn into this animal by mouths that cannot open it in one
     /// bite**, 0..1 of the cell currently being gnawed.
     ///
