@@ -5,7 +5,7 @@
 //! two apart is what lets M6 swap in a GPU pipeline with lighting and bloom
 //! without touching a single movement rule.
 
-use std::collections::HashSet;
+use crate::sim::fxhash::ChunkSet;
 
 use rayon::prelude::*;
 
@@ -2409,13 +2409,13 @@ pub struct Renderer {
     /// only samples the field's light channel when its chunk is in this
     /// set, so a glow-free world pays one `is_empty()` test per pixel and
     /// nothing else.
-    glow_tiles: std::collections::HashSet<ChunkCoord>,
+    glow_tiles: ChunkSet,
     /// Per-cell near-field glow, one buffer per chunk in `glow_tiles`,
     /// rebuilt whenever those tiles change or are still converging. Splat
     /// from the *emitting cells themselves* rather than read from the
     /// field, because the field has already thrown the emitter's position
     /// away -- see `NEAR_GLOW_RADIUS`.
-    near_glow: std::collections::HashMap<ChunkCoord, Vec<f32>>,
+    near_glow: crate::sim::fxhash::ChunkMap<Vec<f32>>,
     /// Which emitter tiles `near_glow` was built from, so a settled world
     /// does not rebuild it every draw.
     near_glow_key: Option<Vec<ChunkCoord>>,
@@ -2672,8 +2672,8 @@ impl Renderer {
             lineage_ranks: Vec::new(),
             last_zoom_state: None,
             last_look: None,
-            glow_tiles: std::collections::HashSet::new(),
-            near_glow: std::collections::HashMap::new(),
+            glow_tiles: ChunkSet::default(),
+            near_glow: crate::sim::fxhash::ChunkMap::default(),
             near_glow_key: None,
             near_glow_rebuilds: 0,
             sky: Sky::at(0, 0, 1, 0, 1),
@@ -3205,7 +3205,7 @@ impl Renderer {
     /// settle again *between* draws, if `App::update` runs more than once
     /// per `App::draw`, which `main.rs`'s own catch-up loop does whenever a
     /// frame runs behind).
-    pub fn draw(&mut self, world: &World, particles: &ParticleSystem, touched: &HashSet<ChunkCoord>, frame: &mut [u8], (width, height): (u32, u32), force_full: bool) -> usize {
+    pub fn draw(&mut self, world: &World, particles: &ParticleSystem, touched: &ChunkSet, frame: &mut [u8], (width, height): (u32, u32), force_full: bool) -> usize {
         // `PIXEL_PHYSICS_DRAW_TIMING=1` splits this function by phase.
         //
         // **Built because nothing in the repo could answer where a redraw's
@@ -4329,7 +4329,7 @@ impl Renderer {
     /// `draw` needs: a dig changes the light over a region far wider than
     /// the chunks the CA marked as touched, so the dirty-rect skip would
     /// otherwise leave most of the change unpainted.
-    fn rebuild_sky_light(&mut self, world: &World, viewport: (u32, u32), touched: &HashSet<ChunkCoord>) -> bool {
+    fn rebuild_sky_light(&mut self, world: &World, viewport: (u32, u32), touched: &ChunkSet) -> bool {
         let Some(block) = self.sky_light.block() else {
             let had = !self.sky_light_grid.is_empty();
             self.sky_light_grid.clear();
@@ -6943,7 +6943,7 @@ mod tests {
         let mut r = Renderer::new();
         r.sky_light = SkyLight::Coarse4;
         r.rebuild_horizon(&world);
-        r.rebuild_sky_light(&world, (200, 200), &HashSet::new());
+        r.rebuild_sky_light(&world, (200, 200), &ChunkSet::default());
 
         let shaft_deep = r.sky_light_at(30, 175);
         let pit_rim = r.sky_light_at(100, 101);
@@ -7019,7 +7019,7 @@ mod tests {
         world.begin_step();
 
         let particles = ParticleSystem::new();
-        let touched = HashSet::new();
+        let touched: ChunkSet = ChunkSet::default();
         let mut r = Renderer::new();
         let shot = |r: &mut Renderer, world: &World| {
             let mut buf = vec![0u8; 200 * 200 * 4];
@@ -7065,7 +7065,7 @@ mod tests {
         let mut r = Renderer::new();
         let particles = ParticleSystem::new();
         let mut buf = vec![0u8; 200 * 200 * 4];
-        r.draw(&world, &particles, &HashSet::new(), &mut buf, (200, 200), true);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (200, 200), true);
 
         // With no lamps the room has no column term at all, so every cell in
         // a row must be the same colour. A star, a moon or a per-cell glow
@@ -7203,7 +7203,7 @@ mod tests {
         let mut r = Renderer::new();
         r.sky_light = SkyLight::Coarse4;
         r.rebuild_horizon(&world);
-        r.rebuild_sky_light(&world, (200, 200), &HashSet::new());
+        r.rebuild_sky_light(&world, (200, 200), &ChunkSet::default());
 
         // The chamber is sealed, so it must be as dark as rock at the same
         // depth in the middle of the world — the paired control, which is
@@ -7590,7 +7590,7 @@ mod tests {
         };
 
         world.set(X, Y, Cell::new(material::STONE, 3));
-        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
         let in_grid = pixel(&frame);
 
         world.set(X, Y, Cell::EMPTY);
@@ -7599,7 +7599,7 @@ mod tests {
             X as f32,
             Y as f32,
         ));
-        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
         let in_flight = pixel(&frame);
 
         // The grid pixel carries the grain and the body pixel does not, so
@@ -7719,7 +7719,7 @@ mod tests {
         // A 128-wide framebuffer over a 64-wide world: the right half is void.
         let (w, h) = (128u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         // Not hot, so only the position-jitter grain (see `JITTER_STRENGTH`)
         // should have moved this away from the flat palette colour.
@@ -7775,7 +7775,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (256u32, 256u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let px = |x: usize, y: usize| -> [u8; 4] {
             let i = (y * w as usize + x) * 4;
@@ -8015,11 +8015,11 @@ mod tests {
 
         let mut renderer = Renderer::new();
         let mut off = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut off, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut off, (w, h), true);
 
         renderer.field_overlay = FieldOverlay::Pressure;
         let mut on = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut on, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut on, (w, h), true);
 
         assert_ne!(off, on, "the pressure overlay should visibly change the render over a real pressure impulse");
     }
@@ -8137,7 +8137,7 @@ mod tests {
 
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let sand = world.materials.get(material::SAND).palette[1];
         let idx = (20 * w as usize + 10) * 4;
@@ -8156,7 +8156,7 @@ mod tests {
         renderer.bubbles = mode;
         let particles = ParticleSystem::new();
         let mut frame = vec![0u8; 64 * 64 * 4];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (64, 64), true);
         frame
     }
 
@@ -8449,7 +8449,7 @@ mod tests {
         renderer.bubbles = mode;
         let particles = ParticleSystem::new();
         let mut frame = vec![0u8; 64 * 64 * 4];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (64, 64), true);
         frame
     }
 
@@ -8500,7 +8500,7 @@ mod tests {
             let mut renderer = Renderer::new();
             renderer.bubbles = mode;
             let mut frame = vec![0u8; 64 * 64 * 4];
-            renderer.draw(&world, &ParticleSystem::new(), &HashSet::new(), &mut frame, (64, 64), true);
+            renderer.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut frame, (64, 64), true);
             frame
         };
         assert_eq!(
@@ -8537,9 +8537,9 @@ mod tests {
         let particles = ParticleSystem::new();
         let mut first = vec![0u8; 64 * 64 * 4];
         let mut later = vec![0u8; 64 * 64 * 4];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut first, (64, 64), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut first, (64, 64), true);
         for _ in 0..BUBBLE_RISE_PERIOD {
-            renderer.draw(&world, &particles, &HashSet::new(), &mut later, (64, 64), true);
+            renderer.draw(&world, &particles, &ChunkSet::default(), &mut later, (64, 64), true);
         }
         assert!(
             pixels_differing(&first, &later) > 0,
@@ -8567,7 +8567,7 @@ mod tests {
             renderer.gas = mode;
             let particles = ParticleSystem::new();
             let mut frame = vec![0u8; 64 * 64 * 4];
-            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (64, 64), true);
+            renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (64, 64), true);
             frame
         };
         // The sky itself, at a row nothing was drawn into, is what a fully
@@ -8598,7 +8598,7 @@ mod tests {
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
         // Reaching this line without panicking is the assertion.
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
     }
 
     #[test]
@@ -8614,7 +8614,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let a = &frame[0..4];
         let b_idx = 10 * 4;
@@ -8631,7 +8631,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let cool = &frame[0..4];
         let hot_idx = 10 * 4;
@@ -8667,7 +8667,7 @@ mod tests {
         for bucket in 0..10 {
             world.frame = bucket * FLAME_FLICKER_PERIOD;
             let mut frame = vec![0u8; (w * h * 4) as usize];
-            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+            renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
             colours.insert(frame[idx..idx + 4].to_vec());
         }
         assert!(colours.len() > 1, "a burning cell rendered identically across every time bucket -- no flicker at all");
@@ -8701,7 +8701,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (64u32, 64u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let hot_idx = 10 * 4;
         let actual = &frame[hot_idx..hot_idx + 4];
@@ -9010,7 +9010,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (32u32, 32u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        r.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         let px = |x: i32, y: i32| -> [u8; 4] {
             let i = ((y as u32 * w + x as u32) * 4) as usize;
@@ -9036,12 +9036,12 @@ mod tests {
         let mut frame = vec![0u8; (w * h * 4) as usize];
 
         // Freshly built chunks are dirty, so the border reads as active.
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_ACTIVE);
 
         // Once settled it dims.
         world.end_step();
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
         assert_eq!(&frame[0..4], &CHUNK_BORDER_SETTLED);
     }
 
@@ -9106,12 +9106,12 @@ mod tests {
         let mut over = Renderer::new();
         over.tree_depth = TreeDepth::Front;
         let mut a = vec![0u8; (uw * uh * 4) as usize];
-        over.draw(&world, &particles, &HashSet::new(), &mut a, (uw, uh), true);
+        over.draw(&world, &particles, &ChunkSet::default(), &mut a, (uw, uh), true);
 
         let mut through = Renderer::new();
         through.tree_depth = TreeDepth::Weave;
         let mut b = vec![0u8; (uw * uh * 4) as usize];
-        through.draw(&world, &particles, &HashSet::new(), &mut b, (uw, uh), true);
+        through.draw(&world, &particles, &ChunkSet::default(), &mut b, (uw, uh), true);
 
         assert_ne!(a, b, "a tree in front of him should not draw the same as one behind him");
     }
@@ -9172,7 +9172,7 @@ mod tests {
                     let mut r = Renderer::new();
                     r.tree_depth = depth;
                     let mut buf = vec![0u8; (uw * uh * 4) as usize];
-                    r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+                    r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
                     buf
                 };
                 let (over, under, weave) =
@@ -9239,7 +9239,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let (w, h) = (256u32, 256u32);
         let mut frame = vec![0u8; (w * h * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (w, h), true);
 
         // The positive control first: the halo has to exist at all, or the
         // symmetry below is 0.0 == 0.0 and this guard is the blind kind it
@@ -9290,12 +9290,12 @@ mod tests {
         let particles = ParticleSystem::new();
         let mut r = Renderer::new();
         let mut buf = vec![0u8; (uw * uh * 4) as usize];
-        r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
         let first = r.near_glow_rebuilds;
         assert!(first > 0, "vacuous: the scene never built a halo at all");
 
         for _ in 0..8 {
-            r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), false);
+            r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), false);
         }
         assert_eq!(
             r.near_glow_rebuilds, first,
@@ -9311,7 +9311,7 @@ mod tests {
         // paid on essentially every frame of play. Repainting every pixel is
         // not a reason to recompute what the pixels are lit *by*.
         for _ in 0..8 {
-            r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+            r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
         }
         assert_eq!(
             r.near_glow_rebuilds, first,
@@ -9323,7 +9323,7 @@ mod tests {
         // coordinates would keep the old splat. That is `forget_world`'s job
         // now, and it has to actually do it.
         r.forget_world();
-        r.draw(&world, &particles, &HashSet::new(), &mut buf, (uw, uh), false);
+        r.draw(&world, &particles, &ChunkSet::default(), &mut buf, (uw, uh), false);
         assert!(
             r.near_glow_rebuilds > first,
             "forget_world left the previous world's halo in place"
@@ -9351,8 +9351,8 @@ mod tests {
         let particles = ParticleSystem::new();
         let mut renderer = Renderer::new();
         let mut frame = vec![0u8; (uw * uh * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
-        let recomputed = renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (uw, uh), true);
+        let recomputed = renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (uw, uh), false);
         assert_eq!(recomputed, 0, "an idle gnome should recompute no pixels at all");
     }
 
@@ -9378,19 +9378,19 @@ mod tests {
         let particles = ParticleSystem::new();
         let mut renderer = Renderer::new();
         let mut frame = vec![0u8; (uw * uh * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (uw, uh), true);
         let facing_right = frame.clone();
 
         // Nothing in the world changes but the direction he faces.
         world.player.as_mut().unwrap().facing_left = true;
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (uw, uh), false);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut frame, (uw, uh), false);
 
         assert_ne!(frame, facing_right, "he turned round and nothing on screen changed");
 
         // And the incremental result must match a full redraw exactly.
         let mut fresh = Renderer::new();
         let mut reference = vec![0u8; (uw * uh * 4) as usize];
-        fresh.draw(&world, &particles, &HashSet::new(), &mut reference, (uw, uh), true);
+        fresh.draw(&world, &particles, &ChunkSet::default(), &mut reference, (uw, uh), true);
         assert_eq!(frame, reference, "the skipped repaint left a stale pose behind");
     }
 
@@ -9439,12 +9439,12 @@ mod tests {
 
         let mut renderer = Renderer::new();
         let mut many = vec![0u8; bytes];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut many, (uw, uh), true);
+        renderer.draw(&world, &particles, &ChunkSet::default(), &mut many, (uw, uh), true);
 
         let pool = rayon::ThreadPoolBuilder::new().num_threads(1).build().expect("one-thread pool");
         let mut one = vec![0u8; bytes];
         pool.install(|| {
-            Renderer::new().draw(&world, &particles, &HashSet::new(), &mut one, (uw, uh), true);
+            Renderer::new().draw(&world, &particles, &ChunkSet::default(), &mut one, (uw, uh), true);
         });
         let differing = |a: &[u8], b: &[u8]| -> Option<(i32, i32)> {
             a.chunks_exact(4).zip(b.chunks_exact(4)).position(|(p, q)| p != q).map(|i| {
@@ -9570,7 +9570,7 @@ mod tests {
             subject.draw(&world, &particles, &touched, &mut with_history, (uw, uh), true);
 
             let mut fresh = Renderer::new();
-            fresh.draw(&world, &particles, &HashSet::new(), &mut from_scratch, (uw, uh), true);
+            fresh.draw(&world, &particles, &ChunkSet::default(), &mut from_scratch, (uw, uh), true);
             assert_eq!(
                 fresh.sky_light_rebuilds().full,
                 1,
@@ -9635,7 +9635,7 @@ mod tests {
         let particles = ParticleSystem::new();
         let mut buf = vec![0u8; (uw * uh * 4) as usize];
         let mut reused = Renderer::new();
-        reused.draw(&roofed, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        reused.draw(&roofed, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
         reused.forget_world();
         // **Asserted directly, because the grid comparison below cannot see
         // it.** Clearing the grid alone already fails the reuse test, so a
@@ -9648,11 +9648,11 @@ mod tests {
             "forget_world left the previous world's per-block occupancy in place"
         );
         assert!(reused.sky_light_grid.is_empty(), "forget_world left the previous world's light grid in place");
-        reused.draw(&open, &particles, &HashSet::new(), &mut buf, (uw, uh), true);
+        reused.draw(&open, &particles, &ChunkSet::default(), &mut buf, (uw, uh), true);
 
         let mut fresh = Renderer::new();
         let mut fresh_buf = vec![0u8; (uw * uh * 4) as usize];
-        fresh.draw(&open, &particles, &HashSet::new(), &mut fresh_buf, (uw, uh), true);
+        fresh.draw(&open, &particles, &ChunkSet::default(), &mut fresh_buf, (uw, uh), true);
         assert_eq!(
             reused.sky_light_grid, fresh.sky_light_grid,
             "a reset renderer lit the new world with the old world's occupancy"
@@ -9715,7 +9715,7 @@ mod tests {
 
         let mut baseline = Renderer::new();
         let mut expected = vec![0u8; (uw * uh * 4) as usize];
-        baseline.draw(&world, &particles, &HashSet::new(), &mut expected, (uw, uh), true);
+        baseline.draw(&world, &particles, &ChunkSet::default(), &mut expected, (uw, uh), true);
 
         assert_eq!(actual, expected, "a dirty-rect-skipped redraw must be pixel-identical to a full one, after the world actually changed");
         assert!(
@@ -9766,7 +9766,7 @@ mod tests {
 
         let mut baseline = Renderer::new();
         let mut expected = vec![0u8; (uw * uh * 4) as usize];
-        baseline.draw(&world, &particles, &HashSet::new(), &mut expected, (uw, uh), true);
+        baseline.draw(&world, &particles, &ChunkSet::default(), &mut expected, (uw, uh), true);
 
         assert_eq!(frame, expected, "the settled pile's real position must render, not a stale mid-fall one left over from the warm-up draw");
     }

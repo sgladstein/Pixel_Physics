@@ -134,7 +134,7 @@ fn render_view(world: &World, cam: (i32, i32)) -> View {
     r.set_camera(cam.0, cam.1, (WIDTH, HEIGHT), world.bounds());
     let particles = ParticleSystem::new();
     let mut frame = vec![0u8; vw * vh * 4];
-    r.draw(world, &particles, &HashSet::new(), &mut frame, (WIDTH, HEIGHT), true);
+    r.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (WIDTH, HEIGHT), true);
     // The camera may have been clamped, so read it back rather than assuming
     // the requested position was taken.
     let (cx, cy) = (r.camera_x, r.camera_y);

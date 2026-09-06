@@ -7128,8 +7128,11 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     // `anchor_support` 0.316 -> 0.405 with the search in place. An organism
     // here averages ~42 cells, so the search is 5-6 dependent, cache-missing
     // comparisons against one hash and a probe. The win in this function was
-    // never the container -- it is the hoist above.
-    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    // never the container -- it is the hoist above. (`PosMap` below is the
+    // same shape, `FxHash` in place of `SipHash` -- a cheaper hash and a
+    // probe, not a different container; this measurement is about the
+    // latter and is untouched by that swap.)
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
 
     // **Rank, not `support` alone, and the difference is the whole trunk.**
     // `anchor_support` charges `SUPPORT_COST_STANDING`, which is **zero**:
@@ -7323,7 +7326,7 @@ fn anchor_support(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     prologue_end(prologue, cells.len());
-    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
     // **Leaf-ness hoisted out of the walk.** The rule below asks it of the
     // cell being expanded *and* of every one of its eight neighbours, so a
     // leaf cost nine `World::get` calls — each a chunk `HashMap` lookup —
@@ -7482,7 +7485,7 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     prologue_end(prologue, cells.len());
-    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
     let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
 
     // Roots first: everything at or below the collar is the anchor, so the

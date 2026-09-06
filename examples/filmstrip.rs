@@ -5932,7 +5932,7 @@ impl PanelSheet {
                     // moved, or a tile inherits pixels from whichever frame
                     // last touched them. The empty `touched` set is not a
                     // shortcut -- `force_full` makes it unread.
-                    self.renderer.draw(world, particles, &HashSet::new(), &mut self.frame, (WIDTH as u32, HEIGHT as u32), true);
+                    self.renderer.draw(world, particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut self.frame, (WIDTH as u32, HEIGHT as u32), true);
                     drawn = true;
                 }
                 let (tile_w, tile_h) = (self.w * self.zoom, self.h * self.zoom);
@@ -6247,7 +6247,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
-            let touched: HashSet<_> = world.take_touched_chunks();
+            let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
             if args.stress {
                 paint_stress(&world, &mut frame);
@@ -6476,7 +6476,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
-        let touched: HashSet<_> = world.take_touched_chunks();
+        let touched = world.take_touched_chunks();
         // **Timed separately from the sim, because `worst frame` above is
         // `advance` only.** A render-side look option -- `GrainMode`,
         // `BubbleMode`, `GasMode` -- costs nothing that number can see, and

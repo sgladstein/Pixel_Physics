@@ -4467,7 +4467,7 @@ pub struct OrganismState {
     /// the encoding. The property that made the doc reject a *global*
     /// position map — unambiguous ownership of every entry — is kept, since
     /// this map is per-organism.
-    pub cells: std::collections::HashMap<(i32, i32), OrganismCell>,
+    pub cells: crate::sim::fxhash::PosMap<OrganismCell>,
     /// Below-ground and above-ground cell counts, refreshed once per
     /// organism tick by `plant::step_organisms` while it is already walking
     /// the cell list.
@@ -7419,7 +7419,7 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
     // the substep loop pure contiguous indexing -- see `OrganismState::
     // cells` for why that, and not a slot index in `aux`, is where the
     // random-access cost went.
-    let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let index: crate::sim::fxhash::PosMap<usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
     let mut neighbours: Vec<[Option<usize>; 4]> = Vec::with_capacity(cells.len());
     for &(x, y) in &cells {
         let mut row = [None; 4];

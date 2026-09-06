@@ -28,7 +28,6 @@
 //! a probe painted in the ground's own material, whose ink must come out at
 //! the speckle floor and nothing more.
 
-use std::collections::HashSet;
 
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
@@ -67,7 +66,7 @@ fn render(world: &World, frame: &mut [u8]) {
     let mut r = Renderer::new();
     r.pinned_light = Some(pixel_physics::sky::frame_for_daylight(DAYLIGHT));
     let particles = ParticleSystem::new();
-    r.draw(world, &particles, &HashSet::new(), frame, (WIDTH, HEIGHT), true);
+    r.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), frame, (WIDTH, HEIGHT), true);
 }
 
 /// Where a body can stand in this column, or `None`.
