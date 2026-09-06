@@ -42,6 +42,7 @@
 //! one. They are shown with every tier so the player can *see* them, and the
 //! panel says plainly that it cannot move them.
 
+use crate::sim::creature;
 use crate::sim::material;
 use crate::sim::organism::{self, Behavior, CellType, SpeciesId};
 use crate::sim::world::{self, World};
@@ -808,9 +809,28 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
             for (slot, name, note) in TRAIT_ROWS {
+                // **The two arms-race rows widen with the dial below.** A
+                // reach of 4 that the ancestral row could still only be set
+                // to 1 on would be a page disagreeing with its own rule --
+                // and at the shipped reach of 1 this is the `span(-1.0, 1.0,
+                // 0.05)` that was written here, digit for digit.
+                let r = creature::allele_bound(*slot, world.trait_reach).max(1.0);
                 out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
-                    def.traits[*slot], span(-1.0, 1.0, 0.05), note));
+                    def.traits[*slot], span(-r, r, 0.05), note));
             }
+            // **The reach, under the ten rows it governs.** Two of them --
+            // armour and dig_force -- are the only pair in the table read
+            // against *each other*, and this is how far apart two lineages
+            // may get on them. See `creature::ARMS_RACE_SLOTS`.
+            out.push(float(
+                g,
+                Knob::Heredity { field: "trait_reach" },
+                "genome",
+                "arms_race_reach",
+                world.trait_reach,
+                span(0.0, creature::TRAIT_REACH_MAX, 0.25),
+                "HOW FAR A LINEAGE MAY EVOLVE ON THE TWO ROWS THAT ARE READ AGAINST EACH OTHER -- ARMOUR AND DIG FORCE -- AS A MULTIPLE OF THE RANGE EVERY OTHER ROW HAS. AT 1, THE SHIPPED SETTING, THE BEST PLATE AN ANT CAN REACH IS HALF WHAT AN ANT'S BITE OPENS, SO ANT AGAINST ANT IS ONE BITE WHOEVER BITES FIRST -- NO GRADING AND NO BEING OVERWHELMED. WIND IT UP AND A LINEAGE CAN GROW A SHELL THAT TAKES SEVERAL BITES, AND ANOTHER CAN GROW THE JAW THAT ANSWERS IT: AT 8 A MAXIMALLY ARMOURED ANT TAKES FIVE OR SIX BITES FROM AN ORDINARY ONE. BOTH SIDES MOVE TOGETHER ON PURPOSE -- WIDENING ONLY THE SHELL WOULD DECIDE THE FIGHT INSTEAD OF OPENING IT. NEITHER IS FREE: A THICKER PLATE AND A HARDER JAW ARE BOTH BILLED EVERY TURN ON THE COSTS PAGE. ZERO IS THE OTHER USEFUL END -- IT PINS BOTH ROWS WHERE THEY START, SO THEY STOP DRIFTING WHILE EVERYTHING ELSE GOES ON MUTATING, WHICH IS THE CONTROL ARM. IT REACHES EVERY ANIMAL IN THE BOX, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+            ));
         }
     }
 }
@@ -921,6 +941,12 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
 /// `Knob::Heredity` arms deliberately — a dial added to the panel and not to
 /// both is a reader with no writer on restart, which looks exactly like a
 /// working save until the process restarts.
+/// The value a `lab_dials.ron` written before `trait_reach` existed loads at
+/// -- the shipped reach, not `f32::default()`. See the field.
+fn shipped_trait_reach() -> f32 {
+    creature::TRAIT_REACH_DEFAULT
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dials {
     pub plant_load_failure: bool,
@@ -932,6 +958,14 @@ pub struct Dials {
     /// file and silently drop every other dial the player had set.
     #[serde(default)]
     pub colony_rivalry: bool,
+    /// `World::trait_reach`. **`serde(default)` alone would have been a bug
+    /// here and is one of the few places in this file where the derive's
+    /// default is actively wrong**: a missing key would load as `0.0`, which
+    /// is not "the shipped behaviour" but the clonal control -- every dials
+    /// file saved before 2026-09-06 would silently stop two traits from ever
+    /// mutating again. The named default is `creature::TRAIT_REACH_DEFAULT`.
+    #[serde(default = "shipped_trait_reach")]
+    pub trait_reach: f32,
     pub mutation_sigma: f32,
     pub fate_mutation_chance: f32,
     pub param_mutation_chance: f32,
@@ -961,6 +995,7 @@ impl Dials {
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
             colony_rivalry: world.colony_rivalry,
+            trait_reach: world.trait_reach,
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
             param_mutation_chance: world.param_mutation_chance,
@@ -990,6 +1025,7 @@ impl Dials {
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
         world.colony_rivalry = self.colony_rivalry;
+        world.trait_reach = self.trait_reach;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1168,6 +1204,17 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 // would be lying about what it did. See
                 // `World::refold_developmental_seeds`.
                 world.refold_developmental_seeds();
+                return true;
+            }
+            // **Ahead of the rate guard, for `developmental_key`'s reason**:
+            // this row is a reach and its span runs to
+            // `creature::TRAIT_REACH_MAX`, so the shared 0..=1 predicate would
+            // refuse every setting that does anything.
+            if *field == "trait_reach" {
+                if !(0.0..=creature::TRAIT_REACH_MAX).contains(&value) {
+                    return false;
+                }
+                world.trait_reach = value;
                 return true;
             }
             if !crate::sim::plant::settable_rate(value) {

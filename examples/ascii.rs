@@ -2372,6 +2372,22 @@ fn construction_scene() {
     // the weight back in at the mean input the ants actually read (0.75, from
     // the run below) leaves the *rate* where it was and takes away only the
     // *dependence*, which is the arm this experiment needs.
+    // **The rivalry dial, as a switch, and it is not idle here.**
+    // `World::plant_ant` places through `Origin::Founder { colony: None }`,
+    // which claims a *new* colony per call -- so the 55 ants below are 55
+    // colonies, not one, and with `colony_rivalry` on every one of them is a
+    // stranger to every other. That is the trap
+    // `Reports/lanes/creature-fight-handoff-2026-09-06.md` names ("if any
+    // `ascii` scene ever holds two colonies, its ants start seeing each other
+    // from their flanks and the number will move"), and it turns out this
+    // scene *already* holds fifty-five. The dial is off in the outdoor game
+    // and there is no way to turn it on there, so the gate below is safe as
+    // shipped; this switch is how that claim gets checked rather than
+    // asserted.
+    if std::env::var("PIXEL_PHYSICS_COLONY_RIVALRY").as_deref() == Ok("on") {
+        world.colony_rivalry = true;
+        println!("  RIVALRY ON: the ants below are one colony, so this arm must come back digit for digit");
+    }
     // **Before the ants, and that is load-bearing.** `place_creature` copies
     // the species genome into each animal at spawn, so a `set_genome` after
     // the colony exists changes nothing at all -- written the other way round
@@ -2398,8 +2414,22 @@ fn construction_scene() {
         println!("  ABLATED: (MoistureGrad, Drop, {w_moist:.4}) folded into the bias at {fold} of its ceiling -- the dependence gone, the rate held");
     }
 
+    // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
+    // colony per call, so a loop of it builds a crowd of strangers that only
+    // *looks* like a colony -- inert while `colony_rivalry` is off, and the
+    // whole scene the moment it is not. Measured with the dial on before this
+    // line was written: attributed drops **237 -> 22** and the ratio 1.36x ->
+    // 1.14x, i.e. the ants stopped foraging and started eating each other.
+    // That is `CLAUDE.md`'s *a scene that contradicts the code will look like
+    // a bug in the code*, and the code was right.
+    // The first ant founds the label and every later one joins it, which is
+    // exactly the shape `creature::colony_of_site` exists for.
+    let mut colony = None;
     for i in 0..55 {
-        world.plant_ant(22 + i * 3, floor - 2);
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, 22 + i * 3, floor - 2, "ant", colony) {
+            colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
+            world.schedule_active_site(site);
+        }
     }
 
     // **A spring, not a puddle — bug H's cause, measured rather than

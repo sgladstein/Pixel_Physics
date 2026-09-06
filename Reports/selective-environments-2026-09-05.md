@@ -19,6 +19,15 @@ list of proposals.
 
 ## Worked case: a predator you can eat is not a predator
 
+> **RE-RUN 2026-09-06, after PR #263.** The numbers below stood on a beetle
+> that could not see what was eating it; the sweep at the end of this section
+> (*"the balance shifts"*) has been re-taken on the fixed engine and is
+> tabled there. **Every qualitative finding reproduced and every magnitude
+> moved**, because the bed moved under it too — the soil layer and the plant
+> dynamics landed in between, and the colony this bed now starves to 4-6 ants
+> by frame 12,000 where it once held 8-19. Read the direction here, never the
+> size. The original warning:
+>
 > **Every number in this section was taken on a beetle that could not see
 > what was eating it, and they have not been re-run.** Corrected 2026-09-06:
 > `adjacent_food_counted` scanned the eight neighbours of the *head*, so an
@@ -104,6 +113,37 @@ at double:
 |---|---|---|---|---|---|
 | x1, as authored | 19, 14, 8 | 3, 8, 4 | 1260, 1157, 919 | **0, 0, 43** | 1.7% of burn |
 | x2 | 8, 11, 3 | 8, 7, 11 | 949, 1149, 704 | **385, 167, 353** | 2.1% of burn |
+
+**Re-run 2026-09-06 on the fixed engine** — same command, same three seeds
+(`labstats frames=12000 predators=6 beetlebreed=0.5 beetlearmour=`), with
+`RAYON_NUM_THREADS` pinned:
+
+| beetle armour | ants | beetles | eats | **gnaws** | bites refused | armour tax |
+|---|---|---|---|---|---|---|
+| x1, as authored | 5, 6, 4 | 4, 2, 2 | 379, 538, 707 | **0, 2, 0** | 1224, 101, 0 | 1.66% of burn |
+| x2 | 3, 2, 5 | 5, 5, 2 | 311, 418, 714 | **369, 134, 195** | 1596, 978, 359 | 1.91% of burn |
+
+**Every claim above survives and not one number does.** The graded path is
+still dormant as shipped (`gnaws` 0, 2, 0) and still wakes when the gene moves
+(369, 134, 195); `eats` still holds up while `gnaws` climbs, so ants are still
+wearing beetles down *and* feeding; there are still more beetles and fewer ants
+at double armour and still no collapse; the tax still rises, 1.66% → 1.91%
+against the old 1.7% → 2.1%. The populations are a third of what they were
+because **the bed changed, not the beetle** — the soil layer and the plant
+dynamics landed in between and this colony now starves to 4-6 by frame 12,000.
+
+**`bites_refused` is the column this table did not have and should have**, and
+it is where the fixed pricing shows: a plate the mouth declines to work on now
+costs the attacker a decision rather than a meal, and it runs 3-10x higher at
+double armour. It is also the honest reason `eats` barely moves — the ants are
+not going hungry, they are going *elsewhere*.
+
+**One free consistency check fell out of it.** The same sweep at
+`beetlearmour=2.0` returns the `beetlearmour=1.0` numbers digit for digit,
+because `World::trait_reach` ships at 1.0 and clamps the allele: the sweep is
+reading the reach doing its job, not a dead knob. Anyone sweeping an allele
+past 1.0 needs `reach=` set to match, or the arms are the same arm — the
+repo's standing tell, arriving as a *correct* identical output for once.
 
 **The `gnaws` column is the design property confirmed in a live bed rather
 than asserted in a test.** The graded path is *dormant as shipped*: a beetle
