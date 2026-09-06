@@ -630,6 +630,15 @@ pub struct Released {
 /// `rng` is the caller's, and is consumed: the dial's draws and the
 /// placement's shade come out of it.
 pub fn release(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u32, rng: &mut Rng) -> Result<Released, ShelfError> {
+    release_in(world, spec, x, y, broods, rng, None)
+}
+
+/// [`release`] into an existing colony — `Some(label)` joins it, `None`
+/// founds one (`OrganismState::colony`). The lab's release verb lays a
+/// colony out one station at a time and passes the first animal's label to
+/// the rest, so a jar released as fifty animals is one colony and not fifty.
+/// A plant ignores it: plants have no colony.
+pub fn release_in(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u32, rng: &mut Rng, colony: Option<u32>) -> Result<Released, ShelfError> {
     // Drift first, against a name that is already known good, so a bad
     // dial cannot half-place an animal.
     let drifted = drift(world, spec, broods, &spec.name, rng)?;
@@ -638,7 +647,7 @@ pub fn release(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u32, 
         Genetics::Creature(g) => {
             let genome = genome_of(g)?;
             let traits: [f32; organism::CREATURE_TRAITS] = padded(&g.traits, "TRAITS")?;
-            let organism = super::creature::release_creature_specimen(world, x, y, &spec.species, genome, traits).ok_or(ShelfError::NoRoom)?;
+            let organism = super::creature::release_creature_specimen(world, x, y, &spec.species, genome, traits, colony).ok_or(ShelfError::NoRoom)?;
             Ok(Released { organism, at: (x, y), moved })
         }
         Genetics::Plant(g) => {

@@ -527,6 +527,14 @@ impl Handler {
                 let label = self.lab.renderer.organism_overlay.label();
                 self.lab.ui.say(format!("LIFE OVERLAY {label}"));
             }
+            // **`H`, next to the two overlay keys it keeps company with --
+            // and free: `A B C D E F G K L M N O P R S V W X Z` were already
+            // bound, checked against this whole match and against `HELP`
+            // before picking it.** Mnemonic rather than positional, unlike
+            // `TOOLS`' run: this toggle also has a bar-less row on the ANTS
+            // page (`ANIMALS WEAR`), so there was no bar cell to be
+            // positional *about*. "H" for the hue every animal wears.
+            KeyCode::KeyH => self.lab.act(Action::CycleCreatureColour),
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),

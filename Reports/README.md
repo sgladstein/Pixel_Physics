@@ -927,6 +927,22 @@ drift that two of these documents still reflect.**
   open half**: wood was deliberately left solid, that is where the measured
   mass is, and the fix indicated is wall-following in `tumble` rather than
   passability
+- [creature-groups-and-combat-design-2026-09-06.md](creature-groups-and-combat-design-2026-09-06.md)
+  — **design of record for groups, kin and combat on the creature line,
+  2026-09-06; the first half is shipped.** Answers the owner's questions from
+  the code: two clicks were **not** two colonies (nothing knew a click had
+  happened), ant colonies could **never** fight (kin was the species and
+  nothing else), "foe" does not exist (there is only *food I can digest*),
+  and an ant is always an ant (`state.species` is written once). Landed the
+  same day: a per-gesture `OrganismState::colony`, animals coloured by group
+  with the graph line under them in the same colour, a per-group population
+  graph, and a `colony rivalry` dial that makes kin require the colony.
+  Designs the rest: a heritable **scent signature and tolerance** replacing
+  the species bit, so colonies drift apart and speciation is graded rather
+  than impossible; the missing `ThreatNear` sense (prey cannot see a
+  predator, so flight is unselectable); an `Attack` verb distinct from
+  eating; an alarm pheromone plane; per-group deaths by cause. Eight ways to
+  play it, ranked by how much already exists.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,

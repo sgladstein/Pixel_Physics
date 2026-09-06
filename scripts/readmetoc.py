@@ -143,6 +143,11 @@ GAME = {
     # which founding line is taking the ground, which is the question a
     # selection box exists to ask and the one a table answers badly.
     "which founding line is winning": "lab",
+    # The ninth: the *groups* in the population -- which click an animal came
+    # from, the colour it wears for it, and the one rule (rivalry) that makes
+    # the label mean something. The lineage row above is who descends from
+    # whom; this is who the player put down together.
+    "who is who in the box, colonies and the rivalry rule": "lab",
     # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
@@ -306,6 +311,9 @@ TOPICS = {
     ],
     "which founding line is winning": [
         "Lineage overlay status — which founding line is taking the bed",
+    ],
+    "who is who in the box, colonies and the rivalry rule": [
+        "Creature groups status — who is who in the box, and who is family",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and
