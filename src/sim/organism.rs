@@ -3330,7 +3330,9 @@ pub struct CreatureDef {
     /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
     /// slot 4 is `pace`, slot 5 is `curvature_radius`, slot 6 is
     /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`,
-    /// slot 9 is `armour`. Each slot has its own `TRAIT_*` constant carrying
+    /// slot 9 is `armour`, slots 10-12 are the scent signature
+    /// (`TRAIT_SCENT_A`..`C`) and slot 13 is `tolerance`. Each slot has its
+    /// own `TRAIT_*` constant carrying
     /// what its axis means; this list is the index and those are the
     /// definitions.
     ///
@@ -3388,6 +3390,12 @@ pub struct CreatureDef {
     /// retired the global brain step (E6, §13l): one width across traits of
     /// different scales either never moves the wide one or shreds the
     /// narrow one. This vector is the body-side half of that call.
+    ///
+    /// **The four `SCENT_SIDE_SLOTS` entries are not read**: their width is
+    /// `scent_drift`, one number, because the signature and its tolerance
+    /// drift as one thing (the speed of speciation) and a scalar is what the
+    /// parameters page can edit and save where a tuple entry is not
+    /// (`lab::params::planned_edit` refuses a span edit inside a tuple).
     #[serde(default)]
     pub trait_variance: [f32; CREATURE_TRAITS],
     /// Whether a **living nestmate counts as ground** — an ant walks over
@@ -3428,6 +3436,41 @@ pub struct CreatureDef {
     /// trait exists" was one trait short, not one stage short.
     #[serde(default)]
     pub eats_kin: bool,
+    /// **How far apart two colonies of this kind start, in scent.** Every
+    /// colony label draws one offset at founding, uniform in
+    /// `-spread..=spread` on each of the three signature slots
+    /// (`creature::colony_scent_offset`, keyed on the world seed and the
+    /// label, so every station of one gesture shares it and a rebuilt box
+    /// reproduces it). Zero -- the default -- puts every click at the
+    /// species' authored point, so two colonies are one family: the shipped
+    /// behaviour. At `1.0`, with the ancestral tolerance at `-1`, every click
+    /// is a stranger to every other, which is exactly and only what the
+    /// retired `colony rivalry` switch did.
+    #[serde(default)]
+    pub scent_spread: f32,
+    /// **How far the signature and the tolerance move per birth** -- the
+    /// per-slot width for `SCENT_SIDE_SLOTS`, in place of the corresponding
+    /// entries of `trait_variance`, which are ignored for those four slots.
+    /// One number rather than four because it is one thing: the speed at
+    /// which a lineage becomes a stranger to its own colony, i.e. the speed
+    /// of speciation. Zero -- the default -- is no drift at all and consumes
+    /// no birth draw, so the shipped bed breeds byte-identically to before
+    /// the slots existed. Nobody can set it from theory; it is on the GENOME
+    /// page so the owner can find the rate at which colonies split inside a
+    /// session, which per the standing direction is the game.
+    #[serde(default)]
+    pub scent_drift: f32,
+    /// **Whether this kind can count another kind as family.** Off -- the
+    /// default -- a different species is never kin however close its scent,
+    /// so a beetle stays prey to an ant and the signature only refines who
+    /// is family *within* a kind. On, species is not consulted and
+    /// `creature::is_living_kin` is the pure distance test, which is how a
+    /// lineage that drifts onto its host's scent gets adopted: real biology
+    /// (social parasites), and possibly absurd to watch. The owner's call
+    /// (`Reports/creature-groups-and-combat-design-2026-09-06.md` §7),
+    /// exposed as a dial rather than decided here.
+    #[serde(default)]
+    pub kin_crosses_kinds: bool,
     /// The material a nest is built from — what `AtNest` senses.
     ///
     /// **Optional since 2026-09-02, and that is the point.** A species that
@@ -3653,6 +3696,9 @@ impl CreatureDef {
             trait_variance,
             climbs_over_kin,
             eats_kin,
+            scent_spread,
+            scent_drift,
+            kin_crosses_kinds,
             nest,
             dig_force,
             bite_force,
@@ -3757,6 +3803,9 @@ impl CreatureDef {
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
             eats_kin: *eats_kin,
+            scent_spread: *scent_spread,
+            scent_drift: *scent_drift,
+            kin_crosses_kinds: *kin_crosses_kinds,
             nest: nest.clone(),
             dig_force: *dig_force,
             // Dimensionless like `dig_force`, and against the same
@@ -5531,7 +5580,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 10;
+pub const CREATURE_TRAITS: usize = 14;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5793,6 +5842,76 @@ pub const TRAIT_CROP_CAPACITY: usize = 8;
 /// bed that already starves its colony — worth measuring rather than
 /// assuming it settles.
 pub const TRAIT_ARMOUR: usize = 9;
+
+/// Slots 10-12 of `CREATURE_TRAITS`: **this animal's scent signature** --
+/// three numbers on `-1..=1` saying what it smells like to another animal,
+/// read through `creature::is_living_kin` against the *reader's*
+/// `TRAIT_TOLERANCE`.
+///
+/// **The point of the signature is that "who is family" stops being a bit.**
+/// Kin was the species -- one predicate, `same SpeciesId` -- so every ant
+/// was every other ant's nestmate for ever, a lineage could drift as far as
+/// it liked and still be nobody's stranger, and an ant was always an ant by
+/// construction (`Reports/creature-groups-and-combat-design-2026-09-06.md`
+/// §3). Real ants recognise nestmates by a cuticular hydrocarbon profile
+/// compared against a template with a tolerance, and every graded thing that
+/// follows -- colonies that drift apart and only then fight, a tolerant
+/// lineage adopted or raided by an intolerant one, a lineage that drifts
+/// past every other's tolerance and is, to them, a new kind -- is that one
+/// comparison. Species stays what it is (the body plan and the prices);
+/// *who is family* becomes something the animal carries and its children
+/// inherit.
+///
+/// **Three slots rather than one**, so two lineages drifting at random part
+/// in a *space* rather than on a line: on one axis two random walks re-cross
+/// constantly and strangers flicker back into kin; in three they part and
+/// stay parted. Not more, because each is a slot every jar pads and every
+/// species file authors, and the distance printed on the cell page has to be
+/// imaginable.
+///
+/// **A founder starts at its species' authored point plus its colony's
+/// founding offset** -- `CreatureDef::scent_spread` draws one offset per
+/// colony label (`creature::colony_scent_offset`), so two clicks of one kind
+/// start a little apart and their descendants drift from there at
+/// `CreatureDef::scent_drift`, the speed of speciation. Both default to
+/// zero, so the shipped bed is exactly what it was: every ant at one point,
+/// one big family, and no birth draw consumed.
+///
+/// Authored apart for the two shipped kinds -- the ant at the origin, the
+/// beetle at `(0.8, 0.8, 0.8)`, 1.39 apart against an authored tolerance
+/// radius of 1.0 -- so that the day `kin_crosses_kinds` is turned on a
+/// beetle is not already inside an ant's family.
+pub const TRAIT_SCENT_A: usize = 10;
+pub const TRAIT_SCENT_B: usize = 11;
+pub const TRAIT_SCENT_C: usize = 12;
+/// The signature's slots, in order -- the one list every scent distance is
+/// summed over, so a fourth channel would be one line here and nowhere else.
+pub const SCENT_SLOTS: [usize; 3] = [TRAIT_SCENT_A, TRAIT_SCENT_B, TRAIT_SCENT_C];
+
+/// Slot 13 of `CREATURE_TRAITS`: **how far another animal's scent may be
+/// from this one's and still read as kin**, read through
+/// `creature::tolerance_radius` as a plain radius of `tolerance + 1`: `-1` is
+/// an exact match only (every other lineage a stranger -- the whole meaning
+/// of the retired `colony rivalry` switch, and where it went), `0` is one
+/// unit of scent, `+1` is two, the width of a whole channel.
+///
+/// **Read off the animal doing the judging, and deliberately not
+/// symmetric.** A's tolerance decides whether A treats B as kin; B's decides
+/// the reverse. A tolerant lineage beside an intolerant one therefore keeps
+/// walking up to animals that will bite it -- which is what adoption and
+/// raiding both look like from the inside, and nobody has to write a rule
+/// for either.
+///
+/// Heritable and mutated per birth at `scent_drift` like the signature, so a
+/// lineage can narrow itself into a stranger as well as drift into one.
+/// Inert while every signature in the box is one point -- a radius of zero
+/// still contains a distance of zero -- which is what keeps the shipped bed
+/// one family whatever this slot drifts to.
+pub const TRAIT_TOLERANCE: usize = 13;
+/// The four scent-side slots, whose per-birth width is
+/// `CreatureDef::scent_drift` rather than an entry of `trait_variance` --
+/// see `creature::trait_width`.
+pub const SCENT_SIDE_SLOTS: [usize; 4] = [TRAIT_SCENT_A, TRAIT_SCENT_B, TRAIT_SCENT_C, TRAIT_TOLERANCE];
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
@@ -7845,6 +7964,16 @@ mod tests {
     /// silently not mutating, which is a gene that inherits and never
     /// varies, and every allele histogram over it would read as a
     /// population under strong stabilising selection.
+    ///
+    /// **The four `SCENT_SIDE_SLOTS` are the exception, and deliberately.**
+    /// Their width is `scent_drift`, one number, and their tuple entries are
+    /// authored 0.0 and never read (`creature::trait_width`), so the canary
+    /// for them is different: the beetle's *ancestral* scent, `(0.8, 0.8,
+    /// 0.8)`, is the non-default value that says the tuple kept its tail,
+    /// and `scent_drift` reading exactly the species' authored 0.0 is the
+    /// statement that those genes do not mutate at the shipped dials -- by
+    /// design, so the shipped bed breeds byte-identically, and not by a
+    /// lost field.
     #[test]
     fn every_creature_trait_slot_survives_the_ron_round_trip() {
         let reg = SpeciesRegistry::builtin();
@@ -7852,13 +7981,27 @@ mod tests {
             let def = reg.get(reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\"")));
             let def = def.creature.as_ref().expect("a creature");
             for slot in 0..CREATURE_TRAITS {
+                if SCENT_SIDE_SLOTS.contains(&slot) {
+                    assert_eq!(
+                        def.trait_variance[slot], 0.0,
+                        "{name}.ron's width for scent-side slot {slot} is not read -- it is `scent_drift` -- and is authored 0.0 so nobody mistakes it for the live one"
+                    );
+                    continue;
+                }
                 assert_eq!(
                     def.trait_variance[slot], 0.15,
-                    "{name}.ron authors 0.15 on every trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
+                    "{name}.ron authors 0.15 on every body trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
                     def.trait_variance[slot]
                 );
             }
+            assert_eq!(def.scent_drift, 0.0, "{name}.ron ships with no scent drift: the shipped bed is one family");
         }
+        let beetle = reg.get(reg.id_of("beetle").expect("beetle"));
+        let beetle = beetle.creature.as_ref().expect("a creature");
+        for slot in SCENT_SLOTS {
+            assert_eq!(beetle.traits[slot], 0.8, "beetle.ron authors its scent at 0.8 on slot {slot}; a tuple that lost its tail would read the default 0.0");
+        }
+        assert_eq!(beetle.traits[TRAIT_TOLERANCE], 0.0);
     }
 
     #[test]

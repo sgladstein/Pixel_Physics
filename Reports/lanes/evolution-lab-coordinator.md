@@ -943,10 +943,111 @@ to 8 does not make lineages armour faster, it only stops them hitting a wall.
 A bed left to itself at reach 8 will look exactly like a bed at reach 1 for a
 long time.
 
-## Round fourteen, 2026-09-06 — the alarm, the verb, and the flight question closed
+## Round fourteen, 2026-09-06 — kin is a distance, and the castes verdict
 
-*Same branch and line. PR #268 (the armour reach) merged first; this is the
-second. README's "Creature groups status" is the shipped half.*
+*Owner: "once creatures evolve, is an ant always an ant?" and can a colony
+naturally differentiate into workers and soldiers? Branch
+`claude/evolution-lab-signature-castes-gfm0r2` (Fable, tags `creature-line`
++ `scent-signature`), alongside the Opus session on armour reach, alarm and
+`Attack`. **The record is
+[`../creature-signature-and-castes-2026-09-06.md`](../creature-signature-and-castes-2026-09-06.md)**;
+the shipped half is README's "Creature groups status", second block.*
+
+**Landed:** four heritable slots (`TRAIT_SCENT_A/B/C`, `TRAIT_TOLERANCE`),
+`is_living_kin` as *the other's scent within my tolerance* with the colony
+label nowhere in it, a per-colony founding offset (`scent_spread`), a
+per-birth drift (`scent_drift`), a species-gate dial (`kin_crosses_kinds`,
+off), and `World::regroup_by_scent`, which lets the colony label follow the
+scent and names a drifted cluster `ANT 1b`. `colony_rivalry` retired.
+
+**What the work overturned, which a later session cannot reconstruct:**
+
+- **"Re-derive `live_creature_groups` by clustering signatures" is the
+  wrong shape at the shipped dials, and the reason is placement identity.**
+  A census that clusters scent folds two clicks into one group the moment
+  spread is zero, because they *are* one point — and PR #255's whole
+  deliverable was that two clicks are two lines. So the label stays the
+  census and the *label follows the scent*: `regroup_by_scent` splits a
+  label whose animals are no longer mutually family and mints the wanderers
+  a child label. Splits only, never merges. Adoption is visible in the kill
+  tally and the kin sense, not yet as a relabelling.
+- **A signature that is only inherited and mutated has no cohesion.** Under
+  drift a colony's own cloud spreads exactly as fast as two colonies part
+  (both are independent random walks from one point), so what holds a
+  colony together is its tolerance exceeding its cloud, not anything about
+  being a colony. Real ants share a *gestalt* odour mixed by contact. If the
+  owner's picture is colonies dissolving rather than splitting, the next
+  mechanism is a contact-blended worn scent beside the heritable one — not
+  a tuning of drift.
+- **The four new slots consume no birth draw at the shipped dials**, because
+  `try_bud`'s loop only draws for `width > 0` and their width is
+  `scent_drift = 0`. That is what makes the default bed byte-identical
+  rather than merely equivalent; a slot whose variance had been authored at
+  0.15 like the others would have shifted every later draw in the jar's
+  brood loop.
+- **Castes cannot arrive the way real ants get them, and do not need to.**
+  There is no queen and no brood; every ant buds a copy. The first design
+  here (a threat-driven soldier morph with authored slots) was **ruled out
+  by the owner the same evening** as hard-coding what a caste *is*: which
+  sense a parent answers, which slots move and which way, and that the
+  axis is soldier-versus-worker at all. The design of record is now
+  plasticity and nothing named — a `Provision` brain output the parent
+  evaluates at budding, a heritable per-slot plasticity block in the
+  genome, one line in `traits_of`, a `Made` input, priced by the existing
+  levies — under which a soldier is something a lineage finds. Genetic
+  polymorphism needs nothing built and is the control. Deferred behind
+  `Attack` because a provisioned body that cannot defend is a number.
+
+**Measured** (report §1e; every run `RAYON_NUM_THREADS=4`, paired against
+`main` `15ed3d6c` built clean in its own worktree): at the shipped dials
+`ascii` is **0 lines different** across its 1,121 non-timing lines
+(deposition 1.36x on 237 drops, digit for digit) and the two-colony
+`labstats` census is identical on three seeds; `arm=ablate input=KinNear`
+on `main` is a **null** (median 49.1%, 4 seeds below 50%, 1 above, 1 tied),
+so there is no fitted kin-sense advantage to lose; the narrow end
+(`rivalry=1` = `tolerance=-1 spread=1`) kills both ways on every seed
+(12/6, 8/10, 7/6 against 0/0 at the defaults); and a tolerant colony beside
+an intolerant one loses **14, 14 and 15 ants** to it over three seeds while
+killing **none** of it — the raid and the adoption are the same asymmetry.
+**Speciation fires on the shipped bed**: at `tolerance=-0.5 drift=0.3` all
+three seeds name a split-off group inside 48,000 frames (`ANT 1b` at
+32,793 / 36,504 / `ANT 2b` at 23,028; a second split on two seeds), and
+almost every kill before the split is a colony eating its own drifted
+cousins. At the authored radius of 1.0 two drift rates were byte-identical
+over the horizon, and the positive control (radius 0.1, drift 1.0) bit on
+the first birth and named nothing because the bed starves a colony under
+the three-animal floor first — the bed, not the drift, bounds what can be
+seen. **Card `20260906T165111553Z-b2d7cb`** (board `lab`) puts the split
+in front of the owner with the two §7 decisions as its question.
+
+**For the Opus session:** `is_living_kin(world, cell, gut)` keeps its
+signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/
+`crosses_kinds`; `World::colony_rivalry` no longer exists (`labstats
+rivalry=1` is an alias for `tolerance=-1 spread=1`). `armour_at` reads
+`st.traits` directly and will want `expressed` traits the day plasticity
+lands — flagged, not changed. **Agreed order, by poke-trigger both ways
+(16:22 UTC):** its armour-reach PR lands first, this branch merges `main`
+and lands after. Its diff meets this one in four small places it named —
+`gut_of`'s `bite:` line gains a `world.trait_reach` argument, the
+`TRAIT_ROWS` loop's span becomes `allele_bound(slot, reach)` (1.0 for every
+scent-side slot, so no change here), `specimen::drift`'s clamp reads the
+same bound, and `Dials` gains `trait_reach` with a *named* serde default.
+Two of its findings bind here and were already met: alleles are drawn in
+two places (`try_bud` and `specimen::drift`; `creature::trait_width` serves
+both), and a new `Dials` field wants a named default unless it ships at
+zero (`scent_drift` and `scent_spread` are species fields and ship at 0).
+Its third — `World::plant_ant` claims a fresh colony per call, so a scene
+that places ants in a loop is N colonies — matters to any bed read through
+`regroup_by_scent`: at the shipped dials every label is one point and the
+pass is a no-op, so nothing moved, but a harness that turns the dials on
+over a `plant_ant` loop is measuring fifty colonies.
+
+## Round fifteen, 2026-09-06 — the alarm, the verb, and the flight question closed
+
+*Same branch and line. PR #268 (the armour reach) merged first, then the
+signature session's #267 while this was in review -- so this round's work was
+written against `colony_rivalry` and lands after that switch retired into the
+scent dials. README's "Creature groups status" is the shipped half.*
 
 **The flight question is closed, and the closure is worth more than the
 answer.** Last night's null had three named excuses (§4a) and all three are

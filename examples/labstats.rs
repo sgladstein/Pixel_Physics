@@ -36,6 +36,29 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
 }
 
+/// Set one trait allele on a species' ancestral vector **and** on every
+/// standing animal of it -- the two halves `beetlesight=` once shipped one
+/// of (see the closure of the same shape in `main`). A free function so a
+/// later block of `main` can reach it after that closure's borrow has ended.
+fn set_allele_on(lab: &mut Lab, species: &str, slot: usize, v: f32) -> usize {
+    let Some(sid) = lab.world.species.id_of(species) else { return 0 };
+    if let Some(def) = lab.world.species.get(sid).creature.as_ref() {
+        let mut def = def.clone();
+        def.traits[slot] = v;
+        lab.world.species.set_creature(sid, def);
+    }
+    let living: Vec<u16> = lab
+        .world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == species))
+        .collect();
+    for id in &living {
+        lab.world.set_organism_trait(*id, slot, v);
+    }
+    living.len()
+}
+
 fn main() {
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(9_000);
@@ -261,21 +284,119 @@ fn main() {
             println!("labstats: ant jaw allele {v}, applied to {} standing ant(s) and to what they breed", living.len());
         }
     }
-    // **`rivalry=1` -- the colony rule, which is a world dial rather than a
-    // species knob** (`World::colony_rivalry`). Echoed either way, per the
-    // harness rule: a bed with two colonies that never bite each other is
-    // the same picture whether the dial is off or disconnected.
-    if let Some(v) = arg::<i32>("rivalry") {
-        lab.world.colony_rivalry = v != 0;
+    // **The scent dials -- `tolerance=`, `spread=`, `drift=`, `crosskin=` --
+    // and `rivalry=1`, which is the name the §2 table of the groups report
+    // was measured under and now means its own narrow end: every click a
+    // stranger (`tolerance=-1 spread=1`), one point per colony (`drift=0`).**
+    // The switch retired into the tolerance slot (`organism::TRAIT_TOLERANCE`),
+    // so this alias is how that table is re-run on the new mechanism as its
+    // positive control. `tolerance=` is an allele and lands on the standing
+    // ants as well as on what they breed, like `pace=`; `spread=` is felt at
+    // founding, so it is applied by re-founding: the bed is rebuilt with the
+    // species' spread set, since a colony's offset is drawn when its label
+    // is claimed. Echoed either way, per the harness rule: a bed with two
+    // colonies that never bite each other is the same picture whether the
+    // dial is off or disconnected.
+    {
+        let rivalry = arg::<i32>("rivalry").is_some_and(|v| v != 0);
+        let tolerance: Option<f32> = arg::<f32>("tolerance").or(rivalry.then_some(-1.0));
+        let spread: Option<f32> = arg::<f32>("spread").or(rivalry.then_some(1.0));
+        let drift: Option<f32> = arg::<f32>("drift");
+        let crosskin: Option<i32> = arg::<i32>("crosskin");
+        if let Some(v) = spread {
+            // The offset is drawn at founding, keyed on the seed and the
+            // label (`creature::colony_scent_offset`), so applying the same
+            // draw to every standing animal of each label is byte-identical
+            // to having founded the bed at this spread -- and the species'
+            // spread is set for anything founded later.
+            if let Some(id) = lab.world.species.id_of("ant") {
+                let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+                def.scent_spread = v;
+                lab.world.species.set_creature(id, def);
+            }
+            let world_seed = lab.world.seed;
+            let living: Vec<(u16, u32)> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter_map(|id| lab.world.organism(id).map(|st| (id, st.colony, st.species)))
+                .filter(|(_, _, sp)| lab.world.species.get(*sp).name == "ant")
+                .map(|(id, col, _)| (id, col))
+                .collect();
+            for &(id, col) in &living {
+                let off = pixel_physics::sim::creature::colony_scent_offset(world_seed, col, v);
+                let traits = lab.world.organism(id).expect("live").traits;
+                for (i, slot) in pixel_physics::sim::organism::SCENT_SLOTS.iter().enumerate() {
+                    lab.world.set_organism_trait(id, *slot, (traits[*slot] + off[i]).clamp(-1.0, 1.0));
+                }
+            }
+            println!("labstats: ant scent_spread = {v}, each colony's founding offset applied to {} standing ant(s)", living.len());
+        }
+        if let Some(v) = tolerance {
+            let n = set_allele_on(&mut lab, "ant", pixel_physics::sim::organism::TRAIT_TOLERANCE, v);
+            println!("labstats: ant tolerance allele {v} (radius {}), applied to {n} standing ant(s) and to what they breed", v + 1.0);
+        }
+        // **`tolerance2=` sets the allele on colony label 2's standing ants
+        // only** -- the adoption/raid arm: one tolerant colony beside one
+        // intolerant one, which is the asymmetry `TRAIT_TOLERANCE` is
+        // built around and the design report's §5.5.
+        if let Some(v) = arg::<f32>("tolerance2") {
+            let living: Vec<u16> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| lab.world.organism(*id).is_some_and(|st| st.colony == 2 && lab.world.species.get(st.species).name == "ant"))
+                .collect();
+            for id in &living {
+                lab.world.set_organism_trait(*id, pixel_physics::sim::organism::TRAIT_TOLERANCE, v);
+            }
+            println!("labstats: ANT 2 tolerance allele {v} (radius {}), applied to {} standing ant(s) of colony 2 and to what they breed", v + 1.0, living.len());
+        }
+        if let Some(v) = drift {
+            if let Some(id) = lab.world.species.id_of("ant") {
+                let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+                def.scent_drift = v;
+                lab.world.species.set_creature(id, def);
+            }
+            println!("labstats: ant scent_drift = {v}");
+        }
+        if let Some(v) = crosskin {
+            if let Some(id) = lab.world.species.id_of("ant") {
+                let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+                def.kin_crosses_kinds = v != 0;
+                lab.world.species.set_creature(id, def);
+            }
+            println!("labstats: ant kin_crosses_kinds = {}", v != 0);
+        }
+        if rivalry {
+            println!("labstats: rivalry=1 is the tolerance dial's narrow end (tolerance -1, spread 1): every click a stranger");
+        }
     }
-    println!("labstats: colony_rivalry = {} | colonies placed = {:?}", lab.world.colony_rivalry, lab.world.live_creature_groups().iter().map(|g| (g.colony, g.alive)).collect::<Vec<_>>());
+    {
+        let w = &lab.world;
+        let ant = w.species.id_of("ant");
+        let scents: Vec<(u32, [f32; 3], f32)> = w
+            .live_creature_groups()
+            .iter()
+            .filter_map(|g| {
+                let first = w.live_organism_ids().into_iter().filter_map(|id| w.organism(id)).find(|s| s.species == g.species && s.colony == g.colony)?;
+                Some((g.colony, pixel_physics::sim::creature::scent_of(&first.traits), pixel_physics::sim::creature::tolerance_radius(&first.traits)))
+            })
+            .collect();
+        println!(
+            "labstats: colonies placed = {:?} | scent per colony (label, scent, radius) = {:?} | ant scent_drift = {:?}",
+            w.live_creature_groups().iter().map(|g| (g.colony, g.alive)).collect::<Vec<_>>(),
+            scents,
+            ant.and_then(|id| w.species.get(id).creature.as_ref().map(|d| d.scent_drift))
+        );
+    }
     // **`reach=8` -- the arms-race ceiling, a world dial for the same reason
-    // `rivalry` is** (`World::trait_reach`; `creature::TRAIT_REACH_DEFAULT`
+    // the retired `rivalry` switch was** (`World::trait_reach`; `creature::TRAIT_REACH_DEFAULT`
     // is the shipped 1.0, `TRAIT_REACH_MAX` is 8.0). It is read by *both*
     // animals in a fight, so a per-species reach would let an ant and a
     // beetle disagree about how wide the axis they are being compared on is
     // -- the field's own doc in `world.rs` makes the same call for the same
-    // reason as `colony_rivalry` beside it.
+    // reason the retired `colony_rivalry` switch had.
     //
     // **Alleles are clamped to this reach at two places, not one: the
     // resolvers (`armour_of`/`dig_force_of`, via `ratio_factor_reach` and
@@ -305,6 +426,17 @@ fn main() {
         // `observe` by hand runs the identical sequence with the clock taken
         // out -- the page never sees the difference, since it samples on
         // `world.frame`.
+        // The label follows the scent before the page samples it, exactly
+        // as `Lab::advance` does; the count is the "did a split fire"
+        // counter, printed when it does.
+        let minted = lab.world.regroup_by_scent();
+        // The ANTS page's own sample ring, so a `page=ants` capture carries
+        // the per-group graph and not just the legend. Gated inside on the
+        // page's sample interval; two integer compares per frame otherwise.
+        lab.ui.observe(&lab.world);
+        if minted > 0 {
+            println!("  frame {f:>7}: {minted} group(s) named off a drifted lineage -> {:?}", lab.world.live_creature_groups().iter().map(|g| (lab.world.group_label(g.species, g.colony), g.alive)).collect::<Vec<_>>());
+        }
         lab.stats.observe(&lab.world);
         if f % 900 == 0 || f == frames {
             line(&lab.stats, &lab.world);
@@ -432,7 +564,7 @@ fn main() {
     // reading `alive 0` rather than a row that vanished.
     {
         let w = &lab.world;
-        let name = |sp: pixel_physics::sim::organism::SpeciesId, col: u32| format!("{} {col}", w.species.get(sp).name.to_uppercase());
+        let name = |sp: pixel_physics::sim::organism::SpeciesId, col: u32| w.group_label(sp, col);
         let mut groups: Vec<(pixel_physics::sim::organism::SpeciesId, u32, u32)> =
             w.live_creature_groups().iter().map(|g| (g.species, g.colony, g.alive)).collect();
         for d in &w.group_deaths {
@@ -468,14 +600,37 @@ fn main() {
 
     if let Some(path) = png {
         let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
-        let touched = lab.world.take_touched_chunks();
-        lab.renderer.draw(&lab.world, &lab.particles, &touched, &mut buf, (WIDTH, HEIGHT), true);
-        // A cursor over the first row, so the hover the page carries is in
-        // the picture rather than described in a caption.
-        let hover: Option<i32> = arg("hover");
-        match hover {
-            Some(row) => lab.stats.draw_at(&mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
-            None => lab.stats.draw(&mut buf, &lab.world),
+        // **`page=ants` draws the whole lab frame with the ANTS page open**
+        // -- the bar, the per-group graph and the legend that names a
+        // split-off group `ANT 1b` -- through `Lab::draw`, the path the
+        // player sees. The default is the biosphere overlay over the bare
+        // world, as before. A group's colour in the box and its legend row
+        // come from one function (`render::group_colour`), so this is the
+        // picture the ANTS page's naming is judged by.
+        let page: Option<String> = arg("page");
+        if page.as_deref() == Some("ants") {
+            // The start-up help page would cover the box; a harness frame
+            // is the box. (`PIXEL_PHYSICS_LAB_HELP=0` does the same.)
+            lab.show_help = false;
+            // The biosphere overlay is up in a fresh headless lab and would
+            // cover the page; `Lab::act` closes it when a page opens, and
+            // this is that rule by hand.
+            if lab.stats.showing() {
+                lab.stats.toggle();
+            }
+            lab.ui.toggle_panel(pixel_physics::lab::ui::Panel::Ants);
+            lab.ui.observe(&lab.world);
+            lab.draw(&mut buf, 60.0);
+        } else {
+            let touched = lab.world.take_touched_chunks();
+            lab.renderer.draw(&lab.world, &lab.particles, &touched, &mut buf, (WIDTH, HEIGHT), true);
+            // A cursor over the first row, so the hover the page carries is in
+            // the picture rather than described in a caption.
+            let hover: Option<i32> = arg("hover");
+            match hover {
+                Some(row) => lab.stats.draw_at(&mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
+                None => lab.stats.draw(&mut buf, &lab.world),
+            }
         }
         // **Nearest-neighbour, integer factor.** The page is 5x7 glyphs on a
         // 512-wide framebuffer and the review queue's own note is that the

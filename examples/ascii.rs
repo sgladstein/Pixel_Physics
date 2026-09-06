@@ -2384,9 +2384,18 @@ fn construction_scene() {
     // and there is no way to turn it on there, so the gate below is safe as
     // shipped; this switch is how that claim gets checked rather than
     // asserted.
+    //
+    // The switch retired into the scent dials (`organism::TRAIT_TOLERANCE`):
+    // its narrow end -- every click a stranger -- is a founding spread of 1
+    // with an ancestral tolerance of `-1`, set on the species *before* the
+    // ants are placed, since a colony draws its offset at founding.
     if std::env::var("PIXEL_PHYSICS_COLONY_RIVALRY").as_deref() == Ok("on") {
-        world.colony_rivalry = true;
-        println!("  RIVALRY ON: the ants below are one colony, so this arm must come back digit for digit");
+        let id = world.species.id_of("ant").expect("ant");
+        let mut def = world.species.get(id).creature.clone().expect("the ant is a creature");
+        def.scent_spread = 1.0;
+        def.traits[pixel_physics::sim::organism::TRAIT_TOLERANCE] = -1.0;
+        world.species.set_creature(id, def);
+        println!("  RIVALRY ON (tolerance -1, spread 1): the ants below are one colony, so this arm must come back digit for digit");
     }
     // **Before the ants, and that is load-bearing.** `place_creature` copies
     // the species genome into each animal at spawn, so a `set_genome` after
@@ -2416,8 +2425,8 @@ fn construction_scene() {
 
     // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
     // colony per call, so a loop of it builds a crowd of strangers that only
-    // *looks* like a colony -- inert while `colony_rivalry` is off, and the
-    // whole scene the moment it is not. Measured with the dial on before this
+    // *looks* like a colony -- inert while every colony smells the same, and
+    // the whole scene the moment they do not. Measured with them apart before this
     // line was written: attributed drops **237 -> 22** and the ratio 1.36x ->
     // 1.14x, i.e. the ants stopped foraging and started eating each other.
     // That is `CLAUDE.md`'s *a scene that contradicts the code will look like

@@ -1722,8 +1722,10 @@ fn build_scene(args: &Args) -> World {
             use pixel_physics::sim::organism::TRAIT_ARMOUR;
 
             // Without this, every ant is every other ant's nestmate and the
-            // scene holds no fight at all.
-            w.colony_rivalry = true;
+            // scene holds no fight at all. Kin is a scent distance, so the two
+            // sides are made strangers below by giving the attackers a scent
+            // a whole channel away at a tolerance of `-1` (radius 0) -- the
+            // narrow end the retired `colony_rivalry` switch became.
             w.trait_reach = args.reach;
 
             for x in 80..140 {
@@ -1766,6 +1768,10 @@ fn build_scene(args: &Args) -> World {
             };
             assert_ne!(defender, 0, "scene=fight placed no defender -- this scene does not contain the situation it claims to");
             assert!(w.set_organism_trait(defender, TRAIT_ARMOUR, args.reach), "TRAIT_ARMOUR out of CREATURE_TRAITS range");
+            assert!(
+                w.set_organism_trait(defender, pixel_physics::sim::organism::TRAIT_TOLERANCE, -1.0),
+                "TRAIT_TOLERANCE out of CREATURE_TRAITS range"
+            );
 
             // Three attackers, all at the authored jaw. More than one
             // because two ants that wander apart make contact intermittent,
@@ -1775,6 +1781,11 @@ fn build_scene(args: &Args) -> World {
             for i in 0..3i32 {
                 let ax = 103 + i * 3;
                 if let Some(site) = plant_creature_seed_in(&mut w, ax, 119, "ant", Some(2)) {
+                    let id = w.get(ax, 119).organism_id();
+                    // A scent a whole channel from the defender's, at a
+                    // tolerance of zero radius: strangers, both ways.
+                    w.set_organism_trait(id, pixel_physics::sim::organism::SCENT_SLOTS[0], 1.0);
+                    w.set_organism_trait(id, pixel_physics::sim::organism::TRAIT_TOLERANCE, -1.0);
                     w.schedule_active_site(site);
                     attackers += 1;
                 }
