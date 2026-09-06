@@ -5869,7 +5869,7 @@ impl World {
         if initial == 0 {
             return 1.0;
         }
-        let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_per_frame());
+        let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_period());
         f32::from(initial.saturating_sub(deficit)) / f32::from(initial)
     }
 
@@ -5880,7 +5880,7 @@ impl World {
             return 0; // a root drinking from a puddle gets water and nothing else
         }
         let frame = self.frame;
-        let (recovery, initial) = (super::plant::nutrient_recovery_per_frame(), super::plant::nutrient_initial());
+        let (recovery, initial) = (super::plant::nutrient_recovery_period(), super::plant::nutrient_initial());
         let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) else { return 0 };
         chunk.draw_nutrient(x, y, frame, recovery, initial, amount)
     }

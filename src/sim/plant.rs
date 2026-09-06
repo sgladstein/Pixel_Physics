@@ -8030,7 +8030,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // to end. The bill is not phase-dependent, so netting it here is
     // comparing two noon-equivalent quantities.
     let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
-    let surplus = (intercepted / l_node(leaf_cluster) * INCOME_PER_NODE - maintenance).max(0.0);
+    let surplus = (noon_income(world, organism_id, intercepted, leaf_cluster) - maintenance).max(0.0);
     let supportable = ((surplus / step_cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
@@ -8210,7 +8210,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // moves. `OrganismState::income` is read by decisions — the die-back
     // trigger and every readout — and a decision may not be a function of
     // the hour. See `MEAN_NIGHT_INCOME_FACTOR`.
-    let income_noon = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+    let income_noon = noon_income(world, organism_id, intercepted, leaf_cluster);
     if let Some(state) = world.organism_mut(organism_id) {
         state.income = income_noon;
     }
@@ -8480,9 +8480,32 @@ pub(crate) fn nutrient_initial() -> u8 {
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
 }
 
-/// How much of a cell's nutrient deficit is forgiven per frame — §3a's
-/// closed-form recovery, and the reason recovery is not credited at decay
-/// sites.
+/// **Frames per unit of nutrient deficit forgiven** — a *period*, not a
+/// rate, and `0` still means "never recovers" (the shipped default).
+///
+/// **It was an integer per-frame rate until 2026-09-06, and that knob had
+/// a hole in it with no usable setting inside.** The draw is spent once
+/// per organism tick (`ORGANISM_TICK_INTERVAL` = 45 frames); the recovery
+/// was forgiven per *frame*, as a `u16`. So the only reachable settings
+/// were **0** — soil is a one-shot stock that never comes back — and
+/// **1**, which forgives 45 units in the time the draw takes one, a
+/// **45:1 subsidy** that pins `soil_nutrient_fraction` at 1.0 and makes the
+/// whole mechanism inert. Nothing in between could be expressed, because
+/// the next value down from 1 is 0.
+///
+/// That hole is why the two measurements of this mechanism landed at
+/// opposite extremes and neither was informative: at `recovery=1` a
+/// 12-seed paired sweep read a flat null (cells 0.998), and at
+/// `recovery=0` the same sweep with the income term read a collapse
+/// (plants 0.102). As a period the whole range opens: **45** matches the
+/// draw exactly, **180** is a quarter of it, **9_000** is a slow trickle.
+///
+/// `the_shipped_draw_cadence_cannot_outpace_the_shipped_recovery` pins the
+/// arithmetic; it still passes at period 1, because a period of one frame
+/// *is* the old rate of one per frame.
+///
+/// §3a's closed-form recovery, and the reason recovery is not credited at
+/// decay sites.
 ///
 /// **Decay-site crediting is a documented double dead end**
 /// (`dead-ends.md:583` and `:585`): built twice, reverted twice, once with
@@ -8574,13 +8597,93 @@ pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
     m.kind == MaterialKind::Powder && m.water_capacity > 0
 }
 
+/// **How much of what a plant EARNS scarce nutrient can take away** —
+/// `plant-soil-nutrient-plan-2026-09-05.md` §3c's third option, built
+/// 2026-09-06 on the owner's instruction after the reachability trace
+/// showed the first two could not do the job.
+///
+/// `PIXEL_PHYSICS_NUTRIENT_INCOME`, `0.0..=1.0`:
+///
+/// - **`0.0`** — no income term. The identity, and the paired control: the
+///   construction price of `nutrient_construction_multiplier` alone, which
+///   is what #262/#264 shipped.
+/// - **`1.0`** (default) — income falls linearly to **zero** at
+///   `nutrient_status` 0.
+///
+/// **Why income and not `min`.** §3c ruled out
+/// `min(water_status, nutrient_status)` and that reasoning stands: under
+/// `min` the non-binding resource has exactly zero marginal value and the
+/// stomatal locus's fitness signal is erased. But §3c then treated *"min"*
+/// and *"enters income"* as the same thing, and they are not —
+/// `water_status` is **already** a multiplier on income
+/// (`allocate_to_frontier`'s `intercepted += light * water_status`), and
+/// §3c says in as many words that *"multiplying is correct for it"*. This
+/// is that same shape for the second axis. The physiology is the ordinary
+/// one: N maintains photosynthetic machinery, so a leaf with no N supply
+/// earns less rather than being floored.
+///
+/// **Why it had to exist at all.** `nutrient_status` had exactly one
+/// consumer — a scale on `Grow.cost` — so it limited *building* and never
+/// *living*. Death by starvation is `income < MAINTENANCE_PER_CELL *
+/// (root_cells + shoot_cells)`, and nutrient was in **neither** side, so
+/// the lit drip-fed plant §3 was written for could not die however
+/// depleted its soil. This is the term that reaches that rule.
+///
+/// **The risk, and it is on the record rather than discovered later:**
+/// `dead-ends.md:892` records gating root re-initiation on whole-plant
+/// solvency producing a death spiral — *"water-limited income starves the
+/// roots that would fix it"*, 6-8 founders established of 8 against 8 of 8.
+/// An income term has that shape, which is exactly why it ships behind a
+/// weight that can be swept to 0 and why the whole mechanism stays inert
+/// at `PIXEL_PHYSICS_NUTRIENT=0`.
+fn nutrient_income_weight() -> f32 {
+    use std::sync::OnceLock;
+    static W: OnceLock<f32> = OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NUTRIENT_INCOME").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0)
+    })
+}
+
+/// What this organism's nutrient standing does to its income, `0.0..=1.0`.
+/// **1.0 whenever the mechanism is off**, so the shipped tree is
+/// bit-identical.
+fn nutrient_income_multiplier(world: &World, organism_id: u16) -> f32 {
+    if nutrient_initial() == 0 {
+        return 1.0;
+    }
+    let weight = nutrient_income_weight();
+    if weight <= 0.0 {
+        return 1.0;
+    }
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status).clamp(0.0, 1.0);
+    (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0)
+}
+
+/// **Noon-equivalent income from intercepted, water-limited light — the one
+/// expression, in one place.**
+///
+/// It is computed at *two* gates: `allocate_to_frontier`'s pool (the
+/// plant's money) and `break_buds`' `supportable` (the plant's policy).
+/// Both already accumulate `intercepted` the same way, and `break_buds`'
+/// own comment records why — *"the two gates are one number in two places"*,
+/// so a term added to one and not the other makes them disagree about what
+/// the plant can afford. They agreed only by duplication until the nutrient
+/// needed adding to both; this is that duplication removed, so the next
+/// term cannot land in one site alone.
+///
+/// The two callers still differ *after* this point, correctly: the pool
+/// scales by the hour (money) and `supportable` does not (policy).
+fn noon_income(world: &World, organism_id: u16, intercepted: f32, leaf_cluster: u8) -> f32 {
+    intercepted / l_node(leaf_cluster) * INCOME_PER_NODE * nutrient_income_multiplier(world, organism_id)
+}
+
 fn nutrient_draw_per_tick() -> u8 {
     use std::sync::OnceLock;
     static N: OnceLock<u8> = OnceLock::new();
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_DRAW").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
 }
 
-pub(crate) fn nutrient_recovery_per_frame() -> u16 {
+pub(crate) fn nutrient_recovery_period() -> u16 {
     use std::sync::OnceLock;
     static N: OnceLock<u16> = OnceLock::new();
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
@@ -9071,8 +9174,42 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // a root down yet must not read as droughted.
         state.root_zone_water =
             if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
-        state.nutrient_status =
-            if nutrient_faces > 0 { nutrient_available / nutrient_faces as f32 } else { 1.0 };
+        // **Zero when a plant has roots and none of them reach soil, and
+        // that is the opposite of the line above it.** The two look like
+        // the same "nothing to say" default and only one of them is.
+        //
+        // For water, 1.0 is right: soil is not the only way to be wet, and
+        // a seedling that has not put a root down must not read as
+        // droughted. For nutrient it was exactly backwards. The whole
+        // premise of `plant-soil-nutrient-plan-2026-09-05.md` §3 is that
+        // **soil supplies something water cannot**, so that the lit,
+        // drip-fed plant reported from the lab can no longer live for ever
+        // on nothing -- and such a plant has `wet_faces > 0` with
+        // `nutrient_faces == 0`, so it took the default and read FULL. The
+        // mechanism taxed a plant whose roots were in poor soil and exempted
+        // outright the plant with no soil at all. Measured as
+        // `a_plant_drinking_only_free_water_reads_no_nutrient_not_full`,
+        // which read 1.000 against soil's 1.000 -- the two arms identical,
+        // which is `CLAUDE.md`'s own tell.
+        //
+        // **`root_cells` is this walk's own local, not the cached field**,
+        // and the distinction is load-bearing rather than stylistic: an
+        // organism-level "has it any roots" test keyed on
+        // `OrganismState::root_cells` is the lagging-cache trap recorded on
+        // `is_structural_anchor` above, where a plant reads rootless for up
+        // to `ORGANISM_TICK_INTERVAL` after germinating. Here the count was
+        // produced by the loop directly above, so it cannot lag.
+        //
+        // The seedling case still defers, which is why this is not a bare
+        // 0.0: before a plant has put down any root at all there is nothing
+        // to be short of, and taxing it would price the founder grant.
+        state.nutrient_status = if nutrient_faces > 0 {
+            nutrient_available / nutrient_faces as f32
+        } else if root_cells > 0 {
+            0.0
+        } else {
+            1.0
+        };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;
@@ -16348,6 +16485,218 @@ cost is x{mult}"
         assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
     }
 
+    /// **The income term: inert while the switch is off, and the identity
+    /// when it is.**
+    ///
+    /// `nutrient_income_multiplier` is the third of §3c's options and the
+    /// only one that can reach the rule that kills a plant — starvation is
+    /// `income < MAINTENANCE_PER_CELL * cells`, and the construction price
+    /// is in neither side of it.
+    ///
+    /// Two claims, because they fail differently. **Inert**: with
+    /// `PIXEL_PHYSICS_NUTRIENT` unset the multiplier is exactly 1.0 at
+    /// every status, so the shipped tree is bit-identical and
+    /// `noon_income` is the expression it replaced, to the bit. **Weight
+    /// 0 is the identity**: the paired control for any measurement of this
+    /// term is `PIXEL_PHYSICS_NUTRIENT_INCOME=0`, which must be
+    /// indistinguishable from not having built it.
+    #[test]
+    fn the_nutrient_income_term_is_inert_until_switched_on() {
+        let mut w = test_world();
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+
+        for status in [1.0f32, 0.75, 0.5, 0.25, 0.0] {
+            w.organism_mut(id).expect("alive").nutrient_status = status;
+            let mult = nutrient_income_multiplier(&w, id);
+            assert_eq!(
+                mult, 1.0,
+                "the income term must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} income \
+scales by x{mult}"
+            );
+        }
+
+        // ...and `noon_income` is then exactly the expression it replaced,
+        // which is what makes "bit-identical" a checked claim rather than
+        // an assertion in a commit message. Two gates read this -- the pool
+        // in `allocate_to_frontier` and `supportable` in `break_buds` --
+        // and they are one number in two places.
+        for (intercepted, leaf_cluster) in [(0.0f32, 1u8), (1.0, 1), (7.5, 3), (123.75, 5)] {
+            let want = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+            let got = noon_income(&w, id, intercepted, leaf_cluster);
+            assert_eq!(
+                got, want,
+                "noon_income must be the identity while the mechanism is off: intercepted {intercepted} \
+cluster {leaf_cluster} gave {got}, expected {want}"
+            );
+        }
+
+        // The arithmetic the switch would produce, asserted directly so the
+        // shape is pinned without a second process: at weight 1 the
+        // multiplier is the status itself, so status 0 -> income 0 -> the
+        // plant reaches `STARVATION_DEATH_TICKS`. That is the whole point
+        // of the term, and it is the half a construction price cannot do.
+        for (weight, status, want) in
+            [(1.0f32, 0.0f32, 0.0f32), (1.0, 0.5, 0.5), (1.0, 1.0, 1.0), (0.5, 0.0, 0.5), (0.0, 0.0, 1.0)]
+        {
+            let got = (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0);
+            assert_eq!(got, want, "weight {weight} at status {status} should scale income by {want}, not {got}");
+        }
+    }
+
+    /// **The switched-on half, which the test above cannot give.**
+    ///
+    /// A `OnceLock` is read once per process, so the inert assertions
+    /// above and this one cannot live in the same run. This is the arm
+    /// that says the mechanism does what it was built for:
+    ///
+    /// ```text
+    /// PIXEL_PHYSICS_NUTRIENT=200 cargo test --lib --release -- --ignored \
+    ///     a_plant_with_no_soil_earns_nothing_once_the_switch_is_on
+    /// ```
+    ///
+    /// **What it proves, and what it leaves to code already under test.**
+    /// It proves the two ends that are new: a plant whose roots touch only
+    /// free water reads `nutrient_status` **0**, and at that status the
+    /// income multiplier is **0**. The link from there to death is
+    /// `organism_upkeep`'s existing starvation rule — `income <
+    /// MAINTENANCE_PER_CELL * (root_cells + shoot_cells)` for
+    /// `STARVATION_DEATH_TICKS` — which §V2 already owns and guards.
+    ///
+    /// Deliberately *not* a grown-plant scene. Taking the soil out from
+    /// under a live plant also takes its anchor (`is_structural_anchor`
+    /// wants soil or anchoring solid, and water is neither), so such a
+    /// scene cannot separate "starved" from "fell apart" — which is
+    /// exactly the confound `CLAUDE.md` warns a scene error produces.
+    #[test]
+    #[ignore = "needs PIXEL_PHYSICS_NUTRIENT set; see the doc comment"]
+    fn a_plant_with_no_soil_earns_nothing_once_the_switch_is_on() {
+        assert!(
+            nutrient_initial() > 0,
+            "this arm is meaningless with the mechanism off -- run it with PIXEL_PHYSICS_NUTRIENT=200"
+        );
+        assert!(
+            nutrient_income_weight() > 0.0,
+            "this arm is meaningless at income weight 0 -- that setting is the identity by design"
+        );
+
+        /// -> (nutrient status, income multiplier) for a root whose only
+        /// drinkable face is `source`.
+        fn arm(source: &str) -> (f32, f32) {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::RootTip, (0.0, 0.0));
+            let cell = match source {
+                "soil" => {
+                    let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                    Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                }
+                _ => Cell::new(material::WATER, 0),
+            };
+            w.set(60, 61, cell);
+            organism_upkeep(&mut w, id);
+            let status = w.organism(id).expect("alive").nutrient_status;
+            (status, nutrient_income_multiplier(&w, id))
+        }
+
+        let (soil_status, soil_income) = arm("soil");
+        let (drip_status, drip_income) = arm("water");
+        println!(
+            "switch ON (initial {}, income weight {}):\n  root over soil:  status {soil_status:.3}  income x{soil_income:.3}\n  root over drip:  status {drip_status:.3}  income x{drip_income:.3}",
+            nutrient_initial(),
+            nutrient_income_weight(),
+        );
+
+        assert!(soil_income > 0.5, "a root in fresh soil must still earn: x{soil_income:.3}");
+        assert_eq!(
+            drip_income, 0.0,
+            "a plant whose roots touch no soil must earn NOTHING at income weight 1, not x{drip_income:.3}. \
+This is the whole of what the construction price could not do: starvation reads income against cell count, \
+and a price on building is in neither side of it."
+        );
+    }
+
+    /// **The floating plant reads as fully fed, and it is the case the
+    /// nutrient was built for.**
+    ///
+    /// `organism_upkeep` sets `nutrient_status` to `1.0` when a plant has no
+    /// soil faces at all -- the same "nothing to say" default
+    /// `root_zone_water` takes one line above it, where it is right (a
+    /// seedling that has not rooted yet must not read as droughted).
+    ///
+    /// For nutrient it is exactly backwards. The premise §3 was built on is
+    /// that **soil supplies something water cannot**, so that a lit plant
+    /// with a drip on it can no longer live for ever on nothing. A plant
+    /// drinking only free water has `wet_faces > 0` and `nutrient_faces ==
+    /// 0`, so it takes the default and reads **full nutrient** -- the
+    /// mechanism penalises a plant whose roots are in *poor* soil and
+    /// exempts entirely the plant with no soil at all.
+    ///
+    /// This is `CLAUDE.md`'s "check that a planned step can demonstrate
+    /// itself": the step shipped without its own purpose ever being put to
+    /// it. The assertion below is written against the **fixed** behaviour --
+    /// no soil faces reads 0.0, not 1.0 -- with the drinking half beside it,
+    /// because the two arms differ only in what is under the root and any
+    /// difference must therefore be about nutrient rather than reach.
+    #[test]
+    fn a_plant_drinking_only_free_water_reads_no_nutrient_not_full() {
+        /// -> (contact roots, root-zone water, nutrient status) after one
+        /// upkeep, with `source` the only thing under the root cell.
+        fn upkeep(source: &str) -> (u32, f32, f32) {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::RootTip, (0.0, 0.0));
+            // Painted by each material's OWN convention, which is the trap
+            // `CLAUDE.md` records costing a whole reproduction: on a Powder
+            // `aux == 0` is bone dry, on a Liquid `aux == 0` is FULL.
+            let cell = match source {
+                "soil" => {
+                    let soil = w.materials.id_of("soil").expect("soil is compiled in");
+                    Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+                }
+                _ => Cell::new(material::WATER, 0),
+            };
+            w.set(60, 61, cell);
+            organism_upkeep(&mut w, id);
+            let st = w.organism(id).expect("alive");
+            (st.contact_root_cells, st.root_zone_water, st.nutrient_status)
+        }
+
+        let (soil_contact, soil_water, soil_nutrient) = upkeep("soil");
+        let (drip_contact, drip_water, drip_nutrient) = upkeep("water");
+        println!(
+            "root over soil:  contact {soil_contact}  water {soil_water:.3}  nutrient {soil_nutrient:.3}\n\
+             root over drip:  contact {drip_contact}  water {drip_water:.3}  nutrient {drip_nutrient:.3}"
+        );
+
+        // The control: both arms drink. #256 made free water a face a root
+        // can take water from, so the arms are equal on the water axis and
+        // any difference below is the nutrient axis alone.
+        assert_eq!(soil_contact, 1, "test setup: a root over wet soil must count as contact");
+        assert_eq!(drip_contact, 1, "test setup: a root over free water must count as contact -- that is #256");
+        assert!(
+            drip_water > 0.5,
+            "test setup: a root over full free water must read wet, not {drip_water:.3} -- a Liquid at aux 0 is FULL"
+        );
+
+        assert!(
+            soil_nutrient > 0.0,
+            "a root over soil must read some nutrient, not {soil_nutrient:.3}, or soil buys nothing"
+        );
+        assert_eq!(
+            drip_nutrient, 0.0,
+            "a plant whose roots touch no soil at all reads nutrient {drip_nutrient:.3}. At 1.0 it is the \
+'nothing to say' default, and it exempts precisely the drip-fed plant the nutrient was built to reach: the \
+mechanism then taxes a plant in POOR soil and leaves the plant in NO soil untouched."
+        );
+    }
+
     /// **A plant is held up from below, or by its roots — not by whatever it
     /// happens to lean on.** The lab's floating plant, reduced to two cells.
     ///
@@ -16718,6 +17067,73 @@ where the soil arm's exchange makes that {expected:.0} (before the fix: 1,000 of
         let (dir, strength) = pull.expect("a real off-axis water pocket should produce a nonzero moisture gradient");
         assert!(strength >= MIZ_THRESHOLD, "moisture gradient too weak to trigger hydrotropism: {strength}");
         assert!(dir.0 > 0.0, "the gradient should point right, toward the off-axis water pocket, got {dir:?}");
+    }
+
+    /// **Free water above a root outbids any soil below it, so the root
+    /// steers up** — the owner's report from the roots-on/off card,
+    /// 2026-09-06: *"There is an issue in option a where the roots are
+    /// growing into the tree/sky."*
+    ///
+    /// `Grow`'s `RootTip` arm lets MIZ1 hydrotropism **override**
+    /// gravitropism outright whenever the gradient clears `MIZ_THRESHOLD`,
+    /// and `organism::soil_water_fraction` returns a **Liquid cell's fill**
+    /// on the same 0..1 scale it returns soil moisture on. So free water
+    /// reads **1.0** where soil at field capacity reads 0.62, and any
+    /// standing water — rain on the surface, a drip, a puddle — is a
+    /// maximal attractor that no soil can outbid.
+    ///
+    /// Hydrotropism toward wetter *soil* is the biology `MIZ_THRESHOLD` was
+    /// tuned for and is not in question here. What this pins is the sign
+    /// and the size of the pull toward water that is **not in the ground**,
+    /// which is what takes a root out of the soil and up the trunk.
+    #[test]
+    fn free_water_above_a_root_outbids_the_soil_and_points_it_up() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for y in 40..90 {
+            for x in 40..90 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+
+        // The control: uniform damp soil has no gradient, so a root here
+        // falls through to plain gravitropism. If this is not flat the
+        // scene is wrong and the arm below means nothing.
+        let flat = organism::moisture_pull(&w, 60.0, 60.0);
+        assert!(
+            flat.is_none_or(|(_, m)| m < MIZ_THRESHOLD),
+            "test setup: uniform soil must not pull, got {flat:?}"
+        );
+
+        // One row of free water, ABOVE the root and inside the sensor's
+        // reach -- `MOISTURE_SENSOR_OFFSET` is 4, so this is the cell the
+        // upper sample actually reads.
+        for x in 50..70 {
+            w.set(x, 56, Cell::new(material::WATER, 0));
+        }
+        let ((dx, dy), strength) = organism::moisture_pull(&w, 60.0, 60.0).expect("water above must pull");
+        println!("pull toward free water above: dir ({dx:.3}, {dy:.3})  strength {strength:.3}  \
+threshold {MIZ_THRESHOLD}  (+y is DOWN)");
+
+        assert!(
+            strength >= MIZ_THRESHOLD,
+            "a row of free water four cells above reads {strength:.3}, under the {MIZ_THRESHOLD} threshold"
+        );
+        assert!(
+            dy < 0.0,
+            "the pull points {dy:.3} on y. Free water above a root must not read as a reason to grow DOWN; \
++y is down in this engine"
+        );
+        // The size is the finding, not just the sign: soil at field
+        // capacity is 620/1000 and a full Liquid is 1.0, so the bid is
+        // 0.38 against a threshold of 0.05 -- water out of the ground beats
+        // any soil gradient by more than seven times the bar, and
+        // `Grow`'s RootTip arm takes it INSTEAD of gravity rather than
+        // blending the two.
+        assert!(
+            strength > 7.0 * MIZ_THRESHOLD,
+            "expected free water to outbid soil by a wide margin, got {strength:.3}"
+        );
     }
 
     /// **The guard the test above could not be**, and the one whose
