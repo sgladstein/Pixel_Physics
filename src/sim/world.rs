@@ -219,6 +219,34 @@ pub const RUN_LOG_CAP: usize = 2048;
 ///
 /// `LifeCounters` comes across whole rather than as a summary, so the cell
 /// page's LIFE group reads the same for a dead individual as for a live one.
+/// **What has happened to one colony's dead** — deaths by cause, and who
+/// killed the killed. `World::group_deaths`'s row; never ages out, unlike
+/// the graveyard it is tallied beside.
+///
+/// The readout the owner's *"one almost got wiped out, then came back"*
+/// needs under it: the population line says *that* a colony fell and this
+/// says *why* — starved, or eaten, and by whom. `killed_by` is per attacking
+/// group, because "ANT 1 killed 12 of ANT 2" is the number a war is read
+/// off, and it is written at the bite (`creature.rs`, the eat branch) where
+/// the attacker is in scope; `DeathCause::Killed` alone cannot say who.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct GroupDeaths {
+    pub species: organism::SpeciesId,
+    pub colony: u32,
+    pub by_cause: [u64; organism::DEATH_CAUSES],
+    /// `(attacker species, attacker colony, kills)`.
+    pub killed_by: Vec<(organism::SpeciesId, u32, u64)>,
+}
+
+/// One colony's standing count — `World::live_creature_groups`'s row.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CreatureGroup {
+    pub species: organism::SpeciesId,
+    /// `OrganismState::colony`; 0 for animals no gesture placed.
+    pub colony: u32,
+    pub alive: u32,
+}
+
 #[derive(Clone, Copy, Debug)]
 pub struct Grave {
     /// The identity it had, which is still how a run-log line refers to it:
@@ -228,6 +256,9 @@ pub struct Grave {
     pub died_frame: u64,
     pub species: organism::SpeciesId,
     pub lineage: u32,
+    /// `OrganismState::colony` at death, so a graveyard can be read per
+    /// group the way the roster's live rows can.
+    pub colony: u32,
     pub generation: u16,
     pub cause: organism::DeathCause,
     pub life: organism::LifeCounters,
@@ -594,6 +625,11 @@ pub struct CreatureStats {
     /// the eye has anything to report — and it is the quantity
     /// `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the radius
     /// from (median 0.44–0.57 at r64 across three presets).
+    /// Casts that found an animal whose gut would take this one's flesh --
+    /// `BrainInput::ThreatNear` read non-zero. The hunted side's
+    /// `sightings`, and the number to read before believing any flight was
+    /// selected for or against.
+    pub threat_sightings: u64,
     pub sightings: u64,
     /// **Sightings the animal then moved toward** — the effect counter, and
     /// the only one of the three that can tell a sense that steers from a
@@ -1421,6 +1457,9 @@ pub struct World {
     /// The far side of the run log's `died` events, and the only place §B2's
     /// whole-plant fellings are counted as *organisms* rather than as cells.
     pub deaths_by_cause: [u64; organism::DEATH_CAUSES],
+    /// `deaths_by_cause`, split by `(species, colony)` for animals — see
+    /// `GroupDeaths`. A `Vec` because a box holds a handful of groups.
+    pub group_deaths: Vec<GroupDeaths>,
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
@@ -1463,6 +1502,33 @@ pub struct World {
     /// lineage up, so exhausting a `u32` would take 4 billion founders in
     /// one world and cost a label collision rather than a corruption.
     next_lineage: u32,
+    /// The next unused colony label — see `OrganismState::colony`. Same
+    /// contract as `next_lineage`: starts at 1 so 0 means "no colony", only
+    /// ever goes up, is not an index into anything.
+    next_colony: u32,
+    /// **Whether two colonies of one species are strangers to each other.**
+    ///
+    /// Off, kin is the species: every ant is every other ant's nestmate,
+    /// whichever click put it down, and two colonies founded a screen apart
+    /// aggregate on each other, follow each other's trails and never bite
+    /// each other. That is the shipped behaviour and this defaults to it.
+    ///
+    /// On, `creature::is_living_kin` also requires the same
+    /// `OrganismState::colony`, so an ant from the other colony is not kin
+    /// -- and therefore, to a gut whose diet axis reaches flesh, is prey.
+    /// Nothing else changes: there is no aggression verb, so what "rivalry"
+    /// buys today is that hungry ants eat the other colony's ants exactly
+    /// as they would eat a beetle, and the kin sense stops pulling the two
+    /// colonies together. What it does *not* buy, and is recorded in
+    /// `Reports/creature-groups-and-combat-design-2026-09-06.md`, is
+    /// separate scent: both colonies still lay and read the same two
+    /// pheromone planes.
+    ///
+    /// A field on the world rather than a species field, for
+    /// `plant_load_failure`'s reason: it is a rule of the box, reachable
+    /// from the parameters page while the box runs, and carried across a
+    /// rebuild by `lab::params::Dials`.
+    pub colony_rivalry: bool,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -2882,11 +2948,14 @@ impl World {
             organisms_died: 0,
             dead_life: organism::LifeCounters::default(),
             deaths_by_cause: [0; organism::DEATH_CAUSES],
+            group_deaths: Vec::new(),
             run_log: RunLog::default(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
             organism_generation_wraps: 0,
             next_lineage: 1,
+            next_colony: 1,
+            colony_rivalry: false,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
@@ -3602,6 +3671,9 @@ impl World {
             // `push_organism` cannot, because it does not know whether it
             // is allocating a plant (same reasoning as `traits` above).
             lineage: 0,
+            // Same seam as `lineage`: `creature::place_creature` stamps it
+            // for founders and copies the parent's for a bud.
+            colony: 0,
             seeds_set: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
@@ -3814,9 +3886,9 @@ impl World {
             ),
             None => (organism::LifeCounters::default(), organism::DeathCause::Unknown),
         };
-        let (species, lineage, born_frame) = match slot.state.as_ref() {
-            Some(state) => (state.species, state.lineage, state.born_frame),
-            None => (organism::SpeciesId(0), 0, 0),
+        let (species, lineage, colony, born_frame) = match slot.state.as_ref() {
+            Some(state) => (state.species, state.lineage, state.colony, state.born_frame),
+            None => (organism::SpeciesId(0), 0, 0, 0),
         };
         // **Read before `slot.state` is dropped**, which is the only moment
         // it can be: everything on it is about to stop existing, and the slot
@@ -3846,6 +3918,7 @@ impl World {
             died_frame: self.frame,
             species,
             lineage,
+            colony,
             generation,
             cause,
             life,
@@ -3854,6 +3927,9 @@ impl World {
         });
         self.dead_life.absorb(&life);
         self.deaths_by_cause[cause.index()] += 1;
+        if creature {
+            self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
+        }
         self.run_log.push(LogEvent {
             frame: self.frame,
             id: organism_id,
@@ -4120,6 +4196,76 @@ impl World {
         let id = self.next_lineage;
         self.next_lineage = self.next_lineage.saturating_add(1);
         id
+    }
+
+    /// The next colony label — see `OrganismState::colony`. Claimed by
+    /// `creature::place_creature` for the **first** animal of a placement
+    /// gesture only, and the rest of the gesture joins it, so the numbers a
+    /// player sees count the things they put down rather than the sites
+    /// that were tried: `ANT 3` is the third group placed in this box.
+    pub(crate) fn claim_colony(&mut self) -> u32 {
+        let id = self.next_colony;
+        self.next_colony = self.next_colony.saturating_add(1);
+        id
+    }
+
+    /// **How many animals are alive in each colony**, as `(species, colony,
+    /// alive)`, ordered by colony then species — placement order, which is
+    /// the order a player remembers them in.
+    ///
+    /// The census behind the lab's per-group population strip and its
+    /// legend. Here rather than in `lab::ui` for `lineage_mass`'s reason:
+    /// the world owns the partition and the page only draws it. One pass
+    /// over the organism table; a `Vec` rather than a map because a box
+    /// holds a handful of colonies and the sort is what the caller wants.
+    ///
+    /// Plants never appear: the split is on `Species::creature`, the same
+    /// test `live_creature_count` makes, so the counts here sum to it.
+    /// This group's death tally, creating the row on first use.
+    fn group_deaths_mut(&mut self, species: organism::SpeciesId, colony: u32) -> &mut GroupDeaths {
+        let at = match self.group_deaths.iter().position(|g| g.species == species && g.colony == colony) {
+            Some(i) => i,
+            None => {
+                self.group_deaths.push(GroupDeaths { species, colony, by_cause: [0; organism::DEATH_CAUSES], killed_by: Vec::new() });
+                self.group_deaths.len() - 1
+            }
+        };
+        &mut self.group_deaths[at]
+    }
+
+    /// This group's death tally, or `None` if nothing of it has died.
+    pub fn group_deaths_of(&self, species: organism::SpeciesId, colony: u32) -> Option<&GroupDeaths> {
+        self.group_deaths.iter().find(|g| g.species == species && g.colony == colony)
+    }
+
+    /// **A kill, booked on the victim's group against the attacker's.**
+    /// Called from the bite that took a victim's deciding cell, which is the
+    /// one site that knows both parties; `free_organism` sees only the
+    /// corpse. Plants are never victims here (a bitten leaf does not kill a
+    /// tree) and never attackers, so both ids are animals by construction.
+    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32)) {
+        let row = self.group_deaths_mut(victim.0, victim.1);
+        match row.killed_by.iter_mut().find(|(sp, col, _)| *sp == attacker.0 && *col == attacker.1) {
+            Some((_, _, n)) => *n += 1,
+            None => row.killed_by.push((attacker.0, attacker.1, 1)),
+        }
+    }
+
+    pub fn live_creature_groups(&self) -> Vec<CreatureGroup> {
+        let mut out: Vec<CreatureGroup> = Vec::new();
+        for slot in self.organisms.iter() {
+            let Some(state) = &slot.state else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            match out.iter_mut().find(|g| g.species == state.species && g.colony == state.colony) {
+                Some(g) => g.alive += 1,
+                None => out.push(CreatureGroup { species: state.species, colony: state.colony, alive: 1 }),
+            }
+        }
+        // Total: `(colony, species.0)` is unique per entry by construction.
+        out.sort_unstable_by_key(|g| (g.colony, g.species.0));
+        out
     }
 
     /// Births refused at the slot ceiling — see `organisms_refused`. Zero

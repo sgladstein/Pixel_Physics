@@ -1,6 +1,21 @@
 # Ants
 
-*Current as of: 2026-09-06, when **foliage stopped being a wall** — an ant
+*Current as of: 2026-09-06, when **an animal that can see gained a sense for
+what hunts it** — the nearest animal whose stomach would take its flesh, how
+near and which way — so running, hiding and warning the nest are things a
+lineage can now be born knowing, where before nothing in the animal could
+notice a hunter at all. Nothing that ships is born using it, and the ants
+that ship are blind, so it changes nothing on screen today; what it changes
+is what evolution can reach. Earlier the same day, **the ants you put down became a colony
+you can see and count** — every click of the colony tool, every animal
+placed alone and every jar released is its own group, its young are born
+into it, the animals wear their group's colour in the box, and the ants
+page draws each group's numbers as its own line in that same colour rather
+than one line for everything alive. The same day a rule appeared, off unless
+you turn it on, under which two colonies of one kind are strangers: a hungry
+ant will then eat an ant from the other colony exactly as it would eat a
+beetle, and the two stop drawing together. See "Who is family" below for
+what that does and does not change. Earlier the same day, **foliage stopped being a wall** — an ant
 walks into a bush now and comes out the other side, and the leaves close
 behind it undamaged. A trunk is still a trunk: something to walk up, not
 through. The same day, **an animal could finally bite back at
@@ -217,6 +232,42 @@ price a colony of twenty-seven went down to two survivors. The price per step
 came down by the same factor the work went up by, and the colony is back where
 it was. Digging is unaffected, which was the thing the price was introduced to
 make worth choosing.
+
+**Who is family.** An ant knows one thing about another animal: whether it
+is *its own kind*. Its own kind it will never bite, will walk over rather
+than around, and will drift toward when it can sense one nearby; anything
+else is either food, if its stomach can digest that sort of flesh, or
+furniture. There is no notion of an enemy — a beetle eats an ant because an
+ant is meat and the beetle is hungry, not because they are at war, and an
+ant standing next to a beetle will bite it for the same reason and no
+other. Since 2026-09-06 "its own kind" can be narrower than the species.
+Every group you put down — a colony from one click, a single animal, a jar
+you release — is a colony of its own, and a child belongs to its parent's.
+Left alone that is only a label: it decides the colour an animal wears and
+which line on the ants page counts it. Turn on colony rivalry (on the
+parameters page, under the ants) and it decides family too: an ant from
+another colony is a stranger, so a hungry one will eat it, and the two
+colonies stop gathering together. What rivalry does *not* do is make
+anyone fight for its own sake — nobody attacks a stranger it is not going
+to eat, nobody runs from one, and both colonies still lay and follow one
+shared set of scent trails, so a rival's path to food is as good as your
+own. An ant is still always an ant: however far its line drifts, it never
+becomes a new kind that other ants treat as foreign. That is the next thing
+on the creature line and it is written up, not built.
+
+**They can see what hunts them, if they can see at all.** An animal with
+eyes used to see two things at a distance: something it could eat, and its
+own kind. Since 2026-09-06 it sees a third — the nearest animal whose
+stomach would take *it* — and knows how near it is and which way to turn to
+face it or to put it behind. Nothing tells the animal what to do about that;
+whether it runs, freezes, digs in, keeps eating or lays a scent is decided
+by its inheritance, and an animal born today does none of them. The ants
+that ship are blind, so for them this begins the day a lineage grows eyes.
+It is the same rule the hunter uses, read from the other end: a beetle is a
+threat to an ant because a beetle would eat an ant, and an ant is a threat
+to a beetle for the same reason, since an ant standing beside one will bite
+it. Armour is not part of it — a hard shell slows a mouth, it does not stop
+one.
 
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is

@@ -755,6 +755,83 @@ heredity dials across a rebuild (Round nine), and a scenario rides the same
 seam rather than a new one. Full account in README's own "Lab scenarios
 status".
 
+## Round twelve, 2026-09-06 — groups: who is who, and who is family
+
+*Owner, after the first ant-and-beetle equilibrium ("the most fun I have had
+in the game yet"): could not tell the species apart without the gut overlay;
+could only graph the total; asked how groups are defined, whether two clicks
+are two colonies, whether ant colonies ever fight, how friend is told from
+foe, and whether an ant is always an ant. Branch
+`claude/evolution-lab-creatures-v57wnd`. **The design of record is
+[`../creature-groups-and-combat-design-2026-09-06.md`](../creature-groups-and-combat-design-2026-09-06.md)**;
+the shipped half is README's "Creature groups status". This session took
+over the creature line from `session_01DQxG4SzcwrAeNC9tZTfvMo` (PR #255,
+fight mechanics) by poke-trigger; its handoff file is owed on its branch.*
+
+**What the questions turned out to mean, which no reader should have to
+re-derive:**
+
+- **Nothing in the engine knew a click had happened.** `found_colony_of`
+  placed animals and painted a nest; the animals carried a `lineage` (one
+  per founder, so fifty-two per colony) and a `species`, and that was the
+  whole of identity. Two clicks were one population. Now `OrganismState::
+  colony` is claimed **once per gesture by the first animal that fits**, the
+  rest join, children inherit — a founding that tries fifty stations claims
+  one number, so `ANT 3` is the third thing the player put down.
+- **"Foe" does not exist and never did.** `is_living_kin` is one predicate
+  (same species) read at the mouth, the eye and the kin sense; everything
+  not kin is either digestible or furniture. The owner's "equilibrium" was
+  predator–prey, not war, because no second ant colony could exist. The
+  `colony rivalry` dial (parameters, ANTS page, **off**) narrows kin to the
+  colony; on, a hungry ant eats a stranger as it eats a beetle and the kin
+  sense stops pulling colonies together. **It adds no verb and no private
+  scent** — both colonies still write the same two pheromone planes — and
+  the report says so rather than pretending otherwise.
+- **An ant is always an ant, by construction**: `state.species` is written
+  once. Speciation is the report's §3 — a heritable scent signature and
+  tolerance replacing the species bit — and it is designed, not built.
+- **The colour is a replace, not a tint**, because `GUT_TINT_*`'s 45% pull
+  lost a blind A/B and every subtle recolour here has read as blank. Species
+  and colony modes plus `Off` (the outdoor game's, byte-identical) behind one
+  selector; the graph line under each group is the same colour through one
+  function, `render::group_colour`.
+
+**Rivalry measured the same evening, three seeds x 24,000 frames**: off,
+zero ant-on-ant kills anywhere; on, 3–9 kills per side per run, both
+directions, against 35–42 starvations per side. Predation, not war — the
+report's §2 table. `World::group_deaths` (deaths by cause and kills by
+attacking group, booked at the bite) is the readout, and `labstats
+rivalry=1` prints it.
+
+**The fight session answered inside its handoff and landed PR #263 itself**
+(`creature-fight-handoff-2026-09-06.md`): the bite scan now covers the
+whole body (a chain creature could not bite what was eating its back — head
+adjacent to the beetle 60 times, beetle's head to the ant zero), and gnawing
+is priced per jaw closure. Two of its findings bind here. **Ant-vs-ant is
+binary**: ant flesh resists 0.25 and the armour trait tops out at 2x, so
+0.5 against a bite of 1.0 is one-shot at every point on the axis — the
+rivalry dial's fights cannot be graded until the armour reach is settled
+for ant and beetle together (raise the material's resistance, or widen the
+armour slot's clamp). And **body-fighting between colonies switches itself
+on with rivalry**, because `is_living_kin` sits under #263's living-non-self
+gate; the `ascii` deposition gate (1.03x, bar 0.9) must be re-run across
+the dial if any `ascii` scene ever holds two colonies.
+
+**The threat sense landed the same night** (`ThreatNear`/`ThreatBearing`,
+slots 22–23, `is_visible_prey` with the roles swapped so threat is mutual
+where diets overlap; `mutation_rate` re-derived to 3.18/584). Nothing
+shipped is wired to it and the ant is blind, so **no picture changes and
+no owner verdict was owed**; what changed is reach. The next measurement is
+`creature_arena --arm=ablate input=ThreatNear` on a bed with eyed ants and
+breeding beetles, which needs the fight session's encounter findings first.
+
+**Two things that bind on what comes next:** the report's order (§6) puts
+`ThreatNear` before anything on the prey side, because *a bed cannot select
+for what the animal cannot perceive* and the prey has no sense for the
+predator; and it budgets the kin-sense re-calibration inside the signature
+work, not after it (`CLAUDE.md`'s shared-budget rule — `KinNear`'s authored
+weights were fitted against a kin that was every ant).
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

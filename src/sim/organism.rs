@@ -5037,6 +5037,31 @@ pub struct OrganismState {
     /// descends from whom separates them (the same argument
     /// `examples/genome_drift.rs` opens with, one level up).
     pub lineage: u32,
+    /// **Which colony this animal belongs to** -- the group the player put
+    /// down in one gesture, and everything that group has since bred.
+    ///
+    /// `lineage` above answers *who descends from whom* and is one number
+    /// per founder, so a colony of fifty-two placed ants is fifty-two
+    /// lineages. This is the other grouping, the one a player means when
+    /// they say "my ants": every animal a single `found_colony_of`, single
+    /// placement or shelf release put down shares one number, handed out by
+    /// `World::claim_colony`, and a child copies its parent's at birth. Two
+    /// clicks are two colonies. Zero is "no colony" -- a plant, or an
+    /// animal built by a test through `push_organism` alone.
+    ///
+    /// **Two readers today, and one rule.** The lab's population strip and
+    /// the renderer's creature colour both key on `(species, colony)`, so
+    /// what is drawn on screen and what is graphed under it are the same
+    /// partition. The rule is `World::colony_rivalry`: with it on,
+    /// `creature::is_living_kin` requires the same colony as well as the
+    /// same species, so two ant colonies stop reading each other as
+    /// nestmates. Off, this number is a label and nothing more, which is
+    /// the shipped behaviour.
+    ///
+    /// Monotonic like `lineage`, and for the same reason: a colony label
+    /// built on a reusable handle would merge two colonies part way
+    /// through a run.
+    pub colony: u32,
     /// **The frame this individual was allocated.**
     ///
     /// With the organism handle it is a **collision-proof identity**, and

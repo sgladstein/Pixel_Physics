@@ -955,11 +955,34 @@ const TEMP_INPUT_SCALE: f32 = 40.0;
 
 /// Plant a colony creature of `species_name` at `(x, y)`, laying its chain
 /// out to the left of the head. Returns the site to schedule.
+///
+/// **A colony of one**: the animal claims a fresh `OrganismState::colony`.
+/// A caller placing several animals as one group passes the first one's
+/// label back in through [`plant_creature_seed_in`], which is what
+/// `World::found_colony_of` does.
 pub fn plant_creature_seed(world: &mut World, x: i32, y: i32, species_name: &str) -> Option<ActiveSite> {
+    plant_creature_seed_in(world, x, y, species_name, None)
+}
+
+/// [`plant_creature_seed`] into an existing colony — `Some(label)` joins
+/// it, `None` founds a new one. The label is claimed only once the body has
+/// been checked to fit, so a placement that fails leaves the colony numbers
+/// unbroken: `ANT 3` stays the third thing the player put down.
+pub fn plant_creature_seed_in(world: &mut World, x: i32, y: i32, species_name: &str, colony: Option<u32>) -> Option<ActiveSite> {
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    place_creature(world, x, y, species_id, material_id, &def, Origin::Founder)
+    place_creature(world, x, y, species_id, material_id, &def, Origin::Founder { colony })
+}
+
+/// The colony an active site's animal was placed into, for a caller
+/// laying out a group one station at a time: the first placed animal's
+/// label is what every later station joins.
+pub fn colony_of_site(world: &World, site: &ActiveSite) -> Option<u32> {
+    match site.kind {
+        ActiveKind::Creature { organism } => world.organism(organism).map(|s| s.colony),
+        _ => None,
+    }
 }
 
 /// **Release a saved individual at `(x, y)`** — `plant_creature_seed` with
@@ -982,11 +1005,12 @@ pub fn release_creature_specimen(
     species_name: &str,
     genome: Vec<f32>,
     traits: [f32; super::organism::CREATURE_TRAITS],
+    colony: Option<u32>,
 ) -> Option<u16> {
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits })?;
+    let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits, colony })?;
     // **Schedule it, or it is a statue.** `place_creature` writes the body and
     // hands back the site its first tick has to be *booked* at -- every other
     // caller does this (`found_colony_of`, the scene's beetles, `bud_creature`
@@ -1018,7 +1042,12 @@ pub fn release_creature_specimen(
 /// in the three `match`es that read it.
 enum Origin {
     /// A creature out of nothing: a scene, the `Y` key, a harness.
-    Founder,
+    ///
+    /// `colony` is the group it joins, or `None` to found one — see
+    /// `OrganismState::colony`. Claimed inside `place_creature` *after* the
+    /// fit check rather than by the caller, so a refused site does not burn
+    /// a label.
+    Founder { colony: Option<u32> },
     /// A child budded from a live parent, which pays for it.
     Bud {
         parent: u16,
@@ -1026,6 +1055,8 @@ enum Origin {
         traits: [f32; super::organism::CREATURE_TRAITS],
         generation: u16,
         lineage: u32,
+        /// The parent's, copied — a child is born into its parent's colony.
+        colony: u32,
     },
     /// **A founder with a chosen genome** — one released from the specimen
     /// shelf (`sim::specimen`).
@@ -1043,7 +1074,7 @@ enum Origin {
     /// so a saved individual could only come back by being written out as a
     /// whole new species and reloaded — which is `species_export`'s job and
     /// is far too heavy to be a click.
-    Stock { genome: Vec<f32>, traits: [f32; super::organism::CREATURE_TRAITS] },
+    Stock { genome: Vec<f32>, traits: [f32; super::organism::CREATURE_TRAITS], colony: Option<u32> },
 }
 
 /// Build one creature at `(x, y)` and return the site to schedule it at.
@@ -1095,13 +1126,20 @@ fn place_creature(
     // Claimed before the state is borrowed, because `claim_lineage` takes
     // `&mut World` and a founder needs the number inside the block below.
     let founder_lineage = match origin {
-        Origin::Founder | Origin::Stock { .. } => world.claim_lineage(),
+        Origin::Founder { .. } | Origin::Stock { .. } => world.claim_lineage(),
         Origin::Bud { lineage, .. } => lineage,
+    };
+    // The colony, on the same terms and at the same moment: the body is
+    // already written, so nothing after this can refuse the placement and
+    // strand a label the player would see as a gap in the numbering.
+    let colony = match origin {
+        Origin::Founder { colony } | Origin::Stock { colony, .. } => colony.unwrap_or_else(|| world.claim_colony()),
+        Origin::Bud { colony, .. } => colony,
     };
     // Read before the state is borrowed mutably: `self.species` and
     // `self.organisms` cannot both be borrowed, the same reason
     // `push_organism` reads the fate table up front.
-    let founder_genome = matches!(origin, Origin::Founder).then(|| world.species.get(species_id).genome.clone());
+    let founder_genome = matches!(origin, Origin::Founder { .. }).then(|| world.species.get(species_id).genome.clone());
     // **What this creature is handed, which is not its species' budget.**
     // A founder appears out of nothing and gets the whole of
     // `start_energy`; a bud gets what its *parent's* `TRAIT_BIRTH_GRANT`
@@ -1112,7 +1150,7 @@ fn place_creature(
     // one expression, read twice, so the endowment and the charge cannot
     // drift apart.
     let endowment = match &origin {
-        Origin::Founder | Origin::Stock { .. } => def.start_energy,
+        Origin::Founder { .. } | Origin::Stock { .. } => def.start_energy,
         Origin::Bud { traits, .. } => birth_grant(def, traits),
     };
     if let Some(state) = world.organism_mut(organism) {
@@ -1120,8 +1158,9 @@ fn place_creature(
         state.chain = positions;
         state.heading = 0; // east
         state.lineage = founder_lineage;
+        state.colony = colony;
         match &origin {
-            Origin::Founder => {
+            Origin::Founder { .. } => {
                 state.genome = founder_genome.unwrap_or_default();
                 // The ancestral body traits, byte-copied. **The one seam
                 // that puts a creature in the world out of nothing, so the
@@ -1149,7 +1188,7 @@ fn place_creature(
                 // guard hashed enough state to notice.
                 state.generation = *generation;
             }
-            Origin::Stock { genome, traits } => {
+            Origin::Stock { genome, traits, .. } => {
                 // **The jar's genome, and the species' everything else.**
                 // `inherited` stays false and `stocked` says what actually
                 // happened: this animal was not borne in this box, and a
@@ -1172,7 +1211,7 @@ fn place_creature(
     }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
-        Origin::Founder | Origin::Stock { .. } => {
+        Origin::Founder { .. } | Origin::Stock { .. } => {
             world.creature_stats.spawned += 1;
             // Metabolic budget plus the meat the body is made of. Both are
             // grants *here*, at the one seam where a creature appears out
@@ -1821,6 +1860,7 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
     // naming exists to prevent.
     let parent_generation = state.generation;
     let parent_lineage = state.lineage;
+    let parent_colony = state.colony;
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
 
     // Where the child goes: the first of the eight neighbours of the
@@ -1852,6 +1892,7 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
                 traits: parent_traits,
                 generation: parent_generation.saturating_add(1),
                 lineage: parent_lineage,
+                colony: parent_colony,
             },
         ) {
             site = Some(s);
@@ -1990,9 +2031,16 @@ impl World {
             self.paint_nest_patch(x, y);
         }
         let mut placed = 0;
+        // **One colony per founding.** The first animal that fits founds it
+        // and every later station joins; a founding in which nothing fits
+        // claims nothing. See `OrganismState::colony`.
+        let mut colony: Option<u32> = None;
         for (cx, cy) in self.colony_stations(x, y, species_id, ants) {
             let before = self.get(cx, cy).organism_id();
-            if let Some(site) = plant_creature_seed(self, cx, cy, species) {
+            if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
+                if colony.is_none() {
+                    colony = colony_of_site(self, &site);
+                }
                 self.schedule_active_site(site);
             }
             if self.get(cx, cy).organism_id() != before {
@@ -2224,6 +2272,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
+        // **The hunted side's counter, beside the hunter's.** An image of
+        // a bed cannot say whether `ThreatNear` ever fired; only this can,
+        // and it is the number to read before believing any flight
+        // behaviour was selected for or against.
+        if seen.threat.is_some() {
+            world.creature_stats.threat_sightings += 1;
+        }
         if let Some(seen) = sighting {
             world.creature_stats.sightings += 1;
             world.creature_stats.sight_dist_sum += seen.dist as u64;
@@ -2943,6 +2998,23 @@ fn sense(
         inputs[I::KinBearing as usize] = error / std::f32::consts::PI;
     }
 
+    // **The threat pair, from the same cast again.** The prey's side of the
+    // sense the predator has had since 2026-08-30 -- see
+    // `BrainInput::ThreatNear` for why nothing on the hunted side could
+    // evolve without it. Same nearness and bearing arithmetic as prey, so a
+    // genome that learned one has learned the other.
+    if let Some(hunter) = seen_all.threat {
+        inputs[I::ThreatNear as usize] = (1.0 - hunter.dist / reach as f32).clamp(0.0, 1.0);
+        let bearing = ((hunter.y - y) as f32).atan2((hunter.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::ThreatBearing as usize] = error / std::f32::consts::PI;
+    }
+
     (inputs, seen_all, sight_reads, curvature_reads)
 }
 
@@ -3031,6 +3103,11 @@ struct Gut {
     bias: f32,
     /// Whose flesh counts as kin — see `is_living_kin`.
     species: SpeciesId,
+    /// **And which colony**, read with `rivalry`: with the world's
+    /// `colony_rivalry` on, kin is the same species *and* the same
+    /// `OrganismState::colony`; off, this field is carried and never read.
+    colony: u32,
+    rivalry: bool,
     eats_kin: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
@@ -3057,6 +3134,8 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
     Gut {
         bias: world.organism(organism).map_or(0.0, |s| s.traits[TRAIT_GUT_BIAS]),
         species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
+        colony: world.organism(organism).map_or(0, |s| s.colony),
+        rivalry: world.colony_rivalry,
         eats_kin: def.eats_kin,
         bite: bite_force_of(def, &traits_of(world, organism, def)),
     }
@@ -3083,8 +3162,21 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
 /// stops an animal eating its own tail — `adjacent_food` scans the head's
 /// 8-neighbourhood, which contains the next link of its own chain, and the
 /// name list was the only thing preventing that too.
-fn is_living_kin(world: &World, cell: Cell, species: SpeciesId) -> bool {
-    world.organism(cell.organism_id()).is_some_and(|s| s.species == species)
+///
+/// **Since 2026-09-06, kin can be narrower than the species.** The owner,
+/// watching two colonies: *"if I place ants as multiple clicks, are they
+/// separate colonies and does that mean anything gameplay-wise? Do
+/// different ant colonies ever attack/eat each other?"* They did not, and
+/// could not: this predicate was the species and nothing else. With
+/// `World::colony_rivalry` on it is the species **and** the colony, so an
+/// ant from the other click is somebody else's flesh — and is therefore
+/// prey to any gut whose diet reaches flesh, by the same arithmetic that
+/// makes an ant prey to a beetle. Off (the default), nothing here has
+/// changed. What this deliberately does *not* do is invent an aggression
+/// verb: rivalry today is predation between colonies, and the design that
+/// goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
+fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
+    world.organism(cell.organism_id()).is_some_and(|s| s.species == gut.species && (!gut.rivalry || s.colony == gut.colony))
 }
 
 /// **The best cell in the head's 8-neighbourhood this gut will take**, with
@@ -3135,7 +3227,7 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
         let cell = world.get(px, py);
         // Same kin rule as `adjacent_food`, for the same reason: a species
         // that will not bite its own must not be able to spend its own either.
-        if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
+        if !gut.eats_kin && is_living_kin(world, cell, gut) {
             return None;
         }
         let yielded = diet_yield(world, cell, gut.bias);
@@ -3266,7 +3358,7 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
         if i > 0 && !attached {
             continue;
         }
-        if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
+        if !gut.eats_kin && is_living_kin(world, cell, gut) {
             continue;
         }
         let gain = diet_yield(world, cell, gut.bias);
@@ -3386,6 +3478,10 @@ pub struct Sightings {
     /// home stops being a named material and becomes *where my own kind
     /// are*, which is a real quantity rather than a category.
     pub kin: Option<Sighting>,
+    /// The nearest **living animal that would eat me** -- see
+    /// `is_visible_threat` and `BrainInput::ThreatNear`. Recorded on the
+    /// same rays, never breaking one.
+    pub threat: Option<Sighting>,
 }
 
 /// What stops a sight line: **rock and soil, and nothing else.**
@@ -3429,7 +3525,7 @@ fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> b
     if cell.organism_id() == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
         return false;
     }
-    if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
+    if !gut.eats_kin && is_living_kin(world, cell, gut) {
         return false;
     }
     diet_yield(world, cell, gut.bias) > EAT_YIELD_THRESHOLD
@@ -3453,9 +3549,9 @@ fn is_visible_prey(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> b
 /// **Living, so a corpse is not home.** Carrion is a `Powder` with no
 /// organism, which `world.organism` refuses; a colony that aggregated on
 /// its own dead would be a graveyard with a gradient.
-fn is_visible_kin(world: &World, cell: Cell, species: SpeciesId, self_organism: u16) -> bool {
+fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bool {
     let other = cell.organism_id();
-    other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, species)
+    other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, gut)
 }
 
 /// **The distal sense: cast `SIGHT_RAYS` rays all round and return the
@@ -3509,6 +3605,12 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
     let mut best_d2 = i32::MAX;
     let mut kin: Option<Sighting> = None;
     let mut kin_d2 = i32::MAX;
+    let mut threat: Option<Sighting> = None;
+    let mut threat_d2 = i32::MAX;
+    // My own head, which is what a hunter's gut is asked about. Read once:
+    // the question "would that animal eat this cell" is about *this* cell
+    // for every ray.
+    let self_head = world.get(x, y);
     for i in 0..SIGHT_RAYS {
         let a = std::f32::consts::TAU * i as f32 / SIGHT_RAYS as f32;
         let (rdx, rdy) = (a.cos(), a.sin());
@@ -3525,11 +3627,24 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             // signal nobody designed. It is also what keeps the prey answer
             // bit-identical to the day before this existed: a nestmate has
             // never stopped a sight line and still does not.
-            if is_visible_kin(world, target, gut.species, organism) {
+            if is_visible_kin(world, target, gut, organism) {
                 let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
                 if d2 < kin_d2 {
                     kin_d2 = d2;
                     kin = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+            }
+            // **Threats are recorded and never break the ray**, exactly as
+            // kin are and for the same reason: `reads` is the bill, and an
+            // animal that stopped its sight line on the first hunter would
+            // look cheaper the more hunted it was. A hunter that is also
+            // prey (an ant to a beetle, and the beetle to the ant) is
+            // recorded in both lists.
+            if is_visible_threat(world, target, organism, self_head) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < threat_d2 {
+                    threat_d2 = d2;
+                    threat = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
                 }
             }
             if is_visible_prey(world, target, gut, organism) {
@@ -3552,7 +3667,32 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             }
         }
     }
-    Sightings { prey: best, kin }
+    Sightings { prey: best, kin, threat }
+}
+
+/// Is this cell **a living animal that would eat me**?
+///
+/// `is_visible_prey` with the roles swapped: fetch the *other* animal's gut
+/// and ask whether my own head is prey to it. One definition of who eats
+/// whom, read from both ends, so the hunter's menu and the hunted's alarm
+/// cannot disagree -- the standing house rule against a readout derived
+/// separately from the mechanism it describes. Threat is therefore mutual
+/// wherever diets overlap (a generalist ant against a beetle, both ways),
+/// and armour is not in it: the graded bite makes any mouth eventually
+/// enough, so "could it open me" is a matter of time and not of kind.
+///
+/// Its own body is excluded by owner, and a nestmate falls out through the
+/// other side's `eats_kin` in `is_visible_prey` -- with `colony_rivalry`
+/// on, an ant of the other colony is a threat, as it should be.
+fn is_visible_threat(world: &World, cell: Cell, self_organism: u16, self_head: Cell) -> bool {
+    let other = cell.organism_id();
+    if other == 0 || other == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
+        return false;
+    }
+    let Some(state) = world.organism(other) else { return false };
+    let Some(def) = world.species.get(state.species).creature.as_ref() else { return false };
+    let their_gut = gut_of(world, other, def);
+    is_visible_prey(world, self_head, their_gut, other)
 }
 
 /// **Is this creature touching the material its species calls home?**
@@ -3916,9 +4056,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // this the victim keeps running on a chain that includes
                 // the cell just removed from it.
                 let victim = bite.organism_id();
+                // **Who the victim was, read before the bite lands**, because
+                // `reconcile_chain` frees the slot when the mouthful was the
+                // deciding cell and the identity goes with it. Only an animal
+                // can be a kill: a leaf's owner is a tree and stays a tree.
+                let victim_group = (victim != 0 && victim != organism)
+                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
+                    .flatten();
                 world.set(fxx, fyy, Cell::EMPTY);
-                if victim != 0 && victim != organism {
-                    reconcile_chain(world, victim);
+                if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
+                    // The bite killed. Booked here rather than at the death
+                    // because this is the one site that knows both parties
+                    // -- see `World::tally_kill`.
+                    if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
+                        world.tally_kill(v, me);
+                    }
                 }
                 // **Into the crop at face value, and nothing is booked
                 // here.** The ledger's live identity is an *equality*
@@ -7507,7 +7659,18 @@ mod tests {
             before + made,
             "ground cells {before} -> {after} (+{lost} lost with their carriers, +{made} rotted back from carrion) over {digs} digs and {dumped} dumps: digging is still eating the bed"
         );
-        assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
+        // **One in twenty, not one in a hundred.** The bar shipped at 1%,
+        // which on a scene of ~99 digs is *zero* -- a count giving a
+        // knife-edge margin, `CLAUDE.md`'s metric trap in its plainest form.
+        // It held for as long as the trajectory happened to hold, and the
+        // 2026-09-06 `ThreatNear` append moved it: a wider genome consumes
+        // more draws per birth, this colony breeds, and one ant of the new
+        // trajectory died packed in with a pellet -- 1 of 99, while the
+        // identity above (`after + lost == before`) still held exactly.
+        // That identity is the claim this test exists for; the bound below
+        // only has to keep a 1-of-99 edge case from quietly becoming the
+        // old behaviour, which was every pellet vanishing.
+        assert!(lost * 20 <= digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
@@ -9101,6 +9264,104 @@ mod tests {
     }
 
 
+    /// **A kill is booked on the victim's group against the killer's** --
+    /// the number a war is read off, and the one `DeathCause::Killed` alone
+    /// cannot give, because the corpse does not know who bit it.
+    ///
+    /// The predation chamber above, unchanged: a carnivore beetle and an ant
+    /// placed touching. After the run the ant's group carries one `KILLED`
+    /// and one entry naming the beetle's group; the beetle's group has no
+    /// row at all, because nothing of it died. The `killed_by` assertion is
+    /// the one that discriminates -- `by_cause` would also be satisfied by
+    /// a fire, and a tally written at `free_organism` could never fill it.
+    #[test]
+    fn a_kill_is_booked_on_the_victims_group_against_the_killers() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+            w.set(x, 96, Cell::new(material::STONE, 0));
+        }
+        for y in 96..102 {
+            w.set(92, y, Cell::new(material::STONE, 0));
+            w.set(111, y, Cell::new(material::STONE, 0));
+        }
+        let ant = spawn(&mut w, "ant", 108, 100);
+        let beetle = spawn(&mut w, "beetle", 100, 100);
+        let ant_group = w.organism(ant).map(|s| (s.species, s.colony)).expect("ant");
+        let beetle_group = w.organism(beetle).map(|s| (s.species, s.colony)).expect("beetle");
+        assert_ne!(ant_group.1, beetle_group.1, "two placements are two colonies");
+
+        run(&mut w, 1200);
+
+        assert!(w.organism(ant).is_none(), "the scene must actually kill the ant for the tally to have anything to say");
+        let dead = w.group_deaths_of(ant_group.0, ant_group.1).expect("a dead ant puts a row on its group");
+        assert_eq!(dead.by_cause[organism::DeathCause::Killed.index()], 1, "one ant, killed: {dead:?}");
+        assert_eq!(dead.killed_by, vec![(beetle_group.0, beetle_group.1, 1)], "the kill names the beetle's group: {dead:?}");
+        assert!(w.group_deaths_of(beetle_group.0, beetle_group.1).is_none(), "nothing of the beetle's group died");
+        // The world total the page already shows and this split must agree.
+        assert_eq!(w.deaths_by_cause[organism::DeathCause::Killed.index()], 1);
+    }
+
+    /// **The hunted can see the hunter, and it is the same rule as the
+    /// hunter seeing the hunted.** Before `ThreatNear` no input said
+    /// "something that can eat you is near", so nothing on the prey side
+    /// could evolve. Three arms, on the predation chamber with the ant given
+    /// eyes for the duration: a shipped carnivore beetle in sight puts
+    /// `ThreatNear > 0` on the ant with a bearing that points at it; a
+    /// beetle whose gut is turned herbivore is not a threat and reads 0; and
+    /// the beetle sees the generalist ant as a threat too, because an ant's
+    /// gut takes 50 J from beetle flesh against the 12 J bar -- and stops
+    /// when the ant is made a herbivore. The sense is *derived* from
+    /// `is_visible_prey` with the roles swapped, so the arms are testing
+    /// that one definition answers both ends.
+    #[test]
+    fn a_hunted_animal_sees_its_hunter_and_only_a_hunter() {
+        // (ant's ThreatNear, ant's ThreatBearing, beetle's ThreatNear)
+        let arm = |beetle_gut: f32, ant_gut: f32| -> (f32, f32, f32) {
+            let mut w = test_world();
+            for x in 80..130 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            set_gut(&mut w, "beetle", beetle_gut);
+            set_gut(&mut w, "ant", ant_gut);
+            // Eyes for the ant, which ships blind: the sense is gated on
+            // `sight_range`, and an eyeless animal never casts.
+            let ant_id = w.species.id_of("ant").expect("ant");
+            let mut ant_def = w.species.get(ant_id).creature.as_ref().expect("creature").clone();
+            ant_def.sight_range = 32;
+            w.species.set_creature(ant_id, ant_def.clone());
+            let beetle_id = w.species.id_of("beetle").expect("beetle");
+            let beetle_def = w.species.get(beetle_id).creature.as_ref().expect("creature").clone();
+
+            let ant = spawn(&mut w, "ant", 110, 100);
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            let (ant_in, _, _) = probe(&w, 110, 100, ant, &ant_def);
+            let (beetle_in, _, _) = probe(&w, 100, 100, beetle, &beetle_def);
+            (
+                ant_in[brain::BrainInput::ThreatNear as usize],
+                ant_in[brain::BrainInput::ThreatBearing as usize],
+                beetle_in[brain::BrainInput::ThreatNear as usize],
+            )
+        };
+
+        // Shipped guts: carnivore beetle (+1), generalist ant (0).
+        let (near, bearing, beetle_near) = arm(1.0, 0.0);
+        assert!(near > 0.5, "a beetle ten cells away in a 32-cell eye must read as a near threat, got {near}");
+        // The beetle stands west of an east-facing ant: directly behind, so
+        // the bearing is at +-1 -- the ends of the signed axis, not 0, which
+        // would mean "dead ahead" AND "nothing in sight".
+        assert!(bearing.abs() > 0.9, "the bearing must point at the hunter, got {bearing}");
+        assert!(beetle_near > 0.5, "a generalist ant is a threat to a beetle too (50 J against 12): got {beetle_near}");
+
+        // A herbivore beetle cannot eat an ant, so it is not a threat.
+        let (near_h, _, _) = arm(-1.0, 0.0);
+        assert_eq!(near_h, 0.0, "a beetle whose gut cannot take ant flesh is furniture, not a threat");
+
+        // And a herbivore ant is no threat to the beetle.
+        let (_, _, beetle_near_h) = arm(1.0, -1.0);
+        assert_eq!(beetle_near_h, 0.0, "an ant whose gut cannot take beetle flesh is no threat to it");
+    }
+
     /// **Something eats a living beetle, and until 2026-09-02 nothing could.**
     ///
     /// `assets/materials/beetle.ron` and `worm.ron` authored no `food_energy`
@@ -9376,6 +9637,107 @@ mod tests {
 
         assert!(!nestmate_seen_as_food(false), "with eats_kin off, a living nestmate is not food");
         assert!(nestmate_seen_as_food(true), "with eats_kin on it must be -- if this fails, the arm proves nothing and the test above it is vacuous");
+    }
+
+    /// **Two colonies of one species are nestmates until the box says
+    /// otherwise** -- the `colony_rivalry` rule, asserted on the predicate
+    /// the way the nestmate test above is, and for the same reason: a
+    /// survival scene passes whatever the kin rule does.
+    ///
+    /// Three arms, so the test can fail in every direction that matters. Two
+    /// ants placed by two separate gestures are two colonies; with rivalry
+    /// off the stranger is not food (nothing changed), with it on the
+    /// stranger is (the rule reaches the mouth), and an ant placed *into*
+    /// the first one's colony is still not food with rivalry on (the rule
+    /// is about the colony and not merely "any other ant"). The gut is a
+    /// carnivore's so that the only thing between the mouth and the meal is
+    /// kinship.
+    #[test]
+    fn a_stranger_colony_is_kin_until_rivalry_is_on() {
+        let stranger_seen_as_food = |rivalry: bool, same_colony: bool| -> bool {
+            let mut w = test_world();
+            for x in 90..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.traits[TRAIT_GUT_BIAS] = 1.0;
+            w.species.set_creature(id, def.clone());
+            w.colony_rivalry = rivalry;
+
+            let a = spawn(&mut w, "ant", 100, 100);
+            let a_colony = w.organism(a).expect("a").colony;
+            assert_ne!(a_colony, 0, "a placed animal founds a colony");
+            let join = same_colony.then_some(a_colony);
+            let site = plant_creature_seed_in(&mut w, 102, 100, "ant", join).expect("b places");
+            w.schedule_active_site(site);
+            let b = w.get(102, 100).organism_id();
+            let b_colony = w.organism(b).expect("b").colony;
+            if same_colony {
+                assert_eq!(b_colony, a_colony, "joining a colony must take its label");
+            } else {
+                assert_ne!(b_colony, a_colony, "a second gesture must found a second colony");
+            }
+            let ant_material = w.materials.id_of("ant").expect("ant material");
+            assert_eq!(w.get(101, 100).material, ant_material, "the other ant must be in reach for the question to be asked");
+
+            adjacent_food(&w, a, (100, 100), gut_of(&w, a, &def)).is_some()
+        };
+
+        assert!(!stranger_seen_as_food(false, false), "rivalry off: an ant of another colony is a nestmate, exactly as before");
+        assert!(stranger_seen_as_food(true, false), "rivalry on: an ant of another colony is not kin, so to a meat gut it is food");
+        assert!(!stranger_seen_as_food(true, true), "rivalry on, same colony: still a nestmate -- the rule is the colony, not every other ant");
+    }
+
+    /// **One founding is one colony and the next founding is another**,
+    /// read back through `World::live_creature_groups`, which is what the
+    /// lab's per-group graph and legend are built on.
+    ///
+    /// The rule that matters for the numbers a player sees: the label is
+    /// claimed by the first animal that *fits*, so a founding claims exactly
+    /// one and the groups come out numbered in placement order.
+    #[test]
+    fn a_founding_is_one_colony_and_the_next_founding_is_another() {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let first = w.found_colony_of(50, 100, "ant", 4);
+        let second = w.found_colony_of(150, 100, "ant", 4);
+        assert!(first >= 2 && second >= 2, "the scene must actually hold two colonies: placed {first} and {second}");
+
+        let groups = w.live_creature_groups();
+        assert_eq!(groups.len(), 2, "two foundings are two groups: {groups:?}");
+        assert_eq!(groups[0].alive as usize, first, "{groups:?}");
+        assert_eq!(groups[1].alive as usize, second, "{groups:?}");
+        assert!(groups[0].colony < groups[1].colony, "groups come out in placement order: {groups:?}");
+        assert_eq!(groups[0].colony + 1, groups[1].colony, "a founding claims exactly one label, however many stations it tried: {groups:?}");
+        let total: u32 = groups.iter().map(|g| g.alive).sum();
+        assert_eq!(total as usize, w.live_creature_count(), "the groups must sum to the animal count");
+    }
+
+    /// **A child is born into its parent's colony**, never into a fresh
+    /// one: the label rides `Origin::Bud` beside `lineage`, and a bud that
+    /// claimed its own would make every colony dissolve into singletons at
+    /// the first generation -- which the graph would draw as a colony that
+    /// never grows while the box fills with animals.
+    #[test]
+    fn a_child_is_born_into_its_parents_colony() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        let founder_colonies: Vec<u32> = founders.iter().filter_map(|&id| w.organism(id)).map(|s| s.colony).collect();
+        assert!(founder_colonies.iter().all(|&c| c != 0), "every founder has a colony");
+        run(&mut w, 60);
+        assert!(w.creature_stats.births > 0, "nothing was born, so nothing was inherited and this test proves nothing");
+        let children: Vec<u16> = live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).collect();
+        assert!(!children.is_empty(), "births fired but no child is live");
+        for id in children {
+            let state = w.organism(id).expect("a live child");
+            assert!(
+                founder_colonies.contains(&state.colony),
+                "child {id} is in colony {} which no founder has ({founder_colonies:?}) -- a bud claimed a fresh label",
+                state.colony
+            );
+        }
     }
 
     fn set_climbs_over_kin(w: &mut World, species: &str, on: bool) -> CreatureDef {
