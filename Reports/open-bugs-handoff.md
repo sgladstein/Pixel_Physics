@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**52 open, 100 bugs** (plus 20 landing-note items,
+**51 open, 100 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -145,7 +145,7 @@ point.
 | W4 | **OPEN** | 9617 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9677 | The lab's bed grows a water table on its stone floor, and it does not stop |
 | W6 | **OPEN** | 9728 | Free water outbids every soil, so roots climb out of the ground toward it |
-| W7 | **OPEN** | 9805 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| W7 | closed | 9805 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 
 <!-- END GENERATED INDEX -->
 
@@ -9802,7 +9802,7 @@ shapes, neither measured:
 `moisture_pull` steering roots somewhere a player reads as wrong; a fix to
 the steering should be checked against both.
 
-### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **OPEN**
+### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **FIXED 2026-09-06: tissue that cannot reach a drinking root is shed**
 
 Asked by the owner 2026-09-06: *"if a plant gets severed in the middle will
 it still function? will the roots that are in the soil still collect water?
@@ -9851,7 +9851,41 @@ stump's reserves. It does not need to: its **income** is unaffected, because
 income is `intercepted x water_status` summed over the organism's leaves and
 both of those terms are whole-organism.
 
-**Two fix shapes, neither taken here.**
+**FIXED 2026-09-06 — and by neither of the two shapes below.**
+`plant::shed_cut_off_tissue` floods out from the cells that are actually
+drinking, over the plant's own cells at **eight** neighbours, and sheds what
+it cannot reach — at `MAX_DIEBACK_FRACTION`, so a cut crown thins away over a
+few thousand frames rather than blinking out.
+
+**The rule is the physical one: tissue that cannot reach a root cannot be
+maintained, so it dies.** A severed branch withers; it does not go on
+growing. What makes that the right *engineering* answer as well is that it
+leaves the organism holding only connected tissue, so `water_at`,
+`desiccation_at`, `nutrient_status`, income and the starvation rule are all
+correct **by construction** rather than by audit — and auditing them one at a
+time is how this bug existed.
+
+**The narrow fix does not work, which is worth recording.** Gating
+`water_at` per cell fixes income neatly, since income is already summed per
+cell — but starvation compares that income against `root_cells +
+shoot_cells` for the **whole** organism, so zeroing the crown's earnings
+reads the *stump* as starving and kills the wrong half.
+
+**Measured**, `a_severed_crown_is_shed_and_an_intact_plant_is_not`: an
+undisturbed plant sheds **0** of its 131 cells; one cut free of its roots
+sheds **8** in the following 6,000 frames and falls to 40. The intact arm is
+the specificity half and it is **not blind** — with the traversal set to
+four neighbours it fails, which is the mistake most likely to be made here.
+`World::plant_cut_off_cells_shed` is the "did it fire" counter, and zero is
+the expected reading on an undisturbed world.
+
+**The guard that made this safe rather than a new bug:** a plant with **no**
+drinking roots at all sheds nothing. A seedling that has not rooted, and a
+plant whose bed has gone dry, have no cell connected to a drinking root;
+without that early return every one of them would eat itself. Being unrooted
+is starvation's business.
+
+**The two shapes originally proposed, and why neither was taken.**
 
 - **Resolve the whole-organism reads per connected component.** Honest and
   narrow — `water_at`, `desiccation_at` and the nutrient status would key on
@@ -9860,8 +9894,13 @@ both of those terms are whole-organism.
   neighbourhood growth places at, per `.claude/rules/src-sim-cells.md`.
 - **Split the organism on severance**, so two disconnected halves become two
   organisms and every downstream channel follows for free. Conceptually
-  cleaner and much larger: it interacts with felling, `rot_remains`,
-  lineage and `OrganismState`'s identity.
+  cleaner and **refused on inspection**: `World::reindex_organism_cell` is
+  the only path that moves a cell between organisms and it resets the
+  sidecar to `default()`, dropping carbon, support and conductance. Its own
+  doc names the gap — *"the moment a carbon-carrying cell can move, this
+  needs a move-aware seam"* — and a split moves carbon-carrying cells. On
+  top of that it needs surgery on the generation-bit identity encoding that
+  §F4 records corrupting **silently in release**. Shedding needs neither.
 
 **Do not "fix" this by turning `plant_load_failure` back on in the lab.**
 `structural.rs`'s own note is explicit that the switch is a control and not a

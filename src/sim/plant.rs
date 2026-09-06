@@ -8924,6 +8924,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `OrganismState::contact_root_cells`. Four-neighbour, because an
     // exchange crosses a face.
     let mut contact_root_cells = 0u32;
+    // **Where the drinking roots are**, kept so `shed_cut_off_tissue` can
+    // flood out from them after the walk. Positions rather than a count:
+    // the question it answers is *which* tissue they reach.
+    let mut contact_root_sites: Vec<(i32, i32)> = Vec::new();
     // Numerator and denominator kept apart until the end -- a running mean
     // would weight early cells more, and the walk's order is row-major
     // rather than meaningful.
@@ -9076,6 +9080,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             }
             if wet_faces > 0 {
                 contact_root_cells += 1;
+                contact_root_sites.push((cx, cy));
                 root_zone_faces += wet_faces;
                 root_zone_available += available;
                 // **Turnover candidate: a root drinking from spent soil.**
@@ -9978,6 +9983,15 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
     }
 
+    // **Tissue cut off from every drinking root is shed** -- §W7. Placed
+    // after die-back and turnover so their candidate lists are drawn from
+    // the plant as it stood at the walk, and so a cut crown is thinned by
+    // exactly one rule rather than raced over by three.
+    let cut_off_shed = shed_cut_off_tissue(world, organism_id, &contact_root_sites);
+    if cut_off_shed > 0 {
+        world.plant_cut_off_cells_shed += cut_off_shed as u64;
+    }
+
     // **Settle the water balance once, at the end, for the whole plant.**
     //
     // After the loop rather than before it, because `Absorb` runs inside
@@ -10159,6 +10173,101 @@ fn is_foliage(world: &World, x: i32, y: i32, cell_type: CellType, species_id: or
     }
     let cell = world.get(x, y);
     !world.materials.get(cell.material).reinforces_powder && cell_type != CellType::RootTip
+}
+
+/// **Shed tissue that has no path, through the plant's own cells, to a root
+/// that is drinking** — `open-bugs-handoff.md` §W7, and the owner's question
+/// that produced it: *"if a plant gets severed in the middle will it still
+/// function? will the roots that are in the soil still collect water? and
+/// will that somehow still feed the plant that it's not technically
+/// connected to anymore?"* It did, it does, and it did.
+///
+/// **Why this and not a per-component economy.** Every whole-organism
+/// channel — `World::water_at`, `desiccation_at`, `nutrient_status`, income,
+/// and the starvation rule — resolves on `organism_id` with no connectivity
+/// check, so a severed crown read the stump's water and earned on it. Fixing
+/// them one at a time is how §W7 happened; and the narrow version does not
+/// even work, because starvation compares income against `root_cells +
+/// shoot_cells` for the *whole* organism, so zeroing the crown's income
+/// reads the **stump** as starving and kills the wrong half.
+///
+/// **Splitting the organism was the other candidate and is refused here.**
+/// `World::reindex_organism_cell` is the only path that moves a cell between
+/// organisms and it resets the sidecar to `default()`; its own doc says
+/// *"the moment a carbon-carrying cell can move, this needs a move-aware
+/// seam"*, which a split needs and does not have — on top of surgery to the
+/// generation-bit identity encoding that §F4 records corrupting silently in
+/// release.
+///
+/// So the rule is the physical one instead: **tissue that cannot reach a
+/// root cannot be maintained, so it dies.** A severed branch withers; it
+/// does not go on growing. That leaves the organism holding only connected
+/// tissue, which makes every whole-organism quantity correct *by
+/// construction* rather than by audit.
+///
+/// **Eight neighbours, because `Grow` places at eight.**
+/// `.claude/rules/src-sim-cells.md`: a traversal must use the neighbourhood
+/// the writer used, or it sees fragments that are not there — which here
+/// would shed a healthy plant. **Measured rather than asserted**: with this
+/// loop set to `NEIGHBOURS_4`, `a_severed_crown_is_shed_and_an_intact_plant_is_not`
+/// fails on its *intact* arm, so that guard is sensitive to exactly this
+/// mistake rather than blind to it.
+///
+/// **A plant with no drinking roots at all sheds nothing**, and that guard
+/// is the whole difference between this rule and a bug. A seedling that has
+/// not rooted yet, and a plant whose bed has gone dry, have *no* cell
+/// connected to a drinking root; without the early return every one of them
+/// would eat itself. Being unrooted is starvation's business, not this
+/// rule's — this one only ever removes tissue that is cut off *from* roots
+/// that exist.
+///
+/// Paced at `MAX_DIEBACK_FRACTION` like die-back itself, so a severed crown
+/// thins away over a few thousand frames rather than blinking out — the
+/// graded outcome the ethos asks for, and what a real cut branch does.
+fn shed_cut_off_tissue(world: &mut World, organism_id: u16, contact_roots: &[(i32, i32)]) -> usize {
+    if contact_roots.is_empty() {
+        return 0;
+    }
+    let Some(state) = world.organism(organism_id) else {
+        return 0;
+    };
+    let owned: std::collections::HashSet<(i32, i32)> = state.cells.keys().copied().collect();
+    let mut reached: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut queue: Vec<(i32, i32)> = Vec::new();
+    for &p in contact_roots {
+        if owned.contains(&p) && reached.insert(p) {
+            queue.push(p);
+        }
+    }
+    while let Some((x, y)) = queue.pop() {
+        for (dx, dy) in NEIGHBOURS_8 {
+            let n = (x + dx, y + dy);
+            if owned.contains(&n) && reached.insert(n) {
+                queue.push(n);
+            }
+        }
+    }
+    if reached.len() == owned.len() {
+        return 0;
+    }
+    // Row-major, so which cells go this tick is a property of the world and
+    // not of the hasher's seed -- the same reason die-back sorts its own
+    // candidates.
+    let mut cut: Vec<(i32, i32)> = owned.difference(&reached).copied().collect();
+    cut.sort_unstable_by_key(|&(x, y)| (y, x));
+    let cap = ((owned.len() as f32 * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
+    let mut shed = 0usize;
+    for (cx, cy) in cut.into_iter().take(cap) {
+        // The walk above can have written cells (`thicken`), so re-check
+        // ownership at the moment of removal, exactly as die-back does.
+        if world.get(cx, cy).organism_id() != organism_id {
+            continue;
+        }
+        shed_to_litter(world, cx, cy);
+        shed_stranded_leaves(world, cx, cy, organism_id);
+        shed += 1;
+    }
+    shed
 }
 
 fn shed_to_litter(world: &mut World, x: i32, y: i32) {
@@ -16611,6 +16720,77 @@ of a saturating curve over a linear ramp", at(0.5));
             noon_income(&w, id, 100.0, 1),
             0.0,
             "with no soil the income both gates read must be zero, or only one of them starves the plant"
+        );
+    }
+
+    /// **A severed crown is shed; an intact plant loses nothing** — §W7.
+    ///
+    /// The owner's question: *"if a plant gets severed in the middle will it
+    /// still function? will the roots that are in the soil still collect
+    /// water? and will that somehow still feed the plant that it's not
+    /// technically connected to anymore?"* It did — every whole-organism
+    /// channel resolves on `organism_id` with no connectivity check.
+    ///
+    /// **Both arms, because each fails differently.** A rule that sheds the
+    /// cut crown and *also* eats healthy plants is worse than the bug; and
+    /// the intact arm is the one that catches the specific mistake this is
+    /// most likely to be written with — a four-neighbour flood fill, which
+    /// sees a plant `Grow` built at eight neighbours as a heap of fragments
+    /// and would shed most of it.
+    #[test]
+    fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
+        /// -> (cells shed as cut off, cells the plant still owns)
+        fn run(cut: bool) -> (u64, usize) {
+            let mut w = test_world();
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            run_with_fields(&mut w, 6_000);
+            let grown = w.organism(id).map_or(0, |s| s.cells.len());
+            assert!(grown > 40, "test setup: the plant should have grown, got {grown} cells");
+
+            if cut {
+                // Remove a band of the plant's OWN cells just above the soil
+                // line, so the shoot is cut free of the roots. The plant's
+                // own cells and not a radius of world -- an axe bite also
+                // throws soil and rock, which would put a structural
+                // disturbance in the arm beside the treatment.
+                let collar = w.organism(id).and_then(|s| s.collar_y).unwrap_or(60);
+                let band: Vec<(i32, i32)> = w
+                    .organism(id)
+                    .map(|s| s.cells.keys().copied().filter(|&(_, y)| y == collar - 1 || y == collar - 2).collect())
+                    .unwrap_or_default();
+                assert!(!band.is_empty(), "test setup: found no tissue to cut at rows {}", collar - 1);
+                for (x, y) in band {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+            let before = w.plant_cut_off_cells_shed;
+            run_with_fields(&mut w, 6_000);
+            (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
+        }
+
+        let (intact_shed, intact_cells) = run(false);
+        let (cut_shed, cut_cells) = run(true);
+        println!(
+            "intact: shed {intact_shed}, {intact_cells} cells left\ncut:    shed {cut_shed}, {cut_cells} cells left"
+        );
+
+        // **The specificity half.** Nothing severed anything, so this rule
+        // must not have fired at all. A four-neighbour flood fill fails
+        // here, loudly, which is the point of asserting it.
+        assert_eq!(
+            intact_shed, 0,
+            "an undisturbed plant shed {intact_shed} cells as cut off. Nothing cut it, so this rule reached \
+tissue it should not -- check the traversal is still eight-neighbour, the one `Grow` writes with."
+        );
+
+        // **The sensitivity half**, and the bug itself: before this rule the
+        // crown stayed, drank the stump's water and went on earning.
+        assert!(
+            cut_shed > 0,
+            "a plant cut free of its roots shed nothing. The crown is still attached to the economy, which \
+is §W7 exactly: water_at resolves on organism_id with no connectivity check."
         );
     }
 
