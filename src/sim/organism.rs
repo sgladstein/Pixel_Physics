@@ -7242,8 +7242,15 @@ pub const CONDUCTANCE_MAX: f32 = (VEIN_BASAL + VEIN_GAIN) / VEIN_DECAY;
 
 /// The only thing the behaviour actually depends on is the *ratio*
 /// `CONDUCTANCE_MAX / CONDUCTANCE_MIN`, and it deserves a name: the
-/// canalization contrast, `1 + VEIN_GAIN / VEIN_BASAL` = 30:1 as tuned.
+/// canalization contrast, `1 + VEIN_GAIN / VEIN_BASAL` = **10:1** as tuned.
 /// Tune the contrast, not the three constants independently.
+///
+/// **This line read 30:1 until 2026-09-06 and had done since the economy
+/// pass**, which is the retune `VEIN_GAIN` documents at length directly
+/// above — 2.9 to 0.9, i.e. contrast 30:1 to 10:1, worth 17 points of
+/// seedling establishment. The constant was correct throughout; only this
+/// sentence was stale, and it is the one a reader reaches for, because it
+/// is the number the doc itself says to tune.
 pub const CANALIZATION_CONTRAST: f32 = CONDUCTANCE_MAX / CONDUCTANCE_MIN;
 
 /// Per-substep carbon transport coefficient.
