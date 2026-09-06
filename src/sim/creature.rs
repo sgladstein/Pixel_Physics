@@ -8737,7 +8737,7 @@ mod tests {
     #[test]
     fn attacking_costs_the_jaw_and_yields_no_food() {
         // (attacks, cells taken, attacker energy spent, attacker crop)
-        let fight = |rivalry: bool| -> (u64, u64, f32, bool) {
+        let fight_wired = |rivalry: bool, wired: bool| -> (u64, u64, f32, bool) {
             let mut w = test_world();
             w.colony_rivalry = rivalry;
             let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
@@ -8749,15 +8749,17 @@ mod tests {
             // a weight here.
             let species = w.species.id_of("ant").expect("ant species");
             let def = w.species.get(species).creature.as_ref().expect("creature").clone();
-            w.species.set_genome(
-                species,
-                brain::genome_from_wiring(
-                    &[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Attack, 4.0)],
-                    &def.hidden_wiring,
-                    &def.hidden_outputs,
-                    &def.recurrence,
-                ),
-            );
+            if wired {
+                w.species.set_genome(
+                    species,
+                    brain::genome_from_wiring(
+                        &[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Attack, 4.0)],
+                        &def.hidden_wiring,
+                        &def.hidden_outputs,
+                        &def.recurrence,
+                    ),
+                );
+            }
             let defender = spawn(&mut w, "ant", 100, 119);
             if let Some(st) = w.organism_mut(defender) {
                 st.colony = 1;
@@ -8777,8 +8779,15 @@ mod tests {
             (w.creature_stats.attacks, w.creature_stats.attack_cells, spent, fed)
         };
 
-        let (strangers, cells, spent, fed) = fight(true);
-        let (nestmates, kin_cells, _, _) = fight(false);
+        let (strangers, cells, spent, fed) = fight_wired(true, true);
+        let (nestmates, kin_cells, _, _) = fight_wired(false, true);
+        // **The opt-in control, and the one that says the shipped bed did not
+        // move.** Same scene, same strangers, the *authored* ant genome:
+        // `squash(0)` is exactly 0, so an animal carrying no weight on
+        // `Attack` must never swing. Without this arm the test would be
+        // green on a verb that fired for everybody, since both arms above
+        // wire it.
+        let (unwired, unwired_cells, _, _) = fight_wired(true, false);
         assert!(
             strangers > 0,
             "the wired verb never fired against a stranger, so nothing below is about attacking: {strangers} attacks"
@@ -8790,6 +8799,11 @@ mod tests {
         assert_eq!(
             nestmates, 0,
             "an ant must not attack its own nestmate: the same colony with rivalry off produced {nestmates} attacks and {kin_cells} cells"
+        );
+        assert_eq!(
+            (unwired, unwired_cells),
+            (0, 0),
+            "the shipped ant carries no weight on Attack and must never swing: {unwired} attacks, {unwired_cells} cells -- if this fires, every animal in every bed started fighting the day the verb landed"
         );
         assert!(spent > 0.0, "fighting must cost the jaw something: {spent} J spent over 400 frames");
         assert!(!fed, "an attack must not fill the crop -- if it feeds, it is the Feed path wearing a new name");
