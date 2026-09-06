@@ -8384,6 +8384,26 @@ fn drinkable_face(world: &World, n: Cell) -> bool {
 /// take both arms from one binary. Off, `face_available` is unreachable for
 /// liquids too, so the arm is the whole of the old behaviour rather than
 /// half of it.
+///
+/// **Measured across it, and the sweep overturned the first reading.** The
+/// lab box at 30,000 frames, `RAYON_NUM_THREADS` pinned, paired on
+/// `founders` — the axis that redraws a lab stand, since `LabBox` takes no
+/// seed:
+///
+/// | founders | cells soil -> liquid | roots reach |
+/// |---|---|---|
+/// | 4 | 2,776 -> 2,275 (**0.82x**) | 22 -> **26** |
+/// | 6 | 7,672 -> 5,623 (**0.73x**) | 47 -> **52** |
+/// | 8 | 4,343 -> 5,420 (1.25x) | 29 -> **47** |
+/// | 12 | 4,891 -> 6,366 (1.30x) | 32 -> **45** |
+///
+/// **Root depth is up on 4 of 4 arms** (+18, +11, +62, +41 %) — that is the
+/// quantity this fix is about, and it is unanimous. **Stand size has no
+/// direction**: two up, two down, median about 1.04. The first arm run was
+/// `founders=8` alone and read as "+25% cells", which went into a commit
+/// message before the sweep existed; it was one arm's chaos, and this table
+/// is the correction. The lesson is the one this repo keeps paying for —
+/// a single run here is a sample from a wide distribution.
 fn wet_face_counts_liquid() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
