@@ -316,9 +316,38 @@ row open — rather than a set of candidates.
    overhead* — a fraction of what is processed, lost to processing it — which
    makes the trade real in both directions: quick and wasteful against slow
    and efficient, with the crop's weight as the counterweight.
-5. **`body` cell count (S8)** — priced since per-cell metabolism landed. Not a
-   trait slot: a body is a structure, so this is a real change rather than a
-   tuple element.
+5. **`body` cell count (S8) — NOT READY, and the reason is the queue's own
+   rule turned around.** Investigated 2026-09-06 and stopped before building.
+
+   It is priced, and generously: metabolism is per live cell, movement is per
+   cell, and the `body_energy` stamp at birth is per cell — 960 J for the
+   shipped two-cell ant, which `birth_cost_of`'s doc calls the term that makes
+   reproduction unreachable at any grant. Three costs scale with size.
+
+   **What size *buys* is one thing only, and it is absent from the default
+   bed.** `reconcile_chain` kills an animal outright when the head goes,
+   whatever its length — its own comment records that "one bite on the right
+   cell killed a two-cell ant and a twenty-cell animal identically" — so extra
+   cells buy exactly one advantage: surviving a bite that lands somewhere
+   else. That is worth having only where something is biting, and the sealed
+   bed ships with no predator.
+
+   So the lever is **priced on one side only**. In the bed the owner actually
+   plays, bigger is pure cost and the allele goes to its floor on the first
+   generation: every ant a one-cell dot. That is the ratchet this whole
+   document exists to prevent, arriving from the other direction — *a cost
+   with no matching benefit is as degenerate as a benefit with no cost*, and
+   the second is easier to spot because "unpriced" has a name.
+
+   **What it needs first is not a price but a payoff**: predation as a live
+   pressure in the default bed, so that a larger body is buying something. The
+   breeding beetle landed 2026-09-05 and the seed sweep asking whether it
+   changes the ecology is still unrun. That measurement is the prerequisite
+   for this row, not more pricing.
+
+   Recorded rather than half-built, because the failure mode here is visible
+   and unpleasant: a colony of dots is a worse game than a colony of ants, and
+   nothing in the suite would have called it a regression.
 6. **`body_energy`** — what a corpse is worth, so a heritable version is prey
    evolving to be **unpalatable**. Real and attractive, and it is three
    couplings rather than one: it is also the divisor in `carried_cells` and a
