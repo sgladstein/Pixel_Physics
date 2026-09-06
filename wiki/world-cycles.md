@@ -1,6 +1,9 @@
 # Day, Night, and Decay
 
-*Current as of: 2026-08-31 (a sealed room no longer dries out — water the sun
+*Current as of: 2026-09-06 (bodies rot instead of lying where they fell for
+ever, and what rots underground goes back into the ground it pushed aside — so
+a bed with plants and animals in it stops quietly running out of earth).
+Before that: 2026-08-31 (a sealed room no longer dries out — water the sun
 takes out of the ground now humidifies the air above it, and that humidity is
 what stops the sun taking more, so one plant no longer parches a whole bed).*
 
@@ -291,10 +294,14 @@ stood waist-deep, then shoulder-deep, in their own leaf fall.
 
 **It is slower now rather than stopped.** A long-lived stand on old ground
 will still raise its floor eventually, because leaves keep arriving and soil
-has no way to weather back out of the world. Growing roots eat into it and
-soil at the world's edge can spill away, but neither is a match for a
-canopy. If you leave a forest running long enough, expect the ground under
-it to creep upward.
+has no way to weather back out of the world. Soil at the world's edge can
+spill away, but that is no match for a canopy. If you leave a forest running
+long enough, expect the ground under it to creep upward.
+
+(Growing roots used to be listed here as the other drain, and they are not one
+any more — see *what rots underground goes back into the ground*, below. A root
+now borrows a cell of earth and returns it, where it used to consume nineteen
+in twenty of everything it touched.)
 
 ## Wet ground and dry ground, and the ground in between
 
@@ -376,3 +383,33 @@ on its way to nothing.
 about a twentieth of what rots leaves any ground behind; the rest is breathed
 away. So "everything decays now" does not mean "everything comes back" — it
 means the floor keeps moving instead of silting up with something permanent.
+
+**Bodies are on their way somewhere now too.** A dead animal used to be the
+last permanent thing in the world: it fell where it died, and nothing could
+take it apart. In a sealed box that was ground you could never get back, and
+underground it was worse than that — a corpse is loose matter, so it settled
+into whatever burrow its owner died in and plugged it for good. Carrion rots
+now, fast in damp ground and slowly in dry, and leaves the same twentieth
+behind that a leaf does. Anything hungry still gets first claim: a body is
+food before it is anything else, and only what nobody eats rots.
+
+**And what rots underground goes back into the ground.** A root does not fall
+anywhere when it dies — there is nowhere for it to fall — so buried tissue
+crumbles where it lies and the earth closes over it. That is not the same
+transaction as a leaf landing on the floor, and it should not pay the same
+price: a root got where it is by *pushing a cell of earth out of the way*, so
+what it hands back when it rots is that cell, not a twentieth of it. The
+bookkeeping is strict — the ground can never get back more than it lent out,
+and tissue with air beside it still falls and rots as litter like anything
+else.
+
+**What that fixes is a bed quietly running down.** Every generation of roots
+was taking earth and returning a twentieth of it, so ground that had had
+plants growing in it for a long time simply had less ground in it than when
+you started — badly enough to see in a sealed box, where nothing new can
+arrive. It costs something in the open, though, and it is worth knowing:
+ground that has had a stand turning over on it is *looser* than ground that
+never did, because it still has all its earth and a dead root leaves a loose
+grain where it used to leave nothing at all. Undercut a grassy bank and more
+of it runs out than you might expect. What holds the surface is the living
+roots, and that is unchanged.

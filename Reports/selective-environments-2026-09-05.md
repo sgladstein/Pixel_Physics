@@ -16,6 +16,106 @@ list of proposals.
 
 ---
 
+
+## Worked case: a predator you can eat is not a predator
+
+**2026-09-06.** The owner's opening question included an observation about
+beetles: *"they usually kill all the ants, or the ants have multiplied so much
+that a few beetles have no effect."* Both halves are true, and which one you
+get is decided by a material property nobody had connected to it.
+
+Six breeding beetles, the sealed bed, 12,000 frames, four seeds:
+
+| arm | ants alive at 12k |
+|---|---|
+| no beetles | 17, 19, 18, 21 |
+| ant bite cut to 0.5, **no beetles** (the control) | **17, 19, 18, 21** |
+| 6 edible breeding beetles | 17, 21, 7, 17 |
+| 6 **inedible** breeding beetles | **5, 4, 3, 5** |
+
+**An inedible predator collapses the colony four- to fivefold, on 4 of 4
+seeds. An edible one barely dents it.**
+
+**Why the shipped beetle is the edible kind.** `beetle.ron` authors
+`penetration_resistance: 0.8` and the ant bites at `dig_force: 1.0`, so ants
+eat beetles. Adding a predator to this bed therefore adds **danger and food in
+the same act**, and no census of ants can separate them: measured, breeding
+beetles roughly *double* the colony's corpse intake (3,078 → 8,252 J on one
+seed; up on 4 of 4). The extra ant births that beetles produce are largely
+bought with beetle meat.
+
+**The control is what makes this a finding rather than a story, and it is
+unusually clean.** Cutting the ant's bite to 0.5 is how the beetle was made
+inedible — but that also takes a food source away, so starvation and predation
+predict the same collapse. Run with the bite cut and *no beetles*, the colony
+reads **17, 19, 18, 21: identical to the untouched arm, seed for seed.** The
+bite cut is behaviourally free on its own, so the collapse belongs to the
+beetles.
+
+A second number points the same way and was initially confusing: corpse intake
+goes **up** in the inedible arm (7,772–15,960 J against 5,327–8,252). Ants
+cannot eat beetles there, so that is the colony eating its own dead — dying
+faster, not eating better.
+
+**What this changes.** Three things, and the third reorders a queue:
+
+1. **"Beetles have no effect" is not a population-scale artefact.** It is the
+   predator being food. The regime the owner describes is the shipped one.
+2. **Predation as a selective pressure exists, but only in the inedible
+   configuration.** In the shipped game a beetle is a hazard that pays for
+   itself, which is why no bed with beetles in it has ever selected for
+   avoiding them.
+3. **It unblocks body size**, which
+   [`creature-locked-fields-2026-09-05.md`](creature-locked-fields-2026-09-05.md)
+   parked for want of a payoff: extra body cells buy exactly one thing,
+   surviving a bite that misses the head, and that is worth nothing where
+   nothing bites. It is worth something here.
+
+**The general rule, which is this report's own thesis arriving from a new
+direction:** an environment change is only a selective pressure if it is *net*
+costly. A hazard that also feeds you is a subsidy with a variance, and
+counting the population cannot tell you which you built. Ablate the edible
+half.
+
+### And the graded bite that followed: the balance shifts, it does not flip
+
+**2026-09-06.** The owner's answer to the finding above was to refuse the
+premise it rested on: *"nothing should be binary edible or inedible. Beetle
+should be stronger than an ant but it can be overwhelmed or unlucky."* Biting
+now wears a cell down at `(bite/armour)^2` a go, banked on the victim, and
+armour is a heritable priced multiplier on the body material.
+
+Six breeding beetles, three seeds, 12,000 frames, armour allele at neutral and
+at double:
+
+| beetle armour | ants | beetles | eats | **gnaws** | armour tax |
+|---|---|---|---|---|---|
+| x1, as authored | 19, 14, 8 | 3, 8, 4 | 1260, 1157, 919 | **0, 0, 43** | 1.7% of burn |
+| x2 | 8, 11, 3 | 8, 7, 11 | 949, 1149, 704 | **385, 167, 353** | 2.1% of burn |
+
+**The `gnaws` column is the design property confirmed in a live bed rather
+than asserted in a test.** The graded path is *dormant as shipped*: a beetle
+authors 0.8 against an ant's 1.0 mouth, so ants bite through in one go and
+essentially nothing is ever worn down. Double the plate and hundreds of gnaws
+appear. That is what "continuous at the old threshold" means when it is
+measured — the new behaviour arrives exactly when the gene moves and not
+before.
+
+**And it is not the failure mode worth fearing.** A colony whose `gnaws`
+climbs while `eats` goes flat is chewing on something it will never get
+through; here `eats` stays high (949/1149/704 against 1260/1157/919) *while*
+gnaws climbs, so ants are wearing beetles down and still feeding.
+
+**The balance shifts rather than flipping.** Fewer ants, roughly double the
+beetles, no collapse at double armour — against the binary's all-or-nothing.
+Three seeds with overlapping ranges, so the magnitude is suggestive rather
+than established; the qualitative claim, the **absence of a cliff**, is what
+these runs support.
+
+The Red Queen risk raised before the work was built — both sides paying more
+for the same outcome — is visible in the tax (1.7% → 2.1%) and has not
+impoverished the bed at the range tested. It is not ruled out further up.
+
 ## 1. The master constraint: there are exactly two currencies
 
 Measured, `src/sim/creature.rs`: an animal dies in exactly two ways.

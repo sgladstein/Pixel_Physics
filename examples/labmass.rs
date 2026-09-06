@@ -433,7 +433,7 @@ fn main() {
     if repeat_culls > 0 {
         println!("\n(repeated culls over the run: {repeat_culls} organisms)");
     }
-    report(&start, &at_cull, &end, &history, killed, &control, yield_arg, culling);
+    report(&start, &at_cull, &end, &history, killed, &control, yield_arg, culling, colonies);
     if let Some(prefix) = png {
         let crop: Option<String> = arg("crop");
         let crop = crop.map(|c| {
@@ -518,6 +518,10 @@ fn report(
     control: &str,
     yield_arg: Option<f32>,
     culling: u64,
+    // How many colonies the bed was built with. Only the `empty` arm reads
+    // it, and only to pick which of two specificity claims it can make --
+    // see the match below.
+    colonies: usize,
 ) {
     println!("\n=== the ledger ===");
     // **`to_soil`, not `to_solid`.** A `deadleaf` decaying into `litter`
@@ -670,19 +674,54 @@ fn report(
     }
 
     match control {
-        // **Specificity.** Nothing alive, so nothing can die: every ledger
-        // figure must be zero. And the mineral bed must hold still, which is
-        // the oscillator check on the exact quantity the bed balance reads.
+        // **Specificity.** No *plants*, so no plant can die: every plant
+        // figure must be zero. And with nothing alive at all the mineral bed
+        // must hold still, which is the oscillator check on the exact
+        // quantity the bed balance reads.
         "empty" => {
             ok("no plants", cull.plants == 0, format!("plants {}", cull.plants));
             ok("nothing was culled", killed == 0, format!("{killed} culled"));
             ok("no plant tissue", end.plant == 0, format!("{} cells", end.plant));
-            ok("no rot rolls", terminal + end.onward == 0, format!("{} rolls", terminal + end.onward));
-            ok(
-                "the mineral bed did not move",
-                bed.abs() * 1000 <= start.mineral as i64,
-                format!("{bed:+} cells of {} (want within 0.1%)", start.mineral),
-            );
+            // **The last two are about a box with nothing alive in it, and
+            // `colonies=` is a separate knob that puts animals in one.**
+            //
+            // They read `control == "empty"` alone until 2026-09-06, on the
+            // sentence *"nothing alive, so nothing can die"* -- which was only
+            // ever true because `corpse` declared no `decays_into`, so a dead
+            // ant could not reach the rot channel however many of them died.
+            // Giving carrion a decay path made `labmass control=empty
+            // colonies=1` report **103 rot rolls and the bed +4 cells**, and
+            // the control went red for the mechanism working. That is
+            // `CLAUDE.md`'s superseded-guard case exactly: an assertion whose
+            // green depended on the absence of the thing being built.
+            //
+            // Narrowed rather than widened, so the arm that *can* still make
+            // this claim goes on making it at full strength.
+            if colonies == 0 {
+                ok("no rot rolls", terminal + end.onward == 0, format!("{} rolls", terminal + end.onward));
+                ok(
+                    "the mineral bed did not move",
+                    bed.abs() * 1000 <= start.mineral as i64,
+                    format!("{bed:+} cells of {} (want within 0.1%)", start.mineral),
+                );
+            } else {
+                // **The colony arm's own claim, and it is the sharper one.**
+                // Animals die and their bodies rot, so the bed must come back
+                // to where it started rather than hold still frame by frame:
+                // a sealed box with no plants in it has no matter source, so
+                // any *rise* is minting and any lasting fall is the run-down
+                // the corpse channel exists to close.
+                ok(
+                    "the bed came back",
+                    bed.abs() * 1000 <= start.mineral as i64,
+                    format!("{bed:+} cells of {} (want within 0.1%)", start.mineral),
+                );
+                ok(
+                    "nothing is locked out of the cycle",
+                    end.locked == 0,
+                    format!("{} cells with no decays_into", end.locked),
+                );
+            }
         }
         _ if culling == 0 => {
             // The uncontrolled arm. Its claim is about a bed that turned

@@ -66,6 +66,36 @@ pub const SOIL_FIELD_CAPACITY: u16 = 620;
 /// 58:1775-1781, refining Letey (1985).
 pub const SOIL_WILTING_POINT: u16 = 180;
 
+/// **Waterlogged: enough water in the pore space that grain contact stops
+/// holding.** The line a worked wall (`Material::slumps_into`) gives way at,
+/// and it is deliberately *not* field capacity.
+///
+/// Field capacity is where a drained column **rests** — that is the whole
+/// meaning of the constant above it. So a rule that fails a wall above field
+/// capacity fails it in ordinary damp ground, which is not a graded outcome
+/// but a switch stuck on. Measured on the lab bed (`examples/labnest`,
+/// 12,000 frames, eight founders): the bed is built at exactly
+/// `SOIL_FIELD_CAPACITY`, root water displacement lifts the mean 620 -> 638,
+/// and **34,779 of 48,000 cells cross a field-capacity line** while the
+/// gallery lining goes 234 cells to 40 and the colony keeps digging.
+///
+/// **Sited in a measured gap rather than on a measured value**, which is
+/// `CLAUDE.md`'s bar-setting rule. The same census puts the bed in two
+/// populations with almost nothing between them: 32,936 cells in the first
+/// quarter of the drainable band (damp), 1,476 at exactly `SOIL_SATURATED`
+/// (a root has just displaced its water into them), and **367 cells — 0.8%
+/// — everywhere in between**. Half-way up the drainable band sits inside
+/// that gap, so the threshold separates the two rather than slicing either.
+///
+/// Saturation itself was the other candidate and is rejected for sitting
+/// **on** the 1,476-cell spike: it would be a bar resting exactly on a
+/// measured value, and it would also make the mechanic fire only when the
+/// pore space is completely full, which is a binary again from the other
+/// side. Between here and saturation a wall is wet and giving way, which is
+/// the middle the ethos asks for.
+pub const SOIL_WATERLOGGED: u16 =
+    SOIL_FIELD_CAPACITY + (SOIL_SATURATED - SOIL_FIELD_CAPACITY) / 2;
+
 /// How much a `Liquid` cell may hold above `LIQUID_FULL` when the cell below
 /// it is also full — the pressure signal that lets a compressed column push
 /// sideways into a shorter neighbour even once every cell in it individually

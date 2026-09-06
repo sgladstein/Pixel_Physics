@@ -3240,6 +3240,31 @@ pub struct CreatureDef {
     /// bit-identical to the tree before this existed.
     #[serde(default)]
     pub digest_fraction: f32,
+    /// **What wearing armour costs, per tick, per unit of the plate this
+    /// animal carries** — the defensive twin of `force_fraction`.
+    ///
+    /// Owner's ruling, 2026-09-06: *"anyone can evolve to have more armor but
+    /// it needs to have a cost."* Without this, `TRAIT_ARMOUR` is the purest
+    /// ratchet in the game: nothing anywhere makes a thicker plate worse, so
+    /// the allele would sit at its ceiling from the first generation and mean
+    /// nothing — the failure `sight_fraction` and `force_fraction` were
+    /// authored to prevent, on the one axis where it would have been most
+    /// obvious.
+    ///
+    /// **A standing cost, like the jaw**, because that is what armour is: you
+    /// grow the plate and you carry it whether or not you are bitten today.
+    /// Charging only when hit would price *being attacked* rather than *being
+    /// armoured*, and a lineage nothing happens to eat would carry it free.
+    ///
+    /// Charged on the animal's effective armour — the material's
+    /// `penetration_resistance` times its own allele — so a beetle pays for
+    /// the 0.8 it was authored with and a lineage that doubles it pays twice
+    /// as much.
+    ///
+    /// Defaults to 0, so a species that has authored nothing is
+    /// bit-identical to the tree before this existed.
+    #[serde(default)]
+    pub armour_fraction: f32,
     /// **What one cell of this animal's body is worth as meat**, granted at
     /// spawn alongside `start_energy` and stamped into its corpse cells when
     /// it dies.
@@ -3304,7 +3329,8 @@ pub struct CreatureDef {
     /// `CREATURE_TRAITS`' slot map: slot 0 is `gut_bias`, slot 1 is
     /// `birth_grant`, slot 2 is `reproduce_at`, slot 3 is `sight_range`,
     /// slot 4 is `pace`, slot 5 is `curvature_radius`, slot 6 is
-    /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`. Each slot has its own `TRAIT_*` constant carrying
+    /// `dig_force`, slot 7 is `digest_rate`, slot 8 is `crop_capacity`,
+    /// slot 9 is `armour`. Each slot has its own `TRAIT_*` constant carrying
     /// what its axis means; this list is the index and those are the
     /// definitions.
     ///
@@ -3616,6 +3642,7 @@ impl CreatureDef {
             curvature_fraction,
             force_fraction,
             digest_fraction,
+            armour_fraction,
             shade_rule,
             body_energy,
             crop_capacity,
@@ -3717,6 +3744,10 @@ impl CreatureDef {
             // below -- so the product is already right and correcting this
             // as well would apply the same factor twice.
             digest_fraction: *digest_fraction,
+            // Per decision, per animal: `digest_fraction`'s class. The plate
+            // is a property of the body rather than a length on the grid, so
+            // only the decision rate needs correcting.
+            armour_fraction: armour_fraction / time_factor.max(f32::EPSILON),
             shade_rule: *shade_rule,
             body_energy: *body_energy,
             crop_capacity: *crop_capacity,
@@ -4800,6 +4831,26 @@ pub struct OrganismState {
     /// There is no third — every other path that moves or unmakes a body
     /// goes through one of those two.
     pub parted: Vec<Parted>,
+    /// **Damage worn into this animal by mouths that cannot open it in one
+    /// bite**, 0..1 of the cell currently being gnawed.
+    ///
+    /// Owner's ruling, 2026-09-06: an animal is not edible or inedible, it is
+    /// *worn down*. `adjacent_food_counted` returns what one bite takes off,
+    /// and a bite that takes less than the whole cell banks the remainder
+    /// here until it reaches 1.
+    ///
+    /// **On the VICTIM, which is the whole reason a beetle can be
+    /// overwhelmed.** Kept on the attacker it would be one animal's private
+    /// progress against its own target, and ten ants gnawing one beetle would
+    /// be ten separate quarter-finished holes. Kept here they are one hole,
+    /// filled ten times as fast, and "a lot of small animals bring down a big
+    /// one" needs no rule of its own -- it is what the arithmetic already
+    /// does.
+    ///
+    /// It does not heal. That is a decision rather than an oversight: a
+    /// regenerating animal would make swarming a race against a clock and
+    /// give the result a threshold again, which is the shape this replaced.
+    pub gnawed: f32,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -5394,7 +5445,7 @@ pub const GENOTYPE_TRAITS: usize = 10;
 /// strictly weaker one, which is `CLAUDE.md`'s *when several knobs move the
 /// same number, check what each one trades*: this one trades nothing the
 /// weight does not already trade.
-pub const CREATURE_TRAITS: usize = 9;
+pub const CREATURE_TRAITS: usize = 10;
 
 /// Slot 0 of `CREATURE_TRAITS`: **diet as one heritable number**, `-1`
 /// (plant matter) to `+1` (flesh), scored against `MaterialDef::food_class`
@@ -5628,6 +5679,34 @@ pub const TRAIT_DIGEST_RATE: usize = 7;
 /// a broken animal rather than a strategy, and three units is the working
 /// floor it names.
 pub const TRAIT_CROP_CAPACITY: usize = 8;
+
+/// Slot 9 of `CREATURE_TRAITS`: **how well armoured this animal is**, read
+/// through `creature::armour_of`, on the reciprocal axis every scale here
+/// uses.
+///
+/// **A multiplier on the body material's `penetration_resistance`, not a
+/// field of its own**, and that is the design rather than an implementation
+/// detail. Armour already existed and was already per-cell: an `ant` cell is
+/// 0.25, `chitin_pale` 0.5, `chitin_mid` 0.7, a `beetle` 0.8, and
+/// `adjacent_food_counted`'s own comment predicted this change —
+/// *"armour is per-cell data, and therefore evolvable the day cell materials
+/// become heritable"*. A second, independent toughness number would be free
+/// to disagree with the first, which is the failure the exposure work avoided
+/// by reusing one definition of "indoors".
+///
+/// **It has to be priced, and it is**: `armour_fraction` charges per tick for
+/// the plate an animal carries, whether or not anything bites it — the same
+/// standing-cost shape as `force_fraction`, for the same reason. Without that
+/// this is the purest ratchet in the game: more armour would be strictly
+/// better, for ever.
+///
+/// **This and `TRAIT_DIG_FORCE` are an arms race, deliberately.** One lineage
+/// evolves a harder mouth, the other a thicker plate, and both pay for it
+/// every tick of their lives. Red Queen races end with both sides spending
+/// more for the same outcome, which is realistic and is also a real risk in a
+/// bed that already starves its colony — worth measuring rather than
+/// assuming it settles.
+pub const TRAIT_ARMOUR: usize = 9;
 
 /// The ancestral trait vector for a species file that authors no `traits`
 /// line at all.
