@@ -17,6 +17,7 @@ use std::sync::OnceLock;
 
 use super::cell::Cell;
 use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::creature;
 use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
 use super::liquid::{self, LiquidBody};
@@ -1529,6 +1530,25 @@ pub struct World {
     /// from the parameters page while the box runs, and carried across a
     /// rebuild by `lab::params::Dials`.
     pub colony_rivalry: bool,
+    /// **How far a lineage may evolve on the two arms-race slots** --
+    /// `creature::ARMS_RACE_SLOTS`, which is armour and the jaw -- as a
+    /// multiple of the `[-1, 1]` axis every other trait shares.
+    ///
+    /// `creature::TRAIT_REACH_DEFAULT` (1.0) is the shipped bed and is
+    /// byte-identical to the tree before the dial existed: at 1 every clamp
+    /// below is the `clamp(-1.0, 1.0)` that was written there. Above it, only
+    /// a lineage that has *evolved* past the old ceiling reads differently.
+    ///
+    /// **Why it is a rule of the box and not a species field**: the same
+    /// reasoning as `colony_rivalry` beside it, plus one that is specific to
+    /// this number -- it is read by *both* animals in a fight, and a reach
+    /// authored per species would let an ant and a beetle disagree about how
+    /// wide the axis they are being compared on is.
+    ///
+    /// Zero is a legitimate setting and is the clonal control the scenarios
+    /// lane could not build: it pins both alleles at 0, so those two traits
+    /// stop drifting while every other slot goes on mutating.
+    pub trait_reach: f32,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -2968,6 +2988,7 @@ impl World {
             next_lineage: 1,
             next_colony: 1,
             colony_rivalry: false,
+            trait_reach: creature::TRAIT_REACH_DEFAULT,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
