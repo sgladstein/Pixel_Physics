@@ -244,6 +244,20 @@ fn displace_soil_water(world: &mut World, x: i32, y: i32) {
     if world.materials.get(cell.material).water_capacity == 0 {
         return;
     }
+    // **The bed has just lent a cell to whatever is about to overwrite this
+    // one**, and the booking sits above the dry-cell early return rather than
+    // beside the water bookkeeping below. What is being lent is the *cell*,
+    // not the water in it: a root growing into bone-dry soil takes the bank's
+    // ground exactly as one growing into damp soil does, and booking it after
+    // the `carried == 0` return would make the loan a function of how wet the
+    // ground happened to be. `shed_to_litter` repays it; see
+    // `World::bed_cells_on_loan`.
+    //
+    // This function's own early return above is the right gate and the reason
+    // the booking lives here at all: it only reaches this line for a material
+    // with `water_capacity > 0`, so litter, sand and snow are never counted as
+    // bed.
+    world.bed_cells_on_loan += 1;
     let mut carried = update::soil_moisture(cell);
     if carried == 0 {
         return;
@@ -646,6 +660,24 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                         }
                     }
                     _ => {}
+                }
+                // **The nutrient draw, and its placement is the whole of
+                // §3d.** It is a sibling of the water draw above -- same
+                // neighbour, same visit -- and inside **neither** of that
+                // arm's gates. The Powder arm is wrapped in
+                // `available > 0.0` and in `capacity - water`, the water
+                // tank's headroom, and a nutrient draw placed inside either
+                // one saturates on the tank's ~7-cell knee and looks
+                // exactly like "the nutrient does not matter". `transpire`
+                // is the existing prior art for this shape: per root cell,
+                // four-neighbour, no tank gate.
+                //
+                // Free water is deliberately not a nutrient source. A root
+                // drinking from a puddle gets water and nothing else, which
+                // is the whole point of a second axis -- and it is why the
+                // lab's drip-fed plant can no longer build tissue for ever.
+                if nutrient_initial() > 0 {
+                    world.draw_soil_nutrient(nx, ny, nutrient_draw_per_tick());
                 }
             }
     credit_water(world, organism_id, water - stock);
@@ -3331,7 +3363,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // designed. `leaf_construction_cost` below is the only
                 // reader.
                 let tissue_cost = cost;
-                let cost = cost * organism::wood_density(&alleles);
+                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -6285,8 +6317,70 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool
         // beside the stump and held the whole crown up -- 2,360 cells
         // severed became 0 on `scripts/acceptance.sh`'s `fell` case, with
         // the cut working perfectly. See `MaterialDef::anchors_organisms`.
-        (m.kind == MaterialKind::Solid && m.anchors_organisms) || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
+        let ground = (m.kind == MaterialKind::Solid && m.anchors_organisms)
+            || (m.kind == MaterialKind::Powder && m.water_capacity > 0);
+        // **Direction is the whole of the tightening.** Root tissue anchors
+        // on ground in any direction -- gripping sideways and upward
+        // through a crevice is what a root is for. Other tissue anchors
+        // only on ground *directly beneath* it: a stem resting on the floor
+        // is held up, a branch touching a wall beside it is not.
+        //
+        // **An organism-level "has it any roots at all" exemption was tried
+        // here and reverted.** It would have let the two wall-socket
+        // cantilever scenes in `structural.rs` keep their sideways anchor,
+        // but it keys on `OrganismState::root_cells`, which only
+        // `organism_upkeep` refreshes -- so a plant reads rootless for up to
+        // `ORGANISM_TICK_INTERVAL` after germinating and anchors on anything
+        // it touches during that window. That is the lagging-cache trap
+        // `load.rs`'s own `is_anchor` doc says to avoid by reading the world
+        // directly, and it made this file's own guard pass for the wrong
+        // reason.
+        ground && (root_tissue || dy == 1 || !anchoring_is_a_roots_job())
     })
+}
+
+/// Whether holding the plant up is **a root's job** — the 2026-09-06 rule.
+/// `PIXEL_PHYSICS_PLANT_ANCHOR=any` restores the old one, where any cell of
+/// the plant touching anchoring ground anchored the whole organism.
+///
+/// **Reported from play, in the evolution lab.** A plant sprawling across
+/// the box with water dripping on it would not fall, and the reason was
+/// this rule rather than anything about water: the lab box is
+/// `material::STONE` on every side, only `deadleaf` and `log` opt out of
+/// `anchors_organisms`, and the old predicate anchored an organism on *any*
+/// of its cells touching an anchoring solid. So one branch brushing a wall
+/// braced the entire plant, permanently, and in a sealed box a sprawling
+/// plant touches stone almost at once.
+///
+/// **The tightening is about direction, and that was measured rather than
+/// designed.** Banning non-root anchoring outright turned **19 lib tests and
+/// `acceptance.sh` red** — almost all of them hand-built `wood` beams
+/// resting on a stone floor with no root cell anywhere, which is how nearly
+/// every structural and bending scene in this file is built. That is not
+/// felling and climbing being fragile; it is the rule being wrong. A stem
+/// lying *on* the floor genuinely is held up.
+///
+/// So non-root tissue anchors only on ground **directly beneath it**
+/// (`dy == 1`), and root tissue still anchors on ground in any direction —
+/// a root grips sideways and upward through a crevice, which is what a root
+/// is for. The lab plant is braced *sideways* against a wall, so it loses
+/// its anchor; a beam on a floor keeps one.
+///
+/// **What did not change**: what counts as ground, and the `anchors_organisms`
+/// flag that keeps a chip off a felled bole from propping a crown up. A root
+/// gripping *stone* still anchors, which is a tree in a rock crevice and is
+/// what keeps bare-rock scenes standing.
+///
+/// **The known cost, stated rather than discovered**: a seed that germinates
+/// with no room below it gets a `GrowingTip` and no `RootTip` — `germinate`
+/// places the companion root only `if growable(..)` — and such a plant is
+/// now unanchored from its first tick. That is the rootless-plant case
+/// `open-bugs-handoff.md` already calls live, and this rule makes it visible
+/// instead of letting it stand on a wall.
+fn anchoring_is_a_roots_job() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_PLANT_ANCHOR").as_deref(), Ok("any")))
 }
 
 /// What one plant cell is carrying, and how hard that is bending it.
@@ -7728,9 +7822,8 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
                 let mut open = false;
                 for (dx, dy) in NEIGHBOURS_4 {
                     let n = world.get(x + dx, y + dy);
-                    let m = world.materials.get(n.material);
-                    if m.water_capacity > 0 {
-                        wet += update::plant_available_fraction(n);
+                    if drinkable_face(world, n) {
+                        wet += face_available(world, n);
                         open = true;
                     }
                 }
@@ -8317,6 +8410,206 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     }
 }
 
+/// Whether a root cell sharing a face with `n` can drink from it — **the
+/// predicate `absorb_water` actually uses, rather than a proxy for it.**
+///
+/// The two arms of `absorb_water` are `MaterialKind::Liquid` (free water)
+/// and the soil path, and this has to agree with both or the plant's own
+/// accounting disagrees with its income.
+///
+/// **It did disagree, from the day the contact walk was written until
+/// 2026-09-05.** The walk tested `water_capacity > 0` under a comment
+/// claiming it was *"the same four-neighbour look `absorb_water` ... already
+/// make"*, and `assets/materials/water.ron` never sets `water_capacity` — it
+/// is a sponge capacity, meaningless for something that *is* water — so it
+/// defaulted to 0 and **free water failed the counter while passing the
+/// drinker**. Reported from play as a lab plant sprawling in mid-air with
+/// water dripping on it, reading ROOT IN SOIL 0% and not dying; every part
+/// of that follows from `contact_root_cells == 0`. The reproduction is
+/// `a_root_drinking_from_free_water_counts_as_contact`, which pairs the two
+/// materials and measures the same 1.500 drink against contact 1 and 0.
+///
+/// Kept as a named function rather than an inlined `||` so there is one
+/// place to change when `absorb_water` grows a third arm, and so the next
+/// person reading either site finds the other.
+/// How much of `n` a root sharing a face with it can actually take up,
+/// `0.0..=1.0` — the companion to `drinkable_face`, and liquid-aware for the
+/// same reason.
+///
+/// **`plant_available_fraction` is a *soil* reading and must not be pointed
+/// at a liquid.** It is `(soil_moisture - wilting point) / (field capacity -
+/// wilting point)`, and `soil_moisture` is `cell.aux()` — but on a `Liquid`
+/// `aux == 0` means **full**, the inverted convention `.claude/rules` lists
+/// first. So a brim-full water cell reads `(0 - 180) / 440`, clamped to
+/// **0.0: bone dry**, and a cell a root has already drunk 60 units out of
+/// reads `(940 - 180) / 440`, clamped to **1.0: saturated**. Exactly
+/// backwards, and self-cancelling enough to hide — the first version of
+/// `a_root_drinking_from_free_water_counts_as_contact` painted both arms
+/// with a soil aux and got two identical 0.864 readings that meant nothing.
+///
+/// A liquid's answer is its fill fraction: free water at the face is as
+/// available as water gets, and a half-drained cell is half.
+///
+/// `plant_available_fraction` itself is left alone deliberately — it is
+/// correct for soil, and `evaporation.rs`'s drying curve is built on it.
+fn face_available(world: &World, n: Cell) -> f32 {
+    if world.materials.kind(n.material) == MaterialKind::Liquid {
+        update::liquid_fill(n) as f32 / material::LIQUID_FULL as f32
+    } else {
+        update::plant_available_fraction(n)
+    }
+}
+
+/// The soil's full nutrient stock in one cell, in the `u8` units the chunk
+/// store keeps. **`0` is the shipped default and means the whole mechanism
+/// is off** — `World::soil_nutrient_fraction` short-circuits to 1.0, no
+/// buffer is ever allocated, and nothing downstream can notice.
+///
+/// `PIXEL_PHYSICS_NUTRIENT=<initial>` turns it on.
+///
+/// Why a nutrient at all, and why it is *not* the lever the roots work
+/// tried: `Reports/plant-soil-nutrient-plan-2026-09-05.md` refuted an
+/// immobile soil nutrient as **the cheapest way to make roots pay** — the
+/// gate was, and that shipped in #246. This is the other claim, which that
+/// refutation never touched: **soil must supply something water cannot**,
+/// or a plant with light and a drip has everything the engine prices and
+/// can live for ever on nothing. Reported from play, in the lab.
+pub(crate) fn nutrient_initial() -> u8 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u8> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+/// How much of a cell's nutrient deficit is forgiven per frame — §3a's
+/// closed-form recovery, and the reason recovery is not credited at decay
+/// sites.
+///
+/// **Decay-site crediting is a documented double dead end**
+/// (`dead-ends.md:583` and `:585`): built twice, reverted twice, once with
+/// a measured runaway — standing biomass 1,718 -> 2,652 cells and still
+/// climbing — because it makes a pump. A tree sheds litter, litter rots
+/// into resource, the tree drinks it and sheds more; a freely credited
+/// nutrient is worse than water, which at least has evaporation as a sink.
+/// It also lands in the wrong place, crediting row 0 where litter rests
+/// while the deficit is metres down.
+///
+/// Time recovery has neither problem: it is bounded by `initial` and it
+/// happens exactly where the deficit is.
+/// How much nutrient one root cell takes from one soil face per tick.
+///
+/// Defaults to 1, which only matters once `nutrient_initial` is non-zero —
+/// the whole mechanism is gated on that, so this needs no zero of its own.
+/// `PIXEL_PHYSICS_NUTRIENT_DRAW` overrides it.
+/// What scarce soil nutrient does to the price of building a cell —
+/// **`Grow.cost` scaled, not a Liebig term on income.**
+///
+/// `plant-soil-nutrient-plan-2026-09-05.md` §3c rules out the obvious
+/// `min(water_status, nutrient_status)` and the reasoning is worth keeping
+/// at the call site: under `min` the non-binding resource has exactly zero
+/// marginal value, income collapses to one axis, and the stomatal locus's
+/// fitness signal is erased — wherever nutrient binds, a prudent individual
+/// and a spendthrift earn the same while the prudent one keeps its stock,
+/// so prudence becomes free. `water_status` is a *stomatal conductance*,
+/// not a Liebig term, and multiplying is correct for it.
+///
+/// Pricing construction instead leaves water's calibration literally
+/// untouched, matches the physiology better — N and P limit sink activity
+/// and leaf construction far more than instantaneous photosynthesis per
+/// unit leaf — and adds a real second axis rather than competing for the
+/// first.
+///
+/// `1.0` at full nutrient and rising as it runs out, capped so an exhausted
+/// cell makes building expensive rather than impossible: a plant that
+/// cannot build still pays upkeep, so it stalls and then starves, which is
+/// the graded death `CLAUDE.md`'s first law asks for rather than a plant
+/// blinking out.
+fn nutrient_construction_multiplier(world: &World, organism_id: u16) -> f32 {
+    if nutrient_initial() == 0 {
+        return 1.0;
+    }
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
+    // Reciprocal in the *scarcity*, floored so the multiplier is bounded:
+    // at full nutrient this is exactly 1.0, at empty it is
+    // `NUTRIENT_STARVED_COST`.
+    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - status.clamp(0.0, 1.0))
+}
+
+/// What a cell costs to build in fully exhausted soil, as a multiple of its
+/// authored `Grow.cost`. Set from nothing yet — it is inert until
+/// `nutrient_initial` is non-zero, and the sweep that sets it is the first
+/// thing to run when it is turned on.
+const NUTRIENT_STARVED_COST: f32 = 8.0;
+
+/// Whether a cell holds soil nutrient at all — **soil does, free water does
+/// not**, and that asymmetry is the entire point of a second axis.
+///
+/// Lives here rather than at the call site deliberately. The first version
+/// tested it inside `absorb_water`'s loop, which meant
+/// `World::draw_soil_nutrient` would happily have drawn nutrient out of a
+/// puddle if anything else ever called it — an invariant that holds only
+/// because every caller remembers it is not an invariant. `World` enforces
+/// it now, on both the read and the draw.
+pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
+    let m = world.materials.get(cell.material);
+    m.kind == MaterialKind::Powder && m.water_capacity > 0
+}
+
+fn nutrient_draw_per_tick() -> u8 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u8> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_DRAW").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
+}
+
+pub(crate) fn nutrient_recovery_per_frame() -> u16 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u16> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+fn drinkable_face(world: &World, n: Cell) -> bool {
+    if world.materials.kind(n.material) == MaterialKind::Liquid {
+        return wet_face_counts_liquid();
+    }
+    world.materials.get(n.material).water_capacity > 0
+}
+
+/// Whether free water counts as a face a root can drink from.
+/// `PIXEL_PHYSICS_WET_FACE=soil` restores the pre-2026-09-05 soil-only
+/// predicate.
+///
+/// **An ablation rather than a dead switch**: the fix changes
+/// `contact_root_cells` wherever a root touches a liquid, and that feeds the
+/// water tank's size, `root_zone_water`, and through it `break_root_tips` --
+/// so any before/after has to be paired, and a switch is the only way to
+/// take both arms from one binary. Off, `face_available` is unreachable for
+/// liquids too, so the arm is the whole of the old behaviour rather than
+/// half of it.
+///
+/// **Measured across it, and the sweep overturned the first reading.** The
+/// lab box at 30,000 frames, `RAYON_NUM_THREADS` pinned, paired on
+/// `founders` — the axis that redraws a lab stand, since `LabBox` takes no
+/// seed:
+///
+/// | founders | cells soil -> liquid | roots reach |
+/// |---|---|---|
+/// | 4 | 2,776 -> 2,275 (**0.82x**) | 22 -> **26** |
+/// | 6 | 7,672 -> 5,623 (**0.73x**) | 47 -> **52** |
+/// | 8 | 4,343 -> 5,420 (1.25x) | 29 -> **47** |
+/// | 12 | 4,891 -> 6,366 (1.30x) | 32 -> **45** |
+///
+/// **Root depth is up on 4 of 4 arms** (+18, +11, +62, +41 %) — that is the
+/// quantity this fix is about, and it is unanimous. **Stand size has no
+/// direction**: two up, two down, median about 1.04. The first arm run was
+/// `founders=8` alone and read as "+25% cells", which went into a commit
+/// message before the sweep existed; it was one arm's chaos, and this table
+/// is the correction. The lesson is the one this repo keeps paying for —
+/// a single run here is a sample from a wide distribution.
+fn wet_face_counts_liquid() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_WET_FACE").as_deref(), Ok("soil")))
+}
+
 fn organism_upkeep(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else {
         return;
@@ -8457,6 +8750,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // rather than meaningful.
     let mut root_zone_faces = 0u32;
     let mut root_zone_available = 0.0f32;
+    // Same numerator/denominator shape as the root-zone pair above, and for
+    // the same reason: a running mean would weight early cells more.
+    let mut nutrient_faces = 0u32;
+    let mut nutrient_available = 0.0f32;
     let turnover_rate = root_turnover_per_tick();
     let mut turnover_candidates: Vec<(i32, i32, f32)> = Vec::new();
     // The crown's overturning demand, accumulated as `Σ y` and turned into
@@ -8585,9 +8882,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             let mut available = 0.0f32;
             for (dx, dy) in NEIGHBOURS_4 {
                 let n = world.get(cx + dx, cy + dy);
-                if world.materials.get(n.material).water_capacity > 0 {
+                if drinkable_face(world, n) {
                     wet_faces += 1;
-                    available += update::plant_available_fraction(n);
+                    available += face_available(world, n);
+                    // The second axis, read off the same visit. Soil only:
+                    // free water carries no nutrient, which is what makes
+                    // the two axes different rather than one wearing two
+                    // names.
+                    if cell_carries_nutrient(world, n) {
+                        nutrient_faces += 1;
+                        nutrient_available += world.soil_nutrient_fraction(cx + dx, cy + dy);
+                    }
                 }
             }
             if wet_faces > 0 {
@@ -8637,8 +8942,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 let mut open = false;
                 for (dx, dy) in NEIGHBOURS_4 {
                     let n = world.get(cx + dx, cy + dy);
-                    if world.materials.get(n.material).water_capacity > 0 {
-                        wet += update::plant_available_fraction(n);
+                    if drinkable_face(world, n) {
+                        wet += face_available(world, n);
                         open = true;
                     }
                 }
@@ -8746,6 +9051,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // a root down yet must not read as droughted.
         state.root_zone_water =
             if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
+        state.nutrient_status =
+            if nutrient_faces > 0 { nutrient_available / nutrient_faces as f32 } else { 1.0 };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;
@@ -9683,7 +9990,192 @@ fn shed_to_litter(world: &mut World, x: i32, y: i32) {
             landing = probe;
         }
     }
+    // **Tissue that rots buried in the ground becomes ground, not litter
+    // lying on it** — and this is where the lab's bed was draining away.
+    //
+    // Owner, 2026-09-06: *"over time it seems like the soil is
+    // disappearing."* It is, and the arithmetic is exact. A root reaches its
+    // cell by *displacing* one — `growable` lets a `RootTip` enter a
+    // penetrable `Powder` and `displace_soil_water` moves that cell's water
+    // out before `Grow` writes over it. When the plant dies, this function
+    // used to put `litter` in the hole, and `litter.ron` returns **5%** of
+    // what reaches the end of its chain. So the round trip soil -> root ->
+    // litter -> soil destroyed about nineteen cells of bed in twenty, once
+    // per root cell per generation.
+    //
+    // Measured with `examples/labmass`, the sealed bed with a colony in it
+    // and half the stand culled every 4,000 frames so the stand actually
+    // turns over: mineral **40,267 -> 39,317 over 40,000 frames**, with only
+    // **282 cells still standing as roots** — so 842 cells of ground were
+    // destroyed rather than borrowed, and the run was still falling. Its own
+    // ledger line reads *mass returned 7.58%*.
+    //
+    // **This is conservation, not a yield change, and the distinction is the
+    // whole argument.** `litter.ron`'s 5% is a statement about *carbon a
+    // plant fixed out of light* — matter entering the world from nothing,
+    // which needs a sink or the forest floor rises for ever
+    // (`Reports/soil-accumulation-and-the-carbon-cycle.md`). The mineral cell
+    // a root moved into is not that: the plant did not make it, it borrowed
+    // it, and giving it back cannot raise anything because it goes back in
+    // the hole it came out of. The floor is unchanged — every cell that
+    // reaches a *surface* still lands as litter and still pays the 5%.
+    //
+    // It is also the better physics. Root turnover is the single largest
+    // input to soil organic matter precisely because it happens *inside* the
+    // mineral matrix rather than on top of it; a dead root does not fall
+    // anywhere, it rots where it is and the ground closes over it.
+    //
+    // **Which cell does this rule evaluate, and what stops it minting?** One
+    // cell, and two conditions that both have to hold. The walk above found
+    // no air to fall into, so the cell is not over a void; and at least one
+    // orthogonal neighbour is mineral ground with no air among them, so the
+    // cell is *in* the bank rather than inside a plant. That second test is
+    // load-bearing rather than defensive: `landing == y` is also true for a
+    // leaf directly above a trunk, whose downward probe passes through
+    // organism cells all the way to the floor and never sees air — without
+    // it, a crown would quietly turn to soil in mid-air. And a root that grew
+    // through an ant's gallery has air beside it, so it falls as litter and
+    // does not plug the tunnel it is standing in.
+    // **Repay only what the bed actually lent**, which is what makes the
+    // paragraph above a conservation law rather than a claim -- see
+    // `World::bed_cells_on_loan` for the measurement that showed the
+    // difference. The debt is decremented here and nowhere else, so a stand
+    // can never hand the bed back more ground than it took out of it.
+    let repayable = world.bed_cells_on_loan > 0;
+    let sheds_into = if landing == y && repayable && buried_remains_enabled() {
+        buried_ground(world, x, y).then_some("soil")
+    } else {
+        None
+    };
+    if let Some(name) = sheds_into {
+        if let Some(ground) = world.materials.id_of(name) {
+            // `base_shades`, not the whole palette: `soil` ships three
+            // regional families and a random pick across all of them
+            // speckles a wet bank with desert-pale grains — the same reason
+            // `decay::tick` reads `base_shades`, and the same reason the
+            // litter shade above does.
+            let shades = world.materials.get(ground).base_shades.max(1) as u32;
+            let shade = world.rng.below(shades) as u8;
+            // **It takes its water back out of the ground, which is
+            // `displace_soil_water` run backwards** — and leaving it dry
+            // instead is not a small difference, it inverts the result of a
+            // shipped mechanic.
+            //
+            // `decay::tick` writes its soil dry and argues the case at length:
+            // copying a neighbour's moisture *duplicates* it, because the
+            // donor keeps its own, so every version that did so manufactured
+            // water. That argument is right and this is not that. A root
+            // *took* the water in this cell when it grew — `displace_soil_
+            // water` pushed it into the neighbourhood or banked it — so
+            // drawing it back **out of** the neighbours conserves exactly, in
+            // the same way and by the same bookkeeping as the loan above.
+            //
+            // **Measured, and it is the whole difference between the fix and
+            // a regression.** `a_rooted_bank_sheds_less_soil_than_a_bare_one`,
+            // the guard over `reinforces_powder`, with the returned cell
+            // written dry: the sod bank sheds **418 of 1,082 soil cells, 38.6%,
+            // against a bare bank's 25.2%** — a rooted bank spilling harder
+            // than an unrooted one, which is that mechanic's headline claim
+            // inverted. Written damp: **198 of 875, 22.6%**. A dry cell in a
+            // damp bank is a standing capillary gradient, so
+            // `update_soil_water` writes every visit, the chunk never settles,
+            // and the CA sweep keeps running the powder rules on a bank that
+            // should have come to rest.
+            //
+            // **The target is what the neighbourhood levels off at once this
+            // cell is one of them** — `sum / (n + 1)`, not the neighbours'
+            // current mean — and that arithmetic is the difference between a
+            // fix and a worse regression. Drawing to the *neighbours' mean*
+            // was built first and measured **459 of 1,120 shed, 41%**, worse
+            // than leaving the cell dry: a greedy draw empties the first
+            // donor toward the wilting point, so it trades one dry cell for a
+            // 440-unit gradient two cells wide. Levelling all nine leaves no
+            // gradient at all, which is what stops the chunk churning.
+            //
+            // No donor gives more than it has above the target, so nothing is
+            // drawn below what the neighbourhood settles at, and the sum over
+            // the nine cells is unchanged by construction.
+            let mut donors: Vec<(i32, i32, u16)> = Vec::new();
+            let mut sum = 0u32;
+            for (dx, dy) in NEIGHBOURS_8 {
+                let (nx, ny) = (x + dx, y + dy);
+                let cell = world.get(nx, ny);
+                if world.materials.get(cell.material).water_capacity == 0 {
+                    continue;
+                }
+                let held = update::soil_moisture(cell);
+                sum += u32::from(held);
+                donors.push((nx, ny, held));
+            }
+            let target = (sum / (donors.len() as u32 + 1)) as u16;
+            let mut got = 0u16;
+            for (nx, ny, held) in donors {
+                let take = held.saturating_sub(target);
+                if take == 0 {
+                    continue;
+                }
+                let cell = world.get(nx, ny);
+                world.set(nx, ny, cell.with_aux(held - take));
+                got = got.saturating_add(take);
+            }
+            world.set(x, y, Cell::new(ground, shade).with_aux(got.min(target)));
+            world.bed_cells_on_loan -= 1;
+            return;
+        }
+    }
     world.set(x, landing, Cell::new(litter, shade));
+}
+
+/// The ablation switch for the buried-remains rule, on by default.
+///
+/// `PIXEL_PHYSICS_BURIED_REMAINS=litter` puts the pre-2026-09-06 behaviour
+/// back: every shed cell becomes `litter` wherever it lands, including
+/// underground. It changes **nothing else** — the same cells are shed, at the
+/// same rate, by the same rules — which is the shape `CLAUDE.md` prescribes
+/// and the shape `creature.rs`'s `spoil_kept` and `lining_enabled` already
+/// use.
+///
+/// It exists because what this rule changes is a **standing** quantity — how
+/// much ground is left in a bed after a stand has turned over on it — and a
+/// standing quantity has no baseline of its own. An env switch rather than
+/// two builds also means two arms compared inside one binary cannot differ in
+/// anything else, and there is no "before" executable to forget to rebuild.
+fn buried_remains_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BURIED_REMAINS").as_deref() != Ok("litter"))
+}
+
+/// **Is this cell inside the mineral bank?** — the test that separates tissue
+/// which displaced ground from tissue that merely has no air under it.
+///
+/// Two clauses, in the order that makes the cheap one decide most calls. No
+/// orthogonal neighbour may be air, and at least one must be mineral ground
+/// that no organism owns. A root threading a bank passes both; a trunk cell
+/// buried in its own crown fails the second (its neighbours are all plant);
+/// anything with a gallery, a shaft or open sky beside it fails the first.
+///
+/// Read at the shedding site rather than remembered from growth, because
+/// nothing on a `Cell` records what it displaced and adding a bit for it
+/// would cost every cell in the world for a question asked once per death.
+fn buried_ground(world: &World, x: i32, y: i32) -> bool {
+    let mut mineral = false;
+    for (dx, dy) in [(0, -1), (0, 1), (-1, 0), (1, 0)] {
+        let n = world.get(x + dx, y + dy);
+        if n.material == material::EMPTY {
+            return false;
+        }
+        // `organism_id() == 0` is what says *mineral*: a `Powder` a plant or
+        // an animal owns is that organism's tissue standing in the bank, not
+        // the bank. `packedsoil` counts — a gallery wall is still ground, and
+        // a root that grew through one displaced it exactly as it would loose
+        // tilth.
+        mineral |= n.organism_id() == 0
+            && matches!(
+                world.materials.kind(n.material),
+                MaterialKind::Powder | MaterialKind::Solid
+            );
+    }
+    mineral
 }
 
 /// After a leaf is shed, drop any of its neighbouring leaves that no
@@ -11763,6 +12255,110 @@ mortality -- see the doc on this test"
         assert!(
             !alive_beside(&w, 50, 50, &NEIGHBOURS_4),
             "and at four it does not -- which is why this test exists and why the rule may not use four"
+        );
+    }
+
+    /// **A root that rots in the bank gives the bank its cell back; anything
+    /// with air beside it still falls as litter** — the three arms, and only
+    /// the pair makes either half mean anything.
+    ///
+    /// Owner, 2026-09-06: *"over time it seems like the soil is
+    /// disappearing."* It was, and this is the guard over the fix. A root
+    /// *displaces* a soil cell to occupy it (`growable` /
+    /// `displace_soil_water`), and shedding it to litter charged
+    /// `litter.ron`'s 5% humification yield against a cell the plant never
+    /// made — so a bed lost about nineteen cells in twenty per generation of
+    /// root turnover. Measured with `examples/labmass`, forced turnover over
+    /// 40,000 frames: **842 cells of bed destroyed rather than borrowed
+    /// before, 8 after.**
+    ///
+    /// **The two negative arms are the whole test.** A rule that wrote soil
+    /// wherever the fall walk found no air would pass the first assertion
+    /// alone and would turn a crown to soil in mid-air (a leaf over a trunk
+    /// probes down through organism cells and never sees air) and plug an
+    /// ant's gallery with the roots growing through it. `CLAUDE.md`: a guard
+    /// must be able to fail for the *replacement* artifact.
+    #[test]
+    fn a_buried_root_rots_into_the_bank_and_one_in_a_gallery_does_not() {
+        let mut w = test_world();
+        let organism = 9u16;
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let litter = w.materials.id_of("litter").expect("litter is compiled in");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        // A bank of soil with air over it.
+        for x in 40..70 {
+            for y in 50..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        // 1. A root threading the bank: soil on every side. Placed through
+        // `displace_soil_water` first, which is what `Grow` does and is what
+        // books the bed's loan -- a root that never borrowed a cell has
+        // nothing to give back, and `shed_to_litter` checks.
+        displace_soil_water(&mut w, 45, 55);
+        place(&mut w, (45, 55), rootwood, organism, CellType::MatureBody, (0.0, 0.0));
+        // 2. A root standing in a gallery -- the bank has been dug out beside
+        //    and below it, which is what an ant leaves.
+        for (x, y) in [(50, 54), (51, 54), (52, 54), (50, 55), (51, 55), (52, 55), (50, 56), (51, 56), (52, 56)] {
+            w.set(x, y, Cell::EMPTY);
+        }
+        displace_soil_water(&mut w, 51, 55);
+        place(&mut w, (51, 55), rootwood, organism, CellType::MatureBody, (0.0, 0.0));
+        // 3. A leaf in the air directly over a trunk, so the downward walk
+        //    passes through organism cells all the way to the bank and never
+        //    finds air. `landing == y` here for a reason that has nothing to
+        //    do with being underground.
+        for y in 45..50 {
+            place(&mut w, (60, y), wood, organism, CellType::MatureBody, (0.0, 0.0));
+        }
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        place(&mut w, (60, 44), leaf, organism, CellType::Leaf, (0.0, 0.0));
+
+        shed_to_litter(&mut w, 45, 55);
+        shed_to_litter(&mut w, 51, 55);
+        shed_to_litter(&mut w, 60, 44);
+
+        assert_eq!(
+            w.get(45, 55).material,
+            soil,
+            "a root rotting inside the bank must hand back the cell it displaced; \
+             at litter's 5% yield the bed drains a generation at a time"
+        );
+        // **And it is not a dry hole.** The bank here is built dry, so the
+        // levelling draw has nothing to take and the cell lands at 0 -- what
+        // this asserts is that nothing was *invented*, which is the water
+        // minting `decay::tick` records at length. The wet case is measured
+        // rather than unit-tested, in `a_rooted_bank_sheds_less_soil_than_a_
+        // bare_one`'s numbers.
+        assert_eq!(
+            w.get(45, 55).aux(),
+            0,
+            "a cell returned into dry ground must not invent water"
+        );
+        // Exactly one loan was ever taken -- the gallery root was placed into
+        // a cell already carved out, which is not the bed lending anything --
+        // and the buried death repaid it.
+        assert_eq!(
+            w.bed_cells_on_loan, 0,
+            "the one bed cell this scene lent should have been repaid exactly once"
+        );
+        assert_eq!(
+            w.get(51, 56).material,
+            litter,
+            "a root standing in a gallery has air below it and must fall as litter onto \
+             the gallery floor; writing soil in place here fills the nest the ants dug"
+        );
+        assert_eq!(
+            w.get(51, 55).material,
+            material::EMPTY,
+            "...and the cell it left must be open, not backfilled"
+        );
+        assert_eq!(
+            w.get(60, 44).material,
+            litter,
+            "a leaf over a trunk finds no air below it and is still not buried -- \
+             without the mineral-neighbour test a crown turns to soil in mid-air"
         );
     }
 
@@ -15354,7 +15950,7 @@ they are the same world. Got {median}, which means something other than the leve
         const BANK_TOP: i32 = 134;
         const LEDGE_Y: i32 = 150;
 
-        fn build(with_grass: bool) -> (usize, usize, usize) {
+        fn build(with_grass: bool) -> (usize, usize, usize, usize, usize) {
             let mut w = test_world();
             let soil = w.materials.id_of("soil").expect("soil is compiled in");
             // The ledge, and a catch floor far below it.
@@ -15407,11 +16003,32 @@ they are the same world. Got {median}, which means something other than the leve
             let b = w.bounds().unwrap();
             let grassroot = w.materials.id_of("grassroot");
             let (mut shed, mut crest, mut roots) = (0, 0, 0);
+            // **The mass-fair pair**: everything the bank was made of that
+            // ended up off the ledge, and everything still standing in the
+            // original footprint. `shed` alone counts `soil` only and is a
+            // count rather than a share, which makes it a measure of how much
+            // soil the arm *had* as much as of how much stayed put -- see the
+            // note on the assertions below.
+            let (mut left, mut held) = (0usize, 0usize);
             for y in b.min_y..=b.max_y {
                 for x in b.min_x..=b.max_x {
                     let m = w.get(x, y).material;
                     if m == soil && y > LEDGE_Y + 4 {
                         shed += 1;
+                    }
+                    // **Mineral only, wherever it is now.** The first version
+                    // of this counted anything that was not air or scene
+                    // stone, and the sod arm came back at 4,447 against the
+                    // bare arm's 1,296 -- because grass biomass, litter and
+                    // seed are not bank, and counting them makes the ratio a
+                    // measure of how much grew rather than of how much
+                    // stayed. `CLAUDE.md`'s "ask what your number counts".
+                    let bank_stuff = m == soil;
+                    if bank_stuff && y > LEDGE_Y + 4 {
+                        left += 1;
+                    }
+                    if bank_stuff && (BANK_TOP..LEDGE_Y).contains(&y) && (LEDGE_L..=LEDGE_R).contains(&x) {
+                        held += 1;
                     }
                     // **Occupancy, not soil.** Counting soil here was wrong
                     // and measured backwards: grass *converts* soil cells
@@ -15429,11 +16046,14 @@ they are the same world. Got {median}, which means something other than the leve
                     }
                 }
             }
-            (shed, crest, roots)
+            (shed, crest, roots, left, held)
         }
 
-        let (bare_shed, bare_crest, bare_roots) = build(false);
-        let (sod_shed, sod_crest, sod_roots) = build(true);
+        let (bare_shed, bare_crest, bare_roots, bare_left, bare_held) = build(false);
+        let (sod_shed, sod_crest, sod_roots, sod_left, sod_held) = build(true);
+        let frac = |left: usize, held: usize| left as f32 / (left + held).max(1) as f32;
+        let (bare_frac, sod_frac) = (frac(bare_left, bare_held), frac(sod_left, sod_held));
+        println!("share  bare {:.3} ({bare_left}/{}) sod {:.3} ({sod_left}/{})", bare_frac, bare_left + bare_held, sod_frac, sod_left + sod_held);
         // Printed, not only asserted: the acceptance asks for the margin,
         // and a passing assertion reports nothing. `--nocapture` shows it.
         println!("shed  bare {bare_shed}  sod {sod_shed}   ({:+.0}%)", 100.0 * (sod_shed as f32 / bare_shed as f32 - 1.0));
@@ -15449,9 +16069,48 @@ they are the same world. Got {median}, which means something other than the leve
             bare_shed > 0,
             "the bare arm shed no soil at all, so the disturbance did nothing and the comparison is vacuous"
         );
-        // **The mechanism claim now rides on `shed`, and `crest` has been
-        // demoted to a collapse floor. `Material::decay_yield` is why, and
-        // this is a correction rather than an accommodation.**
+        // **2026-09-06: the claim rides on `crest` again, and `shed` is
+        // demoted to a collapse bound. This is recorded as a real weakening,
+        // not re-baselined quietly, and it is filed as a bug rather than
+        // absorbed** -- `Reports/open-bugs-handoff.md` §W4.
+        //
+        // `plant::shed_to_litter` now returns a bed cell to the bed when
+        // buried tissue rots, instead of leaving `litter` that pays a 5%
+        // humification yield. That closes a real drain -- measured on
+        // `examples/labmass` with forced turnover, **842 cells of bed
+        // destroyed over 40,000 frames before and 8 after** -- and it costs
+        // this arm's headline. Attributed with the rule's own ablation
+        // switch, one binary, same seed:
+        //
+        //     PIXEL_PHYSICS_BURIED_REMAINS=  shed (bare/sod)    share (bare/sod)
+        //     litter (the old rule)          327 / 130  (-60%)  0.252 / 0.161
+        //     (default, the new one)         327 / 411  (+26%)  0.252 / 0.383
+        //
+        // `share` is `shed / (shed + soil still in the footprint)`, added
+        // here because a raw count is confounded by how much soil the arm
+        // *has*: under the old rule the sod bank shed less partly because
+        // roots had permanently eaten 38% of it. The share says the trade is
+        // real anyway and not a mass artifact.
+        //
+        // **What did not move is the mechanism this file is about.** A live
+        // root still holds the soil it threads: `crest` is +30% for the sod
+        // arm on both rules. What changed is the bank's *afterlife* -- a
+        // dead root now leaves a loose grain where it used to leave nothing
+        // at all, so a bank whose grass has turned over is looser than one
+        // that never had grass, and under this scene's disturbance (a ledge
+        // with both retaining faces removed at once) that spills. Two
+        // repairs were built and measured and neither recovered it: drawing
+        // the returned cell's water off its neighbours greedily made it
+        // **worse** (459), and levelling the nine-cell neighbourhood was a
+        // wash (411 against 418 dry). Only *minting* the water back at field
+        // capacity recovered the number (198), which is the one thing that
+        // cannot ship.
+        //
+        // ---- the previous note, kept because its reasoning still binds ----
+        //
+        // **The mechanism claim rode on `shed`, and `crest` was demoted to a
+        // collapse floor. `Material::decay_yield` is why, and that was a
+        // correction rather than an accommodation.**
         //
         // `crest` counts occupancy, so it was already immune to roots
         // converting soil into `grassroot` (the note above records that
@@ -15483,14 +16142,30 @@ they are the same world. Got {median}, which means something other than the leve
         // This is a real weakening of the crest assertion and is recorded as
         // such rather than re-baselined quietly. `Reports/soil-accumulation-
         // and-the-carbon-cycle.md` has the accounting.
+        // **The mechanism claim.** A sod mat holds the bank's *surface*, which
+        // is where roots actually reach and is what a player sees; a
+        // whole-bank spill count is dominated by the unrooted bulk and is
+        // confounded by mass, as the note above records. Asserted as a strict
+        // surplus rather than a floor, because that is what the mechanism
+        // predicts and the margin is +30%.
         assert!(
-            (sod_shed as f32) < bare_shed as f32 * 0.97,
-            "a rooted bank shed {sod_shed} soil cells against a bare bank's {bare_shed} -- \
-             reinforces_powder is buying nothing where roots actually reach"
+            sod_crest > bare_crest,
+            "the rooted bank's surface did not outlast the bare one: {sod_crest} crest cells \
+             against {bare_crest} -- reinforces_powder is buying nothing where roots reach"
         );
+        // **And a collapse bound on the spill.** Not the mechanism claim any
+        // more (§W4), but a bank that lost half again as much of its own soil
+        // as a bare one is a different failure and must not pass unnoticed.
+        // Bar set from the measured 0.383 against 0.252 -- a ratio of 1.52 --
+        // with headroom, per `CLAUDE.md`: never sitting on the measured value.
         assert!(
-            sod_crest as f32 > bare_crest as f32 * 0.90,
-            "the rooted bank's surface collapsed: {sod_crest} crest cells against a bare bank's {bare_crest}"
+            sod_frac < bare_frac * 1.9,
+            "the rooted bank shed {:.3} of its own soil against a bare bank's {:.3} \
+             ({sod_shed} of {} and {bare_shed} of {}): §W4's trade has widened into a collapse",
+            sod_frac,
+            bare_frac,
+            sod_left + sod_held,
+            bare_left + bare_held
         );
     }
 
@@ -15580,6 +16255,265 @@ they are the same world. Got {median}, which means something other than the leve
     /// currency now, which is the property that was missing. Income is
     /// unchanged in both rows, which is what makes this a conservation fix
     /// and not an economy change.
+    /// **A full water cell must not read as bone dry.** The inversion
+    /// `face_available` exists to stop, asserted on the two aux values that
+    /// bracket it rather than inferred from a stand.
+    ///
+    /// `plant_available_fraction` is `(aux - wilting point) / (field
+    /// capacity - wilting point)`, and on a `Liquid` `aux == 0` means
+    /// **full** — so pointed at water it reads a brim-full cell as 0.0 and a
+    /// partly-drunk one as 1.0, backwards and self-cancelling. This pins
+    /// both ends: the soil function still says what it always said, and the
+    /// face reading no longer agrees with it about liquids.
+    /// **Soil must supply something water cannot** — the claim the whole
+    /// nutrient exists for, at its smallest.
+    ///
+    /// Reported from play: a lab plant living indefinitely on water dripping
+    /// on it. Water and carbon were the entire economy, carbon comes from
+    /// light, and soil bought a plant exactly one thing — water — so a lit,
+    /// drip-fed plant had everything the engine priced and could not die.
+    ///
+    /// Asserts the asymmetry directly rather than through a grown stand,
+    /// because the mechanism ships **inert** (`nutrient_initial()` is 0) and
+    /// a `OnceLock` read once per process cannot be varied per test. What is
+    /// checked here is what stays true at any setting: soil is a nutrient
+    /// source, free water is not, and the price of building is exactly 1.0
+    /// while the switch is off.
+    #[test]
+    fn soil_carries_nutrient_and_free_water_does_not() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        w.set(60, 61, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        w.set(80, 61, Cell::new(material::WATER, 0));
+
+        // The control: both are faces a root can drink from -- #256's fix --
+        // so any difference below is about nutrient and not about reach.
+        assert!(drinkable_face(&w, w.get(60, 61)), "test setup: soil must be drinkable");
+        assert!(drinkable_face(&w, w.get(80, 61)), "test setup: free water must be drinkable");
+
+        let soil_bears = cell_carries_nutrient(&w, w.get(60, 61));
+        let water_bears = cell_carries_nutrient(&w, w.get(80, 61));
+        println!("carries nutrient?  soil {soil_bears}  |  free water {water_bears}");
+        assert!(soil_bears, "soil must carry nutrient, or roots in ground buy nothing water does not");
+        assert!(
+            !water_bears,
+            "free water carries nutrient -- then a drip-fed plant has both axes, soil supplies nothing water does \
+not, and the plant reported from the lab still cannot die"
+        );
+
+        // Enforced by `World`, not by each caller remembering: a draw aimed
+        // at a puddle must come back empty whatever the switch says.
+        assert_eq!(w.draw_soil_nutrient(80, 61, 50), 0, "a draw from free water must take nothing");
+        assert_eq!(w.soil_nutrient_fraction(80, 61), 0.0, "free water must read as carrying no nutrient at all");
+
+        // Inert until switched on, which is the shipping state.
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        for status in [1.0f32, 0.5, 0.0] {
+            w.organism_mut(id).expect("alive").nutrient_status = status;
+            let mult = nutrient_construction_multiplier(&w, id);
+            assert_eq!(
+                mult, 1.0,
+                "the mechanism must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} the build \
+cost is x{mult}"
+            );
+        }
+        assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
+    }
+
+    /// **A plant is held up from below, or by its roots — not by whatever it
+    /// happens to lean on.** The lab's floating plant, reduced to two cells.
+    ///
+    /// Reported from play: a plant sprawling across the evolution lab with
+    /// water dripping on it, reading ROOT IN SOIL 0% and refusing to fall.
+    /// The lab box is `material::STONE` on all six sides and
+    /// `is_structural_anchor` used to anchor an organism on **any** of its
+    /// cells touching anchoring ground in **any** direction — so a single
+    /// branch against a side wall braced the whole plant for ever.
+    ///
+    /// Four arms, because the rule turns on the *direction* and both halves
+    /// have to hold. Banning non-root anchoring outright was tried first and
+    /// took 19 lib tests and `acceptance.sh` with it: nearly every
+    /// structural scene in this file is a `wood` beam lying on a stone floor
+    /// with no root cell, and such a beam genuinely is held up.
+    #[test]
+    fn a_shoot_is_anchored_from_below_but_not_by_a_wall_beside_it() {
+        /// -> is the lone plant cell an anchor?  `side` puts the ground
+        /// beside it rather than beneath it.
+        fn anchored(tissue: &str, ground: material::MaterialId, side: bool) -> bool {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let (mat, ty) = match tissue {
+                "root" => (w.materials.id_of("rootwood").expect("rootwood is compiled in"), CellType::RootTip),
+                _ => (w.materials.id_of("wood").expect("wood is compiled in"), CellType::GrowingTip),
+            };
+            place(&mut w, (60, 60), mat, id, ty, (0.0, 0.0));
+            let cell = if w.materials.get(ground).kind == MaterialKind::Powder {
+                Cell::new(ground, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(ground, 0)
+            };
+            let (gx, gy) = if side { (61, 60) } else { (60, 61) };
+            w.set(gx, gy, cell);
+            is_structural_anchor(&w, 60, 60, id)
+        }
+
+        let soil = {
+            let w = test_world();
+            w.materials.id_of("soil").expect("soil is compiled in")
+        };
+        let shoot_on_wall = anchored("shoot", material::STONE, true);
+        let shoot_on_floor = anchored("shoot", material::STONE, false);
+        let root_beside_soil = anchored("root", soil, true);
+        let root_on_stone = anchored("root", material::STONE, false);
+        println!(
+            "anchored?  shoot against a wall {shoot_on_wall}  |  shoot on a floor {shoot_on_floor}  |  \
+root beside soil {root_beside_soil}  |  root on stone {root_on_stone}"
+        );
+
+        assert!(
+            !shoot_on_wall,
+            "a shoot touching stone BESIDE it still anchors the plant, so anything that reaches a wall of the lab \
+box is braced there for ever -- which is the floating plant this rule was tightened for"
+        );
+        assert!(
+            shoot_on_floor,
+            "a stem resting ON the floor must still anchor: it genuinely is held up, and nearly every structural \
+scene in this file is a rootless wood beam lying on stone"
+        );
+        assert!(
+            root_beside_soil,
+            "a root must anchor on ground in any direction, sideways included -- gripping is what a root does, and \
+this is the half of the rule the lab plant never had"
+        );
+        assert!(
+            root_on_stone,
+            "a root gripping stone must still anchor: that is a tree in a rock crevice, and every bare-rock scene \
+in this file stands on it"
+        );
+    }
+
+    #[test]
+    fn a_full_water_cell_is_fully_available_and_the_soil_reading_says_the_opposite() {
+        let w = test_world();
+        let full = Cell::new(material::WATER, 0);
+        let drunk = Cell::new(material::WATER, 0).with_aux(material::LIQUID_FULL / 2);
+
+        // What the soil reading makes of them -- kept as the record of why
+        // this helper exists, not as an endorsement.
+        let (soil_full, soil_drunk) =
+            (update::plant_available_fraction(full), update::plant_available_fraction(drunk));
+        let (face_full, face_drunk) = (face_available(&w, full), face_available(&w, drunk));
+        println!(
+            "water cell     | soil reading | face reading\n  full  (aux 0) | {soil_full:>12.3} | {face_full:>12.3}\n  half  (aux {:>3}) | {soil_drunk:>12.3} | {face_drunk:>12.3}",
+            material::LIQUID_FULL / 2
+        );
+
+        assert!(
+            soil_full == 0.0 && soil_drunk > soil_full,
+            "the soil reading no longer inverts liquids ({soil_full} full, {soil_drunk} half) -- if that is a \
+deliberate fix to `plant_available_fraction`, `face_available` may no longer be needed; check before deleting it"
+        );
+        assert!((face_full - 1.0).abs() < 1e-6, "a brim-full water cell must read fully available, got {face_full}");
+        assert!(
+            (face_drunk - 0.5).abs() < 1e-6,
+            "a half-drained water cell must read half available, got {face_drunk}"
+        );
+        assert!(face_full > face_drunk, "the face reading is still inverted: full {face_full}, half {face_drunk}");
+    }
+
+    /// One root cell, one wet neighbour, and the two questions the engine
+    /// asks about that neighbour -- **"can I drink from it" and "does it
+    /// count" -- answered by different tests.**
+    ///
+    /// `absorb_water` discriminates on `MaterialKind::Liquid` (plus the
+    /// `Powder` arm for soil). `organism_upkeep`'s contact walk
+    /// discriminates on `water_capacity > 0`, under a comment claiming it is
+    /// *"the same four-neighbour look `absorb_water` ... already make"*.
+    /// It is not the same look: **`assets/materials/water.ron` never sets
+    /// `water_capacity`**, so it defaults to 0 and free water fails the
+    /// counter's test while passing the drinker's.
+    ///
+    /// Reported from play: a lab plant sprawling in mid-air with water
+    /// dripping on it, reading **ROOT IN SOIL 0%** and not dying. Everything
+    /// in that sentence follows from `contact_root_cells == 0`: the readout
+    /// is that counter, `water_capacity_of(0)` clamps the tank to one cell's
+    /// worth, and `root_zone_faces == 0` sends `root_zone_water` to its
+    /// **1.0 "nothing to report" default** -- which
+    /// `break_root_tips` reads as *demand met* and refuses every root
+    /// initiation on. A plant with no soil contact at all is told it is
+    /// perfectly watered, so it never grows a root toward any.
+    ///
+    /// Paired on the neighbour material and nothing else, so the geometry,
+    /// the organism and the drink are constant across the two arms.
+    #[test]
+    fn a_root_drinking_from_free_water_counts_as_contact() {
+        /// -> (contact_root_cells, root_zone_water, water credited by one drink)
+        fn root_beside(neighbour: material::MaterialId) -> (u32, f32, f32) {
+            const RATE: f32 = 1.5;
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::MatureBody, (0.0, 0.0));
+            // **Each material painted by its own aux convention**, which is
+            // the one gotcha this whole area turns on: on a `Powder`,
+            // `aux == 0` is dry and `SOIL_FIELD_CAPACITY` is a full soil
+            // cell; on a `Liquid`, `aux == 0` is **full**. Painting both the
+            // same way is how the first version of this test got two
+            // identical 0.864 readings and nearly banked them.
+            let wet = if w.materials.kind(neighbour) == MaterialKind::Liquid {
+                Cell::new(neighbour, 0)
+            } else {
+                Cell::new(neighbour, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            };
+            w.set(61, 60, wet);
+
+            let before = w.organism(id).expect("alive").water;
+            absorb_water(&mut w, 60, 60, RATE);
+            let credited = w.organism(id).expect("alive").water - before;
+
+            organism_upkeep(&mut w, id);
+            let st = w.organism(id).expect("alive");
+            (st.contact_root_cells, st.root_zone_water, credited)
+        }
+
+        let soil = {
+            let w = test_world();
+            w.materials.id_of("soil").expect("soil is compiled in")
+        };
+        let (soil_contact, soil_zone, soil_drink) = root_beside(soil);
+        let (water_contact, water_zone, water_drink) = root_beside(material::WATER);
+        println!(
+            "one root, one wet neighbour:\n  soil  contact {soil_contact}  root_zone {soil_zone:.3}  drank {soil_drink:.3}\n  water contact {water_contact}  root_zone {water_zone:.3}  drank {water_drink:.3}"
+        );
+
+        // The control: both arms must actually feed the plant, or this
+        // proves nothing about the counter.
+        assert!(soil_drink > 0.0, "test setup: the soil arm did not drink -- the scene cannot answer the question");
+        assert!(
+            water_drink > 0.0,
+            "test setup: the free-water arm did not drink, so there is no mismatch to find. \
+`a_root_leaves_the_water_it_did_not_drink` says this arm does drink; if it no longer does, fix that first."
+        );
+
+        assert!(
+            water_contact > 0,
+            "a root that just drank {water_drink:.3} from free water counts {water_contact} contact cells against the \
+soil arm's {soil_contact}. The drinker tests `MaterialKind::Liquid`; the counter tests `water_capacity > 0`, and \
+water.ron never sets it. Everything downstream reads zero: ROOT IN SOIL, the water tank's size, and root_zone_water."
+        );
+        assert!(
+            water_zone < 1.0,
+            "root_zone_water is {water_zone:.3} for a root standing in free water -- the 'nothing to report, defer' \
+default. `break_root_tips` gates on >= {ROOT_REINITIATION_STATUS}, so a plant with no countable contact is told its \
+demand is met and never initiates a root."
+        );
+    }
+
     #[test]
     fn a_root_leaves_the_water_it_did_not_drink() {
         const RATE: f32 = 1.5;

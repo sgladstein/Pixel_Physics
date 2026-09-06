@@ -1717,6 +1717,33 @@ pub struct World {
     /// and `rotted_to_solid + rotted_to_nothing == 0` means the decay channel
     /// never fired at all, which reads identically to a working channel with
     /// a low yield if you only census soil.
+    /// **Bed cells currently held by growing tissue** — the ledger that makes
+    /// "a root gives back the ground it displaced" a conservation law rather
+    /// than a claim.
+    ///
+    /// A root reaches its cell by displacing one: `plant::growable` lets a
+    /// `RootTip` enter a penetrable `Powder` and the growth write then
+    /// overwrites it, which is what `plant::displace_soil_water` runs ahead of
+    /// to save the water. That is a **loan** — the plant did not make the
+    /// mineral cell — and `plant::shed_to_litter` repays it by leaving `soil`
+    /// where a buried cell rots instead of litter at a 5% humification yield.
+    ///
+    /// **Without the ledger the repayment is not bounded by the loan, and the
+    /// difference is measurable rather than theoretical.** A root may grow
+    /// into any penetrable powder, `litter` included, and a grass bank recycles
+    /// its own litter through its root zone constantly — so an unbounded rule
+    /// runs litter -> root -> soil at full yield and mints exactly the soil
+    /// `litter.ron`'s 0.05 exists to stop, underground where nobody is
+    /// counting. Measured on `a_rooted_bank_sheds_less_soil_than_a_bare_one`:
+    /// the sod arm shed **130 cells with the rule ablated and 418 with it
+    /// unbounded**, against a bare bank's 327.
+    ///
+    /// Incremented only where a cell with `water_capacity > 0` is taken, so it
+    /// counts bed soil and never litter, sand or snow. Decremented only by a
+    /// repayment. It can only ever over-count what is *outstanding* — a root
+    /// burned or blasted out never repays — which errs toward the bed being
+    /// owed, never toward the bed being paid twice.
+    pub bed_cells_on_loan: u64,
     pub rotted_to_solid: u32,
     /// Counterpart to `rotted_to_solid`; see it.
     pub rotted_to_nothing: u32,
@@ -2843,6 +2870,7 @@ impl World {
             germinations_in_place: 0,
             decayed_damp: 0,
             decayed_dry: 0,
+            bed_cells_on_loan: 0,
             rotted_to_solid: 0,
             rotted_to_nothing: 0,
             rotted_onward: 0,
@@ -3465,6 +3493,8 @@ impl World {
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.
             root_zone_water: 1.0,
+            // Same 1.0 'nothing to say yet' default as the line above.
+            nutrient_status: 1.0,
             shoot_cells: 0,
             organ_cells: 0,
             anchor_cells: 0,
@@ -5633,6 +5663,37 @@ impl World {
     /// narrow it. What both drivers actually sweep.
     pub fn sweep_plan(&self, coord: ChunkCoord) -> Option<crate::sim::chunk::SweepPlan> {
         self.chunks.get(&coord).and_then(|c| c.sweep_plan())
+    }
+
+    /// The fraction of full nutrient left in the soil at `(x, y)`,
+    /// `0.0..=1.0` — the plant-facing read.
+    ///
+    /// Zero outside a loaded chunk and **one** wherever nothing has ever
+    /// drawn, which is the whole world at rest: a chunk with no deficit
+    /// buffer answers without touching memory.
+    pub fn soil_nutrient_fraction(&self, x: i32, y: i32) -> f32 {
+        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+            return 0.0; // free water and everything else carry none
+        }
+        let Some(chunk) = self.chunks.get(&ChunkCoord::containing(x, y)) else { return 0.0 };
+        let initial = super::plant::nutrient_initial();
+        if initial == 0 {
+            return 1.0;
+        }
+        let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_per_frame());
+        f32::from(initial.saturating_sub(deficit)) / f32::from(initial)
+    }
+
+    /// Take nutrient from the soil at `(x, y)`; returns what was there to
+    /// take, in the same `u8` units as `plant::nutrient_initial`.
+    pub fn draw_soil_nutrient(&mut self, x: i32, y: i32, amount: u8) -> u8 {
+        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+            return 0; // a root drinking from a puddle gets water and nothing else
+        }
+        let frame = self.frame;
+        let (recovery, initial) = (super::plant::nutrient_recovery_per_frame(), super::plant::nutrient_initial());
+        let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) else { return 0 };
+        chunk.draw_nutrient(x, y, frame, recovery, initial, amount)
     }
 
     pub fn chunk(&self, coord: ChunkCoord) -> Option<&Chunk> {

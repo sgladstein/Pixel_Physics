@@ -7248,6 +7248,16 @@ mod tests {
             for y in 30..40 {
                 w.set(10, y, Cell::new(material::STONE, 0));
             }
+            // **A footing under the beam's root, not decoration.** Since
+            // 2026-09-06 `plant::is_structural_anchor` anchors non-root
+            // plant tissue only on ground *directly beneath* it, so a beam
+            // merely socketed into the side of this column is no longer
+            // held by it -- the same rule that stops a lab plant bracing
+            // itself against a wall. Without this cell both arms lose the
+            // whole beam and the comparison below reads 0 < 0. The
+            // cantilever it measures now runs from x=12, one cell shorter,
+            // which both arms pay equally.
+            w.set(11, 31, Cell::new(material::STONE, 0));
             // Nine cells, so the tip sits exactly `wood`'s span (8) from
             // the anchor. That length is the whole point: a bare branch
             // survives at 8 and a loaded one, whose effective span is 7,
@@ -8578,6 +8588,16 @@ mod tests {
             for y in 30..40 {
                 w.set(10, y, Cell::new(material::STONE, 0));
             }
+            // **A footing under the beam's root, not decoration.** Since
+            // 2026-09-06 `plant::is_structural_anchor` anchors non-root
+            // plant tissue only on ground *directly beneath* it, so a beam
+            // merely socketed into the side of this column is no longer
+            // held by it -- the same rule that stops a lab plant bracing
+            // itself against a wall. Without this cell both arms lose the
+            // whole beam and the comparison below reads 0 < 0. The
+            // cantilever it measures now runs from x=12, one cell shorter,
+            // which both arms pay equally.
+            w.set(11, 31, Cell::new(material::STONE, 0));
             for x in 11..=19 {
                 w.set(x, 30, Cell::new(wood, 0).with_organism_id(organism).with_aux(organism::pack_cell_type(organism::CellType::MatureBody)));
             }

@@ -147,6 +147,10 @@ GAME = {
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
     "tuning and saving the box's own numbers": "lab",
+    # The ninth lab row: a bed the player cannot save at all until this
+    # landed, because what a player paints in by hand -- a food heap on a
+    # schedule, a raised bank -- could not be expressed as a bare `LabBox`.
+    "a saved starting box, and replicating it in a rack": "lab",
 }
 
 TOPICS = {
@@ -176,6 +180,9 @@ TOPICS = {
         "Plain-speech status — the genome read back as sentences",
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
         "Life record status — what an individual has done, and what killed it",
+        # Why a dug gallery now stays dug, and why a corpse no longer plugs
+        # the passage its owner died in.
+        "Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -203,6 +210,9 @@ TOPICS = {
     "powders and granular flow": [
         "Materials",
         "Architecture",
+        # The un-pack line: what moisture takes a worked wall back to loose
+        # soil, and the census the new threshold is sited from.
+        "Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out",
     ],
     "the coarse field grid — pressure, heat, light": [
         "The coarse field grid",
@@ -250,6 +260,9 @@ TOPICS = {
     # on the GAME map above pointed at nothing.
     "the evolution lab — the box and its lights": [
         "Lab lighting status — the fixtures are what light the crop",
+        # The bed itself, as distinct from what is grown in it: why a dug
+        # gallery stays open and why the box stops running out of earth.
+        "Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out",
     ],
     # The lab's readouts, as distinct from its physics: what the interface
     # tells you about one individual, and how it fits that on a 512x320
@@ -316,6 +329,12 @@ TOPICS = {
     # rather than the numbers a player tunes once it exists.
     "tuning and saving the box's own numbers": [
         "Lab parameters status — a save that reaches the founders, not just the file",
+    ],
+    # The ninth lab row: a saved bed plus what got placed in it and a
+    # running schedule, which is what the other eight rows above assume
+    # already exists but nothing before this built.
+    "a saved starting box, and replicating it in a rack": [
+        "Lab scenarios status — a saved starting box with a question written on it",
     ],
 }
 

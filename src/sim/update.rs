@@ -633,6 +633,60 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     false
 }
 
+/// **Does wet ground take a worked wall apart at all?** `None` by default,
+/// and the default is an owner decision rather than a tuning choice.
+///
+/// `Reports/evolution-lab-design-guide-2026-08-30.md` §2b, owner, 2026-08-30:
+/// *"We can remove collapsing tunnels."* Its closing line is the one that
+/// binds here — **"A dug wall that slumps a little is available and free; a
+/// roof that falls in is what was declined."** Restated 2026-09-06 in the
+/// lab's own terms: *the entire ground in the evolution lab should be able to
+/// dig tunnels and chambers.*
+///
+/// The rule shipped anyway, at `SOIL_FIELD_CAPACITY` and then at
+/// `SOIL_WATERLOGGED`, and the second reading is what showed it is not a
+/// hazard but a growing dead zone. `examples/labnest`, 12,000 frames, the
+/// bed profiled by depth: the waterlogged cells are not scattered beside
+/// roots, they are a **water table standing on the stone floor** — the
+/// bottom twelve rows go **94 waterlogged cells at frame 1,333 to 1,559 at
+/// 12,000**, mean moisture 620 -> 719, monotone with no plateau, while
+/// every band between the surface and the floor holds at ~0 and 623.
+/// Drainage moves water down, the floor has no `water_capacity`, and a
+/// sealed box has no drain. So this rule was quietly making the deepest part
+/// of the bed permanently untunnellable, and the line was rising.
+///
+/// **What replaces it is §2b's own answer**: *"A tunnel dug below the water
+/// table filling up is a hazard with no structural simulation in it at
+/// all."* Filling, not caving. The liquid rules already do that, and
+/// `burrow_probe`'s `caved` column exists precisely to tell a drowned
+/// tunnel from a collapsed one.
+///
+/// **Kept as a switch rather than deleted**, so the behaviour can still be
+/// measured and so the two thresholds it was argued over stay reachable:
+/// `=waterlogged` restores `material::SOIL_WATERLOGGED` (the 2026-09-06
+/// line), `=fieldcapacity` restores `SOIL_FIELD_CAPACITY` (what shipped
+/// before that, and what dissolved every nest in a planted bed). Both change
+/// **nothing else** — ants dig at the same rate, the lining is written by
+/// the same rule, the water model is untouched — which is the shape
+/// `lining_enabled` and `spoil_kept` beside it already use.
+///
+/// The **crumb rule** above is untouched and is a different claim: a worked
+/// cell with nothing under it and almost nothing beside it is not a wall, and
+/// it still reverts. That is what stops a colony's spoil hanging in the air,
+/// and no roof reaches it — every cell of a roof sits at five contacts or
+/// more.
+///
+/// Read once per process through a `OnceLock`, matching the two switches
+/// above it. Only a `self_supporting` cell ever reaches this call.
+fn wet_collapse_line() -> Option<u16> {
+    static LINE: std::sync::OnceLock<Option<u16>> = std::sync::OnceLock::new();
+    *LINE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_WET_COLLAPSE").as_deref() {
+        Ok("fieldcapacity") => Some(material::SOIL_FIELD_CAPACITY),
+        Ok("waterlogged") => Some(material::SOIL_WATERLOGGED),
+        _ => None,
+    })
+}
+
 /// **The ablation switch for soil moisture transport** — `PIXEL_PHYSICS_
 /// SOIL_WATER=off` stops infiltration, capillary exchange and drainage dead.
 ///
@@ -781,12 +835,27 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // it, and reading the stale copy would answer with last frame's
         // water. Only a `self_supporting` cell pays this second `get`.
         //
-        // `SOIL_FIELD_CAPACITY` rather than an authored per-material
-        // threshold: it is already the engine-wide line between water the
-        // pore space holds and water that drains through
-        // (`update_soil_water`'s drainage rule uses the same one), so a
-        // resting column sits at or below it by construction and this
-        // branch only fires where water is arriving faster than it leaves.
+        // `material::SOIL_WATERLOGGED` rather than an authored per-material
+        // threshold: the line between damp ground and waterlogged ground is
+        // a property of soil physics, not of one material's packing.
+        //
+        // **It read `SOIL_FIELD_CAPACITY` until 2026-09-06, and that was the
+        // constant contradicting its own justification.** The sentence above
+        // -- a packing has nothing to grip once the pore space is full -- is
+        // right, and field capacity is by definition the point at which the
+        // *drainable* pore space has already emptied. So the rule fired in
+        // ordinary damp ground. The paragraph this replaces argued that "a
+        // resting column sits at or below it by construction"; it does, and
+        // that is exactly the problem, because the lab's bed is built *on*
+        // the line and any redistribution at all puts a cell over it.
+        //
+        // Measured, `examples/labnest`, 12,000 frames of the shipped bed
+        // with eight founders: root water displacement lifts the bed's mean
+        // moisture 620 -> 638, **34,779 of 48,000 cells cross the old line**,
+        // and the gallery lining falls **234 cells -> 40** while the colony
+        // digs on. The same bed with no plants in it never crosses the line
+        // at all and holds 416 cells of lining indefinitely, which is what
+        // says this is the threshold and not the digging.
         //
         // **Chosen here rather than in `decay.rs`**, which was the other
         // candidate: that channel is scheduled on a chunk's awake ->
@@ -855,7 +924,12 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                 return true;
             }
         }
-        if here.aux() > material::SOIL_FIELD_CAPACITY {
+        // **A waterlogged wall stays a wall, and this branch is off by
+        // default.** See `wet_collapse_line`: the owner declined a roof that
+        // falls in, and §2b's replacement hazard is a burrow *filling with
+        // water*, which the liquid rules already deliver without any of this.
+        if let Some(line) = wet_collapse_line() {
+            if here.aux() > line {
             // Copied out before the write: `slumps_into` is `Copy`, and
             // holding the `&Material` across `surface.set` would borrow
             // `surface` immutably and mutably at once.
@@ -874,6 +948,7 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                 // falls on its next visit rather than this one, which
                 // avoids acting on the stale `cell` bound above.
                 return true;
+            }
             }
         }
         return wet_changed;
@@ -2604,9 +2679,25 @@ mod tests {
         );
     }
 
-    /// this passes just as well for a rule that un-packs everything.
+    /// **A worked wall holds however wet it gets, and a crumb still does
+    /// not** — the pair, because either half alone passes for a rule that is
+    /// stuck on or stuck off.
+    ///
+    /// This asserted the opposite until 2026-09-06, and the reversal is an
+    /// owner decision rather than a tuning change:
+    /// `evolution-lab-design-guide-2026-08-30.md` §2b, *"A dug wall that
+    /// slumps a little is available and free; a roof that falls in is what
+    /// was declined."* See `wet_collapse_line` for the measurement that
+    /// showed the rule was not a hazard but a water table standing on the
+    /// lab's stone floor, growing monotonically.
+    ///
+    /// **The saturated arm is the one that would go red if the rule came
+    /// back on**, at either of the two thresholds it has ever had, so this
+    /// test still pins the behaviour rather than merely describing it. The
+    /// dry arm and the damp arm are kept because a rule that reverted
+    /// *everything* would also pass a saturated-only assertion.
     #[test]
-    fn a_lining_above_field_capacity_slumps_back_to_soil() {
+    fn a_worked_wall_holds_however_wet_it_gets() {
         use super::super::chunk::Rect;
         use super::super::world::World;
 
@@ -2621,22 +2712,53 @@ mod tests {
         // dry, with nowhere to fall so the material read is unambiguous.
         w.set(10, 29, Cell::new(packed, 0).with_aux(material::SOIL_SATURATED));
         w.set(20, 29, Cell::new(packed, 0));
+        // ...and a third, one unit over field capacity: damp working ground,
+        // which is what a bed at rest *is*.
+        w.set(30, 29, Cell::new(packed, 0).with_aux(material::SOIL_FIELD_CAPACITY + 1));
 
         step(&mut w);
 
         assert_eq!(
             w.get(10, 29).material,
-            soil,
-            "a lining above SOIL_FIELD_CAPACITY should have slumped back to loose soil"
+            packed,
+            "a saturated lining must stay packed -- a roof that falls in is what §2b declined, \
+             and the hazard water is supposed to be is a tunnel that fills, not one that caves"
+        );
+        // **Still over the line that used to take it apart**, which is the
+        // claim -- not still at exactly `SOIL_SATURATED`. Drainage moves some
+        // of it into the dry cell below on the same step (measured 1000 ->
+        // 860), so an equality here would be asserting that the water model
+        // did nothing. A wall that survived by drying out would be the old
+        // rule wearing a different coat, and this is what rules that out.
+        assert!(
+            w.get(10, 29).aux() > material::SOIL_WATERLOGGED,
+            "the surviving wall must still be over the waterlogging line, reads {}",
+            w.get(10, 29).aux()
         );
         assert_eq!(
             w.get(20, 29).material,
             packed,
             "a dry lining must stay packed -- otherwise the rule is 'un-pack everything'"
         );
-        assert!(
-            w.get(10, 29).aux() > material::SOIL_FIELD_CAPACITY,
-            "the slumped cell must carry its water across; rebuilding it would read as dry ground"
+        assert_eq!(
+            w.get(30, 29).material,
+            packed,
+            "a lining in ordinary damp ground -- one unit over field capacity, where a \
+             drained bed rests -- must stay packed; failing here is the whole nest, \
+             because every bed in the lab sits on that line"
+        );
+        // **The crumb rule is untouched and is a different claim**, and it is
+        // here so this test cannot pass for a build where `slumps_into` has
+        // simply been deleted: a worked cell with nothing under it and almost
+        // nothing beside it is not a wall, and it still reverts.
+        let mut w2 = World::new(Rect::new(0, 0, 31, 31));
+        w2.set(15, 20, Cell::new(packed, 0));
+        step(&mut w2);
+        assert_ne!(
+            w2.get(15, 20).material,
+            packed,
+            "a worked cell alone in the air is a crumb, not a wall, and must still revert -- \
+             without this arm the test above passes for a build with slumps_into deleted"
         );
     }
 

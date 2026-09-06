@@ -219,6 +219,34 @@ pub struct Chunk {
     /// bought. `World` keeps its own separate `Rng` for everything outside
     /// the sweep — painting, explosions, particle bursts.
     rng: Rng,
+    /// **Per-cell soil nutrient DEFICIT, lazily allocated.** `None` means
+    /// every cell in this chunk is at full nutrient -- which is the state
+    /// almost every chunk in the world is in, so the allocation is worth
+    /// deferring: 4,096 x 1 B is 4 KB, and only chunks a root has actually
+    /// drawn from ever pay it.
+    ///
+    /// **Deficit rather than remaining, and that is not arbitrary.** `None`
+    /// and `0` then mean the same thing, so a freshly allocated buffer is
+    /// already correct and a chunk that recovers fully can drop back to
+    /// `None`. Availability is `initial - deficit`.
+    ///
+    /// Storage shape is `Reports/plant-soil-nutrient-plan-2026-09-05.md`
+    /// §3a's option D. A sparse `HashMap<(i32,i32), _>` sidecar was the
+    /// first draft's preference and is a documented dead end
+    /// (`dead-ends.md:685`): a hash lookup on the diffusion path, positions
+    /// unstable under a world that streams chunks, and an overwritten cell
+    /// leaving an entry nobody owns. Living in the chunk answers all three
+    /// -- it is allocated with the chunk and dropped with it.
+    nutrient_deficit: Option<Box<[u8]>>,
+    /// The frame `nutrient_deficit` was last brought up to date.
+    ///
+    /// Recovery is **closed-form on read** rather than a per-cell tick:
+    /// `deficit - rate x (frame - stamp)`. One stamp for the whole chunk is
+    /// what makes that possible, and it is also the catch-up primitive M10
+    /// streaming needs -- a chunk asleep for a million frames recovers
+    /// correctly the first time anyone looks at it, at no cost while it
+    /// slept.
+    nutrient_recovered_at: u64,
     /// How far sideways `sweep_region` widens a dirty rectangle by (issue
     /// #3) — the furthest any material currently resident in this chunk can
     /// reach, per `Material::sweep_reach`. Grows
@@ -456,9 +484,71 @@ impl Chunk {
             // it and needs one pass to find its own equilibrium.
             pending_moist_rows: full_rows(coord),
             rng: Rng::new(seed_from_coord(coord)),
+            nutrient_deficit: None,
+            nutrient_recovered_at: 0,
             reach: 1,
             has_liquid: false,
         }
+    }
+
+    /// How much nutrient this cell is **short of** full, after the recovery
+    /// owed since the chunk's stamp — the read half of §3a's closed form.
+    ///
+    /// `&self`, and deliberately: the settle is arithmetic on the way out
+    /// rather than a write, so any number of readers can ask without
+    /// dirtying anything. `settle_nutrient` is what folds the same
+    /// arithmetic back into storage, and it runs only where a draw lands.
+    #[inline]
+    pub fn nutrient_deficit(&self, x: i32, y: i32, frame: u64, recovery_per_frame: u16) -> u8 {
+        let Some(buf) = self.nutrient_deficit.as_ref() else { return 0 };
+        let stored = buf[local_index(x, y)];
+        let owed = frame.saturating_sub(self.nutrient_recovered_at).saturating_mul(recovery_per_frame as u64);
+        stored.saturating_sub(owed.min(u8::MAX as u64) as u8)
+    }
+
+    /// Fold the recovery owed since the stamp back into storage, so a write
+    /// lands on an up-to-date deficit.
+    ///
+    /// **One pass over 4 KB, and only in a chunk something is drawing
+    /// from.** The alternative — settling a single cell — cannot work with
+    /// one stamp per chunk, because advancing the stamp would forgive every
+    /// other cell its recovery for free. Chunks nothing draws from never
+    /// run this at all; they stay `None` and read as full.
+    ///
+    /// Drops back to `None` when the whole chunk has recovered, so the
+    /// memory is returned and the fast path comes back.
+    fn settle_nutrient(&mut self, frame: u64, recovery_per_frame: u16) {
+        let owed = frame.saturating_sub(self.nutrient_recovered_at).saturating_mul(recovery_per_frame as u64);
+        self.nutrient_recovered_at = frame;
+        if owed == 0 {
+            return;
+        }
+        let owed = owed.min(u8::MAX as u64) as u8;
+        let Some(buf) = self.nutrient_deficit.as_mut() else { return };
+        let mut any = false;
+        for slot in buf.iter_mut() {
+            *slot = slot.saturating_sub(owed);
+            any |= *slot != 0;
+        }
+        if !any {
+            self.nutrient_deficit = None;
+        }
+    }
+
+    /// Take `amount` of nutrient from one cell, returning what was actually
+    /// available to take.
+    ///
+    /// `initial` is the cell's full stock; the caller owns that curve, so
+    /// this stays a pure store. Allocates the 4 KB buffer on the first draw
+    /// into this chunk and never before.
+    pub fn draw_nutrient(&mut self, x: i32, y: i32, frame: u64, recovery_per_frame: u16, initial: u8, amount: u8) -> u8 {
+        self.settle_nutrient(frame, recovery_per_frame);
+        let idx = local_index(x, y);
+        let buf = self.nutrient_deficit.get_or_insert_with(|| vec![0u8; CHUNK_AREA].into_boxed_slice());
+        let available = initial.saturating_sub(buf[idx]);
+        let taken = amount.min(available);
+        buf[idx] = buf[idx].saturating_add(taken);
+        taken
     }
 
     #[inline]
@@ -804,6 +894,45 @@ mod tests {
         assert_eq!(ChunkCoord::containing(-1, -1), ChunkCoord::new(-1, -1));
         assert_eq!(ChunkCoord::containing(-64, -64), ChunkCoord::new(-1, -1));
         assert_eq!(ChunkCoord::containing(-65, -65), ChunkCoord::new(-2, -2));
+    }
+
+    /// **The nutrient store: a draw is remembered, recovery is closed-form,
+    /// and a chunk nobody drew from allocates nothing.**
+    ///
+    /// Three claims in one scene because they are the three things
+    /// `plant-soil-nutrient-plan-2026-09-05.md` §3a picked this shape for
+    /// over a sparse map, and each fails differently.
+    #[test]
+    fn a_nutrient_draw_is_remembered_and_recovers_on_the_clock() {
+        const INITIAL: u8 = 200;
+        const RECOVERY: u16 = 1;
+        let mut c = Chunk::new(ChunkCoord::new(0, 0));
+        let (x, y) = (5, 7);
+
+        // Nothing drawn: full, and no buffer exists to be full *of*.
+        assert_eq!(c.nutrient_deficit(x, y, 0, RECOVERY), 0, "an untouched cell owes nothing");
+        assert!(c.nutrient_deficit.is_none(), "an untouched chunk must not allocate its 4 KB buffer");
+
+        // A draw takes what is there and is remembered.
+        let took = c.draw_nutrient(x, y, 0, RECOVERY, INITIAL, 50);
+        assert_eq!(took, 50, "the cell held {INITIAL}, so a 50 draw takes 50");
+        assert_eq!(c.nutrient_deficit(x, y, 0, RECOVERY), 50, "the draw must leave a deficit behind");
+        assert!(c.nutrient_deficit.is_some(), "a drawn-from chunk allocates");
+
+        // ...and only that cell.
+        assert_eq!(c.nutrient_deficit(x + 1, y, 0, RECOVERY), 0, "the draw must not spill onto the neighbour");
+
+        // A draw cannot take more than is left.
+        assert_eq!(c.draw_nutrient(x, y, 0, RECOVERY, INITIAL, 200), 150, "only {INITIAL} - 50 was left to take");
+        assert_eq!(c.nutrient_deficit(x, y, 0, RECOVERY), INITIAL, "the cell is now empty");
+
+        // Recovery is closed-form on READ: no tick ran between these.
+        assert_eq!(c.nutrient_deficit(x, y, 30, RECOVERY), INITIAL - 30, "30 frames must forgive 30 at rate 1");
+        assert_eq!(c.nutrient_deficit(x, y, 1_000_000, RECOVERY), 0, "a long sleep recovers fully, in no ticks at all");
+
+        // ...and folding it back in returns the memory.
+        c.settle_nutrient(1_000_000, RECOVERY);
+        assert!(c.nutrient_deficit.is_none(), "a fully recovered chunk must drop its buffer rather than keep 4 KB of zeroes");
     }
 
     #[test]
