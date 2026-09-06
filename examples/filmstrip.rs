@@ -5991,6 +5991,21 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **Digging, beside the moving.** A colony that ranges further also
+    // excavates more, and excavation undermines roots -- so a tree count
+    // that moves with a mobility change cannot be read as damage from the
+    // mobility mechanism until this is on the page next to it.
+    println!("  ...and dug: {} cells, packed {}, spoil dumped {}; ate {} mouthfuls", st.digs, st.packed, st.spoil_dumped, st.eats);
+    // **Begun, completed and abandoned.** A crossing that starts and never
+    // finishes is an animal that spent the time and got nowhere, and reads
+    // identically to one that worked in any picture and in a begun-count
+    // alone.
+    if st.crossings > 0 {
+        println!(
+            "  ...and went round {} trunk(s): {} came out the far side, {} gave up",
+            st.crossings, st.crossings_completed, st.crossings_abandoned
+        );
+    }
     // **What the blocking was made of.** `blocked` alone cannot separate a
     // colony wedged against rock from one wedged against a bush, and those
     // want opposite fixes. `tissue` is how many blocked ticks had living
