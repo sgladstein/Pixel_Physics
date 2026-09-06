@@ -340,10 +340,22 @@ row open — rather than a set of candidates.
    the second is easier to spot because "unpriced" has a name.
 
    **What it needs first is not a price but a payoff**: predation as a live
-   pressure in the default bed, so that a larger body is buying something. The
-   breeding beetle landed 2026-09-05 and the seed sweep asking whether it
-   changes the ecology is still unrun. That measurement is the prerequisite
-   for this row, not more pricing.
+   pressure, so that a larger body is buying something.
+
+   **That measurement has since been run, and the answer is conditional.**
+   `selective-environments-2026-09-05.md`, *a predator you can eat is not a
+   predator*: six **inedible** breeding beetles collapse the colony from 17-21
+   ants to **3-5 on 4 of 4 seeds**, while six **edible** ones barely dent it —
+   because the shipped beetle authors `penetration_resistance: 0.8` against
+   the ant's bite of 1.0, so adding a predator adds danger and food together
+   and roughly doubles the colony's corpse intake.
+
+   So predation is a real pressure **in the inedible configuration and only
+   there**. Body size is unblocked in a bed built that way and still unbacked
+   in the shipped one. Whether the beetle should be armoured is a decision
+   about the game rather than a fact to be measured, and it is the owner's —
+   the arm is one row on the ants page (`bite_force`) or one line in
+   `beetle.ron`.
 
    Recorded rather than half-built, because the failure mode here is visible
    and unpleasant: a colony of dots is a worse game than a colony of ants, and

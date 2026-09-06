@@ -157,6 +157,17 @@ fn main() {
         if let Some(v) = emit_cost {
             def.emit_cost_in_moves = v;
         }
+        // **The arm that separates a predator from a meal.** A beetle authors
+        // `penetration_resistance: 0.8` and an ant bites at `dig_force: 1.0`,
+        // so ants EAT beetles -- adding beetles to a bed adds danger and food
+        // in the same act, and no count of ants can tell the two apart.
+        // Dropping the ant's bite below 0.8 makes the beetle inedible while
+        // leaving it exactly as dangerous, which is the only arm in which
+        // "predation" means predation alone.
+        if let Some(v) = arg::<f32>("antbite") {
+            def.bite_force = Some(v);
+            println!("labstats: ant bite_force = {v} (beetle armour is 0.8; below that a beetle cannot be eaten)");
+        }
         if let Some(v) = spoil_weight {
             def.spoil_weight_cells = v;
         }
@@ -227,6 +238,20 @@ fn main() {
         // out and is printed against INTAKE rather than burn, because it is
         // food that never arrived rather than energy that was spent.
         let intake = l.harvested_plant + l.harvested_corpse;
+        // **Split, because the sum cannot answer the question a predator
+        // raises.** Adding beetles to a bed does two opposite things at once:
+        // it kills ants, and it leaves corpses that ants eat. Both raise ant
+        // births, and a combined intake figure reports them identically -- so
+        // "beetles changed the colony" would not say whether predation is a
+        // PRESSURE or a FOOD SUPPLY, which are opposite answers to whether
+        // anything should evolve to resist it.
+        println!(
+            "--- where the food came from --- plant {:.0} ({:.0}%) corpse {:.0} ({:.0}%)",
+            l.harvested_plant,
+            if intake > 0.0 { 100.0 * l.harvested_plant / intake } else { 0.0 },
+            l.harvested_corpse,
+            if intake > 0.0 { 100.0 * l.harvested_corpse / intake } else { 0.0 },
+        );
         println!(
             "--- the priced levers --- curvature {:.1} ({:.2}% of burn) force {:.1} ({:.2}%) exposure {:.1} ({:.2}%) \
              | digest overhead {:.1} of {:.1} intake ({:.2}%) | ground felt {} cells",
