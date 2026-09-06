@@ -310,6 +310,30 @@ struct Outcome {
     /// all**, from the species' own constants. Carried out of the run
     /// because it is the bar the horizon has to clear -- see `idle_life`.
     idle_life: u64,
+    /// **The run's final `world.creature_stats.threat_sightings`** -- sight
+    /// casts, world-wide, that found an animal whose gut could digest the
+    /// looker and whose bite could open the looker's armour
+    /// (`src/sim/world.rs`'s own doc on the field). This is the positive
+    /// control `Reports/creature-groups-and-combat-design-2026-09-06.md`
+    /// §4a's flight-vs-null race was run without: a race of a
+    /// threat-response arm against this sitting at zero never once had
+    /// anything in front of it to flee from, so the result is a finding
+    /// about the BED, not about the instinct being raced.
+    ///
+    /// **Whole-box, not per-arm.** Both arms are cut from the one
+    /// `CreatureDef` `sight=N` patches, so they share one eye -- a non-zero
+    /// total says the sense had *something* to report during the run, and
+    /// cannot say which arm did the seeing. Read beside `a.animals` /
+    /// `b.animals`: an arm sitting at zero could not have been the one
+    /// looking.
+    threat_sightings: u64,
+    /// **The denominator.** Total sight casts made, world-wide, this run.
+    /// `threat_sightings / sight_casts` is the duty cycle -- how often the
+    /// eye had a hunter to report, the quantity
+    /// `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the sight
+    /// radius from. A raw `threat_sightings` count with no denominator
+    /// cannot be told apart from an eye that was barely ever open.
+    sight_casts: u64,
 }
 
 /// **Frames a founder survives on its founding grant while doing nothing.**
@@ -354,6 +378,14 @@ fn quartiles(v: &mut [f64]) -> (f64, f64) {
         return (f64::NAN, f64::NAN);
     }
     (v[v.len() / 4], v[(3 * v.len() / 4).min(v.len() - 1)])
+}
+
+/// `hits / casts` as a percentage -- the duty cycle, "how often the eye had
+/// something to report". `"n/a"` rather than `0.0%` when `casts` is itself
+/// zero: that is an eye that was never opened, a different fact from an eye
+/// that opened and saw nothing, and the two must not print identically.
+fn duty_cycle(hits: u64, casts: u64) -> String {
+    if casts == 0 { "n/a".to_string() } else { format!("{:.1}%", 100.0 * hits as f64 / casts as f64) }
 }
 
 /// **How many seeds moved the same way**, which is the headline.
@@ -486,7 +518,18 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
         }
         last = (a, b);
     }
-    Outcome { a: last.0, b: last.1, ever: (ever_a.len(), ever_b.len()), idle_life: life }
+    Outcome {
+        a: last.0,
+        b: last.1,
+        ever: (ever_a.len(), ever_b.len()),
+        idle_life: life,
+        // Read after the frame loop above has run to completion, so this is
+        // the run's final total rather than a mid-run sample -- and it is a
+        // running total on `World` that nothing here resets, so "final" and
+        // "whole run" are the same read.
+        threat_sightings: w.creature_stats.threat_sightings,
+        sight_casts: w.creature_stats.sight_casts,
+    }
 }
 
 fn main() {
@@ -512,6 +555,11 @@ fn main() {
 
     let mut share_animals: Vec<f64> = Vec::new();
     let mut share_cells: Vec<f64> = Vec::new();
+    // **World-wide, not per-arm** -- summed over every seed and both mirror
+    // runs. See `Outcome::threat_sightings`'s doc for the limit this puts on
+    // what the total below can say.
+    let mut total_threat_sightings: u64 = 0;
+    let mut total_sight_casts: u64 = 0;
     println!("\n{:>5} {:>8} {:>8} {:>9} {:>8} {:>8} {:>9} {:>7} {:>7}", "seed", "A alive", "B alive", "B share", "A cells", "B cells", "B cells%", "A gen", "B gen");
     for seed in 1..=seeds {
         // **Predators, which this arena could not place** -- so the one
@@ -532,6 +580,7 @@ fn main() {
         let runs = if mirror { vec![false, true] } else { vec![false] };
         let (mut a, mut b) = (Tally::default(), Tally::default());
         let (mut ea, mut eb) = (0usize, 0usize);
+        let (mut seed_sightings, mut seed_casts) = (0u64, 0u64);
         for m in runs {
             let o = run_world(&spec, frames, &arm, m, seed);
             if seed == 1 && !m {
@@ -549,13 +598,23 @@ fn main() {
             b.deepest_gen = b.deepest_gen.max(o.b.deepest_gen);
             ea += o.ever.0;
             eb += o.ever.1;
+            seed_sightings += o.threat_sightings;
+            seed_casts += o.sight_casts;
         }
         let sa = 100.0 * b.animals as f64 / (a.animals + b.animals).max(1) as f64;
         let sc = 100.0 * b.cells as f64 / (a.cells + b.cells).max(1) as f64;
         share_animals.push(sa);
         share_cells.push(sc);
+        total_threat_sightings += seed_sightings;
+        total_sight_casts += seed_casts;
+        // `seed_sightings`/`seed_casts` sit beside `a.animals`/`b.animals` on
+        // this same line deliberately -- see `Outcome::threat_sightings`'s
+        // doc: the sighting count is whole-box, and the animal counts beside
+        // it are how a reader tells "one arm was extinct while the other did
+        // the seeing" from "both arms were live and it still can't say which".
+        let duty = duty_cycle(seed_sightings, seed_casts);
         println!(
-            "{seed:>5} {:>8} {:>8} {sa:>8.1}% {:>8} {:>8} {sc:>8.1}% {:>7} {:>7}   (lines surviving A {ea} B {eb})",
+            "{seed:>5} {:>8} {:>8} {sa:>8.1}% {:>8} {:>8} {sc:>8.1}% {:>7} {:>7}   (lines surviving A {ea} B {eb})  threat sightings {seed_sightings}/{seed_casts} ({duty})",
             a.animals, b.animals, a.cells, b.cells, a.deepest_gen, b.deepest_gen
         );
     }
@@ -570,6 +629,28 @@ fn main() {
         );
     }
     println!("\nRead the seed count, not the median. The lab census spans 2.42x-3.12x on the world seed alone with no true effect present.");
+
+    // **The positive control `Reports/creature-groups-and-combat-design-
+    // 2026-09-06.md` §4a's flight race was run without.** Printed
+    // unconditionally, for every `arm=`, because whether the sense saw
+    // anything is a property of the BED -- `sight=`, and whatever was
+    // placed in the box to see -- not of which arm this particular run
+    // happened to race.
+    println!(
+        "\nthreat sightings across all {seeds} seeds: {total_threat_sightings} of {total_sight_casts} sight casts saw a hunter -- duty cycle {} (\"how often the eye had a hunter to report\", the quantity `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the sight radius from).",
+        duty_cycle(total_threat_sightings, total_sight_casts)
+    );
+    println!(
+        "  WHOLE BOX, NOT ONE ARM: both arms share sight=N's one eye, so this total cannot say which arm did the seeing -- only whether the sense saw anything all run. Read it against the per-seed table above: an arm whose A alive/B alive sits at zero could not have been the one looking."
+    );
+    if total_threat_sightings == 0 {
+        println!(
+            "\n*** THREAT_SIGHTINGS IS ZERO ACROSS ALL {seeds} SEEDS ({total_sight_casts} sight casts made, not one of them found a hunter). ***"
+        );
+        println!(
+            "*** No animal, on arm A or arm B, ever once saw something that could eat it. A threat-response arm (arm=wire wiring ThreatBearing/ThreatNear) raced against a bed reading this is a null about the BED, not about flight -- no eyes were open (pass sight=N) or nothing threatening was ever in view (pass predators=N). Nothing this run says about flight is interpretable. This is the positive control that §4a's race was run without. ***"
+        );
+    }
     if arm == Arm::Lethal {
         let (below, _, _) = direction(&share_animals);
         println!(
