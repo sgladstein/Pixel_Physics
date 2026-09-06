@@ -178,7 +178,32 @@
             ),
         ]),
         (MatureBody, [
-            Reproduce(seed_cost: 0.25, reproductive_allocation: 0.18, seed_maturity: 250),
+            // **`seed_maturity` is SHOOT CELLS, not frames**, and at 250 this
+            // species could not reproduce at all. Measured on
+            // `reseed_probe founders=1 species=creeper frames=60000`: the
+            // largest creeper in the run reaches **89 cells in total**, so a
+            // 250-shoot-cell gate sits roughly five times above the ceiling
+            // and the plant sets **zero seeds, ever** -- one founder, ten
+            // columns held, nothing else in the bed. `grass.ron`'s header
+            // already tells this story against itself ("at the drafted 150 no
+            // grass plant could ever reproduce"); this is the same defect,
+            // still live, on a second species.
+            //
+            // Swept through the live registry rather than by editing this
+            // file and rebuilding, for the `include_str!` reason -- borne /
+            // germinated / alive / columns over 60,000 frames:
+            //
+            //   250    0 /   1 /  1 /  10     <- as shipped
+            //    40  267 /  97 / 29 /  81
+            //    20  411 / 107 / 43 / 160
+            //    10  411 / 107 / 43 / 160     <- identical to 20
+            //
+            // 20 takes the whole of the effect and 10 adds nothing, because a
+            // creeper clears twenty shoot cells and the ten-cell gate on the
+            // same tick. Set at **20**, the highest value that buys the full
+            // result, so the gate still does the job it exists for -- stopping
+            // a two-cell seedling breeding -- rather than being tuned to zero.
+            Reproduce(seed_cost: 0.25, reproductive_allocation: 0.18, seed_maturity: 20),
             SecondaryThicken(pipe_ratio: 5.5),
             StructuralAnchor,
             Absorb(rate: 1.5),

@@ -171,6 +171,7 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         fruit_bands: parent.fruit_bands,
         seed_half_life: parent.seed_half_life,
         remains_half_life: parent.remains_half_life,
+        life_half_life: parent.life_half_life,
         cell_types: parent.cell_types().to_vec(),
         fates: parent.fates().to_vec(),
         creature: Some(creature),
@@ -334,6 +335,7 @@ mod tests {
         assert_eq!(out.sight_range, src.sight_range, "the eye is a species field and has to survive an export like every other one");
         assert_eq!(back.cell_types().len(), ant.cell_types().len());
         assert_eq!(back.remains_half_life, ant.remains_half_life);
+        assert_eq!(back.life_half_life, ant.life_half_life);
         assert_eq!(back.seed_half_life, ant.seed_half_life);
         assert_eq!(back.shoot_material, ant.shoot_material);
     }

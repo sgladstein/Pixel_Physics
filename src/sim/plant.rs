@@ -2080,6 +2080,15 @@ const PARAM_MUTATION_STREAM: u64 = 202;
 /// `seed_genotype`'s `(world_seed, x, y, slot)` streams within a run.
 const SEED_LAUNCH_SALT: u64 = 0x5468_726F_7721_5F5F;
 
+/// Keys the old-age hazard's own substream -- see `SpeciesDef::life_half_life`.
+///
+/// Its own salt rather than a shared one so that turning mortality on for a
+/// species does not reshuffle any *other* keyed draw in the world. That
+/// matters more here than it looks: every mortality arm has to be compared
+/// against a control run, and a salt collision would make the control a
+/// different world rather than the same one without deaths.
+const LIFE_HAZARD_SALT: u64 = 0x4F_6C64_5F41_6765;
+
 /// **How often a seed's production rule takes a point mutation.**
 ///
 /// **Measured 2026-08-30, and the measurement is why this is 0.30 and not the
@@ -2673,6 +2682,36 @@ pub const SEED_TICK_INTERVAL: u64 = 4;
 ///
 /// `0.0` half-life means "never", which is the pre-clock behaviour and the
 /// opt-out every species keeps.
+/// **The chance a plant of this age dies of old age on one organism tick.**
+///
+/// `half_life_chance`'s sibling for a hazard that is *not* flat, and the
+/// difference is the whole design — see `SpeciesDef::life_half_life`.
+///
+/// A constant hazard gives exponential survivorship, which says a seedling is
+/// exactly as likely to die today as a two-hundred-year oak. That is wrong
+/// about trees and, more to the point, wrong for what this is *for*: a flat
+/// rate heavy enough to open gaps in a canopy culls the recruits meant to
+/// fill them at the same rate, and the stand goes down instead of over.
+///
+/// So the hazard rises linearly with age, `h(a) = 2 ln2 * a / T^2` per frame,
+/// which integrates to `ln 2` at `a == T` and gives survival
+/// `S(a) = exp(-ln2 * (a/T)^2)` — a Weibull with shape 2. Three consequences
+/// worth naming because the bars in the tests are set from them rather than
+/// from taste: **T is the median lifespan**, survival at `T/4` is **96%**,
+/// and survival at `2.5T` is **0.4%**.
+///
+/// Returns 0 for a non-positive `life_half_life`, which is every species'
+/// default and means immortal — the behaviour everything had before this
+/// existed. Clamped to 1, so an absurdly short life is instant death rather
+/// than a probability above one.
+fn old_age_chance(age_frames: f32, life_half_life: f32) -> f32 {
+    if life_half_life <= 0.0 || age_frames <= 0.0 {
+        return 0.0;
+    }
+    let per_frame = 2.0 * std::f32::consts::LN_2 * age_frames / (life_half_life * life_half_life);
+    (per_frame * ORGANISM_TICK_INTERVAL as f32).clamp(0.0, 1.0)
+}
+
 fn half_life_chance(half_life: f32, interval: u64) -> f32 {
     // `<=` rather than `!(> 0.0)` so clippy is happy about partial order;
     // a NaN half-life falls through to the `powf` below and yields NaN,
@@ -7344,11 +7383,13 @@ fn anchor_support(world: &mut World, organism_id: u16) {
 fn accumulate_support(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else { return };
     let Some(collar) = state.collar_y else { return };
+    let species_id = state.species;
     let prologue = prologue_start();
     let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
     cells.sort_unstable_by_key(|&(x, y)| (y, x));
     prologue_end(prologue, cells.len());
     let index: std::collections::HashMap<(i32, i32), usize> = cells.iter().enumerate().map(|(i, &p)| (p, i)).collect();
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
 
     // Roots first: everything at or below the collar is the anchor, so the
     // accumulation flows toward the ground the way sap pressure does.
@@ -7385,7 +7426,16 @@ fn accumulate_support(world: &mut World, organism_id: u16) {
         .iter()
         .map(|&(x, y)| {
             let c = world.get(x, y);
-            if c.organism_id() == organism_id && organism::cell_type(c.aux()) == Some(CellType::Leaf) {
+            // **`is_foliage`, not `cell_type == Leaf`** -- see
+            // `allocate_to_frontier`'s income sum for the argument. It has to
+            // change here in the same commit as the income, because this is
+            // what a plant is *billed* for: giving a leafless species an
+            // income while leaving its `q_peak` at zero would hand it earnings
+            // with no maintenance, which is not a fix but a plant that grows
+            // without bound.
+            if c.organism_id() == organism_id
+                && organism::cell_type(c.aux()).is_some_and(|t| is_foliage(world, x, y, t, species_id, has_leaf_stage))
+            {
                 ambient_light_above(world, x, y)
             } else {
                 0.0
@@ -7791,6 +7841,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // has no shoot) scores every bud as position 1.0.
     let (collar, shoot_top) = (state.collar_y, state.shoot_top_y);
 
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
     let mut intercepted = 0.0f32;
     let mut tips = 0usize;
     let mut buds: Vec<(i32, i32, f32)> = Vec::new();
@@ -7803,8 +7854,17 @@ fn break_buds(world: &mut World, organism_id: u16) {
         match organism::cell_type(cell.aux()) {
             // Water-limited light, not raw light -- see
             // `allocate_to_frontier` for why the *same* weighting has to
-            // appear in both places.
-            Some(CellType::Leaf) => intercepted += ambient_light_above(world, x, y) * water_status(world, x, y),
+            // appear in both places. **`is_foliage` for the same reason**: the
+            // two gates are one number in two places, so a species whose
+            // earning tissue this arm cannot see would be funded by one and
+            // refused by the other. Bit-identical for every species with a
+            // leaf stage; today it reaches `grass`, which cannot flush a bud
+            // regardless because nothing creates one for it (no
+            // `SecondaryThicken`, and `plastochron: 0` means a tip never
+            // reaches `Node`), so this is kept in step rather than relied on.
+            Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
+                intercepted += ambient_light_above(world, x, y) * water_status(world, x, y)
+            }
             // Shoot tips only. A root tip is frontier too, but it is fed by
             // a different economy and does not compete for light.
             Some(CellType::GrowingTip) => tips += 1,
@@ -7959,6 +8019,8 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     if state.cells.is_empty() {
         return;
     }
+    let species_id = state.species;
+    let has_leaf_stage = world.species.get(species_id).has_leaf_stage();
     // **This individual's** node size, for the income currency — see
     // `INCOME_PER_NODE`. A plant with no shoot `Grow` has no light economy
     // to allocate. (It read the *species'* until the parameter genome
@@ -7990,7 +8052,35 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
                 frontier.push((x, y));
                 frontier_is_root.push(t == CellType::RootTip);
             }
-            Some(CellType::Leaf) => {
+            // **The whole-plant income asks the species what its foliage is,
+            // rather than assuming `CellType::Leaf`.** This is
+            // `open-bugs-handoff.md` §0-z's central fact -- *leaves are the
+            // only channel a plant has* -- closed on the two terms that decide
+            // whether a plant grows and whether it breeds.
+            //
+            // For every species **with** a leaf stage `is_foliage` returns
+            // `cell_type == Leaf`, so this is bit-identical for tree, conifer,
+            // shrub, herb, creeper and scrambler, and no constant calibrated
+            // against them is re-derived by it.
+            //
+            // For a species **without** one it is the whole difference between
+            // a plant and an ornament. `grass` photosynthesises from
+            // `GrowingTip` and `MatureBody` and has no `Leaf` cell at all, so
+            // this sum was **identically zero** for it -- and since `surplus`
+            // is `income - maintenance` and `reproductive_share` is a fraction
+            // of the surplus, a grass plant had no growth pool and no seed
+            // budget, for ever, whatever it was actually earning per cell.
+            // Measured on `reseed_probe founders=1 species=grass frames=60000`
+            // before this: one plant, 13 cells, **zero seeds set in the whole
+            // run**, dead by frame 24,000, bed empty. `grass.ron`'s own header
+            // reasons its way to the same place from the other end and files
+            // it as somebody else's problem.
+            //
+            // Root tissue is excluded inside `is_foliage` by
+            // `reinforces_powder`, which is load-bearing rather than tidy:
+            // grass retires its root tips into the same `MatureBody` its
+            // blades retire into, and only the material tells them apart.
+            Some(t) if is_foliage(world, x, y, t, species_id, has_leaf_stage) => {
                 // **Intercepted light, not leaf count** -- Palubicki's `Q`.
                 // A leaf buried inside the canopy sits under blocked field
                 // blocks and reads almost nothing, so it contributes almost
@@ -8310,6 +8400,42 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // The species-level gate on the senescence rule below -- see
     // `Species::has_economy`.
     let has_economy = world.species.get(species_id).has_economy();
+    // **Death of old age, decided here rather than inside the mutable block
+    // below**, because the roll needs the species table and the world's
+    // stream and the block holds `&mut` on the organism.
+    //
+    // See `SpeciesDef::life_half_life` for the model and the measurement
+    // behind it. The shape in one line: the hazard is `2 ln2 * age / T^2` per
+    // *frame*, so it rises linearly with age and integrates to `ln 2` at
+    // `age == T` -- **T is the median lifespan**, a seedling is very nearly
+    // immune, and a cohort dies over a spread rather than all at once.
+    //
+    // A seedling being nearly immune is the part that is load-bearing rather
+    // than decorative. A flat hazard heavy enough to open gaps in a canopy
+    // culls the recruits meant to fill them at the same rate, so the stand
+    // goes *down* instead of over -- which is the failure this whole line of
+    // work is trying to end, arriving by a new route.
+    //
+    // Gated on `has_economy` exactly as the two rules below it are, and for
+    // the same reason each of them gives: `moss` does not earn, is not
+    // modelled by any of this, and a retired moss cell is not a corpse.
+    let dies_of_age = has_economy && {
+        let life = world.species.get(species_id).life_half_life;
+        // `age_ticks` before the increment below, so a plant's first tick
+        // rolls at age zero -- a hazard of exactly nothing, which is right.
+        let age_frames = world.organism(organism_id).map_or(0, |s| s.age_ticks) as f32 * ORGANISM_TICK_INTERVAL as f32;
+        let chance = old_age_chance(age_frames, life);
+        if chance > 0.0 {
+            // Keyed on the organism and the frame rather than drawn from a
+            // shared stream: `CLAUDE.md` records that the sweep's draws are
+            // consumed per visited cell, so taking one here would shift every
+            // pile in the world. Same reasoning as `launch_offset`'s.
+            let mut rng = rng::stream(world.seed ^ LIFE_HAZARD_SALT, organism_id as u64, 0, world.frame);
+            rng.chance(chance)
+        } else {
+            false
+        }
+    };
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -8686,6 +8812,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // no measurement behind it, so it is filed rather than made here —
         // `open-bugs-handoff.md` §V2 — and until then a species with no
         // `Leaf` stage cannot starve to death.
+        // **Age advances once per organism tick**, in the one pass that
+        // visits every organism exactly once -- so it costs an add and no
+        // traversal of its own.
+        state.age_ticks = state.age_ticks.saturating_add(1);
+        // **Old age, rolled above.** Marking is the whole action: `senescent`
+        // is what `rot_remains` reads, and it then thins the plant at the
+        // species' `remains_half_life`, so what the player sees is a tree
+        // going over and coming apart rather than a tree vanishing.
+        if dies_of_age {
+            state.senescent = true;
+        }
         if has_economy && has_leaf_stage {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
@@ -13985,6 +14122,25 @@ they are the same world. Got {median}, which means something other than the leve
             const GROUND: i32 = 150;
             const WIDTH: i32 = 176;
             let mut w = World::new(Rect::new(0, 0, WIDTH - 1, GROUND + 60));
+            // **Fate mutation off, because this test is about what a species
+            // *authors*.** Its own control asserts that an indeterminate
+            // species produces exactly zero organs -- "determinacy is
+            // supposed to be something a species authors, not something the
+            // engine does to every tip". With `FATE_MUTATION_CHANCE` at its
+            // shipped 0.30, a founder's *descendant* can mutate a
+            // `becomes: Flower` into its production rule, and then a tree
+            // legitimately grows a flower. Measured: the control arm came
+            // back `built 1, terminated 0, standing 1` on a stand of three
+            // trees, and that one organ is the genome doing exactly what the
+            // lab exists for.
+            //
+            // So the zero is only a defensible bar with the mutation stream
+            // silenced, and silencing it is the honest repair rather than
+            // widening the bar to "few organs" -- a threshold there would be
+            // a claim about the mutation rate wearing a claim about
+            // determinacy. Applied to both arms, so the two are read on the
+            // same terms.
+            w.fate_mutation_chance = 0.0;
             let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
             for x in 0..WIDTH {
                 for y in (GROUND + 34)..(GROUND + 40) {
@@ -13998,16 +14154,40 @@ they are the same world. Got {median}, which means something other than the leve
             for i in 1..=plants {
                 w.plant_tree_species(i * spacing, GROUND - 25, species);
             }
-            for _ in 0..frames {
+            let cells: Vec<(i32, i32)> = (0..WIDTH).flat_map(|x| (0..(GROUND + 40)).map(move |y| (x, y))).collect();
+            let count_standing = |w: &World| {
+                cells
+                    .iter()
+                    .filter(|&&(x, y)| w.get(x, y).organism_id() != 0 && organism::cell_type(w.get(x, y).aux()).is_some_and(CellType::is_organ))
+                    .count()
+            };
+            // **The peak across the run, not the value at the last frame.**
+            // The claim is "a picture of this stand would show something",
+            // and a flower is a *transient*: it opens, sets fruit, ripens and
+            // the fruit lets go. Read at one instant, with only five to seven
+            // organs built in the whole run, whether any is attached is very
+            // nearly a coin flip -- measured across a merge that changed
+            // neither the organ path nor anything herb reads, the same test
+            // gave `built 7 standing 3` on one side and `built 5 standing 0`
+            // on the other, and the second was a red gate on an unchanged
+            // mechanism. Sampling on a cadence and keeping the maximum asks
+            // the question the assertion is named for and does not depend on
+            // which frame the run happens to stop at.
+            //
+            // Every 500 frames rather than every frame because this walks the
+            // whole bed: 60 censuses of a 176x190 world against 30,000, which
+            // is what keeps a whole-stand test affordable in a suite of a
+            // thousand.
+            let mut standing = 0usize;
+            for f in 0..frames {
                 super::super::parallel::step(&mut w);
                 w.step_active_sites();
                 field::step(&mut w);
+                if f % 500 == 0 {
+                    standing = standing.max(count_standing(&w));
+                }
             }
-            let cells: Vec<(i32, i32)> = (0..WIDTH).flat_map(|x| (0..(GROUND + 40)).map(move |y| (x, y))).collect();
-            let standing = cells
-                .iter()
-                .filter(|&&(x, y)| w.get(x, y).organism_id() != 0 && organism::cell_type(w.get(x, y).aux()).is_some_and(CellType::is_organ))
-                .count();
+            let standing = standing.max(count_standing(&w));
             let tissue = cells.iter().filter(|&&(x, y)| w.get(x, y).organism_id() != 0).count();
             (w.organs_built, w.axes_terminated, standing, tissue)
         }
@@ -14024,8 +14204,15 @@ they are the same world. Got {median}, which means something other than the leve
              of its count is the way this has already gone wrong once)"
         );
         assert!(built >= terminated, "every terminated axis builds at least its own apex as an organ");
-        assert!(standing > 0, "organs were built and none is standing -- a picture of this stand would show nothing");
+        assert!(
+            standing > 0,
+            "organs were built and not one was ever standing at any sample across the whole run \
+             ({built} built, {terminated} axes terminated) -- a picture of this stand would show nothing"
+        );
 
+        // The control's `standing` is now a peak too, which *strengthens* it:
+        // an indeterminate species must produce no organ at any moment of the
+        // run, not merely none at the frame the run stops on.
         let (base_built, base_terminated, base_standing, base_tissue) = organs("tree", 8_000, 3);
         assert!(base_tissue > 0, "the control species did not grow, so its zero organ count proves nothing");
         assert_eq!(
@@ -18460,6 +18647,183 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     ///
     /// Before this package both arms read 12: grass has no `Leaf` cell, and
     /// both rules gated on `CellType::Leaf`.
+    /// **A species with no leaf stage earns, is billed, and can pay for a
+    /// seed** — `open-bugs-handoff.md` §0-z closed on the two terms that
+    /// decide whether a plant grows and whether it breeds.
+    ///
+    /// The whole-plant income in `allocate_to_frontier` summed
+    /// `CellType::Leaf` and nothing else, so for `grass` — which
+    /// photosynthesises from `GrowingTip` and `MatureBody` and declares no
+    /// `Leaf` cell at all — it was **identically zero**. `surplus` is
+    /// `income - maintenance` and `reproductive_share` is a fraction of the
+    /// surplus, so a grass plant had no growth pool and no seed budget for
+    /// ever, whatever its cells were actually earning. Measured before the
+    /// fix on `reseed_probe founders=1 species=grass frames=60000`: one plant,
+    /// 13 cells, **zero seeds set in the whole run**, dead by frame 24,000,
+    /// bed empty. After: 7,965 borne, 2,493 germinated, 391 plants, **486 of
+    /// 512 columns**.
+    ///
+    /// **All three assertions are load-bearing and the middle one is the
+    /// point.** Income alone would be a species that earns without being
+    /// charged — `accumulate_support` writes `q_peak` from the same sum, so
+    /// leaving it reading `Leaf` would hand a leafless plant earnings with no
+    /// maintenance and it would grow without bound. That is the half-fix this
+    /// guard exists to catch, and it is the shape `CLAUDE.md` warns about:
+    /// changing what one term of a shared budget can express reallocates the
+    /// whole sum.
+    ///
+    /// Watched going red rather than assumed, and **the second assertion had
+    /// to be rewritten because the obvious form of it was blind**: with the
+    /// income sum put back to `cell_type == Leaf` this fails at `income
+    /// 0.0000`, and with only `accumulate_support` put back it fails at
+    /// `maintenance_basis 0.000000`. Asserting on `maintenance` instead —
+    /// the reading anyone would write first — **passes that second injection**,
+    /// because `MAINTENANCE_PER_CELL` is charged per cell whatever `q_peak`
+    /// says.
+    /// **Old age kills, a seedling is spared, and an unset species is
+    /// immortal exactly as before** — `SpeciesDef::life_half_life`.
+    ///
+    /// Three arms because the mechanism has three claims and only the first
+    /// is obvious. The control (`0.0`, every species' default) must be
+    /// untouched, or this field is a silent behaviour change to both games.
+    /// The treatment must actually die, or it is a knob that does nothing.
+    /// And the **young** arm is the one that matters: the hazard rises with
+    /// age precisely so that a rate heavy enough to open a gap in a canopy
+    /// does not also cull the recruits meant to fill it — a flat hazard takes
+    /// the stand *down* rather than over, which is the failure this whole
+    /// line of work exists to end, arriving by a new route.
+    ///
+    /// The numbers are the model's, not tuned: the hazard integrates to
+    /// `ln 2` at `age == T`, so survival is `exp(-ln2 * (age/T)^2)` — **97%**
+    /// at `T/5`, 50% at `T`, and 0.4% at `2.5T`. The bars are set from that
+    /// with headroom, and the horizon is `2.5T` for the same reason.
+    /// **The old-age hazard rises with age and integrates to a median at
+    /// `T`** — the arithmetic half of `SpeciesDef::life_half_life`, tested
+    /// where it is deterministic.
+    ///
+    /// This exists because the behavioural test next to it **could not see
+    /// the shape**. Put the fault back — replace the rising hazard with a
+    /// flat one of the same nominal rate — and that test still passes,
+    /// because one plant's survival is a single Bernoulli draw and a flat
+    /// hazard still leaves a seedling alive most of the time. Distinguishing
+    /// the two shapes through a simulation needs a cohort and comes out
+    /// flaky at any bar; as arithmetic it is exact.
+    ///
+    /// That split is the general lesson: a claim about a *distribution* wants
+    /// the function, and a claim about *the world* wants the run.
+    #[test]
+    fn the_old_age_hazard_rises_with_age_and_puts_its_median_at_the_half_life() {
+        const T: f32 = 4_000.0;
+        // Immortal by default, and at birth, and for a species that never set
+        // the field -- the three ways this must be silent.
+        assert_eq!(old_age_chance(1_000.0, 0.0), 0.0, "life_half_life 0.0 must be immortal");
+        assert_eq!(old_age_chance(0.0, T), 0.0, "a plant cannot die of old age on the tick it is born");
+        // **Linear in age.** This is the assertion a flat hazard fails, and
+        // it is the reason this test exists at all.
+        let (a, b) = (old_age_chance(500.0, T), old_age_chance(1_000.0, T));
+        assert!(
+            (b - 2.0 * a).abs() < 1e-6,
+            "the hazard must be linear in age -- a flat hazard is the thing this rules out: {a} at 500, {b} at 1000"
+        );
+        // **The median lands on T.** Survival is the product over ticks, and
+        // summing the per-tick chance is the discrete form of integrating the
+        // hazard: it must reach `ln 2` at `T` and nowhere else.
+        let survival_at = |age: f32| -> f32 {
+            let mut s = 1.0f32;
+            let mut a = 0.0f32;
+            while a < age {
+                s *= 1.0 - old_age_chance(a, T);
+                a += ORGANISM_TICK_INTERVAL as f32;
+            }
+            s
+        };
+        let (half, quarter, late) = (survival_at(T), survival_at(T / 4.0), survival_at(T * 2.5));
+        println!("old-age survival: {quarter:.3} at T/4, {half:.3} at T, {late:.4} at 2.5T");
+        assert!((half - 0.5).abs() < 0.02, "T must be the median lifespan: survival {half:.3} at age T");
+        assert!(quarter > 0.94, "a young plant must be all but safe: survival {quarter:.3} at T/4");
+        assert!(late < 0.02, "an old plant must be all but gone: survival {late:.4} at 2.5T");
+    }
+
+    #[test]
+    fn old_age_kills_a_grown_plant_and_spares_a_seedling() {
+        // **The horizon is bounded by the scene, not by the model, and that
+        // is measured rather than guessed.** A tree in `test_world`'s small
+        // hand-built bed lives about 12,000 frames and is senescent by
+        // 24,000 -- it starves, which is the economy working and nothing to
+        // do with this field. Probed: alive at 3,000 / 6,000 / 12,000, dead
+        // at 24,000. So `2.5T` has to fit inside 12,000 or the control arm
+        // fails for a reason the test is not about, which is exactly what the
+        // first draft did.
+        //
+        // That bound is also what makes the treatment arm's death
+        // attributable: at 10,000 frames the control is still standing, so a
+        // treatment plant that is gone at 10,000 is gone of age.
+        const LIFE: f32 = 4_000.0;
+        // Survival at `T/4` is `exp(-ln2/16)` = **96%**, so "still alive" is
+        // a claim about the hazard's shape rather than about luck.
+        const YOUNG: usize = (LIFE / 4.0) as usize;
+        // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
+        const OLD: usize = (LIFE * 2.5) as usize;
+
+        fn run_arm(life: f32, frames: usize) -> bool {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            w.species.get_mut(tree).life_half_life = life;
+            plant_tree_on_ground(&mut w, 100, 60);
+            run_with_fields(&mut w, frames);
+            // Alive means an organism that is not senescent and still holds
+            // tissue -- `rot_remains` thins a marked plant over the following
+            // frames, so "no cells left" and "marked" are the same death at
+            // two moments and either one answers.
+            w.live_organism_ids().into_iter().any(|id| {
+                w.organism(id).is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
+            })
+        }
+
+        assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
+        assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
+        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 0.4% by the model");
+    }
+
+    #[test]
+    fn a_species_with_no_leaf_stage_earns_is_billed_and_sets_seed() {
+        const BLADES: i32 = 12;
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..64 {
+            w.set(x, 40, Cell::new(material::STONE, 0));
+            for y in 32..40 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let id = place_grass(&mut w, 10, 32, BLADES, 3);
+        assert!(
+            !w.species.get(w.organism(id).expect("the sod is alive").species).has_leaf_stage(),
+            "test setup: this guard is about a species with NO leaf stage -- if grass grows one, it stops asking the question"
+        );
+        // Lit, because the quantity under test is intercepted light. `run`
+        // without fields leaves every cell dark and income legitimately zero,
+        // which would pass the negative it is trying to exclude.
+        run_with_fields(&mut w, 13_500);
+        let state = w.organism(id).expect("the sod is still alive");
+        let (income, basis, seeds) = (state.income, state.maintenance_basis, state.seeds_set);
+        println!("leafless economy: income {income:.4} maintenance_basis {basis:.6} seeds_set {seeds}");
+        assert!(income > 0.0, "a lit sward must earn: income {income:.4}");
+        // **`maintenance_basis`, not `maintenance`, and the difference is the
+        // whole reason this assertion is here.** `maintenance_cost` is
+        // `MAINTENANCE_PER_CELL` plus a girth term built from `q_peak`, so the
+        // mass term alone keeps `maintenance` above zero even when `q_peak` is
+        // identically zero — asserting on it passed the fault injection with
+        // `accumulate_support` still reading `Leaf`, which is a blind guard
+        // rather than a weak one. `maintenance_basis` is the `q_peak` sum
+        // itself and goes to exactly 0.0 in that case.
+        assert!(
+            basis > 0.0,
+            "...and must be billed for the foliage it carries, or it is income with no girth cost: maintenance_basis {basis:.6}"
+        );
+        assert!(seeds > 0, "...and must be able to afford a seed: seeds_set {seeds}");
+    }
+
     #[test]
     fn a_shaded_sward_thins_and_a_lit_one_does_not() {
         const BLADES: i32 = 12;

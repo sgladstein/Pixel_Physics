@@ -3,7 +3,13 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-05 (**plants build real root systems now.** A plant
+*Current as of: 2026-09-05 (a seed now **falls through a canopy** instead of
+lodging in it, which is what stops a plant sowing its whole crop onto its own
+leaves; **grass keeps books at last**, so it earns, is charged for standing
+there, and sets seed -- it did none of those before and could not spread at
+all; and **a creeper can breed**, its seed gate having been set above the size
+the plant ever reaches.)
+*Also 2026-09-05: **plants build real root systems now.** A plant
 used to stop putting out new roots as soon as it read itself as watered --
 and it nearly always did, because the reading was taken against a store that
 grew with the roots, so a plant standing in soil its own roots had drunk dry
@@ -371,10 +377,20 @@ Three consequences follow from that, and none of them is a rule about grass:
   in-between outcome a patchwork rather than a half-crossed field.
 - It **breeds far faster than a tree** — it is cheap to build, it sets seed
   young, and it will colonise bare ground long before anything woody does.
+  Sown as a single seed in the middle of a sealed bed, it now reaches most of
+  the way across in a few minutes of running and holds nearly the whole floor:
+  **hundreds of small tussocks rather than a few large ones**, which is what a
+  sward is. This is new. Until 2026-09-05 a planted grass seed grew one tuft
+  of about a dozen blades, **set no seed at all in its entire life**, and died
+  where it stood — the bed stayed empty and the paragraph above was a
+  description of what grass was meant to do rather than of what it did.
 - And it **keeps a different set of books**. Because the blade is the whole
-  plant, a grass tussock finishes growing early and then simply stands
-  there: it earns from every blade, spends the proceeds on seed, and — for
-  now — has no running costs to fall behind on. What kills it is shade. A
+  plant, a grass tussock finishes growing early and then stands there earning
+  from every blade and spending the proceeds on seed. It is now charged for
+  standing there too, in proportion to the foliage each blade carries, the
+  same bill a tree pays — before, the engine could see a grass plant's leaves
+  for neither purpose, so it had no income to spend and no cost to meet, and a
+  tussock was an ornament rather than a plant. What kills it is still shade. A
   sward is thinned by whatever grows over it and not by drought, which is
   the reverse of what a tree faces, and it is why grass and trees are not
   competing for the same thing.

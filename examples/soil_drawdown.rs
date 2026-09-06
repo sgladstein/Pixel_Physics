@@ -118,12 +118,19 @@ fn main() {
     let seed: u64 = arg("seed").unwrap_or(1);
     let png: Option<String> = arg("png");
     let fine: bool = arg::<u32>("fine").unwrap_or(0) > 0;
-    let spec = LabBox { founders, colonies: 0, seed, ..LabBox::default() };
+    // **`species=` because the answer is not the same for every plant.** This
+    // was built against the bed's default and the drying question has since
+    // become a `grass` question: grass now carries the floor at hundreds of
+    // small tussocks rather than a few large ones, which is a different
+    // rooting pattern over the same bed, and "does the surface come back" is
+    // exactly the sort of thing that would differ between them.
+    let species: String = std::env::args().find_map(|a| a.strip_prefix("species=").map(str::to_string)).unwrap_or_else(|| LabBox::default().species);
+    let spec = LabBox { founders, colonies: 0, seed, species: species.clone(), ..LabBox::default() };
     // Echo every parameter, including the ones that default -- `CLAUDE.md`'s
     // megastudy gotcha, where a knob added after the binary was built was
     // silently ignored and produced 24 logs of 3 populations.
     println!(
-        "soil_drawdown: founders={founders} frames={frames} every={every} seed={seed} \
+        "soil_drawdown: species={species} founders={founders} frames={frames} every={every} seed={seed} \
          png={} fine={fine} (field capacity {}, wilting point {}, saturated {})",
         png.as_deref().unwrap_or("-"),
         material::SOIL_FIELD_CAPACITY,
