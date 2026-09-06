@@ -117,3 +117,123 @@ being worth doing.
 - `src/lab/params.rs` — the GENOME and COSTS pages; every scalar an ant is
   made of is reachable from the box, and there is a guard that says so.
 - `examples/labstats.rs` — `beetlearmour=`, `antbite=`, `pace=` overrides.
+
+---
+
+# → the creature-line coordinator (session_01L2D5T9ggBkjfFkxkUAMG4b), 2026-09-06
+
+Answering the three asks. **(1) and (2) were already done before the poke
+arrived**: the branch is pushed, this file is that handoff, and
+[PR #263](https://github.com/sgladstein/Pixel_Physics/pull/263) is open —
+I have the GitHub MCP tools, so you do not need to open it. **You own driving
+it to merge from here.** One correction to the ask: lane notes deliberately do
+*not* get a line in `Reports/README.md` — no `Reports/lanes/` path appears in
+that index, and `docscheck` is clean without one.
+
+## What I touched, function by function
+
+All in `src/sim/creature.rs`. **`is_living_kin`, `is_visible_prey`, the spawn
+function and `found_colony_of` are untouched** — but one of them is where we
+meet, see the warning below.
+
+| Function | What changed |
+|---|---|
+| `adjacent_food_counted` | **Rewritten.** Signature `(world, x, y, gut)` → `(world, organism, head, gut)`. Scans every body cell, deduplicated; past the mouth it takes only living non-self organisms. |
+| `adjacent_food` | Same signature change; thin wrapper. |
+| `sense` | One call site (the `FoodAdjacent` input). |
+| `act` | One call site; `did.gnawed += bite_damage` → `did.gnaws += 1`. |
+| `creature_tick` | The `Did` destructure and the jaw price. |
+| `Did` | Field `gnawed: f32` → `gnaws: u32`. |
+| tests | `a_swarm_gets_through_what_one_mouth_cannot` rewritten, `a_chain_creature_bites_what_is_eating_its_back` new, three `adjacent_food` call sites updated. |
+
+Nothing in `render.rs`, `ui.rs`, `organism.rs` or `world.rs`. Rebasing after
+#263 lands is cleaner than rebasing around me — it is one file and it is
+finished.
+
+## The warning: `colony_rivalry` runs straight through my new gate
+
+`is_living_kin` is called *inside* `adjacent_food_counted`, and I added a gate
+immediately above it. The order is load-bearing:
+
+```rust
+let attached = owner != 0 && owner != organism && world.organism(owner).is_some();
+if i > 0 && !attached { continue; }              // mine: past the mouth, living things only
+if !gut.eats_kin && is_living_kin(world, cell, gut.species) { continue; }   // yours
+```
+
+So the moment `is_living_kin` requires the same colony, **a rival-colony ant
+on my flank becomes `attached` AND non-kin, and body-fighting between colonies
+switches itself on** with no further work. That is almost certainly what you
+want, and you should know it arrives for free rather than needing wiring.
+
+**But run `cargo run --release --example ascii` across the dial before and
+after.** That is not caution, it is the trap I just paid for: widening what
+the body may consider food cost the deposition-follows-moisture gate
+**1.03x → 0.82x** against a 0.9 bar. The gate survived my change only because
+every ant in those scenes is kin to every other, so the extra reach offers
+nothing — deposition came back byte-identical, 1.03x on 744 drops from 7,276
+laden ants. **`colony_rivalry` removes exactly that protection.** If any
+`ascii` scene ends up holding two colonies, its ants start seeing each other
+from their flanks and the number will move. The ablated control is
+`PIXEL_PHYSICS_DROP_MOISTURE=off:0.9`, which reads 0.70x — use it to tell a
+broken mechanism from a blind guard.
+
+## Kin-by-colony vs kin-by-species — my view, and the arithmetic behind it
+
+**Kin-by-colony, and I think the case is stronger than "it enables a
+feature".** As it stands an ant has no verb at all for another colony's
+presence: it cannot fight it, avoid it or be deterred by it, so the second
+colony is scenery. That is `CLAUDE.md`'s second law — *there must be a verb,
+and it must deliver something* — and species-scoped kinship is what removes
+it.
+
+**The finding your design report actually needs, though, is that ant-vs-ant
+combat is BINARY today and no lineage can evolve out of it.** The arithmetic,
+not a simulation:
+
+```
+  ant flesh  penetration_resistance  0.25   (assets/materials/ant.ron)
+  armour trait multiplier            [0.5, 2.0]   (ratio_factor, t clamped to [-1, 1])
+  best armour an ant lineage reaches 0.25 x 2.0 = 0.50
+  ant bite_force                     1.00   (dig_force, assets/species/ant.ron)
+  damage = clamp(bite/armour, 0, 1)^2 = clamp(1.0/0.5)^2 = 1.0
+```
+
+**A maximally armoured ant is still one-shot by any other ant**, at every
+point on the trait axis. So the moment colonies can fight, they fight the way
+the owner explicitly ruled against — no grading, no being overwhelmed, no
+being unlucky, just whoever bites first. This is the same defect the beetle
+had (an edible predator is not a predator) wearing different clothes: the
+resistance is four times below the bite force, and the trait cannot close a
+4x gap when its whole range is 2x.
+
+Two ways out, and they are the same two the beetle needs, which is why I would
+settle them once rather than twice:
+
+1. **Raise `ant`'s `penetration_resistance`** so the trait range straddles the
+   bite force instead of sitting entirely under it. Anything at or above ~0.5
+   puts the top of the range at 1.0+ and makes an armoured ant genuinely
+   harder to open. It also makes ants harder for *beetles*, so it is a
+   two-species number and wants a sweep, not a guess.
+2. **Widen the trait clamp** for the armour slot specifically. `[-1, 1]` is
+   the shared default and there is no reason a ratio-shaped slot has to share
+   the reach slots' bound. This is the cheaper change and the more general
+   one.
+
+Either way, **do not read the encounter as balanced because a population sweep
+looks healthy.** That disagreement is the whole content of the beetle work
+above: at colony scale armour 1.6 looked fine, and one-on-one it was
+backwards, and the encounter was the one telling the truth.
+
+## What I would do next, in order
+
+1. **Land #263** (yours now). It is the prerequisite for anything below —
+   every armour figure taken before it is void.
+2. **Re-run the beetle seed sweep** in `Reports/selective-environments-2026-09-05.md`.
+   Its qualitative finding stands; its numbers do not.
+3. **Settle the armour reach**, per the two options above, for ant and beetle
+   together. Until it is settled, both fights are binary and no dial over them
+   means anything.
+4. **Then** `colony_rivalry`, with the `ascii` deposition check across the dial.
+5. Body size (S8) last — it multiplies an attacker's bill without touching
+   either lever, so it is only interesting once the bill is non-trivial.
