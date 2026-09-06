@@ -8030,7 +8030,7 @@ fn break_buds(world: &mut World, organism_id: u16) {
     // to end. The bill is not phase-dependent, so netting it here is
     // comparing two noon-equivalent quantities.
     let maintenance = world.organism(organism_id).map_or(0.0, |s| s.maintenance);
-    let surplus = (intercepted / l_node(leaf_cluster) * INCOME_PER_NODE - maintenance).max(0.0);
+    let surplus = (noon_income(world, organism_id, intercepted, leaf_cluster) - maintenance).max(0.0);
     let supportable = ((surplus / step_cost).floor() as usize).min(max_active_tips as usize);
     if tips >= supportable {
         return;
@@ -8210,7 +8210,7 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     // moves. `OrganismState::income` is read by decisions — the die-back
     // trigger and every readout — and a decision may not be a function of
     // the hour. See `MEAN_NIGHT_INCOME_FACTOR`.
-    let income_noon = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+    let income_noon = noon_income(world, organism_id, intercepted, leaf_cluster);
     if let Some(state) = world.organism_mut(organism_id) {
         state.income = income_noon;
     }
@@ -8572,6 +8572,86 @@ const NUTRIENT_STARVED_COST: f32 = 8.0;
 pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
     let m = world.materials.get(cell.material);
     m.kind == MaterialKind::Powder && m.water_capacity > 0
+}
+
+/// **How much of what a plant EARNS scarce nutrient can take away** —
+/// `plant-soil-nutrient-plan-2026-09-05.md` §3c's third option, built
+/// 2026-09-06 on the owner's instruction after the reachability trace
+/// showed the first two could not do the job.
+///
+/// `PIXEL_PHYSICS_NUTRIENT_INCOME`, `0.0..=1.0`:
+///
+/// - **`0.0`** — no income term. The identity, and the paired control: the
+///   construction price of `nutrient_construction_multiplier` alone, which
+///   is what #262/#264 shipped.
+/// - **`1.0`** (default) — income falls linearly to **zero** at
+///   `nutrient_status` 0.
+///
+/// **Why income and not `min`.** §3c ruled out
+/// `min(water_status, nutrient_status)` and that reasoning stands: under
+/// `min` the non-binding resource has exactly zero marginal value and the
+/// stomatal locus's fitness signal is erased. But §3c then treated *"min"*
+/// and *"enters income"* as the same thing, and they are not —
+/// `water_status` is **already** a multiplier on income
+/// (`allocate_to_frontier`'s `intercepted += light * water_status`), and
+/// §3c says in as many words that *"multiplying is correct for it"*. This
+/// is that same shape for the second axis. The physiology is the ordinary
+/// one: N maintains photosynthetic machinery, so a leaf with no N supply
+/// earns less rather than being floored.
+///
+/// **Why it had to exist at all.** `nutrient_status` had exactly one
+/// consumer — a scale on `Grow.cost` — so it limited *building* and never
+/// *living*. Death by starvation is `income < MAINTENANCE_PER_CELL *
+/// (root_cells + shoot_cells)`, and nutrient was in **neither** side, so
+/// the lit drip-fed plant §3 was written for could not die however
+/// depleted its soil. This is the term that reaches that rule.
+///
+/// **The risk, and it is on the record rather than discovered later:**
+/// `dead-ends.md:892` records gating root re-initiation on whole-plant
+/// solvency producing a death spiral — *"water-limited income starves the
+/// roots that would fix it"*, 6-8 founders established of 8 against 8 of 8.
+/// An income term has that shape, which is exactly why it ships behind a
+/// weight that can be swept to 0 and why the whole mechanism stays inert
+/// at `PIXEL_PHYSICS_NUTRIENT=0`.
+fn nutrient_income_weight() -> f32 {
+    use std::sync::OnceLock;
+    static W: OnceLock<f32> = OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NUTRIENT_INCOME").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0)
+    })
+}
+
+/// What this organism's nutrient standing does to its income, `0.0..=1.0`.
+/// **1.0 whenever the mechanism is off**, so the shipped tree is
+/// bit-identical.
+fn nutrient_income_multiplier(world: &World, organism_id: u16) -> f32 {
+    if nutrient_initial() == 0 {
+        return 1.0;
+    }
+    let weight = nutrient_income_weight();
+    if weight <= 0.0 {
+        return 1.0;
+    }
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status).clamp(0.0, 1.0);
+    (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0)
+}
+
+/// **Noon-equivalent income from intercepted, water-limited light — the one
+/// expression, in one place.**
+///
+/// It is computed at *two* gates: `allocate_to_frontier`'s pool (the
+/// plant's money) and `break_buds`' `supportable` (the plant's policy).
+/// Both already accumulate `intercepted` the same way, and `break_buds`'
+/// own comment records why — *"the two gates are one number in two places"*,
+/// so a term added to one and not the other makes them disagree about what
+/// the plant can afford. They agreed only by duplication until the nutrient
+/// needed adding to both; this is that duplication removed, so the next
+/// term cannot land in one site alone.
+///
+/// The two callers still differ *after* this point, correctly: the pool
+/// scales by the hour (money) and `supportable` does not (policy).
+fn noon_income(world: &World, organism_id: u16, intercepted: f32, leaf_cluster: u8) -> f32 {
+    intercepted / l_node(leaf_cluster) * INCOME_PER_NODE * nutrient_income_multiplier(world, organism_id)
 }
 
 fn nutrient_draw_per_tick() -> u8 {
@@ -16380,6 +16460,66 @@ cost is x{mult}"
             );
         }
         assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
+    }
+
+    /// **The income term: inert while the switch is off, and the identity
+    /// when it is.**
+    ///
+    /// `nutrient_income_multiplier` is the third of §3c's options and the
+    /// only one that can reach the rule that kills a plant — starvation is
+    /// `income < MAINTENANCE_PER_CELL * cells`, and the construction price
+    /// is in neither side of it.
+    ///
+    /// Two claims, because they fail differently. **Inert**: with
+    /// `PIXEL_PHYSICS_NUTRIENT` unset the multiplier is exactly 1.0 at
+    /// every status, so the shipped tree is bit-identical and
+    /// `noon_income` is the expression it replaced, to the bit. **Weight
+    /// 0 is the identity**: the paired control for any measurement of this
+    /// term is `PIXEL_PHYSICS_NUTRIENT_INCOME=0`, which must be
+    /// indistinguishable from not having built it.
+    #[test]
+    fn the_nutrient_income_term_is_inert_until_switched_on() {
+        let mut w = test_world();
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+
+        for status in [1.0f32, 0.75, 0.5, 0.25, 0.0] {
+            w.organism_mut(id).expect("alive").nutrient_status = status;
+            let mult = nutrient_income_multiplier(&w, id);
+            assert_eq!(
+                mult, 1.0,
+                "the income term must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} income \
+scales by x{mult}"
+            );
+        }
+
+        // ...and `noon_income` is then exactly the expression it replaced,
+        // which is what makes "bit-identical" a checked claim rather than
+        // an assertion in a commit message. Two gates read this -- the pool
+        // in `allocate_to_frontier` and `supportable` in `break_buds` --
+        // and they are one number in two places.
+        for (intercepted, leaf_cluster) in [(0.0f32, 1u8), (1.0, 1), (7.5, 3), (123.75, 5)] {
+            let want = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
+            let got = noon_income(&w, id, intercepted, leaf_cluster);
+            assert_eq!(
+                got, want,
+                "noon_income must be the identity while the mechanism is off: intercepted {intercepted} \
+cluster {leaf_cluster} gave {got}, expected {want}"
+            );
+        }
+
+        // The arithmetic the switch would produce, asserted directly so the
+        // shape is pinned without a second process: at weight 1 the
+        // multiplier is the status itself, so status 0 -> income 0 -> the
+        // plant reaches `STARVATION_DEATH_TICKS`. That is the whole point
+        // of the term, and it is the half a construction price cannot do.
+        for (weight, status, want) in
+            [(1.0f32, 0.0f32, 0.0f32), (1.0, 0.5, 0.5), (1.0, 1.0, 1.0), (0.5, 0.0, 0.5), (0.0, 0.0, 1.0)]
+        {
+            let got = (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0);
+            assert_eq!(got, want, "weight {weight} at status {status} should scale income by {want}, not {got}");
+        }
     }
 
     /// **The floating plant reads as fully fed, and it is the case the

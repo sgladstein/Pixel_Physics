@@ -644,6 +644,20 @@ nutrient to the soil is the conservation §3 needs.
 > **`initial=200 draw=1 recovery=0` is therefore too harsh to ship and is
 > the right top of the range to sweep down from**, which is where the
 > calibration §3 owes should now begin.
+>
+> **Which tree these three arms were measured on, because it moved under
+> them.** All three (`off`, `recovery=1`, `recovery=0`) ran on the same
+> binary, so the pairings above are internally valid and the ratios stand.
+> They were taken **before #259 landed**, and that PR changes how a body
+> parts plant tissue — which is part of this bed. Re-running the *off* arm
+> on the post-merge binary, seed 1 alone, moves **cells 4,449 -> 2,751,
+> plants 200 -> 148, roots reach 23 -> 18** with the nutrient still off.
+> So the absolute census does not carry across that boundary and neither
+> does any comparison made across it: a later arm must re-measure its own
+> baseline rather than pair against the numbers above. That is
+> `CLAUDE.md`'s "re-measure the baseline in the same session" arriving as a
+> *merge* rather than as a slow machine, which is the form it is easy to
+> miss — the binary was rebuilt, so nothing looked stale.
 
 
 Restoring the depletion zone (§1 item 1) plausibly delivers **S1 and S2**
