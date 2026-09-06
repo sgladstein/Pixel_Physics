@@ -353,6 +353,10 @@ fn main() {
         // as `Lab::advance` does; the count is the "did a split fire"
         // counter, printed when it does.
         let minted = lab.world.regroup_by_scent();
+        // The ANTS page's own sample ring, so a `page=ants` capture carries
+        // the per-group graph and not just the legend. Gated inside on the
+        // page's sample interval; two integer compares per frame otherwise.
+        lab.ui.observe(&lab.world);
         if minted > 0 {
             println!("  frame {f:>7}: {minted} group(s) named off a drifted lineage -> {:?}", lab.world.live_creature_groups().iter().map(|g| (lab.world.group_label(g.species, g.colony), g.alive)).collect::<Vec<_>>());
         }
