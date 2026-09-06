@@ -1,0 +1,48 @@
+{
+  "id": "20260906T175145092Z-7ad095",
+  "created": "2026-09-06T17:51:45Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creatures-walk-plants-qbo0pp",
+    "commit": "60993da6",
+    "agent": null,
+    "session_id": "e23715d2-1789-5d59-98ad-c0fb3b91307e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants at a tree trunk: does going round it read right?",
+  "question": "One of these lets an ant work its way round a trunk (a pause as long as the trunk is thick, then it appears on the far side); the other turns it away. Does the pause read as going round, or as a glitch?",
+  "context_md": "Your design: 'they basically just teleport to the other side with a delay long enough for however thick the trunk is, so they don't actually overlap with the cells ever.' The animal never enters the wood -- that is what makes it safe, since occupying a stem stops it counting as the plant's anchor and empties a lab bed. On the real wooded world (scene=colony seed 1, 12,000 frames, one binary, CROSS_TRUNK=0 for the control): blocked steps 15.7% -> 7.3%, tissue blocking 656 -> 216, 243 crossings begun and 243 completed with none abandoned, and limb severing 3,987 -> 3,770, so plants are slightly better off. What still blocks is trunks with no far side to come out on -- inside a crown, or into open air with no foothold -- which is the rule declining rather than a gap. The question is only whether the pause LOOKS like going round.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "trunk solid",
+      "files": [
+        "20260906T175145092Z-7ad095/000-cross_off.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 55
+    },
+    {
+      "label": "crosses in time",
+      "files": [
+        "20260906T175145092Z-7ad095/001-cross_on.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 55
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
