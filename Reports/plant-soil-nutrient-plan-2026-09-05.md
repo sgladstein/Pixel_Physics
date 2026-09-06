@@ -441,14 +441,38 @@ nutrient to the soil is the conservation §3 needs.
 > `RAYON_NUM_THREADS` pinned: cells **9,393 → 7,509** (0.80x), plants 481 →
 > 456, biggest 497 → 480, and **roots reach 34 → 22 rows**.
 >
-> **That last column is the finding, and it points at §3c.** Pricing
-> *construction* taxes root growth along with everything else, so a nutrient
-> shortage makes a plant build **fewer** roots — the opposite of foraging,
-> and it works against the root gate #246 just shipped. §3c's argument
-> against `min` still stands; what this shows is that construction pricing
-> needs either a root exemption or a scarcity term that biases allocation
-> toward roots rather than merely making everything dearer. That is the
-> first question for the sweep, ahead of any constant.
+> **That last column was the finding, and it pointed at §3c.** Pricing
+> *construction* taxed root growth along with everything else, so a nutrient
+> shortage made a plant build **fewer** roots — the opposite of foraging,
+> and against the root gate #246 shipped.
+>
+> **§3c amended 2026-09-06: root tissue is exempt from the construction
+> penalty.** Charging scarcity prices to build a root is a deadlock — roots
+> are the only way to reach more nutrient, so a plant short of it cannot
+> afford the one thing that fixes the shortage. Preferred over adding a
+> nutrient term to `allocate_to_frontier`'s `root_weight` (the prior art
+> beside `ROOT_BIAS_AT_FULL_WATER`) because that weight sits in a sum whose
+> terms are calibrated against each other, and `CLAUDE.md` is explicit that
+> changing what one term can express reallocates the whole sum. Changing a
+> *price* lets the existing economy do the shifting: under scarcity shoots
+> get dear and roots do not.
+>
+> **Measured, four paired founder counts, lab box at 30,000 frames,
+> `RAYON_NUM_THREADS` pinned:**
+>
+> | founders | cells off → on | roots reach off → on |
+> |---|---|---|
+> | 4 | 0.84x | **1.17x** |
+> | 6 | 0.92x | **1.38x** |
+> | 8 | 1.07x | **1.55x** |
+> | 12 | 0.84x | 0.76x |
+>
+> **Root depth up on 3 of 4, median ≈1.28x** — against **0.65x** on the one
+> arm measured before the exemption, so the sign is reversed. It is *not*
+> unanimous, and the stand shrinks on 3 of 4 (median ≈0.88x), which is what
+> a tax should do. Still inert; the constants are still first guesses, and
+> founders=12 going the other way is the first thing a real sweep should
+> explain.
 
 
 Restoring the depletion zone (§1 item 1) plausibly delivers **S1 and S2**
