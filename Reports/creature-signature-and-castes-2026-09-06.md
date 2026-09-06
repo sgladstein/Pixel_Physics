@@ -19,7 +19,7 @@ whose §3 it builds and whose §7 decisions it carries as dials.*
 | is an ant always an ant? | **Yes, by construction.** `state.species` was written once and `is_living_kin` was *same species* (and, behind a one-evening `colony rivalry` switch, *same colony label*). A lineage could drift as far as it liked and be nobody's stranger | **No.** Kin is *the other animal's scent within my tolerance*, both heritable. Two clicks start a little apart (a founding offset), children drift (`scent_drift`), and a lineage that drifts past every other's tolerance is, to them, a new kind — which the ANTS page names (`ANT 1b`) and draws as its own line. The rivalry switch retired into the tolerance dial's narrow end |
 | is a beetle ever an ant's family? | never | never, **unless** the ant's kind has `kin_crosses_kinds` on — the owner's §7 call, shipped as a dial defaulting to no |
 | what does the shipped bed do? | one family | **exactly what it did**: spread 0 and drift 0 put every ant on one point, the new slots consume no birth draw, and the two-colony census is byte-identical to `main` (§1e) |
-| can a colony grow workers and soldiers? | no mechanism: every ant buds a copy of itself and nothing about the parent's state reaches the child's body | **Feasible, cheaply, and as a real caste** — one genome, a spectrum of bodies along one heritable *reaction norm* (§2). Not the way real ants do it (there is no queen and no brood, and building one is a second economy); and the polymorphism route needs nothing built and is the control |
+| can a colony grow workers and soldiers? | no mechanism: every ant buds a copy of itself and nothing about the parent's state reaches the child's body | **Yes, if the engine lets a child's body depend on the state its parent was in when it budded** — plasticity, and nothing more. The first draft of §2 authored what a soldier *is* (which sense it answers, which slots move, which way); the owner ruled that out, and §2 now designs the general mechanism — a brain output the parent evaluates at budding, a heritable plasticity block, one line in the trait reader — under which a soldier caste is something a lineage *finds*, and castes we never thought of are equally reachable. Not built; the polymorphism route needs nothing built and is the control |
 
 ---
 
@@ -342,125 +342,131 @@ and the colony oscillates between strategies rather than holding a division
 of labour. That is a real and interesting dynamic (the design report's §5
 *seasons of war*) and it is the **control** against which any caste
 mechanism must be read: if (a) alone produces biters and foragers in a
-predator bed, a reaction norm has to do better than that to earn its slots.
+predator bed, plasticity has to do better than that to earn its slots.
 
-**Route (b), as the brief sketched it: one genome, two bodies.** A heritable
-second trait vector plus a heritable threshold on a parental signal. That
-is how real castes work, and it doubles the trait vector (14 → 28 slots,
-every jar and every species file) for a switch between two authored points.
+**Route (b): one genome, two bodies — as the brief sketched it, and as the
+first draft of this section designed it.** A heritable threshold on a
+parental *threat* signal, a `morph` scalar set at birth, and a rule that a
+high morph means more armour, a harder jaw and a smaller crop. It is cheap
+and it is a caste, and **it is ruled out** (owner, 2026-09-06: *"how much
+are we hard-coding this behaviour, which I don't want, versus making it
+possible within the engine?"*). Three things in it are authored that the
+engine has no business deciding: **which sense** a parent answers when it
+makes a child (threat, and nothing else); **which slots move and which
+way** (a designer's soldier, so a lineage could never discover a small fast
+disperser when crowded or a big-crop forager when rich); and **that the axis
+is soldier-versus-worker at all**, so the measurement counts a thing we
+defined and the feature reads as ours rather than the ants'. Only two
+pieces of it were honest: the price, which falls out of the armour and jaw
+levies that already exist, and a brain input that lets behaviour depend on
+how an animal was made.
 
-**Route (c), which is what I would build: one genome, a *spectrum* of
-bodies along one axis.** A caste is a *reaction norm* — the map from the
-environment a parent is in to the body its child gets — and the cheapest
-honest reaction norm here is one per-individual scalar and two heritable
-slots:
+### 2c. The design: plasticity, and nothing named
 
-- **`morph`** on `OrganismState`, `-1` (worker) to `+1` (soldier), a
-  phenotype set at birth and never inherited (jars do not store it; a
-  founder is `0`, so every shipped animal is exactly what it was).
-- **`TRAIT_MORPH_BIAS`** and **`TRAIT_MORPH_GAIN`**, heritable, mutated per
-  birth: `child.morph = clamp(bias + gain × signal(parent) + jitter)`. A
-  lineage with gain `0` has no castes and buds copies of its bias; a lineage
-  with a steep gain and a bias near zero buds soldiers when the signal is
-  high and workers when it is low, which is a bimodal body distribution —
-  Wilson's allometry — from a continuous rule. The jitter is the last draw
-  of the birth stream so it shifts nothing else, and it is what makes caste
-  determination near the threshold a distribution rather than a step.
-- **`morph` moves the expressed traits in one place.** Every `*_of`
-  resolver already reads through `creature::traits_of`; it returns the
-  *expressed* vector, which is the genotype with `TRAIT_ARMOUR` and
-  `TRAIT_DIG_FORCE` shifted up by `morph × MORPH_SPAN` and
-  `TRAIT_CROP_CAPACITY` shifted down by it. `state.traits` stays the
-  genotype, so `try_bud` inherits the genes and not the body. (One call
-  outside `traits_of` reads `st.traits` directly today — `armour_at`, the
-  other session's — and would read the expressed vector.)
-- **The price is already authored.** `armour_fraction` and `force_fraction`
-  charge per tick for the plate and the jaw an animal *expresses*, so a
-  soldier costs more to keep alive than a worker with the same genes, an
-  all-soldier colony burns faster and starves sooner, and the norm that
-  buds soldiers in peace is selected against by the existing ledger. No new
-  price, and no authored soldier-inhibition rule: the negative feedback that
-  sets a soldier *ratio* in real ants (Pheidole) is emergent here from cost.
-- **`BrainInput::Caste`**, one appended slot carrying `morph`, so behaviour
-  can differ — a soldier that stays where kin are dense (`Caste × KinNear →
-  Move`) and a worker that forages are one and two weights away. Positional
-  append, `live_slots` and every species' `mutation_rate` re-derived as
-  `ThreatNear` did.
+The engine lacks exactly one capability: **a child whose expressed body
+depends on the state its parent was in when it budded.** Build that and
+only that.
 
-**The signal the parent reads is the weak point, and it should be stated
-rather than designed around.** A blind ant today can know two things about
-threat: that it has been bitten and survived (`gnawed > 0` is banked on the
-victim and never heals), and how crowded it is (`Crowding`, already in the
-input vector). An eyed animal knows `ThreatNear`. When the alarm plane
-lands (other session, design §4d.3) a blind ant can smell that the colony
-is under attack, which is the signal real soldier determination actually
-uses. So `signal(parent)` in the first cut is `max(ThreatNear, gnawed > 0,
-alarm at head)` with the alarm term reading 0 until the plane exists — a
-composite, in `0..1`, documented as such, and a bed of blind ants will only
-bud soldiers off bites received, which is a lagging signal and will be
-visible as one.
+- **One brain output, `Provision`**, evaluated by the *parent* at the
+  moment `try_bud` places a child. The network decides, from whatever its
+  senses carry — crowding, energy, kin near, threat near, the alarm plane
+  once it lands — what number to hand the child. Nothing here says which
+  sense matters; a blind ant's brain has crowding, energy and being-bitten
+  to work with and an eyed one has more, and which of them a lineage comes
+  to answer is selection's to find. A positional append like `ThreatNear`
+  was: `live_slots` grows by one output's weights, every species'
+  `mutation_rate` is re-derived once, every jar pads.
+- **A heritable plasticity block**, one weight per `CREATURE_TRAITS` slot,
+  in the *genome* beside the brain's weights rather than in the trait
+  vector — it is developmental wiring, mutated by `brain::mutate` at the
+  genome's own rate, and it escapes the one-row-per-slot rule for the same
+  reason the brain's 12,352 weights do. Authored zero in every species file.
+- **The child's expressed traits are its inherited traits plus plasticity
+  times the parent's provision**, clamped to each slot's axis, applied in
+  `creature::traits_of` — the one function every `*_of` resolver already
+  reads through, so armour, jaw, crop, pace, sight, gut and the scent-side
+  slots all move if their weight says so and no resolver changes.
+  `state.traits` stays the genotype: `try_bud` inherits genes, not bodies.
+  The provision value is stored on the animal (`OrganismState::morph`, 0 for
+  a founder, never inherited, not in a jar), so a founder and every shipped
+  animal are byte-identical to today.
+- **The provision is fed back as a brain input, `Made`**, so behaviour can
+  depend on how an animal was made — a stay-at-home body and a stay-at-home
+  disposition are one weight apart.
+- **One dial**, `plasticity` on the GENOME page: a multiplier on the block,
+  `0` the shipped bed (byte-identical, no new birth draw), `1` the authored
+  reach. Everything else is the existing economy: a body with more plate
+  and jaw pays `armour_fraction` and `force_fraction` every tick for what
+  it *expresses*, so an over-provisioned child costs its lineage and the
+  weights that make it are selected on, with no soldier-inhibition rule
+  written anywhere.
 
-**Visibility.** A soldier must be seen or it is a number. Two options, both
-judge-by-eye and one of them cheap: a `CASTE` overlay on the ramp every
-scalar channel uses (build it *before* the mechanism, per `CLAUDE.md`), and
-a fourth `CreatureColour` mode. The option that would read at play zoom
-with no colour trick is a **longer body** for a high morph — `Chain(3)`
-against the worker's `Chain(2)`, laid at birth from a per-birth plan — which
-also prices itself (idle cost is per body cell) and makes a soldier sturdier
-(one more cell to chew through). It reintroduces a discrete step over a
-continuous morph, which is the first law's objection; the honest answer is
-to build the overlay first, look, and decide whether the eye needs the body.
+**What stays hard-coded even then, stated so nobody mistakes it for a
+choice made lightly:** bodies vary only along the trait axes that exist, so
+a caste with a different body *shape* cannot evolve while the body plan is
+per species; and development is one number at birth, never revised — a
+single hormone, which is what keeps it cheap and legible. Real castes are
+richer than that; this is the smallest honest version.
 
-### 2c. What would show castes being *selected for*, not merely reachable
+Under this design a colony that comes to bud armoured, hard-jawed,
+stay-at-home children when its senses say danger has *evolved* a soldier
+caste, and nothing in the engine knows the word. A colony could just as
+well evolve a caste nobody here thought of.
+
+### 2d. What would show plasticity being *selected for*, not merely reachable
 
 Reachable is cheap to show and proves nothing (`CLAUDE.md`: an image says
-what and where; only the number says whether it fired). The measurements,
-in order, each with its counter:
+what and where; only the number says whether it fired). With nothing named
+there is no soldier to count, so the measurements are about the
+*weights* and the *spread*:
 
-1. **Reachable.** `labstats predators=8` with the ant's `morph_gain` set
-   high: births by morph (a histogram printed beside `births`), soldier
-   fraction per group on the legend. Control: the same bed at `gain 0`
-   reads every birth at the bias.
-2. **Priced.** Paired bed, no predators, `bias +1` (all soldiers) against
-   `bias -1` (all workers), same seed: the soldier arm's per-tick cost and
-   its time to first starvation, both higher. If they are not, the price is
-   disconnected and nothing downstream means anything.
-3. **Selected for.** A `creature_arena` race, arm A `gain 0` against arm B
-   `gain > 0`, in a bed with breeding beetles, **past the founding grant
-   (24,000+ frames)**, six or more seeds, mirrored, read as *how many seeds
-   moved the same way*; beside it `World::group_deaths` (kills by the beetles,
-   per arm) and the beetle's own count. The null that makes it mean
-   something: the same race with `predators=0`, where B must *not* win. The
-   flight race in the design report's §4a is the template and its null is
-   the warning — that bed could not separate a fleeing arm from a blind one
-   at 24,000 frames, so the soldier race needs beetles that actually kill
-   (eight took few enough ants that the arms could not separate).
-4. **A caste, not a polymorphism.** The tell that (c) is doing something (a)
-   cannot: the *same lineage* (by `OrganismState::lineage`) contributing
-   both high- and low-morph children within one run, counted per lineage.
-   Under (a) a lineage is one morph.
+1. **Connected.** With the block hand-set (one weight, one input into
+   `Provision`), a bed's children express the shifted slot and the
+   parent's counters show the price — the positive control that the
+   plumbing reaches a body at all. Its null: `plasticity = 0` is byte-
+   identical to `main`.
+2. **Selected.** A `creature_arena` race, arm A with the block frozen at
+   zero against arm B free to mutate it, in a bed with breeding beetles,
+   past the founding grant (24,000+ frames), six or more seeds, mirrored,
+   read as *how many seeds moved the same way* — beside it, the block's
+   weights in B's survivors printed per lineage (do they leave zero, and
+   on which slots and which inputs) and `World::group_deaths` for what the
+   beetles took from each arm. The null that makes it mean something: the
+   same race with `predators=0`, where the weights should stay near zero
+   or drift without direction. The flight race in the design report's §4a
+   is the template and its warning: that bed could not separate arms at
+   24,000 frames, so the beetles must actually kill.
+3. **A caste, not a polymorphism.** The tell that this is doing something
+   route (a) cannot: **body spread within one lineage** (by
+   `OrganismState::lineage`), conditioned on the parent's provision — a
+   bimodal armour or crop distribution among siblings of one genotype.
+   Under (a) a lineage is one body. The ANTS page can carry it as a
+   per-group spread the way the outdoor colony panel carries trait spreads
+   today.
+4. **Named by the lab, not by us.** If a lineage's block puts two body
+   modes far enough apart, the same clustering the scent signature uses
+   can name the modes on the legend (`ANT 1 · big`, or the owner's word),
+   which is the naming decision already on the owner's card.
 
-**Soldiers are worthless until something can fight, and that is a
-statement about order.** Today a soldier's armour and bite matter against a
-beetle only when a hungry ant happens to stand beside one; the `Attack` verb
-(other session) is what lets a `Caste`-wired soldier *defend*, and the alarm
-plane is what tells it when. So the caste build follows both, and the
-measurement in (3) is only honest once an ant can bite a beetle it is not
-going to eat.
+**A caste is worthless until something can fight, and that is a statement
+about order.** Today a heavier body matters against a beetle only when a
+hungry ant happens to stand beside one; the `Attack` verb (other session)
+is what lets a `Made`-wired body *defend*, and the alarm plane is what tells
+it when. So the build follows both, and the race in (2) is only honest once
+an ant can bite a beetle it is not going to eat.
 
-### 2d. Verdict and decision
+### 2e. Verdict and decision
 
-**Feasible, cheap, and route (c).** Two heritable slots, one per-individual
-scalar, one line in `traits_of`, one brain input, and an overlay — no new
-price, no new body plan in the first cut, no queen. The owner has said the
-route is mine to choose; this is the choice, with the reasons above, and
-route (a) is what the first measurement runs as its control rather than a
-rival design. It is not built on this branch because it lands on the
-signature (the morph axis reuses `traits_of`, the slots, the padding and the
-page rows this branch adds) and because its only honest test needs the
-`Attack` verb and something for a soldier to do. Order: land §1; the other
-session lands armour reach, alarm and `Attack`; then the morph axis, with
-the overlay first and the race in §2c as its acceptance.
+**Feasible, cheap, and the general mechanism rather than the soldier.**
+One brain output, one positional genome block, one line in `traits_of`,
+one input, one dial — the same size as the authored design it replaces,
+with the soldier taken out of it. Route (a) is what the first measurement
+runs as its control rather than a rival design. Not built on this branch:
+it lands on the signature (the morph value reuses `traits_of`, the padding
+and the page rows this branch adds) and its only honest test needs the
+`Attack` verb and something for a provisioned body to do. Order: land §1;
+the other session lands armour reach, alarm and `Attack`; then plasticity,
+with the connected-control first and the race in §2d as its acceptance.
 
 ---
 

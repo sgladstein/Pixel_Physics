@@ -5858,8 +5858,10 @@ the same horizon (no pair ever parts far enough for a predicate to flip),
 and the bed's own starvation, not the drift, is what bounds how often a
 cluster of three drifted cousins is alive at once. Report:
 [`Reports/creature-signature-and-castes-2026-09-06.md`](Reports/creature-signature-and-castes-2026-09-06.md),
-which also carries the castes verdict: feasible as a heritable reaction
-norm along one morph axis, not built yet.
+which also carries the castes verdict: feasible as *plasticity and nothing
+named* — a brain output the parent evaluates at budding, a heritable
+plasticity block, one line in `traits_of` — under which a soldier caste is
+something a lineage finds rather than something authored; not built yet.
 
 ## Life record status — what an individual has done, and what killed it
 

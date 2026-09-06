@@ -957,11 +957,14 @@ drift that two of these documents still reflect.**
   and why a random-walk signature has no cohesion. **Castes**: what is true
   today (no queen, no brood, every ant buds a copy; nothing of the parent's
   state reaches the child's body), why genetic polymorphism is the control
-  and not a caste, and the design chosen — one genome, a *spectrum* of
-  bodies along a heritable reaction norm (`morph` at birth from a parental
-  threat signal, two heritable slots, expressed through `traits_of`, priced
-  by the existing armour and jaw levies, a `Caste` brain input) — with the
-  three measurements that would show it selected for rather than reachable.
+  and not a caste, why the first design (a threat-driven soldier morph) was
+  ruled out as hard-coding what a caste *is*, and the design chosen in its
+  place — **plasticity and nothing named**: a `Provision` brain output the
+  parent evaluates at budding, a heritable per-slot plasticity block in the
+  genome, one line in `traits_of`, a `Made` input, priced by the existing
+  levies — with the measurements that would show it selected for rather
+  than reachable (the block's weights leaving zero under predators, body
+  spread inside one lineage).
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,

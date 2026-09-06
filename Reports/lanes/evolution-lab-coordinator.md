@@ -875,14 +875,17 @@ scent and names a drifted cluster `ANT 1b`. `colony_rivalry` retired.
   0.15 like the others would have shifted every later draw in the jar's
   brood loop.
 - **Castes cannot arrive the way real ants get them, and do not need to.**
-  There is no queen and no brood; every ant buds a copy. The honest caste
-  is a *reaction norm* — one per-individual `morph` set at birth from a
-  parental threat signal, two heritable slots, expressed through
-  `traits_of` and priced by the armour and jaw levies that already exist.
-  Genetic polymorphism (biters and foragers as separate lineages) needs
-  nothing built and is the control, not a rival. Verdict: feasible and
-  cheap; deferred behind `Attack` because a soldier that cannot defend is a
-  number.
+  There is no queen and no brood; every ant buds a copy. The first design
+  here (a threat-driven soldier morph with authored slots) was **ruled out
+  by the owner the same evening** as hard-coding what a caste *is*: which
+  sense a parent answers, which slots move and which way, and that the
+  axis is soldier-versus-worker at all. The design of record is now
+  plasticity and nothing named — a `Provision` brain output the parent
+  evaluates at budding, a heritable per-slot plasticity block in the
+  genome, one line in `traits_of`, a `Made` input, priced by the existing
+  levies — under which a soldier is something a lineage finds. Genetic
+  polymorphism needs nothing built and is the control. Deferred behind
+  `Attack` because a provisioned body that cannot defend is a number.
 
 **Measured** (report §1e; every run `RAYON_NUM_THREADS=4`, paired against
 `main` `15ed3d6c` built clean in its own worktree): at the shipped dials
@@ -910,7 +913,7 @@ in front of the owner with the two §7 decisions as its question.
 signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/
 `crosses_kinds`; `World::colony_rivalry` no longer exists (`labstats
 rivalry=1` is an alias for `tolerance=-1 spread=1`). `armour_at` reads
-`st.traits` directly and will want `expressed` traits the day the morph axis
+`st.traits` directly and will want `expressed` traits the day plasticity
 lands — flagged, not changed. **Agreed order, by poke-trigger both ways
 (16:22 UTC):** its armour-reach PR lands first, this branch merges `main`
 and lands after. Its diff meets this one in four small places it named —
