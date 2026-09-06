@@ -3801,7 +3801,8 @@ mod tests {
         // The control: what `rebuild_blocked` says about this same world now.
         let mut fresh: ChunkMap<FieldTile> = ChunkMap::default();
         fresh.insert(coord, FieldTile::new());
-        rebuild_blocked(&world, &[coord], &mut fresh);
+        // A full scan: the mask is what the field takes from a fresh chunk.
+        rebuild_blocked(&world, &[coord], &[u16::MAX], &mut fresh);
         let scanned = &fresh[&coord];
 
         assert_eq!(carried.has_glow, scanned.has_glow, "has_glow diverged from a fresh scan");
