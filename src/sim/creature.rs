@@ -2345,7 +2345,29 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // vanishes at the 0.0 default -- `dug` is 0 on the overwhelming majority
     // of ticks and the multiply is skipped, so a species that has not opted
     // in is bit-identical and pays not even the arithmetic.
-    let dug = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **Gnawing comes back as work for the caller to charge, exactly as
+    // `dug` does.** `act` decides what an animal did; `creature_tick` owns
+    // the ledger. One place where work becomes energy.
+    let Did { dug, gnawed: gnaw_work } = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **Working the jaw costs, and leaving it free was a real defect.**
+    // Measured the moment the beetle was armoured for play: an ant beat a
+    // beetle that had just been made *tougher* -- two cells off it, none off
+    // the ant. Gnawing never swallows, so it never fills the crop and never
+    // sates: an ant that used to eat one beetle cell and stop now chews for
+    // ever at no cost, and armour made a target MORE attractive to sustained
+    // attack rather than less.
+    //
+    // Priced as what it is -- the same jaw work `dig_cost_in_moves` charges
+    // for cutting a cell of ground, scaled by the progress each bite made.
+    // Wearing through a cell costs what cutting one costs, however many bites
+    // it took: the price is on the work, not on the attempt, so a hard target
+    // is not also a cheap one.
+    if gnaw_work > 0.0 && def.dig_cost_in_moves > 0.0 {
+        let jaw = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * gnaw_work;
+        spent += jaw;
+        world.energy_ledger.metabolized += jaw as f64;
+        world.creature_stats.gnaw_energy += jaw as f64;
+    }
     if dug > 0 && def.dig_cost_in_moves > 0.0 {
         let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * dug as f32;
         spent += cost;
@@ -3632,7 +3654,25 @@ pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 /// not inside `launch`, so the energy ledger has one owner"*. `creature_tick`
 /// owns `spent`; a second function reaching into the bank is how a cost ends
 /// up applied twice or not at all.
-fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> u32 {
+/// **What an animal actually did this tick**, for the caller to charge.
+///
+/// A struct rather than a pair of out-parameters: the out-param version took
+/// `act` to eight arguments and clippy was right to refuse it. `act` decides
+/// what happened and `creature_tick` owns the ledger, so everything that costs
+/// energy leaves through here.
+#[derive(Default, Clone, Copy)]
+struct Did {
+    /// Cells excavated, priced at `dig_cost_in_moves` each.
+    dug: u32,
+    /// Total bite progress made against targets too armoured to swallow, in
+    /// cells: `0.39` is one bite that took 39% off a cell. Priced as the same
+    /// jaw work as digging, so wearing through a cell costs what cutting one
+    /// costs however many bites it took.
+    gnawed: f32,
+}
+
+fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
+    let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
@@ -3724,6 +3764,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     }
                     may_swallow = done;
                     world.creature_stats.gnaws += 1;
+                    // **Working the jaw costs, and leaving it free was a real
+                    // defect rather than an omission.** Measured the moment
+                    // the beetle was armoured for play: an ant beat a beetle
+                    // that had just been made *tougher*, 2 cells taken off it
+                    // and none taken off the ant. Gnawing never swallows, so
+                    // it never fills the crop and never sates -- an ant that
+                    // used to eat one beetle cell and stop now chews for
+                    // ever, for nothing, and armour made a target MORE
+                    // attractive to sustained attack instead of less.
+                    //
+                    // Priced as what it is: the same jaw work `dig_cost_in_
+                    // moves` charges for cutting a cell of ground, scaled by
+                    // the progress this bite actually made. Wearing through a
+                    // cell therefore costs the same as cutting one, however
+                    // many bites it took -- the price is on the work, not on
+                    // the attempt, so a hard target is not also a cheap one.
+                    // Returned for the caller to charge, exactly as `dug` is:
+                    // `act` decides what an animal did and `creature_tick`
+                    // owns the ledger, so there is one place where work
+                    // becomes energy.
+                    did.gnawed += bite_damage;
                 }
             }
         }
@@ -3830,7 +3891,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // two verbs merged when the decision between them went away.
                 world.creature_stats.eats += 1;
                 world.creature_stats.best_bite = world.creature_stats.best_bite.max(worth);
-                return 0;
+                return did;
             }
         }
     }
@@ -3908,7 +3969,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     }
                 }
             }
-            return 0;
+            return did;
         }
     }
 
@@ -3997,7 +4058,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // Laden either way: a full mandible is a mandible that cannot cut,
         // which is what makes a burrow grow at the rate the colony can clear
         // it rather than at the rate a constant sets.
-        return 0;
+        return did;
     }
 
     // --- dig --------------------------------------------------------------
@@ -4118,10 +4179,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 state.life.digs += 1;
             }
             line_burrow(world, tx, ty);
-            return 1;
+            return Did { dug: 1, ..did };
         }
     }
-    0
+    Did { dug: 0, ..did }
 }
 
 /// How far up a pellet may be carried to reach the surface, in cells.

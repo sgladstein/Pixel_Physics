@@ -484,6 +484,11 @@ pub struct CreatureStats {
     /// call, so a rising `gnaws` with a flat `eats` is a colony chewing on
     /// something it will never get through.
     pub gnaws: u64,
+    /// What gnawing cost -- the jaw work of a bite that wore a target down
+    /// without taking a cell. Free until 2026-09-06, and an unpriced verb
+    /// with no satiety limit: an animal that cannot swallow its target never
+    /// fills its crop, so it chews for ever at no cost.
+    pub gnaw_energy: f64,
     /// What was billed for the plate this animal wears, every tick it is
     /// alive, bitten or not.
     pub armour_energy: f64,
