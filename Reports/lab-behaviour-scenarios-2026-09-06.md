@@ -8,10 +8,12 @@ interesting behaviors that we would like to see and then design specific
 environment scenarios to make it happen. What do you think about this
 approach?"*
 
-**Status: design. Nothing built and nothing measured by this report.** Read
-off `main` at `a9744f9d`. Every number in it is quoted from a report that
-measured it, and each one is cited; a claim with no citation is a prediction
-and says so.
+**Status: design, with §4's first item built the same day** — the scenario
+file is `src/lab/scenario.rs`, and §7 below records what building it found.
+Nothing else in the catalogue is built, and no scenario has been run to its
+horizon yet. Read off `main` at `a9744f9d`. Every number in it is quoted
+from a report that measured it, and each one is cited; a claim with no
+citation is a prediction and says so.
 
 The two documents this sits on top of, and should be read with:
 
@@ -529,7 +531,7 @@ bare patches where colonies sit — which is legible on its own.
    `bin/lab.rs` already runs twice at startup. It costs the frame nothing:
    everything in it happens at build or at a scheduled frame. It is a data
    format and a builder, and it is the one piece of engine work the approach
-   actually needs.
+   actually needs. **Built — §7.**
 2. **The ant's eye** — `sight_range` on `ant.ron`, one asset line, priced
    already, with the plan's own guard to watch go red. Unblocks S6 and S11
    and is the cheapest route to the most visible behaviour on the list.
@@ -593,3 +595,52 @@ already fired at least once on the creature line.
 
 The scenario file (§4 item 1) is worth starting alongside S1, because S2, S3,
 S4 and S7 all wait on it to leave the single-play stage.
+
+---
+
+## 7. Built the same day: the scenario file, and what building it found
+
+`src/lab/scenario.rs`, on this report's branch. README's *"Lab scenarios
+status"* is the shipped behaviour; this section keeps only what a later
+session cannot reconstruct from the code.
+
+**What a scenario is, as shipped.** A `LabBox` plus three lists: settings
+(parameters-page knobs by the page's own labels, so a scenario can switch
+the ant's eye on without touching `ant.ron`), placements applied once after
+the build (a filled rectangle, a heap or a scatter on the surface, a plant,
+a colony or one animal at a column, and the bed's own colony and predator
+spread so a `compartments` sweep still lands one per room), and a timeline
+of the same placements at frames. Loaded from the BOX page, from
+`scenario=` at startup, and from `labbatch`/`labshot`. Eight files under
+`assets/lab_scenarios/`, one per S1–S6 plus the two paired controls. The
+per-tick cost of the timeline check is unmeasurable by a paired control
+over one cloned world.
+
+**Three things the pictures found that the counters could not**, each now
+written into the scenario file it applies to:
+
+- **Plant founders were eaten before they established.** A colony placed on
+  frame 0 lands beside seeds, and `gauses_jar` read *plants 0* from frame 100
+  on. So every scenario that has both founds its colonies from the timeline
+  after a 3,000-frame head start, and a guard asserts no creature exists
+  before that arrival and a plant is still standing when it lands. Measured
+  after: plants 8 → 48 → 98 → 210 at frames 0 / 3,000 / 6,000 / 12,000 in
+  Gause's jar. **Any future scenario with plants and animals wants the same
+  shape**, and it is the first thing to suspect when a scenario's plant
+  count reads zero.
+- **Soil is a powder, so an authored cliff is a ramp.** `the_bank`'s
+  vertical face slumps into a short slope inside the first 3,000 frames and
+  then holds; the bank top stays at full height. S4 is therefore "dig into a
+  slope", not "dig into a wall", until a scenario can lay a stone core under
+  a soil skin. Recorded rather than fought.
+- **A larder has to be sized from the colony's burn, not chosen.** Fifty-two
+  ants idle at 31,200 energy per 6,000 frames, and this report's first heap
+  sizes fed a fifth of that: both rooms of `two_larders` had eaten their
+  starting heaps by frame 600. The shipped heaps cover about 92% of idle burn
+  per window (30 windfall / 60 corpse) so births, not starvation, decide the
+  count. The arithmetic is in each file's header so the owner can move it.
+
+And one placement fact worth carrying: a 52-ant colony's band is ~204 cells
+wide and centred on its column, so the smallest column at which all 52 place
+on the shipped bed is **x = 107** (35 of 52 at x = 40; 64, 80, 96, 102 and
+106 all lose at least one).
