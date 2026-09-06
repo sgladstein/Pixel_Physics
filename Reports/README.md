@@ -943,6 +943,25 @@ drift that two of these documents still reflect.**
   predator, so flight is unselectable); an `Attack` verb distinct from
   eating; an alarm pheromone plane; per-group deaths by cause. Eight ways to
   play it, ranked by how much already exists.
+- [creature-signature-and-castes-2026-09-06.md](creature-signature-and-castes-2026-09-06.md)
+  — **kin is a distance now, and the castes verdict, 2026-09-06.** Builds
+  the groups report's §3: four heritable slots (a three-number scent
+  signature and a tolerance), `is_living_kin` as *the other's scent within
+  my tolerance* with the colony label nowhere in it, a per-colony founding
+  offset and a per-birth drift so two clicks start a little apart and
+  lineages part, and the colony label made to *follow* the scent — a
+  lineage that drifts out of its family is named `ANT 1b` on the legend.
+  The `colony rivalry` switch retired into the tolerance dial's narrow end;
+  the shipped bed is byte-identical at the default dials. Records what the
+  signature does not do (merge, cohere a colony, give it a private trail)
+  and why a random-walk signature has no cohesion. **Castes**: what is true
+  today (no queen, no brood, every ant buds a copy; nothing of the parent's
+  state reaches the child's body), why genetic polymorphism is the control
+  and not a caste, and the design chosen — one genome, a *spectrum* of
+  bodies along a heritable reaction norm (`morph` at birth from a parental
+  threat signal, two heritable slots, expressed through `traits_of`, priced
+  by the existing armour and jaw levies, a `Caste` brain input) — with the
+  three measurements that would show it selected for rather than reachable.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,

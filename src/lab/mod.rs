@@ -1285,6 +1285,12 @@ impl Lab {
         // `stats::observe` early-returns before `take_census` unless the
         // interval is up, and `History::observe` returns before counting
         // organisms. Two integer comparisons per tick.
+        // **Let the colony labels follow the scent before the page samples
+        // them** -- `World::regroup_by_scent`. Here rather than in the tick
+        // because it is a census-cadence pass (the ANTS page is the reader)
+        // and `observe` only takes `&World`; a bed at the shipped dials pays
+        // one comparison per animal and mints nothing.
+        self.world.regroup_by_scent();
         self.stats.observe(&self.world);
         self.ui.observe(&self.world);
     }

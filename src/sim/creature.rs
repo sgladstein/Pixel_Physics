@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
+use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -125,6 +125,11 @@ const RNG_SLOT_DEATH: u64 = 2;
 /// spreads through the whole colony and that both of the guards over the
 /// last instance of it stayed green through.
 const RNG_SLOT_BIRTH: u64 = 3;
+/// The colony-scent stream: one draw of three per colony label, keyed on
+/// the world seed and the label alone (`colony_scent_offset`), so every
+/// station of one founding gesture and every jar released into that label
+/// shares the offset, and a rebuilt box at the same seed reproduces it.
+const RNG_SLOT_COLONY_SCENT: u64 = 4;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -1153,6 +1158,8 @@ fn place_creature(
         Origin::Founder { .. } | Origin::Stock { .. } => def.start_energy,
         Origin::Bud { traits, .. } => birth_grant(def, traits),
     };
+    // Read before the state is borrowed mutably, for the colony offset below.
+    let seed = world.seed;
     if let Some(state) = world.organism_mut(organism) {
         state.energy = endowment;
         state.chain = positions;
@@ -1168,6 +1175,11 @@ fn place_creature(
                 // `push_organism` leaves the neutral vector because it does
                 // not know whether it is allocating a plant.
                 state.traits = def.traits;
+                // **Plus the colony's founding offset in scent**, so two
+                // clicks of one kind start a little apart --
+                // `TRAIT_SCENT_A`'s reason. Zero spread is a no-op that
+                // consumes no draw at placement.
+                apply_colony_scent(&mut state.traits, seed, colony, def.scent_spread);
                 state.inherited = false;
                 state.generation = 0;
             }
@@ -1196,6 +1208,11 @@ fn place_creature(
                 // release into the birth column.
                 state.genome = genome.clone();
                 state.traits = *traits;
+                // A released jar founds (or joins) a label like any click,
+                // so it carries that label's offset on top of the scent it
+                // was jarred with -- the specimen's own drift is kept, the
+                // gesture's identity is added.
+                apply_colony_scent(&mut state.traits, seed, colony, def.scent_spread);
                 state.inherited = false;
                 state.stocked = true;
                 state.generation = 0;
@@ -1913,7 +1930,8 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
         let mut genome = std::mem::take(&mut state.genome);
         brain::mutate(&mut genome, def.mutation_rate, &mut draw);
         state.genome = genome;
-        for (t, &width) in state.traits.iter_mut().zip(def.trait_variance.iter()) {
+        for (slot, t) in state.traits.iter_mut().enumerate() {
+            let width = trait_width(def, slot);
             if width > 0.0 {
                 // `gut_bias` is a position on a `-1..=1` axis and every
                 // other slot in `CREATURE_TRAITS` is defined the same way,
@@ -3101,13 +3119,17 @@ pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
 #[derive(Clone, Copy)]
 struct Gut {
     bias: f32,
-    /// Whose flesh counts as kin — see `is_living_kin`.
+    /// Whose flesh counts as kin — see `is_living_kin`. Consulted only
+    /// while `crosses_kinds` is off, which is the shipped case.
     species: SpeciesId,
-    /// **And which colony**, read with `rivalry`: with the world's
-    /// `colony_rivalry` on, kin is the same species *and* the same
-    /// `OrganismState::colony`; off, this field is carried and never read.
-    colony: u32,
-    rivalry: bool,
+    /// **What this animal smells like**, `SCENT_SLOTS` of its own traits,
+    /// and **how far another's scent may be from it and still be family**,
+    /// squared so the comparison in `is_living_kin` is three multiplies and
+    /// no root -- see `TRAIT_TOLERANCE` for the axis.
+    scent: [f32; 3],
+    tolerance_sq: f32,
+    /// `CreatureDef::kin_crosses_kinds`: whether species is consulted at all.
+    crosses_kinds: bool,
     eats_kin: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
@@ -3131,13 +3153,89 @@ struct Gut {
 }
 
 fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
+    let traits = traits_of(world, organism, def);
+    let radius = tolerance_radius(&traits);
     Gut {
-        bias: world.organism(organism).map_or(0.0, |s| s.traits[TRAIT_GUT_BIAS]),
+        bias: traits[TRAIT_GUT_BIAS],
         species: world.organism(organism).map_or(SpeciesId(0), |s| s.species),
-        colony: world.organism(organism).map_or(0, |s| s.colony),
-        rivalry: world.colony_rivalry,
+        scent: scent_of(&traits),
+        tolerance_sq: radius * radius,
+        crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
-        bite: bite_force_of(def, &traits_of(world, organism, def)),
+        bite: bite_force_of(def, &traits),
+    }
+}
+
+/// The three signature slots of a trait vector, as one point.
+pub fn scent_of(traits: &[f32; CREATURE_TRAITS]) -> [f32; 3] {
+    [traits[SCENT_SLOTS[0]], traits[SCENT_SLOTS[1]], traits[SCENT_SLOTS[2]]]
+}
+
+/// **How far another animal's scent may be from this one's and still read
+/// as kin**, as a plain radius: `tolerance + 1`, so `-1` is an exact match
+/// only, `0` is one unit of scent and `+1` is two. Linear and unscaled on
+/// purpose -- the distance is printed on the cell page and "within 1.3 of
+/// mine" has to be a sentence a player can check against two rows.
+pub fn tolerance_radius(traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    traits[TRAIT_TOLERANCE].clamp(-1.0, 1.0) + 1.0
+}
+
+/// Squared straight-line distance between two scents. Squared because the
+/// only consumer compares it against a squared radius, and a root in the
+/// predicate the mouth, the eye and the kin sense all call would be paid
+/// per neighbour per tick for nothing.
+pub fn scent_distance_sq(a: &[f32; 3], b: &[f32; 3]) -> f32 {
+    let d0 = a[0] - b[0];
+    let d1 = a[1] - b[1];
+    let d2 = a[2] - b[2];
+    d0 * d0 + d1 * d1 + d2 * d2
+}
+
+/// **Does `judge` count `other` as family?** The one definition, on two
+/// trait vectors, so a census can ask it of two animals without a `Cell`
+/// in hand -- `World::regroup_by_scent` clusters on exactly this.
+///
+/// `judge`'s tolerance, `other`'s scent: not symmetric, per
+/// `TRAIT_TOLERANCE`. The species gate is the caller's (`is_living_kin`
+/// applies it unless the judge's kind crosses kinds).
+pub fn scent_accepts(judge: &[f32; CREATURE_TRAITS], other: &[f32; CREATURE_TRAITS]) -> bool {
+    let r = tolerance_radius(judge);
+    scent_distance_sq(&scent_of(judge), &scent_of(other)) <= r * r
+}
+
+/// **The per-birth width of one trait slot.** `trait_variance` for the
+/// body slots; `scent_drift` -- one number, the speed of speciation -- for
+/// the four `SCENT_SIDE_SLOTS`, whose `trait_variance` entries are not
+/// read. In one place so `try_bud` and the jar's brood loop cannot answer
+/// it differently.
+pub fn trait_width(def: &CreatureDef, slot: usize) -> f32 {
+    if SCENT_SIDE_SLOTS.contains(&slot) {
+        def.scent_drift
+    } else {
+        def.trait_variance[slot]
+    }
+}
+
+/// **One colony's founding offset in scent**, uniform in `-spread..=spread`
+/// on each signature slot, keyed on the world seed and the colony label and
+/// nothing else -- see `RNG_SLOT_COLONY_SCENT`. Zero spread draws nothing.
+pub fn colony_scent_offset(seed: u64, colony: u32, spread: f32) -> [f32; 3] {
+    if spread <= 0.0 || colony == 0 {
+        return [0.0; 3];
+    }
+    let mut draw = rng::stream(seed, colony as u64, 0, RNG_SLOT_COLONY_SCENT);
+    let mut out = [0.0; 3];
+    for o in &mut out {
+        *o = (draw.unit_f32() * 2.0 - 1.0) * spread;
+    }
+    out
+}
+
+/// Add the colony's offset to a founder's signature, clamped to the axis.
+fn apply_colony_scent(traits: &mut [f32; CREATURE_TRAITS], seed: u64, colony: u32, spread: f32) {
+    let off = colony_scent_offset(seed, colony, spread);
+    for (i, slot) in SCENT_SLOTS.iter().enumerate() {
+        traits[*slot] = (traits[*slot] + off[i]).clamp(-1.0, 1.0);
     }
 }
 
@@ -3163,20 +3261,35 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
 /// 8-neighbourhood, which contains the next link of its own chain, and the
 /// name list was the only thing preventing that too.
 ///
-/// **Since 2026-09-06, kin can be narrower than the species.** The owner,
+/// **Since 2026-09-06, kin is a distance and not a bit.** The owner,
 /// watching two colonies: *"if I place ants as multiple clicks, are they
 /// separate colonies and does that mean anything gameplay-wise? Do
-/// different ant colonies ever attack/eat each other?"* They did not, and
-/// could not: this predicate was the species and nothing else. With
-/// `World::colony_rivalry` on it is the species **and** the colony, so an
-/// ant from the other click is somebody else's flesh — and is therefore
-/// prey to any gut whose diet reaches flesh, by the same arithmetic that
-/// makes an ant prey to a beetle. Off (the default), nothing here has
-/// changed. What this deliberately does *not* do is invent an aggression
-/// verb: rivalry today is predation between colonies, and the design that
-/// goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
+/// different ant colonies ever attack/eat each other? Once they evolve, is
+/// an ant always an ant?"* They did not, could not, and was: this predicate
+/// was the species and nothing else. For one evening it was the species
+/// *and* the colony label behind a `colony_rivalry` switch -- a bit that
+/// made two clicks strangers and could never make a drifted lineage one.
+/// Now it is **the other animal's scent within this animal's tolerance**
+/// (`TRAIT_SCENT_A`, `TRAIT_TOLERANCE`): an ant from the other click is
+/// family while the two colonies smell alike and somebody else's flesh --
+/// prey to any gut whose diet reaches flesh, by the arithmetic that makes an
+/// ant prey to a beetle -- once they have drifted apart, and a lineage that
+/// drifts past every other's tolerance is, to them, a new kind. The switch
+/// retired into the tolerance dial's narrow end: spread the colonies and set
+/// the ancestral tolerance to `-1` and every click is a stranger, exactly as
+/// before. At the shipped settings (no spread, no drift) every scent in the
+/// box is one point, so every ant is every ant's nestmate and nothing here
+/// has changed.
+///
+/// Species is still consulted, **unless this kind crosses kinds**
+/// (`CreatureDef::kin_crosses_kinds`, off): a beetle is never an ant's
+/// family however its scent lands, which is the owner's call to reverse.
+/// What this still does *not* do is invent an aggression verb; the design
+/// that goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
 fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
-    world.organism(cell.organism_id()).is_some_and(|s| s.species == gut.species && (!gut.rivalry || s.colony == gut.colony))
+    world.organism(cell.organism_id()).is_some_and(|s| {
+        (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&s.traits), &gut.scent) <= gut.tolerance_sq
+    })
 }
 
 /// **The best cell in the head's 8-neighbourhood this gut will take**, with
@@ -3682,8 +3795,9 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
 /// enough, so "could it open me" is a matter of time and not of kind.
 ///
 /// Its own body is excluded by owner, and a nestmate falls out through the
-/// other side's `eats_kin` in `is_visible_prey` -- with `colony_rivalry`
-/// on, an ant of the other colony is a threat, as it should be.
+/// other side's `eats_kin` in `is_visible_prey` -- read against the
+/// *other's* tolerance, so an ant of a colony that has drifted out of
+/// mine is a threat to me exactly when I am food to it.
 fn is_visible_threat(world: &World, cell: Cell, self_organism: u16, self_head: Cell) -> bool {
     let other = cell.organism_id();
     if other == 0 || other == self_organism || world.materials.kind(cell.material) != MaterialKind::Creature {
@@ -9639,22 +9753,26 @@ mod tests {
         assert!(nestmate_seen_as_food(true), "with eats_kin on it must be -- if this fails, the arm proves nothing and the test above it is vacuous");
     }
 
-    /// **Two colonies of one species are nestmates until the box says
-    /// otherwise** -- the `colony_rivalry` rule, asserted on the predicate
-    /// the way the nestmate test above is, and for the same reason: a
-    /// survival scene passes whatever the kin rule does.
+    /// **Two colonies of one species are nestmates until their scents
+    /// part** -- the signature rule, asserted on the predicate the way the
+    /// nestmate test above is, and for the same reason: a survival scene
+    /// passes whatever the kin rule does.
     ///
-    /// Three arms, so the test can fail in every direction that matters. Two
-    /// ants placed by two separate gestures are two colonies; with rivalry
-    /// off the stranger is not food (nothing changed), with it on the
-    /// stranger is (the rule reaches the mouth), and an ant placed *into*
-    /// the first one's colony is still not food with rivalry on (the rule
-    /// is about the colony and not merely "any other ant"). The gut is a
-    /// carnivore's so that the only thing between the mouth and the meal is
-    /// kinship.
+    /// Arms, so the test can fail in every direction that matters. Two ants
+    /// placed by two gestures are two colonies: at the shipped dials (no
+    /// spread, no drift) the stranger is not food, exactly as before the
+    /// slots existed; with the two scents pushed apart past the judge's
+    /// tolerance the stranger is food (the rule reaches the mouth); pushed
+    /// apart but inside a widened tolerance it is kin again (the radius is
+    /// the judge's own); and the *narrow end* -- tolerance `-1`, any spread
+    /// -- makes any other colony a stranger, which is what the retired
+    /// `colony rivalry` switch did and is why it could retire. The gut is a
+    /// carnivore's so that the only thing between the mouth and the meal
+    /// is kinship.
     #[test]
-    fn a_stranger_colony_is_kin_until_rivalry_is_on() {
-        let stranger_seen_as_food = |rivalry: bool, same_colony: bool| -> bool {
+    fn a_stranger_colony_is_kin_until_its_scent_leaves_my_tolerance() {
+        // `(other's scent offset on slot A, judge's tolerance allele)`.
+        let stranger_seen_as_food = |offset: f32, tolerance: f32| -> bool {
             let mut w = test_world();
             for x in 90..112 {
                 w.set(x, 101, Cell::new(material::STONE, 0));
@@ -9663,30 +9781,255 @@ mod tests {
             let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
             def.traits[TRAIT_GUT_BIAS] = 1.0;
             w.species.set_creature(id, def.clone());
-            w.colony_rivalry = rivalry;
 
             let a = spawn(&mut w, "ant", 100, 100);
-            let a_colony = w.organism(a).expect("a").colony;
-            assert_ne!(a_colony, 0, "a placed animal founds a colony");
-            let join = same_colony.then_some(a_colony);
-            let site = plant_creature_seed_in(&mut w, 102, 100, "ant", join).expect("b places");
-            w.schedule_active_site(site);
-            let b = w.get(102, 100).organism_id();
-            let b_colony = w.organism(b).expect("b").colony;
-            if same_colony {
-                assert_eq!(b_colony, a_colony, "joining a colony must take its label");
-            } else {
-                assert_ne!(b_colony, a_colony, "a second gesture must found a second colony");
-            }
+            let b = spawn(&mut w, "ant", 102, 100);
+            assert_ne!(w.organism(a).expect("a").colony, w.organism(b).expect("b").colony, "two gestures must found two colonies");
+            // Push the stranger's scent, and set the judge's tolerance,
+            // on the standing animals -- the slots are heritable state on
+            // the individual, which is the whole point.
+            let b_scent = w.organism(b).expect("b").traits[organism::TRAIT_SCENT_A];
+            assert!(w.set_organism_trait(b, organism::TRAIT_SCENT_A, b_scent + offset));
+            assert!(w.set_organism_trait(a, TRAIT_TOLERANCE, tolerance));
             let ant_material = w.materials.id_of("ant").expect("ant material");
             assert_eq!(w.get(101, 100).material, ant_material, "the other ant must be in reach for the question to be asked");
 
             adjacent_food(&w, a, (100, 100), gut_of(&w, a, &def)).is_some()
         };
 
-        assert!(!stranger_seen_as_food(false, false), "rivalry off: an ant of another colony is a nestmate, exactly as before");
-        assert!(stranger_seen_as_food(true, false), "rivalry on: an ant of another colony is not kin, so to a meat gut it is food");
-        assert!(!stranger_seen_as_food(true, true), "rivalry on, same colony: still a nestmate -- the rule is the colony, not every other ant");
+        // Shipped: same point, authored tolerance 0 (radius 1).
+        assert!(!stranger_seen_as_food(0.0, 0.0), "shipped dials: an ant of another colony is a nestmate, exactly as before");
+        // Parted past the radius.
+        assert!(stranger_seen_as_food(0.9, -0.5), "0.9 apart against a radius of 0.5: not kin, so to a meat gut it is food");
+        // Parted, but the judge is tolerant.
+        assert!(!stranger_seen_as_food(0.9, 0.0), "0.9 apart against a radius of 1.0: still kin -- the radius is the judge's own");
+        // The narrow end: any difference at all is a stranger.
+        assert!(stranger_seen_as_food(0.05, -1.0), "tolerance -1 is an exact match only -- the retired rivalry switch's whole meaning");
+        assert!(!stranger_seen_as_food(0.0, -1.0), "and an exact match is still kin at radius zero, which is what keeps the shipped bed one family whatever tolerance drifts to");
+    }
+
+    /// **Family is judged from the judge's side, and it is not symmetric.**
+    /// A tolerant ant beside an intolerant one: the tolerant one will not
+    /// bite (it sees kin), the intolerant one will (it sees a stranger).
+    /// That asymmetry is what adoption and raiding both look like from the
+    /// inside, and it is asserted here because a "fix" that symmetrised the
+    /// predicate (kin if *either* tolerates) would read as tidier and would
+    /// delete both.
+    #[test]
+    fn tolerance_is_judged_from_my_side_only() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.traits[TRAIT_GUT_BIAS] = 1.0;
+        w.species.set_creature(id, def.clone());
+        let a = spawn(&mut w, "ant", 100, 100);
+        let b = spawn(&mut w, "ant", 102, 100);
+        // 0.9 apart; A tolerates 1.0, B tolerates 0.5.
+        assert!(w.set_organism_trait(b, organism::TRAIT_SCENT_B, 0.9));
+        assert!(w.set_organism_trait(a, TRAIT_TOLERANCE, 0.0));
+        assert!(w.set_organism_trait(b, TRAIT_TOLERANCE, -0.5));
+        let a_head = (100, 100);
+        let b_head = (102, 100);
+        assert!(adjacent_food(&w, a, a_head, gut_of(&w, a, &def)).is_none(), "the tolerant ant sees family and will not bite");
+        assert!(adjacent_food(&w, b, b_head, gut_of(&w, b, &def)).is_some(), "the intolerant ant sees a stranger and will");
+    }
+
+    /// **A beetle is never an ant's family unless the ant's kind crosses
+    /// kinds.** Two animals of different species at the *same* scent: with
+    /// `kin_crosses_kinds` off (shipped) the species gate holds and the ant
+    /// is still prey; on, only scent decides and the beetle will not bite
+    /// it. Asserted on the predicate the eye uses, because that is where a
+    /// hunter's menu is made.
+    #[test]
+    fn a_beetle_is_never_family_unless_its_kind_crosses_kinds() {
+        let beetle_sees_ant_as_prey = |crosses: bool| -> bool {
+            let mut w = test_world();
+            for x in 90..130 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let bid = w.species.id_of("beetle").expect("beetle");
+            let mut bdef = w.species.get(bid).creature.as_ref().expect("creature").clone();
+            bdef.kin_crosses_kinds = crosses;
+            // Put the beetle's authored scent on the ant's point.
+            for slot in SCENT_SLOTS {
+                bdef.traits[slot] = 0.0;
+            }
+            w.species.set_creature(bid, bdef.clone());
+            let ant = spawn(&mut w, "ant", 100, 100);
+            let beetle = spawn(&mut w, "beetle", 110, 100);
+            assert!(w.organism(ant).is_some() && w.organism(beetle).is_some(), "both must place");
+            let ant_cell = w.get(100, 100);
+            is_visible_prey(&w, ant_cell, gut_of(&w, beetle, &bdef), beetle)
+        };
+        assert!(beetle_sees_ant_as_prey(false), "shipped: a different kind is never family, so the ant is prey however alike they smell");
+        assert!(!beetle_sees_ant_as_prey(true), "crossing kinds: only scent decides, and at the same scent the ant is family");
+    }
+
+    /// **Every station of one founding shares the colony's scent offset, and
+    /// two foundings do not** -- `colony_scent_offset` is keyed on the label,
+    /// so a colony is one point in scent and two colonies are two. At zero
+    /// spread every founder anywhere sits on the species' authored point,
+    /// which is the shipped bed. Deterministic in the seed, so a rebuilt box
+    /// reproduces its colonies' scents.
+    #[test]
+    fn a_founding_shares_one_scent_offset_and_two_foundings_differ() {
+        let scents = |spread: f32| -> (Vec<[f32; 3]>, Vec<[f32; 3]>) {
+            let mut w = test_world();
+            for x in 10..190 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_spread = spread;
+            w.species.set_creature(id, def);
+            assert!(w.found_colony_of(50, 100, "ant", 4) >= 2);
+            assert!(w.found_colony_of(150, 100, "ant", 4) >= 2);
+            let groups = w.live_creature_groups();
+            assert_eq!(groups.len(), 2, "{groups:?}");
+            let of = |colony: u32| -> Vec<[f32; 3]> {
+                live_creature_ids(&w)
+                    .into_iter()
+                    .filter_map(|id| w.organism(id))
+                    .filter(|s| s.colony == colony)
+                    .map(|s| scent_of(&s.traits))
+                    .collect()
+            };
+            (of(groups[0].colony), of(groups[1].colony))
+        };
+        let (a, b) = scents(0.0);
+        assert!(a.iter().chain(b.iter()).all(|s| *s == [0.0; 3]), "zero spread: every founder on the authored point: {a:?} {b:?}");
+        let (a, b) = scents(0.5);
+        assert!(a.iter().all(|s| *s == a[0]), "one founding, one offset: {a:?}");
+        assert!(b.iter().all(|s| *s == b[0]), "one founding, one offset: {b:?}");
+        assert_ne!(a[0], b[0], "two foundings, two offsets");
+        assert!(a[0].iter().chain(b[0].iter()).all(|v| v.abs() <= 0.5), "an offset is bounded by the spread: {a:?} {b:?}");
+        let (a2, b2) = scents(0.5);
+        assert_eq!((a2[0], b2[0]), (a[0], b[0]), "the same seed draws the same offsets");
+    }
+
+    /// **A lineage that drifts out of its colony's family is named as a new
+    /// group** -- `World::regroup_by_scent`, read back through
+    /// `live_creature_groups` and `group_label`, which is what the ANTS
+    /// page draws. One colony of six; three of them pushed far enough in
+    /// scent that neither side tolerates the other. After the pass: two
+    /// groups, the half holding the oldest founding line keeps `ANT 1`, the
+    /// other is `ANT 1b` under a fresh label minted as `1`'s child, and the
+    /// pass is idempotent. Then the control that makes the first half mean
+    /// something: put the scents back together and nothing is minted.
+    #[test]
+    fn a_lineage_that_drifts_past_tolerance_is_named_as_a_new_group() {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(w.found_colony_of(60, 100, "ant", 6), 6, "the scene must hold six ants");
+        let ids: Vec<u16> = live_creature_ids(&w);
+        assert_eq!(ids.len(), 6);
+        let label = w.organism(ids[0]).expect("ant").colony;
+        // Control: one point, nothing to split.
+        assert_eq!(w.regroup_by_scent(), 0, "at one scent the pass mints nothing");
+        assert_eq!(w.live_creature_groups().len(), 1);
+        // The three youngest founding lines drift away together.
+        let mut by_lineage: Vec<(u32, u16)> = ids.iter().map(|&id| (w.organism(id).expect("ant").lineage, id)).collect();
+        by_lineage.sort_unstable();
+        let drifters: Vec<u16> = by_lineage.iter().skip(3).map(|&(_, id)| id).collect();
+        for &id in &drifters {
+            assert!(w.set_organism_trait(id, organism::TRAIT_SCENT_C, 1.0));
+            assert!(w.set_organism_trait(id, TRAIT_TOLERANCE, -0.5));
+        }
+        for &id in ids.iter().filter(|id| !drifters.contains(id)) {
+            assert!(w.set_organism_trait(id, TRAIT_TOLERANCE, -0.5));
+        }
+        assert_eq!(w.regroup_by_scent(), 1, "one cluster has parted, so one label is minted");
+        let groups = w.live_creature_groups();
+        assert_eq!(groups.len(), 2, "{groups:?}");
+        assert_eq!(groups[0].colony, label, "the half with the oldest line keeps the label: {groups:?}");
+        assert_eq!((groups[0].alive, groups[1].alive), (3, 3), "{groups:?}");
+        let ant = w.species.id_of("ant").expect("ant");
+        assert_eq!(w.group_label(ant, groups[0].colony), format!("ANT {label}"));
+        assert_eq!(w.group_label(ant, groups[1].colony), format!("ANT {label}b"), "the new group is named as the old one's child");
+        for &id in &drifters {
+            assert_eq!(w.organism(id).expect("ant").colony, groups[1].colony, "every drifter wears the new label");
+        }
+        assert_eq!(w.regroup_by_scent(), 0, "idempotent: nothing left to split");
+        // A second split off the same parent is `c`; one off the child is `bb`.
+        let more = w.claim_colony();
+        w.colony_parents.push((more, label));
+        assert_eq!(w.group_label(ant, more), format!("ANT {label}c"));
+        let grandchild = w.claim_colony();
+        w.colony_parents.push((grandchild, groups[1].colony));
+        assert_eq!(w.group_label(ant, grandchild), format!("ANT {label}bb"));
+    }
+
+    /// **A cluster too small to be a line keeps its old label.** One ant
+    /// drifting alone out of a colony of six is not a new kind, it is an ant
+    /// on its own -- `MIN_SPLIT_GROUP` -- so the pass mints nothing for it
+    /// and it stays counted, coloured and (correctly) bitten under its old
+    /// name. Put the fault back by dropping the floor to 1 and this mints.
+    #[test]
+    fn a_lone_drifter_is_not_a_new_group() {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        assert_eq!(w.found_colony_of(60, 100, "ant", 6), 6);
+        let ids = live_creature_ids(&w);
+        for &id in &ids {
+            assert!(w.set_organism_trait(id, TRAIT_TOLERANCE, -0.5));
+        }
+        assert!(w.set_organism_trait(ids[5], organism::TRAIT_SCENT_A, 1.0));
+        assert_eq!(w.regroup_by_scent(), 0, "a lone wanderer is under the floor of {}", crate::sim::world::MIN_SPLIT_GROUP);
+        assert_eq!(w.live_creature_groups().len(), 1);
+        // The positive control: a drifting pair plus the loner is three,
+        // which is the floor, and mints.
+        assert!(w.set_organism_trait(ids[4], organism::TRAIT_SCENT_A, 1.0));
+        assert!(w.set_organism_trait(ids[3], organism::TRAIT_SCENT_A, 1.0));
+        assert_eq!(w.regroup_by_scent(), 1);
+        assert_eq!(w.live_creature_groups().len(), 2);
+    }
+
+    /// **The scent slots drift at `scent_drift` and at nothing else, and at
+    /// zero they consume no birth draw.** A breeding colony at the species'
+    /// shipped `scent_drift` of 0 bears children whose four scent-side slots
+    /// equal their parents' exactly while the body slots have moved; at a
+    /// drift of 0.3 the scent slots move too and stay on the axis. The
+    /// first arm is the guard that the shipped bed is byte-identical to
+    /// before the slots existed: a width of zero takes the `if width > 0`
+    /// branch that draws nothing.
+    #[test]
+    fn the_scent_slots_drift_only_at_scent_drift() {
+        let scent_moved = |drift: f32| -> (bool, bool) {
+            let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+            let id = w.species.id_of("ant").expect("ant");
+            let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_drift = drift;
+            w.species.set_creature(id, def);
+            run(&mut w, 60);
+            assert!(w.creature_stats.births > 0, "nothing was born, so nothing was inherited and this test proves nothing");
+            let founder_scent = scent_of(&w.organism(founders[0]).expect("founder").traits);
+            let founder_tol = w.organism(founders[0]).expect("founder").traits[TRAIT_TOLERANCE];
+            let mut scent_moved = false;
+            let mut body_moved = false;
+            for id in live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)) {
+                let t = w.organism(id).expect("child").traits;
+                assert!(t.iter().all(|v| (-1.0..=1.0).contains(v)), "every slot stays on the axis: {t:?}");
+                if scent_of(&t) != founder_scent || t[TRAIT_TOLERANCE] != founder_tol {
+                    scent_moved = true;
+                }
+                if t[TRAIT_GUT_BIAS] != 0.0 || t[TRAIT_PACE] != 0.0 {
+                    body_moved = true;
+                }
+            }
+            (scent_moved, body_moved)
+        };
+        let (scent, body) = scent_moved(0.0);
+        assert!(body, "the body slots must move at the species' variance, or the arm below proves nothing");
+        assert!(!scent, "at scent_drift 0 no child's scent or tolerance moves -- the shipped bed");
+        let (scent, _) = scent_moved(0.3);
+        assert!(scent, "at scent_drift 0.3 the scent slots move -- if this fails, the dial is disconnected");
     }
 
     /// **One founding is one colony and the next founding is another**,

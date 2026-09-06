@@ -98,12 +98,17 @@
 //!   that does and does not catch.
 //! - **The per-slot vectors are `Vec`, not fixed arrays.** A `draws`,
 //!   `alleles` or `traits` list that is *shorter* than the engine's current
-//!   width loads and is padded with the species mean (0.0), which is exactly
-//!   what a lawful append means: the individual predates the slot and has the
-//!   ancestral value in it. A list that is *longer* is refused, because that
-//!   is a file from a future build and its extra number means something this
-//!   build cannot read. Fixed arrays would have turned a lawful append into
-//!   "every jar on the shelf fails to parse".
+//!   width loads and is padded with the ancestral value, which is exactly
+//!   what a lawful append means: the individual predates the slot and has
+//!   whatever a newborn of its species starts with in it. For `draws` and
+//!   `alleles` that ancestral value is zero, so `padded`/`padded_u8` pad
+//!   with it directly; `traits`' ancestral point is a *species* field
+//!   (`CreatureDef::traits`) that is not always zero -- `beetle.ron`'s scent
+//!   signature is `(0.8, 0.8, 0.8)` -- so `padded_from` pads from the live
+//!   species' own defaults instead. A list that is *longer* is refused,
+//!   because that is a file from a future build and its extra number means
+//!   something this build cannot read. Fixed arrays would have turned a
+//!   lawful append into "every jar on the shelf fails to parse".
 //!
 //! # Provenance, and why a jar remembers its parent jar
 //!
@@ -474,10 +479,11 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
     match (&mut out.genetics, &species.creature) {
         (Genetics::Creature(g), Some(def)) => {
             let mut genome = genome_of(g)?;
-            let mut traits: [f32; organism::CREATURE_TRAITS] = padded(&g.traits, "TRAITS")?;
+            let mut traits: [f32; organism::CREATURE_TRAITS] = padded_from(&g.traits, &def.traits, "TRAITS")?;
             for _ in 0..broods {
                 moved += brain::mutate(&mut genome, def.mutation_rate, rng);
-                for (t, &width) in traits.iter_mut().zip(def.trait_variance.iter()) {
+                for (slot, t) in traits.iter_mut().enumerate() {
+                    let width = super::creature::trait_width(def, slot);
                     if width > 0.0 {
                         // The bud path's own clamp, and it is the axis
                         // rather than a tuning choice — every slot in
@@ -581,13 +587,36 @@ fn genome_of(g: &CreatureGenetics) -> Result<Vec<f32>, ShelfError> {
 /// A stored per-slot vector widened to this build's width.
 ///
 /// Short is lawful and means "this individual predates the slot", so the
-/// missing tail reads as the species mean. Long is refused — see the
-/// module doc.
+/// missing tail pads with zero. **That reads as the species mean only for a
+/// slot whose ancestral value actually is zero** — true of every plant
+/// vector this is called on, false of the CREATURE trait vector the day a
+/// species is authored away from the origin (`beetle.ron`'s scent signature,
+/// `(0.8, 0.8, 0.8)`, is exactly that case). Use [`padded_from`] for a
+/// vector whose ancestral point is not the origin. Long is refused — see
+/// the module doc.
 fn padded<const N: usize>(stored: &[f32], what: &'static str) -> Result<[f32; N], ShelfError> {
     if stored.len() > N {
         return Err(ShelfError::FromTheFuture(what, stored.len(), N));
     }
     let mut out = [0.0; N];
+    out[..stored.len()].copy_from_slice(stored);
+    Ok(out)
+}
+
+/// [`padded`] for a vector whose ancestral value is not the origin — the
+/// CREATURE trait vector, whose missing tail must read as the *species'*
+/// ancestral point (`CreatureDef::traits`) rather than zero. A jar bred or
+/// released before a species grew a new trait slot predates that slot
+/// entirely; padding it with zero would silently hand that individual the
+/// origin on that axis instead of the ancestral value every other member of
+/// its species starts from, which is a species-level `traits` edit
+/// masquerading as an individual's fresh mutation. Long is refused, exactly
+/// as [`padded`].
+fn padded_from<const N: usize>(stored: &[f32], species_defaults: &[f32; N], what: &'static str) -> Result<[f32; N], ShelfError> {
+    if stored.len() > N {
+        return Err(ShelfError::FromTheFuture(what, stored.len(), N));
+    }
+    let mut out = *species_defaults;
     out[..stored.len()].copy_from_slice(stored);
     Ok(out)
 }
@@ -646,7 +675,17 @@ pub fn release_in(world: &mut World, spec: &Specimen, x: i32, y: i32, broods: u3
     match &drifted.specimen.genetics {
         Genetics::Creature(g) => {
             let genome = genome_of(g)?;
-            let traits: [f32; organism::CREATURE_TRAITS] = padded(&g.traits, "TRAITS")?;
+            // The species' own ancestral point, not the origin -- see
+            // `padded_from`. `release_creature_specimen` looks this up
+            // again internally to build the body; a species with no
+            // creature block any more fails there exactly as it always
+            // did, so falling back to `padded`'s zero-pad here costs
+            // nothing on that path and is only ever wrong on this one.
+            let creature_def = world.species.id_of(&spec.species).and_then(|id| world.species.get(id).creature.clone());
+            let traits: [f32; organism::CREATURE_TRAITS] = match &creature_def {
+                Some(def) => padded_from(&g.traits, &def.traits, "TRAITS")?,
+                None => padded(&g.traits, "TRAITS")?,
+            };
             let organism = super::creature::release_creature_specimen(world, x, y, &spec.species, genome, traits, colony).ok_or(ShelfError::NoRoom)?;
             Ok(Released { organism, at: (x, y), moved })
         }
@@ -900,6 +939,44 @@ mod tests {
         let after = w.organism(out.organism).expect("the released ant");
         assert_eq!(after.genome, genome, "the released ant is not carrying the genome that was kept");
         assert_eq!(after.traits, traits, "the released ant's body traits did not survive the jar");
+    }
+
+    #[test]
+    fn a_short_jars_missing_scent_and_tolerance_pad_from_the_species_not_zero() {
+        // **The fault `padded`'s old zero-pad would produce, put back
+        // deliberately.** A jar from before `CREATURE_TRAITS` widened to 14
+        // carries only 10 trait entries; the missing scent-and-tolerance
+        // tail must read as *this species'* ancestral point, not the
+        // origin -- exactly the case `beetle.ron`'s non-zero scent
+        // signature proves the plain zero-pad gets wrong. Moving the
+        // species' authored tolerance off zero and checking the released
+        // slot lands there, rather than at 0.0, is what tells the two
+        // apart: the old code and the new one agree on every other slot.
+        let mut w = floored_world();
+        let ant_id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(ant_id).creature.clone().expect("ant is a creature");
+        def.traits[organism::TRAIT_TOLERANCE] = 0.5;
+        w.species.set_creature(ant_id, def);
+
+        let id = distinctive_ant(&mut w);
+        let mut spec = capture(&w, id, "keeper").expect("an ant is keepable");
+        let Genetics::Creature(g) = &mut spec.genetics else { panic!("an ant is a creature") };
+        // A pre-widening jar: ten entries, none of them the species mean,
+        // so a slot that came through unchanged is distinguishable from
+        // one that was overwritten.
+        let jars_own: Vec<f32> = (0..10).map(|i| 0.05 * i as f32).collect();
+        g.traits = jars_own.clone();
+
+        let mut r = shelf_rng();
+        let out = release(&mut w, &spec, 140, 100, 0, &mut r).expect("released onto bare stone");
+        let after = w.organism(out.organism).expect("the released ant");
+
+        assert_eq!(&after.traits[0..10], jars_own.as_slice(), "the jar's own ten slots must survive untouched");
+        assert_eq!(
+            after.traits[organism::TRAIT_TOLERANCE], 0.5,
+            "the missing tolerance slot must pad from the species' own ancestral point -- \
+             the old zero-pad would read 0.0 here"
+        );
     }
 
     #[test]

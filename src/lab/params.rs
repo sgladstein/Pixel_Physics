@@ -696,6 +696,9 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "eats_kin" => f32::from(u8::from(def.eats_kin)),
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
+        "scent_drift" => def.scent_drift,
+        "scent_spread" => def.scent_spread,
+        "kin_crosses_kinds" => f32::from(u8::from(def.kin_crosses_kinds)),
         _ => return None,
     })
 }
@@ -738,18 +741,34 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
 
-    // **The one rule on this page**, under its own header so a page of one
+    // **The colony-founding rows**, under their own header so a page of one
     // species' numbers does not appear to have grown a row that reaches
-    // every animal -- `plant_mechanics_rows`' reasoning. See
-    // `World::colony_rivalry` for exactly what it changes and does not.
-    out.push(toggle(
-        g,
-        Knob::Rule { field: "colony_rivalry" },
-        "colonies",
-        "rivalry",
-        world.colony_rivalry,
-        "WHETHER TWO COLONIES OF ONE KIND ARE STRANGERS. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED IS ITS OWN COLONY, AND ITS CHILDREN ARE BORN INTO IT -- THE GRAPH ON THE ANTS PAGE AND THE COLOURS IN THE BOX ARE THAT SPLIT. OFF IS THE SHIPPED BEHAVIOUR: A COLONY IS A LABEL, EVERY ANT IS EVERY OTHER ANT'S NESTMATE, AND ANTS NEVER BITE ANTS. ON, AN ANT FROM ANOTHER COLONY IS NOT KIN, SO A HUNGRY ANT WILL EAT ONE EXACTLY AS IT WOULD EAT A BEETLE, AND THE TWO COLONIES STOP DRAWING TOGETHER. IT ADDS NO NEW WAY OF FIGHTING AND THEY STILL SHARE ONE SET OF SCENT TRAILS. FELT ON THE NEXT TICK, LASTS THE SESSION, SAVED WITH THE OTHER RULES.",
-    ));
+    // every animal -- `plant_mechanics_rows`' reasoning. These replace the
+    // retired `colony_rivalry` rule switch: what it did (every colony a
+    // stranger to every other) is now the narrow end of `scent_spread` at
+    // an authored tolerance of `-1`, rather than a bit of its own. See
+    // `TRAIT_TOLERANCE`.
+    if let Some(value) = creature_value(world, species, "scent_spread") {
+        out.push(float(
+            g,
+            Knob::Creature { species: sp.clone(), field: "scent_spread" },
+            "colonies",
+            "scent_spread",
+            value,
+            span(0.0, 1.0, 0.05),
+            "HOW DIFFERENT TWO COLONIES OF THIS KIND SMELL WHEN YOU PUT THEM DOWN. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED DRAWS ITS OWN OFFSET FROM THE ANCESTRAL SCENT, THIS FAR AT MOST ON EACH OF THE THREE SCENT NUMBERS, AND ITS CHILDREN ARE BORN WITH IT. AT 0 -- THE SHIPPED SETTING -- EVERY CLICK IS ONE FAMILY. AT 1 WITH TOLERANCE AT -1 EVERY CLICK IS A STRANGER TO EVERY OTHER, SO A HUNGRY ANT EATS AN ANT FROM THE OTHER CLICK AS IT WOULD A BEETLE, WHICH IS WHAT THE OLD COLONY RIVALRY SWITCH DID. FELT AT THE NEXT FOUNDING, NOT ON ANIMALS ALREADY STANDING.",
+        ));
+    }
+    if let Some(v) = creature_value(world, species, "kin_crosses_kinds") {
+        out.push(toggle(
+            g,
+            Knob::Creature { species: sp.clone(), field: "kin_crosses_kinds" },
+            "colonies",
+            "kin_crosses_kinds",
+            v >= 0.5,
+            "WHETHER THIS KIND CAN EVER COUNT ANOTHER KIND AS FAMILY. OFF, A BEETLE IS NEVER AN ANT'S FAMILY HOWEVER ALIKE THEY SMELL, AND SCENT ONLY DECIDES WHO IS FAMILY AMONG ANTS. ON, ONLY SCENT DECIDES, SO A LINEAGE THAT DRIFTS ONTO ANOTHER KIND'S SCENT IS ADOPTED BY IT -- REAL BIOLOGY, AND POSSIBLY ABSURD TO WATCH. OFF IS THE SHIPPED BEHAVIOUR.",
+        ));
+    }
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -784,6 +803,14 @@ pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
         "HOW MUCH THIS LINEAGE'S CROP HOLDS: +1 IS TWICE THE SPECIES' AND -1 IS HALF IT. A BIG CROP MEANS FEWER TRIPS AND A HEAVIER WALK BACK, SINCE CARRYING COSTS MOVEMENT; A SMALL ONE MEANS A LIGHT ANT THAT HAS TO KEEP COMING BACK. IT CANNOT SHRINK BELOW THE POINT WHERE A LOAD COULD NEVER BE PUT DOWN AGAIN."),
     (organism::TRAIT_PACE, "pace",
         "HOW FAST THIS LINEAGE LIVES: +1 IS AN ANT THAT TAKES ITS TURN TWICE AS OFTEN AND -1 ONE THAT TAKES IT HALF AS OFTEN. IT MOVES THE TICK INTERVAL ROW ABOVE, AND IT IS THE ONE ROW ON THIS PAGE YOU CAN WATCH WITHOUT AN OVERLAY -- A QUICK ANT SCURRIES AND A SLOW ONE PLODS. IT IS NOT A FREE SPEED-UP: EVERY COST AN ANT PAYS IS CHARGED ONCE PER TURN, SO LIVING TWICE AS FAST BURNS TWICE AS FAST."),
+    (organism::TRAIT_SCENT_A, "scent_a",
+        "ONE OF THE THREE NUMBERS THAT ARE WHAT THIS LINEAGE SMELLS LIKE TO OTHER ANIMALS. IT DOES NOTHING ON ITS OWN -- FAMILY IS DECIDED BY HOW FAR APART TWO ANIMALS' SCENTS ARE, AGAINST THE JUDGE'S TOLERANCE. THIS IS THE ANCESTRAL POINT; EVERY COLONY STARTS HERE PLUS ITS OWN OFFSET (COLONY SCENT SPREAD, ON THE ANTS PAGE) AND ITS CHILDREN DRIFT FROM THERE AT SCENT DRIFT."),
+    (organism::TRAIT_SCENT_B, "scent_b",
+        "THE SECOND SCENT NUMBER. THREE RATHER THAN ONE SO THAT TWO LINEAGES DRIFTING AT RANDOM PART IN A SPACE AND STAY PARTED, WHERE ON A SINGLE LINE THEY WOULD KEEP CROSSING BACK INTO EACH OTHER'S FAMILY."),
+    (organism::TRAIT_SCENT_C, "scent_c",
+        "THE THIRD SCENT NUMBER. THE DISTANCE BETWEEN TWO ANIMALS IS THE STRAIGHT-LINE DISTANCE ACROSS ALL THREE, SO TWO ANIMALS A WHOLE STEP APART ON EVERY NUMBER ARE 1.73 APART."),
+    (organism::TRAIT_TOLERANCE, "tolerance",
+        "HOW FAR ANOTHER ANIMAL'S SCENT MAY BE FROM MINE AND STILL COUNT AS FAMILY: -1 IS AN EXACT MATCH ONLY, SO EVERY OTHER COLONY IS A STRANGER (THIS IS WHAT COLONY RIVALRY USED TO BE); 0 IS ONE UNIT OF SCENT; +1 IS TWO. IT IS JUDGED FROM MY SIDE ONLY -- A TOLERANT ANT KEEPS WALKING UP TO AN INTOLERANT ONE THAT WILL BITE IT. HERITABLE, AND WHILE EVERY SCENT IN THE BOX IS THE SAME POINT IT CHANGES NOTHING."),
 ];
 
 /// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
@@ -807,6 +834,11 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
+            // **The speed of speciation.** Zero is the shipped setting and
+            // the four scent-side slots below are inert at it -- see `TRAIT_SCENT_A`.
+            out.push(float(g, Knob::Creature { species: sp.clone(), field: "scent_drift" }, species, "scent_drift",
+                def.scent_drift, span(0.0, 1.0, 0.01),
+                "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION: AT 0 -- THE SHIPPED SETTING -- NO LINEAGE EVER DRIFTS AND A COLONY STAYS ONE FAMILY FOR EVER; TURN IT UP AND LINEAGES WANDER APART UNTIL SOME ARE STRANGERS TO THE REST, AT WHICH POINT THE ANTS PAGE NAMES THEM AS A NEW GROUP AND A HUNGRY ANT WILL EAT ONE. NOBODY CAN SET THIS FROM THEORY; FIND THE RATE AT WHICH COLONIES SPLIT INSIDE A SESSION."));
             for (slot, name, note) in TRAIT_ROWS {
                 out.push(float(g, Knob::CreatureTrait { species: sp.clone(), slot: *slot }, species, name,
                     def.traits[*slot], span(-1.0, 1.0, 0.05), note));
@@ -926,12 +958,6 @@ pub struct Dials {
     pub plant_load_failure: bool,
     pub plant_bending: bool,
     pub plant_size_cadence: bool,
-    /// `World::colony_rivalry`. `serde(default)` because this field arrived
-    /// after the file did: a `lab_dials.ron` saved before 2026-09-06 has no
-    /// such key, and without the default `load_saved` would refuse the whole
-    /// file and silently drop every other dial the player had set.
-    #[serde(default)]
-    pub colony_rivalry: bool,
     pub mutation_sigma: f32,
     pub fate_mutation_chance: f32,
     pub param_mutation_chance: f32,
@@ -960,7 +986,6 @@ impl Dials {
             plant_load_failure: world.plant_load_failure,
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
-            colony_rivalry: world.colony_rivalry,
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
             param_mutation_chance: world.param_mutation_chance,
@@ -989,7 +1014,6 @@ impl Dials {
         world.plant_load_failure = self.plant_load_failure;
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
-        world.colony_rivalry = self.colony_rivalry;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1083,6 +1107,9 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "eats_kin" => def.eats_kin = value >= 0.5,
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
+                "scent_drift" => def.scent_drift = value,
+                "scent_spread" => def.scent_spread = value,
+                "kin_crosses_kinds" => def.kin_crosses_kinds = value >= 0.5,
                         _ => return false,
             }
             world.species.set_creature(id, def);
@@ -1192,7 +1219,6 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_load_failure" => world.plant_load_failure = on,
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
-                "colony_rivalry" => world.colony_rivalry = on,
                 _ => return false,
             }
             true
@@ -1806,14 +1832,14 @@ mod tests {
 
         let (mut world, _) = bed();
         world.plant_load_failure = false;
-        world.colony_rivalry = true;
+        world.plant_bending = true;
         world.mutation_sigma = 0.25;
         world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
         Dials::from_world(&world).save().expect("save");
 
         let loaded = Dials::load_saved().expect("a just-saved file parses back");
         assert!(!loaded.plant_load_failure);
-        assert!(loaded.colony_rivalry);
+        assert!(loaded.plant_bending);
         assert_eq!(loaded.mutation_sigma, 0.25);
         // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
         assert_eq!(loaded.developmental_key, 4);
@@ -1821,7 +1847,7 @@ mod tests {
         let mut fresh = bed().0;
         loaded.apply_to(&mut fresh);
         assert!(!fresh.plant_load_failure);
-        assert!(fresh.colony_rivalry);
+        assert!(fresh.plant_bending);
         assert_eq!(fresh.mutation_sigma, 0.25);
         assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
 
@@ -1829,25 +1855,27 @@ mod tests {
         std::env::remove_var(Dials::ASSET_PATH_ENV);
     }
 
-    /// **A dials file saved before `colony_rivalry` existed still loads.**
-    /// Without `serde(default)` on the new field, `load_saved` would return
-    /// `None` for every pre-2026-09-06 file and the player's other seven
-    /// dials would silently revert -- a reader with no writer, looking
-    /// exactly like a fresh install. Put the fault back by deleting the
-    /// attribute and this goes red.
+    /// **A dials file saved while `colony_rivalry` still existed still
+    /// loads, now that the field is gone.** Serde ignores unknown keys by
+    /// default -- `Dials` carries no `deny_unknown_fields` -- so a
+    /// pre-retirement `lab_dials.ron` must load exactly as it did before,
+    /// with its stray `colony_rivalry` key simply dropped, rather than
+    /// refusing the whole file and silently reverting the player's other
+    /// seven dials. Put the fault back by adding `#[serde(deny_unknown_fields)]`
+    /// to `Dials` and this goes red.
     #[test]
-    fn a_dials_file_without_the_rivalry_key_still_parses() {
+    fn a_dials_file_with_the_retired_rivalry_key_still_parses() {
         let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
         let path = scratch_path("dials_old");
         std::env::set_var(Dials::ASSET_PATH_ENV, &path);
         std::fs::write(
             &path,
-            "(plant_load_failure: false, plant_bending: true, plant_size_cadence: false, mutation_sigma: 0.25, fate_mutation_chance: 0.1, param_mutation_chance: 0.1, param_mutation_sigma: 0.1, developmental_key: 0)\n",
+            "(plant_load_failure: false, plant_bending: true, plant_size_cadence: false, colony_rivalry: true, mutation_sigma: 0.25, fate_mutation_chance: 0.1, param_mutation_chance: 0.1, param_mutation_sigma: 0.1, developmental_key: 0)\n",
         )
         .expect("write");
-        let loaded = Dials::load_saved().expect("an old file must still parse");
+        let loaded = Dials::load_saved().expect("a file carrying the retired key must still parse");
         assert!(!loaded.plant_load_failure, "the other dials survive");
-        assert!(!loaded.colony_rivalry, "the missing key defaults to the shipped behaviour");
+        assert!(loaded.plant_bending, "the other dials survive");
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(Dials::ASSET_PATH_ENV);
     }
@@ -2193,7 +2221,7 @@ mod tests {
             "start_energy", "body_energy", "crop_capacity", "digest_rate",
             "reproduce_threshold", "mutation_rate", "tick_interval",
             "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
-            "climbs_over_kin", "eats_kin",
+            "climbs_over_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
             "synapse_fraction", "sight_fraction", "curvature_fraction",
