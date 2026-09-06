@@ -3,9 +3,15 @@
 //! Three invariants here are load-bearing for everything that comes later, and
 //! are cheap now but very expensive to retrofit:
 //!
-//! 1. Storage is a `HashMap<ChunkCoord, Chunk>`, never a flat array. A flat
-//!    `Vec<Cell>` indexed `y * width + x` is the single decision that would
-//!    force a rewrite when the streaming world arrives in M10.
+//! 1. Storage is a sparse chunk store addressed by `ChunkCoord`
+//!    (`ChunkGrid`: a dense window of `Option<Chunk>`, grown on demand),
+//!    never a flat cell array. A flat `Vec<Cell>` indexed `y * width + x` is
+//!    the single decision that would force a rewrite when the streaming
+//!    world arrives in M10 — `ChunkGrid` is not that: it stays
+//!    chunk-granular, and an unloaded chunk is still `None`, exactly what
+//!    M10 streaming needs; a lookup just costs an index instead of a hash
+//!    and a probe (`fxhash`'s module doc has the profile that motivated the
+//!    change).
 //! 2. Every coordinate crossing this API is a global signed world coordinate.
 //!    Screen space exists only in the renderer.
 //! 3. All cell access goes through `get`/`set`. That is the seam where chunk
@@ -16,7 +22,7 @@ use std::collections::BinaryHeap;
 use std::sync::OnceLock;
 
 use super::cell::Cell;
-use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::chunk::{Chunk, ChunkCoord, ChunkGrid, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature;
 use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
@@ -1028,7 +1034,7 @@ pub struct SoilWaterStats {
 
 #[derive(Clone)]
 pub struct World {
-    chunks: ChunkMap<Chunk>,
+    chunks: ChunkGrid,
     /// One tile per chunk, same lifetime — see the module doc on `field` for
     /// why tying them together avoids a second loading/unloading system.
     fields: ChunkMap<FieldTile>,
@@ -2930,7 +2936,7 @@ impl World {
 
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
-            chunks: ChunkMap::default(),
+            chunks: ChunkGrid::new(),
             fields: ChunkMap::default(),
             bounds: Some(bounds),
             cell_scale: 1.0,
@@ -3072,7 +3078,7 @@ impl World {
         for cy in c0.y..=c1.y {
             for cx in c0.x..=c1.x {
                 let coord = ChunkCoord::new(cx, cy);
-                self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+                self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
                 self.fields.entry(coord).or_insert_with(FieldTile::new);
             }
         }
@@ -5189,7 +5195,7 @@ impl World {
             let coord = ChunkCoord::containing(x, y);
             // The last row of this chunk, or the end of the run.
             let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
-            let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+            let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
             let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
             for cy in y..=seg_end {
                 let cell = make(cy);
@@ -5477,7 +5483,7 @@ impl World {
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
-        let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+        let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
         let old = chunk.get_world(x, y);
         chunk.set_world(x, y, cell, reach, is_liquid);
         self.touch_neighbours(x, y, coord);
@@ -5990,7 +5996,7 @@ impl World {
         let mut plans: Vec<(ChunkCoord, crate::sim::chunk::SweepPlan)> = Vec::new();
         for (coord, chunk) in self.chunks.iter_mut() {
             if let Some(plan) = chunk.take_moist_plan() {
-                plans.push((*coord, plan));
+                plans.push((coord, plan));
             }
         }
         // Deterministic order: chunk row descending (lower rows are larger

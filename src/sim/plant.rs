@@ -7106,7 +7106,10 @@ pub fn stress_field(world: &World, organism_id: u16) -> std::collections::HashMa
     // hashes. `rank` was called once per *sort comparison* and nine times
     // per cell in the flow loop, on top of eight `index` hashes per cell for
     // the neighbour lookup. Hoisted, it is one `get` and one `organism_cell`
-    // per cell, full stop.
+    // per cell, full stop. (`World::chunks` is a `ChunkGrid` now, so the
+    // first of those two hashes is an index instead -- the hoist's own
+    // count of calls is untouched, since `organism_cell`'s lookup and
+    // `rank`'s call sites did not change.)
     //
     // **Resolved through the grid, exactly as `World::organism_cell` does,
     // and not through `state.cells`.** The two can disagree for a tick --

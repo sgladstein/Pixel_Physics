@@ -38,6 +38,9 @@ fn best_of(runs: usize, mut f: impl FnMut() -> u64) -> (f64, u64) {
 
 /// Read every visible pixel's cell through the ordinary `World::get` — one
 /// `HashMap<ChunkCoord, Chunk>` lookup, and therefore one SipHash, per pixel.
+/// (`World::chunks` is a `ChunkGrid` now, so the per-pixel cost below is an
+/// index rather than a hash -- lower, and still one per pixel, which is
+/// exactly what `read_via_chunk_hoist` still avoids.)
 /// This is what `cell_colour` does today.
 fn read_via_world_get(world: &World, x0: i32, y0: i32) -> u64 {
     let mut acc = 0u64;

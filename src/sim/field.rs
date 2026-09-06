@@ -2747,7 +2747,9 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<Fie
         // Fetched once per chunk instead of once per *CA cell scanned*
         // (previously up to `FIELD_TILE_SIZE^2 * FIELD_SCALE^2` = 4096
         // `World::get` calls per chunk, each a bounds check plus a
-        // `HashMap<ChunkCoord, Chunk>` lookup). `coords` comes from
+        // `HashMap<ChunkCoord, Chunk>` lookup -- an index into `ChunkGrid`
+        // now, but the once-per-chunk hoist is the win either way, since it
+        // also removes the 4096x redundant re-reading). `coords` comes from
         // `world.chunks()` (see `step` above), so every entry is
         // guaranteed resident -- this can never be `None`. `Chunk::get_world`
         // still takes global coordinates and does its own local-index

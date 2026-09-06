@@ -5310,6 +5310,10 @@ impl Renderer {
     /// same cells, at **11.8 ns/px through `World::get` against 2.7 ns/px
     /// hoisted**. Same trick `build_sky_light` above already applies to its
     /// block scan, and the same one `ChunkView` applies to the sweep.
+    /// (`World::chunks` is a `ChunkGrid` now, an index rather than a hash
+    /// and a probe, so the absolute numbers above have both come down since
+    /// they were measured -- the hoist's *relative* win over calling `get`
+    /// per pixel is unaffected, which is what this still demonstrates.)
     ///
     /// **Callers owe the bounds check**, which `ChunkRun::colour` makes --
     /// there, because outside the world there is no chunk worth looking up
@@ -6541,7 +6545,10 @@ fn underground_from_scratch(world: &World, b: Rect) -> Vec<u64> {
 /// one lookup per run of 64. Measured by `examples/render_cost.rs`, whose two
 /// read paths assert they return the same cells before it times them:
 /// **11.8 ns/px through `World::get` against 2.7 ns/px hoisted**, on a redraw
-/// where the reads are 9% of the whole.
+/// where the reads are 9% of the whole. (`World::chunks` is a `ChunkGrid`
+/// now -- an index, not a hash and a probe -- which lowers both numbers and
+/// changes neither the hoist nor why it still wins: one lookup per run of
+/// 64 beats one per pixel regardless of what the lookup costs.)
 ///
 /// **A miss is remembered as deliberately as a hit.** A non-resident chunk is
 /// in-bounds space that has not been materialised, which `World::get` reports
