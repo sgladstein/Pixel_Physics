@@ -7728,9 +7728,8 @@ fn break_root_tips(world: &mut World, organism_id: u16) {
                 let mut open = false;
                 for (dx, dy) in NEIGHBOURS_4 {
                     let n = world.get(x + dx, y + dy);
-                    let m = world.materials.get(n.material);
-                    if m.water_capacity > 0 {
-                        wet += update::plant_available_fraction(n);
+                    if drinkable_face(world, n) {
+                        wet += face_available(world, n);
                         open = true;
                     }
                 }
@@ -8317,6 +8316,80 @@ fn allocate_to_frontier(world: &mut World, organism_id: u16) {
     }
 }
 
+/// Whether a root cell sharing a face with `n` can drink from it — **the
+/// predicate `absorb_water` actually uses, rather than a proxy for it.**
+///
+/// The two arms of `absorb_water` are `MaterialKind::Liquid` (free water)
+/// and the soil path, and this has to agree with both or the plant's own
+/// accounting disagrees with its income.
+///
+/// **It did disagree, from the day the contact walk was written until
+/// 2026-09-05.** The walk tested `water_capacity > 0` under a comment
+/// claiming it was *"the same four-neighbour look `absorb_water` ... already
+/// make"*, and `assets/materials/water.ron` never sets `water_capacity` — it
+/// is a sponge capacity, meaningless for something that *is* water — so it
+/// defaulted to 0 and **free water failed the counter while passing the
+/// drinker**. Reported from play as a lab plant sprawling in mid-air with
+/// water dripping on it, reading ROOT IN SOIL 0% and not dying; every part
+/// of that follows from `contact_root_cells == 0`. The reproduction is
+/// `a_root_drinking_from_free_water_counts_as_contact`, which pairs the two
+/// materials and measures the same 1.500 drink against contact 1 and 0.
+///
+/// Kept as a named function rather than an inlined `||` so there is one
+/// place to change when `absorb_water` grows a third arm, and so the next
+/// person reading either site finds the other.
+/// How much of `n` a root sharing a face with it can actually take up,
+/// `0.0..=1.0` — the companion to `drinkable_face`, and liquid-aware for the
+/// same reason.
+///
+/// **`plant_available_fraction` is a *soil* reading and must not be pointed
+/// at a liquid.** It is `(soil_moisture - wilting point) / (field capacity -
+/// wilting point)`, and `soil_moisture` is `cell.aux()` — but on a `Liquid`
+/// `aux == 0` means **full**, the inverted convention `.claude/rules` lists
+/// first. So a brim-full water cell reads `(0 - 180) / 440`, clamped to
+/// **0.0: bone dry**, and a cell a root has already drunk 60 units out of
+/// reads `(940 - 180) / 440`, clamped to **1.0: saturated**. Exactly
+/// backwards, and self-cancelling enough to hide — the first version of
+/// `a_root_drinking_from_free_water_counts_as_contact` painted both arms
+/// with a soil aux and got two identical 0.864 readings that meant nothing.
+///
+/// A liquid's answer is its fill fraction: free water at the face is as
+/// available as water gets, and a half-drained cell is half.
+///
+/// `plant_available_fraction` itself is left alone deliberately — it is
+/// correct for soil, and `evaporation.rs`'s drying curve is built on it.
+fn face_available(world: &World, n: Cell) -> f32 {
+    if world.materials.kind(n.material) == MaterialKind::Liquid {
+        update::liquid_fill(n) as f32 / material::LIQUID_FULL as f32
+    } else {
+        update::plant_available_fraction(n)
+    }
+}
+
+fn drinkable_face(world: &World, n: Cell) -> bool {
+    if world.materials.kind(n.material) == MaterialKind::Liquid {
+        return wet_face_counts_liquid();
+    }
+    world.materials.get(n.material).water_capacity > 0
+}
+
+/// Whether free water counts as a face a root can drink from.
+/// `PIXEL_PHYSICS_WET_FACE=soil` restores the pre-2026-09-05 soil-only
+/// predicate.
+///
+/// **An ablation rather than a dead switch**: the fix changes
+/// `contact_root_cells` wherever a root touches a liquid, and that feeds the
+/// water tank's size, `root_zone_water`, and through it `break_root_tips` --
+/// so any before/after has to be paired, and a switch is the only way to
+/// take both arms from one binary. Off, `face_available` is unreachable for
+/// liquids too, so the arm is the whole of the old behaviour rather than
+/// half of it.
+fn wet_face_counts_liquid() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_WET_FACE").as_deref(), Ok("soil")))
+}
+
 fn organism_upkeep(world: &mut World, organism_id: u16) {
     let Some(state) = world.organism(organism_id) else {
         return;
@@ -8585,9 +8658,9 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             let mut available = 0.0f32;
             for (dx, dy) in NEIGHBOURS_4 {
                 let n = world.get(cx + dx, cy + dy);
-                if world.materials.get(n.material).water_capacity > 0 {
+                if drinkable_face(world, n) {
                     wet_faces += 1;
-                    available += update::plant_available_fraction(n);
+                    available += face_available(world, n);
                 }
             }
             if wet_faces > 0 {
@@ -8637,8 +8710,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 let mut open = false;
                 for (dx, dy) in NEIGHBOURS_4 {
                     let n = world.get(cx + dx, cy + dy);
-                    if world.materials.get(n.material).water_capacity > 0 {
-                        wet += update::plant_available_fraction(n);
+                    if drinkable_face(world, n) {
+                        wet += face_available(world, n);
                         open = true;
                     }
                 }
@@ -15580,6 +15653,135 @@ they are the same world. Got {median}, which means something other than the leve
     /// currency now, which is the property that was missing. Income is
     /// unchanged in both rows, which is what makes this a conservation fix
     /// and not an economy change.
+    /// **A full water cell must not read as bone dry.** The inversion
+    /// `face_available` exists to stop, asserted on the two aux values that
+    /// bracket it rather than inferred from a stand.
+    ///
+    /// `plant_available_fraction` is `(aux - wilting point) / (field
+    /// capacity - wilting point)`, and on a `Liquid` `aux == 0` means
+    /// **full** — so pointed at water it reads a brim-full cell as 0.0 and a
+    /// partly-drunk one as 1.0, backwards and self-cancelling. This pins
+    /// both ends: the soil function still says what it always said, and the
+    /// face reading no longer agrees with it about liquids.
+    #[test]
+    fn a_full_water_cell_is_fully_available_and_the_soil_reading_says_the_opposite() {
+        let w = test_world();
+        let full = Cell::new(material::WATER, 0);
+        let drunk = Cell::new(material::WATER, 0).with_aux(material::LIQUID_FULL / 2);
+
+        // What the soil reading makes of them -- kept as the record of why
+        // this helper exists, not as an endorsement.
+        let (soil_full, soil_drunk) =
+            (update::plant_available_fraction(full), update::plant_available_fraction(drunk));
+        let (face_full, face_drunk) = (face_available(&w, full), face_available(&w, drunk));
+        println!(
+            "water cell     | soil reading | face reading\n  full  (aux 0) | {soil_full:>12.3} | {face_full:>12.3}\n  half  (aux {:>3}) | {soil_drunk:>12.3} | {face_drunk:>12.3}",
+            material::LIQUID_FULL / 2
+        );
+
+        assert!(
+            soil_full == 0.0 && soil_drunk > soil_full,
+            "the soil reading no longer inverts liquids ({soil_full} full, {soil_drunk} half) -- if that is a \
+deliberate fix to `plant_available_fraction`, `face_available` may no longer be needed; check before deleting it"
+        );
+        assert!((face_full - 1.0).abs() < 1e-6, "a brim-full water cell must read fully available, got {face_full}");
+        assert!(
+            (face_drunk - 0.5).abs() < 1e-6,
+            "a half-drained water cell must read half available, got {face_drunk}"
+        );
+        assert!(face_full > face_drunk, "the face reading is still inverted: full {face_full}, half {face_drunk}");
+    }
+
+    /// One root cell, one wet neighbour, and the two questions the engine
+    /// asks about that neighbour -- **"can I drink from it" and "does it
+    /// count" -- answered by different tests.**
+    ///
+    /// `absorb_water` discriminates on `MaterialKind::Liquid` (plus the
+    /// `Powder` arm for soil). `organism_upkeep`'s contact walk
+    /// discriminates on `water_capacity > 0`, under a comment claiming it is
+    /// *"the same four-neighbour look `absorb_water` ... already make"*.
+    /// It is not the same look: **`assets/materials/water.ron` never sets
+    /// `water_capacity`**, so it defaults to 0 and free water fails the
+    /// counter's test while passing the drinker's.
+    ///
+    /// Reported from play: a lab plant sprawling in mid-air with water
+    /// dripping on it, reading **ROOT IN SOIL 0%** and not dying. Everything
+    /// in that sentence follows from `contact_root_cells == 0`: the readout
+    /// is that counter, `water_capacity_of(0)` clamps the tank to one cell's
+    /// worth, and `root_zone_faces == 0` sends `root_zone_water` to its
+    /// **1.0 "nothing to report" default** -- which
+    /// `break_root_tips` reads as *demand met* and refuses every root
+    /// initiation on. A plant with no soil contact at all is told it is
+    /// perfectly watered, so it never grows a root toward any.
+    ///
+    /// Paired on the neighbour material and nothing else, so the geometry,
+    /// the organism and the drink are constant across the two arms.
+    #[test]
+    fn a_root_drinking_from_free_water_counts_as_contact() {
+        /// -> (contact_root_cells, root_zone_water, water credited by one drink)
+        fn root_beside(neighbour: material::MaterialId) -> (u32, f32, f32) {
+            const RATE: f32 = 1.5;
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+            place(&mut w, (60, 60), rootwood, id, CellType::MatureBody, (0.0, 0.0));
+            // **Each material painted by its own aux convention**, which is
+            // the one gotcha this whole area turns on: on a `Powder`,
+            // `aux == 0` is dry and `SOIL_FIELD_CAPACITY` is a full soil
+            // cell; on a `Liquid`, `aux == 0` is **full**. Painting both the
+            // same way is how the first version of this test got two
+            // identical 0.864 readings and nearly banked them.
+            let wet = if w.materials.kind(neighbour) == MaterialKind::Liquid {
+                Cell::new(neighbour, 0)
+            } else {
+                Cell::new(neighbour, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            };
+            w.set(61, 60, wet);
+
+            let before = w.organism(id).expect("alive").water;
+            absorb_water(&mut w, 60, 60, RATE);
+            let credited = w.organism(id).expect("alive").water - before;
+
+            organism_upkeep(&mut w, id);
+            let st = w.organism(id).expect("alive");
+            (st.contact_root_cells, st.root_zone_water, credited)
+        }
+
+        let soil = {
+            let w = test_world();
+            w.materials.id_of("soil").expect("soil is compiled in")
+        };
+        let (soil_contact, soil_zone, soil_drink) = root_beside(soil);
+        let (water_contact, water_zone, water_drink) = root_beside(material::WATER);
+        println!(
+            "one root, one wet neighbour:\n  soil  contact {soil_contact}  root_zone {soil_zone:.3}  drank {soil_drink:.3}\n  water contact {water_contact}  root_zone {water_zone:.3}  drank {water_drink:.3}"
+        );
+
+        // The control: both arms must actually feed the plant, or this
+        // proves nothing about the counter.
+        assert!(soil_drink > 0.0, "test setup: the soil arm did not drink -- the scene cannot answer the question");
+        assert!(
+            water_drink > 0.0,
+            "test setup: the free-water arm did not drink, so there is no mismatch to find. \
+`a_root_leaves_the_water_it_did_not_drink` says this arm does drink; if it no longer does, fix that first."
+        );
+
+        assert!(
+            water_contact > 0,
+            "a root that just drank {water_drink:.3} from free water counts {water_contact} contact cells against the \
+soil arm's {soil_contact}. The drinker tests `MaterialKind::Liquid`; the counter tests `water_capacity > 0`, and \
+water.ron never sets it. Everything downstream reads zero: ROOT IN SOIL, the water tank's size, and root_zone_water."
+        );
+        assert!(
+            water_zone < 1.0,
+            "root_zone_water is {water_zone:.3} for a root standing in free water -- the 'nothing to report, defer' \
+default. `break_root_tips` gates on >= {ROOT_REINITIATION_STATUS}, so a plant with no countable contact is told its \
+demand is met and never initiates a root."
+        );
+    }
+
     #[test]
     fn a_root_leaves_the_water_it_did_not_drink() {
         const RATE: f32 = 1.5;
