@@ -293,6 +293,15 @@ fn main() {
              reads as `the mechanism does nothing`"
         );
     }
+    // **`life=` sweeps the species' lifespan without a rebuild.** Unlike the
+    // other three knobs this is a `SpeciesDef` field rather than a
+    // `Behavior` parameter, so it is written straight on the registry entry
+    // rather than through `set_param` -- same seam, one level up.
+    if let Some(life) = arg::<f32>("life") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        world.species.get_mut(id).life_half_life = life;
+        println!("  life_half_life set to {life} for {species}");
+    }
     let cull_at: Option<u64> = arg("cullat");
     // **`col=` moves the single founder to a named column.** `spread(1)` puts
     // one founder at the bed's centre, which at `lamp_spacing 64` is exactly

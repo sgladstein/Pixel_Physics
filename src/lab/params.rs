@@ -508,6 +508,9 @@ fn plant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         out.push(float(g, Knob::Species { species: sp.clone(), field: "remains_half_life" }, species, "remains_half_life",
             s.remains_half_life, span(0.0, 60_000.0, 500.0),
             "HOW LONG A DEAD PLANT'S REMAINS STAND BEFORE THEY ROT AWAY, IN TICKS. THIS IS WHAT MAKES A CULL GRADED RATHER THAN A DELETION -- AND WHAT THE ROT FEEDS BACK INTO THE SOIL IS THE NEXT GENERATION'S FOOD."));
+        out.push(float(g, Knob::Species { species: sp.clone(), field: "life_half_life" }, species, "life_half_life",
+            s.life_half_life, span(0.0, 400_000.0, 5_000.0),
+            "HOW LONG THIS PLANT LIVES: THE AGE BY WHICH HALF OF THEM HAVE DIED OF NOTHING IN PARTICULAR, IN TICKS. AT 0 THEY NEVER DO. OLD AGE IS A RISING RISK RATHER THAN A CLOCK RUNNING OUT, SO A SEEDLING IS ALL BUT SAFE, AN OLD PLANT IS NOT, AND A STAND PLANTED TOGETHER DIES OVER A SPREAD RATHER THAN ALL AT ONCE. THIS IS WHAT KEEPS A GROWN WOOD FROM STANDING STILL: A BIG PLANT DYING PUTS A HOLE IN THE CANOPY AND STOPS DRINKING, AND THE SEED THAT HAS BEEN WAITING UNDERNEATH IT FINALLY HAS SOMEWHERE TO GO."));
     }
 
     for field in ["light_weight", "branch_chance", "upward_weight"] {
@@ -969,6 +972,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             match *field {
                 "seed_half_life" => sp.seed_half_life = value,
                 "remains_half_life" => sp.remains_half_life = value,
+                "life_half_life" => sp.life_half_life = value,
                 _ => return false,
             }
             true

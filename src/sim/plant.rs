@@ -2080,6 +2080,15 @@ const PARAM_MUTATION_STREAM: u64 = 202;
 /// `seed_genotype`'s `(world_seed, x, y, slot)` streams within a run.
 const SEED_LAUNCH_SALT: u64 = 0x5468_726F_7721_5F5F;
 
+/// Keys the old-age hazard's own substream -- see `SpeciesDef::life_half_life`.
+///
+/// Its own salt rather than a shared one so that turning mortality on for a
+/// species does not reshuffle any *other* keyed draw in the world. That
+/// matters more here than it looks: every mortality arm has to be compared
+/// against a control run, and a salt collision would make the control a
+/// different world rather than the same one without deaths.
+const LIFE_HAZARD_SALT: u64 = 0x4F_6C64_5F41_6765;
+
 /// **How often a seed's production rule takes a point mutation.**
 ///
 /// **Measured 2026-08-30, and the measurement is why this is 0.30 and not the
@@ -2653,6 +2662,36 @@ pub const SEED_TICK_INTERVAL: u64 = 4;
 ///
 /// `0.0` half-life means "never", which is the pre-clock behaviour and the
 /// opt-out every species keeps.
+/// **The chance a plant of this age dies of old age on one organism tick.**
+///
+/// `half_life_chance`'s sibling for a hazard that is *not* flat, and the
+/// difference is the whole design — see `SpeciesDef::life_half_life`.
+///
+/// A constant hazard gives exponential survivorship, which says a seedling is
+/// exactly as likely to die today as a two-hundred-year oak. That is wrong
+/// about trees and, more to the point, wrong for what this is *for*: a flat
+/// rate heavy enough to open gaps in a canopy culls the recruits meant to
+/// fill them at the same rate, and the stand goes down instead of over.
+///
+/// So the hazard rises linearly with age, `h(a) = 2 ln2 * a / T^2` per frame,
+/// which integrates to `ln 2` at `a == T` and gives survival
+/// `S(a) = exp(-ln2 * (a/T)^2)` — a Weibull with shape 2. Three consequences
+/// worth naming because the bars in the tests are set from them rather than
+/// from taste: **T is the median lifespan**, survival at `T/4` is **96%**,
+/// and survival at `2.5T` is **0.4%**.
+///
+/// Returns 0 for a non-positive `life_half_life`, which is every species'
+/// default and means immortal — the behaviour everything had before this
+/// existed. Clamped to 1, so an absurdly short life is instant death rather
+/// than a probability above one.
+fn old_age_chance(age_frames: f32, life_half_life: f32) -> f32 {
+    if life_half_life <= 0.0 || age_frames <= 0.0 {
+        return 0.0;
+    }
+    let per_frame = 2.0 * std::f32::consts::LN_2 * age_frames / (life_half_life * life_half_life);
+    (per_frame * ORGANISM_TICK_INTERVAL as f32).clamp(0.0, 1.0)
+}
+
 fn half_life_chance(half_life: f32, interval: u64) -> f32 {
     // `<=` rather than `!(> 0.0)` so clippy is happy about partial order;
     // a NaN half-life falls through to the `powf` below and yields NaN,
@@ -8341,6 +8380,42 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // The species-level gate on the senescence rule below -- see
     // `Species::has_economy`.
     let has_economy = world.species.get(species_id).has_economy();
+    // **Death of old age, decided here rather than inside the mutable block
+    // below**, because the roll needs the species table and the world's
+    // stream and the block holds `&mut` on the organism.
+    //
+    // See `SpeciesDef::life_half_life` for the model and the measurement
+    // behind it. The shape in one line: the hazard is `2 ln2 * age / T^2` per
+    // *frame*, so it rises linearly with age and integrates to `ln 2` at
+    // `age == T` -- **T is the median lifespan**, a seedling is very nearly
+    // immune, and a cohort dies over a spread rather than all at once.
+    //
+    // A seedling being nearly immune is the part that is load-bearing rather
+    // than decorative. A flat hazard heavy enough to open gaps in a canopy
+    // culls the recruits meant to fill them at the same rate, so the stand
+    // goes *down* instead of over -- which is the failure this whole line of
+    // work is trying to end, arriving by a new route.
+    //
+    // Gated on `has_economy` exactly as the two rules below it are, and for
+    // the same reason each of them gives: `moss` does not earn, is not
+    // modelled by any of this, and a retired moss cell is not a corpse.
+    let dies_of_age = has_economy && {
+        let life = world.species.get(species_id).life_half_life;
+        // `age_ticks` before the increment below, so a plant's first tick
+        // rolls at age zero -- a hazard of exactly nothing, which is right.
+        let age_frames = world.organism(organism_id).map_or(0, |s| s.age_ticks) as f32 * ORGANISM_TICK_INTERVAL as f32;
+        let chance = old_age_chance(age_frames, life);
+        if chance > 0.0 {
+            // Keyed on the organism and the frame rather than drawn from a
+            // shared stream: `CLAUDE.md` records that the sweep's draws are
+            // consumed per visited cell, so taking one here would shift every
+            // pile in the world. Same reasoning as `launch_offset`'s.
+            let mut rng = rng::stream(world.seed ^ LIFE_HAZARD_SALT, organism_id as u64, 0, world.frame);
+            rng.chance(chance)
+        } else {
+            false
+        }
+    };
 
     // Leaves per row, then a running total downward, so every cell can read
     // "how much foliage do I carry" without a traversal of its own.
@@ -8716,6 +8791,17 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // no measurement behind it, so it is filed rather than made here —
         // `open-bugs-handoff.md` §V2 — and until then a species with no
         // `Leaf` stage cannot starve to death.
+        // **Age advances once per organism tick**, in the one pass that
+        // visits every organism exactly once -- so it costs an add and no
+        // traversal of its own.
+        state.age_ticks = state.age_ticks.saturating_add(1);
+        // **Old age, rolled above.** Marking is the whole action: `senescent`
+        // is what `rot_remains` reads, and it then thins the plant at the
+        // species' `remains_half_life`, so what the player sees is a tree
+        // going over and coming apart rather than a tree vanishing.
+        if dies_of_age {
+            state.senescent = true;
+        }
         if has_economy && has_leaf_stage {
             let alive = (root_cells + shoot_cells) as f32;
             let collected = state.income * MEAN_NIGHT_INCOME_FACTOR;
@@ -18556,6 +18642,111 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     /// the reading anyone would write first — **passes that second injection**,
     /// because `MAINTENANCE_PER_CELL` is charged per cell whatever `q_peak`
     /// says.
+    /// **Old age kills, a seedling is spared, and an unset species is
+    /// immortal exactly as before** — `SpeciesDef::life_half_life`.
+    ///
+    /// Three arms because the mechanism has three claims and only the first
+    /// is obvious. The control (`0.0`, every species' default) must be
+    /// untouched, or this field is a silent behaviour change to both games.
+    /// The treatment must actually die, or it is a knob that does nothing.
+    /// And the **young** arm is the one that matters: the hazard rises with
+    /// age precisely so that a rate heavy enough to open a gap in a canopy
+    /// does not also cull the recruits meant to fill it — a flat hazard takes
+    /// the stand *down* rather than over, which is the failure this whole
+    /// line of work exists to end, arriving by a new route.
+    ///
+    /// The numbers are the model's, not tuned: the hazard integrates to
+    /// `ln 2` at `age == T`, so survival is `exp(-ln2 * (age/T)^2)` — **97%**
+    /// at `T/5`, 50% at `T`, and 0.4% at `2.5T`. The bars are set from that
+    /// with headroom, and the horizon is `2.5T` for the same reason.
+    /// **The old-age hazard rises with age and integrates to a median at
+    /// `T`** — the arithmetic half of `SpeciesDef::life_half_life`, tested
+    /// where it is deterministic.
+    ///
+    /// This exists because the behavioural test next to it **could not see
+    /// the shape**. Put the fault back — replace the rising hazard with a
+    /// flat one of the same nominal rate — and that test still passes,
+    /// because one plant's survival is a single Bernoulli draw and a flat
+    /// hazard still leaves a seedling alive most of the time. Distinguishing
+    /// the two shapes through a simulation needs a cohort and comes out
+    /// flaky at any bar; as arithmetic it is exact.
+    ///
+    /// That split is the general lesson: a claim about a *distribution* wants
+    /// the function, and a claim about *the world* wants the run.
+    #[test]
+    fn the_old_age_hazard_rises_with_age_and_puts_its_median_at_the_half_life() {
+        const T: f32 = 4_000.0;
+        // Immortal by default, and at birth, and for a species that never set
+        // the field -- the three ways this must be silent.
+        assert_eq!(old_age_chance(1_000.0, 0.0), 0.0, "life_half_life 0.0 must be immortal");
+        assert_eq!(old_age_chance(0.0, T), 0.0, "a plant cannot die of old age on the tick it is born");
+        // **Linear in age.** This is the assertion a flat hazard fails, and
+        // it is the reason this test exists at all.
+        let (a, b) = (old_age_chance(500.0, T), old_age_chance(1_000.0, T));
+        assert!(
+            (b - 2.0 * a).abs() < 1e-6,
+            "the hazard must be linear in age -- a flat hazard is the thing this rules out: {a} at 500, {b} at 1000"
+        );
+        // **The median lands on T.** Survival is the product over ticks, and
+        // summing the per-tick chance is the discrete form of integrating the
+        // hazard: it must reach `ln 2` at `T` and nowhere else.
+        let survival_at = |age: f32| -> f32 {
+            let mut s = 1.0f32;
+            let mut a = 0.0f32;
+            while a < age {
+                s *= 1.0 - old_age_chance(a, T);
+                a += ORGANISM_TICK_INTERVAL as f32;
+            }
+            s
+        };
+        let (half, quarter, late) = (survival_at(T), survival_at(T / 4.0), survival_at(T * 2.5));
+        println!("old-age survival: {quarter:.3} at T/4, {half:.3} at T, {late:.4} at 2.5T");
+        assert!((half - 0.5).abs() < 0.02, "T must be the median lifespan: survival {half:.3} at age T");
+        assert!(quarter > 0.94, "a young plant must be all but safe: survival {quarter:.3} at T/4");
+        assert!(late < 0.02, "an old plant must be all but gone: survival {late:.4} at 2.5T");
+    }
+
+    #[test]
+    fn old_age_kills_a_grown_plant_and_spares_a_seedling() {
+        // **The horizon is bounded by the scene, not by the model, and that
+        // is measured rather than guessed.** A tree in `test_world`'s small
+        // hand-built bed lives about 12,000 frames and is senescent by
+        // 24,000 -- it starves, which is the economy working and nothing to
+        // do with this field. Probed: alive at 3,000 / 6,000 / 12,000, dead
+        // at 24,000. So `2.5T` has to fit inside 12,000 or the control arm
+        // fails for a reason the test is not about, which is exactly what the
+        // first draft did.
+        //
+        // That bound is also what makes the treatment arm's death
+        // attributable: at 10,000 frames the control is still standing, so a
+        // treatment plant that is gone at 10,000 is gone of age.
+        const LIFE: f32 = 4_000.0;
+        // Survival at `T/4` is `exp(-ln2/16)` = **96%**, so "still alive" is
+        // a claim about the hazard's shape rather than about luck.
+        const YOUNG: usize = (LIFE / 4.0) as usize;
+        // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
+        const OLD: usize = (LIFE * 2.5) as usize;
+
+        fn run_arm(life: f32, frames: usize) -> bool {
+            let mut w = test_world();
+            let tree = w.species.id_of("tree").expect("tree is compiled in");
+            w.species.get_mut(tree).life_half_life = life;
+            plant_tree_on_ground(&mut w, 100, 60);
+            run_with_fields(&mut w, frames);
+            // Alive means an organism that is not senescent and still holds
+            // tissue -- `rot_remains` thins a marked plant over the following
+            // frames, so "no cells left" and "marked" are the same death at
+            // two moments and either one answers.
+            w.live_organism_ids().into_iter().any(|id| {
+                w.organism(id).is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
+            })
+        }
+
+        assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
+        assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
+        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 0.4% by the model");
+    }
+
     #[test]
     fn a_species_with_no_leaf_stage_earns_is_billed_and_sets_seed() {
         const BLADES: i32 = 12;

@@ -2679,6 +2679,38 @@ pub struct SpeciesDef {
     /// species had before this field existed.
     #[serde(default = "default_remains_half_life")]
     pub remains_half_life: f32,
+    /// **How long a plant of this species lives**, as the age in frames by
+    /// which half of a cohort has died of nothing in particular. `0.0` means
+    /// it never does, which is what every species did before this field
+    /// existed and is still the default, so an unset species is unchanged.
+    ///
+    /// **Old age is a rising risk, not a timer**, which is both what real
+    /// mortality looks like and what this engine needs. A tree does not die
+    /// *of* being old; being old is what makes hydraulic failure, windthrow,
+    /// breakage and rot likely, and the survivorship curve that produces is a
+    /// hazard climbing with age rather than a countdown. So the roll is
+    /// `2 ln2 * age * interval / T^2` per organism tick -- a hazard rate
+    /// linear in age, integrating to `ln 2` at `age == T`, so **T is the
+    /// median lifespan** and the spread around it is real. A seedling is very
+    /// nearly immune, which matters more than it sounds: a flat hazard at any
+    /// rate that thins a canopy also culls the recruits meant to replace it,
+    /// and the stand goes down rather than over.
+    ///
+    /// **What it is for is gaps, not tidiness.** Measured on this bed before
+    /// the field existed: a `tree` stand grows to 22,330 cells across 411 of
+    /// 512 columns and then collapses to 8,809 across 279, and culling **one**
+    /// 6,036-cell tree at the peak leaves it at 12,930 across 329 eighty
+    /// thousand frames later -- 47% more biomass for one death. A closed
+    /// canopy here starves its own seedlings of water rather than light (the
+    /// standing seed bank reads `too-dry`, never `dark`), and a dead tree
+    /// stops drinking. This field is what makes that happen without a hand on
+    /// the cull verb.
+    ///
+    /// Marking is all it does: `senescent` is set and `rot_remains` then
+    /// carries the plant out at `remains_half_life`, so the death is graded
+    /// into standing remains rather than a disappearance.
+    #[serde(default)]
+    pub life_half_life: f32,
     pub cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// **What a cell becomes** — the production rule, as data.
     ///
@@ -3727,6 +3759,8 @@ pub struct Species {
     pub seed_half_life: f32,
     /// See `SpeciesDef::remains_half_life`.
     pub remains_half_life: f32,
+    /// See `SpeciesDef::life_half_life`.
+    pub life_half_life: f32,
     cell_types: Vec<(CellType, Vec<Behavior>)>,
     /// See `SpeciesDef::fates`. Empty means the built-in rule
     /// (`plant::builtin_fate`) applies, which is every species today.
@@ -3922,6 +3956,7 @@ impl From<SpeciesDef> for Species {
             fruit_bands: def.fruit_bands,
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
+            life_half_life: def.life_half_life,
             cell_types: def.cell_types,
             fates: def.fates,
             creature: def.creature,
@@ -4479,6 +4514,19 @@ pub struct OrganismState {
     /// while the body count was zero for the whole run. Every card this
     /// mechanism is posted on carries this number in its `meta`.
     pub starved_cells: u32,
+    /// **Organism ticks this plant has been alive**, which is its age in the
+    /// only clock the economy already runs on.
+    ///
+    /// Incremented once per organism tick in `plant::organism_upkeep`, which
+    /// is the one pass that visits every organism exactly once, so this costs
+    /// an add and no traversal. Saturating rather than wrapping: at
+    /// `ORGANISM_TICK_INTERVAL` a `u32` is millions of frames of play, and a
+    /// wrap would make the oldest plant in the world instantaneously the
+    /// youngest, which is the sort of fault that reads as "mortality stopped
+    /// working" long after the cause.
+    ///
+    /// See `SpeciesDef::life_half_life` for what reads it.
+    pub age_ticks: u32,
     /// **Consecutive organism ticks on which this plant could not pay even
     /// the mass term of its own maintenance** — the clock that ends in
     /// death by starvation.

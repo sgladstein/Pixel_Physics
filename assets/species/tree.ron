@@ -54,6 +54,47 @@
     // first pass: at a fifth of a tank the plant starts trading growth
     // for endurance. 0.0 is the pre-closure engine exactly, and what any
     // species that does not declare this gets.
+    // **How long this plant lives** -- see `SpeciesDef::life_half_life`. The
+    // age by which half a cohort has died of nothing in particular; old age
+    // is a rising risk here rather than a clock, so a seedling is all but
+    // safe and an old tree is not.
+    //
+    // **This is the species the field was built for.** Measured before it
+    // existed, one founder, 200,000 frames: a tree stand grows to 22,330
+    // cells across 411 of 512 columns by frame 100,000 and then collapses
+    // monotonically to 9,736 across 255, with the biggest tree standing at
+    // ~4,000 cells and never dying. Culling **one** 6,036-cell tree by hand
+    // at the peak left the stand 47% larger and 18% wider eighty thousand
+    // frames later. A closed canopy here starves its own seedlings of water
+    // rather than light -- the standing seed bank reads `too-dry` at every
+    // sample and `dark` at none -- and a dead tree stops drinking.
+    //
+    // **The ladder, one founder, 200,000 frames, germinations / alive /
+    // columns held of 512:**
+    //
+    //     life        0   148 /  7 / 255     <- immortal, and it collapses
+    //           120,000   141 /  5 / 215
+    //            60,000   208 /  9 / 339     <- authored
+    //            45,000   274 /  9 / 185
+    //            30,000   388 / 16 / 370     <- best measured
+    //            15,000   114 /  0 /   0     <- EXTINCT
+    //
+    // **30,000 measures best and is not what is authored, deliberately.**
+    // Below it there is a cliff rather than a slope: at 15,000 the tree dies
+    // before it can clear `seed_maturity`'s 600 shoot cells and the species
+    // goes extinct in its own bed. A default sitting one factor of two above
+    // an extinction cliff is not a default -- a player nudging this dial, or
+    // a different world seed, walks off it. 60,000 keeps three to four times
+    // that margin and still buys +40% germinations and +33% coverage over
+    // immortal.
+    //
+    // **And the surface is noisy, so read the band and not the number**: the
+    // 45,000 point sits *below* both its neighbours on coverage, which is one
+    // run per point doing what one run per point does here. What the ladder
+    // supports is "somewhere around 30,000-60,000 is the useful band for this
+    // species, and under ~20,000 it dies out"; it does not support an
+    // optimum. Resolving one wants an order statistic over a dozen seeds.
+    life_half_life: 60000.0,
     stomatal_reserve: 0.2,
     // **The production rule: what a cell becomes, and what it creates.**
     //
