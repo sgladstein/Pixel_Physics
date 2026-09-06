@@ -687,8 +687,8 @@ species field, so that argument still holds and was not re-litigated.
 build-time placements, a running timeline and parameter settings
 (`src/lab/scenario.rs`), the one engine piece that report's whole approach
 was blocked on. Reached from the BOX page's new `SCENARIOS` row, `scenario=`
-at startup and on `labbatch`/`labshot`. Eight shipped
-(`assets/lab_scenarios/`), one per S1–S6 plus two paired controls. **What it
+at startup and on `labbatch`/`labshot`. Nine shipped
+(`assets/lab_scenarios/`), one per S1–S6 plus three paired controls. **What it
 overturned:** nothing standing — `reset()` already carried the rule and
 heredity dials across a rebuild (Round nine), and a scenario rides the same
 seam rather than a new one. Full account in README's own "Lab scenarios

@@ -1998,7 +1998,10 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
-  (§7): the scenario file, `src/lab/scenario.rs`, and eight shipped beds.**
+  (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
+  §8 runs the first two — two larders moves the plant room's gut in 7
+  seeds of 8, Gause's jar loses nobody inside 36,000 frames at any wall
+  count.**
   The owner's approach — pick the behaviours worth seeing, then build the
   bed that pays for each — assessed and then done: **right, and the only legitimate way
   to want a behaviour out of a system whose rule is *the mechanism is code,

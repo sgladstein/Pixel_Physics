@@ -10,11 +10,11 @@ approach?"*
 
 **Status: design, with §4's first item built the same day** — the scenario
 file is `src/lab/scenario.rs`, §7 below records what building it found, and
-**§8 carries the scenarios run to a horizon so far**, two larders first.
-Nothing else in the catalogue is built. Read off `main` at
-`a9744f9d`. Every number in it is quoted
-from a report that measured it, and each one is cited; a claim with no
-citation is a prediction and says so.
+**§8 carries the first two scenarios run to a horizon**, two larders and
+Gause's jar. Nothing else in the catalogue is built. Read off `main` at
+`a9744f9d`. Every number in it is quoted from a report that measured it,
+and each one is cited; a claim with no citation is a prediction and says
+so.
 
 The two documents this sits on top of, and should be read with:
 
@@ -707,3 +707,44 @@ Three things to read beside it:
 
 The whole batch is 422 s of wall on four cores, 52.7 s per run — a
 60,000-frame two-larders reading is a seven-minute question.
+
+### S5 · Gause's jar — nobody dies inside 36,000 frames, at any wall count
+
+`labbatch scenario=gauses_jar sweep=compartments values=<n> runs=8
+frames=36000`, one setting per call (each is ~370 s of wall on four cores).
+Eight herbs from frame 0, four colonies of 26 at frame 3,000, four beetles
+at 6,000; the sweep only moves the walls. Per setting, over the eight seeds:
+
+| compartments | ants alive at 36k (min / median / max) | beetles alive (min / median / max) | runs with a beetle extinction | plants (median) |
+|---|---|---|---|---|
+| 1 | 14 / 27 / 52 | 0 / 8 / 10 | 1 of 8, at frame 19,981 | 33 |
+| 4 | 20 / 41 / 59 | 1 / 8 / 16 | 0 of 8 | 44 |
+| 8 | 7 / 20 / 31 | 0 / 5 / 12 | 1 of 8, at frame 15,421 | 52 |
+
+The ant survived to the horizon in **24 runs of 24**; the beetle in 22 of
+24. So the textbook result this bed was built to check the instrument
+against — an open jar that loses one side, and walls that delay it — is
+**not reached at this horizon in any setting**: coexistence is the rule
+everywhere, and the two beetle extinctions are one seed each at the two
+extremes of the sweep, which is no compartment effect at all. Four beetles
+that can breed (2,550 to bud) hold at a median of 5–8 against colonies that
+started at 104 ants, and the colonies settle at a fifth to a half of that.
+
+What the sweep does move is the **ants and the plants, in opposite
+directions**: four rooms hold the most ants (median 41 against 27 open and
+20 at eight), and the plant count rises monotonically with walls (33 → 44 →
+52), because each colony can only strip its own room. At eight walls the
+four colonies sit in 64-column rooms and the ants are the sparsest of the
+three, so the middle setting is the one where both sides are richest. That
+is a real finding about this bed and it is not the one the scenario asked
+for.
+
+Two consequences. The instrument works — the species table reads
+extinction frames off the decimated history, and "alive" is the honest
+default for a species that never fell — and **the question needs a longer
+horizon, or a hungrier beetle.** The earlier two-seed reading (selective
+environments §5, 40,000 frames) had the open bed's colony at 15 against
+53 with breeding on, so the divergence it saw is only beginning at 36,000;
+S5's next run is 90,000 frames at the same three settings, which is
+seventeen minutes a setting on this box. The extinction frame is a sample
+frame, 30 apart, not the exact tick.

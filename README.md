@@ -6513,9 +6513,12 @@ be looked at before anything runs, and every later `REBUILD` — by hand or
 through a batch's own copies — re-applies it: a scenario is not a one-shot
 paint, it is what the box *is* now.
 
-**Eight shipped, one per S1–S6 card plus two paired controls**
+**Nine shipped, one per S1–S6 card plus three paired controls**
 (`Reports/lab-behaviour-scenarios-2026-09-06.md` §3): `two_larders` (S1,
-diet specialisation), `feast_and_famine` (S2, life-history strategy, the
+diet specialisation) and its control `two_larders_clonal` (the same bed
+with the ant's mutation rate at zero, so the live arm's paired difference
+minus this arm's is what selection on new mutation buys),
+`feast_and_famine` (S2, life-history strategy, the
 scenario the report names as blocked without this file), `far_larder` and
 its control `scattered_larder` (S3, trail formation), `the_bank` and its
 flat control `the_floor` (S4, shelter from a dug gallery), `gauses_jar` (S5,
