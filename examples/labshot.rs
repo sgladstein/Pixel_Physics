@@ -137,6 +137,16 @@ fn main() {
     );
 
     let (mut world, placed) = spec.build_counted();
+    // `life=` overrides the plant species' authored `life_half_life`, so the
+    // two arms of a mortality card come out of ONE binary and differ by
+    // exactly that number -- the alternative is rendering the "before" from
+    // an older commit, which differs by everything that landed since.
+    if let Some(life) = arg::<f32>("life") {
+        if let Some(id) = world.species.id_of(&spec.species) {
+            world.species.get_mut(id).life_half_life = life;
+            println!("labshot: life_half_life={life} for {}", spec.species);
+        }
+    }
     if interior == 0 {
         world.set_enclosure(None);
     }

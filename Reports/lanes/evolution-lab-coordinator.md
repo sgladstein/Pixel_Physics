@@ -681,6 +681,77 @@ bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
 file is a separate, gitignored, runtime-only state file rather than a
 species field, so that argument still holds and was not re-litigated.
 
+## Round nine, 2026-09-05/06 — why the box went static, and what it was not
+
+*Owner: "plant a seed that will grow into a plant and eventually spread to
+fill the whole screen... nothing should ever reach the super-static
+equilibrium." Landed as PR #247. **Only what a later session cannot
+reconstruct is here**; the numbers are in the commit messages and in
+`dead-ends.md`.*
+
+**The static box had one cause and it was not the economy.** I spent the
+first half building a case for a plant-economy rewrite — a mature plant's
+`reproductive_share` is a fraction of `surplus = income - maintenance`, which
+goes to zero exactly at maturity — and the positive control killed it.
+`reseed_probe scatter=1` sets every seed down on open ground at a random
+column and changes nothing else: from **one** seed that fills **490 of 512
+columns by frame 48,000**, against 141 for the same seed left alone. The bed
+could always carry a full stand. **The whole defect was that seed could not
+get away from its parent**, and the fix was one flag: `falls_through_organisms`
+was set on `fruit` and missed on the `seed` inside it, so seeds lodged in the
+canopy and died there (of ~200 standing, 157 on plant tissue, 42 on their own
+pile, `ready` **0 in every sample of every run**). Germinations 82 -> 1,291.
+
+**Three species-level defects, and the pattern is not what it looks like.**
+`grass` had **income zero by construction** — the whole-plant budget summed
+`CellType::Leaf` and grass has no leaf stage — so it never grew past its
+founding grant and set **zero seeds in its life**. Fixed at three sites that
+now ask `is_foliage`, and bit-identical for every leafy species (`herb` comes
+back identical in every column). `creeper`'s `seed_maturity` was 250 shoot
+cells against a plant that reaches 89. **But `tree` and `conifer` are
+correct**: lowering their gates is measurably *worse* (600 -> 300 takes tree
+from 119 columns to 0), because a plant that breeds early endows its seeds
+with less. **Creeper was the exception, not the pattern** — do not go looking
+for it on the woody species.
+
+**Two levers that look right and lose.** Seed repose 55 -> 22 (a seed should
+roll off the leaf it lands on) **halves** the canopy-fall fix. `seed_launch`
+on `tree` loses on 4 of 4 seeds, because `launch_price` charges 1.87x per seed
+against a species that sets 211 in 60,000 frames — **a tree is budget-limited,
+a herb is distance-limited**, and which is which is a measurement. Both in
+`dead-ends.md` with their conditions.
+
+**A tree's seed fails on water, not shade**, which is the opposite of how it
+reads: `dark` is **0 at every sample** and 22-43 of ~30-53 standing seeds are
+`too-dry`. The tree draws the ground under itself below its own seedlings'
+`soil_water_threshold`.
+
+**The bed does not dry out, and that hypothesis is dead twice over** — the
+runaway was found and fixed before this round (`VAPOUR_PER_CELL_ENCLOSED`), and
+re-measured here at 100,000 frames under a full sward the soil finishes **at or
+above field capacity** with an empty-bed control flat to the unit.
+
+**Gap dynamics is real here and it is the lever.** Culling **one** 6,036-cell
+tree at the peak left the stand **47% larger and 18% wider** 80,000 frames
+later, while the uncut control collapsed. That is what `SpeciesDef::
+life_half_life` now does without a hand on the cull verb — a hazard rising with
+age (median at `T`, a seedling 96% safe), authored on `tree` and `conifer` at
+**60,000**, which is **not** the best measured value: 30,000 measures better
+and **15,000 wipes the species out**, so the shipped value buys headroom over a
+cliff rather than the optimum. The surface is noisy; read the band.
+
+**Two process failures worth more than any of the above.**
+
+- **Never give a subagent write access to a file you are committing.** One was
+  flipping `seed.ron`'s repose to compare arms while I staged the same file;
+  `c83eea97` shipped its value and two commits described a change the tree did
+  not contain. This is `CLAUDE.md`'s "a commit message is not evidence the
+  change is in the file" reached through concurrency. Measure in a worktree.
+- **Main moved underneath a finding and obsoleted it.** A large root change
+  landed mid-round; "a tree grows to 4,000 cells and never dies" was measured
+  before it and is false after — the same command now grows 12 plants across
+  411 columns. Re-measure after any merge before building on a number.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
