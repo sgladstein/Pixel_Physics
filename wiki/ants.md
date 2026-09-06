@@ -1,20 +1,24 @@
 # Ants
 
-*Current as of: 2026-09-06, when **an animal could finally bite back at
+*Current as of: 2026-09-06, when **foliage stopped being a wall** — an ant
+walks into a bush now and comes out the other side, and the leaves close
+behind it undamaged. A trunk is still a trunk: something to walk up, not
+through. The same day, **an animal could finally bite back at
 something chewing on its flank** — a long body used to be able to fight only
 with the cell at the front of it, so anything that attached itself further
 back was safe, and every cell that was not the mouth was a liability rather
 than the armour it was meant to be. An animal still forages with its mouth
 alone: it will not pick loose food up with its abdomen, only fight with it.
-The same day, **working a jaw against a shell started costing something**.
+Also that day, **working a jaw against a shell started costing something**.
 Chewing through armour used to be free after the first bite, so a plate bought
 a slow attacker time and never once made it think better of the meal; now each
 closure of the jaw is paid for whether it cuts or bounces, and a thick enough
-shell is a meal that is simply not worth the work. Also 2026-09-06, when
+shell is a meal that is simply not worth the work. And
 **every part of the ground became able to hold
 a tunnel** — a worked wall no longer comes apart however wet it gets, and a
 flooded burrow drowns rather than caving in — and **carrion started rotting
-back into the soil**, so a body no longer plugs the passage it died in. Before that: 2026-09-05, when **how fast an animal lives stopped being
+back into the soil**, so a body no longer plugs the passage it died in.
+Before that: 2026-09-05, when **how fast an animal lives stopped being
 fixed for its whole kind** — one lineage takes its turn twice as often as its
 neighbours and another half as often, so a bed can hold ants that scurry and
 ants that plod, and the difference is on screen without an overlay. It is not
@@ -131,6 +135,26 @@ diagonal steps as happily as straight ones. They will not step out into
 open air — an ant that can see nowhere to put its feet turns and looks
 somewhere else. Take the ground out from under one and it falls like
 anything else.
+
+**And they walk *through* soft growing things.** Leaves, grass, moss and
+flowers do not stop an ant: it pushes into the foliage, crosses it, and the
+leaves close up behind it undamaged — nothing is eaten, trampled or knocked
+off by the passage. A bush is drawn as a solid block of green because the
+grid has no way to draw the air between the leaves, and an animal small
+enough to use that air now behaves as though it is there.
+
+**Wood is not soft, and that is on purpose.** A trunk, a branch or a root is
+something an ant walks *up*, not through, and walking into one still stops
+it. If you watch a colony in a wood and wonder why they keep turning on the
+spot, that is what they are turning against: measured across four worlds,
+living plant tissue is what blocks between a fifth and two thirds of every
+step an ant fails to take, and between seven and nine tenths of that is
+trunk rather than leaf. Ants have no notion of following a wall round or
+climbing it deliberately — they turn at random until a direction happens to
+work — so a wood is still slow going for them.
+
+How much an animal can shoulder aside is the same strength it digs with, so
+a lineage that evolves a stronger bite also gets through thicker growth.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
