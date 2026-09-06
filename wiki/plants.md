@@ -3,8 +3,16 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-06 (**water a plant is standing in counts as ground
-now**, wherever it comes from. A plant drinking from open water or from
+*Current as of: 2026-09-06 (**a plant is held up by its roots now, or by
+the ground directly under it -- not by whatever it happens to lean on.**
+A plant used to count as anchored if *any* part of it touched solid ground
+in *any* direction, so in a walled box a single branch brushing a wall
+braced the whole plant for ever, and plants could stand in mid-air
+indefinitely. Now a root grips ground in any direction, as a root should,
+and everything else is only held up by what is underneath it. Most visible
+in the lab: a plant that never got its roots into the soil comes down
+instead of hanging there. Also: **water a plant is standing in counts as
+ground now**, wherever it comes from. A plant drinking from open water or from
 something dripping on it used to drink perfectly well and be recorded as
 having no roots in anything -- so it got the smallest water store there is
 and never grew another root. Most visible in a bed with standing water or a
