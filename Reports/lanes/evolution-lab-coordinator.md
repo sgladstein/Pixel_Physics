@@ -688,7 +688,11 @@ build-time placements, a running timeline and parameter settings
 (`src/lab/scenario.rs`), the one engine piece that report's whole approach
 was blocked on. Reached from the BOX page's new `SCENARIOS` row, `scenario=`
 at startup and on `labbatch`/`labshot`. Nine shipped
-(`assets/lab_scenarios/`), one per S1–S6 plus three paired controls. **What it
+(`assets/lab_scenarios/`), one per S1–S6 plus three paired controls. **One
+gap the third control found:** `mutation_rate` is the *wiring* rate; the
+nine traits mutate under `CreatureDef::trait_variance`, which is an array
+and not a page knob, so no scenario can switch trait mutation off yet and
+a clonal arm cannot be built from a `Setting`. **What it
 overturned:** nothing standing — `reset()` already carried the rule and
 heredity dials across a rebuild (Round nine), and a scenario rides the same
 seam rather than a new one. Full account in README's own "Lab scenarios

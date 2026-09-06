@@ -1999,9 +1999,12 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
-  §8 runs the first two — two larders moves the plant room's gut in 7
-  seeds of 8, Gause's jar loses nobody inside 36,000 frames at any wall
-  count.**
+  §8 runs the first two — two larders moves the plant room's gut below
+  the flesh room's in 7 seeds of 8, and in 8 of 8 with the brain's wiring
+  frozen; Gause's jar loses nobody inside 36,000 frames at any wall
+  count. One gap found on the way: `mutation_rate` is the wiring rate, the
+  traits mutate under their own authored width, and that width is not a
+  page knob, so no scenario can yet run a clonal arm.**
   The owner's approach — pick the behaviours worth seeing, then build the
   bed that pays for each — assessed and then done: **right, and the only legitimate way
   to want a behaviour out of a system whose rule is *the mechanism is code,

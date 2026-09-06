@@ -544,6 +544,12 @@ bare patches where colonies sit — which is legible on its own.
 5. **Intermediate food classes** — turns S1's two points into a range. Not
    required for S1 to work.
 6. **Food sharing between adults** — S12. Large, and not next.
+7. **The trait mutation width as a knob** (found running S1's control, §8).
+   `mutation_rate` is the wiring rate; the nine traits mutate under
+   `CreatureDef::trait_variance`, an array the parameters page cannot move,
+   so no scenario can switch trait mutation off and no clonal arm can be
+   built from a `Setting`. Small — one row per slot, or one row for all —
+   and it is what every "is this selection or survivorship" question needs.
 
 ---
 
@@ -699,11 +705,20 @@ Three things to read beside it:
   −0.15, up in both larders. Not this scenario's question, and a
   single-horizon reading, but the one lever besides the gut that the bed
   appears to be pushing, and in the direction of a better-provisioned young.
-- **No mutation-off control has been run yet.** The paired difference is
-  the test the report asked for, and the clonal arm (the same file with the
-  ant's `mutation_rate` at 0) is the one that would say how much of the
-  −0.17 is selection on new mutation against survivorship of the founders'
-  standing variation. It is queued behind Gause's jar below.
+- **The control arm froze the wrong thing, and what it found is still
+  worth having.** `two_larders_fixedbrain` is the same file with the ant's
+  `mutation_rate` at 0 — which turned out to be the *wiring* rate
+  (`brain::mutate`); the nine traits mutate under their own authored width,
+  `CreatureDef::trait_variance`, 0.15 on every slot, which no setting can
+  reach because it is an array and the parameters page moves one number at
+  a time. So the arm asks whether the gut result depends on the brain
+  evolving beside it. It does not: with the wiring frozen the plant room's
+  gut sits below the flesh room's in **8 seeds of 8**, paired difference
+  median −0.12 (plant-room medians −0.03, flesh-room +0.05), against 7 of 8
+  and −0.17 with the wiring free. **Fifteen of sixteen rooms, across both
+  arms, the same way.** The clonal arm that would bound the founders'
+  standing variation waits on the trait width becoming a knob — a gap for
+  §4's list, recorded in the file's own header.
 
 The whole batch is 422 s of wall on four cores, 52.7 s per run — a
 60,000-frame two-larders reading is a seven-minute question.

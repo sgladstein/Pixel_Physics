@@ -6515,9 +6515,12 @@ paint, it is what the box *is* now.
 
 **Nine shipped, one per S1–S6 card plus three paired controls**
 (`Reports/lab-behaviour-scenarios-2026-09-06.md` §3): `two_larders` (S1,
-diet specialisation) and its control `two_larders_clonal` (the same bed
-with the ant's mutation rate at zero, so the live arm's paired difference
-minus this arm's is what selection on new mutation buys),
+diet specialisation) and its control `two_larders_fixedbrain` (the same
+bed with the ant's `mutation_rate` at zero — which is the *wiring* rate;
+the nine traits keep their own authored mutation width, so this arm asks
+whether the gut result depends on the brain evolving, and it does not: the
+plant room's gut still sits below the flesh room's in 8 seeds of 8. A
+truly clonal arm needs the trait width as a page knob, which it is not yet),
 `feast_and_famine` (S2, life-history strategy, the
 scenario the report names as blocked without this file), `far_larder` and
 its control `scattered_larder` (S3, trail formation), `the_bank` and its
