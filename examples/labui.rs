@@ -49,6 +49,8 @@ fn main() {
             // The strip's placement was chosen off this harness's own
             // output (owner, 2026-08-31).
             Some(("chambers", v)) => chambers = v.parse().expect("chambers=N"),
+            // Read again below, where the bed is built.
+            Some(("colonies", _)) | Some(("predators", _)) => {}
             _ => eprintln!("ignoring unknown argument {arg:?}"),
         }
     }
@@ -61,7 +63,19 @@ fn main() {
     let _ = std::fs::remove_dir_all(&shelf);
     std::env::set_var(pixel_physics::sim::specimen::SHELF_DIR_ENV, &shelf);
 
-    let mut lab = Lab::new(LabBox::default());
+    // **`colonies=` and `predators=`, so the ANTS page can be photographed
+    // with more than one group on it.** The default bed founds one colony
+    // and no beetles, which draws the per-group chart as a single line --
+    // a picture that cannot say whether the groups are being told apart.
+    let mut spec = LabBox::default();
+    for arg in std::env::args().skip(1) {
+        match arg.split_once('=') {
+            Some(("colonies", v)) => spec.colonies = v.parse().expect("colonies=N"),
+            Some(("predators", v)) => spec.predators = v.parse().expect("predators=N"),
+            _ => {}
+        }
+    }
+    let mut lab = Lab::new(spec);
     lab.show_help = false;
     // Reseeded, never copied. At the same seed every draw in the engine is a
     // pure function of `(world.seed, identity, position)`, so a rack of

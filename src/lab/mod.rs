@@ -349,20 +349,28 @@ impl Lab {
         let mut ui = ui::Ui::new();
         ui.reload_shelf();
         let spec_for_batch = spec.clone();
+        let renderer = {
+            // **Every animal wears its colony's colour from the first
+            // frame.** Owner, 2026-09-06: the ants and the beetles could
+            // only be told apart with the gut overlay on. `Off` is the
+            // outdoor game's default and stays it; the lab is the game
+            // whose whole point is watching groups.
+            let mut r = Renderer::new();
+            r.creature_colour = crate::render::CreatureColour::Colony;
+            r
+        };
+        // **`Ui` does not hold the renderer**, so the ANTS page's per-group
+        // chart and legend -- which have to group and colour their lines by
+        // this same mode -- are told about it here rather than reading
+        // through a handle they do not have. The other write is
+        // `CycleCreatureColour`'s handler, next to `renderer.creature_colour`
+        // itself, so the two can never drift more than one action apart.
+        ui.set_creature_colour(renderer.creature_colour);
         Self {
             world,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
-            renderer: {
-                // **Every animal wears its colony's colour from the first
-                // frame.** Owner, 2026-09-06: the ants and the beetles could
-                // only be told apart with the gut overlay on. `Off` is the
-                // outdoor game's default and stays it; the lab is the game
-                // whose whole point is watching groups.
-                let mut r = Renderer::new();
-                r.creature_colour = crate::render::CreatureColour::Colony;
-                r
-            },
+            renderer,
             player_tuning: player::Tuning::default(),
             time: time::TimeControl::new(),
             stats: stats::Stats::new(),
@@ -1939,6 +1947,16 @@ impl Lab {
                 self.renderer.cycle_field_overlay();
                 self.ui.say(format!("OVERLAY {}", self.renderer.field_overlay.label()));
             }
+            // **The renderer's own mode, mirrored into `Ui` in the same
+            // action that changes it** -- see `Ui::creature_colour`'s doc for
+            // why a mirror exists at all. The ANTS page's chart and legend
+            // read the mirror, never the renderer directly, because `Ui`
+            // does not hold one.
+            ui::Action::CycleCreatureColour => {
+                self.renderer.cycle_creature_colour();
+                self.ui.set_creature_colour(self.renderer.creature_colour);
+                self.ui.say(format!("ANIMALS WEAR {}", self.renderer.creature_colour.label()));
+            }
             ui::Action::Help => self.show_help = !self.show_help,
             ui::Action::Reset => self.reset(),
             ui::Action::ParamGroup(i) => self.ui.set_param_group(i),
@@ -2595,7 +2613,7 @@ const HELP: [&str; 30] = [
     "RIGHT      ERASE",
     ".          WHICH SPECIES TO PLANT",
     "[ ]        BRUSH NARROWER WIDER",
-    "O L        FIELD / LIFE OVERLAY",
+    "O L H      FIELD / LIFE / ANIMAL OVERLAY",
     "",
     "P          PARAMETERS -- THE NUMBERS",
     "           BEHIND THE VERBS",
@@ -2931,6 +2949,36 @@ mod tests {
         assert!(!lab.spec.extra_walls.contains(&x), "clicking near the wall did not remove it");
         assert_eq!(lab.spec.compartment_spans().len(), spans_before, "the span did not close back up");
         assert_ne!(lab.world.get(x, mid).material, crate::sim::material::STONE, "the stone is still standing in the box");
+    }
+
+    /// **`CycleCreatureColour` moves the renderer and `Ui`'s mirror
+    /// together, every time.**
+    ///
+    /// `Ui` does not hold the renderer, so the two are only as trustworthy as
+    /// this test says: a fix that updated one without the other would leave
+    /// the box painting one grouping while the ANTS page graphed another, and
+    /// nothing else in the suite would catch it. Starts from `Lab::new`'s own
+    /// opening state (`Colony`, so the ants and beetles could be told apart
+    /// from the first frame) rather than asserting a bare default, which also
+    /// checks that the constructor's write and the mirror's write already
+    /// agree before any action ever fires.
+    #[test]
+    fn cycle_creature_colour_moves_the_renderer_and_the_ui_mirror_together() {
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() });
+        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Colony, "Lab::new must open on Colony");
+        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Colony, "the mirror must already agree at construction");
+
+        lab.act(ui::Action::CycleCreatureColour);
+        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Off, "Colony.next() is Off");
+        assert_eq!(lab.ui.creature_colour(), crate::render::CreatureColour::Off, "the mirror did not follow the renderer");
+
+        lab.act(ui::Action::CycleCreatureColour);
+        assert_eq!(lab.renderer.creature_colour, crate::render::CreatureColour::Species);
+        assert_eq!(
+            lab.ui.creature_colour(),
+            crate::render::CreatureColour::Species,
+            "the mirror drifted from the renderer on the second cycle"
+        );
     }
 
     /// **A batch fills the rack, and the copies are different worlds.**

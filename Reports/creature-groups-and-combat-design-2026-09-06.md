@@ -91,9 +91,9 @@ lane note for the verdict.
 
 **The graph.** `World::live_creature_groups` is the census; the ANTS page
 draws every group on one shared axis with a legend row per group in its
-colour, grouped by colony or by species as the colour mode says. It does not
-yet graph deaths, births or kills per group — `Grave` now carries `colony`,
-so the graveyard can be read per group, but nothing draws it.
+colour, grouped by colony or by species as the colour mode says, and a
+wiped-out group stays listed at 0 while the sample ring remembers it. Kills
+are on the row (`K<n>`); births per group are not yet drawn.
 
 **The rivalry dial.** `World::colony_rivalry`, off. On, `is_living_kin`
 requires the colony. That is the whole change, and its consequences are
@@ -282,9 +282,10 @@ now tallies each animal group's deaths by cause **and kills by attacking
 group**, booked at the bite where both parties are in scope
 (`World::tally_kill`; guarded by
 `a_kill_is_booked_on_the_victims_group_against_the_killers`). `labstats`
-prints it as the `--- groups ---` block the table in §2 came from. What is
-still missing is the *page*: the ANTS legend should carry `KILLED n
-STARVED n` under each group, and the run log a line naming the killer.
+prints it as the `--- groups ---` block the table in §2 came from, and the
+ANTS legend carries `K<n>` on each group's row with the killers named in
+its note. What is still missing is the run log naming the killer, and
+births per group.
 
 ### 4f. What is sufficient in the evolutionary machinery, and what is not
 

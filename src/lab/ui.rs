@@ -46,6 +46,7 @@ use std::collections::VecDeque;
 
 use crate::hud;
 use crate::render;
+use crate::sim::organism::SpeciesId;
 use crate::sim::world::{self, World};
 
 use super::params;
@@ -379,6 +380,10 @@ pub enum Action {
     Stock(i32),
     /// Cycle the false-colour view of the invisible channels.
     CycleOverlay,
+    /// Cycle which colour every animal wears in the box -- see
+    /// `render::CreatureColour`. The ANTS page's chart and legend group and
+    /// tint by the same mode, through `Ui::set_creature_colour`'s mirror.
+    CycleCreatureColour,
     Panel(Panel),
     Stats,
     Help,
@@ -1445,12 +1450,34 @@ fn paint_widget(frame: &mut [u8], wid: &Widget, hover: bool, down: bool) {
 
 // ------------------------------------------------------------------- rows
 
+/// Height of `Body::Lines`' plotted area, in pixels -- about the owner's ask
+/// of "40px tall", and shared between `Row::height` and `draw_lines` so the
+/// two cannot disagree about how tall the chart actually is.
+const CHART_H: i32 = 40;
+
 /// What one row of an info panel is.
 enum Body {
     /// A named quantity: label on the left, value on the right.
     Value { label: String, value: String, tint: [u8; 4] },
     /// A population over the last few dozen samples.
     Spark { label: String, series: Vec<u32>, tint: [u8; 4] },
+    /// **Several named populations on one shared y-axis.** See `draw_lines`
+    /// for why this is not just `Spark` called several times: `Spark`
+    /// normalises each series to *its own* peak, which is right for one
+    /// quantity and wrong the moment two are compared -- a colony of 4 and
+    /// one of 40 would each fill their strip top to bottom and read as a
+    /// tie. Built for the ANTS page's per-group chart, whose whole reason to
+    /// exist is telling two fighting groups apart by more than a colour.
+    /// One axis, several tints.
+    Lines { caption: String, series: Vec<(Vec<u32>, [u8; 4])> },
+    /// **A row that reads like `Value` and clicks like `Head`.** Label on
+    /// the left, the current setting on the right, and the whole row is a
+    /// hit target through the same `taps` mechanism `Head` already uses in
+    /// `paint_page` -- no new painter code, the same trap `Head`'s own doc
+    /// records ("built, thrown away, and could never fire") already has its
+    /// fix in one place. Written for the ANTS page's colour-mode toggle,
+    /// which needed a clickable row rather than a foldable group.
+    Choice { label: String, value: String, action: Action },
     /// **A named group of rows, and whether it is showing.** Clickable: the
     /// action opens this group and closes whichever was open. `hidden` is how
     /// many rows are behind it while it is shut, which is the whole reason a
@@ -1492,6 +1519,12 @@ impl Row {
     ) -> Self {
         Self { body: Body::Spark { label: label.into(), series, tint }, note: note.into() }
     }
+    fn lines(caption: impl Into<String>, series: Vec<(Vec<u32>, [u8; 4])>, note: impl Into<String>) -> Self {
+        Self { body: Body::Lines { caption: caption.into(), series }, note: note.into() }
+    }
+    fn choice(label: impl Into<String>, value: impl Into<String>, action: Action, note: impl Into<String>) -> Self {
+        Self { body: Body::Choice { label: label.into(), value: value.into(), action }, note: note.into() }
+    }
     fn gap() -> Self {
         Self { body: Body::Gap, note: String::new() }
     }
@@ -1504,6 +1537,9 @@ impl Row {
     fn height(&self) -> i32 {
         match self.body {
             Body::Value { .. } => LINE,
+            // Same footprint as `Value` -- it draws like one and only the
+            // tap target under it differs.
+            Body::Choice { .. } => LINE,
             // A rule above the label and a pixel of air under it, so a shut
             // group reads as a lid rather than as another value row.
             Body::Head { .. } => LINE + 4,
@@ -1511,6 +1547,11 @@ impl Row {
             // bars, and a row measuring only the bars lets it overprint the
             // next row. Lane A's `Generations` row records the same trap.
             Body::Spark { .. } => 22,
+            // `CHART_H` plus the same +10 margin `Spark` carries above, and
+            // for the identical reason: the caption is drawn a couple of
+            // pixels under the chart, not inside it, so a row measuring only
+            // the chart lets the caption overprint the legend row below it.
+            Body::Lines { .. } => CHART_H + 10,
             Body::Gap => 4,
         }
     }
@@ -1519,7 +1560,9 @@ impl Row {
             Body::Value { label, value, .. } => {
                 hud::text_width(label) + 12 + hud::text_width(value)
             }
+            Body::Choice { label, value, .. } => hud::text_width(label) + 12 + hud::text_width(value),
             Body::Spark { label, .. } => hud::text_width(label).max(96),
+            Body::Lines { caption, .. } => hud::text_width(caption).max(96),
             Body::Head { label, hidden, .. } => hud::text_width(label) + 12 + hud::text_width(&hidden.to_string()) + 8,
             Body::Gap => 0,
         }
@@ -1538,7 +1581,13 @@ impl Row {
 const SAMPLE_EVERY: u64 = 120;
 const HISTORY: usize = 56;
 
-#[derive(Clone, Copy, Default)]
+/// **No longer `Copy`.** The per-group census below is a `Vec`, and a `Vec`
+/// cannot derive it -- the only two call sites that ever relied on `Sample`
+/// being copied out of the ring took it by reference already (`series` and
+/// `delta` both hold `fn(&Sample) -> _`), so nothing downstream needed the
+/// bit this gave up. Checked directly rather than assumed: `grep -n
+/// samples src/lab/ui.rs` turns up no `.copied()` on a `Sample`.
+#[derive(Clone, Default)]
 struct Sample {
     /// **The simulated frame it was taken at**, which this did not carry.
     ///
@@ -1552,6 +1601,19 @@ struct Sample {
     plants: u32,
     ants: u32,
     germinations: u64,
+    /// **One entry per live colony at this sample** -- `(species, colony,
+    /// alive)`, copied straight out of `World::live_creature_groups` rather
+    /// than kept as a reference, for the same reason the rest of `Sample`
+    /// is a copy: this ring outlives the tick it was read on. Built for the
+    /// ANTS page's per-group chart, which the owner asked for after
+    /// watching an ant colony and a beetle group fight with only the
+    /// combined `ants` total above to read it by -- `groups` is what lets
+    /// `History::group_series` answer "how many of *this one*" per sample.
+    /// Empty on every sample taken before the first colony was founded, and
+    /// `group_series` reads that as zero rather than as a gap -- a group
+    /// that has not been founded yet and one that died out must look the
+    /// same on the chart: the floor.
+    groups: Vec<(SpeciesId, u32, u32)>,
 }
 
 /// **One sample of one watched individual.**
@@ -1767,6 +1829,11 @@ impl History {
             plants: orgs.saturating_sub(ants),
             ants,
             germinations: world.germinations,
+            // Read straight off the engine's own partition rather than
+            // re-deriving one here -- `World::live_creature_groups`' own doc
+            // is explicit that the world owns the split and a page only
+            // draws it.
+            groups: world.live_creature_groups().into_iter().map(|g| (g.species, g.colony, g.alive)).collect(),
         });
         while self.samples.len() > HISTORY {
             self.samples.pop_front();
@@ -1776,6 +1843,46 @@ impl History {
 
     fn series(&self, pick: fn(&Sample) -> u32) -> Vec<u32> {
         self.samples.iter().map(pick).collect()
+    }
+
+    /// **One group's population across the ring, `0` where a sample carries
+    /// no row for it.**
+    ///
+    /// `series` above picks a field every sample always has; a group can be
+    /// absent from a sample because it had not been founded yet or because
+    /// it has since died out, and both must draw the same way -- the floor,
+    /// not a series that quietly gets shorter. `CLAUDE.md`'s first law for
+    /// an outcome: a dying colony is a line falling to zero, and the graph
+    /// this feeds is exactly the case that law was written against ("a pool
+    /// that is either full or empty ... has the same defect the rubble
+    /// did").
+    ///
+    /// `matches` rather than a fixed `(species, colony)` pair, because the
+    /// two grouping modes need different equalities: colony mode wants
+    /// exactly one `(species, colony)`, species mode wants every colony of
+    /// one species summed into a single line. A closure expresses both; a
+    /// tuple could only express the first.
+    /// **Every group any sample in the ring still holds**, in placement
+    /// order and without repeats -- the list that keeps a wiped-out group on
+    /// the ANTS page until its last sample has decimated away.
+    fn remembered_groups(&self) -> Vec<(SpeciesId, u32)> {
+        let mut out: Vec<(SpeciesId, u32)> = Vec::new();
+        for s in &self.samples {
+            for &(sp, co, _) in &s.groups {
+                if !out.contains(&(sp, co)) {
+                    out.push((sp, co));
+                }
+            }
+        }
+        out.sort_by_key(|&(sp, co)| (co, sp.0));
+        out
+    }
+
+    fn group_series(&self, matches: impl Fn(SpeciesId, u32) -> bool) -> Vec<u32> {
+        self.samples
+            .iter()
+            .map(|s| s.groups.iter().filter(|&&(sp, co, _)| matches(sp, co)).map(|&(_, _, alive)| alive).sum())
+            .collect()
     }
 
     /// The change in `pick` across the last two samples, or `None` when there
@@ -1829,6 +1936,109 @@ fn compact(v: f64) -> String {
     } else {
         format!("{v:.0}")
     }
+}
+
+/// `render::group_colour`'s `[f32; 3]` (0..255 per channel, to match the
+/// renderer's own cell-colour maths) into the `[u8; 4]` tint every row body
+/// on this page actually wants. One conversion, so a chart line and the
+/// legend swatch beside it can never round differently and drift apart.
+/// How many groups the ANTS page charts and lists. See `capped_group_rows`.
+const GROUP_ROWS: usize = 12;
+
+/// **What has happened to a group's dead**, folded for the legend: killed,
+/// starved, and the killers by name. `World::group_deaths` is per
+/// `(species, colony)`; species mode sums every colony of the species, so
+/// the legend's deaths agree with the line it sits under in either mode.
+fn group_losses(world: &World, species: SpeciesId, colony: Option<u32>) -> (u64, u64, Vec<(String, u64)>) {
+    let mut killed = 0u64;
+    let mut starved = 0u64;
+    let mut killers: Vec<(String, u64)> = Vec::new();
+    for d in &world.group_deaths {
+        if d.species != species || colony.is_some_and(|c| c != d.colony) {
+            continue;
+        }
+        killed += d.by_cause[crate::sim::organism::DeathCause::Killed.index()];
+        starved += d.by_cause[crate::sim::organism::DeathCause::Starved.index()]
+            + d.by_cause[crate::sim::organism::DeathCause::StarvedInFlight.index()];
+        for (asp, acol, n) in &d.killed_by {
+            let name = world.species.get(*asp).name.to_uppercase();
+            let who = if colony.is_some() { format!("{name} {acol}") } else { name };
+            match killers.iter_mut().find(|(k, _)| *k == who) {
+                Some((_, m)) => *m += n,
+                None => killers.push((who, *n)),
+            }
+        }
+    }
+    (killed, starved, killers)
+}
+
+fn tint_of(rgb: [f32; 3]) -> [u8; 4] {
+    [rgb[0].round().clamp(0.0, 255.0) as u8, rgb[1].round().clamp(0.0, 255.0) as u8, rgb[2].round().clamp(0.0, 255.0) as u8, 255]
+}
+
+/// **Which of a world's live groups the ANTS page draws, and how many it had
+/// to leave out.**
+///
+/// Colony mode's row is `World::live_creature_groups`'s own row, unchanged.
+/// Species mode folds every colony of a species into the first row that
+/// species claimed, because the chart draws one line per row and "one line
+/// per species" is the whole point of that mode -- two colonies of the same
+/// species must merge into one line, not draw a second one at the bottom.
+///
+/// **Capped at [`GROUP_ROWS`]** -- a page-height limit, not a palette one.
+/// The cap was the palette's eight until the owner's ruling that *"every
+/// line should have its own colour even when there are twenty"* made
+/// `render::group_palette` generate a fresh hue per group; what bounds the
+/// legend now is the screen, and twelve rows under a chart is what fits
+/// beside the world. Past the cap the twelve *with the most animals alive*
+/// are kept, tie-broken on `(species, colony)` so the choice cannot depend
+/// on hash-map or float iteration order -- `CLAUDE.md`'s standing warning
+/// about an unstable sort whose tie order is not a pure function of the
+/// comparator. The kept rows are re-sorted back to placement order before
+/// being returned, so capping never reshuffles the ones that do fit.
+///
+/// **A group that has died out stays on the page while the ring remembers
+/// it**, at `alive 0`. The first draft listed only live groups, and the
+/// beetles that had killed fifteen ants and then starved were simply gone
+/// from the legend -- the one line the owner most wants to watch fall to
+/// the floor ("one almost getting wiped out") vanished at the moment it
+/// reached it. `remembered` is every group any sample in the ring holds; a
+/// group leaves the page only when its last sample decimates away.
+fn capped_group_rows(world: &World, colony_mode: bool, remembered: &[(SpeciesId, u32)]) -> (Vec<(SpeciesId, u32, u32)>, usize) {
+    let mut rows: Vec<(SpeciesId, u32, u32)> = Vec::new();
+    let mut add = |species: SpeciesId, colony: u32, alive: u32| {
+        if colony_mode {
+            match rows.iter_mut().find(|(sp, co, _)| *sp == species && *co == colony) {
+                Some((_, _, a)) => *a += alive,
+                None => rows.push((species, colony, alive)),
+            }
+        } else {
+            match rows.iter_mut().find(|(sp, _, _)| *sp == species) {
+                Some((_, _, a)) => *a += alive,
+                None => rows.push((species, 0, alive)),
+            }
+        }
+    };
+    for g in world.live_creature_groups() {
+        add(g.species, g.colony, g.alive);
+    }
+    for &(species, colony) in remembered {
+        add(species, colony, 0);
+    }
+    // Placement order, whichever list a row arrived from: `(colony, species)`
+    // is `live_creature_groups`' own order, and in species mode every colony
+    // is 0 so it collapses to species order.
+    rows.sort_by_key(|&(sp, co, _)| (co, sp.0));
+    let cap = GROUP_ROWS;
+    if rows.len() <= cap {
+        return (rows, 0);
+    }
+    let mut order: Vec<usize> = (0..rows.len()).collect();
+    order.sort_by(|&a, &b| rows[b].2.cmp(&rows[a].2).then(rows[a].0.0.cmp(&rows[b].0.0)).then(rows[a].1.cmp(&rows[b].1)));
+    let mut keep: Vec<usize> = order.into_iter().take(cap).collect();
+    keep.sort_unstable();
+    let dropped = rows.len() - keep.len();
+    (keep.into_iter().map(|i| rows[i]).collect(), dropped)
 }
 
 // --------------------------------------------------------------------- ui
@@ -2080,6 +2290,24 @@ pub struct Ui {
     /// a channel needs a writer and a reader, and the compiler checks
     /// neither -- in its "read and never written" direction.
     panel_bar: Bar,
+    /// **Mirrors `Renderer::creature_colour`** -- see that enum's own doc in
+    /// `render.rs`. `Ui` does not hold the renderer, so this is how the
+    /// ANTS page's chart and legend learn which mode to group and colour
+    /// their lines by: `Lab` pushes the mode across whenever it changes
+    /// (`Lab::new`, right after the renderer is built, and the
+    /// `CycleCreatureColour` handler), rather than the page reaching through
+    /// a shared handle it does not have. There are exactly two writers, both
+    /// in `Lab`, which is what keeps a second source of truth from drifting
+    /// out of step with the first.
+    ///
+    /// **`Option` rather than a bare `CreatureColour`**, because `Ui`
+    /// derives `Default` and `render::CreatureColour` does not implement
+    /// it -- and `render.rs` is out of scope for this change. `None` is not
+    /// a third mode; it is the instant between `Ui::new` and `Lab::new`
+    /// finishing, before either writer has run. `creature_colour()` below is
+    /// the only reader and it treats `None` as `Off`, which is the enum's
+    /// own "nothing has customised this yet" state.
+    creature_colour: Option<render::CreatureColour>,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -2415,6 +2643,21 @@ impl Ui {
         // that can disagree with the marker on screen, and the pin is already
         // the thing that means "this one" everywhere else on this interface.
         self.watch.observe(world, self.pinned);
+    }
+
+    /// **Told by `Lab` whenever the animals' colour mode changes.** See
+    /// `creature_colour`'s own doc for why the mirror exists and who the two
+    /// callers are.
+    pub fn set_creature_colour(&mut self, mode: render::CreatureColour) {
+        self.creature_colour = Some(mode);
+    }
+
+    /// The mirrored mode, read as `Off` for the instant before `Lab` has set
+    /// it. `pub` for the same reason `tool()`/`stock()`/`broods()` are --
+    /// a test that wants to know what a mirrored dial currently reads should
+    /// not need a private-field workaround to ask.
+    pub fn creature_colour(&self) -> render::CreatureColour {
+        self.creature_colour.unwrap_or(render::CreatureColour::Off)
     }
 
     /// Where the button for `action` was drawn last frame.
@@ -3222,9 +3465,67 @@ impl Ui {
             Panel::Ants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.ants as i64));
                 let (allocated, live) = world.organism_slot_usage();
-                let series = self.history.series(|s| s.ants);
-                let peak = series.iter().copied().max().unwrap_or(0);
-                vec![
+                // **Which grouping the chart and legend read off the world.**
+                // Follows the renderer's own creature-colour mode, not a
+                // separate switch on this page -- the owner's rule: graph by
+                // colony only when the box is painting colonies, otherwise by
+                // species, so the graph and the animals in the box are always
+                // answering the same question. `Off` falls to `Species` here,
+                // same as `render::group_colour` does for the colour itself --
+                // an animal wearing its own material still belongs to a
+                // species, even though it is not drawing that species' colour
+                // on its body.
+                let colony_mode = self.creature_colour() == render::CreatureColour::Colony;
+                let paint_mode =
+                    if colony_mode { render::CreatureColour::Colony } else { render::CreatureColour::Species };
+                let remembered = self.history.remembered_groups();
+                let (shown, dropped) = capped_group_rows(world, colony_mode, &remembered);
+                let series: Vec<(Vec<u32>, [u8; 4])> = shown
+                    .iter()
+                    .map(|&(species, colony, _)| {
+                        let s = if colony_mode {
+                            self.history.group_series(move |sp, co| sp == species && co == colony)
+                        } else {
+                            self.history.group_series(move |sp, _| sp == species)
+                        };
+                        (s, tint_of(render::group_colour(paint_mode, species, colony).unwrap_or(render::GROUP_NONE)))
+                    })
+                    .collect();
+                let peak = series.iter().flat_map(|(s, _)| s.iter().copied()).max().unwrap_or(0);
+                // **One legend row per shown group**, built while `series` is
+                // still borrowed rather than after `Row::lines` below moves
+                // it -- the two need the same per-group series (one for the
+                // line, one for its own delta) and this is the one pass that
+                // reads it for both.
+                let legend: Vec<Row> = shown
+                    .iter()
+                    .zip(series.iter())
+                    .map(|(&(species, colony, alive), (s, group_tint))| {
+                        let gd = (s.len() >= 2).then(|| s[s.len() - 1] as i64 - s[s.len() - 2] as i64);
+                        let (gd_text, _) = delta_text(gd);
+                        let name = world.species.get(species).name.to_uppercase();
+                        let label = if colony_mode { format!("{name} {colony}") } else { name };
+                        // **What the dead died of, on the row and not only
+                        // in the note**, because *"one almost got wiped
+                        // out, then came back"* is a line on the chart and
+                        // whether it was eaten or starved is the whole
+                        // question. Kills are on the face whenever there
+                        // are any; the starved count and the killers by
+                        // name are in the note, which is where a number
+                        // that does not fit on the row goes on this page.
+                        let (killed, starved, killers) = group_losses(world, species, colony_mode.then_some(colony));
+                        let face = if killed > 0 { format!("{alive}  {gd_text}  K{killed}") } else { format!("{alive}  {gd_text}") };
+                        let mut note = format!(
+                            "THIS GROUP'S ANIMALS ALIVE NOW, HOW THAT COUNT MOVED SINCE THE LAST SAMPLE, AND K FOR HOW MANY OF ITS DEAD WERE KILLED BY ANOTHER ANIMAL. TINTED TO MATCH ITS LINE ABOVE AND THE ANIMALS WEARING IT IN THE BOX. DEAD SO FAR: {killed} KILLED, {starved} STARVED."
+                        );
+                        if !killers.is_empty() {
+                            let who: Vec<String> = killers.iter().map(|(k, n)| format!("{k} X{n}")).collect();
+                            note.push_str(&format!(" KILLED BY {}.", who.join(", ")));
+                        }
+                        Row::value(label, face, *group_tint, note)
+                    })
+                    .collect();
+                let mut rows = vec![
                     Row::value(
                         "ALIVE",
                         ants.to_string(),
@@ -3256,20 +3557,45 @@ impl Ui {
                         "LIVE ORGANISMS AGAINST ORGANISM SLOTS EVER ALLOCATED. THE SECOND NUMBER IS THE HIGH-WATER MARK OF CONCURRENT LIFE AND IT NEVER FALLS. THE CEILING IS 4095, AND A BIRTH REFUSED AT THE CEILING IS A BIRTH THAT DID NOT HAPPEN.",
                     ),
                     Row::gap(),
-                    Row::spark(
-                        format!("TREND  PEAK {peak}"),
+                    // **The toggle the chart and the animals in the box both
+                    // answer to.** A row rather than a bar chip -- the bar is
+                    // full, measured twice (`CLAUDE.md`), and `Body::Head`
+                    // already proved a page row can carry a click for free.
+                    Row::choice(
+                        "ANIMALS WEAR",
+                        self.creature_colour().label(),
+                        Action::CycleCreatureColour,
+                        "WHAT COLOUR EVERY ANIMAL WEARS IN THE BOX, AND WHAT THE CHART AND LEGEND BELOW GROUP AND COLOUR BY. CLICK TO CYCLE: OWN COLOUR, BY SPECIES, BY COLONY. THE CHART GROUPS BY COLONY ONLY IN THAT LAST MODE -- OTHERWISE IT SUMS EVERY COLONY OF A SPECIES INTO ONE LINE.",
+                    ),
+                    // **Replaces the single TREND spark.** One line per
+                    // group on one shared axis, so two groups fighting can be
+                    // read off directly -- the gap the owner reported after
+                    // watching an ant colony and a beetle group fight with
+                    // only the combined total to graph it by.
+                    Row::lines(
+                        format!("GROUPS  PEAK {peak}"),
                         series,
-                        FAIR,
-                        "THE ANIMAL COUNT OVER THE LAST 56 SAMPLES, OLDEST ON THE LEFT. ONE SAMPLE EVERY 120 SIMULATED FRAMES.",
+                        "EACH LINE IS ONE GROUP'S POPULATION, ALL ON ONE SCALE -- UNLIKE A SEPARATE STRIP PER GROUP, TWO GROUPS ARE COMPARABLE DIRECTLY RATHER THAN EACH FILLING ITS OWN AXIS. A GROUP THAT DIES OUT DRAWS FALLING TO THE FLOOR, NOT AS A SHORTER LINE. SAME COLOUR AS THE ANIMALS WEARING IT IN THE BOX.",
                     ),
-                    Row::head(
-                        "LIST EVERY ANIMAL",
-                        false,
-                        ants,
-                        Action::Panel(Panel::AntList),
-                        "OPEN THE ROSTER: ONE ROW PER ANIMAL, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT ANIMAL AND ITS NUMBERS ON SCREEN. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, WHICH IS THE WHOLE REASON THIS LIST EXISTS.",
-                    ),
-                ]
+                ];
+                rows.extend(legend);
+                if dropped > 0 {
+                    rows.push(Row::value(
+                        "MORE GROUPS",
+                        format!("+{dropped}"),
+                        FAINT,
+                        "MORE GROUPS THAN THIS PAGE HAS ROOM TO GRAPH. THE TWELVE WITH THE MOST ANIMALS ALIVE ARE DRAWN; THE REST ARE STILL COUNTED IN ALIVE ABOVE AND STILL WEAR THEIR OWN COLOUR IN THE BOX.",
+                    ));
+                }
+                rows.push(Row::gap());
+                rows.push(Row::head(
+                    "LIST EVERY ANIMAL",
+                    false,
+                    ants,
+                    Action::Panel(Panel::AntList),
+                    "OPEN THE ROSTER: ONE ROW PER ANIMAL, SORTABLE, AND CLICKING A ROW PUTS A MARKER ROUND THAT ANIMAL AND ITS NUMBERS ON SCREEN. AN ANT IS TWO DARK CELLS AT PLAY ZOOM AND YOU FIND IT ONLY BECAUSE IT MOVES, WHICH IS THE WHOLE REASON THIS LIST EXISTS.",
+                ));
+                rows
             }
             Panel::Box => vec![
                 Row::value(
@@ -3735,6 +4061,28 @@ fn paint_page(
                 draw_spark(frame, Rect { x: left, y, w: right - left, h: 12 }, series, *tint);
                 text(frame, left, y + 14, label, FAINT);
             }
+            Body::Lines { caption, series } => {
+                draw_lines(frame, Rect { x: left, y, w: right - left, h: CHART_H }, series);
+                text(frame, left, y + CHART_H + 2, caption, FAINT);
+            }
+            Body::Choice { label, value, action } => {
+                text(frame, left, y, label, FAINT);
+                text(frame, right - hud::text_width(value), y, value, GOOD);
+                // The same invisible full-width hit target `Head` pushes
+                // below -- a `Choice` is a `Head` that draws as a value row
+                // instead of a heading, and the click mechanism does not
+                // care which one drew it.
+                taps.push(Widget {
+                    rect: Rect { x: rect.x + 1, y, w: rect.w - 2, h: row.height() },
+                    line1: String::new(),
+                    line2: String::new(),
+                    action: Some(*action),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: String::new(),
+                });
+            }
             Body::Head { label, open, hidden, action } => {
                 for x in rect.x + 1..rect.right() - 1 {
                     render::put(frame, W, H, x, y + 1, DIVIDER);
@@ -3802,6 +4150,81 @@ fn draw_spark(frame: &mut [u8], area: Rect, series: &[u32], tint: [u8; 4]) {
         // strip almost solid and reads as "no information"; the profile line
         // is what makes a *flat* population look flat rather than look full.
         fill(frame, Rect { x, y: area.bottom() - h, w, h: 1 }, [244, 248, 252, 255]);
+    }
+}
+
+/// **Several groups' populations on one shared y-axis** -- the peak over
+/// *every* series drawn, never each series' own peak the way `draw_spark`
+/// normalises above. `draw_spark` is right for one quantity; it is wrong the
+/// moment two are compared side by side, because each strip fills to its own
+/// top regardless of the other's size -- a colony of 4 and one of 40 would
+/// draw identically tall. Built for the ANTS page's per-group chart, whose
+/// whole reason to exist is telling two fighting groups apart by more than a
+/// colour.
+///
+/// Handles the two degenerate inputs without dividing by zero: no groups at
+/// all (`series` empty, before anything has been founded) and no samples yet
+/// in an existing group's series both print a caption instead of a chart,
+/// and a shared peak of zero (every series flat at the floor) draws every
+/// point on the baseline rather than panicking on a `0.0 / 0.0`.
+fn draw_lines(frame: &mut [u8], area: Rect, series: &[(Vec<u32>, [u8; 4])]) {
+    fill(frame, area, [24, 27, 33, 255]);
+    if series.is_empty() {
+        text(frame, area.x + 2, area.y + 2, "NO GROUPS YET", FAINT);
+        return;
+    }
+    let len = series.iter().map(|(s, _)| s.len()).max().unwrap_or(0);
+    if len == 0 {
+        text(frame, area.x + 2, area.y + 2, "NO SAMPLES YET", FAINT);
+        return;
+    }
+    let peak = series.iter().flat_map(|(s, _)| s.iter().copied()).max().unwrap_or(0);
+    for (s, tint) in series {
+        let mut prev: Option<(i32, i32)> = None;
+        for (i, &v) in s.iter().enumerate() {
+            // Oldest sample at the left edge, newest at the right -- same
+            // convention `draw_spark`'s `bar_w` walk uses, just interpolated
+            // across the strip's own width instead of stepped in bar-sized
+            // columns, since several series drawn as opaque bars would hide
+            // each other where they overlap and a line does not.
+            let x = area.x + if len > 1 { (i as i32 * (area.w - 1)) / (len as i32 - 1) } else { 0 };
+            let h = if peak == 0 { 0 } else { ((v as f32 / peak as f32) * (area.h - 1) as f32).round() as i32 };
+            let y = area.bottom() - 1 - h;
+            match prev {
+                Some((px, py)) => draw_segment(frame, px, py, x, y, *tint),
+                None => render::put(frame, W, H, x, y, *tint),
+            }
+            prev = Some((x, y));
+        }
+    }
+}
+
+/// A one-pixel-wide line between two points, for `draw_lines` above. Nothing
+/// else in this module draws anything but rectangles and single pixels, so
+/// there was no line primitive to reuse -- this is a plain integer
+/// Bresenham, with `render::put`'s own bounds check doing the clipping
+/// rather than a second one here.
+fn draw_segment(frame: &mut [u8], x0: i32, y0: i32, x1: i32, y1: i32, colour: [u8; 4]) {
+    let (mut x, mut y) = (x0, y0);
+    let dx = (x1 - x0).abs();
+    let sx: i32 = if x0 < x1 { 1 } else { -1 };
+    let dy = -(y1 - y0).abs();
+    let sy: i32 = if y0 < y1 { 1 } else { -1 };
+    let mut err = dx + dy;
+    loop {
+        render::put(frame, W, H, x, y, colour);
+        if x == x1 && y == y1 {
+            break;
+        }
+        let e2 = 2 * err;
+        if e2 >= dy {
+            err += dy;
+            x += sx;
+        }
+        if e2 <= dx {
+            err += dx;
+            y += sy;
+        }
     }
 }
 
@@ -6823,7 +7246,12 @@ mod tests {
                         check(label, "page row");
                         check(value, "page value");
                     }
+                    Body::Choice { label, value, .. } => {
+                        check(label, "choice row");
+                        check(value, "choice value");
+                    }
                     Body::Spark { label, .. } => check(label, "strip caption"),
+                    Body::Lines { caption, .. } => check(caption, "chart caption"),
                     Body::Head { label, .. } => check(label, "group heading"),
                     Body::Gap => {}
                 }
@@ -7897,6 +8325,136 @@ mod tests {
         world.frame = 0;
         history.observe(&world);
         assert_eq!(history.samples.len(), 1, "the old box survived the rebuild");
+    }
+
+    /// **Two founded colonies produce two group series, and a group that
+    /// dies out reads 0 rather than dropping out of its own line.**
+    ///
+    /// The scene is `creature.rs`'s own
+    /// `a_founding_is_one_colony_and_the_next_founding_is_another` (a stone
+    /// floor, two `found_colony_of` calls) -- proven there to actually hold
+    /// two separate colonies, so this borrows it rather than re-deriving a
+    /// scene that might not. What is new here is reading it through
+    /// `History::group_series`, which is what the ANTS page's chart and
+    /// legend actually call.
+    #[test]
+    fn two_founded_colonies_are_two_group_series() {
+        let mut world = World::new(WorldRect::new(0, 0, 199, 199));
+        for x in 10..190 {
+            world.set(x, 101, crate::sim::cell::Cell::new(crate::sim::material::STONE, 0));
+        }
+        let first_n = world.found_colony_of(50, 100, "ant", 4);
+        let second_n = world.found_colony_of(150, 100, "ant", 4);
+        assert!(first_n >= 2 && second_n >= 2, "the scene must actually hold two colonies: placed {first_n} and {second_n}");
+
+        let mut history = History::default();
+        history.observe(&world);
+
+        let groups = world.live_creature_groups();
+        assert_eq!(groups.len(), 2, "two foundings are two groups: {groups:?}");
+        let (sp0, co0, alive0) = (groups[0].species, groups[0].colony, groups[0].alive);
+        let (sp1, co1, alive1) = (groups[1].species, groups[1].colony, groups[1].alive);
+
+        let series0 = history.group_series(move |sp, co| sp == sp0 && co == co0);
+        let series1 = history.group_series(move |sp, co| sp == sp1 && co == co1);
+        assert_eq!(series0.last().copied(), Some(alive0), "the first colony's series must end at its own alive count");
+        assert_eq!(series1.last().copied(), Some(alive1), "the second colony's series must end at its own alive count");
+
+        // Free every animal in the first colony, so it is missing from the
+        // next sample -- and `group_series` must read that sample as 0, not
+        // as one entry shorter than the surviving colony's.
+        let doomed: Vec<u16> =
+            world.live_organism_ids().into_iter().filter(|&id| world.organism(id).is_some_and(|s| s.colony == co0)).collect();
+        assert!(!doomed.is_empty(), "nothing to free -- this test would prove nothing");
+        for id in doomed {
+            world.free_organism(id);
+        }
+        world.frame += SAMPLE_EVERY;
+        history.observe(&world);
+
+        let series0_after = history.group_series(move |sp, co| sp == sp0 && co == co0);
+        let series1_after = history.group_series(move |sp, co| sp == sp1 && co == co1);
+        assert_eq!(series0_after.last().copied(), Some(0), "a colony that died out must draw a floor, not stop -- it read {series0_after:?}");
+        assert_eq!(series1_after.last().copied(), Some(alive1), "the surviving colony's own count should not have moved");
+        assert_eq!(series0_after.len(), series1_after.len(), "every group's series must carry one entry per sample in the ring");
+    }
+
+    /// **The ANTS page's legend names both founded colonies, each in its own
+    /// tint, in placement order.** The proof that `Panel::Ants` is actually
+    /// wired to `capped_group_rows` and `render::group_colour` rather than
+    /// merely compiling against them -- same scene as
+    /// `two_founded_colonies_are_two_group_series` above.
+    #[test]
+    fn the_ants_legend_names_both_colonies_in_placement_order() {
+        let mut world = World::new(WorldRect::new(0, 0, 199, 199));
+        for x in 10..190 {
+            world.set(x, 101, crate::sim::cell::Cell::new(crate::sim::material::STONE, 0));
+        }
+        let first_n = world.found_colony_of(50, 100, "ant", 4);
+        let second_n = world.found_colony_of(150, 100, "ant", 4);
+        assert!(first_n >= 2 && second_n >= 2, "the scene must actually hold two colonies: placed {first_n} and {second_n}");
+        let groups = world.live_creature_groups();
+        assert_eq!(groups.len(), 2, "the scene must hold exactly two colonies: {groups:?}");
+
+        let mut ui = Ui::new();
+        // Colony mode -- species mode would sum both colonies (same species,
+        // "ant") into one row, and this test is about telling two colonies of
+        // *one* species apart, which is the harder of the two grouping modes.
+        ui.set_creature_colour(render::CreatureColour::Colony);
+        ui.observe(&world);
+
+        let spec = LabBox::default();
+        let rows = ui.panel_rows(Panel::Ants, &world, &spec, 60.0);
+        let labels: Vec<&str> = rows
+            .iter()
+            .filter_map(|row| match &row.body {
+                Body::Value { label, .. } => Some(label.as_str()),
+                _ => None,
+            })
+            .collect();
+        let legend: Vec<(&str, [u8; 4])> = rows
+            .iter()
+            .filter_map(|row| match &row.body {
+                Body::Value { label, tint, .. } if label.starts_with("ANT ") => Some((label.as_str(), *tint)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(legend.len(), 2, "the legend must carry one row per founded colony -- page labels were {labels:?}");
+        assert_ne!(legend[0].0, legend[1].0, "two different colonies must not share a label");
+        assert_ne!(legend[0].1, legend[1].1, "two different colonies must not share a tint");
+        // Placement order: `live_creature_groups` sorts by colony, and the
+        // colony founded first (at x=50) claimed the lower colony number.
+        assert!(
+            legend[0].0.contains(&groups[0].colony.to_string()) && legend[1].0.contains(&groups[1].colony.to_string()),
+            "the legend must list colonies in placement order: {legend:?} against {groups:?}"
+        );
+
+        // **A colony that dies out stays on the page at 0** while the ring
+        // remembers it -- the beetles that vanished from the first draft's
+        // legend the moment they starved. Free every animal of the first
+        // colony, sample again, and the legend still carries both rows with
+        // the dead one reading 0 on its face.
+        let doomed: Vec<u16> = world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|&id| world.organism(id).is_some_and(|s| s.colony == groups[0].colony))
+            .collect();
+        for id in doomed {
+            world.free_organism(id);
+        }
+        world.frame += SAMPLE_EVERY;
+        ui.observe(&world);
+        let rows = ui.panel_rows(Panel::Ants, &world, &spec, 60.0);
+        let faces: Vec<(String, String)> = rows
+            .iter()
+            .filter_map(|row| match &row.body {
+                Body::Value { label, value, .. } if label.starts_with("ANT ") => Some((label.clone(), value.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(faces.len(), 2, "the wiped-out colony must stay listed: {faces:?}");
+        assert!(faces[0].1.starts_with('0'), "the dead colony's face must read 0 alive: {faces:?}");
+        assert_eq!(faces[0].0, legend[0].0, "and it keeps its place in the order: {faces:?}");
     }
 
     /// **The ladder grew a seventh stop the same day this bar was written and
