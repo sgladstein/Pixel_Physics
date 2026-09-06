@@ -921,14 +921,18 @@ between. A re-run that reproduces every direction and no magnitude is what a
 voided table should look like; if the directions had moved too, the fix would
 have been the suspect.
 
-**The `ascii` deposition gate across the rivalry dial, with both controls:**
+**The `ascii` deposition gate with colonies made strangers, and both
+controls.** Taken while `colony_rivalry` was still a switch; it is the same
+measurement under the scent dials, whose narrow end
+(`PIXEL_PHYSICS_COLONY_RIVALRY=on`, now `tolerance -1` and `spread 1`) is
+what that switch became:
 
 | arm | attributed drops | laden ants | ratio |
 |---|---|---|---|
-| shipped (one colony, dial off) | 237 | 2,962 | **1.36x** |
-| one colony, dial **on** | 237 | 2,962 | **1.36x**, digit for digit |
-| 55 colonies, dial on — the scene as it stood | 22 | 2,590 | 1.14x |
-| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9`, dial off | 438 | 4,631 | **0.69x** |
+| shipped (one colony, nestmates) | 237 | 2,962 | **1.36x** |
+| one colony, made strangers | 237 | 2,962 | **1.36x**, digit for digit |
+| 55 colonies, made strangers — the scene as it stood | 22 | 2,590 | 1.14x |
+| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` | 438 | 4,631 | **0.69x** |
 
 The last row is the sensitivity control and it fires the assertion, so the
 gate is not blind. The third row is the finding: the scene was fifty-five
@@ -1041,6 +1045,74 @@ that places ants in a loop is N colonies — matters to any bed read through
 `regroup_by_scent`: at the shipped dials every label is one point and the
 pass is a no-op, so nothing moved, but a harness that turns the dials on
 over a `plant_ant` loop is measuring fifty colonies.
+
+## Round fifteen, 2026-09-06 — the alarm, the verb, and the flight question closed
+
+*Same branch and line. PR #268 (the armour reach) merged first, then the
+signature session's #267 while this was in review -- so this round's work was
+written against `colony_rivalry` and lands after that switch retired into the
+scent dials. README's "Creature groups status" is the shipped half.*
+
+**The flight question is closed, and the closure is worth more than the
+answer.** Last night's null had three named excuses (§4a) and all three are
+now measured away: the eye saw hunters on **one cast in thirteen** (141,996
+and 162,923 sightings across two six-seed races, duty cycle 7.4% and 8.3%);
+the bed was rebuilt until predation was **35% of ant deaths** instead of ~5%
+(`founders=48 predators=4`, found by sweeping against `labstats`' per-group
+tally rather than guessing); and a *run-away* wiring — adding the engine's own
+milling-versus-commuting number, `Persist` — did **worse** than the turn, 47.9%
+median against 52.4%, 1 seed of 6 above half against 4. Both inside the
+harness's noise floor.
+
+**Two things a later session should not have to re-derive.**
+
+- **The old arena bed could not have answered this question at any horizon.**
+  It starves 52 ants to single digits before the 12,000-frame grant runs out,
+  so a race in it reads who starved slower. The horizon was only ever half the
+  problem; *the larder* was the other half, and the harness's own warning line
+  says nothing about it.
+- **The run-away arm carries four named weights against two, and
+  `synapse_fraction` bills every active connection every tick.** So its lower
+  share is not attributable to the wiring shape — a fair comparison needs the
+  weight count held equal, and `arm=wire` has no way to say that today. I
+  would not read the 47.9% as "running away is worse than turning".
+
+**The alarm plane and the `Attack` verb landed together, and the reason is the
+genome.** Each is an append — `Alarm` an input, `Attack` an output — and each
+shifts every birth draw and forces `mutation_rate` to be re-derived. Landing
+them in one change is **one** re-derivation and **one** break in birth-draw
+comparability instead of two. `live_slots` 584 → 637, rate `3.18 / 637`.
+
+**The number to carry forward: an input column is 20 live slots, an output row
+is 33.** A verb costs the mutable surface two-thirds again what a sense does,
+and nothing in the genome docs said so before today.
+
+**What each settled that its design sketch had not.**
+
+- **The alarm is one input, not the front/lateral pair the trails get.** A
+  trail is a route and needs a gradient; an alarm is an event, and the
+  direction a hunter is in is already `ThreatBearing`'s. A lateral alarm slot
+  would be a second, worse bearing sense competing with the real one.
+- **The alarm plane is allocated on the first bite.** Eagerly it is **~40 MB**
+  standing at the shipped world size, for a signal many worlds never write
+  once. `alarm_is_live()` exists because a plane that was never made and one
+  that decayed to zero sample identically.
+- **`Attack` needed its own scan, not a re-ranked food scan.**
+  `adjacent_food_counted` ranks by what the gut would get, so an animal
+  defending its nest against something it cannot digest scores every candidate
+  at zero and picks nothing.
+- **And it is priced per jaw closure, against what §4b's own sketch asked
+  for.** The sketch said "per progress"; `dead-ends.md` already records that a
+  per-unit-of-progress price on a divisible job is a *constant total* for the
+  job and therefore cannot deter. The report has been corrected.
+
+**One measurement that surprised me and is worth reusing.** A genome append
+shifts birth draws, so `ascii` should have moved — and the deposition gate came
+back **1.36x on 237 drops from 2,962 laden ants, digit for digit**. The reason
+is that scene has *no births in it*: fifty-five founders placed from the
+species genome, none of which ever breeds. So "a genome append moves every
+seeded scene" is true only of scenes that reproduce, and the ones that do not
+are a free byte-identity check across an append.
 
 ## Deliberately not being built yet
 
