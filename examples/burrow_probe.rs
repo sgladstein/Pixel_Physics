@@ -89,6 +89,7 @@ use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::weather::Pin;
 use pixel_physics::sim::material::MaterialKind;
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::{frame, material, player, Cell, World};
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -745,7 +746,7 @@ fn main() {
     let soil: i32 = arg("soil").unwrap_or(200);
     let seeds: u64 = arg("seeds").unwrap_or(1);
     let want: String =
-        arg("arms").unwrap_or_else(|| "soil,sand,stone,lined,flooded,watertable".to_string());
+        arg("arms").unwrap_or_else(|| "soil,sand,stone,lined,damp,flooded,watertable".to_string());
     let ants: i32 = arg("ants").unwrap_or(55);
     let colony_frames: u64 = arg("colonyframes").unwrap_or(8_000);
     let bud_k: f64 = arg("budk").unwrap_or(BUD_K);
@@ -772,7 +773,7 @@ fn main() {
     );
 
     for arm in
-        ["soil", "sand", "stone", "lined", "flooded", "watertable"].iter().filter(|a| want.split(',').any(|w| &w == *a))
+        ["soil", "sand", "stone", "lined", "damp", "flooded", "watertable"].iter().filter(|a| want.split(',').any(|w| &w == *a))
     {
         println!("\n=== arm {arm} ===");
         println!(
@@ -868,7 +869,7 @@ fn main() {
             // material were renamed or the field dropped, this arm would come
             // back identical to `soil` instead of silently lining itself by a
             // path the game does not use.
-            let lined_arm = matches!(*arm, "lined" | "flooded" | "watertable");
+            let lined_arm = matches!(*arm, "lined" | "damp" | "flooded" | "watertable");
             let mut lining = 0usize;
             if lined_arm {
                 let carved_set: std::collections::HashSet<(i32, i32)> =
@@ -895,6 +896,47 @@ fn main() {
                     lined.material = packed;
                     world.set(wx, wy, lined);
                     lining += 1;
+                }
+            }
+
+            // **The bank at field capacity — ordinary damp ground, and the
+            // arm this harness was missing.**
+            //
+            // `lined` above is built on whatever moisture the scene produced,
+            // which is dry, and the two wet arms are built at `SOIL_SATURATED`.
+            // So every arm here sat at one end of the range or the other and
+            // **nothing tested the middle** — which is where the lab's own bed
+            // lives (`lab::scene`'s `with_aux` builds it at exactly
+            // `SOIL_FIELD_CAPACITY`) and where the owner plays. `CLAUDE.md`:
+            // *check that a guard's inputs actually vary what it guards.* They
+            // did not, and that is why this instrument reported the lining
+            // working for months while every nest in the lab dissolved.
+            //
+            // A damp bank is what ground *is* between rain: field capacity is
+            // defined as the water a column holds against gravity once free
+            // drainage has stopped. A tunnel in it must stand. Run it against
+            // `PIXEL_PHYSICS_WET_COLLAPSE=fieldcapacity` and it does not,
+            // which is the whole defect in one command.
+            //
+            // **Field capacity plus one, and the `+ 1` is the entire point.**
+            // Built at exactly `SOIL_FIELD_CAPACITY` this arm passes under
+            // *both* thresholds, because the old predicate was a strict `>`
+            // and 620 is not greater than 620 -- so a bank sitting precisely
+            // on the line is the one damp value that was safe, and an arm
+            // written at it would have been blind by one unit. The lab's bed
+            // is built exactly there and does not stay: `examples/labnest`
+            // measures its mean going **620 -> 638** as soon as anything is
+            // planted, because a root displaces the water out of every cell it
+            // takes. One unit over is therefore not a contrived value, it is
+            // where the played bed lives within a few hundred frames.
+            if *arm == "damp" {
+                for x in 0..width {
+                    for y in ground..(ground + soil) {
+                        let cell = world.get(x, y);
+                        if world.materials.get(cell.material).water_capacity > 0 {
+                            world.set(x, y, cell.with_aux(material::SOIL_FIELD_CAPACITY + 1));
+                        }
+                    }
                 }
             }
 
@@ -991,6 +1033,47 @@ fn main() {
                     report(&world, f);
                 }
             }
+
+            // **A picture of the tunnel, because this is judged by eye.**
+            //
+            // The cut arms have had counters and no render since they were
+            // written, and `CLAUDE.md`'s standing instruction is to *post it
+            // rather than describe it*: "the gallery wall survives" is exactly
+            // the claim the owner has to check, and a percentage is not
+            // checkable. The colony arm below already renders; this is the
+            // same thing for the arms that have an actual carved tunnel in
+            // them, which are the ones where a wall failing is *visible*.
+            //
+            // Cropped to the excavation rather than the bed, for the reason
+            // `labmass::shoot` records: a whole 512-wide world shrinks the one
+            // interesting band to a smear. One file per arm, so an A/B is two
+            // named files rather than a sheet the reader has to index into.
+            if let (Some(prefix), 1) = (png.as_deref(), seed) {
+                if lined_arm || *arm == "soil" {
+                    let (vw, vh) = (width as u32, height as u32);
+                    let mut buf = vec![0u8; (vw * vh * 4) as usize];
+                    let touched = world.take_touched_chunks();
+                    let mut r = Renderer::new();
+                    r.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+                    let (cx, cy) = ((shaft_x - 8).max(0) as u32, (ground - 6).max(0) as u32);
+                    let cw = ((gallery_end + 26) as u32 - cx).min(vw - cx);
+                    let ch = ((gallery_y + 12) as u32 - cy).min(vh - cy);
+                    let zoom = 4u32;
+                    let (zw, zh) = (cw * zoom, ch * zoom);
+                    let mut big = vec![0u8; (zw * zh * 4) as usize];
+                    for y in 0..zh {
+                        for x in 0..zw {
+                            let src = (((cy + y / zoom) * vw + (cx + x / zoom)) * 4) as usize;
+                            let dst = ((y * zw + x) * 4) as usize;
+                            big[dst..dst + 4].copy_from_slice(&buf[src..src + 4]);
+                        }
+                    }
+                    let out = format!("{prefix}_{arm}.png");
+                    image::save_buffer(&out, &big, zw, zh, image::ColorType::Rgba8)
+                        .expect("writing the arm");
+                    println!("{:>6}  {:>7}  wrote {out} ({zw}x{zh}) at frame {frames}", "", "-");
+                }
+            }
         }
     }
 }
@@ -1013,7 +1096,6 @@ fn main() {
 /// dig that only ever lands in stone all read as `packed 0` here and are
 /// invisible in `digs`.
 fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>) {
-    use pixel_physics::render::Renderer;
     use pixel_physics::sim::chunk::Rect;
     use pixel_physics::sim::parallel;
     use pixel_physics::sim::particle::ParticleSystem;

@@ -67,10 +67,19 @@
     // nothing like stone (1.0). A charge should still wreck a nest.
     blast_resistance: 0.6,
     // **What it becomes when it can no longer hold.** Above
-    // `material::SOIL_FIELD_CAPACITY` the pore space is full and the
+    // `material::SOIL_WATERLOGGED` the pore space is full enough that the
     // packing has nothing to grip with, so the wall reverts to loose soil
     // and the ordinary fall rules take the tunnel down. That is the graded
     // half of this mechanic: a burrow is not immortal, it is dry.
+    //
+    // **That line was `SOIL_FIELD_CAPACITY` until 2026-09-06, and the
+    // sentence above is why it moved**: field capacity is where a drained
+    // column *rests*, so the pore space there is precisely **not** full, and
+    // a wall failing at it fails in ordinary damp ground. In the lab's bed --
+    // which is built at exactly field capacity -- that made every gallery in
+    // the box dissolve as soon as anything was planted: lining 234 cells to
+    // 40 over 12,000 frames with the colony still digging. See
+    // `material::SOIL_WATERLOGGED` for the census the new line is sited from.
     slumps_into: "soil",
     self_supporting: true,
     // Three families of four tones in `soil.ron`'s own layout, so a nest
