@@ -1114,6 +1114,85 @@ species genome, none of which ever breeds. So "a genome append moves every
 seeded scene" is true only of scenes that reproduce, and the ones that do not
 are a free byte-identity check across an append.
 
+## Round sixteen, 2026-09-06 evening — a child can be made differently, and nothing names a caste
+
+*Same branch as round fourteen (`claude/evolution-lab-signature-castes-gfm0r2`),
+restarted from `main` after #267 and #271 landed. The owner's question was
+"how much of this caste design is hard-coding behaviour I don't want, versus
+making it possible in the engine?" — and the answer overturned §2 of the
+report: the authored soldier morph came out, and what went in is the general
+channel. Record:
+[`../creature-signature-and-castes-2026-09-06.md`](../creature-signature-and-castes-2026-09-06.md)
+§2c–§2g; shipped half in README's "Creature groups status", third block.*
+
+**Landed:** `BrainOutput::Provision` (read once at budding), `BrainInput::Made`,
+`OrganismState::made` (a phenotype: not inherited, not jarred, zero for every
+founder), a positional developmental block after the last brain block
+(`brain::TRAIT_SLOTS`, `dev_slot`, `Plastic(slot, weight)` in the jar's sparse
+form and in a species file as `plastic:`), `creature::expressed_traits` —
+genotype plus `plasticity × made × block` inside each allele bound — behind
+every phenotype reader, and `World::plasticity` on the GENOME page at zero.
+`mutation_rate` re-derived 3.18/706. `labstats` grew `plasticity= provision=
+dev=` and a `--- development ---` block; `creature_arena` grew `dev=` and
+`plasticity=`, so the race for the channel is one genome under two dials.
+
+**What the work overturned, which a later session cannot reconstruct:**
+
+- **A caste is not a thing the engine should know.** §2c's first draft had
+  `TRAIT_MORPH`, a soldier's armour and jaw authored in the species file, and
+  a "make a soldier" output. Every one of those is a decision about what a
+  caste *is*, made by us; the owner's ruling is that the engine makes castes
+  *possible* and a line finds them or does not. So there is one number handed
+  at birth, one heritable linear map from it to the body, and one dial. What
+  is still authored is the engine's limit, not a design: bodies vary only
+  along the fourteen trait axes that exist, development is one scalar handed
+  once, and the map is linear.
+- **The dial gates the expressing, not the handing, and that is the control
+  that proves the channel.** With `Bias → Provision` wired on every ant at
+  dial zero, 28 of 44 living children still carry `made = 0.5` and no body
+  moves (within-line armour spreads 0.08–0.32, the mutational floor); at dial
+  one the same wiring spreads one line 0.000 .. 0.647. A reader who only
+  measured the dial-up arm would not know which half of the channel moved.
+- **A provision keyed on a sense hands almost nothing; a line has to find the
+  bias term.** `Crowding → Provision = 2.0` made 1 child of 20 over 0.25,
+  because an ant that has just afforded a child is rarely in a crowd. The
+  sense-keyed castes the wiki describes are reachable, but they are a
+  two-weight wiring at minimum.
+- **The shipped bed is not byte-identical and cannot be** — a genome append
+  moves every birth's mutation draws — so the acceptance is a paired seed
+  sweep, and it reads as the same distribution on three seeds with the block
+  at zero on every slot.
+- **"Selected for" does not follow from "connected", and the arena says so
+  in one run.** The developmental race on the bed with teeth reads dial 1 at
+  a median 50.9% against dial 0 at 51.6% on the same genome, 3 seeds below
+  half in each — the harness's null. Two structural reasons, both the bed's:
+  the living at 24,000 frames are mostly founders (deepest generation 3–7
+  against 52 founders per arm), and a +0.40 plate at the shipped reach is
+  under the bite (the plate passes it only above reach 3). A session that
+  wants *found* runs the same command at `reach≥3` on a bed where children
+  are the majority; do not read this null as the mechanism being dead —
+  the positive controls say it is not.
+
+- **Two of round fifteen's guards were riding on births, and the rate
+  re-derivation is what showed it.** `the_jaw_allele_decides_what_an_animal_
+  can_cut` and `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+  allows_it` give their animals 100,000 energy, so they breed inside the
+  budget, and which slots a child mutates moves with `mutation_rate`; the
+  637 → 706 re-derivation flipped both (0 digs at the top of the jaw axis;
+  one defender of six standing at the shipped reach) with jaw and plate
+  untouched. Bisected to the three `.ron` lines, confirmed by restoring
+  the old rate. Both now breed clones (`mutation_rate = 0.0` on the test's
+  own species copy), watched going red with their faults back. The general
+  form is `CLAUDE.md`'s shared-`Rng` gotcha one step out: a guard over a
+  mechanism must not be a function of what a child happened to draw, and
+  every append re-derives the rate, so any guard that lets its animals
+  breed is one append from flipping.
+
+**Environment, one line:** the two-colony `labstats` bed breeds on seed 2
+(32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
+a positive control over births goes to seed 2, and the arena's bed with teeth
+is round fifteen's `founders=48 predators=4`.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

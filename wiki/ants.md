@@ -1,6 +1,11 @@
 # Ants
 
-*Current as of: 2026-09-06, when **who is family became a matter of scent**
+*Current as of: 2026-09-06, late, when **a child could be made differently
+from its parent's genes** -- a parent hands each child one number from
+whatever its brain senses, and heritable developmental weights turn that
+number into a body, so a line can find its own castes and nothing in the box
+says what a caste is; see "A child can be made differently" below. Earlier
+that day, **who is family became a matter of scent**
 -- every animal carries a heritable scent and a heritable tolerance, two
 colonies start a little apart and drift, and a lineage that drifts out of its
 family is named as a new group on the ants page, so an ant is no longer
@@ -292,6 +297,23 @@ a stranger it is not going to eat, nobody runs from one, and both colonies
 still lay and follow one shared set of trails. A colony that has split
 keeps only its name and its line apart; the two halves do not yet merge back
 if they drift together again.
+
+**A child can be made differently from its parent's genes.** Since
+2026-09-06 a parent hands each child it buds one number, and the child's
+body is its inherited genes shifted by that number times a heritable set of
+*developmental* weights, one per body trait. What the number is comes from
+the parent's own brain, out of whatever it senses at that moment — how
+crowded it is, how well fed, whether something is hunting it, whether the
+alarm scent is up — so a line can come to make one kind of child in a quiet
+nest and another kind when the nest is under attack: an armoured, hard-jawed
+child that stays where its family is thickest, say, or a small, quick one
+that wanders. That is what a caste is, and nothing in the box says what a
+caste should be: the weights and the wiring are the line's to find, and a
+line that finds nothing makes children exactly of its genes. It is all
+behind one dial on the genome page, **plasticity**, which ships at zero; the
+animal's own page shows what it was made with. The number is not inherited
+and a jar does not keep it, so a released animal is made of nothing, and the
+box that ships is exactly what it was.
 
 **They can see what hunts them, if they can see at all.** An animal with
 eyes used to see two things at a distance: something it could eat, and its
