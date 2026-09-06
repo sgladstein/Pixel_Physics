@@ -77,6 +77,45 @@ costly. A hazard that also feeds you is a subsidy with a variance, and
 counting the population cannot tell you which you built. Ablate the edible
 half.
 
+### And the graded bite that followed: the balance shifts, it does not flip
+
+**2026-09-06.** The owner's answer to the finding above was to refuse the
+premise it rested on: *"nothing should be binary edible or inedible. Beetle
+should be stronger than an ant but it can be overwhelmed or unlucky."* Biting
+now wears a cell down at `(bite/armour)^2` a go, banked on the victim, and
+armour is a heritable priced multiplier on the body material.
+
+Six breeding beetles, three seeds, 12,000 frames, armour allele at neutral and
+at double:
+
+| beetle armour | ants | beetles | eats | **gnaws** | armour tax |
+|---|---|---|---|---|---|
+| x1, as authored | 19, 14, 8 | 3, 8, 4 | 1260, 1157, 919 | **0, 0, 43** | 1.7% of burn |
+| x2 | 8, 11, 3 | 8, 7, 11 | 949, 1149, 704 | **385, 167, 353** | 2.1% of burn |
+
+**The `gnaws` column is the design property confirmed in a live bed rather
+than asserted in a test.** The graded path is *dormant as shipped*: a beetle
+authors 0.8 against an ant's 1.0 mouth, so ants bite through in one go and
+essentially nothing is ever worn down. Double the plate and hundreds of gnaws
+appear. That is what "continuous at the old threshold" means when it is
+measured — the new behaviour arrives exactly when the gene moves and not
+before.
+
+**And it is not the failure mode worth fearing.** A colony whose `gnaws`
+climbs while `eats` goes flat is chewing on something it will never get
+through; here `eats` stays high (949/1149/704 against 1260/1157/919) *while*
+gnaws climbs, so ants are wearing beetles down and still feeding.
+
+**The balance shifts rather than flipping.** Fewer ants, roughly double the
+beetles, no collapse at double armour — against the binary's all-or-nothing.
+Three seeds with overlapping ranges, so the magnitude is suggestive rather
+than established; the qualitative claim, the **absence of a cliff**, is what
+these runs support.
+
+The Red Queen risk raised before the work was built — both sides paying more
+for the same outcome — is visible in the tax (1.7% → 2.1%) and has not
+impoverished the bed at the range tested. It is not ruled out further up.
+
 ## 1. The master constraint: there are exactly two currencies
 
 Measured, `src/sim/creature.rs`: an animal dies in exactly two ways.

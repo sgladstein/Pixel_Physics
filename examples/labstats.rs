@@ -164,6 +164,31 @@ fn main() {
         // Dropping the ant's bite below 0.8 makes the beetle inedible while
         // leaving it exactly as dangerous, which is the only arm in which
         // "predation" means predation alone.
+        // **The arms-race arm.** Bite and armour are both priced and both
+        // heritable, so one lineage can pay for a harder mouth and the other
+        // for a thicker shell -- every tick, for ever. Red Queen races end
+        // with both sides spending more for the same outcome, which is
+        // realistic and is also a way to impoverish a bed that already
+        // starves its colony. This is the knob that starts one.
+        if let Some(v) = arg::<f32>("beetlearmour") {
+            if let Some(bid) = lab.world.species.id_of("beetle") {
+                if let Some(def) = lab.world.species.get(bid).creature.as_ref() {
+                    let mut def = def.clone();
+                    def.traits[pixel_physics::sim::organism::TRAIT_ARMOUR] = v;
+                    lab.world.species.set_creature(bid, def);
+                }
+            }
+            let living: Vec<u16> = lab
+                .world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == "beetle"))
+                .collect();
+            for id in &living {
+                lab.world.set_organism_trait(*id, pixel_physics::sim::organism::TRAIT_ARMOUR, v);
+            }
+            println!("labstats: beetle armour allele {v}, applied to {} standing beetle(s) and to what they breed", living.len());
+        }
         if let Some(v) = arg::<f32>("antbite") {
             def.bite_force = Some(v);
             println!("labstats: ant bite_force = {v} (beetle armour is 0.8; below that a beetle cannot be eaten)");
@@ -253,12 +278,14 @@ fn main() {
             if intake > 0.0 { 100.0 * l.harvested_corpse / intake } else { 0.0 },
         );
         println!(
-            "--- the priced levers --- curvature {:.1} ({:.2}% of burn) force {:.1} ({:.2}%) exposure {:.1} ({:.2}%) \
+            "--- the priced levers --- curvature {:.1} ({:.2}% of burn) force {:.1} ({:.2}%) armour {:.1} ({:.2}%) exposure {:.1} ({:.2}%) \
              | digest overhead {:.1} of {:.1} intake ({:.2}%) | ground felt {} cells",
             st.curvature_energy,
             share(st.curvature_energy),
             st.force_energy,
             share(st.force_energy),
+            st.armour_energy,
+            share(st.armour_energy),
             st.exposure_energy,
             share(st.exposure_energy),
             st.digest_overhead_energy,
@@ -266,6 +293,11 @@ fn main() {
             if intake > 0.0 { 100.0 * st.digest_overhead_energy / (intake + st.digest_overhead_energy) } else { 0.0 },
             st.curvature_cells_read,
         );
+        // **Gnawing, beside eating, because one without the other is the
+        // finding.** A colony whose `gnaws` climbs while `eats` stays flat is
+        // chewing on something it will never get through -- which is what the
+        // graded bite makes possible and the old binary could not express.
+        println!("--- biting --- eats {} gnaws {} bites_refused {}", st.eats, st.gnaws, st.bites_refused);
         // **How much of an animal's life is spent in the open** -- the number
         // that decides whether an exposure price can select for anything at
         // all. A colony outdoors on essentially every tick has no sheltering
