@@ -1690,6 +1690,18 @@ pub struct World {
     /// ratio is what binds, not either number alone.
     pub leaf_cells_unaffordable: u64,
 
+    /// **Cells shed because they had no path to a drinking root** —
+    /// `plant::shed_cut_off_tissue`, and §W7's "did it fire" number.
+    ///
+    /// A severed crown and a crown that was never severed are the same
+    /// picture at contact-sheet zoom, and the whole defect §W7 records is
+    /// one that looked like nothing happening. Zero is the expected reading
+    /// on an undisturbed world: nothing cuts a plant in half on its own, so
+    /// a non-zero here without a cut is this rule reaching tissue it should
+    /// not — most likely a traversal that stopped using the eight
+    /// neighbourhood `Grow` writes with.
+    pub plant_cut_off_cells_shed: u64,
+
     /// Leaf cells actually placed, the denominator for
     /// `leaf_cells_unaffordable`.
     pub leaf_cells_built: u64,
@@ -2987,6 +2999,7 @@ impl World {
             param_mutation_rolls: 0,
             param_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
+            plant_cut_off_cells_shed: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,
             seed_budget_blocked: 0,

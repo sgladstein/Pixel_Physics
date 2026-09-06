@@ -8461,11 +8461,13 @@ fn face_available(world: &World, n: Cell) -> f32 {
 }
 
 /// The soil's full nutrient stock in one cell, in the `u8` units the chunk
-/// store keeps. **`0` is the shipped default and means the whole mechanism
-/// is off** — `World::soil_nutrient_fraction` short-circuits to 1.0, no
-/// buffer is ever allocated, and nothing downstream can notice.
+/// store keeps. **200 and ON since 2026-09-06** — owner's instruction,
+/// *"things should not ship inert"*.
 ///
-/// `PIXEL_PHYSICS_NUTRIENT=<initial>` turns it on.
+/// `PIXEL_PHYSICS_NUTRIENT=0` is the ablation and turns the whole mechanism
+/// off: `World::soil_nutrient_fraction` short-circuits to 1.0, no buffer is
+/// ever allocated, and nothing downstream can notice. That is the arm every
+/// measurement of this mechanism pairs against.
 ///
 /// Why a nutrient at all, and why it is *not* the lever the roots work
 /// tried: `Reports/plant-soil-nutrient-plan-2026-09-05.md` refuted an
@@ -8477,7 +8479,7 @@ fn face_available(world: &World, n: Cell) -> f32 {
 pub(crate) fn nutrient_initial() -> u8 {
     use std::sync::OnceLock;
     static N: OnceLock<u8> = OnceLock::new();
-    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(200))
 }
 
 /// **Frames per unit of nutrient deficit forgiven** — a *period*, not a
@@ -8571,10 +8573,14 @@ fn nutrient_construction_multiplier(world: &World, organism_id: u16, cell_type: 
         return 1.0;
     }
     let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
-    // Reciprocal in the *scarcity*, floored so the multiplier is bounded:
-    // at full nutrient this is exactly 1.0, at empty it is
-    // `NUTRIENT_STARVED_COST`.
-    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - status.clamp(0.0, 1.0))
+    // **Priced off `nutrient_availability`, not off the raw status, so the
+    // two nutrient prices cannot disagree about the same soil.** Bounded
+    // either way: exactly 1.0 at full nutrient, exactly
+    // `NUTRIENT_STARVED_COST` at empty. What changes is the middle, which
+    // is where a stand actually lives -- see that function for the 33% the
+    // disagreement cost.
+    let available = nutrient_availability(status, nutrient_half_saturation());
+    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - available)
 }
 
 /// What a cell costs to build in fully exhausted soil, as a multiple of its
@@ -8597,18 +8603,43 @@ pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
     m.kind == MaterialKind::Powder && m.water_capacity > 0
 }
 
-/// **How much of what a plant EARNS scarce nutrient can take away** —
-/// `plant-soil-nutrient-plan-2026-09-05.md` §3c's third option, built
-/// 2026-09-06 on the owner's instruction after the reachability trace
-/// showed the first two could not do the job.
+/// **Half-saturation constant for what scarce nutrient does to a plant's
+/// income** — Michaelis-Menten, which is the standard kinetic for nutrient
+/// uptake and is here for a measured reason rather than for its pedigree.
 ///
-/// `PIXEL_PHYSICS_NUTRIENT_INCOME`, `0.0..=1.0`:
+/// `PIXEL_PHYSICS_NUTRIENT_INCOME` is `Km`; **`0` means no income term at
+/// all** (the identity, and the paired control — the construction price
+/// alone, which is what #262/#264 shipped).
 ///
-/// - **`0.0`** — no income term. The identity, and the paired control: the
-///   construction price of `nutrient_construction_multiplier` alone, which
-///   is what #262/#264 shipped.
-/// - **`1.0`** (default) — income falls linearly to **zero** at
-///   `nutrient_status` 0.
+/// **This was a linear weight until 2026-09-06, and the linear form cannot
+/// do the job.** `1 - w(1 - status)` is `1 - w` at status 0, so the single
+/// weight sets *both* how hard a healthy stand is taxed *and* whether a
+/// plant with no soil at all can die — and the two want opposite values:
+///
+/// | weight | plants (12 seeds, paired) | a rootless plant earns |
+/// |---|---|---|
+/// | 0.25 | 0.507 | 75% of income — lives comfortably |
+/// | 0.5 | 0.392 | 50% — probably lives |
+/// | 1.0 | **0.171** | 0% — dies, and so does most of the stand |
+///
+/// There is no setting in that column that keeps a stand and still kills
+/// the drip-fed plant §3 was written for. **A saturating curve separates
+/// them**, because it is near 1 across most of the range and falls only as
+/// the soil actually empties:
+///
+/// | `nutrient_status` | multiplier at `Km` = 0.05 |
+/// |---|---|
+/// | 1.00 | 1.000 |
+/// | 0.50 | 0.955 |
+/// | 0.30 | 0.900 |
+/// | 0.10 | 0.700 |
+/// | 0.05 | 0.525 |
+/// | **0.00** | **0.000** |
+///
+/// **Zero at zero for any `Km`**, so "no soil at all is fatal" is
+/// structural rather than a tuning outcome, and `Km` is left to say only
+/// how much *poor* soil costs. That is the separation the linear form
+/// could not express.
 ///
 /// **Why income and not `min`.** §3c ruled out
 /// `min(water_status, nutrient_status)` and that reasoning stands: under
@@ -8636,11 +8667,11 @@ pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
 /// An income term has that shape, which is exactly why it ships behind a
 /// weight that can be swept to 0 and why the whole mechanism stays inert
 /// at `PIXEL_PHYSICS_NUTRIENT=0`.
-fn nutrient_income_weight() -> f32 {
+fn nutrient_half_saturation() -> f32 {
     use std::sync::OnceLock;
     static W: OnceLock<f32> = OnceLock::new();
     *W.get_or_init(|| {
-        std::env::var("PIXEL_PHYSICS_NUTRIENT_INCOME").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0)
+        std::env::var("PIXEL_PHYSICS_NUTRIENT_INCOME").ok().and_then(|v| v.parse().ok()).unwrap_or(0.05)
     })
 }
 
@@ -8651,12 +8682,35 @@ fn nutrient_income_multiplier(world: &World, organism_id: u16) -> f32 {
     if nutrient_initial() == 0 {
         return 1.0;
     }
-    let weight = nutrient_income_weight();
-    if weight <= 0.0 {
+    let half = nutrient_half_saturation();
+    if half <= 0.0 {
         return 1.0;
     }
-    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status).clamp(0.0, 1.0);
-    (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0)
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
+    nutrient_availability(status, half)
+}
+
+/// **What a plant's nutrient standing is actually worth to it, `0.0..=1.0`
+/// — the one curve BOTH nutrient prices read.**
+///
+/// Michaelis-Menten, normalised so full soil is exactly 1.0:
+/// `s (1 + Km) / (s + Km)`. Zero at `s = 0` for any `Km`, which is the
+/// property the whole mechanism turns on.
+///
+/// **Shared, because the two prices disagreeing about what "half-depleted"
+/// means is a measured 33% of the stand.** When the income term was
+/// saturating and `nutrient_construction_multiplier` was still the linear
+/// `1 + 7(1 - status)`, soil at status 0.5 was worth **0.955** to income
+/// and cost **x4.5** to build in — the same soil, called fine by one term
+/// and dire by the other. Measured at the shipped defaults over 8 paired
+/// seeds before the two were joined: cells **0.665**, plants **0.672**,
+/// down on 8 of 8. Reading one curve puts that same soil at x1.31.
+fn nutrient_availability(status: f32, half: f32) -> f32 {
+    let status = status.clamp(0.0, 1.0);
+    if half <= 0.0 {
+        return status;
+    }
+    (status * (1.0 + half) / (status + half)).clamp(0.0, 1.0)
 }
 
 /// **Noon-equivalent income from intercepted, water-limited light — the one
@@ -8686,7 +8740,9 @@ fn nutrient_draw_per_tick() -> u8 {
 pub(crate) fn nutrient_recovery_period() -> u16 {
     use std::sync::OnceLock;
     static N: OnceLock<u16> = OnceLock::new();
-    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(45)
+    })
 }
 
 fn drinkable_face(world: &World, n: Cell) -> bool {
@@ -8868,6 +8924,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // `OrganismState::contact_root_cells`. Four-neighbour, because an
     // exchange crosses a face.
     let mut contact_root_cells = 0u32;
+    // **Where the drinking roots are**, kept so `shed_cut_off_tissue` can
+    // flood out from them after the walk. Positions rather than a count:
+    // the question it answers is *which* tissue they reach.
+    let mut contact_root_sites: Vec<(i32, i32)> = Vec::new();
     // Numerator and denominator kept apart until the end -- a running mean
     // would weight early cells more, and the walk's order is row-major
     // rather than meaningful.
@@ -9020,6 +9080,7 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
             }
             if wet_faces > 0 {
                 contact_root_cells += 1;
+                contact_root_sites.push((cx, cy));
                 root_zone_faces += wet_faces;
                 root_zone_available += available;
                 // **Turnover candidate: a root drinking from spent soil.**
@@ -9922,6 +9983,15 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         }
     }
 
+    // **Tissue cut off from every drinking root is shed** -- §W7. Placed
+    // after die-back and turnover so their candidate lists are drawn from
+    // the plant as it stood at the walk, and so a cut crown is thinned by
+    // exactly one rule rather than raced over by three.
+    let cut_off_shed = shed_cut_off_tissue(world, organism_id, &contact_root_sites);
+    if cut_off_shed > 0 {
+        world.plant_cut_off_cells_shed += cut_off_shed as u64;
+    }
+
     // **Settle the water balance once, at the end, for the whole plant.**
     //
     // After the loop rather than before it, because `Absorb` runs inside
@@ -10103,6 +10173,121 @@ fn is_foliage(world: &World, x: i32, y: i32, cell_type: CellType, species_id: or
     }
     let cell = world.get(x, y);
     !world.materials.get(cell.material).reinforces_powder && cell_type != CellType::RootTip
+}
+
+/// **Shed tissue that has no path, through the plant's own cells, to a root
+/// that is drinking** — `open-bugs-handoff.md` §W7, and the owner's question
+/// that produced it: *"if a plant gets severed in the middle will it still
+/// function? will the roots that are in the soil still collect water? and
+/// will that somehow still feed the plant that it's not technically
+/// connected to anymore?"* It did, it does, and it did.
+///
+/// **Why this and not a per-component economy.** Every whole-organism
+/// channel — `World::water_at`, `desiccation_at`, `nutrient_status`, income,
+/// and the starvation rule — resolves on `organism_id` with no connectivity
+/// check, so a severed crown read the stump's water and earned on it. Fixing
+/// them one at a time is how §W7 happened; and the narrow version does not
+/// even work, because starvation compares income against `root_cells +
+/// shoot_cells` for the *whole* organism, so zeroing the crown's income
+/// reads the **stump** as starving and kills the wrong half.
+///
+/// **Splitting the organism was the other candidate and is refused here.**
+/// `World::reindex_organism_cell` is the only path that moves a cell between
+/// organisms and it resets the sidecar to `default()`; its own doc says
+/// *"the moment a carbon-carrying cell can move, this needs a move-aware
+/// seam"*, which a split needs and does not have — on top of surgery to the
+/// generation-bit identity encoding that §F4 records corrupting silently in
+/// release.
+///
+/// So the rule is the physical one instead: **tissue that cannot reach a
+/// root cannot be maintained, so it dies.** A severed branch withers; it
+/// does not go on growing. That leaves the organism holding only connected
+/// tissue, which makes every whole-organism quantity correct *by
+/// construction* rather than by audit.
+///
+/// **Eight neighbours, because `Grow` places at eight.**
+/// `.claude/rules/src-sim-cells.md`: a traversal must use the neighbourhood
+/// the writer used, or it sees fragments that are not there — which here
+/// would shed a healthy plant. **Measured rather than asserted**: with this
+/// loop set to `NEIGHBOURS_4`, `a_severed_crown_is_shed_and_an_intact_plant_is_not`
+/// fails on its *intact* arm, so that guard is sensitive to exactly this
+/// mistake rather than blind to it.
+///
+/// **A plant with no drinking roots at all sheds nothing**, and that guard
+/// is the whole difference between this rule and a bug. A seedling that has
+/// not rooted yet, and a plant whose bed has gone dry, have *no* cell
+/// connected to a drinking root; without the early return every one of them
+/// would eat itself. Being unrooted is starvation's business, not this
+/// rule's — this one only ever removes tissue that is cut off *from* roots
+/// that exist.
+///
+/// Paced at `MAX_DIEBACK_FRACTION` like die-back itself, so a severed crown
+/// thins away over a few thousand frames rather than blinking out — the
+/// graded outcome the ethos asks for, and what a real cut branch does.
+fn shed_cut_off_tissue(world: &mut World, organism_id: u16, contact_roots: &[(i32, i32)]) -> usize {
+    // **Only where the structural path is not already doing this job, and
+    // that is not a scoping convenience -- it is the whole reason §W7 is a
+    // lab bug rather than a game-wide one.**
+    //
+    // With `plant_load_failure` on, a detached crown is felled within one
+    // stop by `structural.rs` through `rigid::fell_severed_tissue`: it comes
+    // down *as pieces*, which is the `Felling status` milestone and what the
+    // ethos means by a verb delivering something. Withering it away first
+    // steals that event, and the cost is not theoretical --
+    // `scripts/acceptance.sh`'s `fell` case went from severing over a
+    // thousand cells of living tissue to **109**, because this rule had
+    // already turned most of the crown into litter before the support check
+    // looked. Caught by CI, not by the lib suite.
+    //
+    // So the two are alternatives for one job. Outdoors the crown falls;
+    // in the lab, where the owner has switched falling off and nothing can
+    // remove it, it withers instead. Neither should run when the other does.
+    if world.plant_load_failure {
+        return 0;
+    }
+    if contact_roots.is_empty() {
+        return 0;
+    }
+    let Some(state) = world.organism(organism_id) else {
+        return 0;
+    };
+    let owned: std::collections::HashSet<(i32, i32)> = state.cells.keys().copied().collect();
+    let mut reached: std::collections::HashSet<(i32, i32)> = std::collections::HashSet::new();
+    let mut queue: Vec<(i32, i32)> = Vec::new();
+    for &p in contact_roots {
+        if owned.contains(&p) && reached.insert(p) {
+            queue.push(p);
+        }
+    }
+    while let Some((x, y)) = queue.pop() {
+        for (dx, dy) in NEIGHBOURS_8 {
+            let n = (x + dx, y + dy);
+            if owned.contains(&n) && reached.insert(n) {
+                queue.push(n);
+            }
+        }
+    }
+    if reached.len() == owned.len() {
+        return 0;
+    }
+    // Row-major, so which cells go this tick is a property of the world and
+    // not of the hasher's seed -- the same reason die-back sorts its own
+    // candidates.
+    let mut cut: Vec<(i32, i32)> = owned.difference(&reached).copied().collect();
+    cut.sort_unstable_by_key(|&(x, y)| (y, x));
+    let cap = ((owned.len() as f32 * MAX_DIEBACK_FRACTION).ceil() as usize).max(1);
+    let mut shed = 0usize;
+    for (cx, cy) in cut.into_iter().take(cap) {
+        // The walk above can have written cells (`thicken`), so re-check
+        // ownership at the moment of removal, exactly as die-back does.
+        if world.get(cx, cy).organism_id() != organism_id {
+            continue;
+        }
+        shed_to_litter(world, cx, cy);
+        shed_stranded_leaves(world, cx, cy, organism_id);
+        shed += 1;
+    }
+    shed
 }
 
 fn shed_to_litter(world: &mut World, x: i32, y: i32) {
@@ -16463,98 +16648,207 @@ not, and the plant reported from the lab still cannot die"
         assert_eq!(w.draw_soil_nutrient(80, 61, 50), 0, "a draw from free water must take nothing");
         assert_eq!(w.soil_nutrient_fraction(80, 61), 0.0, "free water must read as carrying no nutrient at all");
 
-        // Inert until switched on, which is the shipping state.
+        // **On by default since 2026-09-06**, so this asserts what the
+        // shipped prices actually are rather than that there are none.
         w.plant_tree(50, 20);
         let id = w.get(50, 20).organism_id();
+        let mut shoot = Vec::new();
         for status in [1.0f32, 0.5, 0.0] {
             w.organism_mut(id).expect("alive").nutrient_status = status;
             let mult = nutrient_construction_multiplier(&w, id, CellType::GrowingTip);
             let root_mult = nutrient_construction_multiplier(&w, id, CellType::RootTip);
+            shoot.push(mult);
             assert_eq!(
                 root_mult, 1.0,
                 "root tissue must never pay the nutrient penalty: at status {status} a root costs x{root_mult}. \
 Charging scarcity prices to build the one thing that reaches more nutrient is a deadlock, and it measured as \
 root reach 34 -> 22 rows."
             );
-            assert_eq!(
-                mult, 1.0,
-                "the mechanism must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} the build \
-cost is x{mult}"
-            );
         }
-        assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
+        println!("shoot build price at status 1.0 / 0.5 / 0.0: {shoot:?}");
+        assert_eq!(shoot[0], 1.0, "a plant in full soil must build at the plain price, not x{}", shoot[0]);
+        assert!(shoot[1] > shoot[0], "scarcer soil must cost more to build in: {shoot:?}");
+        assert!(shoot[2] > shoot[1], "the price must keep rising as the soil empties: {shoot:?}");
+        assert_eq!(nutrient_initial(), 200, "the shipped stock is 200; PIXEL_PHYSICS_NUTRIENT=0 is the ablation");
     }
 
-    /// **The income term: inert while the switch is off, and the identity
-    /// when it is.**
+    /// **The income term, on by default: the curve it follows and the one
+    /// value the whole mechanism turns on.**
     ///
     /// `nutrient_income_multiplier` is the third of §3c's options and the
     /// only one that can reach the rule that kills a plant — starvation is
     /// `income < MAINTENANCE_PER_CELL * cells`, and the construction price
     /// is in neither side of it.
     ///
-    /// Two claims, because they fail differently. **Inert**: with
-    /// `PIXEL_PHYSICS_NUTRIENT` unset the multiplier is exactly 1.0 at
-    /// every status, so the shipped tree is bit-identical and
-    /// `noon_income` is the expression it replaced, to the bit. **Weight
-    /// 0 is the identity**: the paired control for any measurement of this
-    /// term is `PIXEL_PHYSICS_NUTRIENT_INCOME=0`, which must be
-    /// indistinguishable from not having built it.
+    /// **The shape is Michaelis-Menten, and it is load-bearing rather than
+    /// decorative.** The linear weight it replaced was `1 - w(1 - status)`,
+    /// which is `1 - w` at status 0 — so one number set both how hard a
+    /// healthy stand is taxed and whether a plant with no soil can die, and
+    /// the two want opposite values. Measured over 12 paired seeds: at
+    /// w = 0.25 the stand kept 0.507 of its plants and a rootless plant
+    /// still earned 75%; at w = 1.0 a rootless plant earned nothing and the
+    /// stand kept **0.171**. No setting did both. A saturating curve is
+    /// near 1 across most of the range and **exactly 0 at status 0 for any
+    /// `Km`**, which separates them.
     #[test]
-    fn the_nutrient_income_term_is_inert_until_switched_on() {
+    fn the_nutrient_income_curve_is_flat_where_soil_is_fine_and_zero_where_there_is_none() {
         let mut w = test_world();
         w.plant_tree(50, 20);
         let id = w.get(50, 20).organism_id();
         assert_ne!(id, 0, "test setup: the planted seed should own its cell");
 
-        for status in [1.0f32, 0.75, 0.5, 0.25, 0.0] {
+        let mut seen = Vec::new();
+        for status in [1.0f32, 0.5, 0.3, 0.1, 0.05, 0.0] {
             w.organism_mut(id).expect("alive").nutrient_status = status;
-            let mult = nutrient_income_multiplier(&w, id);
-            assert_eq!(
-                mult, 1.0,
-                "the income term must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} income \
-scales by x{mult}"
-            );
+            seen.push((status, nutrient_income_multiplier(&w, id)));
         }
+        println!("income multiplier by nutrient status (Km = {}): {seen:?}", nutrient_half_saturation());
 
-        // ...and `noon_income` is then exactly the expression it replaced,
-        // which is what makes "bit-identical" a checked claim rather than
-        // an assertion in a commit message. Two gates read this -- the pool
+        let at = |s: f32| seen.iter().find(|(x, _)| *x == s).expect("sampled").1;
+
+        // **The value the mechanism exists for.** A plant whose roots reach
+        // no soil earns NOTHING, so it reaches `STARVATION_DEATH_TICKS`.
+        // This is exact at every `Km`, which is why it is an equality.
+        assert_eq!(at(0.0), 0.0, "a plant with no soil at all must earn nothing, not x{}", at(0.0));
+
+        // Full soil is untaxed, so a healthy plant does not pay for a
+        // mechanism aimed at a starving one.
+        assert_eq!(at(1.0), 1.0, "a plant in full soil must earn its whole income, not x{}", at(1.0));
+
+        // Monotone, and *flat where the soil is fine* -- the property the
+        // linear form could not have. Half-empty soil must still be nearly
+        // free, or the tax lands on the whole stand instead of on the
+        // plants actually short of nutrient.
+        for pair in seen.windows(2) {
+            assert!(pair[0].1 >= pair[1].1, "the curve must not rise as soil empties: {seen:?}");
+        }
+        assert!(at(0.5) > 0.9, "soil at half stock must be near-free, not x{:.3} -- that is the whole point \
+of a saturating curve over a linear ramp", at(0.5));
+        assert!(at(0.05) < 0.75, "soil at 5% must bite, not x{:.3}", at(0.05));
+
+        // `noon_income` carries the multiplier into BOTH gates -- the pool
         // in `allocate_to_frontier` and `supportable` in `break_buds` --
-        // and they are one number in two places.
+        // which are one number in two places.
+        w.organism_mut(id).expect("alive").nutrient_status = 1.0;
         for (intercepted, leaf_cluster) in [(0.0f32, 1u8), (1.0, 1), (7.5, 3), (123.75, 5)] {
             let want = intercepted / l_node(leaf_cluster) * INCOME_PER_NODE;
             let got = noon_income(&w, id, intercepted, leaf_cluster);
-            assert_eq!(
-                got, want,
-                "noon_income must be the identity while the mechanism is off: intercepted {intercepted} \
-cluster {leaf_cluster} gave {got}, expected {want}"
-            );
+            assert_eq!(got, want, "in full soil noon_income must be the plain expression: {got} vs {want}");
         }
-
-        // The arithmetic the switch would produce, asserted directly so the
-        // shape is pinned without a second process: at weight 1 the
-        // multiplier is the status itself, so status 0 -> income 0 -> the
-        // plant reaches `STARVATION_DEATH_TICKS`. That is the whole point
-        // of the term, and it is the half a construction price cannot do.
-        for (weight, status, want) in
-            [(1.0f32, 0.0f32, 0.0f32), (1.0, 0.5, 0.5), (1.0, 1.0, 1.0), (0.5, 0.0, 0.5), (0.0, 0.0, 1.0)]
-        {
-            let got = (1.0 - weight * (1.0 - status)).clamp(0.0, 1.0);
-            assert_eq!(got, want, "weight {weight} at status {status} should scale income by {want}, not {got}");
-        }
+        w.organism_mut(id).expect("alive").nutrient_status = 0.0;
+        assert_eq!(
+            noon_income(&w, id, 100.0, 1),
+            0.0,
+            "with no soil the income both gates read must be zero, or only one of them starves the plant"
+        );
     }
 
-    /// **The switched-on half, which the test above cannot give.**
+    /// **A severed crown is shed; an intact plant loses nothing** — §W7.
     ///
-    /// A `OnceLock` is read once per process, so the inert assertions
-    /// above and this one cannot live in the same run. This is the arm
-    /// that says the mechanism does what it was built for:
+    /// The owner's question: *"if a plant gets severed in the middle will it
+    /// still function? will the roots that are in the soil still collect
+    /// water? and will that somehow still feed the plant that it's not
+    /// technically connected to anymore?"* It did — every whole-organism
+    /// channel resolves on `organism_id` with no connectivity check.
     ///
-    /// ```text
-    /// PIXEL_PHYSICS_NUTRIENT=200 cargo test --lib --release -- --ignored \
-    ///     a_plant_with_no_soil_earns_nothing_once_the_switch_is_on
-    /// ```
+    /// **Both arms, because each fails differently.** A rule that sheds the
+    /// cut crown and *also* eats healthy plants is worse than the bug; and
+    /// the intact arm is the one that catches the specific mistake this is
+    /// most likely to be written with — a four-neighbour flood fill, which
+    /// sees a plant `Grow` built at eight neighbours as a heap of fragments
+    /// and would shed most of it.
+    #[test]
+    fn a_severed_crown_is_shed_and_an_intact_plant_is_not() {
+        /// -> (cells shed as cut off, cells the plant still owns)
+        fn run(cut: bool, load_failure: bool) -> (u64, usize) {
+            let mut w = test_world();
+            // **The lab's configuration, which is where the bug lives.**
+            // With `plant_load_failure` on -- the shipped default, and the
+            // outdoor game -- a detached crown is felled as pieces within a
+            // stop and there is nothing for this rule to do. The owner plays
+            // the box with it off, nothing removes the crown, and the
+            // economy goes on feeding it.
+            w.plant_load_failure = load_failure;
+            plant_tree_on_ground(&mut w, 100, 60);
+            let id = w.get(100, 60).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            run_with_fields(&mut w, 6_000);
+            let grown = w.organism(id).map_or(0, |s| s.cells.len());
+            assert!(grown > 40, "test setup: the plant should have grown, got {grown} cells");
+
+            if cut {
+                // Remove a band of the plant's OWN cells just above the soil
+                // line, so the shoot is cut free of the roots. The plant's
+                // own cells and not a radius of world -- an axe bite also
+                // throws soil and rock, which would put a structural
+                // disturbance in the arm beside the treatment.
+                let collar = w.organism(id).and_then(|s| s.collar_y).unwrap_or(60);
+                let band: Vec<(i32, i32)> = w
+                    .organism(id)
+                    .map(|s| s.cells.keys().copied().filter(|&(_, y)| y == collar - 1 || y == collar - 2).collect())
+                    .unwrap_or_default();
+                assert!(!band.is_empty(), "test setup: found no tissue to cut at rows {}", collar - 1);
+                for (x, y) in band {
+                    w.set(x, y, Cell::EMPTY);
+                }
+            }
+            let before = w.plant_cut_off_cells_shed;
+            run_with_fields(&mut w, 6_000);
+            (w.plant_cut_off_cells_shed - before, w.organism(id).map_or(0, |s| s.cells.len()))
+        }
+
+        let (intact_shed, intact_cells) = run(false, false);
+        let (cut_shed, cut_cells) = run(true, false);
+        let (felling_shed, felling_cells) = run(true, true);
+        println!(
+            "intact (no falling):  shed {intact_shed}, {intact_cells} cells left\n\
+cut    (no falling):  shed {cut_shed}, {cut_cells} cells left\n\
+cut    (falling on):  shed {felling_shed}, {felling_cells} cells left"
+        );
+
+        // **The specificity half.** Nothing severed anything, so this rule
+        // must not have fired at all. A four-neighbour flood fill fails
+        // here, loudly, which is the point of asserting it.
+        assert_eq!(
+            intact_shed, 0,
+            "an undisturbed plant shed {intact_shed} cells as cut off. Nothing cut it, so this rule reached \
+tissue it should not -- check the traversal is still eight-neighbour, the one `Grow` writes with."
+        );
+
+        // **The sensitivity half**, and the bug itself: before this rule the
+        // crown stayed, drank the stump's water and went on earning.
+        assert!(
+            cut_shed > 0,
+            "a plant cut free of its roots shed nothing. The crown is still attached to the economy, which \
+is §W7 exactly: water_at resolves on organism_id with no connectivity check."
+        );
+
+        // **The arm that guards the acceptance case**, and the one whose
+        // absence let a green lib suite hide a red CI. With falling on, the
+        // structural path fells the crown *as pieces* -- the `Felling
+        // status` verb -- and this rule must keep out of its way. It did
+        // not, and `scripts/acceptance.sh`'s `fell` case fell from over a
+        // thousand severed cells of living tissue to 109 because the crown
+        // had already been turned to litter before the support check looked.
+        assert_eq!(
+            felling_shed, 0,
+            "with COLLAPSE UNDER LOAD on, the crown is felling's to take and this rule shed {felling_shed} \
+cells out from under it. That is what broke acceptance's `fell` case: withering the crown away steals the \
+pieces the verb exists to produce."
+        );
+    }
+
+    /// **The value the whole mechanism exists for, end to end from the
+    /// world rather than from a status set by hand.**
+    ///
+    /// The curve test above sets `nutrient_status` directly; this one puts
+    /// a root over free water and lets `organism_upkeep` derive it, so the
+    /// two halves of the claim -- *no soil reads zero* and *zero earns
+    /// nothing* -- are joined by the code that actually runs:
+    ///
+    /// **It runs in the ordinary suite now**, because the mechanism is on
+    /// by default; it was `#[ignore]`d only while the default was off and a
+    /// `OnceLock` could not be varied per test.
     ///
     /// **What it proves, and what it leaves to code already under test.**
     /// It proves the two ends that are new: a plant whose roots touch only
@@ -16570,15 +16864,15 @@ cluster {leaf_cluster} gave {got}, expected {want}"
     /// scene cannot separate "starved" from "fell apart" — which is
     /// exactly the confound `CLAUDE.md` warns a scene error produces.
     #[test]
-    #[ignore = "needs PIXEL_PHYSICS_NUTRIENT set; see the doc comment"]
-    fn a_plant_with_no_soil_earns_nothing_once_the_switch_is_on() {
+    fn a_plant_with_no_soil_earns_nothing() {
         assert!(
             nutrient_initial() > 0,
-            "this arm is meaningless with the mechanism off -- run it with PIXEL_PHYSICS_NUTRIENT=200"
+            "this arm is meaningless with the mechanism off -- it is ON by default; \
+PIXEL_PHYSICS_NUTRIENT=0 ablates it"
         );
         assert!(
-            nutrient_income_weight() > 0.0,
-            "this arm is meaningless at income weight 0 -- that setting is the identity by design"
+            nutrient_half_saturation() > 0.0,
+            "this arm is meaningless at Km 0 -- that setting is the identity by design"
         );
 
         /// -> (nutrient status, income multiplier) for a root whose only
@@ -16607,7 +16901,7 @@ cluster {leaf_cluster} gave {got}, expected {want}"
         println!(
             "switch ON (initial {}, income weight {}):\n  root over soil:  status {soil_status:.3}  income x{soil_income:.3}\n  root over drip:  status {drip_status:.3}  income x{drip_income:.3}",
             nutrient_initial(),
-            nutrient_income_weight(),
+            nutrient_half_saturation(),
         );
 
         assert!(soil_income > 0.5, "a root in fresh soil must still earn: x{soil_income:.3}");
@@ -20142,19 +20436,34 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
         const OLD: usize = (LIFE * 2.5) as usize;
 
+        /// -> is **the plant this arm planted** still alive?
+        ///
+        /// **It asked "is anything in the world alive" until 2026-09-06, and
+        /// that is a different question.** A founder that dies of age leaves
+        /// seed behind, so by `OLD` the bed can hold a germinated *descendant*
+        /// -- a different organism, at a different age, rolling its own
+        /// hazard, since `old_age_chance` is drawn from a stream keyed on
+        /// `organism_id`. The founder had died exactly as this test says it
+        /// must and the arm still read "alive". Caught when the soil nutrient
+        /// was switched on: nothing about that change touches `dies_of_age`,
+        /// which reads only `age_ticks` and `life_half_life`, but it moved
+        /// growth enough to change *when the second generation arrives*, and
+        /// a population-wide check is sensitive to that where the founder's
+        /// own fate is not.
         fn run_arm(life: f32, frames: usize) -> bool {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is compiled in");
             w.species.get_mut(tree).life_half_life = life;
             plant_tree_on_ground(&mut w, 100, 60);
+            let founder = w.get(100, 60).organism_id();
+            assert_ne!(founder, 0, "test setup: the planted seed should own its cell");
             run_with_fields(&mut w, frames);
             // Alive means an organism that is not senescent and still holds
             // tissue -- `rot_remains` thins a marked plant over the following
             // frames, so "no cells left" and "marked" are the same death at
             // two moments and either one answers.
-            w.live_organism_ids().into_iter().any(|id| {
-                w.organism(id).is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
-            })
+            w.organism(founder)
+                .is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
         }
 
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
