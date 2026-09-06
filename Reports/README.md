@@ -977,7 +977,16 @@ drift that two of these documents still reflect.**
   genome, one line in `traits_of`, a `Made` input, priced by the existing
   levies — with the measurements that would show it selected for rather
   than reachable (the block's weights leaving zero under predators, body
-  spread inside one lineage).
+  spread inside one lineage). **Built and measured the same evening**
+  (§2f–§2g): the shipped bed is the same distribution with the block at
+  zero on every slot; on the one seed that breeds the channel is connected
+  (20 of 36 living made at 0.5, armour spread 0.000 .. 0.647 inside one
+  line against a mutational floor of 0.08–0.32) and the dial gates it (the
+  same wiring at zero hands the number to 28 of 44 and moves no body); and
+  `creature_arena` under two dials on the bed with teeth reads the
+  developmental arm as the null (median 50.9% against 51.6%), for two
+  reasons that are the bed's — *reachable, connected, gated; not yet
+  found*.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,

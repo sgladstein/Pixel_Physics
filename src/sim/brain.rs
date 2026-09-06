@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 25;
+pub const BRAIN_INPUTS: usize = 26;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -52,7 +52,7 @@ pub const BRAIN_INPUTS: usize = 25;
 /// values, so a sampled genome at a given seed is a different animal and
 /// every `creature_space` baseline taken before this is void.
 pub const BRAIN_HIDDEN: usize = 8;
-pub const BRAIN_OUTPUTS: usize = 13;
+pub const BRAIN_OUTPUTS: usize = 14;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -127,11 +127,34 @@ pub const OUTPUT_SLOTS: usize = 64;
 /// A stored genome is a list of numbers with no labels, so moving a slot
 /// silently reinterprets every individual that already exists as a
 /// different animal.
-pub const GENOME_LEN: usize = HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS; // 12,352
+pub const GENOME_LEN: usize = HO_END + TRAIT_SLOTS; // 12,416
+
+/// **The developmental block: one weight per `CREATURE_TRAITS` slot, saying
+/// how far that slot of a child's *expressed* body moves with the number its
+/// parent handed it at budding** (`BrainOutput::Provision`, stored on the
+/// child as `OrganismState::made`). Read by `creature::expressed_traits`,
+/// never by `eval_brain`: it is wiring in the sense that it is heritable,
+/// positional, mutated by [`mutate`] and stored in a jar's sparse form
+/// ([`Plastic`]), and it is not a synapse.
+///
+/// **This is the whole of what makes a caste possible without naming
+/// one.** A lineage whose `Provision` fires on threat and whose block lifts
+/// armour and the jaw has *found* a soldier; one whose `Provision` fires on
+/// crowding and whose block shrinks the crop has found a disperser nobody
+/// designed. What is authored is only that a body may depend on the state
+/// its parent was in, through one number, once, at birth --
+/// `Reports/creature-signature-and-castes-2026-09-06.md` §2c.
+///
+/// Sixty-four slots reserved so `CREATURE_TRAITS` can grow without moving
+/// anything after it, exactly as the three brain reserves do; the live
+/// ones are the first `CREATURE_TRAITS`. Appended after the last brain
+/// block on 2026-09-06 under the positional law: nothing before it moved.
+pub const TRAIT_SLOTS: usize = 64;
 
 const IO_END: usize = OUTPUT_SLOTS * INPUT_SLOTS; // 4096
 const IH_END: usize = IO_END + HIDDEN_SLOTS * INPUT_SLOTS; // 8192
 const HH_END: usize = IH_END + HIDDEN_SLOTS; // 8256
+const HO_END: usize = HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS; // 12,352 -- the old GENOME_LEN
 
 /// Where a connection lives, by name rather than by arithmetic. Every
 /// caller outside `eval_brain`'s inner loops goes through these, so a
@@ -153,6 +176,12 @@ pub fn hh_slot(hidden: usize) -> usize {
 pub fn ho_slot(hidden: usize, output: BrainOutput) -> usize {
     HH_END + output as usize * HIDDEN_SLOTS + hidden
 }
+/// The developmental weight for one `CREATURE_TRAITS` slot -- see
+/// [`TRAIT_SLOTS`].
+#[inline]
+pub fn dev_slot(trait_slot: usize) -> usize {
+    HO_END + trait_slot
+}
 
 /// Is this genome index wired to anything, or is it reserve?
 ///
@@ -166,9 +195,11 @@ pub fn is_live_slot(idx: usize) -> bool {
         rel / INPUT_SLOTS < BRAIN_HIDDEN && rel % INPUT_SLOTS < BRAIN_INPUTS
     } else if idx < HH_END {
         idx - IH_END < BRAIN_HIDDEN
-    } else {
+    } else if idx < HO_END {
         let rel = idx - HH_END;
         rel / HIDDEN_SLOTS < BRAIN_OUTPUTS && rel % HIDDEN_SLOTS < BRAIN_HIDDEN
+    } else {
+        idx - HO_END < super::organism::CREATURE_TRAITS
     }
 }
 
@@ -217,9 +248,10 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "ThreatNear",
     "ThreatBearing",
     "Alarm",
+    "Made",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
-    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack"];
+    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision"];
 
 /// **The genome's shape, as a stored jar remembers it.**
 ///
@@ -709,6 +741,17 @@ pub enum BrainInput {
     /// §5 item 6 wants breedable toward either end. Nothing that ships is
     /// wired to it.
     Alarm = 24,
+    /// **The number this animal was made with** -- `OrganismState::made`,
+    /// its parent's `Provision` at the moment it was budded, `-1..=1`, and
+    /// `0` for every founder and every animal that ships.
+    ///
+    /// Fed back to the brain so behaviour can depend on how a body was
+    /// provisioned, which is the other half of a caste: a lineage whose
+    /// block builds an armoured child can wire that child, through this
+    /// slot, to stay where kin are dense rather than forage -- one weight
+    /// onto `Move` against `KinNear`. Nothing says it must; nothing that
+    /// ships reads it.
+    Made = 25,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -865,6 +908,19 @@ pub enum BrainOutput {
     /// Unwired it is `squash(0) = 0` and the verb never fires, so every
     /// shipped animal is exactly what it was and pays one comparison for it.
     Attack = 12,
+    /// **What this animal hands a child it is about to bud** -- not a verb,
+    /// a number. Read once, at `creature::try_bud`, from the tick's own
+    /// evaluation, and written on the child as `OrganismState::made`; the
+    /// child's expressed body is its inherited genotype shifted by the
+    /// developmental block (`TRAIT_SLOTS`) times this.
+    ///
+    /// **The parent's brain decides what to respond to, from its own
+    /// senses.** Whether provisioning follows threat, crowding, energy or
+    /// the alarm plane is the wiring's, so the engine never says what a
+    /// caste is *for*; it says only that a body may depend on the state its
+    /// parent was in. Unwired it is `squash(0) = 0`, every child is made of
+    /// nothing, and the shipped bed expresses its genotype exactly.
+    Provision = 13,
 }
 
 /// One authored connection, as a species file writes it:
@@ -903,6 +959,12 @@ pub struct OutputWire(pub u8, pub BrainOutput, pub f32);
 /// see `SpeciesDef::genome_manifest` for what guards that.
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 pub struct Recurrence(pub u8, pub f32);
+
+/// One developmental weight, as a species file or a jar writes it:
+/// `(9, 0.6)` -- slot 9 of `CREATURE_TRAITS` (armour) moves by `0.6` times
+/// the number the parent handed the child. See [`TRAIT_SLOTS`].
+#[derive(Clone, Copy, Debug, Deserialize, Serialize)]
+pub struct Plastic(pub u8, pub f32);
 
 /// Expand sparse wiring lists into the dense genome.
 ///
@@ -990,6 +1052,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::ThreatNear,
     BrainInput::ThreatBearing,
     BrainInput::Alarm,
+    BrainInput::Made,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1006,6 +1069,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Impulse,
     BrainOutput::DropSpoil,
     BrainOutput::Attack,
+    BrainOutput::Provision,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -1028,6 +1092,9 @@ pub struct Wiring {
     pub hidden: Vec<HiddenWire>,
     pub outputs: Vec<OutputWire>,
     pub recurrence: Vec<Recurrence>,
+    /// The developmental block, see [`Plastic`]. Empty for every genome
+    /// stored before 2026-09-06, which is a block of zeros.
+    pub plastic: Vec<Plastic>,
 }
 
 /// Decompose a dense genome into the sparse lists that reproduce it.
@@ -1082,6 +1149,12 @@ pub fn wiring_from_genome(g: &[f32]) -> Wiring {
             }
         }
     }
+    for slot in 0..super::organism::CREATURE_TRAITS {
+        let weight = g[dev_slot(slot)];
+        if weight != 0.0 {
+            w.plastic.push(Plastic(slot as u8, weight));
+        }
+    }
     w
 }
 
@@ -1089,7 +1162,20 @@ pub fn wiring_from_genome(g: &[f32]) -> Wiring {
 /// the four lists already grouped, so the round trip can be asserted
 /// without reaching through the RON layer.
 pub fn genome_from_wiring_struct(w: &Wiring) -> Vec<f32> {
-    genome_from_wiring(&w.instincts, &w.hidden, &w.outputs, &w.recurrence)
+    genome_from_wiring_plastic(&w.instincts, &w.hidden, &w.outputs, &w.recurrence, &w.plastic)
+}
+
+/// [`genome_from_wiring`] with the developmental block as well -- the form
+/// the species loader and the jar use, since both may carry one. The
+/// four-list form stays for every caller that authors a brain and nothing
+/// else; it is this with an empty block.
+pub fn genome_from_wiring_plastic(instincts: &[Instinct], hidden: &[HiddenWire], outputs: &[OutputWire], recurrence: &[Recurrence], plastic: &[Plastic]) -> Vec<f32> {
+    let mut g = genome_from_wiring(instincts, hidden, outputs, recurrence);
+    for &Plastic(slot, w) in plastic {
+        assert!((slot as usize) < super::organism::CREATURE_TRAITS, "developmental weight names trait slot {slot}, and there are {} slots", super::organism::CREATURE_TRAITS);
+        g[dev_slot(slot as usize)] = w;
+    }
+    g
 }
 
 /// A random genome, sparse the way an authored one is.
@@ -1204,8 +1290,16 @@ mod tests {
         assert_eq!(IO_END, 4096);
         assert_eq!(IH_END, 8192);
         assert_eq!(HH_END, 8256);
-        assert_eq!(GENOME_LEN, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
-        assert_eq!(GENOME_LEN, 12352);
+        assert_eq!(HO_END, HH_END + OUTPUT_SLOTS * HIDDEN_SLOTS);
+        assert_eq!(HO_END, 12352);
+        // **The developmental block is the one block sized from a trait
+        // reserve rather than a brain one**, and it is the tail: the first
+        // append since the layout was reserved that changed `GENOME_LEN`,
+        // lawfully, because it is a pure append after every brain block --
+        // no existing weight moves, every stored genome pads with zeros
+        // (`specimen::padded_from`). 12,352 + 64.
+        assert_eq!(GENOME_LEN, HO_END + TRAIT_SLOTS);
+        assert_eq!(GENOME_LEN, 12416);
         // Every block sized from the *reserve*, never from a live count --
         // this is the assertion that fails if someone "tidies" a stride
         // back to BRAIN_INPUTS/BRAIN_OUTPUTS, which is what made the
@@ -1224,22 +1318,28 @@ mod tests {
         // *current* slots occupy are unchanged. This is what a growth is,
         // and it is the check the old layout could not have passed.
         let here: Vec<usize> = live_slots().collect();
-        let grown = |ins: usize, outs: usize, hid: usize| -> Vec<usize> {
+        let grown = |ins: usize, outs: usize, hid: usize, traits: usize| -> Vec<usize> {
             let mut v = Vec::new();
             v.extend((0..outs).flat_map(|o| (0..ins).map(move |i| o * INPUT_SLOTS + i)));
             v.extend((0..hid).flat_map(|h| (0..ins).map(move |i| IO_END + h * INPUT_SLOTS + i)));
             v.extend((0..hid).map(|h| IH_END + h));
             v.extend((0..outs).flat_map(|o| (0..hid).map(move |h| HH_END + o * HIDDEN_SLOTS + h)));
+            // The developmental block, after every brain block and sized
+            // from its own reserve (`TRAIT_SLOTS`), so a trait append lights
+            // one more slot of it and a brain append does not touch it.
+            v.extend((0..traits).map(|t| HO_END + t));
             v
         };
-        for (ins, outs, hid) in [
-            (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN),
-            (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN),
-            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN + 1),
+        let traits = crate::sim::organism::CREATURE_TRAITS;
+        for (ins, outs, hid, traits) in [
+            (BRAIN_INPUTS + 1, BRAIN_OUTPUTS, BRAIN_HIDDEN, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS + 1, BRAIN_HIDDEN, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN + 1, traits),
+            (BRAIN_INPUTS, BRAIN_OUTPUTS, BRAIN_HIDDEN, traits + 1),
         ] {
-            let after = grown(ins, outs, hid);
+            let after = grown(ins, outs, hid, traits);
             for slot in &here {
-                assert!(after.contains(slot), "growing to ({ins}, {outs}, {hid}) moved slot {slot}");
+                assert!(after.contains(slot), "growing to ({ins}, {outs}, {hid}, {traits}) moved slot {slot}");
             }
         }
     }
@@ -1259,7 +1359,14 @@ mod tests {
         assert!(is_live_slot(BRAIN_INPUTS - 1));
         assert!(!is_live_slot(BRAIN_INPUTS));
         assert!(!is_live_slot(BRAIN_OUTPUTS * INPUT_SLOTS));
-        assert_eq!(live_slots().count(), BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN);
+        assert_eq!(
+            live_slots().count(),
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + crate::sim::organism::CREATURE_TRAITS
+        );
+        // The corner cases of the tail block: its last live slot, and the
+        // first reserved one beside it.
+        assert!(is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS - 1));
+        assert!(!is_live_slot(HO_END + crate::sim::organism::CREATURE_TRAITS));
     }
 
     #[test]
@@ -1595,12 +1702,34 @@ mod tests {
     /// every genome in the world is rewritten per birth. `ant.ron`'s comment
     /// said **268** for the whole time the true figure was 318, which is
     /// exactly the drift a literal in prose cannot catch.
+    /// **The developmental block survives the sparse form**, which is what
+    /// a jar and a species file are. A genome carrying `0.6` on the armour
+    /// slot's developmental weight decomposes to exactly one `Plastic` and
+    /// expands back bit-identically; the four-list form -- every caller
+    /// that authors a brain and nothing else -- expands to a zero block.
+    /// Put the fault back by dropping the block's loop from
+    /// `wiring_from_genome` and the first assertion goes red.
+    #[test]
+    fn the_developmental_block_round_trips_through_the_sparse_form() {
+        let mut g = vec![0.0; GENOME_LEN];
+        g[io_slot(BrainInput::Bias, BrainOutput::Provision)] = 1.5;
+        g[dev_slot(super::super::organism::TRAIT_ARMOUR)] = 0.6;
+        let w = wiring_from_genome(&g);
+        assert_eq!(w.plastic.len(), 1, "one developmental weight, one entry: {:?}", w.plastic);
+        assert_eq!((w.plastic[0].0 as usize, w.plastic[0].1), (super::super::organism::TRAIT_ARMOUR, 0.6));
+        assert_eq!(genome_from_wiring_struct(&w), g, "the block expands back bit-identically");
+        let without = genome_from_wiring(&w.instincts, &w.hidden, &w.outputs, &w.recurrence);
+        assert_eq!(without[dev_slot(super::super::organism::TRAIT_ARMOUR)], 0.0, "the four-list form is an empty block");
+        assert!(is_live_slot(dev_slot(0)) && is_live_slot(dev_slot(super::super::organism::CREATURE_TRAITS - 1)));
+        assert!(!is_live_slot(dev_slot(super::super::organism::CREATURE_TRAITS)), "the reserve past the live slots is not mutable");
+    }
+
     #[test]
     fn the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it() {
         let live = live_slots().count();
         assert_eq!(
             live,
-            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN,
+            BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN + crate::sim::organism::CREATURE_TRAITS,
             "live_slots disagrees with the block arithmetic"
         );
         // 544 -> 584 on 2026-09-06 with `ThreatNear`/`ThreatBearing`: two
@@ -1614,7 +1743,12 @@ mod tests {
         // costs the mutable surface two-thirds again what a sense does.
         // Every species' `mutation_rate` re-derived to `3.18 / 637 =
         // 0.0049922` in the same change.
-        assert_eq!(live, 637, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 637 -> 706 later still with `Made` (an input column, 21 slots:
+        // 13 outputs + 8 hidden), `Provision` (an output row, 34: 26 inputs
+        // + 8 hidden) and the developmental block (14, one per
+        // `CREATURE_TRAITS` slot) in one change. Every species'
+        // `mutation_rate` re-derived to `3.18 / 706 = 0.0045042`.
+        assert_eq!(live, 706, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1684,7 +1818,22 @@ mod tests {
         // **Landed together on purpose**: two appends in one change is one
         // re-derivation and one break in birth-draw comparability instead of
         // two, and `CLAUDE.md` requires a seed sweep across either.
-        assert_eq!(genome_manifest(), 550_849_377);
+        //
+        // **Moved again 2026-09-06 evening by the developmental channel** --
+        // `Made` on the input axis (25 -> 26), `Provision` on the output axis
+        // (13 -> 14), both lighting reserve that already existed, *and* the
+        // developmental block (`TRAIT_SLOTS`), which is the first change to
+        // `GENOME_LEN` since the layout was reserved: 12,352 -> 12,416. It is
+        // still the lawful kind, and the reason is in the doc above -- "a
+        // change here that came with a changed `GENOME_LEN`" was written
+        // about a block growing *in the middle*; this block is appended
+        // after the last brain block, so not one existing index moves, and a
+        // stored genome pads with zeros (`specimen::padded_from`) into a
+        // block that at zero expresses nothing. `live_slots` 637 -> 706
+        // (+21 for the input column, +34 for the output row, +14 live trait
+        // slots) and every species' `mutation_rate` is re-derived to
+        // `3.18 / 706 = 0.0045042` in the same change.
+        assert_eq!(genome_manifest(), 2_611_525_623);
     }
 
     #[test]
