@@ -4404,3 +4404,18 @@ colonies write the same two pheromone planes), no response to being bitten
 beyond the sense that makes one reachable. The report orders the rest and
 puts the heritable scent signature that makes speciation graded next, with
 the kin-sense re-calibration budgeted inside that work rather than after.
+
+## 2026-09-06 — the lab tick is 2-5x faster, bit-identical
+
+Owner's brief: 2-10x, and then "the case that matters is a full box with
+every chunk awake." A `perf` profile of `lab_cost` put the frame in hashing,
+rayon dispatch, a moisture pass reading the world through a hash, and a
+field solving wind in a sealed box — per-awake-chunk overhead, not biomass.
+Six commits on `claude/evolution-lab-perf-bn821i`, each verified bit-identical
+(world hash and field hash) against a saved baseline: FxHash on the hot maps,
+`ChunkGrid` behind `World::get`, inline `FieldTile` arrays, serial fallbacks
+below a size threshold, the momentum skip without its "no chunk awake"
+condition, and `rebuild_blocked` rescanning only written blocks. Paired,
+alternating, whole-frame: full box 6.6 → 2.7 ms, one small plant 2.8 →
+0.5. Account: `Reports/evolution-lab-frame-cost-2026-09-01.md` §16;
+coordinator note round fifteen.

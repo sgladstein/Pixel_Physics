@@ -2280,7 +2280,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the positional draw it names as the unlock costs +0.149 ms/tick, about the
   whole of what the spans save, and the premise it argues from is false --
   keyed positionally the two sweep arms still diverge, at frame 4,330
-  (`open-bugs-handoff.md` §E2).
+  (`open-bugs-handoff.md` §E2). **§16 (2026-09-06) is the round the owner's
+  "2-10x" brief produced, and it is bit-identical throughout** -- world hash
+  *and* field hash per commit against a saved baseline binary. A `perf`
+  profile put the frame in per-awake-chunk overhead rather than in any
+  economy: the soil-moisture pass reading the world through a `HashMap`
+  probe per cell, SipHash over every chunk key, rayon woken for jobs of one
+  chunk or sixteen field cells, and three field passes solving wind in a
+  sealed box with no wind. Six commits -- a fixed-seed hasher, a dense
+  `ChunkGrid` behind `World::get`, inline `FieldTile` arrays, serial
+  fallbacks below a size threshold, the momentum skip freed from a
+  never-met "no chunk awake" condition, and `rebuild_blocked` rescanning
+  only written blocks -- measure paired and alternating **full box (256 founders, 3 colonies) **6.6 → 2.7 ms**, 128 founders + colony 7.0 → 2.8, 16 trees 4.1 → 1.1, one small plant 2.8 → 0.5 -- dials 2.6x → 6.0x, 4.0x → 15x and 6x → 34x on the measuring box**.
+  It also corrects §15.3: the "0.006 ms moisture pass" was the field's
+  moisture-*source* seeding, not `step_soil_water`, which was the largest
+  single function in the profile.
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
   **built, measured and STOPPED 2026-09-05; adversarially reviewed before
   being put forward (§8 records what the review changed, including two claims

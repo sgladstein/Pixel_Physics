@@ -1042,6 +1042,57 @@ that places ants in a loop is N colonies — matters to any bed read through
 pass is a no-op, so nothing moved, but a harness that turns the dials on
 over a `plant_ant` loop is measuring fifty colonies.
 
+## Round fifteen, 2026-09-06 — the tick, 2-5x, without changing a cell
+
+*Owner: "increase the performance so I can run at faster rates... I am
+looking for 2-10x", and then "the most important performance to fix is once
+the game is full of ants and plants and all the chunks are awake." Branch
+`claude/evolution-lab-perf-bn821i`. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§16**; the shipped behaviour is README's "Lab speed-dial status". Every
+commit is bit-identical — world hash and field hash, per commit, against a
+saved baseline binary — so there is no seed sweep, no re-derived constant and
+no owner verdict in it. Only what a later session cannot reconstruct is here.*
+
+- **The frame was not the plants' economy; it was what one awake chunk
+  buys.** A `perf` profile put ~24% in the soil-moisture pass reading the
+  world through a `HashMap` probe per cell, ~14% in SipHash over
+  `ChunkCoord` keys, ~20% in the kernel and rayon's spin-then-sleep for jobs
+  of one chunk or sixteen field cells, and ~10% in a field that solved
+  pressure, velocity and advection over every tile of a sealed box with no
+  wind in it. That is the owner's own curve — an empty box at 1024x, one
+  small plant at 20x, a full box under 1x — stated as a mechanism.
+- **Five pure changes, 2.2x on the full box and 4.6x on one small plant**
+  (§16.3): a fixed-seed hasher on every hot map, a dense `ChunkGrid` behind
+  `World::get`, inline `FieldTile` arrays, serial fallbacks below a size
+  threshold for the sweep and the field, and the momentum skip freed from its
+  never-met "no chunk awake" condition. Then `rebuild_blocked` rescanning
+  only written blocks (`Chunk::stale_blocks`, fed by *both* write channels
+  because `moisture_source` reads soil wetness): the field 0.52 → 0.19 ms on the full box, the whole tick 2.98 → 2.72 (`7d46b88a`). Base to here: **full box 6.6 → 2.7 ms (2.4x, dial 2.6x → 6.0x), 128 founders + colony 7.0 → 2.8 (2.5x), 16 trees 4.1 → 1.1 (3.7x, dial 4.0x → 15x), one small plant 2.8 → 0.5 (5.7x, dial 6x → 34x)**.
+- **Rayon is a net cost at lab scale, measured before it was assumed.** The
+  tick ran ~10% faster on one thread than on four, the field 20-25%. The
+  dispatch thresholds are env-overridable (`PIXEL_PHYSICS_PAR_MIN_CHUNKS`,
+  `PIXEL_PHYSICS_PAR_MIN_TILES`) so the outdoor world is untouched and the
+  A/B arm exists. The owner's "my CPU is only 40% active" was workers
+  spinning, not a serial phase waiting to be parallelised.
+- **The hash check is a script, and the field needs its own.** A field-only
+  change cannot move the grid for many frames, so `lab_cost` now prints
+  `field hash` beside `world hash`. Every commit on this branch was checked
+  with each new switch forced back to the old behaviour against the
+  defaults, on both beds.
+- **The positional-RNG report's step-2 gate is now run**, and the spans
+  fail it on the herb bed too: four different hashes from `rng` x `sweep`.
+  `dead-ends.md` already carries the finding from 2026-09-05; this only
+  reproduces it on a second bed.
+- **Instruments that lied by omission, fixed:** `FIELD_PASS` prints `blocks`
+  (the "did it fire" counter for the partial rescan) beside `solved` and
+  `momentum`; `momentum` reading 0 is what says the skip is taken.
+
+**Next, in the order the full-box profile puts it** (§16.4): the moisture
+pass (chunk-local reads, then fewer visits — which is a behaviour change and
+wants a switch), pheromones (an exact integer sliding window, ~3x on 0.43
+ms), the plant passes. The sweep spans stay off: they drop real work.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
