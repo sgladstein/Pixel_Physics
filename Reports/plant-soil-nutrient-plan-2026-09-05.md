@@ -420,6 +420,37 @@ nutrient to the soil is the conservation §3 needs.
 
 ## 3. The nutrient, and its now-smaller job
 
+> **BUILT 2026-09-06, and shipped INERT.** §3a's storage, §3b's time
+> recovery, §3c's construction pricing and §3d's placement are all in the
+> tree behind `PIXEL_PHYSICS_NUTRIENT=<initial>`, default `0` = off. What is
+> **not** done is the calibration sweep, and that is deliberate rather than
+> unfinished: `CLAUDE.md` says a correct mechanism at inherited constants is
+> a regression, and every number below (`initial`, the per-tick draw,
+> recovery, `NUTRIENT_STARVED_COST`) is a first guess.
+>
+> **Why it was built after all**, given §1 ranked it second and the roots
+> work then refuted the premise it was ranked on: the refutation was of an
+> immobile nutrient *as the cheapest lever to make roots pay*. The gate was
+> that lever and it shipped in #246. This is a different claim, reported
+> from play and never tested here — **soil must supply something water
+> cannot**, or a lit plant with a drip on it has everything the engine
+> prices and cannot die. That was the evolution lab's floating plant.
+>
+> **One exploratory run, n=1, unswept**, lab box at 30,000 frames,
+> `initial=200 recovery=1 draw=1`, paired against off with
+> `RAYON_NUM_THREADS` pinned: cells **9,393 → 7,509** (0.80x), plants 481 →
+> 456, biggest 497 → 480, and **roots reach 34 → 22 rows**.
+>
+> **That last column is the finding, and it points at §3c.** Pricing
+> *construction* taxes root growth along with everything else, so a nutrient
+> shortage makes a plant build **fewer** roots — the opposite of foraging,
+> and it works against the root gate #246 just shipped. §3c's argument
+> against `min` still stands; what this shows is that construction pricing
+> needs either a root exemption or a scarcity term that biases allocation
+> toward roots rather than merely making everything dearer. That is the
+> first question for the sweep, ahead of any constant.
+
+
 Restoring the depletion zone (§1 item 1) plausibly delivers **S1 and S2**
 below. What it cannot deliver is **S3**, because two viable root
 morphologies need two resource axes with *different spatial distributions* —
