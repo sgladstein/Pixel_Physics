@@ -45,13 +45,59 @@
     // is `diet_yield`'s matched filter doing the work with no rule about
     // beetles anywhere.
     food_energy: 200.0,
-    // In MPa like every other value of this field. **The hardest flesh in
-    // the world -- a beetle's shell -- and it is still under the ant's
-    // `dig_force` of 1.0**, because a food priced above every shipped bite
-    // force is not armoured, it is inedible (`material.rs`'s
-    // `penetration_resistance`, *the food table*). Well above the beetle's
-    // own 0.3, so a beetle cannot crack another beetle: armour is the one
-    // thing size and material buy in defence today.
+    // In MPa like every other value of this field. **The hardest flesh in the
+    // world -- a beetle's shell -- and since 2026-09-06 it is ABOVE the ant's
+    // `dig_force` of 1.0 rather than under it.**
+    //
+    // **The constraint that held it at 0.8 is the one the graded bite
+    // removed.** This comment used to read "still under the ant's dig_force
+    // of 1.0, because a food priced above every shipped bite force is not
+    // armoured, it is inedible" -- true while biting was a threshold, and
+    // false the moment it stopped being one. Above the bite force is no
+    // longer inedible; it is slower. `adjacent_food_counted` takes
+    // `(bite/armour)^2` off a cell per go and banks the remainder on the
+    // victim, so a mouth under the plate wears it down and several mouths
+    // wear it down together.
+    //
+    // **1.6, and it is the setting that was measured rather than the one that
+    // sounded right.** Owner: *"beetle should be stronger than an ant but it
+    // can be overwhelmed or unlucky"*, and then *"it should be active"* --
+    // the graded path is dormant at 0.8, because an ant's 1.0 mouth opens it
+    // in one bite and nothing is ever worn. At 1.6 against that mouth:
+    //
+    //   damage per bite   (1.0/1.6)^2 = 0.39     three bites to take a cell
+    //   a lone ant        ~12 bites for all four cells of a beetle
+    //   eight ants        about one bite each
+    //
+    // Measured at exactly this effective armour over three seeds and 12,000
+    // frames (`Reports/selective-environments-2026-09-05.md`): gnaws 385 /
+    // 167 / 353 where 0.8 gives 0 / 0 / 43, ants still eating (949 / 1149 /
+    // 704), and beetles roughly doubling. The balance shifts and does not
+    // flip, which is the whole of what the grading bought.
+    //
+    // **AND IT IS BACK AT 0.8, because 1.6 INVERTS the fight it was meant to
+    // settle.** Owner asked for the graded path to be active in play; set
+    // there, `a_predator_eats_a_creature...` goes red and the diagnostic says
+    // why: the ANT wins, taking two of the beetle's four cells and finishing
+    // untouched. A lone ant is not supposed to beat a beetle.
+    //
+    // The half that is understood: gnawing never swallows, so it never fills
+    // the crop and never sates, and the jaw price on it (~1.5 J a cell
+    // against a 200 J ant) is noise. A lone ant can chew indefinitely. The
+    // half that is NOT understood, and is why this is parked rather than
+    // tuned: the beetle needs only two successful bites (0.3 mouth against
+    // ant flesh at 0.25, one bite a cell) and does not land them in 150
+    // decisions. Until that is explained, any armour value is a guess.
+    //
+    // The population sweep above and this fight disagree, and that is the
+    // finding: at colony scale 1.6 looked healthy, and one-on-one it is
+    // backwards. A number that reads well in aggregate and wrong in the
+    // encounter is exactly what `CLAUDE.md` means by looking at the thing
+    // rather than the metric.
+    //
+    // Still well above the beetle's own 0.3, so a beetle cannot crack another
+    // beetle in one bite -- though under grading it can now wear one down,
+    // which is a change to think about before authoring a second predator.
     penetration_resistance: 0.8,
     food_class: 1.0,
 )
