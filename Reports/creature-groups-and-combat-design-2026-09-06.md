@@ -248,8 +248,9 @@ frames took few enough ants that the arms could not separate).
 
 **Run past the grant — 24,000 frames, eight beetles, six seeds — and still
 a null**: B share of animals median 55.0% (q1 48.8, q3 57.1), 3 seeds above
-50%, 2 below, 1 tied; the widest seed 64.3% for the fleeing arm, the
-narrowest 48.8% against. So flight *as wired here* does not pay measurably
+50%, 2 below, 1 tied; the widest seed 64.3% for the fleeing arm and
+35.3% against it on another — which is the spread the harness warns about,
+not a signal. So flight *as wired here* does not pay measurably
 in this bed at this horizon, and the honest reading is not "flight is
 useless" but three named unknowns: whether the wired arm ever saw a hunter
 (`threat_sightings` is not yet printed by the arena — the positive control
