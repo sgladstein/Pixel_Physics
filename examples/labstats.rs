@@ -59,6 +59,32 @@ fn set_allele_on(lab: &mut Lab, species: &str, slot: usize, v: f32) -> usize {
     living.len()
 }
 
+/// [`set_allele_on`] for a raw genome index rather than a `traits` slot --
+/// `provision=`'s wiring weight and `dev=`'s developmental weight both live
+/// in the genome, not in the body-trait vector, so they need
+/// `World::set_organism_genome` rather than `set_organism_trait`. Same two
+/// halves and the same reason: an animal standing before the write copied
+/// its genome at founding and would never see a `set_genome` on the species
+/// alone.
+fn set_genome_slot_on(lab: &mut Lab, species: &str, slot: usize, weight: f32) -> usize {
+    let Some(sid) = lab.world.species.id_of(species) else { return 0 };
+    let mut genome = lab.world.species.get(sid).genome.clone();
+    genome[slot] = weight;
+    lab.world.species.set_genome(sid, genome);
+    let living: Vec<u16> = lab
+        .world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == species))
+        .collect();
+    for id in &living {
+        let mut g = lab.world.organism(*id).expect("just filtered live").genome.clone();
+        g[slot] = weight;
+        lab.world.set_organism_genome(*id, g);
+    }
+    living.len()
+}
+
 fn main() {
     let control: String = arg("control").unwrap_or_else(|| "run".to_string());
     let frames: u64 = arg("frames").unwrap_or(9_000);
@@ -411,6 +437,65 @@ fn main() {
         lab.world.trait_reach = v;
     }
     println!("labstats: trait_reach = {}", lab.world.trait_reach);
+    // **The one dial over the developmental block** (`brain::TRAIT_SLOTS`),
+    // read exactly where `World::plasticity`'s own doc says it is: no
+    // species lookup, in `creature::expressed_traits`. Echoed for `reach`'s
+    // reason above -- a knob nobody can see the value of is a knob nobody
+    // can tell is disconnected.
+    if let Some(v) = arg::<f32>("plasticity") {
+        lab.world.plasticity = v;
+    }
+    println!("labstats: plasticity = {}", lab.world.plasticity);
+
+    // **Two positive controls for the developmental channel, not a design
+    // of what a caste is.** Each wires one number and proves it reaches a
+    // standing animal's own genome and not only the species' ancestral
+    // copy -- `set_genome_slot_on`'s whole reason to exist over a plain
+    // `species.set_genome`.
+    if let Some(spec) = arg::<String>("provision") {
+        for pair in spec.split(',') {
+            let Some((name, w)) = pair.split_once(':') else {
+                eprintln!("provision= wants Input:weight, e.g. provision=Crowding:2.0");
+                std::process::exit(2);
+            };
+            let Ok(weight) = w.parse::<f32>() else {
+                eprintln!("provision= weight '{w}' does not parse as a number");
+                std::process::exit(2);
+            };
+            let Some(idx) = pixel_physics::sim::brain::INPUT_NAMES.iter().position(|n| n.eq_ignore_ascii_case(name)) else {
+                eprintln!("provision= input '{name}' is not one of brain::INPUT_NAMES");
+                std::process::exit(2);
+            };
+            let input = pixel_physics::sim::brain::INPUTS[idx];
+            let genome_slot = pixel_physics::sim::brain::io_slot(input, pixel_physics::sim::brain::BrainOutput::Provision);
+            let n = set_genome_slot_on(&mut lab, "ant", genome_slot, weight);
+            println!("labstats: provision {name} -> Provision = {weight} on {n} standing ants");
+        }
+    }
+    if let Some(spec) = arg::<String>("dev") {
+        for pair in spec.split(',') {
+            let Some((name, w)) = pair.split_once(':') else {
+                eprintln!("dev= wants trait_name:weight, e.g. dev=armour:0.8");
+                std::process::exit(2);
+            };
+            let Ok(weight) = w.parse::<f32>() else {
+                eprintln!("dev= weight '{w}' does not parse as a number");
+                std::process::exit(2);
+            };
+            // Resolved through `batch::trait_name` rather than
+            // `params::TRAIT_ROWS` directly -- the table is `pub(crate)` to
+            // `lab`, and this binary is outside it.
+            let Some(slot) = (0..pixel_physics::sim::organism::CREATURE_TRAITS)
+                .find(|&s| pixel_physics::lab::batch::trait_name(s).eq_ignore_ascii_case(name))
+            else {
+                eprintln!("dev= trait '{name}' is not one of the CREATURE_TRAITS rows");
+                std::process::exit(2);
+            };
+            let genome_slot = pixel_physics::sim::brain::dev_slot(slot);
+            let n = set_genome_slot_on(&mut lab, "ant", genome_slot, weight);
+            println!("labstats: dev {name} -> developmental weight = {weight} on {n} standing ants");
+        }
+    }
     // The cull control needs a moment of stand to cull; everything else runs
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
@@ -554,6 +639,78 @@ fn main() {
             "--- eyes --- sight casts {} | cells read {} | sightings {} | threat sightings {}",
             st.sight_casts, st.sight_cells_read, st.sightings, st.threat_sightings
         );
+    }
+
+    // **The development page, over the living.** Three numbers the caste
+    // question actually needs, and none of them is a design of what a
+    // caste is: whether the developmental block is doing anything at all
+    // (the per-slot means), whether `Provision` is firing (the `made`
+    // fraction), and whether any one founding line has actually split into
+    // two different bodies. That last one is `CLAUDE.md`'s own framing --
+    // the spread *inside* a line is what tells a caste from a
+    // polymorphism, not the spread across the whole box, which a crowded
+    // colony and a diverse one both produce.
+    {
+        let w = &lab.world;
+        let living: Vec<&pixel_physics::sim::organism::OrganismState> = w
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| w.organism(id))
+            .filter(|st| w.species.get(st.species).creature.is_some())
+            .collect();
+        println!("\n--- development ---");
+        if living.is_empty() {
+            println!("  (none)");
+        } else {
+            let n = living.len() as f64;
+            let mut means: Vec<(usize, f64)> = (0..pixel_physics::sim::organism::CREATURE_TRAITS)
+                .map(|slot| {
+                    let sum: f64 = living
+                        .iter()
+                        .map(|st| st.genome.get(pixel_physics::sim::brain::dev_slot(slot)).copied().unwrap_or(0.0).abs() as f64)
+                        .sum();
+                    (slot, sum / n)
+                })
+                .collect();
+            means.sort_unstable_by(|a, b| b.1.partial_cmp(&a.1).expect("a mean is never NaN"));
+            print!("  mean |developmental weight|, top 3 of {}:", means.len());
+            for (slot, mean) in means.iter().take(3) {
+                print!("  {} {mean:.3}", pixel_physics::lab::batch::trait_name(*slot));
+            }
+            println!();
+
+            let made_over = living.iter().filter(|st| st.made.abs() > 0.25).count();
+            let mean_made: f64 = living.iter().map(|st| st.made.abs() as f64).sum::<f64>() / n;
+            println!(
+                "  made: {made_over} of {} living ({:.1}%) with |made| > 0.25 | mean |made| = {mean_made:.3}",
+                living.len(),
+                100.0 * made_over as f64 / n,
+            );
+
+            let mut by_lineage: std::collections::HashMap<u32, Vec<f32>> = std::collections::HashMap::new();
+            for st in &living {
+                let armour = pixel_physics::sim::creature::expressed_traits(st, w.plasticity, w.trait_reach)[pixel_physics::sim::organism::TRAIT_ARMOUR];
+                by_lineage.entry(st.lineage).or_default().push(armour);
+            }
+            let mut spreads: Vec<(u32, usize, f32, f32)> = by_lineage
+                .into_iter()
+                .filter(|(_, v)| v.len() >= 3)
+                .map(|(lineage, v)| {
+                    let min = v.iter().copied().fold(f32::INFINITY, f32::min);
+                    let max = v.iter().copied().fold(f32::NEG_INFINITY, f32::max);
+                    (lineage, v.len(), min, max)
+                })
+                .collect();
+            spreads.sort_unstable_by_key(|(lineage, ..)| *lineage);
+            if spreads.is_empty() {
+                println!("  armour spread by founding line (>= 3 living): (none)");
+            } else {
+                println!("  armour spread by founding line (>= 3 living), min .. max:");
+                for (lineage, count, min, max) in spreads {
+                    println!("    lineage {lineage:>6} ({count:>3} living): armour {min:.3} .. {max:.3}  (spread {:.3})", max - min);
+                }
+            }
+        }
     }
 
     // **Per group: who is left, what killed the rest, and who did the
