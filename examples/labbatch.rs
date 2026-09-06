@@ -41,9 +41,10 @@
 //! how much two chambers differ for no reason at all, and therefore the bar
 //! any real comparison has to clear.
 
-use pixel_physics::lab::batch::{BatchSpec, PlannedRun, Sweep};
+use pixel_physics::lab::batch::{self, BatchSpec, PlannedRun, RunResult, Sweep};
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
+use pixel_physics::sim::organism;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}="))?.parse().ok())
@@ -73,16 +74,6 @@ fn main() {
     // rather than this harness's unrelated default.
     let frames: u64 = arg("frames").unwrap_or_else(|| scenario.as_ref().filter(|s| s.horizon > 0).map(|s| s.horizon).unwrap_or(9_000));
 
-    // **Echoes its own parameters**, because a harness that does not is one
-    // whose knobs nobody can tell are connected — the 3.5-hour study that
-    // produced eight byte-identical logs per species is the case on record.
-    println!(
-        "labbatch: arm={arm} runs={runs} frames={frames} width={width} founders={founders} colonies={colonies} sweep={} values={}{}",
-        sweep_field.as_deref().unwrap_or("-"),
-        values.as_deref().unwrap_or("-"),
-        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
-    );
-
     let base = match &scenario {
         Some(s) => s.bed.clone(),
         None => LabBox { width, founders, colonies, ..LabBox::default() },
@@ -99,7 +90,34 @@ fn main() {
         _ => None,
     };
 
-    let spec = BatchSpec { base, replicates: runs, sweep, frames, seed0: 1, keep_bytes: 0, scenario: scenario.clone() };
+    // **Raised only when a scenario is driving this run, and kept at 0
+    // otherwise.** The two extra tables below both read `RunResult::world`
+    // (the compartment trait table needs live organism state; the species
+    // table alone would not), so a scenario batch has to hold every run's
+    // world rather than the default "drop it, keep the census" this harness
+    // otherwise runs at to stay flat in memory over a large sweep.
+    // `* runs * 2` rather than exactly `* runs`: `drive`'s budget check
+    // (`held + bytes <= keep_bytes`) is a running total against worlds that
+    // land in an unpredictable order across `available_parallelism` worker
+    // chunks, and a tight budget can refuse the last few to land for no
+    // reason connected to which runs matter -- headroom costs memory, a
+    // refused world costs the reading this round exists to produce.
+    let keep_bytes: u64 = if scenario.is_some() { BatchSpec::world_bytes(&base) * runs as u64 * 2 } else { 0 };
+
+    // **Echoes its own parameters**, because a harness that does not is one
+    // whose knobs nobody can tell are connected — the 3.5-hour study that
+    // produced eight byte-identical logs per species is the case on record.
+    println!(
+        "labbatch: arm={arm} runs={runs} frames={frames} width={width} founders={founders} colonies={colonies} sweep={} values={}{}",
+        sweep_field.as_deref().unwrap_or("-"),
+        values.as_deref().unwrap_or("-"),
+        scenario
+            .as_ref()
+            .map(|s| format!(" scenario={} ({}) keep={keep_bytes}B extra_tables=on", s.name, s.question))
+            .unwrap_or_default()
+    );
+
+    let spec = BatchSpec { base, replicates: runs, sweep, frames, seed0: 1, keep_bytes, scenario: scenario.clone() };
     let planned = spec.runs();
     let per = BatchSpec::world_bytes(&spec.base) as f64 / (1024.0 * 1024.0);
     println!(
@@ -114,10 +132,18 @@ fn main() {
         // zeroes, and if it is not, nothing below it is interpretable.
         let one = planned[0].clone();
         let copies: Vec<PlannedRun> = (0..runs.min(4)).map(|i| PlannedRun { index: i as usize, ..one.clone() }).collect();
-        report("same seed, N copies -- MUST be all-zero spread", &run_all(&copies, frames), false);
+        let results = run_all(&copies, frames, keep_bytes);
+        report("same seed, N copies -- MUST be all-zero spread", &rows_of(&results), false);
+        if scenario.is_some() {
+            print_scenario_tables(&results);
+        }
     }
     if arm == "seeded" || arm == "both" {
-        report("one seed each -- the spread two chambers differ by for no reason", &run_all(&planned, frames), spec.sweep.is_some());
+        let results = run_all(&planned, frames, keep_bytes);
+        report("one seed each -- the spread two chambers differ by for no reason", &rows_of(&results), spec.sweep.is_some());
+        if scenario.is_some() {
+            print_scenario_tables(&results);
+        }
     }
 }
 
@@ -137,19 +163,40 @@ struct Row {
     sprouted: f64,
 }
 
-fn run_all(planned: &[PlannedRun], frames: u64) -> Vec<Row> {
+/// `keep_bytes` defaults to 0 -- worlds are not wanted by the base report,
+/// this harness reads censuses. A caller with a scenario attached raises it
+/// (see `main`'s own comment on the multiplier) so the two extra tables
+/// below have a `RunResult::world` to read.
+fn run_all(planned: &[PlannedRun], frames: u64, keep_bytes: u64) -> Vec<RunResult> {
     let started = std::time::Instant::now();
-    // `keep_bytes: 0` -- worlds are not wanted here, this harness reads
-    // censuses. Dropping them keeps a 100-run sweep flat in memory instead of
-    // the ~270 MB it would otherwise hold.
-    let batch = pixel_physics::lab::batch::Batch::start_runs(planned.to_vec(), frames, 0);
-    let mut rows: Vec<Row> = Vec::new();
+    let batch = pixel_physics::lab::batch::Batch::start_runs(planned.to_vec(), frames, keep_bytes);
+    let mut results: Vec<RunResult> = Vec::new();
     let mut seen = 0usize;
     while !batch.is_finished() || seen < planned.len() {
         for r in batch.drain() {
             seen += 1;
+            eprintln!("  {seen} / {} runs done", planned.len());
+            results.push(r);
+        }
+        if seen >= planned.len() {
+            break;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    results.sort_by_key(|r| r.index);
+    println!("  ({:.1} s wall, {:.1} s per run)", started.elapsed().as_secs_f64(), started.elapsed().as_secs_f64() / planned.len() as f64);
+    results
+}
+
+/// The base report's flattened row, off a finished [`RunResult`] -- the
+/// spread table only ever needs the final census, never the history or the
+/// world the two scenario-only tables read.
+fn rows_of(results: &[RunResult]) -> Vec<Row> {
+    results
+        .iter()
+        .map(|r| {
             let c = &r.census;
-            rows.push(Row {
+            Row {
                 index: r.index,
                 seed: r.spec.seed,
                 setting: r.setting,
@@ -159,17 +206,81 @@ fn run_all(planned: &[PlannedRun], frames: u64) -> Vec<Row> {
                 generation: c.plant_generation as f64,
                 borne: c.seeds_borne as f64,
                 sprouted: c.germinations as f64,
-            });
-            eprintln!("  {seen} / {} runs done", planned.len());
+            }
+        })
+        .collect()
+}
+
+/// **The two readouts a scenario batch is run for.** Printed after the base
+/// report's own census table, using the full `RunResult`s it drops on the
+/// way to building `Row`s -- `history` for the species table (item 2b, S5),
+/// `world` for the compartment trait table (item 2c, S1), when the run's own
+/// bed actually has more than one compartment to split by.
+fn print_scenario_tables(results: &[RunResult]) {
+    println!("\n--- per-run species (S5's reading: extinction) ---");
+    println!("{:>4} {:>6} {:>8} {:>4}  {:<10} {:>6}  status", "run", "seed", "setting", "rep", "species", "last");
+    for r in results {
+        let set = r.setting.map(|v| format!("{v:.0}")).unwrap_or_else(|| "-".into());
+        let species = batch::species_runs(&r.history);
+        if species.is_empty() {
+            println!("{:>4} {:>6} {:>8} {:>4}  (no species ever appeared in this run's history)", r.index, r.spec.seed, set, r.replicate);
+            continue;
         }
-        if seen >= planned.len() {
-            break;
+        for sr in species {
+            let status = match sr.extinct_at {
+                Some(f) => format!("extinct at {f}"),
+                None => "alive".to_string(),
+            };
+            println!("{:>4} {:>6} {:>8} {:>4}  {:<10} {:>6}  {status}", r.index, r.spec.seed, set, r.replicate, sr.species, sr.last_count);
         }
-        std::thread::sleep(std::time::Duration::from_millis(50));
     }
-    rows.sort_by_key(|r| r.index);
-    println!("  ({:.1} s wall, {:.1} s per run)", started.elapsed().as_secs_f64(), started.elapsed().as_secs_f64() / planned.len() as f64);
-    rows
+
+    println!("\n  per-setting extinction summary -- 'alive' counts as that run's own total frames (ticks_run), not a shared horizon:");
+    println!("  {:>8} {:<10} {:>8} {:>8} {:>8} {:>10}", "setting", "species", "min", "median", "max", "survived");
+    for s in batch::extinction_summary(results) {
+        let set = s.setting.map(|v| format!("{v:.0}")).unwrap_or_else(|| "-".into());
+        println!("  {:>8} {:<10} {:>8} {:>8} {:>8} {:>10}", set, s.species, s.min, s.median, s.max, format!("{}/{}", s.survived, s.of));
+    }
+
+    if !results.iter().any(|r| r.spec.compartments > 1) {
+        return;
+    }
+    println!("\n--- per-compartment traits (S1's reading) ---");
+    println!("{:>8} {:>4} {:>4} {:>7}  {}", "setting", "rep", "cmp", "animals", trait_header());
+    let mut per_run_means: Vec<batch::CompartmentMeans> = Vec::new();
+    for r in results {
+        if r.spec.compartments <= 1 {
+            continue;
+        }
+        let set = r.setting.map(|v| format!("{v:.0}")).unwrap_or_else(|| "-".into());
+        let Some(world) = r.world.as_ref() else {
+            println!("{:>8} {:>4}  (world dropped -- raise keep= to read this run's compartments)", set, r.replicate);
+            continue;
+        };
+        let means = batch::compartment_means(world, &r.spec, r.setting, r.replicate);
+        for row in &means {
+            println!("{:>8} {:>4} {:>4} {:>7}  {}", set, r.replicate, row.compartment, row.animals, format_means(&row.means));
+        }
+        per_run_means.extend(means);
+    }
+
+    println!("\n  per-setting, per-compartment median across replicates:");
+    println!("{:>8} {:>4} {:>7}  {}", "setting", "cmp", "n", trait_header());
+    for m in batch::compartment_medians(&per_run_means) {
+        let set = m.setting.map(|v| format!("{v:.0}")).unwrap_or_else(|| "-".into());
+        println!("{:>8} {:>4} {:>7}  {}", set, m.compartment, m.runs, format_means(&m.medians));
+    }
+}
+
+/// The trait-column header, off `batch::trait_name` -- the same
+/// `params::TRAIT_ROWS` the parameters page itself labels a row with, so
+/// this table and that page cannot name a slot two different things.
+fn trait_header() -> String {
+    (0..organism::CREATURE_TRAITS).map(batch::trait_name).collect::<Vec<_>>().join(" ")
+}
+
+fn format_means(means: &[Option<f32>]) -> String {
+    means.iter().map(|m| m.map(|v| format!("{v:.2}")).unwrap_or_else(|| "--".to_string())).collect::<Vec<_>>().join(" ")
 }
 
 fn report(title: &str, rows: &[Row], by_setting: bool) {
