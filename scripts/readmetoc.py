@@ -138,6 +138,11 @@ GAME = {
     # The seventh lab row. The only one whose subject is a *pair*: every
     # other page is one individual or the whole box.
     "comparing two individuals": "lab",
+    # The eighth, and the only one whose subject is the *population*. Every
+    # other lab row asks about a cell, an individual or a pair; this asks
+    # which founding line is taking the ground, which is the question a
+    # selection box exists to ask and the one a table answers badly.
+    "which founding line is winning": "lab",
     # `TunableGroup::Lab` is deliberately excluded from the sandbox panel's
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
@@ -285,6 +290,9 @@ TOPICS = {
     ],
     "comparing two individuals": [
         "Side-by-side status — two individuals, with what differs marked",
+    ],
+    "which founding line is winning": [
+        "Lineage overlay status — which founding line is taking the bed",
     ],
     # The third lab row: the hand verbs and the view they are aimed through.
     # Separate from "the box and its lights", which is what the box *is*, and
