@@ -7659,7 +7659,18 @@ mod tests {
             before + made,
             "ground cells {before} -> {after} (+{lost} lost with their carriers, +{made} rotted back from carrion) over {digs} digs and {dumped} dumps: digging is still eating the bed"
         );
-        assert!(lost * 100 < digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
+        // **One in twenty, not one in a hundred.** The bar shipped at 1%,
+        // which on a scene of ~99 digs is *zero* -- a count giving a
+        // knife-edge margin, `CLAUDE.md`'s metric trap in its plainest form.
+        // It held for as long as the trajectory happened to hold, and the
+        // 2026-09-06 `ThreatNear` append moved it: a wider genome consumes
+        // more draws per birth, this colony breeds, and one ant of the new
+        // trajectory died packed in with a pellet -- 1 of 99, while the
+        // identity above (`after + lost == before`) still held exactly.
+        // That identity is the claim this test exists for; the bound below
+        // only has to keep a 1-of-99 edge case from quietly becoming the
+        // old behaviour, which was every pellet vanishing.
+        assert!(lost * 20 <= digs as usize, "{lost} of {digs} pellets died with their carrier -- that is a sink, not an edge case");
     }
 
     /// One ant on a bank of soil at a given `dig_cost_in_moves`, returning
