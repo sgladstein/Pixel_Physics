@@ -1,0 +1,37 @@
+{
+  "id": "20260906T081840784Z-9b72d6",
+  "created": "2026-09-06T08:18:40Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-creatures-v57wnd",
+    "commit": "fc4045cf",
+    "agent": null,
+    "session_id": "d5df7a58-58c9-5182-ae56-e8b1fa79c962",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The ANTS page graphs each group on one axis, in the colour the animals wear",
+  "question": "Two ant colonies (amber, sky) and six beetles (rose) over 5,760 frames. The beetles killed 15 ants (K7, K8 on the rows) and then starved, and their line falls to the floor and stays listed at 0. Does this graph answer 'who is winning' at a glance, and is a shared axis right, or do you want each group scaled to its own peak?",
+  "context_md": "labui colonies=2 predators=6 frames=6000, the ANTS page cropped and scaled 4x. meta: 32 animals alive (16 + 16 ants, 0 beetles); deaths so far ANT 1: 7 killed by BEETLE 3, ANT 2: 8 killed by BEETLE 3; rivalry OFF. Rows: ANIMALS WEAR toggles own colour / by species / by colony (H key); K on a legend row is how many of that group's dead were killed by another animal, the hover note names the killers. Twelve rows max, past that a +N MORE row.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260906T081840784Z-9b72d6/000-ants_card.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
