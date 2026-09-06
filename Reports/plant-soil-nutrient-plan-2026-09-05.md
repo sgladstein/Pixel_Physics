@@ -804,6 +804,35 @@ claimed "shallower" from the pre-merge arm alone and that claim is
 withdrawn. What survives across both trees is that the tax shrinks the
 stand and cuts seed set.
 
+**The recovery period, exercised — it helps and it does not rescue weight 1.**
+Same binary, 12 seeds, paired against a baseline measured on it
+(`p_off.log`), income weight 1, recovery period **180** (a quarter of the
+draw's own cadence) against the one-shot `recovery=0`:
+
+| column | `recovery=0` | period **180** |
+|---|---|---|
+| plants | 0.071 | **0.171** — 2.4x better, still down 12 of 12 |
+| seeds borne | 0.102 | **0.189** |
+| plant cells | 0.301 | **0.451** |
+| biggest plant | 0.777 | **1.191 — up on 7 of 12** |
+| roots reach | 0.795 | 0.987 |
+
+**Renewable soil more than doubles what survives, and the stand is still at
+17% of baseline.** So the collapse was not only terminal depletion: **weight
+1 is too strong at any recovery**, and the knob to turn down is the weight.
+
+**The shape of what survives is worth naming, because it is the first thing
+in this mechanism that looks like plant ecology rather than a tax.** The
+stand falls to 17% while the *largest* plant grows — up on 7 of 12 seeds,
+median 1.19x. Fewer, larger individuals under nutrient limitation is
+self-thinning, and it is the outcome §3's diversity argument wanted. It
+arrives here as a side effect of a setting that is too harsh to ship, which
+is a reason to calibrate the weight rather than to abandon the term.
+
+**Root depth stays unmoved at 0.987**, consistent with every other arm: this
+mechanism does not reach root depth in either direction at any setting yet
+measured.
+
 ### 3f. The recovery knob had no usable setting, and now it does
 
 `owed = (frame - stamp) x rate`, with `rate` a `u16` **per frame**, against a
