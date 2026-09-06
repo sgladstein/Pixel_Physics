@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 22;
+pub const BRAIN_INPUTS: usize = 24;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -214,6 +214,8 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "KinBearing",
     "MoistureGrad",
     "SurfaceCurvature",
+    "ThreatNear",
+    "ThreatBearing",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
     ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil"];
@@ -654,6 +656,38 @@ pub enum BrainInput {
     /// go with it: an ant in a crowd would otherwise read as standing in a
     /// hollow, and `Crowding` already counts exactly that.
     SurfaceCurvature = 21,
+    /// **How close the nearest animal that could eat *me* is**, 1.0 touching
+    /// and 0.0 out of sight -- `PreyNear`'s scale, pointed the other way.
+    ///
+    /// **The prey had no sense for the predator, and that is why nothing on
+    /// the prey side could evolve.** `PreyNear` is what the *eater* sees;
+    /// until this slot existed no input said "something that can eat you is
+    /// near", so flight, hiding, retreat into a gallery and warning a
+    /// nestmate were all unselectable at any population size over any
+    /// number of generations -- *a bed cannot select for what the animal
+    /// cannot perceive* (`Reports/lab-behaviour-scenarios-2026-09-06.md`
+    /// §0, `creature-groups-and-combat-design-2026-09-06.md` §4a).
+    ///
+    /// **A threat is an animal whose gut would take my flesh** --
+    /// `creature::is_visible_threat` asks `is_visible_prey` with the roles
+    /// swapped, so the one definition of "who eats whom" answers both
+    /// questions and they cannot drift. That makes threat *mutual* where
+    /// diets overlap: a generalist ant's gut yields 50 J from a beetle cell
+    /// against a 12 J bar, so an ant is a threat to a beetle as well as the
+    /// reverse. Nothing about armour is in it; the graded bite makes any
+    /// mouth eventually enough.
+    ///
+    /// Read on the same rays as prey and kin, recorded and never breaking
+    /// the ray, so `sight_reads` and the eye's bill are unchanged. The
+    /// shipped ant has no eyes and reads 0.0 here until a lineage grows
+    /// them (`TRAIT_SIGHT_RANGE`), which is the point: the response is
+    /// reachable now and was impossible before.
+    ThreatNear = 22,
+    /// Signed turn-to-hunter, positive to the right -- `PreyBearing`'s
+    /// argument with the sign of the wanted response left to the genome:
+    /// a negative weight onto `Turn` is flight, a positive one is facing
+    /// it, and which pays is the bed's to decide.
+    ThreatBearing = 23,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -908,6 +942,8 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::KinBearing,
     BrainInput::MoistureGrad,
     BrainInput::SurfaceCurvature,
+    BrainInput::ThreatNear,
+    BrainInput::ThreatBearing,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1520,7 +1556,10 @@ mod tests {
             BRAIN_OUTPUTS * BRAIN_INPUTS + BRAIN_HIDDEN * BRAIN_INPUTS + BRAIN_HIDDEN + BRAIN_OUTPUTS * BRAIN_HIDDEN,
             "live_slots disagrees with the block arithmetic"
         );
-        assert_eq!(live, 544, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 544 -> 584 on 2026-09-06 with `ThreatNear`/`ThreatBearing`: two
+        // input columns across 12 outputs and 8 hidden units. Every species'
+        // `mutation_rate` is re-derived to 3.18 / 584 in the same change.
+        assert_eq!(live, 584, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1565,7 +1604,14 @@ mod tests {
         // `ant.ron`/`ancestor.ron` carry the re-derived rate
         // (0.0060687 -> 0.0058456) in this same change, holding the expected
         // 3.18 point mutations per child.
-        assert_eq!(genome_manifest(), 1_242_463_370);
+        //
+        // **Moved again 2026-09-06 by `ThreatNear`/`ThreatBearing`**, the
+        // hunted side of the eye, lawfully on the input axis exactly as the
+        // three appends above: 22 -> 24 lights up two columns of the 64-wide
+        // reserve, `GENOME_LEN` is still 12,352, no existing weight moves.
+        // `live_slots` 544 -> 584 and every species' `mutation_rate` is
+        // re-derived to `3.18 / 584 = 0.0054452` in this same change.
+        assert_eq!(genome_manifest(), 437_780_030);
     }
 
     #[test]

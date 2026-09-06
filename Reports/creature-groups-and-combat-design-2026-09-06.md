@@ -216,7 +216,13 @@ exactly this.
 **For anything the owner would call "war", no**, and the gaps are specific.
 In the order they block things:
 
-### 4a. The prey cannot see the predator — the missing sense
+### 4a. The prey cannot see the predator — the missing sense (built the same night)
+
+**Built:** `ThreatNear`/`ThreatBearing`, slots 22 and 23, derived from
+`is_visible_prey` with the roles swapped; `threat_sightings` counts it;
+nothing shipped is wired to it and the ant is blind, so the picture is
+unchanged and the *reach* is what moved. The paragraph below is the case as
+it stood.
 
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a

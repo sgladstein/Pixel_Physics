@@ -4391,10 +4391,16 @@ on and still kin with it on inside one colony; one founding claims one label
 and the next claims the next; a child is born into its parent's colony; a
 dials file saved before the field existed still parses.
 
+**Landed later the same night:** deaths per group with kills booked
+against the attacking group (`World::group_deaths`, on the ANTS legend as
+`K<n>`), a generated colour per group past the authored eight, and the
+prey's side of the eye — `ThreatNear`/`ThreatBearing`, `is_visible_prey`
+with the roles swapped, so threat is mutual wherever diets overlap and the
+one definition of who eats whom is read from both ends. Nothing shipped is
+wired to it and the ant is blind, so no picture changed; the reach did.
+
 **Not landed, and said so:** no aggression verb, no private scent (both
-colonies write the same two pheromone planes), no response to being bitten,
-no per-group deaths. The report orders them — `ThreatNear` first, because
-the prey has no sense for the predator and *a bed cannot select for what the
-animal cannot perceive* — and puts the heritable scent signature that makes
-speciation graded after it, with the kin-sense re-calibration budgeted
-inside that work rather than after.
+colonies write the same two pheromone planes), no response to being bitten
+beyond the sense that makes one reachable. The report orders the rest and
+puts the heritable scent signature that makes speciation graded next, with
+the kin-sense re-calibration budgeted inside that work rather than after.

@@ -625,6 +625,11 @@ pub struct CreatureStats {
     /// the eye has anything to report — and it is the quantity
     /// `Reports/creature-vision-sizing-2026-08-30.md` §3 sized the radius
     /// from (median 0.44–0.57 at r64 across three presets).
+    /// Casts that found an animal whose gut would take this one's flesh --
+    /// `BrainInput::ThreatNear` read non-zero. The hunted side's
+    /// `sightings`, and the number to read before believing any flight was
+    /// selected for or against.
+    pub threat_sightings: u64,
     pub sightings: u64,
     /// **Sightings the animal then moved toward** — the effect counter, and
     /// the only one of the three that can tell a sense that steers from a

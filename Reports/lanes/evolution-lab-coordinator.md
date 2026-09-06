@@ -817,6 +817,14 @@ on with rivalry**, because `is_living_kin` sits under #263's living-non-self
 gate; the `ascii` deposition gate (1.03x, bar 0.9) must be re-run across
 the dial if any `ascii` scene ever holds two colonies.
 
+**The threat sense landed the same night** (`ThreatNear`/`ThreatBearing`,
+slots 22–23, `is_visible_prey` with the roles swapped so threat is mutual
+where diets overlap; `mutation_rate` re-derived to 3.18/584). Nothing
+shipped is wired to it and the ant is blind, so **no picture changes and
+no owner verdict was owed**; what changed is reach. The next measurement is
+`creature_arena --arm=ablate input=ThreatNear` on a bed with eyed ants and
+breeding beetles, which needs the fight session's encounter findings first.
+
 **Two things that bind on what comes next:** the report's order (§6) puts
 `ThreatNear` before anything on the prey side, because *a bed cannot select
 for what the animal cannot perceive* and the prey has no sense for the

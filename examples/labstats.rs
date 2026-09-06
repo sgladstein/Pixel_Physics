@@ -321,8 +321,8 @@ fn main() {
             share(st.exposure_energy)
         );
         println!(
-            "--- eyes --- sight casts {} | cells read {} | sightings {}",
-            st.sight_casts, st.sight_cells_read, st.sightings
+            "--- eyes --- sight casts {} | cells read {} | sightings {} | threat sightings {}",
+            st.sight_casts, st.sight_cells_read, st.sightings, st.threat_sightings
         );
     }
 

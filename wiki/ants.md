@@ -1,6 +1,12 @@
 # Ants
 
-*Current as of: 2026-09-06, when **the ants you put down became a colony
+*Current as of: 2026-09-06, when **an animal that can see gained a sense for
+what hunts it** — the nearest animal whose stomach would take its flesh, how
+near and which way — so running, hiding and warning the nest are things a
+lineage can now be born knowing, where before nothing in the animal could
+notice a hunter at all. Nothing that ships is born using it, and the ants
+that ship are blind, so it changes nothing on screen today; what it changes
+is what evolution can reach. Earlier the same day, **the ants you put down became a colony
 you can see and count** — every click of the colony tool, every animal
 placed alone and every jar released is its own group, its young are born
 into it, the animals wear their group's colour in the box, and the ants
@@ -248,6 +254,20 @@ shared set of scent trails, so a rival's path to food is as good as your
 own. An ant is still always an ant: however far its line drifts, it never
 becomes a new kind that other ants treat as foreign. That is the next thing
 on the creature line and it is written up, not built.
+
+**They can see what hunts them, if they can see at all.** An animal with
+eyes used to see two things at a distance: something it could eat, and its
+own kind. Since 2026-09-06 it sees a third — the nearest animal whose
+stomach would take *it* — and knows how near it is and which way to turn to
+face it or to put it behind. Nothing tells the animal what to do about that;
+whether it runs, freezes, digs in, keeps eating or lays a scent is decided
+by its inheritance, and an animal born today does none of them. The ants
+that ship are blind, so for them this begins the day a lineage grows eyes.
+It is the same rule the hunter uses, read from the other end: a beetle is a
+threat to an ant because a beetle would eat an ant, and an ant is a threat
+to a beetle for the same reason, since an ant standing beside one will bite
+it. Armour is not part of it — a hard shell slows a mouth, it does not stop
+one.
 
 **They eat, and they carry.** A hungry ant eats what it finds. An ant that
 is not hungry picks the food up instead and tries to take it home, which is

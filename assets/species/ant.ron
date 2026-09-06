@@ -634,7 +634,9 @@
         // the live surface **524 -> 544** (one input x 12 outputs + 8 hidden
         // = 20 slots). Held at the same expected count the colony has been
         // running throughout -- `3.18` point mutations per child, so
-        // `3.18 / 544 = 0.0058456`. Inheriting 0.0060687 across a wider
+        // `3.18 / 544 = 0.0058456`, and since 2026-09-06 `3.18 / 584 =
+        // 0.0054452` for the threat pair (`ThreatNear`/`ThreatBearing`, two
+        // more input columns). Inheriting 0.0060687 across a wider
         // genome would have raised the expected count to 3.30 silently,
         // which is the shared-budget reallocation `CLAUDE.md` requires be
         // re-derived as part of the work rather than carried.
@@ -654,7 +656,7 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0058456,
+        mutation_rate: 0.0054452,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
