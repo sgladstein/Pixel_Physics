@@ -921,14 +921,18 @@ between. A re-run that reproduces every direction and no magnitude is what a
 voided table should look like; if the directions had moved too, the fix would
 have been the suspect.
 
-**The `ascii` deposition gate across the rivalry dial, with both controls:**
+**The `ascii` deposition gate with colonies made strangers, and both
+controls.** Taken while `colony_rivalry` was still a switch; it is the same
+measurement under the scent dials, whose narrow end
+(`PIXEL_PHYSICS_COLONY_RIVALRY=on`, now `tolerance -1` and `spread 1`) is
+what that switch became:
 
 | arm | attributed drops | laden ants | ratio |
 |---|---|---|---|
-| shipped (one colony, dial off) | 237 | 2,962 | **1.36x** |
-| one colony, dial **on** | 237 | 2,962 | **1.36x**, digit for digit |
-| 55 colonies, dial on — the scene as it stood | 22 | 2,590 | 1.14x |
-| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9`, dial off | 438 | 4,631 | **0.69x** |
+| shipped (one colony, nestmates) | 237 | 2,962 | **1.36x** |
+| one colony, made strangers | 237 | 2,962 | **1.36x**, digit for digit |
+| 55 colonies, made strangers — the scene as it stood | 22 | 2,590 | 1.14x |
+| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` | 438 | 4,631 | **0.69x** |
 
 The last row is the sensitivity control and it fires the assertion, so the
 gate is not blind. The third row is the finding: the scene was fifty-five
