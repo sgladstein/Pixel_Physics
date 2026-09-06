@@ -254,6 +254,55 @@ fn main() {
              reads as `the mechanism does nothing`"
         );
     }
+    // **`maturity=` is the same seam, on the gate that decides whether a
+    // species can breed at all.** `Behavior::Reproduce::seed_maturity` is a
+    // hard size gate in **shoot cells**, not a rate and not frames, and the
+    // way it fails is silent: authored above the size a species ever reaches,
+    // the plant simply never sets a seed and every downstream number reads as
+    // "the mechanism does nothing". `assets/species/grass.ron` already
+    // carries that story in its own comments -- at a drafted 150 no grass
+    // plant could ever reproduce -- and `creeper` ships the same defect
+    // today, gated at 250 against a plant measured at 89 cells in total over
+    // 60,000 frames. Sweeping it needs the registry seam for exactly the
+    // reason `launch=` does: the species file is `include_str!`d, so an
+    // edit-and-rerun sweep over a prebuilt binary produces bit-identical
+    // "runs" and a whole invalid table.
+    if let Some(gate) = arg::<f32>("maturity") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        assert!(
+            world.species.set_param(id, CellType::MatureBody, organism::ParamId::SeedMaturity, 0, gate),
+            "maturity={gate} matched no Reproduce behaviour on {species} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+    }
+    // **`germwater=` is the third registry knob, on the gate the tree's own
+    // seed actually fails.** `Behavior::Germinate::soil_water_threshold` is
+    // plant-available water 0..1 under the resting seed, and it separates the
+    // species widely -- grass 0.10, herb 0.15, tree 0.25. Measured over
+    // 300,000 frames on one tree, the standing bank reads **22-43 of 30-53
+    // seeds `too-dry` at every stop and `dark` 0 at every stop**, so the
+    // question "can a tree's seed start under its own parent" is a water
+    // question and not the shade one it looks like. Swept through the
+    // registry for the same `include_str!` reason as `launch=` and
+    // `maturity=`.
+    if let Some(floor) = arg::<f32>("germwater") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        assert!(
+            world.species.set_param(id, CellType::Seed, organism::ParamId::GerminateWater, 0, floor),
+            "germwater={floor} matched no Germinate behaviour on {species} -- an arm whose edit matched nothing \
+             reads as `the mechanism does nothing`"
+        );
+    }
+    // **`life=` sweeps the species' lifespan without a rebuild.** Unlike the
+    // other three knobs this is a `SpeciesDef` field rather than a
+    // `Behavior` parameter, so it is written straight on the registry entry
+    // rather than through `set_param` -- same seam, one level up.
+    if let Some(life) = arg::<f32>("life") {
+        let id = world.species.id_of(&species).expect("species is compiled in");
+        world.species.get_mut(id).life_half_life = life;
+        println!("  life_half_life set to {life} for {species}");
+    }
+    let cull_at: Option<u64> = arg("cullat");
     // **`col=` moves the single founder to a named column.** `spread(1)` puts
     // one founder at the bed's centre, which at `lamp_spacing 64` is exactly
     // half way between two fixtures -- so a one-founder run is not a smaller
@@ -323,6 +372,40 @@ fn main() {
     // the answer, not a detail. Read against the germination bar above.
     let profile_at = arg::<u64>("profile").unwrap_or(600);
     for f in 0..=frames {
+        // **`cullat=` kills the biggest living plant at a named frame** --
+        // the gap-dynamics arm, and the thing that has to be shown before any
+        // mortality mechanism is worth building.
+        //
+        // In a real forest the engine of turnover is not old age as such: a
+        // big tree dies, punches a hole in the canopy, and the suppressed
+        // seedlings under it race for the gap. The question here is whether
+        // this bed has that at all, and it has a specific reason to -- the
+        // tree's seed does **not** fail on shade (`dark` is 0 at every
+        // sample) but on water, because the tree draws the ground under
+        // itself below its own seedlings' `soil_water_threshold`. A dead tree
+        // stops drinking, so the gap should open through soil moisture rather
+        // than light, and it should open fast.
+        //
+        // Kills through `World::mark_organism_senescent`, which is the seam
+        // the lab's own cull verb and `labstats`' `control=cull` already use,
+        // so this is the shipped death path and not a special one: the plant
+        // is marked and `rot_remains` then carries it out at the species'
+        // half-life, graded rather than vanishing.
+        if Some(f) == cull_at {
+            let biggest = world
+                .live_organism_ids()
+                .into_iter()
+                .filter(|&id| world.organism(id).is_some_and(|s| world.species.get(s.species).creature.is_none()))
+                .max_by_key(|&id| world.organism(id).map_or(0, |s| s.cells.len()));
+            match biggest {
+                Some(id) => {
+                    let cells = world.organism(id).map_or(0, |s| s.cells.len());
+                    let killed = world.mark_organism_senescent(id);
+                    println!("  CULL at f={f}: marked organism {id} senescent ({cells} cells, ok={killed})");
+                }
+                None => println!("  CULL at f={f}: nothing alive to cull -- this arm measures nothing"),
+            }
+        }
         if f == profile_at {
             let mut line = String::new();
             for x in (0..spec.width).step_by(8) {
