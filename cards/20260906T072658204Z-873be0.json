@@ -1,0 +1,46 @@
+{
+  "id": "20260906T072658204Z-873be0",
+  "created": "2026-09-06T07:26:58Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-creatures-v57wnd",
+    "commit": "e93deadf",
+    "agent": null,
+    "session_id": "d5df7a58-58c9-5182-ae56-e8b1fa79c962",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Colour by colony, or by species, as the lab's default",
+  "question": "Two ways to colour the same frame. A: each placement gesture is a colour (two ant colonies differ, beetles a third). B: each species is a colour (all ants one colour, beetles another). The population graph groups the same way as the colour. Which should the lab open on? Both stay available on the toggle.",
+  "context_md": "Same frame as the card above. meta: 83 animals alive, 2 ant colonies + 6 beetles. With colony rivalry ON (parameters page, ANTS, off by default) the two ant colonies become strangers to each other and a hungry ant eats one from the other colony.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "by colony",
+      "files": [
+        "20260906T072658204Z-873be0/000-card_colony.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "by species",
+      "files": [
+        "20260906T072658204Z-873be0/001-card_species.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
