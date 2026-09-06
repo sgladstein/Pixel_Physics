@@ -244,8 +244,19 @@ null does **not** say is that flight cannot pay: it says the measurement
 has to be taken past the grant (24,000+ frames), with `threat_sightings`
 printed beside it as the positive control that the wired arm ever saw a
 hunter, and against beetles that actually kill (six beetles at 12,000
-frames took few enough ants that the arms could not separate). That run is
-queued; until it lands, "does flight pay" is open, not answered.
+frames took few enough ants that the arms could not separate).
+
+**Run past the grant — 24,000 frames, eight beetles, six seeds — and still
+a null**: B share of animals median 55.0% (q1 48.8, q3 57.1), 3 seeds above
+50%, 2 below, 1 tied; the widest seed 64.3% for the fleeing arm, the
+narrowest 48.8% against. So flight *as wired here* does not pay measurably
+in this bed at this horizon, and the honest reading is not "flight is
+useless" but three named unknowns: whether the wired arm ever saw a hunter
+(`threat_sightings` is not yet printed by the arena — the positive control
+this measurement lacks), whether eight beetles kill enough for a defence
+to matter (§2's tallies say beetle kills run a tenth of deaths), and
+whether `−0.8` onto `Turn` is a flight at all rather than a spin. Each is a
+cheap next run; none was taken tonight. "Does flight pay" is open.
 
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a
