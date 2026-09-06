@@ -81,19 +81,43 @@
     // why: the ANT wins, taking two of the beetle's four cells and finishing
     // untouched. A lone ant is not supposed to beat a beetle.
     //
-    // The half that is understood: gnawing never swallows, so it never fills
-    // the crop and never sates, and the jaw price on it (~1.5 J a cell
-    // against a 200 J ant) is noise. A lone ant can chew indefinitely. The
-    // half that is NOT understood, and is why this is parked rather than
-    // tuned: the beetle needs only two successful bites (0.3 mouth against
-    // ant flesh at 0.25, one bite a cell) and does not land them in 150
-    // decisions. Until that is explained, any armour value is a guess.
+    // **BOTH HALVES ARE NOW EXPLAINED, and both are fixed -- 2026-09-06.**
+    // Left here because the value below is still 0.8 and the reason it is
+    // 0.8 has changed completely; the record above is what was true, this is
+    // what is true now.
     //
-    // The population sweep above and this fight disagree, and that is the
-    // finding: at colony scale 1.6 looked healthy, and one-on-one it is
-    // backwards. A number that reads well in aggregate and wrong in the
-    // encounter is exactly what `CLAUDE.md` means by looking at the thing
-    // rather than the metric.
+    // The half that was understood: gnawing never swallows, so it never
+    // fills the crop and never sates, and the jaw price on it was noise --
+    // ~1.5 J a cell against a 200 J ant, and *constant at every armour
+    // value*, because it was charged per unit of progress. A lone ant could
+    // chew indefinitely. It is now charged per closure of the jaw, so armour
+    // multiplies the attacker's bill instead of only its patience.
+    //
+    // The half that was NOT understood -- why a beetle that needs two bites
+    // does not land them in 150 decisions -- was that **it could not see the
+    // ant at all**. `adjacent_food_counted` scanned the eight neighbours of
+    // the HEAD, and an ant eating a flank is adjacent to the beetle while
+    // the beetle's head is two cells from the ant. Censused in a sealed
+    // chamber over 1,200 frames: beetle-head-adjacent-to-ant **zero** times
+    // against ant-head-adjacent-to-beetle **sixty**. The body now scans for
+    // a living attacker on any of its cells (still a mouth for foraging),
+    // and the beetle survives a lone ant to frame 162 where it fell at 101.
+    //
+    // **So the value below is now a balance question and no longer a blocked
+    // one**, and it wants a seed sweep rather than an argument: the fight is
+    // no longer inverted, but a maximally-armoured beetle still loses to one
+    // ant, and the reachable range is only 0.4-1.6 (the trait multiplier
+    // clamps to [0.5, 2.0] over this number). See
+    // `Reports/lanes/creature-fight-handoff-2026-09-06.md`.
+    //
+    // The population sweep above and that fight disagreed, and it was the
+    // finding: at colony scale 1.6 looked healthy, one-on-one it was
+    // backwards, and the encounter was right -- a number that reads well in
+    // aggregate and wrong in the thing itself is exactly what `CLAUDE.md`
+    // means by looking rather than measuring. The disagreement is resolved
+    // now that the encounter is not broken, and the sweep will have to be
+    // re-run: every figure in it was taken on a beetle that could not see
+    // what was eating it.
     //
     // Still well above the beetle's own 0.3, so a beetle cannot crack another
     // beetle in one bite -- though under grading it can now wear one down,

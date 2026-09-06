@@ -1,6 +1,17 @@
 # Ants
 
-*Current as of: 2026-09-05, when **how fast an animal lives stopped being
+*Current as of: 2026-09-06, when **an animal could finally bite back at
+something chewing on its flank** — a long body used to be able to fight only
+with the cell at the front of it, so anything that attached itself further
+back was safe, and every cell that was not the mouth was a liability rather
+than the armour it was meant to be. An animal still forages with its mouth
+alone: it will not pick loose food up with its abdomen, only fight with it.
+The same day, **working a jaw against a shell started costing something**.
+Chewing through armour used to be free after the first bite, so a plate bought
+a slow attacker time and never once made it think better of the meal; now each
+closure of the jaw is paid for whether it cuts or bounces, and a thick enough
+shell is a meal that is simply not worth the work. Before that:
+2026-09-05, when **how fast an animal lives stopped being
 fixed for its whole kind** — one lineage takes its turn twice as often as its
 neighbours and another half as often, so a bed can hold ants that scurry and
 ants that plod, and the difference is on screen without an overlay. It is not
@@ -444,6 +455,44 @@ better ends up with everything the same size.
 The ant you place is unchanged — the price was worked out from the animal
 that already ships, so a two-cell ant pays today precisely what it paid
 yesterday. What changed is that the bigger bodies now pay their way.
+
+## A shell, and what it costs to get through one
+
+Some animals are harder to bite than others, and how hard is something a
+lineage inherits rather than something its kind is stuck with. A beetle whose
+young happen to be a little tougher leaves young that are a little tougher
+still, and over enough generations that is a shell.
+
+**It is never a wall.** Nothing here is edible or inedible; a bite that cannot
+open a cell in one go still takes a piece out of it, and the piece stays taken
+— the next bite starts where the last one stopped, and it does not matter
+whose bite it was. So one ant working alone on a well-armoured beetle grinds
+away at it for a long time, and eight ants working on the same beetle get
+through in a fraction of that. A hard animal is not safe, it is *expensive*,
+and a crowd is how the expense gets paid. That is the whole of what armour
+does: it buys the wearer time, and time is what lets it turn around and bite.
+
+**And a shell costs its wearer.** Being tougher is not a free upgrade any more
+than being bigger or faster is — an armoured animal pays for the plate every
+moment it is wearing it, whether or not anything tries to eat it that day. A
+lineage that armours itself past what its world actually threatens is simply a
+lineage that starves slightly sooner than its neighbours.
+
+The other half is what it costs the attacker. Closing a jaw takes work whether
+it cuts or bounces, so chewing at something too hard for you is not patience,
+it is a bill — and an animal weighing up what is within reach discounts a hard
+mouthful by how little of it one bite gets, so where there is an easier meal
+going it takes that one. Where there is not, it can spend itself on a shell it
+was never going to open. This is what makes armour worth growing at all:
+without a price on the attempt, a plate would only ever have slowed a meal
+down, never prevented one.
+
+**A body fights with all of itself.** An animal that is more than one cell can
+bite anything that has got hold of any part of it, not only what is in front
+of its face. It still *forages* with its mouth alone — it will not pick a
+seed up with its abdomen — but something clamped onto its flank is in reach,
+which is what makes a long body and a thick shell worth having instead of
+simply being more surface for something else to chew on.
 
 ## A beetle can see
 

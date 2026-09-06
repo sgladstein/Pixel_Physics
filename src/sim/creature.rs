@@ -2348,7 +2348,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **Gnawing comes back as work for the caller to charge, exactly as
     // `dug` does.** `act` decides what an animal did; `creature_tick` owns
     // the ledger. One place where work becomes energy.
-    let Did { dug, gnawed: gnaw_work } = act(world, x, y, organism, def, &outputs, &mut draw);
+    let Did { dug, gnaws } = act(world, x, y, organism, def, &outputs, &mut draw);
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
     // beetle that had just been made *tougher* -- two cells off it, none off
@@ -2362,8 +2362,8 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // Wearing through a cell costs what cutting one costs, however many bites
     // it took: the price is on the work, not on the attempt, so a hard target
     // is not also a cheap one.
-    if gnaw_work > 0.0 && def.dig_cost_in_moves > 0.0 {
-        let jaw = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * gnaw_work;
+    if gnaws > 0 && def.dig_cost_in_moves > 0.0 {
+        let jaw = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * gnaws as f32;
         spent += jaw;
         world.energy_ledger.metabolized += jaw as f64;
         world.creature_stats.gnaw_energy += jaw as f64;
@@ -2756,7 +2756,7 @@ fn sense(
     // food it cannot digest and the gene would be nutritional bookkeeping
     // rather than a behaviour -- which is the whole difference S5 exists to
     // make. A meat gut stops *seeing* leaves.
-    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, x, y, gut_of(world, organism, def)).is_some() { 1.0 } else { 0.0 };
+    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, organism, (x, y), gut_of(world, organism, def)).is_some() { 1.0 } else { 0.0 };
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
@@ -3148,8 +3148,8 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
     provisions_in_reach(world, x, y, gut).map(|(w, _, _)| w).sum()
 }
 
-fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
-    adjacent_food_counted(world, x, y, gut).best
+fn adjacent_food(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
+    adjacent_food_counted(world, organism, head, gut).best
 }
 
 /// `adjacent_food`, plus **how many mouthfuls this gut wanted and this
@@ -3181,7 +3181,7 @@ struct FoodScan {
     damage: f32,
 }
 
-fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> FoodScan {
+fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> FoodScan {
     let mut best: Option<Mouthful> = None;
     let mut refused = 0u64;
     // Ranked separately from what is returned, so the returned `gain` keeps
@@ -3191,8 +3191,81 @@ fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> FoodScan {
     // this mouth can open in a single go, which is every cell that was
     // edible before this landed.
     let mut best_damage = 1.0f32;
-    for &(dx, dy) in NEIGHBOURS_8.iter() {
-        let cell = world.get(x + dx, y + dy);
+    // **From every cell of the body, not just the head** — and it scanned the
+    // head alone until 2026-09-06.
+    //
+    // **Measured, in a sealed chamber over 1,200 frames: the beetle's head
+    // was adjacent to the ant ZERO times and the ant's head was adjacent to
+    // the beetle SIXTY.** A perfect asymmetry, and not because the beetle was
+    // idle or starving — it roamed the whole chamber with its energy barely
+    // moving. An attacker on a trailing cell is adjacent to *the animal*
+    // while the animal's head is three cells from *the attacker*, so a chain
+    // creature could not bite what was eating its back. The longer the body
+    // the worse it got: every cell that is not the mouth was pure liability,
+    // which inverts what length and armour are supposed to buy.
+    //
+    // Scanning the whole body is the cheapest thing that means "the animal
+    // turns to face what bites it" without a turning mechanic or a
+    // being-bitten sense for a brain to learn.
+    //
+    // **Each neighbouring cell is scanned once, and the first version was
+    // not.** Bodies overlap their own rings -- a 2x2 beetle reaches most
+    // cells from two of its four cells -- and a comment here claimed the
+    // duplicate "is simply scored twice, which changes nothing". It changes
+    // `bites_refused`, which went 1 -> 2 on an unchanged scene and was caught
+    // by `armour_slows_a_bite_that_softer_flesh_does_not`: a counter
+    // multiplied by body geometry no longer counts refusals, it counts
+    // refusals times adjacency, which is the different-question-same-number
+    // failure this repo keeps paying for. The skip is against *earlier* body
+    // cells only, so the first cell to reach a neighbour owns it; at bodies
+    // of a handful of cells this is cheaper than allocating a set.
+    //
+    // That skip is `4n(n-1)` comparisons for an n-cell body -- 288 for the
+    // nine-cell blocks that are the largest thing shipped, twice a tick, on
+    // a handful of animals, which is why `ascii` does not move. It is
+    // quadratic though, so **if body size ever becomes something a lineage
+    // can push, re-measure this rather than assuming it stayed free**; the
+    // replacement is a small sorted scratch buffer, not a HashSet.
+    //
+    // Flattened into one loop rather than nested so the hundred lines of
+    // scoring below keep their indentation and stay diffable.
+    let fallback = [head];
+    let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let ring = body
+        .iter()
+        .enumerate()
+        .flat_map(|(i, &(bx, by))| NEIGHBOURS_8.iter().map(move |&(dx, dy)| (i, bx + dx, by + dy)));
+    for (i, nx, ny) in ring {
+        if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
+            continue;
+        }
+        let cell = world.get(nx, ny);
+        // **Past the mouth, the body reaches only for something alive that is
+        // on it.** The first version let the whole body scan for anything
+        // edible, and an ant picked loose soil up with its abdomen -- which
+        // is not a picture of an animal, and it moved a shipped gate:
+        // `ascii`'s deposition-follows-moisture ratio fell from **1.03 to
+        // 0.82** against a 0.9 bar, with drops up from 744 to 946 and laden
+        // ants from 7,276 to 9,374. More opportunistic grabs, taken wherever
+        // the body happened to brush something, and a correspondingly weaker
+        // link between where an ant chooses to go and where it puts things
+        // down. (The guard was checked rather than assumed: ablated it reads
+        // 0.70, so it was measuring the mechanism and not blind.)
+        //
+        // Foraging is a mouth. Fighting is not: the thing this exists for is
+        // an attacker clamped onto a flank, which the head cannot turn to
+        // face. Restricting the extra reach to living non-self organisms
+        // keeps that and gives back the foraging behaviour -- and it is the
+        // more physical rule of the two.
+        // Liveness asked of the organism table rather than inferred from a
+        // non-zero id, so the check says what the paragraph above says: a
+        // cell whose owner has already been reconciled away is loose meat,
+        // and loose meat is a mouth's business.
+        let owner = cell.organism_id();
+        let attached = owner != 0 && owner != organism && world.organism(owner).is_some();
+        if i > 0 && !attached {
+            continue;
+        }
         if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
             continue;
         }
@@ -3270,7 +3343,7 @@ fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> FoodScan {
         let expected = gain * damage;
         if expected > best_rank {
             best_rank = expected;
-            best = Some((gain, x + dx, y + dy, cell.material));
+            best = Some((gain, nx, ny, cell.material));
             best_damage = damage;
         }
     }
@@ -3664,11 +3737,26 @@ pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 struct Did {
     /// Cells excavated, priced at `dig_cost_in_moves` each.
     dug: u32,
-    /// Total bite progress made against targets too armoured to swallow, in
-    /// cells: `0.39` is one bite that took 39% off a cell. Priced as the same
-    /// jaw work as digging, so wearing through a cell costs what cutting one
-    /// costs however many bites it took.
-    gnawed: f32,
+    /// **Bites that bounced** -- jaw closures on a target too armoured to
+    /// swallow in one go. A COUNT, not the progress they made, and that
+    /// reversal is the whole of what makes armour worth wearing.
+    ///
+    /// **Priced per progress first, and it made armour economically
+    /// toothless.** Charging `dig_cost_in_moves * damage` sounded principled
+    /// -- "the price is on the work, not the attempt" -- and made the total
+    /// cost of breaching a cell *constant at every armour value*: measured,
+    /// 1.50 J to get through a 50 J beetle cell whether the plate took one
+    /// bite or four hundred, a flat 33x profit that no thickness could dent.
+    /// Armour bought time and never cost, so nothing could ever deter an
+    /// attacker.
+    ///
+    /// A bite is one closure of the jaw and costs the same muscular work
+    /// whether it cuts or bounces -- which is both more physical and the
+    /// thing that makes a plate multiply an attacker's bill. At
+    /// `dig_cost_in_moves` each: armour 1.6 costs an ant 3.9 J for a 50 J
+    /// cell, armour 8 costs 96 J for the same 50, and somewhere between them
+    /// gnawing stops being worth doing.
+    gnaws: u32,
 }
 
 fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
@@ -3738,7 +3826,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // therefore blind to plant matter *as a load* until the meat digests
         // down, which is a trade (foragers work in runs on one resource)
         // rather than a rule about preference.
-        let FoodScan { best: offered, refused, damage: bite_damage } = adjacent_food_counted(world, x, y, gut);
+        let FoodScan { best: offered, refused, damage: bite_damage } = adjacent_food_counted(world, organism, (x, y), gut);
         world.creature_stats.bites_refused += refused;
         // **The gnawing step, and it lives here rather than in the scan
         // because a sense is not an event.** `adjacent_food_counted` is
@@ -3784,7 +3872,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     // `act` decides what an animal did and `creature_tick`
                     // owns the ledger, so there is one place where work
                     // becomes energy.
-                    did.gnawed += bite_damage;
+                    did.gnaws += 1;
                 }
             }
         }
@@ -7436,8 +7524,8 @@ mod tests {
         // it has one in `a_swarm_gets_through_what_one_mouth_cannot`.
     }
 
-    /// **THE RULING, in a running world: one mouth cannot, several together
-    /// can.**
+    /// **THE RULING, in a running world: several mouths breach a plate far
+    /// sooner than one.**
     ///
     /// Owner, 2026-09-06: a beetle *"can be overwhelmed"*. This is that
     /// sentence as a measurement, and it is the guard the arithmetic one
@@ -7450,9 +7538,31 @@ mod tests {
     /// attacker instead of the victim. Eight ants would then be eight
     /// separate quarter-finished holes and no beetle would ever fall, and
     /// that test could not have told the difference.
+    ///
+    /// **It was called `a_swarm_gets_through_what_one_mouth_cannot` and the
+    /// scene never contained a beetle one mouth could not get through.**
+    /// Measured 2026-09-06 with the whole-body scan held OFF, i.e. against
+    /// the code the test was written for: a single ant takes a
+    /// maximum-armour beetle apart at frame **101**. The old assertion was
+    /// `swarm_gnaws > lone_gnaws` — a count of *bites*, which was 12 against
+    /// 30 and duly green — while the outcome in the title was already false
+    /// in both arms. Green was evidence about bite counts, not about the
+    /// ruling. Whether any armour a lineage can reach makes a beetle
+    /// survivable against one ant is a live question and belongs to whoever
+    /// owns the fight; this guard now asserts only what it can see.
+    ///
+    /// **The quantity is time-to-first-breach, because bites stopped
+    /// discriminating.** A finite beetle takes a finite amount of chewing, so
+    /// once BOTH arms finish the job they spend the same: with the whole-body
+    /// scan the two arms land 39 bites each, exactly, and a guard on that
+    /// number reads as a dead heat. Frames-to-first-cell-lost is 5–6x apart
+    /// and stays so on both sides of the change — 73 against 12 head-only,
+    /// 116 against 22 with the body scan — which is what "overwhelmed"
+    /// actually means.
     #[test]
     fn a_swarm_gets_through_what_one_mouth_cannot() {
-        let cells_taken = |attackers: i32| -> (u64, usize) {
+        // (bites that bounced, frame the first cell came off, cells lost)
+        let cells_taken = |attackers: i32| -> (u64, usize, usize) {
             let mut w = test_world();
             let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
             for x in 80..140 {
@@ -7478,25 +7588,42 @@ mod tests {
                     st.energy = 100_000.0;
                 }
             }
-            run(&mut w, 900);
+            // Frame by frame, because the answer is *when* the plate first
+            // gives, not what is left at the end.
+            let mut first_loss = 0usize;
+            for f in 1..=900 {
+                run(&mut w, 1);
+                let n = w.organism(beetle).map_or(0, |st| st.chain.len());
+                if n < before {
+                    first_loss = f;
+                    break;
+                }
+            }
             let after = w.organism(beetle).map_or(0, |st| st.chain.len());
-            (w.creature_stats.gnaws, before.saturating_sub(after))
+            (w.creature_stats.gnaws, first_loss, before.saturating_sub(after))
         };
 
-        let (lone_gnaws, lone_lost) = cells_taken(1);
-        let (swarm_gnaws, swarm_lost) = cells_taken(8);
+        let (lone_gnaws, lone_first, lone_lost) = cells_taken(1);
+        let (swarm_gnaws, swarm_first, swarm_lost) = cells_taken(8);
 
         assert!(
             lone_gnaws > 0 || swarm_gnaws > 0,
             "nothing gnawed at all in either arm, so this measures ants that never reached the beetle rather than a plate"
         );
         assert!(
-            swarm_gnaws > lone_gnaws,
-            "eight mouths must land more bites than one: {lone_gnaws} against {swarm_gnaws}"
+            lone_first > 0 && swarm_first > 0,
+            "the plate has to give in both arms or there is no time to compare: {lone_first} alone, {swarm_first} for eight"
+        );
+        // 2x, against a measured 5-6x on both sides of the whole-body scan --
+        // headroom rather than a bar sitting on the value, and it is a
+        // *ratio*, so it does not care how fast the machine ran.
+        assert!(
+            swarm_first * 2 < lone_first,
+            "eight mouths must breach the plate far sooner than one -- if they do not, the damage is being banked per attacker and the swarm is eight separate quarter-finished holes: frame {lone_first} alone against {swarm_first} for eight"
         );
         assert!(
             swarm_lost >= lone_lost,
-            "eight mouths must take at least as much off an armoured beetle as one does -- if they take less, the damage is being banked per attacker and the swarm is eight separate holes: {lone_lost} cells alone against {swarm_lost} for eight"
+            "eight mouths must take at least as much off an armoured beetle as one does: {lone_lost} cells alone against {swarm_lost} for eight"
         );
     }
 
@@ -8575,6 +8702,89 @@ mod tests {
         }
     }
 
+    /// **A chain creature can bite what is eating its back**, and until
+    /// 2026-09-06 it could not.
+    ///
+    /// `adjacent_food_counted` scanned the eight neighbours of the *head*.
+    /// An attacker on a trailing cell is adjacent to the animal while the
+    /// animal's head is two or three cells from the attacker, so every cell
+    /// that was not the mouth was pure liability -- which inverts what body
+    /// length and armour are supposed to buy. Measured in a sealed chamber
+    /// over 1,200 frames before the fix: the beetle's head was adjacent to
+    /// the ant **zero** times and the ant's head was adjacent to the beetle
+    /// **sixty**, a perfect asymmetry, and not because the beetle was idle --
+    /// it roamed the chamber the whole time with its energy barely moving.
+    ///
+    /// **Foraging is a mouth; fighting is not**, and the four arms below are
+    /// that distinction. The first version of this fix let the whole body
+    /// scan for anything edible and an ant picked loose soil up with its
+    /// abdomen, which cost a shipped gate -- `ascii`'s deposition ratio fell
+    /// from 1.03 to 0.82 against a 0.9 bar. Past the mouth the body now
+    /// reaches only for something alive that is on it.
+    ///
+    /// **The assertion is the offered cell's distance from the head, not
+    /// merely that something was offered**, because Chebyshev 2 is
+    /// unreachable under the head-only rule: this guard cannot pass against
+    /// the code it was written for.
+    #[test]
+    fn a_chain_creature_bites_what_is_eating_its_back() {
+        // Returns what the beetle was offered, and how far from its head
+        // that cell sat. `at` is where the flesh is PUT, which for a live ant
+        // is its head -- a two-cell animal lays its tail out to the left, so
+        // the cell that ends up in the beetle's reach is not always the one
+        // named here. The assertions say which.
+        let bed = |at: (i32, i32), live: bool| -> Option<((i32, i32), i32)> {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 100);
+            // A beetle places as a 2x2 block with its head at the corner, so
+            // the body reaches one cell past the head's ring in two
+            // directions. Assert the geometry rather than trusting it: a
+            // scene that has lost the situation looks exactly like a
+            // mechanism that does nothing.
+            let chain = w.organism(beetle).expect("live").chain.clone();
+            assert_eq!(chain, vec![(100, 100), (99, 100), (100, 99), (99, 99)], "the scene depends on this body shape");
+            let head = chain[0];
+            assert!(!chain.contains(&at), "the flesh must not be placed on the beetle itself");
+            if live {
+                let attacker = spawn(&mut w, "ant", at.0, at.1);
+                assert_ne!(attacker, 0, "the attacker must place, or this scene does not contain the situation");
+                assert_eq!(w.organism(attacker).expect("live").chain[0], at, "the attacker's head must be where the scene puts it");
+            } else {
+                let ant_material = w.materials.id_of("ant").expect("ant material");
+                w.set(at.0, at.1, Cell::new(ant_material, 0));
+            }
+            let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
+            let gut = gut_of(&w, beetle, &def);
+            adjacent_food(&w, beetle, head, gut).map(|(_, fx, fy, _)| ((fx, fy), (fx - head.0).abs().max((fy - head.1).abs())))
+        };
+
+        // Behind the body: adjacent to (99, 99) and (99, 100), two cells from
+        // the head. Nothing the head-only scan could ever see.
+        let behind = (98, 99);
+        assert_eq!(
+            bed(behind, true),
+            Some((behind, 2)),
+            "a live attacker clamped onto the flank must be biteable -- it is out of the head's own ring, which is the whole of what changed"
+        );
+        assert_eq!(
+            bed(behind, false),
+            None,
+            "...and loose flesh behind the abdomen must NOT be, or the animal is foraging with its back"
+        );
+
+        // ...and the mouth still works for both, so this is neither a scan
+        // that stopped caring where food is nor one that stopped eating. The
+        // live ant is placed at (102, 100) because its tail lands on
+        // (101, 100) and nothing can stand where the beetle already is; the
+        // tail is the cell that ends up beside the mouth.
+        assert_eq!(bed((102, 100), true), Some(((101, 100), 1)), "prey beside the mouth must still be found");
+        assert_eq!(bed((101, 100), false), Some(((101, 100), 1)), "and so must loose flesh beside the mouth -- that is ordinary foraging");
+    }
+
     #[test]
     fn a_predator_eats_a_creature_and_needs_no_predation_code_to_do_it() {
         // **Nothing in the engine knows what "predator" means.** It used
@@ -8905,7 +9115,7 @@ mod tests {
             let ant_material = w.materials.id_of("ant").expect("ant material");
             assert_eq!(w.get(101, 100).material, ant_material, "the scene must actually contain a nestmate in reach -- a mechanism looks inert when the scene lost the situation");
 
-            adjacent_food(&w, 100, 100, gut_of(&w, a, &def)).is_some()
+            adjacent_food(&w, a, (100, 100), gut_of(&w, a, &def)).is_some()
         };
 
         assert!(!nestmate_seen_as_food(false), "with eats_kin off, a living nestmate is not food");
@@ -9278,7 +9488,7 @@ mod tests {
             w.set(hx + 1, hy, Cell::new(flesh, 0));
             let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
             let gut = gut_of(&w, beetle, &def);
-            let FoodScan { best, refused, damage } = adjacent_food_counted(&w, hx, hy, gut);
+            let FoodScan { best, refused, damage } = adjacent_food_counted(&w, beetle, (hx, hy), gut);
             (best.is_some(), refused, damage, w.materials.get(flesh).penetration_resistance, def.bite_force())
         };
 
@@ -9531,7 +9741,7 @@ mod tests {
         let face = w.materials.get(ant_material).food_energy;
         assert_eq!(diet_yield(&w, w.get(99, 100), 1.0), face, "its own tail is nutritious on the diet axis alone -- which is exactly why liveness has to be asked separately");
 
-        assert!(adjacent_food(&w, 100, 100, gut_of(&w, ant, &def)).is_none(), "an ant must not see its own tail as food");
+        assert!(adjacent_food(&w, ant, (100, 100), gut_of(&w, ant, &def)).is_none(), "an ant must not see its own tail as food");
     }
 
     /// **A starved nestmate's corpse is still dinner**, which is the case a
@@ -11550,7 +11760,7 @@ mod tests {
             // out at placement and the head is what `act` scans from.
             let (hx, hy) = w.organism(ant).expect("live").chain[0];
             assert_eq!((hx, hy), (100, 100), "the scene must put the head where the two foods were placed around it");
-            adjacent_food(&w, hx, hy, gut).map(|(gain, fx, fy, _)| (gain, fx, fy))
+            adjacent_food(&w, ant, (hx, hy), gut).map(|(gain, fx, fy, _)| (gain, fx, fy))
         };
 
         let (gain, fx, fy) = bed(true).expect("both foods are edible to this gut, so something must be offered");
