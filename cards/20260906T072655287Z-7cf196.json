@@ -1,0 +1,46 @@
+{
+  "id": "20260906T072655287Z-7cf196",
+  "created": "2026-09-06T07:26:55Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-creatures-v57wnd",
+    "commit": "e93deadf",
+    "agent": null,
+    "session_id": "d5df7a58-58c9-5182-ae56-e8b1fa79c962",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Animals wear their colony's colour, instead of soil-brown",
+  "question": "You said you needed the gut-bias overlay to see ants and beetles. A is the shipped draw, B colours every animal by the group you put down (first click amber, second sky, beetles rose). Same frame, same box. Can you tell the three groups apart at play zoom in B, and is this the right amount of colour, or does it read as a debug overlay?",
+  "context_md": "labshot founders=8 colonies=2 predators=6 frame 300, zoom 4, ground band cropped and doubled. meta: 83 animals alive (2 ant colonies of 47, 6 beetles placed, 19 deaths so far). The colour is a full replace with the body's own shading kept as brightness; the graph line for each group on the ANTS page is the same colour. Toggle on the ANTS page cycles OWN COLOUR / BY SPECIES / BY COLONY.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "own colour (shipped)",
+      "files": [
+        "20260906T072655287Z-7cf196/000-card_off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "by colony",
+      "files": [
+        "20260906T072655287Z-7cf196/001-card_colony.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
