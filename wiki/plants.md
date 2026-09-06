@@ -3,7 +3,16 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-06 (**a plant is held up by its roots now, or by
+*Current as of: 2026-09-06 (**ground is now worth something on its own, not
+just as somewhere to find water.** A plant living on a drip or on rain, with
+its roots in no soil at all, used to be able to grow indefinitely — light and
+water were the whole economy and standing water supplied the water. Soil now
+carries a slow-renewing richness that free water does not, so a plant with no
+ground under it earns nothing and dies. Where roots are crowded the ground
+runs down and everything gets dearer; where a plant has room, it barely
+notices. Costs a settled bed about a sixth of its plants.)*
+
+*Before that: 2026-09-06 (**a plant is held up by its roots now, or by
 the ground directly under it -- not by whatever it happens to lean on.**
 A plant used to count as anchored if *any* part of it touched solid ground
 in *any* direction, so in a walled box a single branch brushing a wall
@@ -128,7 +137,7 @@ Plants are made of ordinary cells like everything else in the world. You can
 dig them, burn them, bury them, and cut them — and that sentence has only
 been true of *all four* since 2026-08-24. See **Cutting a plant down**.
 
-## The two things a plant needs
+## The three things a plant needs
 
 **Light**, caught by foliage. A leaf in open sky earns well; a leaf buried
 inside its own canopy, or under a taller neighbour, earns almost nothing.
@@ -148,6 +157,21 @@ Foliage spends water continuously —
 more in bright light, almost none at night — and the plant can only earn from
 light while it has water to spend. A plant that cannot keep up closes down:
 it stops growing first, then starts shedding leaves.
+
+**Soil, which is not the same thing as water.** Ground holds a slow-renewing
+richness as well as moisture, and a root takes both. The two come apart in
+one way that matters: **standing water is a drink and nothing more.** A plant
+whose roots reach only a puddle, a leak or falling rain has all the water it
+could want and no ground at all, and it will not survive on that — it earns
+nothing and starves, however bright the light and however wet it is.
+
+Richness is only ever a real constraint where roots are **crowded**. Ground
+under a single root keeps up with what that root takes indefinitely, so a
+plant with room around it barely notices; where many roots share the same
+patch they draw it down faster than it recovers, and everything they do gets
+dearer — building costs more and the light they catch is worth less. A
+half-drawn patch is still nearly as good as fresh ground. It is the last of
+it running out that bites.
 
 A root beside open water drinks from it at the same rate it drinks from
 damp ground, and **the plant now counts that water as ground it is standing
