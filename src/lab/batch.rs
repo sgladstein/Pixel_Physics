@@ -86,6 +86,7 @@ use crate::sim::particle::ParticleSystem;
 use crate::sim::player;
 use crate::sim::world::World;
 
+use super::scenario::Scenario;
 use super::scene::LabBox;
 use super::{params, stats};
 
@@ -125,6 +126,14 @@ pub struct BatchSpec {
     /// How many bytes of finished worlds to hold before dropping them and
     /// keeping only the record. See [`RunResult::world`].
     pub keep_bytes: u64,
+    /// **The scenario `base` was opened from, if one.** Carried here rather
+    /// than only on `base` itself, because a scenario is *behaviour*
+    /// (settings, placements, a running timeline) and `base` is only ever
+    /// read as geometry (`LabBox::build`/`build_counted`) -- `runs()` reads
+    /// this to hand every `PlannedRun` its own copy, and `run_one` is what
+    /// actually applies it. `BatchSpec` has no `Serialize`/`Deserialize` of
+    /// its own to keep in step with `Scenario`'s.
+    pub scenario: Option<Scenario>,
 }
 
 impl BatchSpec {
@@ -153,7 +162,15 @@ impl BatchSpec {
                         sw.field
                     );
                 }
-                out.push(PlannedRun { index: out.len(), frames: None, setting_index: si, setting: *setting, replicate: j, spec });
+                out.push(PlannedRun {
+                    index: out.len(),
+                    frames: None,
+                    setting_index: si,
+                    setting: *setting,
+                    replicate: j,
+                    spec,
+                    scenario: self.scenario.clone(),
+                });
             }
         }
         out
@@ -202,6 +219,11 @@ pub struct PlannedRun {
     pub setting: Option<f32>,
     pub replicate: u32,
     pub spec: LabBox,
+    /// The scenario `spec` was built from, if one -- cloned onto every run
+    /// rather than looked up once per batch, because it is small (a bed
+    /// plus a handful of placements) beside the `World` each run builds,
+    /// and a run travels alone onto its own worker thread.
+    pub scenario: Option<Scenario>,
 }
 
 /// What a finished run leaves behind.
@@ -378,6 +400,7 @@ impl Batch {
             frames,
             seed0: runs.first().map(|r| r.spec.seed).unwrap_or(0),
             keep_bytes,
+            scenario: runs.first().and_then(|r| r.scenario.clone()),
         };
         let shared = Arc::new(Shared {
             done: Mutex::new(Vec::new()),
@@ -496,6 +519,17 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
     let mut world = match start {
         Start::Fresh => {
             let mut w = run.spec.build();
+            // **The run's own (swept) spec, not the batch's `base`.** A
+            // sweep over `compartments` -- say -- has already written the
+            // swept value into `run.spec` by the time `runs()` handed this
+            // plan out, so applying the scenario against a fresh clone of
+            // *that* spec is what keeps a scenario's placements landing on
+            // the bed this particular run actually has, not the template
+            // every other setting also started from.
+            if let Some(scenario) = &run.scenario {
+                let mut spec = run.spec.clone();
+                scenario.apply(&mut w, &mut spec);
+            }
             super::earth_toned_nest(&mut w);
             w
         }
@@ -527,6 +561,15 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
             .and_then(|mut t| t.remove(&run.index))
             .unwrap_or_else(|| {
                 let mut w = run.spec.build();
+                // Same reasoning as `Start::Fresh` just above: this is the
+                // rebuild-from-recipe fallback for a row whose world was not
+                // in the table (an on-record row extended past its budget),
+                // and it needs the scenario applied for the identical
+                // reason a fresh run does.
+                if let Some(scenario) = &run.scenario {
+                    let mut spec = run.spec.clone();
+                    scenario.apply(&mut w, &mut spec);
+                }
                 super::earth_toned_nest(&mut w);
                 w
             }),
@@ -546,6 +589,13 @@ fn run_one(run: &PlannedRun, frames: u64, shared: &Arc<Shared>, start: &Start) -
     }
     while ran < frames {
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        // Same call, same timing contract, as `Lab::tick`'s own -- see
+        // `scenario::tick_timeline`'s doc. Cheap when the timeline is empty
+        // or there is no scenario at all, which is every setting sweep run
+        // that has ever used this function until now.
+        if let Some(scenario) = &run.scenario {
+            super::scenario::tick_timeline(scenario, &mut world, &run.spec);
+        }
         ran += 1;
         // **Inside the loop.** `Stats::observe` gates on `frame >= last +
         // interval` — a `>=`, so it never skips *and never catches up*.
@@ -609,7 +659,7 @@ mod tests {
     }
 
     fn spec(replicates: u32, sweep: Option<Sweep>) -> BatchSpec {
-        BatchSpec { base: bed(), replicates, sweep, frames: 300, seed0: 1, keep_bytes: u64::MAX }
+        BatchSpec { base: bed(), replicates, sweep, frames: 300, seed0: 1, keep_bytes: u64::MAX, scenario: None }
     }
 
     /// **The seed varies with the replicate and not with the setting.**

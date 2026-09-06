@@ -147,6 +147,10 @@ GAME = {
     # own menu cycle (`tunables.rs`'s own doc) -- the outdoor game has its
     # own separate save path and never reaches `lab::params`.
     "tuning and saving the box's own numbers": "lab",
+    # The ninth lab row: a bed the player cannot save at all until this
+    # landed, because what a player paints in by hand -- a food heap on a
+    # schedule, a raised bank -- could not be expressed as a bare `LabBox`.
+    "a saved starting box, and replicating it in a rack": "lab",
 }
 
 TOPICS = {
@@ -316,6 +320,12 @@ TOPICS = {
     # rather than the numbers a player tunes once it exists.
     "tuning and saving the box's own numbers": [
         "Lab parameters status — a save that reaches the founders, not just the file",
+    ],
+    # The ninth lab row: a saved bed plus what got placed in it and a
+    # running schedule, which is what the other eight rows above assume
+    # already exists but nothing before this built.
+    "a saved starting box, and replicating it in a rack": [
+        "Lab scenarios status — a saved starting box with a question written on it",
     ],
 }
 

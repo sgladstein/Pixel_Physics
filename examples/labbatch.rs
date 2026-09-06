@@ -42,6 +42,7 @@
 //! any real comparison has to clear.
 
 use pixel_physics::lab::batch::{BatchSpec, PlannedRun, Sweep};
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
@@ -51,23 +52,41 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 fn main() {
     let arm: String = arg("arm").unwrap_or_else(|| "both".to_string());
     let runs: u32 = arg("runs").unwrap_or(12);
-    let frames: u64 = arg("frames").unwrap_or(9_000);
     let width: i32 = arg("width").unwrap_or(512);
     let founders: usize = arg("founders").unwrap_or(8);
     let colonies: usize = arg("colonies").unwrap_or(1);
     let sweep_field: Option<String> = arg("sweep");
     let values: Option<String> = arg("values");
+    // `scenario=<name>` loads a saved starting box instead of building one
+    // from the flags above -- see `lab::scenario`. A bad name refuses at
+    // load rather than silently falling back to the default bed, same as
+    // `bin/lab.rs`'s own rule for it.
+    let scenario_name: Option<String> = arg("scenario");
+    let scenario: Option<Scenario> = scenario_name.as_deref().map(|n| {
+        Scenario::load(n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(1);
+        })
+    });
+    // The scenario's own horizon when one is loaded and `frames=` was not
+    // given on the command line -- the report's own read-at frame count,
+    // rather than this harness's unrelated default.
+    let frames: u64 = arg("frames").unwrap_or_else(|| scenario.as_ref().filter(|s| s.horizon > 0).map(|s| s.horizon).unwrap_or(9_000));
 
     // **Echoes its own parameters**, because a harness that does not is one
     // whose knobs nobody can tell are connected — the 3.5-hour study that
     // produced eight byte-identical logs per species is the case on record.
     println!(
-        "labbatch: arm={arm} runs={runs} frames={frames} width={width} founders={founders} colonies={colonies} sweep={} values={}",
+        "labbatch: arm={arm} runs={runs} frames={frames} width={width} founders={founders} colonies={colonies} sweep={} values={}{}",
         sweep_field.as_deref().unwrap_or("-"),
-        values.as_deref().unwrap_or("-")
+        values.as_deref().unwrap_or("-"),
+        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
-    let base = LabBox { width, founders, colonies, ..LabBox::default() };
+    let base = match &scenario {
+        Some(s) => s.bed.clone(),
+        None => LabBox { width, founders, colonies, ..LabBox::default() },
+    };
     let sweep = match (&sweep_field, &values) {
         (Some(f), Some(v)) => Some(Sweep {
             field: f.clone(),
@@ -80,7 +99,7 @@ fn main() {
         _ => None,
     };
 
-    let spec = BatchSpec { base, replicates: runs, sweep, frames, seed0: 1, keep_bytes: 0 };
+    let spec = BatchSpec { base, replicates: runs, sweep, frames, seed0: 1, keep_bytes: 0, scenario: scenario.clone() };
     let planned = spec.runs();
     let per = BatchSpec::world_bytes(&spec.base) as f64 / (1024.0 * 1024.0);
     println!(

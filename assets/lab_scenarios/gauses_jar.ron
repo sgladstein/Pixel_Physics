@@ -1,0 +1,57 @@
+// S5 -- "Gause's jar", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// A pure `labbatch` sweep -- the bed (its `compartments`) is the whole
+// experiment, and neither the founders nor the colonies carry any hand
+// placement of their own. In one open compartment a beetle population
+// historically either eats the colony down and starves out, or never finds
+// enough of it to persist; walled into four, a room the beetles have not
+// found yet is a refuge for both sides. Gause's classic prediction (spatial
+// structure extends coexistence) gives the instrument a textbook answer to
+// check itself against.
+//
+// `compartments` is exactly what `labbatch scenario=gauses_jar
+// sweep=compartments values=1,4,16` sweeps -- `params::write_bed` already
+// names it, so this file supplies nothing but the base bed a sweep varies
+// one field of.
+//
+// **The colony and the beetles arrive on the timeline, not at build time.**
+// `labshot scenario=gauses_jar frames=0,100,1200` used to read `plants 0`
+// from frame 100 on: `bed.colonies=4, bed.colony_ants=26, bed.predators=4`
+// founded four colonies of 26 ants beside the eight herb founders on frame
+// 0, and the ants ate every seedling before any of them grew past a
+// founder. So the bed founds no colony and releases no beetle of its own
+// (`colonies: 0, predators: 0`, `founders: 8` unchanged) and the timeline
+// gives the plants a 3,000-frame head start: `Colonies(ant, 4, 26)` at
+// frame 3,000 founds one colony per compartment exactly where
+// `LabBox::colony_columns()` would put them for `colonies: 4` (so a
+// `compartments` sweep still lands one colony per room at 1, 4 or 16), and
+// `Predators(beetle, 4)` follows at frame 6,000 the same way over
+// `predator_columns()`. `compartments` and `colony_ants` are otherwise
+// untouched, so the sweep this file exists for still sweeps the same bed.
+(
+    name: "gauses_jar",
+    title: "GAUSE'S JAR",
+    question: "Swept over compartments 1, 4, 16 -- does walling the jar extend how long both the colony and the beetles persist?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 4,
+        founders: 8,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 26,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [],
+    timeline: [
+        (at: 3000, every: 0, until: 0, what: Colonies(species: "ant", colonies: 4, ants: 26)),
+        (at: 6000, every: 0, until: 0, what: Predators(species: "beetle", count: 4)),
+    ],
+    horizon: 60000,
+)

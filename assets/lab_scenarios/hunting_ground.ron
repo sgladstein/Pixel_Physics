@@ -1,0 +1,56 @@
+// S6 -- "The hunting ground", `Reports/lab-behaviour-scenarios-2026-09-06.md`.
+// At play zoom an ant is picked out of the soil by *moving*, so a colony
+// that breaks and runs from a beetle is the most legible creature behaviour
+// this engine can produce -- and it was blocked on one asset line: the
+// shipped ant authors no `sight_range`, so `PreyNear`/`PreyBearing` exist,
+// are priced, and are switched off. This scenario is that line turned on,
+// in a bed built to select on it: two walled rooms so the prey cannot be
+// run to extinction in one before anything is read, beetles roaming both,
+// and food kept coming so a colony that merely fled forever would starve as
+// visibly as one that never learned to.
+//
+// **Food per 6,000-frame window against the colony's idle burn**: an ant
+// idles at 0.10 energy/tick, so 52 ants burn 52 * 0.10 * 6000 = 31,200 per
+// window. The original 16-cell windfall heap (15,360, 49.2%) was under
+// half; raised to 20 cells (19,200, 61.5% -- the same margin `the_bank.ron`
+// runs at) so a room that also loses ants to a beetle is not starving on
+// top of that.
+(
+    name: "hunting_ground",
+    title: "HUNTING GROUND",
+    question: "Ants given a 32-cell eye, beetles roaming two walled rooms -- does the colony that can see a predator die less than one that could not?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 2,
+        founders: 0,
+        species: "herb",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [
+        (subject: "ant", field: "sight_range", value: 32),
+    ],
+    placements: [
+        Colony(species: "ant", x: 120, count: 52),
+        Colony(species: "ant", x: 390, count: 52),
+        Animal(species: "beetle", x: 60),
+        Animal(species: "beetle", x: 180),
+        Animal(species: "beetle", x: 230),
+        Animal(species: "beetle", x: 300),
+        Animal(species: "beetle", x: 420),
+        Animal(species: "beetle", x: 470),
+    ],
+    timeline: [
+        (at: 3000, every: 6000, until: 0, what: Heap(material: "windfall", x: 140, cells: 20)),
+        (at: 3000, every: 6000, until: 0, what: Heap(material: "windfall", x: 400, cells: 20)),
+    ],
+    horizon: 24000,
+)

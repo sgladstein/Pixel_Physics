@@ -681,6 +681,19 @@ bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
 file is a separate, gitignored, runtime-only state file rather than a
 species field, so that argument still holds and was not re-litigated.
 
+## Round ten, 2026-09-06 — scenarios
+
+`Reports/lab-behaviour-scenarios-2026-09-06.md` §4 item 1: a saved bed plus
+build-time placements, a running timeline and parameter settings
+(`src/lab/scenario.rs`), the one engine piece that report's whole approach
+was blocked on. Reached from the BOX page's new `SCENARIOS` row, `scenario=`
+at startup and on `labbatch`/`labshot`. Eight shipped
+(`assets/lab_scenarios/`), one per S1–S6 plus two paired controls. **What it
+overturned:** nothing standing — `reset()` already carried the rule and
+heredity dials across a rebuild (Round nine), and a scenario rides the same
+seam rather than a new one. Full account in README's own "Lab scenarios
+status".
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
