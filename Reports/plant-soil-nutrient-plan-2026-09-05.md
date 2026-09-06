@@ -833,6 +833,44 @@ is a reason to calibrate the weight rather than to abandon the term.
 mechanism does not reach root depth in either direction at any setting yet
 measured.
 
+**The weight curve, and the usable range is far below where this shipped.**
+All arms at recovery period 180, 12 seeds, paired per seed against
+`p_off.log` — a baseline measured on the **same binary**:
+
+| income weight | plant cells | plants | seeds borne | biggest | roots reach |
+|---|---|---|---|---|---|
+| **0.25** | 0.739 — down 10 | **0.507** — down 11 | 0.548 — down 11 | 1.024 — up 7 | 0.897 |
+| **0.5** | 0.652 — down 10 | **0.392** — down 12 | 0.386 — down 12 | 1.043 — up 6 | 1.013 |
+| **1.0** | 0.451 — down 11 | **0.171** — down 12 | 0.189 — down 12 | 1.191 — up 7 | 0.987 |
+
+**Monotone and clean on every column that moves**, with the sign unanimous
+or near-unanimous at every setting — this is a strong lever, not a marginal
+one. Halving the weight roughly doubles the surviving stand.
+**`1.0` was a bad first guess by more than an order of magnitude**: even at
+0.25 the stand halves, so a *mild* tax — the 10-20% a first shipping setting
+would want — lands somewhere near **0.05-0.1**, which is where a calibration
+sweep should now start rather than at 1.
+
+**`biggest` rises monotonically with the weight** (1.024 → 1.043 → 1.191)
+while the stand falls. The self-thinning signature strengthens with the tax,
+which is coherent and is the one genuinely ecological behaviour this
+mechanism has produced.
+
+**Root depth is flat at every setting** — 0.897, 1.013, 0.987 against a
+baseline seed spread of 2.22x. Together with the two construction-only arms
+(0.883 and 1.080 on different trees) that is **five independent arms with no
+reliable movement in either direction**. Whatever the nutrient does, it does
+not reach root depth.
+
+**The floor of this curve is not measured on this binary.** Every arm above
+carries the construction price *as well as* the income term, because both are
+gated on `nutrient_initial()`; there is no weight-0 arm at period 180 here,
+so the split between the two terms is not attributable from this table. On
+the other binary at `recovery=0` the construction price alone cost about 20%
+of the stand, which suggests the weight-0 floor sits near 0.8 rather than
+1.0 — but that is an inference across binaries and is exactly the comparison
+this section elsewhere refuses to make.
+
 ### 3f. The recovery knob had no usable setting, and now it does
 
 `owed = (frame - stamp) x rate`, with `rate` a `u16` **per frame**, against a
