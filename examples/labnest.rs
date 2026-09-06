@@ -117,6 +117,78 @@ fn over_capacity(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> (usize, u
     (n, worst)
 }
 
+/// **The mean the `overcap` count cannot give, and the two readings want
+/// opposite fixes.**
+///
+/// `overcap` counts cells over the un-pack line. A bed that is genuinely
+/// *flooding* and one that is merely redistributing around a threshold it
+/// was built to sit exactly on produce the same rising count, and the first
+/// is a water-cycle bug while the second is a knife-edge constant.
+/// `CLAUDE.md`'s "ask what your number counts when nothing is wrong": at
+/// frame 0 this bed is uniform, so the mean is the build value and the
+/// spread is zero, and anything either number does afterwards is the run.
+///
+/// Returns `(mean held, total held, free water cells standing in the bed)`.
+fn soil_water(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> (f64, u64, usize) {
+    let (mut total, mut cells, mut free) = (0u64, 0u64, 0usize);
+    for x in x0..x1 {
+        for y in y0..y1 {
+            let c = world.get(x, y);
+            if world.materials.kind(c.material) == pixel_physics::sim::material::MaterialKind::Liquid {
+                free += 1;
+                continue;
+            }
+            if world.materials.get(c.material).water_capacity > 0 {
+                total += u64::from(c.aux());
+                cells += 1;
+            }
+        }
+    }
+    (total as f64 / cells.max(1) as f64, total, free)
+}
+
+/// **Where the bed's moisture actually sits**, in bands, because a single
+/// `overcap` count cannot set a threshold.
+///
+/// `CLAUDE.md`: *set bars from measurement with headroom, never from an
+/// aspiration and never sitting on the measured value.* The un-pack line is
+/// `SOIL_FIELD_CAPACITY`, which is where a drained column **rests** — so the
+/// question a new line has to answer is how much of the bed reaches each
+/// band in ordinary running, and only a histogram says that.
+///
+/// Bands are the engine's own constants plus the quarter points of the
+/// drainable band, so the reading is in the vocabulary any replacement
+/// threshold would be written in.
+fn moisture_bands(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> [usize; 6] {
+    let fc = material::SOIL_FIELD_CAPACITY;
+    let sat = material::SOIL_SATURATED;
+    let band = sat - fc;
+    let mut n = [0usize; 6];
+    for x in x0..x1 {
+        for y in y0..y1 {
+            let c = world.get(x, y);
+            if world.materials.get(c.material).water_capacity == 0 {
+                continue;
+            }
+            let a = c.aux();
+            if a <= fc {
+                n[0] += 1;
+            } else if a < fc + band / 4 {
+                n[1] += 1;
+            } else if a < fc + band / 2 {
+                n[2] += 1;
+            } else if a < fc + 3 * band / 4 {
+                n[3] += 1;
+            } else if a < sat {
+                n[4] += 1;
+            } else {
+                n[5] += 1;
+            }
+        }
+    }
+    n
+}
+
 /// Ants with ground on all four sides — entombed rather than merely
 /// underground. The second half of the report needs its own number.
 fn buried(world: &World) -> usize {
@@ -140,6 +212,88 @@ fn buried(world: &World) -> usize {
         .count()
 }
 
+/// **What is standing in a cell that used to be a hole** — the census the
+/// owner's second reading of the report needs, and the one `roofed` cannot
+/// give.
+///
+/// `roofed` falling says the nest is closing. It does not say what closed
+/// it, and the two candidates want opposite fixes: loose `soil` running back
+/// in is a lining failure, and `corpse` piling up in a gallery is a
+/// *decay* failure — a carcass is a `Powder` with no `decays_into`, so it
+/// falls like tilth and then stands there for the rest of the run.
+/// `CLAUDE.md`'s "an image tells you what and where, a metric tells you how
+/// much": this is the how-much, keyed by material name so a material added
+/// later cannot be silently dropped.
+///
+/// The mark is taken on a cadence rather than every tick because the scan is
+/// the bed (512x96) and the question is about standing state, not about a
+/// cell that was empty for one frame between two digs.
+struct Refill {
+    /// Cells inside the bed that have been materially empty at some earlier
+    /// mark. Indexed `(y - y0) * w + (x - x0)`.
+    ever_void: Vec<bool>,
+    w: usize,
+}
+
+impl Refill {
+    fn new(x0: i32, x1: i32, y0: i32, y1: i32) -> Self {
+        let w = (x1 - x0) as usize;
+        Self { ever_void: vec![false; w * (y1 - y0) as usize], w }
+    }
+
+    fn mark(&mut self, world: &World, x0: i32, x1: i32, y0: i32, y1: i32) {
+        for x in x0..x1 {
+            for y in y0..y1 {
+                if world.get(x, y).material == material::EMPTY {
+                    self.ever_void[(y - y0) as usize * self.w + (x - x0) as usize] = true;
+                }
+            }
+        }
+    }
+
+    /// `(cells refilled, per-material counts, largest first)`.
+    fn census(&self, world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> (usize, Vec<(String, usize)>) {
+        let mut by: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut total = 0;
+        for x in x0..x1 {
+            for y in y0..y1 {
+                if !self.ever_void[(y - y0) as usize * self.w + (x - x0) as usize] {
+                    continue;
+                }
+                let m = world.get(x, y).material;
+                if m == material::EMPTY {
+                    continue;
+                }
+                total += 1;
+                *by.entry(world.materials.get(m).name.clone()).or_default() += 1;
+            }
+        }
+        let mut v: Vec<(String, usize)> = by.into_iter().collect();
+        v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        (total, v)
+    }
+}
+
+/// Every material standing inside the bed, largest first — the control for
+/// the census above. A refill figure with no idea what the bed is made of
+/// cannot say whether 400 corpse cells in the holes is most of the carrion
+/// in the box or a tenth of it.
+fn bed_census(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> Vec<(String, usize)> {
+    let mut by: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    for x in x0..x1 {
+        for y in y0..y1 {
+            let m = world.get(x, y).material;
+            if m == material::EMPTY {
+                continue;
+            }
+            *by.entry(world.materials.get(m).name.clone()).or_default() += 1;
+        }
+    }
+    let mut v: Vec<(String, usize)> = by.into_iter().collect();
+    v.sort_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+    v
+}
+
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(9_000);
     let seeds: u64 = arg("seeds").unwrap_or(2);
@@ -148,8 +302,17 @@ fn main() {
     // here and dissolves in the default bed, the margin is the bug and the
     // fix is the threshold, not the digging.
     let dry: bool = arg::<u32>("dry").unwrap_or(0) == 1;
+    // **Plants, so the colony does not simply starve.** The bed this harness
+    // was written against has no food in it at all, so every ant is dead by
+    // frame ~6,000 and the structure columns after that are a census of a
+    // box nothing lives in. A fed colony keeps digging, which is the regime
+    // the owner plays and the only one in which "the holes fill up" is a
+    // statement about a working nest.
+    let founders: usize = arg("founders").unwrap_or(0);
+    // How often the void mark is taken. See `Refill`.
+    let mark_every: u64 = arg("markevery").unwrap_or(30);
 
-    println!("labnest: frames={frames} seeds={seeds} dry={dry}");
+    println!("labnest: frames={frames} seeds={seeds} dry={dry} founders={founders} markevery={mark_every}");
     println!(
         "\n{:>5} {:>7} {:>7} {:>7} {:>7} {:>7} {:>7} {:>6} {:>7} {:>7} {:>6} {:>8}",
         "seed", "frame", "roofed", "packed", "overcap", "wettest", "ants", "buried", "digs",
@@ -157,7 +320,7 @@ fn main() {
     );
 
     for seed in 1..=seeds {
-        let spec = LabBox { colonies: 1, founders: 0, seed, ..LabBox::default() };
+        let spec = LabBox { colonies: 1, founders, seed, ..LabBox::default() };
         let mut world = spec.build();
         let packed_id = world.materials.id_of("packedsoil").expect("packedsoil is compiled in");
 
@@ -180,7 +343,10 @@ fn main() {
         let mut blasts = Blasts::default();
         let tuning = player::Tuning::default();
 
-        let report = |world: &World, f: u64| {
+        let mut refill = Refill::new(x0, x1, y0, y1);
+        refill.mark(&world, x0, x1, y0, y1);
+
+        let report = |world: &World, refill: &Refill, f: u64| {
             let (over, wettest) = over_capacity(world, x0, x1, y0, y1);
             let m = world.creature_stats.moves;
             let b = world.creature_stats.moves_blocked;
@@ -209,9 +375,25 @@ fn main() {
                 world.creature_stats.spoil_dumped,
                 100.0 * b as f64 / (m + b).max(1) as f64,
             );
+            let (filled, by) = refill.census(world, x0, x1, y0, y1);
+            let show = |v: &[(String, usize)]| {
+                v.iter().take(6).map(|(n, c)| format!("{n} {c}")).collect::<Vec<_>>().join(", ")
+            };
+            let (mean, total, free) = soil_water(world, x0, x1, y0, y1);
+            println!(
+                "      soil water mean {mean:>7.1}  total {total:>10}  free water cells {free:>4}  atmosphere {:>10.0}",
+                world.atmospheric_bank
+            );
+            let b = moisture_bands(world, x0, x1, y0, y1);
+            println!(
+                "      moisture   <=620 {:>6}  <715 {:>6}  <810 {:>6}  <905 {:>6}  <1000 {:>6}  ==1000 {:>6}",
+                b[0], b[1], b[2], b[3], b[4], b[5]
+            );
+            println!("      refilled void {filled:>6}  [{}]", show(&by));
+            println!("      bed                  [{}]", show(&bed_census(world, x0, x1, y0, y1)));
         };
 
-        report(&world, 0);
+        report(&world, &refill, 0);
         for f in 1..=frames {
             frame::step(
                 &mut world,
@@ -220,8 +402,11 @@ fn main() {
                 player::PlayerInput::default(),
                 &tuning,
             );
+            if f % mark_every == 0 {
+                refill.mark(&world, x0, x1, y0, y1);
+            }
             if f % (frames / 9).max(1) == 0 {
-                report(&world, f);
+                report(&world, &refill, f);
             }
         }
     }

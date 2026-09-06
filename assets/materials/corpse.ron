@@ -52,6 +52,61 @@
     burns_into: "ash",
     heat_conductivity: 0.1,
 
+    // **Carrion rots into the ground it lies on**, and until 2026-09-06 it
+    // was the one dead-organic material in the tree that did not.
+    // `deadleaf`, `deadwood`, `log`, `windfall`, `litter` and `ash` all have
+    // a `decays_into`; a corpse had none, so every animal that died and was
+    // not eaten stood where it fell for the rest of the run.
+    //
+    // **The silence here used to be deliberate, and the condition it
+    // depended on is now met.** `Reports/dead-ends.md` records it as
+    // *"Decay needed no hook: `corpse.ron` declares no `decays_into`"* --
+    // that is a statement about the **energy ledger**, not about carrion:
+    // `EnergyLedger::meat_lost` books the three paths that destroy a stamped
+    // cell so `max_standing_meat` is a bound rather than an estimate, and
+    // decay was not one of them because decay could not reach a corpse.
+    // `decay::tick` books it now, through the same shared
+    // `EnergyLedger::meat_worth_of` predicate the other three call sites
+    // use, so the bound survives the change.
+    //
+    // **What it costs to leave it out is both halves of the owner's report,
+    // 2026-09-06.** A corpse is a `Powder`, so it falls -- into the gallery
+    // an ant died in -- and a `Powder` that never decays is a plug that
+    // never clears: measured on `examples/labnest` with an unfed colony,
+    // **37 of 178 refilled void cells are corpse**, standing unchanged from
+    // frame 6,000 to frame 18,000. And in a sealed box it is matter locked
+    // out of the cycle: `examples/labmass control=empty colonies=1` books
+    // **104 of 104 pool cells as `locked, no decays_into`, 100%**, so a bed
+    // that has run a colony has permanently less ground in it.
+    //
+    // **`soil`, not `litter`**, and the chain argument `deadwood.ron` makes
+    // does not carry here: a carcass is not leaf mould on its way to becoming
+    // soil, and the middle this mechanic needs already exists on the other
+    // axis -- a corpse is food, so it is eaten *or* it rots, which is the
+    // graded outcome rather than one more state in a queue.
+    decays_into: "soil",
+    // **Litter's 0.05, for the reason `litter.ron` argues at length** and
+    // `windfall.ron` already re-uses: rotting is microbial respiration and
+    // the great majority of the mass leaves as gas this engine cannot
+    // represent. An ant's body was bought with energy that came from a
+    // plant, which fixed it out of light, so carrion is downstream of the
+    // same source with no sink and wants the same humification efficiency.
+    decay_yield: 0.05,
+    // Faster than leaf litter (0.5/0.1) and a shade under fallen fruit
+    // (0.7/0.15). Carrion is wet protein: in warm damp ground it is gone in
+    // a fraction of the time a leaf takes, and in dry ground it desiccates
+    // and keeps. At `decay::DECAY_TICK_INTERVAL` of 200 frames the damp rate
+    // is a mean lifetime near 330 frames, which is short next to the 3,403
+    // ticks `roster::how_long_a_cull_takes` measures for a body to reach the
+    // graveyard -- a corpse is still there to be found and eaten, it just
+    // does not stand for ever.
+    decay_chance_damp: 0.6,
+    decay_chance_dry: 0.12,
+    // **No `reseed_chance`, so it defaults to 0** -- `litter.ron`'s argument,
+    // and more so: a corpse falls where an animal died, which in this game is
+    // disproportionately inside a nest, and sprouting a plant there would
+    // wall the colony in with its own dead.
+
     // **The fallback for a corpse that arrived without a stamp**, which the
     // first version of this comment claimed could not happen. It can:
     // `ant.ron` sets `burns_into: "corpse"` and `fire.rs`'s burnout is

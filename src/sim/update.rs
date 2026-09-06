@@ -633,6 +633,35 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     false
 }
 
+/// **Where a worked wall gives way**, and the one env switch that puts the
+/// pre-2026-09-06 line back.
+///
+/// `PIXEL_PHYSICS_WET_COLLAPSE=fieldcapacity` restores
+/// `SOIL_FIELD_CAPACITY`, which is what this rule read until the lab's
+/// nests were found dissolving in ordinary damp ground. It changes
+/// **nothing else** — ants dig at the same rate, the lining is written by
+/// the same rule, the water model is untouched — which is the shape
+/// `lining_enabled` and `spoil_kept` beside it already use, and the shape
+/// `CLAUDE.md` prescribes: *the control is to hold the semantic rule fixed,
+/// not to add another metric*.
+///
+/// It exists because what this threshold changes is a **standing** quantity
+/// — how much gallery wall is left in a bed after a colony has worked it —
+/// and a standing quantity has no baseline of its own. An env switch rather
+/// than two builds also removes the stale-binary failure mode outright:
+/// there is no "before" executable to forget to rebuild, and two arms
+/// compared inside one binary cannot differ in anything else.
+///
+/// Read once per process through a `OnceLock`, matching the two switches
+/// above it. Only a `self_supporting` cell ever reaches this call.
+fn wet_collapse_line() -> u16 {
+    static LINE: std::sync::OnceLock<u16> = std::sync::OnceLock::new();
+    *LINE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_WET_COLLAPSE").as_deref() {
+        Ok("fieldcapacity") => material::SOIL_FIELD_CAPACITY,
+        _ => material::SOIL_WATERLOGGED,
+    })
+}
+
 /// **The ablation switch for soil moisture transport** — `PIXEL_PHYSICS_
 /// SOIL_WATER=off` stops infiltration, capillary exchange and drainage dead.
 ///
@@ -781,12 +810,27 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // it, and reading the stale copy would answer with last frame's
         // water. Only a `self_supporting` cell pays this second `get`.
         //
-        // `SOIL_FIELD_CAPACITY` rather than an authored per-material
-        // threshold: it is already the engine-wide line between water the
-        // pore space holds and water that drains through
-        // (`update_soil_water`'s drainage rule uses the same one), so a
-        // resting column sits at or below it by construction and this
-        // branch only fires where water is arriving faster than it leaves.
+        // `material::SOIL_WATERLOGGED` rather than an authored per-material
+        // threshold: the line between damp ground and waterlogged ground is
+        // a property of soil physics, not of one material's packing.
+        //
+        // **It read `SOIL_FIELD_CAPACITY` until 2026-09-06, and that was the
+        // constant contradicting its own justification.** The sentence above
+        // -- a packing has nothing to grip once the pore space is full -- is
+        // right, and field capacity is by definition the point at which the
+        // *drainable* pore space has already emptied. So the rule fired in
+        // ordinary damp ground. The paragraph this replaces argued that "a
+        // resting column sits at or below it by construction"; it does, and
+        // that is exactly the problem, because the lab's bed is built *on*
+        // the line and any redistribution at all puts a cell over it.
+        //
+        // Measured, `examples/labnest`, 12,000 frames of the shipped bed
+        // with eight founders: root water displacement lifts the bed's mean
+        // moisture 620 -> 638, **34,779 of 48,000 cells cross the old line**,
+        // and the gallery lining falls **234 cells -> 40** while the colony
+        // digs on. The same bed with no plants in it never crosses the line
+        // at all and holds 416 cells of lining indefinitely, which is what
+        // says this is the threshold and not the digging.
         //
         // **Chosen here rather than in `decay.rs`**, which was the other
         // candidate: that channel is scheduled on a chunk's awake ->
@@ -855,7 +899,7 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
                 return true;
             }
         }
-        if here.aux() > material::SOIL_FIELD_CAPACITY {
+        if here.aux() > wet_collapse_line() {
             // Copied out before the write: `slumps_into` is `Copy`, and
             // holding the `&Material` across `surface.set` would borrow
             // `surface` immutably and mutably at once.
@@ -2604,9 +2648,24 @@ mod tests {
         );
     }
 
-    /// this passes just as well for a rule that un-packs everything.
+    /// **A waterlogged lining slumps and a merely damp one does not** — the
+    /// pair, because either half alone passes for a rule that is stuck on.
+    ///
+    /// The dry arm was already here and its message says why. The **damp**
+    /// arm is what this test was missing, and its absence cost the lab every
+    /// nest in the box: the rule read `> SOIL_FIELD_CAPACITY` until
+    /// 2026-09-06, and field capacity is where drained ground *rests*, so a
+    /// wall failed in ordinary damp soil. Nothing here could see it, because
+    /// the wet arm has always been built at `SOIL_SATURATED` — a value that
+    /// is over both thresholds — and the dry arm at zero, which is under
+    /// both. Two arms, and the whole interesting range between them
+    /// untested.
+    ///
+    /// The damp arm sits one unit over field capacity, which is exactly
+    /// where the lab's bed sits after any water moves in it at all, and it
+    /// goes red against the old predicate.
     #[test]
-    fn a_lining_above_field_capacity_slumps_back_to_soil() {
+    fn a_waterlogged_lining_slumps_but_a_damp_one_holds() {
         use super::super::chunk::Rect;
         use super::super::world::World;
 
@@ -2621,18 +2680,28 @@ mod tests {
         // dry, with nowhere to fall so the material read is unambiguous.
         w.set(10, 29, Cell::new(packed, 0).with_aux(material::SOIL_SATURATED));
         w.set(20, 29, Cell::new(packed, 0));
+        // ...and a third, one unit over field capacity: damp working ground,
+        // which is what a bed at rest *is*.
+        w.set(30, 29, Cell::new(packed, 0).with_aux(material::SOIL_FIELD_CAPACITY + 1));
 
         step(&mut w);
 
         assert_eq!(
             w.get(10, 29).material,
             soil,
-            "a lining above SOIL_FIELD_CAPACITY should have slumped back to loose soil"
+            "a lining above SOIL_WATERLOGGED should have slumped back to loose soil"
         );
         assert_eq!(
             w.get(20, 29).material,
             packed,
             "a dry lining must stay packed -- otherwise the rule is 'un-pack everything'"
+        );
+        assert_eq!(
+            w.get(30, 29).material,
+            packed,
+            "a lining in ordinary damp ground -- one unit over field capacity, where a \
+             drained bed rests -- must stay packed; failing here is the whole nest, \
+             because every bed in the lab sits on that line"
         );
         assert!(
             w.get(10, 29).aux() > material::SOIL_FIELD_CAPACITY,

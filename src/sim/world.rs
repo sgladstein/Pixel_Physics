@@ -1703,6 +1703,33 @@ pub struct World {
     /// and `rotted_to_solid + rotted_to_nothing == 0` means the decay channel
     /// never fired at all, which reads identically to a working channel with
     /// a low yield if you only census soil.
+    /// **Bed cells currently held by growing tissue** — the ledger that makes
+    /// "a root gives back the ground it displaced" a conservation law rather
+    /// than a claim.
+    ///
+    /// A root reaches its cell by displacing one: `plant::growable` lets a
+    /// `RootTip` enter a penetrable `Powder` and the growth write then
+    /// overwrites it, which is what `plant::displace_soil_water` runs ahead of
+    /// to save the water. That is a **loan** — the plant did not make the
+    /// mineral cell — and `plant::shed_to_litter` repays it by leaving `soil`
+    /// where a buried cell rots instead of litter at a 5% humification yield.
+    ///
+    /// **Without the ledger the repayment is not bounded by the loan, and the
+    /// difference is measurable rather than theoretical.** A root may grow
+    /// into any penetrable powder, `litter` included, and a grass bank recycles
+    /// its own litter through its root zone constantly — so an unbounded rule
+    /// runs litter -> root -> soil at full yield and mints exactly the soil
+    /// `litter.ron`'s 0.05 exists to stop, underground where nobody is
+    /// counting. Measured on `a_rooted_bank_sheds_less_soil_than_a_bare_one`:
+    /// the sod arm shed **130 cells with the rule ablated and 418 with it
+    /// unbounded**, against a bare bank's 327.
+    ///
+    /// Incremented only where a cell with `water_capacity > 0` is taken, so it
+    /// counts bed soil and never litter, sand or snow. Decremented only by a
+    /// repayment. It can only ever over-count what is *outstanding* — a root
+    /// burned or blasted out never repays — which errs toward the bed being
+    /// owed, never toward the bed being paid twice.
+    pub bed_cells_on_loan: u64,
     pub rotted_to_solid: u32,
     /// Counterpart to `rotted_to_solid`; see it.
     pub rotted_to_nothing: u32,
@@ -2829,6 +2856,7 @@ impl World {
             germinations_in_place: 0,
             decayed_damp: 0,
             decayed_dry: 0,
+            bed_cells_on_loan: 0,
             rotted_to_solid: 0,
             rotted_to_nothing: 0,
             rotted_onward: 0,
