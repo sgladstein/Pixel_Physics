@@ -1188,6 +1188,18 @@ dev=` and a `--- development ---` block; `creature_arena` grew `dev=` and
   every append re-derives the rate, so any guard that lets its animals
   breed is one append from flipping.
 
+**Owner decision, later the same evening: *"ship plasticity on."*** The
+dial landed at zero with a card asking 0 or 1; the answer came in chat.
+`creature::PLASTICITY_DEFAULT` is 1.0, `World` starts there, `Dials` loads a
+pre-key file at it (a named serde default, for `trait_reach`'s reason). It
+changes nothing until a line wires `Provision` — an unwired output is
+exactly 0 — so the shipped box is one in which a caste can be found and
+none has been; the one-comparison cost holds until then. Report §2h.
+Measured on the merged head: the two-colony bed at the shipped dial is
+**byte-identical** to the same binary at `plasticity=0` on three seeds
+(24,000 frames), and at 48,000 frames on the seed that breeds (84 births)
+no line has wired `Provision` — the block reads zero on every slot.
+
 **Environment, one line:** the two-colony `labstats` bed breeds on seed 2
 (32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
 a positive control over births goes to seed 2, and the arena's bed with teeth
