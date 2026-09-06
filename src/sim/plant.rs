@@ -8480,9 +8480,32 @@ pub(crate) fn nutrient_initial() -> u8 {
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
 }
 
-/// How much of a cell's nutrient deficit is forgiven per frame — §3a's
-/// closed-form recovery, and the reason recovery is not credited at decay
-/// sites.
+/// **Frames per unit of nutrient deficit forgiven** — a *period*, not a
+/// rate, and `0` still means "never recovers" (the shipped default).
+///
+/// **It was an integer per-frame rate until 2026-09-06, and that knob had
+/// a hole in it with no usable setting inside.** The draw is spent once
+/// per organism tick (`ORGANISM_TICK_INTERVAL` = 45 frames); the recovery
+/// was forgiven per *frame*, as a `u16`. So the only reachable settings
+/// were **0** — soil is a one-shot stock that never comes back — and
+/// **1**, which forgives 45 units in the time the draw takes one, a
+/// **45:1 subsidy** that pins `soil_nutrient_fraction` at 1.0 and makes the
+/// whole mechanism inert. Nothing in between could be expressed, because
+/// the next value down from 1 is 0.
+///
+/// That hole is why the two measurements of this mechanism landed at
+/// opposite extremes and neither was informative: at `recovery=1` a
+/// 12-seed paired sweep read a flat null (cells 0.998), and at
+/// `recovery=0` the same sweep with the income term read a collapse
+/// (plants 0.102). As a period the whole range opens: **45** matches the
+/// draw exactly, **180** is a quarter of it, **9_000** is a slow trickle.
+///
+/// `the_shipped_draw_cadence_cannot_outpace_the_shipped_recovery` pins the
+/// arithmetic; it still passes at period 1, because a period of one frame
+/// *is* the old rate of one per frame.
+///
+/// §3a's closed-form recovery, and the reason recovery is not credited at
+/// decay sites.
 ///
 /// **Decay-site crediting is a documented double dead end**
 /// (`dead-ends.md:583` and `:585`): built twice, reverted twice, once with
@@ -8660,7 +8683,7 @@ fn nutrient_draw_per_tick() -> u8 {
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_DRAW").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
 }
 
-pub(crate) fn nutrient_recovery_per_frame() -> u16 {
+pub(crate) fn nutrient_recovery_period() -> u16 {
     use std::sync::OnceLock;
     static N: OnceLock<u16> = OnceLock::new();
     *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))

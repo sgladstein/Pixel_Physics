@@ -499,10 +499,13 @@ impl Chunk {
     /// dirtying anything. `settle_nutrient` is what folds the same
     /// arithmetic back into storage, and it runs only where a draw lands.
     #[inline]
-    pub fn nutrient_deficit(&self, x: i32, y: i32, frame: u64, recovery_per_frame: u16) -> u8 {
+    pub fn nutrient_deficit(&self, x: i32, y: i32, frame: u64, recovery_period: u16) -> u8 {
         let Some(buf) = self.nutrient_deficit.as_ref() else { return 0 };
         let stored = buf[local_index(x, y)];
-        let owed = frame.saturating_sub(self.nutrient_recovered_at).saturating_mul(recovery_per_frame as u64);
+        if recovery_period == 0 {
+            return stored;
+        }
+        let owed = frame.saturating_sub(self.nutrient_recovered_at) / recovery_period as u64;
         stored.saturating_sub(owed.min(u8::MAX as u64) as u8)
     }
 
@@ -517,12 +520,22 @@ impl Chunk {
     ///
     /// Drops back to `None` when the whole chunk has recovered, so the
     /// memory is returned and the fast path comes back.
-    fn settle_nutrient(&mut self, frame: u64, recovery_per_frame: u16) {
-        let owed = frame.saturating_sub(self.nutrient_recovered_at).saturating_mul(recovery_per_frame as u64);
-        self.nutrient_recovered_at = frame;
-        if owed == 0 {
+    fn settle_nutrient(&mut self, frame: u64, recovery_period: u16) {
+        if recovery_period == 0 {
             return;
         }
+        let elapsed = frame.saturating_sub(self.nutrient_recovered_at);
+        let owed = elapsed / recovery_period as u64;
+        if owed == 0 {
+            // **The stamp does not move, and that is the whole of what a
+            // period gets right that a rate could not.** Advancing it to
+            // `frame` here would forgive the part-period accumulated since
+            // the last settle, every time anything drew from this chunk --
+            // so a busy chunk would never recover and a quiet one would.
+            return;
+        }
+        self.nutrient_recovered_at =
+            self.nutrient_recovered_at.saturating_add(owed.saturating_mul(recovery_period as u64));
         let owed = owed.min(u8::MAX as u64) as u8;
         let Some(buf) = self.nutrient_deficit.as_mut() else { return };
         let mut any = false;
@@ -541,8 +554,8 @@ impl Chunk {
     /// `initial` is the cell's full stock; the caller owns that curve, so
     /// this stays a pure store. Allocates the 4 KB buffer on the first draw
     /// into this chunk and never before.
-    pub fn draw_nutrient(&mut self, x: i32, y: i32, frame: u64, recovery_per_frame: u16, initial: u8, amount: u8) -> u8 {
-        self.settle_nutrient(frame, recovery_per_frame);
+    pub fn draw_nutrient(&mut self, x: i32, y: i32, frame: u64, recovery_period: u16, initial: u8, amount: u8) -> u8 {
+        self.settle_nutrient(frame, recovery_period);
         let idx = local_index(x, y);
         let buf = self.nutrient_deficit.get_or_insert_with(|| vec![0u8; CHUNK_AREA].into_boxed_slice());
         let available = initial.saturating_sub(buf[idx]);

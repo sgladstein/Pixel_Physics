@@ -749,6 +749,84 @@ and P limit sink activity and leaf construction more than instantaneous
 photosynthesis per unit leaf — and adds a real second axis instead of
 competing for the first.
 
+### 3e. The income term, built and measured — 2026-09-06
+
+Built on the owner's instruction ("try it") after the reachability trace in
+§3c's amendment showed the first two options could not reach survival.
+`nutrient_income_multiplier`, weight `PIXEL_PHYSICS_NUTRIENT_INCOME`
+`0.0..=1.0`: 0 is the identity (construction price alone, what #262/#264
+shipped), 1 takes income linearly to zero at `nutrient_status` 0.
+
+**It reaches the case §3 was written for.** Measured with the switch on:
+
+```
+switch ON (initial 200, income weight 1):
+  root over soil:  status 1.000  income x1.000
+  root over drip:  status 0.000  income x0.000
+```
+
+A plant whose roots touch only free water now earns nothing, so it reaches
+`STARVATION_DEATH_TICKS`. That is the half a price on *building* could not
+do, because starvation compares income against cell count and a build price
+is in neither term.
+
+**Three arms, one binary, 12 seeds, paired per seed** (`labsoil soils=40
+seeds=12 frames=30000`, `RAYON_NUM_THREADS` pinned, `recovery=0`,
+post-#259 tree):
+
+| column | construction only | + income, weight 1 |
+|---|---|---|
+| plant cells | 0.812 — down 8 | **0.301 — down 12 of 12** |
+| plants | 0.804 — down 9 | **0.071 — down 12 of 12** |
+| seeds borne | 0.769 — down 10 | **0.102 — down 12 of 12** |
+| roots reach | 1.080 — up 8 | 0.795 — down 8 |
+
+**The income term is about ten times the construction price on the stand,
+and unanimous on three columns.** There is no noise question here: the
+baseline's own spread over these 12 seeds is cells 3.46x, plants 3.72x, and
+a 12-of-12 sign is not a draw from it. **At weight 1 with `recovery=0` it
+removes 93% of the stand** — the mechanism works and is far too strong to
+ship, which is what an uncalibrated first setting should look like.
+
+**It is terminal depletion rather than the recorded death spiral, and the
+distinction matters.** `dead-ends.md:892`'s spiral is income starving the
+roots that would fix it. Here the soil simply never comes back:
+`recovery=0` makes nutrient a one-shot stock, so *every* plant eventually
+mines out its root zone, not only the rootless ones. That is a property of
+the setting, not of the coupling.
+
+**Root depth is not moved reliably in either direction, and the two trees
+disagree on its sign** — the construction-only arm read **0.883, down on 7
+of 12** before #259 and **1.080, up on 8 of 12** after it, both far inside a
+seed spread of **2.22x**. So #264's case is refuted on the ground that the
+effect is *absent*, not that it reverses; an earlier draft of this section
+claimed "shallower" from the pre-merge arm alone and that claim is
+withdrawn. What survives across both trees is that the tax shrinks the
+stand and cuts seed set.
+
+### 3f. The recovery knob had no usable setting, and now it does
+
+`owed = (frame - stamp) x rate`, with `rate` a `u16` **per frame**, against a
+draw of one unit per organism **tick** (45 frames). The only reachable
+settings were therefore **0** — soil is a one-shot stock — and **1**, a
+**45:1 subsidy** that pins the mechanism inert. The next value below 1 is 0.
+**There was no setting at which soil partially recovers**, which is exactly
+why the two measurements of this mechanism landed at opposite extremes and
+neither was informative: a flat null at `recovery=1` (cells 0.998) and a
+collapse at `recovery=0` (plants 0.071).
+
+**`PIXEL_PHYSICS_NUTRIENT_RECOVERY` is now a period — frames per unit
+forgiven — with `0` still meaning never.** Period **45** matches the draw
+exactly, **180** is a quarter of it, **9,000** a slow trickle; the whole
+range is reachable. `settle_nutrient` advances its stamp by the whole
+periods consumed rather than to `frame`, so the part-period is not forgiven
+every time something draws from the chunk — without which a busy chunk
+would never recover and a quiet one would.
+
+The cadence guard still passes at period 1, because a period of one frame
+*is* the old rate of one per frame; what changed is that everything between
+1 and "never" now exists.
+
 ### 3d. An implementation trap that would silently zero the mechanism
 
 `absorb_water`'s Powder arm gates its body on `available > 0.0` **and** on
