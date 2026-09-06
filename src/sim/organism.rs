@@ -7914,6 +7914,16 @@ mod tests {
     /// silently not mutating, which is a gene that inherits and never
     /// varies, and every allele histogram over it would read as a
     /// population under strong stabilising selection.
+    ///
+    /// **The four `SCENT_SIDE_SLOTS` are the exception, and deliberately.**
+    /// Their width is `scent_drift`, one number, and their tuple entries are
+    /// authored 0.0 and never read (`creature::trait_width`), so the canary
+    /// for them is different: the beetle's *ancestral* scent, `(0.8, 0.8,
+    /// 0.8)`, is the non-default value that says the tuple kept its tail,
+    /// and `scent_drift` reading exactly the species' authored 0.0 is the
+    /// statement that those genes do not mutate at the shipped dials -- by
+    /// design, so the shipped bed breeds byte-identically, and not by a
+    /// lost field.
     #[test]
     fn every_creature_trait_slot_survives_the_ron_round_trip() {
         let reg = SpeciesRegistry::builtin();
@@ -7921,13 +7931,27 @@ mod tests {
             let def = reg.get(reg.id_of(name).unwrap_or_else(|| panic!("{name}.ron should define \"{name}\"")));
             let def = def.creature.as_ref().expect("a creature");
             for slot in 0..CREATURE_TRAITS {
+                if SCENT_SIDE_SLOTS.contains(&slot) {
+                    assert_eq!(
+                        def.trait_variance[slot], 0.0,
+                        "{name}.ron's width for scent-side slot {slot} is not read -- it is `scent_drift` -- and is authored 0.0 so nobody mistakes it for the live one"
+                    );
+                    continue;
+                }
                 assert_eq!(
                     def.trait_variance[slot], 0.15,
-                    "{name}.ron authors 0.15 on every trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
+                    "{name}.ron authors 0.15 on every body trait width; slot {slot} read {} -- either the tuple lost a field or that gene cannot mutate",
                     def.trait_variance[slot]
                 );
             }
+            assert_eq!(def.scent_drift, 0.0, "{name}.ron ships with no scent drift: the shipped bed is one family");
         }
+        let beetle = reg.get(reg.id_of("beetle").expect("beetle"));
+        let beetle = beetle.creature.as_ref().expect("a creature");
+        for slot in SCENT_SLOTS {
+            assert_eq!(beetle.traits[slot], 0.8, "beetle.ron authors its scent at 0.8 on slot {slot}; a tuple that lost its tail would read the default 0.0");
+        }
+        assert_eq!(beetle.traits[TRAIT_TOLERANCE], 0.0);
     }
 
     #[test]

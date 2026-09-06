@@ -128,8 +128,75 @@ the key loads (serde ignores it; guarded).
 
 ### 1e. Measured
 
-*(Filled in below as the runs complete; each table names its binary,
-seeds, frames and `RAYON_NUM_THREADS`.)*
+Every run below pins `RAYON_NUM_THREADS=4` (a counter is only
+load-independent at fixed parallelism -- `CLAUDE.md`), and every paired
+comparison is against `main` at `15ed3d6c`, built clean in its own worktree
+rather than against a remembered number. The box was not quiet: three
+harnesses and a clippy shared four cores throughout, so no timing here is
+quoted, only counters.
+
+**The shipped bed is byte-identical, not merely equivalent.**
+
+| check | `main` | this branch | |
+|---|---|---|---|
+| `ascii`, *deposition follows the moisture gradient* | 237 drops, 2,962 laden ants, 2.5692 vs 1.8838, **1.36x** | 237 drops, 2,962 laden ants, 2.5692 vs 1.8838, **1.36x** | digit for digit -- the gate the fight handoff named as the one that notices a widened kin |
+| `ascii`, every non-timing line of the whole run (1,121 lines) | — | **0 lines differ** | the outdoor game is untouched |
+| `labstats colonies=2 founders=8 frames=24000`, seeds 1–3, every frame line and the group tally | — | **identical on all three seeds** | the lab at the shipped dials is untouched |
+| `creature_arena species=ancestor arm=ablate input=KinNear frames=24000 seeds=6` | B share of animals median 49.1% (q1 42.9, q3 50.0); seeds below 50%: 4, above 1, tied 1 | *(below)* | the kin-sense null the design report's §3c asked for first |
+
+The `KinNear` ablation on `main` is a **null**: four seeds under 50%, one
+over, one tied, inside the harness's own 2.4-3.1x seed floor. So the
+kin-sense weights authored against "every ant is kin" are not carrying a
+measurable advantage in this bed at this horizon to begin with, which is
+the honest starting point for any re-calibration under a narrower
+tolerance: there is no fitted advantage to lose.
+
+**The narrow end reproduces the rivalry switch it replaced** — `labstats
+rivalry=1`, now an alias for `tolerance=-1 spread=1`, two colonies, 24,000
+frames, three seeds, against the same bed at the shipped dials:
+
+| seed | shipped dials | narrow end: ANT 1 | ANT 2 |
+|---|---|---|---|
+| 1 | 0 kills either way | 1 alive, 40 starved, **12 killed by ANT 2** | 0 alive, 36 starved, 6 killed by ANT 1 |
+| 2 | 0 kills either way | 14 alive, 39 starved, 8 killed by ANT 2 | 10 alive, 30 starved, 10 killed by ANT 1 |
+| 3 | 0 kills either way | 7 alive, 44 starved, 7 killed by ANT 2 | 10 alive, 32 starved, 6 killed by ANT 1 |
+
+Kills both ways on every seed, none at the defaults — the design report's
+§2 finding on the new mechanism (its own numbers were 3–9 per side on the
+pre-soil bed; the bed has since changed under it, and the baseline above is
+the one to quote now). Still predation and not war: a fifth of the deaths,
+the rest starvation.
+
+**Adoption and raiding are one asymmetry, and it is measurable** — the
+design report's §5.5, run rather than argued: `spread=0.5 tolerance=0.3
+tolerance2=-0.9`, so ANT 1 judges by a radius of 1.3 and ANT 2 by 0.1, the
+two colonies 0.9–1.4 apart in scent (printed per run), 24,000 frames:
+
+| seed | ANT 1 (tolerant) | ANT 2 (intolerant) |
+|---|---|---|
+| 1 | 8 alive, 36 starved, **14 killed, 14 by ANT 2** | 0 alive, 42 starved, **0 killed** |
+| 2 | 6 alive, 36 starved, **14 killed, 13 by ANT 2** | 11 alive, 41 starved, **0 killed** |
+| 3 | 7 alive, 35 starved, **15 killed, 15 by ANT 2** | 8 alive, 41 starved, **0 killed** |
+
+The tolerant colony walks up to animals that bite it and never bites back;
+the intolerant one is never touched. That is a raid from one side and,
+from the other, a colony that treats its raiders as family — which is
+what adoption looks like *before* anyone is relabelled, and the reason the
+report says adoption is visible in the kill tally rather than the legend.
+(Seed 2's fourteenth kill is booked to no group: one `Killed` death has no
+attacker, which is the severed-half path that dies as `Killed` without a
+bite booking it — pre-existing, and worth a line in the fight lane's
+handoff rather than a fix here.)
+
+**The guards go red when the fault is put back** (2026-09-06, one test
+build): with `is_living_kin` made to ignore the distance (kin = same kind
+again), `a_stranger_colony_is_kin_until_its_scent_leaves_my_tolerance`,
+`tolerance_is_judged_from_my_side_only` and both regroup guards fail; with
+`regroup_by_scent` made to mint nothing,
+`a_lineage_that_drifts_past_tolerance_is_named_as_a_new_group` and
+`a_lone_drifter_is_not_a_new_group` (its positive-control arm) fail.
+`a_beetle_is_never_family_unless_its_kind_crosses_kinds` stays green under
+the first fault, correctly: it guards the species gate, not the distance.
 
 ### 1f. What it does not do, stated so nobody measures its absence as a bug
 

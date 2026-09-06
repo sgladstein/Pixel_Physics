@@ -832,6 +832,77 @@ predator; and it budgets the kin-sense re-calibration inside the signature
 work, not after it (`CLAUDE.md`'s shared-budget rule — `KinNear`'s authored
 weights were fitted against a kin that was every ant).
 
+## Round thirteen, 2026-09-06 — kin is a distance, and the castes verdict
+
+*Owner: "once creatures evolve, is an ant always an ant?" and can a colony
+naturally differentiate into workers and soldiers? Branch
+`claude/evolution-lab-signature-castes-gfm0r2` (Fable, tags `creature-line`
++ `scent-signature`), alongside the Opus session on armour reach, alarm and
+`Attack`. **The record is
+[`../creature-signature-and-castes-2026-09-06.md`](../creature-signature-and-castes-2026-09-06.md)**;
+the shipped half is README's "Creature groups status", second block.*
+
+**Landed:** four heritable slots (`TRAIT_SCENT_A/B/C`, `TRAIT_TOLERANCE`),
+`is_living_kin` as *the other's scent within my tolerance* with the colony
+label nowhere in it, a per-colony founding offset (`scent_spread`), a
+per-birth drift (`scent_drift`), a species-gate dial (`kin_crosses_kinds`,
+off), and `World::regroup_by_scent`, which lets the colony label follow the
+scent and names a drifted cluster `ANT 1b`. `colony_rivalry` retired.
+
+**What the work overturned, which a later session cannot reconstruct:**
+
+- **"Re-derive `live_creature_groups` by clustering signatures" is the
+  wrong shape at the shipped dials, and the reason is placement identity.**
+  A census that clusters scent folds two clicks into one group the moment
+  spread is zero, because they *are* one point — and PR #255's whole
+  deliverable was that two clicks are two lines. So the label stays the
+  census and the *label follows the scent*: `regroup_by_scent` splits a
+  label whose animals are no longer mutually family and mints the wanderers
+  a child label. Splits only, never merges. Adoption is visible in the kill
+  tally and the kin sense, not yet as a relabelling.
+- **A signature that is only inherited and mutated has no cohesion.** Under
+  drift a colony's own cloud spreads exactly as fast as two colonies part
+  (both are independent random walks from one point), so what holds a
+  colony together is its tolerance exceeding its cloud, not anything about
+  being a colony. Real ants share a *gestalt* odour mixed by contact. If the
+  owner's picture is colonies dissolving rather than splitting, the next
+  mechanism is a contact-blended worn scent beside the heritable one — not
+  a tuning of drift.
+- **The four new slots consume no birth draw at the shipped dials**, because
+  `try_bud`'s loop only draws for `width > 0` and their width is
+  `scent_drift = 0`. That is what makes the default bed byte-identical
+  rather than merely equivalent; a slot whose variance had been authored at
+  0.15 like the others would have shifted every later draw in the jar's
+  brood loop.
+- **Castes cannot arrive the way real ants get them, and do not need to.**
+  There is no queen and no brood; every ant buds a copy. The honest caste
+  is a *reaction norm* — one per-individual `morph` set at birth from a
+  parental threat signal, two heritable slots, expressed through
+  `traits_of` and priced by the armour and jaw levies that already exist.
+  Genetic polymorphism (biters and foragers as separate lineages) needs
+  nothing built and is the control, not a rival. Verdict: feasible and
+  cheap; deferred behind `Attack` because a soldier that cannot defend is a
+  number.
+
+**Measured** (report §1e; every run `RAYON_NUM_THREADS=4`, paired against
+`main` `15ed3d6c` built clean in its own worktree): at the shipped dials
+`ascii` is **0 lines different** across its 1,121 non-timing lines
+(deposition 1.36x on 237 drops, digit for digit) and the two-colony
+`labstats` census is identical on three seeds; `arm=ablate input=KinNear`
+on `main` is a **null** (median 49.1%, 4 seeds below 50%, 1 above, 1 tied),
+so there is no fitted kin-sense advantage to lose; the narrow end
+(`rivalry=1` = `tolerance=-1 spread=1`) kills both ways on every seed
+(12/6, 8/10, 7/6 against 0/0 at the defaults); and a tolerant colony beside
+an intolerant one loses **14, 14 and 15 ants** to it over three seeds while
+killing **none** of it — the raid and the adoption are the same asymmetry.
+
+**For the Opus session:** `is_living_kin(world, cell, gut)` keeps its
+signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/
+`crosses_kinds`; `World::colony_rivalry` no longer exists (`labstats
+rivalry=1` is an alias for `tolerance=-1 spread=1`). `armour_at` reads
+`st.traits` directly and will want `expressed` traits the day the morph axis
+lands — flagged, not changed.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

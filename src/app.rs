@@ -1247,6 +1247,12 @@ impl App {
         match slot {
             organism::TRAIT_GUT_BIAS => "GUT".to_string(),
             organism::TRAIT_BIRTH_GRANT => "DOWRY".to_string(),
+            // Named for the glyph check; drawn folded into one `SCENT` row
+            // by `colony_rows`, see there.
+            organism::TRAIT_SCENT_A => "SCENT A".to_string(),
+            organism::TRAIT_SCENT_B => "SCENT B".to_string(),
+            organism::TRAIT_SCENT_C => "SCENT C".to_string(),
+            organism::TRAIT_TOLERANCE => "TOL".to_string(),
             other => format!("TRAIT {other}"),
         }
     }
@@ -2957,6 +2963,22 @@ impl App {
             ),
         ));
         for (slot, spread) in census.traits.iter().enumerate() {
+            // **The four scent-side slots are not drawn here.** They are
+            // one thing -- what this colony smells like, and how far another
+            // scent may be from it and still be family -- and in this game
+            // nothing moves them: there is no parameters page and the
+            // species files author no drift or spread, so every ant smells
+            // exactly like every other and the rows would read `+0.00 /
+            // +0.00 / +0.00` four times over. Measured: the panel has under
+            // nine pixels of headroom, so even one more row clips it at the
+            // bottom of the screen (`the_colony_panel_stays_inside_its_own_
+            // border` went red on it). The lab's cell page carries them;
+            // `wiki/ants.md`, "Who is family", says what they mean. The
+            // census still carries every slot, so a reader that wants them
+            // has them.
+            if organism::SCENT_SIDE_SLOTS.contains(&slot) {
+                continue;
+            }
             let label = Self::colony_trait_label(slot);
             rows.push(ColonyRow::text(
                 format!("{label:<7} {:+.2} / {:+.2} / {:+.2}", spread.low, spread.mid, spread.high),

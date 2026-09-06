@@ -4313,17 +4313,25 @@ impl World {
     /// it has descendants enough to be a line on the graph.
     pub fn regroup_by_scent(&mut self) -> usize {
         use crate::sim::creature::scent_accepts;
-        // Members per (species, label): `(organism id, lineage, traits)`.
-        let mut groups: Vec<((organism::SpeciesId, u32), Vec<(u16, u32, [f32; organism::CREATURE_TRAITS])>)> = Vec::new();
+        /// One animal as the pass sees it: its handle, its founding line
+        /// and the traits its scent and tolerance are read from.
+        struct Member {
+            id: u16,
+            lineage: u32,
+            traits: [f32; organism::CREATURE_TRAITS],
+        }
+        // Members per (species, label).
+        let mut groups: Vec<((organism::SpeciesId, u32), Vec<Member>)> = Vec::new();
         for id in self.live_organism_ids() {
             let Some(state) = self.organism(id) else { continue };
             if self.species.get(state.species).creature.is_none() {
                 continue;
             }
             let key = (state.species, state.colony);
+            let member = Member { id, lineage: state.lineage, traits: state.traits };
             match groups.iter_mut().find(|(k, _)| *k == key) {
-                Some((_, members)) => members.push((id, state.lineage, state.traits)),
-                None => groups.push((key, vec![(id, state.lineage, state.traits)])),
+                Some((_, members)) => members.push(member),
+                None => groups.push((key, vec![member])),
             }
         }
         let mut minted = 0;
@@ -4332,8 +4340,8 @@ impl World {
                 continue;
             }
             // The fast path: one scent, one family, nothing to do.
-            let first = crate::sim::creature::scent_of(&members[0].2);
-            if members.iter().all(|m| crate::sim::creature::scent_of(&m.2) == first) {
+            let first = crate::sim::creature::scent_of(&members[0].traits);
+            if members.iter().all(|m| crate::sim::creature::scent_of(&m.traits) == first) {
                 continue;
             }
             // Union-find over mutual kin.
@@ -4349,7 +4357,7 @@ impl World {
             }
             for i in 0..n {
                 for j in (i + 1)..n {
-                    if scent_accepts(&members[i].2, &members[j].2) && scent_accepts(&members[j].2, &members[i].2) {
+                    if scent_accepts(&members[i].traits, &members[j].traits) && scent_accepts(&members[j].traits, &members[i].traits) {
                         let (a, b) = (find(&mut parent, i), find(&mut parent, j));
                         if a != b {
                             parent[a.max(b)] = a.min(b);
@@ -4360,7 +4368,7 @@ impl World {
             // Clusters, each carrying its lowest lineage.
             let mut clusters: Vec<(u32, Vec<u16>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
-            for i in 0..n {
+            for (i, member) in members.iter().enumerate() {
                 let r = find(&mut parent, i);
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
@@ -4370,8 +4378,8 @@ impl World {
                         clusters.len() - 1
                     }
                 };
-                clusters[at].0 = clusters[at].0.min(members[i].1);
-                clusters[at].1.push(members[i].0);
+                clusters[at].0 = clusters[at].0.min(member.lineage);
+                clusters[at].1.push(member.id);
             }
             if clusters.len() < 2 {
                 continue;
