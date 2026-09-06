@@ -720,6 +720,18 @@ session cannot reconstruct is here.*
   greedily, and levelling the neighbourhood span **418 / 459 / 411** shed cells
   on the `reinforces_powder` guard; only *minting* it back at field capacity
   recovers the number (198), and that cannot ship. In `dead-ends.md`.
+- **Both thresholds were wrong because the rule was, and the owner had already
+  said so.** Landed at `SOIL_WATERLOGGED`, then switched off entirely the same
+  day on the owner's *"the entire ground in the evolution lab should be able to
+  dig tunnels/chambers"* -- which restates design guide **§2b**, already on the
+  record since 2026-08-30: *"a roof that falls in is what was declined."* **The
+  measurement that reversed it is the transferable part**: a count of cells
+  past a threshold is a projection, and profiling the bed *by depth* showed the
+  waterlogged cells are not scattered beside roots but a **water table standing
+  on the stone floor** -- 94 cells to 1,559 over 12,000 frames, monotone, while
+  every band above held flat. A rising permanent dead zone is not the graded
+  hazard both thresholds were argued as. Filed as **§W5**; lining in the lab
+  bed at frame 12,000 went **40 -> 182 -> 354** across the three builds.
 - **The lab's colony still cannot be photographed digging.** The wall census
   moves 40 → 182 and `roofed` void does not, because the colony starves 52 →
   17 ants by frame 12,000 and `digs` plateaus. That die-off has been in
@@ -790,6 +802,20 @@ directions, against 35–42 starvations per side. Predation, not war — the
 report's §2 table. `World::group_deaths` (deaths by cause and kills by
 attacking group, booked at the bite) is the readout, and `labstats
 rivalry=1` prints it.
+
+**The fight session answered inside its handoff and landed PR #263 itself**
+(`creature-fight-handoff-2026-09-06.md`): the bite scan now covers the
+whole body (a chain creature could not bite what was eating its back — head
+adjacent to the beetle 60 times, beetle's head to the ant zero), and gnawing
+is priced per jaw closure. Two of its findings bind here. **Ant-vs-ant is
+binary**: ant flesh resists 0.25 and the armour trait tops out at 2x, so
+0.5 against a bite of 1.0 is one-shot at every point on the axis — the
+rivalry dial's fights cannot be graded until the armour reach is settled
+for ant and beetle together (raise the material's resistance, or widen the
+armour slot's clamp). And **body-fighting between colonies switches itself
+on with rivalry**, because `is_living_kin` sits under #263's living-non-self
+gate; the `ascii` deposition gate (1.03x, bar 0.9) must be re-run across
+the dial if any `ascii` scene ever holds two colonies.
 
 **Two things that bind on what comes next:** the report's order (§6) puts
 `ThreatNear` before anything on the prey side, because *a bed cannot select

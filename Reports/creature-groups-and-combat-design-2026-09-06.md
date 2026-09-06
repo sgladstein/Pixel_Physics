@@ -229,6 +229,42 @@ bite could open *my* armour. Same rays as prey and kin, so the price is the
 sight tax already paid. Two slots on the input side; the genome grows by
 two columns and every jar pads.
 
+### 4a′. Ant against ant is binary, and no lineage can evolve out of it — the fight session's arithmetic
+
+From the handoff on PR #263 (`Reports/lanes/creature-fight-handoff-2026-09-06.md`),
+and it is the finding this report most needed:
+
+```
+  ant flesh  penetration_resistance  0.25     (assets/materials/ant.ron)
+  armour trait multiplier            [0.5, 2.0]
+  best armour an ant lineage reaches 0.25 x 2.0 = 0.50
+  ant bite_force                     1.00
+  damage = clamp(bite/armour, 0, 1)^2 = 1.0   -- one bite, at every point on the axis
+```
+
+**A maximally armoured ant is one-shot by any other ant.** So the moment two
+colonies fight, they fight the way the owner ruled against: no grading, no
+being overwhelmed, no being unlucky, whoever bites first. It is the beetle's
+defect (*an edible predator is not a predator*) in different clothes — the
+resistance sits four times under the bite and a 2x trait range cannot close
+a 4x gap. Two ways out, the same two the beetle needs, so settle them once:
+raise `ant`'s `penetration_resistance` so the trait range straddles the bite
+(a two-species number, wants a sweep), or widen the armour slot's clamp past
+`[-1, 1]` (cheaper and more general). **Until one lands, the rivalry dial's
+fights are binary and no dial over them means anything** — which is also
+why §2's numbers are small: an ant beside a stranger takes one bite and the
+stranger is meat.
+
+And a second thing that arrives for free: #263's whole-body scan gates the
+extra reach on *living non-self organisms*, and `is_living_kin` sits right
+under that gate — so with rivalry on, a rival on an ant's flank is attached
+and non-kin at once, and **body-fighting between colonies switches itself
+on with no wiring.** The trap that rides with it: widening what the body may
+consider food once cost `ascii`'s deposition-follows-moisture gate 1.03x →
+0.82x against a 0.9 bar; every `ascii` scene holds one colony so the dial
+cannot move it today, but a scene that ever holds two must re-run that gate
+across the dial.
+
 ### 4b. Fighting is only eating — the missing verb
 
 An ant bites a rival only when hungry and adjacent, because the bite is the
@@ -350,6 +386,9 @@ purpose.
    much of §3 is urgent.
 2. **Per-group deaths by cause on the legend** (§4e). Half a day; the
    `Grave` field is in.
+2′. **Settle the armour reach for ant and beetle together** (§4a′) — the
+   fight session's own next step, and the prerequisite for any fight the
+   rivalry dial can start being graded.
 3. **`ThreatNear`/`ThreatBearing`** (§4a). Without it nothing on the prey
    side can evolve, and every scenario in PR #253's S6 tier is blocked on
    it. The fight session's encounter findings (`5613e534`: a beetle needing

@@ -3557,6 +3557,8 @@ impl World {
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.
             root_zone_water: 1.0,
+            // Same 1.0 'nothing to say yet' default as the line above.
+            nutrient_status: 1.0,
             shoot_cells: 0,
             organ_cells: 0,
             anchor_cells: 0,
@@ -5802,6 +5804,37 @@ impl World {
     /// narrow it. What both drivers actually sweep.
     pub fn sweep_plan(&self, coord: ChunkCoord) -> Option<crate::sim::chunk::SweepPlan> {
         self.chunks.get(&coord).and_then(|c| c.sweep_plan())
+    }
+
+    /// The fraction of full nutrient left in the soil at `(x, y)`,
+    /// `0.0..=1.0` — the plant-facing read.
+    ///
+    /// Zero outside a loaded chunk and **one** wherever nothing has ever
+    /// drawn, which is the whole world at rest: a chunk with no deficit
+    /// buffer answers without touching memory.
+    pub fn soil_nutrient_fraction(&self, x: i32, y: i32) -> f32 {
+        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+            return 0.0; // free water and everything else carry none
+        }
+        let Some(chunk) = self.chunks.get(&ChunkCoord::containing(x, y)) else { return 0.0 };
+        let initial = super::plant::nutrient_initial();
+        if initial == 0 {
+            return 1.0;
+        }
+        let deficit = chunk.nutrient_deficit(x, y, self.frame, super::plant::nutrient_recovery_per_frame());
+        f32::from(initial.saturating_sub(deficit)) / f32::from(initial)
+    }
+
+    /// Take nutrient from the soil at `(x, y)`; returns what was there to
+    /// take, in the same `u8` units as `plant::nutrient_initial`.
+    pub fn draw_soil_nutrient(&mut self, x: i32, y: i32, amount: u8) -> u8 {
+        if !super::plant::cell_carries_nutrient(self, self.get(x, y)) {
+            return 0; // a root drinking from a puddle gets water and nothing else
+        }
+        let frame = self.frame;
+        let (recovery, initial) = (super::plant::nutrient_recovery_per_frame(), super::plant::nutrient_initial());
+        let Some(chunk) = self.chunks.get_mut(&ChunkCoord::containing(x, y)) else { return 0 };
+        chunk.draw_nutrient(x, y, frame, recovery, initial, amount)
     }
 
     pub fn chunk(&self, coord: ChunkCoord) -> Option<&Chunk> {

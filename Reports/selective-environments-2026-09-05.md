@@ -19,6 +19,18 @@ list of proposals.
 
 ## Worked case: a predator you can eat is not a predator
 
+> **Every number in this section was taken on a beetle that could not see
+> what was eating it, and they have not been re-run.** Corrected 2026-09-06:
+> `adjacent_food_counted` scanned the eight neighbours of the *head*, so an
+> ant chewing a flank was invisible to its victim — censused in a sealed
+> chamber over 1,200 frames, beetle-head-adjacent-to-ant **zero** times
+> against ant-head-adjacent-to-beetle **sixty**. Gnawing was also charged per
+> unit of progress rather than per bite, making the cost of breaching a cell
+> constant at every armour value. Both are fixed. **The qualitative finding
+> below — that an edible predator is not a predator — is unaffected and is the
+> point of the section; the armour figures are not usable as a baseline.**
+> `Reports/lanes/creature-fight-handoff-2026-09-06.md`.
+
 **2026-09-06.** The owner's opening question included an observation about
 beetles: *"they usually kill all the ants, or the ants have multiplied so much
 that a few beetles have no effect."* Both halves are true, and which one you

@@ -661,6 +661,24 @@ fn absorb_water(world: &mut World, x: i32, y: i32, rate: f32) {
                     }
                     _ => {}
                 }
+                // **The nutrient draw, and its placement is the whole of
+                // §3d.** It is a sibling of the water draw above -- same
+                // neighbour, same visit -- and inside **neither** of that
+                // arm's gates. The Powder arm is wrapped in
+                // `available > 0.0` and in `capacity - water`, the water
+                // tank's headroom, and a nutrient draw placed inside either
+                // one saturates on the tank's ~7-cell knee and looks
+                // exactly like "the nutrient does not matter". `transpire`
+                // is the existing prior art for this shape: per root cell,
+                // four-neighbour, no tank gate.
+                //
+                // Free water is deliberately not a nutrient source. A root
+                // drinking from a puddle gets water and nothing else, which
+                // is the whole point of a second axis -- and it is why the
+                // lab's drip-fed plant can no longer build tissue for ever.
+                if nutrient_initial() > 0 {
+                    world.draw_soil_nutrient(nx, ny, nutrient_draw_per_tick());
+                }
             }
     credit_water(world, organism_id, water - stock);
 }
@@ -3345,7 +3363,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // designed. `leaf_construction_cost` below is the only
                 // reader.
                 let tissue_cost = cost;
-                let cost = cost * organism::wood_density(&alleles);
+                let cost = cost * organism::wood_density(&alleles) * nutrient_construction_multiplier(world, organism_id, cell_type);
                 // Slot 8: penetration, a root trait by consumption (a
                 // shoot's force is 0.0 and stays 0.0 under any
                 // multiplier). The variance is this behaviour's own
@@ -6299,8 +6317,70 @@ fn is_structural_anchor(world: &World, x: i32, y: i32, organism_id: u16) -> bool
         // beside the stump and held the whole crown up -- 2,360 cells
         // severed became 0 on `scripts/acceptance.sh`'s `fell` case, with
         // the cut working perfectly. See `MaterialDef::anchors_organisms`.
-        (m.kind == MaterialKind::Solid && m.anchors_organisms) || (root_tissue && m.kind == MaterialKind::Powder && m.water_capacity > 0)
+        let ground = (m.kind == MaterialKind::Solid && m.anchors_organisms)
+            || (m.kind == MaterialKind::Powder && m.water_capacity > 0);
+        // **Direction is the whole of the tightening.** Root tissue anchors
+        // on ground in any direction -- gripping sideways and upward
+        // through a crevice is what a root is for. Other tissue anchors
+        // only on ground *directly beneath* it: a stem resting on the floor
+        // is held up, a branch touching a wall beside it is not.
+        //
+        // **An organism-level "has it any roots at all" exemption was tried
+        // here and reverted.** It would have let the two wall-socket
+        // cantilever scenes in `structural.rs` keep their sideways anchor,
+        // but it keys on `OrganismState::root_cells`, which only
+        // `organism_upkeep` refreshes -- so a plant reads rootless for up to
+        // `ORGANISM_TICK_INTERVAL` after germinating and anchors on anything
+        // it touches during that window. That is the lagging-cache trap
+        // `load.rs`'s own `is_anchor` doc says to avoid by reading the world
+        // directly, and it made this file's own guard pass for the wrong
+        // reason.
+        ground && (root_tissue || dy == 1 || !anchoring_is_a_roots_job())
     })
+}
+
+/// Whether holding the plant up is **a root's job** — the 2026-09-06 rule.
+/// `PIXEL_PHYSICS_PLANT_ANCHOR=any` restores the old one, where any cell of
+/// the plant touching anchoring ground anchored the whole organism.
+///
+/// **Reported from play, in the evolution lab.** A plant sprawling across
+/// the box with water dripping on it would not fall, and the reason was
+/// this rule rather than anything about water: the lab box is
+/// `material::STONE` on every side, only `deadleaf` and `log` opt out of
+/// `anchors_organisms`, and the old predicate anchored an organism on *any*
+/// of its cells touching an anchoring solid. So one branch brushing a wall
+/// braced the entire plant, permanently, and in a sealed box a sprawling
+/// plant touches stone almost at once.
+///
+/// **The tightening is about direction, and that was measured rather than
+/// designed.** Banning non-root anchoring outright turned **19 lib tests and
+/// `acceptance.sh` red** — almost all of them hand-built `wood` beams
+/// resting on a stone floor with no root cell anywhere, which is how nearly
+/// every structural and bending scene in this file is built. That is not
+/// felling and climbing being fragile; it is the rule being wrong. A stem
+/// lying *on* the floor genuinely is held up.
+///
+/// So non-root tissue anchors only on ground **directly beneath it**
+/// (`dy == 1`), and root tissue still anchors on ground in any direction —
+/// a root grips sideways and upward through a crevice, which is what a root
+/// is for. The lab plant is braced *sideways* against a wall, so it loses
+/// its anchor; a beam on a floor keeps one.
+///
+/// **What did not change**: what counts as ground, and the `anchors_organisms`
+/// flag that keeps a chip off a felled bole from propping a crown up. A root
+/// gripping *stone* still anchors, which is a tree in a rock crevice and is
+/// what keeps bare-rock scenes standing.
+///
+/// **The known cost, stated rather than discovered**: a seed that germinates
+/// with no room below it gets a `GrowingTip` and no `RootTip` — `germinate`
+/// places the companion root only `if growable(..)` — and such a plant is
+/// now unanchored from its first tick. That is the rootless-plant case
+/// `open-bugs-handoff.md` already calls live, and this rule makes it visible
+/// instead of letting it stand on a wall.
+fn anchoring_is_a_roots_job() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_PLANT_ANCHOR").as_deref(), Ok("any")))
 }
 
 /// What one plant cell is carrying, and how hard that is bending it.
@@ -8380,6 +8460,132 @@ fn face_available(world: &World, n: Cell) -> f32 {
     }
 }
 
+/// The soil's full nutrient stock in one cell, in the `u8` units the chunk
+/// store keeps. **`0` is the shipped default and means the whole mechanism
+/// is off** — `World::soil_nutrient_fraction` short-circuits to 1.0, no
+/// buffer is ever allocated, and nothing downstream can notice.
+///
+/// `PIXEL_PHYSICS_NUTRIENT=<initial>` turns it on.
+///
+/// Why a nutrient at all, and why it is *not* the lever the roots work
+/// tried: `Reports/plant-soil-nutrient-plan-2026-09-05.md` refuted an
+/// immobile soil nutrient as **the cheapest way to make roots pay** — the
+/// gate was, and that shipped in #246. This is the other claim, which that
+/// refutation never touched: **soil must supply something water cannot**,
+/// or a plant with light and a drip has everything the engine prices and
+/// can live for ever on nothing. Reported from play, in the lab.
+pub(crate) fn nutrient_initial() -> u8 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u8> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+/// How much of a cell's nutrient deficit is forgiven per frame — §3a's
+/// closed-form recovery, and the reason recovery is not credited at decay
+/// sites.
+///
+/// **Decay-site crediting is a documented double dead end**
+/// (`dead-ends.md:583` and `:585`): built twice, reverted twice, once with
+/// a measured runaway — standing biomass 1,718 -> 2,652 cells and still
+/// climbing — because it makes a pump. A tree sheds litter, litter rots
+/// into resource, the tree drinks it and sheds more; a freely credited
+/// nutrient is worse than water, which at least has evaporation as a sink.
+/// It also lands in the wrong place, crediting row 0 where litter rests
+/// while the deficit is metres down.
+///
+/// Time recovery has neither problem: it is bounded by `initial` and it
+/// happens exactly where the deficit is.
+/// How much nutrient one root cell takes from one soil face per tick.
+///
+/// Defaults to 1, which only matters once `nutrient_initial` is non-zero —
+/// the whole mechanism is gated on that, so this needs no zero of its own.
+/// `PIXEL_PHYSICS_NUTRIENT_DRAW` overrides it.
+/// What scarce soil nutrient does to the price of building a cell —
+/// **`Grow.cost` scaled, not a Liebig term on income.**
+///
+/// `plant-soil-nutrient-plan-2026-09-05.md` §3c rules out the obvious
+/// `min(water_status, nutrient_status)` and the reasoning is worth keeping
+/// at the call site: under `min` the non-binding resource has exactly zero
+/// marginal value, income collapses to one axis, and the stomatal locus's
+/// fitness signal is erased — wherever nutrient binds, a prudent individual
+/// and a spendthrift earn the same while the prudent one keeps its stock,
+/// so prudence becomes free. `water_status` is a *stomatal conductance*,
+/// not a Liebig term, and multiplying is correct for it.
+///
+/// Pricing construction instead leaves water's calibration literally
+/// untouched, matches the physiology better — N and P limit sink activity
+/// and leaf construction far more than instantaneous photosynthesis per
+/// unit leaf — and adds a real second axis rather than competing for the
+/// first.
+///
+/// `1.0` at full nutrient and rising as it runs out, capped so an exhausted
+/// cell makes building expensive rather than impossible: a plant that
+/// cannot build still pays upkeep, so it stalls and then starves, which is
+/// the graded death `CLAUDE.md`'s first law asks for rather than a plant
+/// blinking out.
+fn nutrient_construction_multiplier(world: &World, organism_id: u16, cell_type: CellType) -> f32 {
+    if nutrient_initial() == 0 {
+        return 1.0;
+    }
+    // **Root tissue is exempt, and the first measurement is why.** Charging
+    // nutrient-scarcity prices to build a root is a deadlock: roots are the
+    // only way to reach more nutrient, so a plant that is short of it cannot
+    // afford the one thing that would fix the shortage. Measured on the lab
+    // box at 30,000 frames with the penalty applied to everything, root
+    // reach went **34 rows -> 22** while the stand shrank 0.80x -- scarcity
+    // made plants forage *less*, which is backwards and works against the
+    // root gate #246 shipped.
+    //
+    // Exempting roots is preferred over adding a nutrient term to
+    // `allocate_to_frontier`'s `root_weight` (the existing prior art for a
+    // scarcity-driven allocation shift, beside `ROOT_BIAS_AT_FULL_WATER`).
+    // That weight sits in a sum whose terms are calibrated against each
+    // other, and `CLAUDE.md` is explicit that changing what one term can
+    // express reallocates the whole sum. This changes a price instead, and
+    // lets the existing economy do the shifting: under scarcity shoots get
+    // dear and roots do not, so growth goes below ground on its own.
+    if cell_type == CellType::RootTip {
+        return 1.0;
+    }
+    let status = world.organism(organism_id).map_or(1.0, |st| st.nutrient_status);
+    // Reciprocal in the *scarcity*, floored so the multiplier is bounded:
+    // at full nutrient this is exactly 1.0, at empty it is
+    // `NUTRIENT_STARVED_COST`.
+    1.0 + (NUTRIENT_STARVED_COST - 1.0) * (1.0 - status.clamp(0.0, 1.0))
+}
+
+/// What a cell costs to build in fully exhausted soil, as a multiple of its
+/// authored `Grow.cost`. Set from nothing yet — it is inert until
+/// `nutrient_initial` is non-zero, and the sweep that sets it is the first
+/// thing to run when it is turned on.
+const NUTRIENT_STARVED_COST: f32 = 8.0;
+
+/// Whether a cell holds soil nutrient at all — **soil does, free water does
+/// not**, and that asymmetry is the entire point of a second axis.
+///
+/// Lives here rather than at the call site deliberately. The first version
+/// tested it inside `absorb_water`'s loop, which meant
+/// `World::draw_soil_nutrient` would happily have drawn nutrient out of a
+/// puddle if anything else ever called it — an invariant that holds only
+/// because every caller remembers it is not an invariant. `World` enforces
+/// it now, on both the read and the draw.
+pub(crate) fn cell_carries_nutrient(world: &World, cell: Cell) -> bool {
+    let m = world.materials.get(cell.material);
+    m.kind == MaterialKind::Powder && m.water_capacity > 0
+}
+
+fn nutrient_draw_per_tick() -> u8 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u8> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_DRAW").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
+}
+
+pub(crate) fn nutrient_recovery_per_frame() -> u16 {
+    use std::sync::OnceLock;
+    static N: OnceLock<u16> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_NUTRIENT_RECOVERY").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
 fn drinkable_face(world: &World, n: Cell) -> bool {
     if world.materials.kind(n.material) == MaterialKind::Liquid {
         return wet_face_counts_liquid();
@@ -8564,6 +8770,10 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
     // rather than meaningful.
     let mut root_zone_faces = 0u32;
     let mut root_zone_available = 0.0f32;
+    // Same numerator/denominator shape as the root-zone pair above, and for
+    // the same reason: a running mean would weight early cells more.
+    let mut nutrient_faces = 0u32;
+    let mut nutrient_available = 0.0f32;
     let turnover_rate = root_turnover_per_tick();
     let mut turnover_candidates: Vec<(i32, i32, f32)> = Vec::new();
     // The crown's overturning demand, accumulated as `Σ y` and turned into
@@ -8695,6 +8905,14 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
                 if drinkable_face(world, n) {
                     wet_faces += 1;
                     available += face_available(world, n);
+                    // The second axis, read off the same visit. Soil only:
+                    // free water carries no nutrient, which is what makes
+                    // the two axes different rather than one wearing two
+                    // names.
+                    if cell_carries_nutrient(world, n) {
+                        nutrient_faces += 1;
+                        nutrient_available += world.soil_nutrient_fraction(cx + dx, cy + dy);
+                    }
                 }
             }
             if wet_faces > 0 {
@@ -8853,6 +9071,8 @@ fn organism_upkeep(world: &mut World, organism_id: u16) {
         // a root down yet must not read as droughted.
         state.root_zone_water =
             if root_zone_faces > 0 { root_zone_available / root_zone_faces as f32 } else { 1.0 };
+        state.nutrient_status =
+            if nutrient_faces > 0 { nutrient_available / nutrient_faces as f32 } else { 1.0 };
         state.shoot_cells = shoot_cells;
         state.organ_cells = organ_cells;
         state.collar_y = collar_y;
@@ -16065,6 +16285,143 @@ they are the same world. Got {median}, which means something other than the leve
     /// partly-drunk one as 1.0, backwards and self-cancelling. This pins
     /// both ends: the soil function still says what it always said, and the
     /// face reading no longer agrees with it about liquids.
+    /// **Soil must supply something water cannot** — the claim the whole
+    /// nutrient exists for, at its smallest.
+    ///
+    /// Reported from play: a lab plant living indefinitely on water dripping
+    /// on it. Water and carbon were the entire economy, carbon comes from
+    /// light, and soil bought a plant exactly one thing — water — so a lit,
+    /// drip-fed plant had everything the engine priced and could not die.
+    ///
+    /// Asserts the asymmetry directly rather than through a grown stand,
+    /// because the mechanism ships **inert** (`nutrient_initial()` is 0) and
+    /// a `OnceLock` read once per process cannot be varied per test. What is
+    /// checked here is what stays true at any setting: soil is a nutrient
+    /// source, free water is not, and the price of building is exactly 1.0
+    /// while the switch is off.
+    #[test]
+    fn soil_carries_nutrient_and_free_water_does_not() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        w.set(60, 61, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        w.set(80, 61, Cell::new(material::WATER, 0));
+
+        // The control: both are faces a root can drink from -- #256's fix --
+        // so any difference below is about nutrient and not about reach.
+        assert!(drinkable_face(&w, w.get(60, 61)), "test setup: soil must be drinkable");
+        assert!(drinkable_face(&w, w.get(80, 61)), "test setup: free water must be drinkable");
+
+        let soil_bears = cell_carries_nutrient(&w, w.get(60, 61));
+        let water_bears = cell_carries_nutrient(&w, w.get(80, 61));
+        println!("carries nutrient?  soil {soil_bears}  |  free water {water_bears}");
+        assert!(soil_bears, "soil must carry nutrient, or roots in ground buy nothing water does not");
+        assert!(
+            !water_bears,
+            "free water carries nutrient -- then a drip-fed plant has both axes, soil supplies nothing water does \
+not, and the plant reported from the lab still cannot die"
+        );
+
+        // Enforced by `World`, not by each caller remembering: a draw aimed
+        // at a puddle must come back empty whatever the switch says.
+        assert_eq!(w.draw_soil_nutrient(80, 61, 50), 0, "a draw from free water must take nothing");
+        assert_eq!(w.soil_nutrient_fraction(80, 61), 0.0, "free water must read as carrying no nutrient at all");
+
+        // Inert until switched on, which is the shipping state.
+        w.plant_tree(50, 20);
+        let id = w.get(50, 20).organism_id();
+        for status in [1.0f32, 0.5, 0.0] {
+            w.organism_mut(id).expect("alive").nutrient_status = status;
+            let mult = nutrient_construction_multiplier(&w, id, CellType::GrowingTip);
+            let root_mult = nutrient_construction_multiplier(&w, id, CellType::RootTip);
+            assert_eq!(
+                root_mult, 1.0,
+                "root tissue must never pay the nutrient penalty: at status {status} a root costs x{root_mult}. \
+Charging scarcity prices to build the one thing that reaches more nutrient is a deadlock, and it measured as \
+root reach 34 -> 22 rows."
+            );
+            assert_eq!(
+                mult, 1.0,
+                "the mechanism must be INERT until PIXEL_PHYSICS_NUTRIENT is set: at status {status} the build \
+cost is x{mult}"
+            );
+        }
+        assert_eq!(nutrient_initial(), 0, "the shipped default must be off");
+    }
+
+    /// **A plant is held up from below, or by its roots — not by whatever it
+    /// happens to lean on.** The lab's floating plant, reduced to two cells.
+    ///
+    /// Reported from play: a plant sprawling across the evolution lab with
+    /// water dripping on it, reading ROOT IN SOIL 0% and refusing to fall.
+    /// The lab box is `material::STONE` on all six sides and
+    /// `is_structural_anchor` used to anchor an organism on **any** of its
+    /// cells touching anchoring ground in **any** direction — so a single
+    /// branch against a side wall braced the whole plant for ever.
+    ///
+    /// Four arms, because the rule turns on the *direction* and both halves
+    /// have to hold. Banning non-root anchoring outright was tried first and
+    /// took 19 lib tests and `acceptance.sh` with it: nearly every
+    /// structural scene in this file is a `wood` beam lying on a stone floor
+    /// with no root cell, and such a beam genuinely is held up.
+    #[test]
+    fn a_shoot_is_anchored_from_below_but_not_by_a_wall_beside_it() {
+        /// -> is the lone plant cell an anchor?  `side` puts the ground
+        /// beside it rather than beneath it.
+        fn anchored(tissue: &str, ground: material::MaterialId, side: bool) -> bool {
+            let mut w = test_world();
+            w.plant_tree(50, 20);
+            let id = w.get(50, 20).organism_id();
+            assert_ne!(id, 0, "test setup: the planted seed should own its cell");
+            let (mat, ty) = match tissue {
+                "root" => (w.materials.id_of("rootwood").expect("rootwood is compiled in"), CellType::RootTip),
+                _ => (w.materials.id_of("wood").expect("wood is compiled in"), CellType::GrowingTip),
+            };
+            place(&mut w, (60, 60), mat, id, ty, (0.0, 0.0));
+            let cell = if w.materials.get(ground).kind == MaterialKind::Powder {
+                Cell::new(ground, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(ground, 0)
+            };
+            let (gx, gy) = if side { (61, 60) } else { (60, 61) };
+            w.set(gx, gy, cell);
+            is_structural_anchor(&w, 60, 60, id)
+        }
+
+        let soil = {
+            let w = test_world();
+            w.materials.id_of("soil").expect("soil is compiled in")
+        };
+        let shoot_on_wall = anchored("shoot", material::STONE, true);
+        let shoot_on_floor = anchored("shoot", material::STONE, false);
+        let root_beside_soil = anchored("root", soil, true);
+        let root_on_stone = anchored("root", material::STONE, false);
+        println!(
+            "anchored?  shoot against a wall {shoot_on_wall}  |  shoot on a floor {shoot_on_floor}  |  \
+root beside soil {root_beside_soil}  |  root on stone {root_on_stone}"
+        );
+
+        assert!(
+            !shoot_on_wall,
+            "a shoot touching stone BESIDE it still anchors the plant, so anything that reaches a wall of the lab \
+box is braced there for ever -- which is the floating plant this rule was tightened for"
+        );
+        assert!(
+            shoot_on_floor,
+            "a stem resting ON the floor must still anchor: it genuinely is held up, and nearly every structural \
+scene in this file is a rootless wood beam lying on stone"
+        );
+        assert!(
+            root_beside_soil,
+            "a root must anchor on ground in any direction, sideways included -- gripping is what a root does, and \
+this is the half of the rule the lab plant never had"
+        );
+        assert!(
+            root_on_stone,
+            "a root gripping stone must still anchor: that is a tree in a rock crevice, and every bare-rock scene \
+in this file stands on it"
+        );
+    }
+
     #[test]
     fn a_full_water_cell_is_fully_available_and_the_soil_reading_says_the_opposite() {
         let w = test_world();

@@ -24,12 +24,24 @@
 //! | `flooded` | `lined`, with the shaft filled with water — the wall wets from the inside |
 //! | `watertable` | `lined`, dug into a bank already at `SOIL_SATURATED` — the wall wets from the outside |
 //!
-//! **The last three exist to keep the mechanic from being a binary.**
-//! `CLAUDE.md`'s first law is that an outcome is a distribution, not a
-//! switch, so a lining that could never fail would be the same defect as a
-//! tunnel that always does. `packedsoil` reverts to `soil` above
-//! `material::SOIL_FIELD_CAPACITY`, and these two arms are the wet halves
-//! of that: one soaks the wall from the void, one from the bank.
+//! **The wet arms changed what they claim on 2026-09-06, and the reversal is
+//! an owner decision.** They were written to show the mechanic was not a
+//! binary — `packedsoil` reverting to `soil` above a moisture line, soaked
+//! from the void in one arm and from the bank in the other. That rule is off
+//! by default now:
+//! `Reports/evolution-lab-design-guide-2026-08-30.md` §2b, *"A dug wall that
+//! slumps a little is available and free; **a roof that falls in is what was
+//! declined**"*, restated 2026-09-06 as *the entire ground in the evolution
+//! lab should be able to dig tunnels and chambers*.
+//!
+//! So the claim is now the one §2b names as the replacement: *"A tunnel dug
+//! below the water table **filling up** is a hazard with no structural
+//! simulation in it at all."* **Filling, not caving** — and that is exactly
+//! the distinction the `caved` column was built for. On every wet arm
+//! `caved` must read **0** (the roof holds) while `open` falls on `flooded`
+//! (there is water standing in the shaft). `PIXEL_PHYSICS_WET_COLLAPSE=
+//! waterlogged` or `=fieldcapacity` puts either old threshold back from one
+//! binary, and both make the assertion below go red.
 //!
 //! **Two columns per void, and the second one is why the wet arms are
 //! readable at all.** `open` is *materially empty*, which a flooded shaft
@@ -1031,6 +1043,32 @@ fn main() {
                 );
                 if marks.contains(&f) {
                     report(&world, f);
+                }
+            }
+
+            // **The roof held.** §2b declined a collapsing tunnel and the
+            // engine shipped one anyway for a week; this is the assertion
+            // that would have caught it, and it is on the wet arms because
+            // they are the only ones where a roof *could* come down.
+            //
+            // `caved`, never `open`: the flooded arm's shaft is full of water
+            // by construction, so `open` is 0 there with nothing having gone
+            // wrong. That is this harness's own recorded metric trap.
+            //
+            // Skipped when the rule is deliberately switched back on, for the
+            // reason the lining and spoil ablations are: the control arm is
+            // the old behaviour, and a control run that aborts here never
+            // reaches the arms after it.
+            if lined_arm && std::env::var("PIXEL_PHYSICS_WET_COLLAPSE").is_err() {
+                for v in voids {
+                    assert_eq!(
+                        v.caved(&world),
+                        0,
+                        "{} caved in arm {arm}: a worked wall is not supposed to come apart \
+                         however wet it gets. A flooded burrow drowns, it does not collapse \
+                         (design guide §2b).",
+                        v.name
+                    );
                 }
             }
 

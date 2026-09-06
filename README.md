@@ -72,7 +72,7 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [License](#license) | 6449 |
 | [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 6473 |
 | [Lab scenarios status — a saved starting box with a question written on it](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) | 6591 |
-| [Lab soil status — a hole that stays a hole, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-and-a-bed-that-stops-running-out) | 6677 |
+| [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 6677 |
 
 ### Milestones, in numeric order
 
@@ -118,12 +118,12 @@ about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1727, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1247, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4126, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4229, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1369, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1659, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1317, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1577, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4409, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4646, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4723, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 5858, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5043, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5091, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5322, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 5750 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2140, [The ant colony](#the-ant-colony--status) 3347, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 5858, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5091, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5322, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 5920, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 5750, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-and-a-bed-that-stops-running-out) 6677 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2140, [The ant colony](#the-ant-colony--status) 3347, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 5858, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5091, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5322, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 5920, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 5750, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 6677 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1913, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4409, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4646, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4723, [M8 status](#m8-status--started-not-complete) 2607 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 834, [Materials](#materials) 261 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1011, [M7 status](#m7-status) 982 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 808, [The coarse field grid](#the-coarse-field-grid) 519 |
-| **powders and granular flow** | engine | [Materials](#materials) 261, [Architecture](#architecture) 335, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-and-a-bed-that-stops-running-out) 6677 |
+| **powders and granular flow** | engine | [Materials](#materials) 261, [Architecture](#architecture) 335, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 6677 |
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 519, [M12/M13 status](#m12m13-status) 781, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4916 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3160, [Architecture](#architecture) 335 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2720, [Controls](#controls) 195 |
@@ -131,7 +131,7 @@ about what you may read.
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2474, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2519, [Rendering performance](#rendering-performance--overnight-run-section-11) 2587, [M6 deferral](#m6-deferral) 1142 |
 | **performance and the parallel sweep** | engine | [Performance](#performance) 6058, [M5 status](#m5-status) 1152, [Architecture](#architecture) 335, [Rendering performance](#rendering-performance--overnight-run-section-11) 2587, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 6473 |
 | **materials and the data schema** | engine | [Materials](#materials) 261, [M12/M13 status](#m12m13-status) 781 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4916, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-and-a-bed-that-stops-running-out) 6677 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4916, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 6677 |
 | **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5043 |
 | **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 5858 |
 | **finding one individual among all of them** | lab | [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5091 |
@@ -6674,53 +6674,75 @@ the wrong sign for a cost.** The mechanism is a `Vec` scan gated on
 non-empty, doing integer arithmetic per timeline entry; every shipped
 scenario's timeline holds one or two entries.
 
-## Lab soil status — a hole that stays a hole, and a bed that stops running out
+## Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out
 
 **Two reports from play, 2026-09-06:** *"when ants dig, the holes often fill
 up with loose soil"* and *"over time it seems like the soil is disappearing."*
 Both reproduced, three separate defects behind them, each with the harness
 that found it and a one-binary ablation that puts it back.
 
-### A tamped wall gave way in ordinary damp ground
+### A tamped wall gave way — first in damp ground, then at all
 
 `packedsoil` reverted to loose soil above `material::SOIL_FIELD_CAPACITY`,
-and `packedsoil.ron` justified that as *"above field capacity the pore space
-is full and the packing has nothing to grip with."* The sentence is right and
-the constant contradicted it: field capacity is by definition the point at
-which the **drainable** pore space has already emptied — it is where a drained
-column *rests*. So the rule fired in soil nobody would call wet.
+justified in its own file as *"above field capacity the pore space is full and
+the packing has nothing to grip with."* The sentence is right and the constant
+contradicted it: field capacity is by definition where the **drainable** pore
+space has already emptied — it is where a drained column *rests*. So the rule
+fired in soil nobody would call wet.
 
-The lab's bed is built at exactly that value (`lab::scene`'s `with_aux`), so
-it took one unit to break it. `examples/labnest`, 12,000 frames, eight
-founders: root water displacement lifts the bed's mean **620 → 638** and
-**34,779 of 48,000 cells cross the line**, while the gallery lining falls
-**234 cells → 40** and the colony goes on digging. The control is the same
-binary at `founders=0`, where nothing moves the water: `overcap` holds at 0
-and the lining holds at **416 indefinitely**. That is what says the threshold
-and not the digging.
+The lab's bed is built at exactly that value, so it took one unit to break it.
+`examples/labnest`, 12,000 frames, eight founders: root water displacement
+lifts the bed's mean **620 → 638** and **34,779 of 48,000 cells cross the
+line**, while the gallery lining falls **234 cells → 40** and the colony goes
+on digging. The control is the same binary at `founders=0`, where nothing
+moves the water: the lining holds at **416 indefinitely**.
 
-`material::SOIL_WATERLOGGED` is the new line, half-way up the drainable band,
-and it is **sited in a measured gap rather than on a measured value**. The
-same census puts the bed in two populations with almost nothing between them:
-32,936 cells in the first quarter of the drainable band, 1,476 at exactly
-`SOIL_SATURATED` (a root has just displaced its water into them), and **367 —
-0.8% — everywhere in between**. Lining after, same bed and frame: **182
-against 40**. Saturation itself was the other candidate and is in
-`dead-ends.md`: it sits *on* the 1,476-cell spike, and it would make the
-mechanic fire only when the pore space is completely full, which is a binary
-from the other side.
+Moving the line half-way up the drainable band fixed that and **was not
+enough**, because the rule itself was the problem. Owner, 2026-09-06: *the
+entire ground in the evolution lab should be able to dig tunnels and
+chambers* — which restates a decision already on the record, design guide §2b,
+2026-08-30: *"We can remove collapsing tunnels… A dug wall that slumps a
+little is available and free; **a roof that falls in is what was declined**."*
 
-**The mechanic stays graded, which is the whole point of not simply switching
-it off.** `burrow_probe`, 1,200 frames: a dry lining holds **100% at every
-frame**, a flooded shaft caves **91%** while its gallery keeps 87% and its far
-chamber is untouched, and a burrow driven below the water table comes in
-**entirely**. It is a wet burrow that fails, not a damp one.
+**Profiling the bed by depth is what showed the graded version was not a
+hazard either.** The waterlogged cells are not scattered beside roots; they
+are a **water table standing on the stone floor**:
 
-`arms=damp` is the arm that harness never had, and its absence is why this
-went unseen: every existing arm was dry or saturated, so the middle — where
-the lab lives — was untested. It is built at `SOIL_FIELD_CAPACITY + 1`, and
-the `+ 1` is load-bearing: at *exactly* field capacity the arm passes under
-both thresholds, because the old predicate was a strict `>`.
+| rows below the surface | waterlogged cells, frame 12,000 | mean moisture |
+|---|---|---|
+| 0–12 (surface) | 346 / 4,687 | 620 |
+| 12–84 (the whole middle) | ~0 | 623 |
+| **84–96 (the floor)** | **1,559 / 6,048** | **620 → 719** |
+
+That band went 94 → 1,559 over the run, monotone, no plateau. Drainage pushes
+water down, the stone floor holds none, and a sealed box has no drain — so the
+deepest part of the bed was becoming permanently untunnellable and the line
+was rising. A growing dead zone is not a middle; it is the binary arriving
+slowly.
+
+**So the wet collapse is off, and §2b's own replacement is what carries the
+hazard**: *"A tunnel dug below the water table filling up is a hazard with no
+structural simulation in it at all."* Filling, not caving. `burrow_probe
+arms=flooded`: the shaft is **0% open at frame 0 and 4% at frame 5**, unusable
+for about 120 frames, then drains as the bank drinks it — with `caved` at
+**0** throughout. Every wet arm now asserts `caved == 0`, and the assertion
+fires when either old threshold is switched back on.
+
+The **crumb rule is untouched** and is a different claim: a worked cell with
+nothing under it and fewer than three contacts is not a wall, and still
+reverts. That is what stops hauled spoil hanging in the air, and no roof
+reaches it — every roof cell sits at five contacts or more.
+
+Three builds, the lab bed at frame 12,000, same seed:
+
+| | lining standing | loose soil refilling void |
+|---|---|---|
+| un-pack at field capacity | 40 | 110 |
+| un-pack at waterlogged | 182 | 78 |
+| **no wet collapse** | **354** | **36** |
+
+…and the refill is now mostly `packedsoil` (79 of 171), which is the nest's
+own wall being extended rather than a collapse.
 
 ### A corpse plugged the passage it died in, for ever
 
@@ -6791,9 +6813,12 @@ candidates.
   starves down from 52 ants to 17 by frame 12,000 in the default bed and
   `digs` plateaus with it. That is the die-off `labnest` has reported since
   it was written, and it is a food problem, not a soil one.
-- **The un-pack line is deterministic**, so a wall crosses it and reverts on
-  the next sweep. The graded feel comes from the moisture gradient arriving
-  cell by cell rather than from the rule itself.
+- **The lab bed's water table is real and is not fixed here.** The bottom
+  band's mean moisture climbs 620 → 719 over 12,000 frames and is still
+  going: gravity drainage has nowhere to send water, because the box is
+  sealed and the floor is stone. It no longer costs the colony a nest, but it
+  is a monotone accumulation with no equilibrium and the surface dries while
+  it happens. Filed as `Reports/open-bugs-handoff.md` §W5.
 
 ### The controls
 
@@ -6801,6 +6826,7 @@ Both new rules ship with the same shape `lining_enabled` and `spoil_kept`
 already use — one env switch, one binary, nothing else changed:
 
 ```
-PIXEL_PHYSICS_WET_COLLAPSE=fieldcapacity   # the old un-pack line
+PIXEL_PHYSICS_WET_COLLAPSE=waterlogged     # wet ground takes a worked wall apart again
+PIXEL_PHYSICS_WET_COLLAPSE=fieldcapacity   # ...at the line that shipped before that
 PIXEL_PHYSICS_BURIED_REMAINS=litter        # buried tissue sheds to litter again
 ```
