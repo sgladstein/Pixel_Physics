@@ -239,8 +239,13 @@ fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
         // surface bids 0.380 against a `MIZ_THRESHOLD` of 0.050 -- and
         // `Grow`'s `RootTip` arm takes hydrotropism **instead of** gravity
         // rather than blending with it. With nothing to stop the tip
-        // leaving the ground, it walked up out of it. Measured before this
-        // line existed: **23 of 55 root cells standing in open air**.
+        // leaving the ground, it walked up out of it.
+        //
+        // **The end-to-end reproduction is still open**, and §W6 says so: a
+        // static scene cannot show it, because a root cannot enter `Liquid`
+        // and standing water falls into the very air it would climb. What
+        // is pinned here is the rule, by
+        // `a_root_may_cross_a_gap_but_not_climb_into_open_air`.
         //
         // **`touches_substrate`, not a depth or a light reading**, because
         // the thing that separates a root threading an ant gallery from a
@@ -16792,106 +16797,66 @@ of a saturating curve over a linear ramp", at(0.5));
         );
     }
 
-    /// **A root does not climb out of the ground toward standing water** —
-    /// §W6, and the arm that entry says was missing.
+    /// **A root may cross a gap but not climb into open air** — §W6's rule,
+    /// tested where it operates.
     ///
     /// The owner, by eye: *"there is an issue where the roots are growing
-    /// into the tree/sky."* §W6 traced the chain and measured its first two
-    /// links — free water reads **1.000** against damp soil's 0.620, so a
-    /// puddle four cells up bids 0.380 against a `MIZ_THRESHOLD` of 0.050 —
-    /// but nothing exercised the step where a tip *takes* the upward cell.
-    /// The entry says so in as many words: *"a fix should start by writing
-    /// that missing arm, so there is something to watch go green."* This is
-    /// it.
+    /// into the tree/sky."* §W6 traced four links and measured the first
+    /// two; this pins the fourth, which is the one the fix changes.
     ///
-    /// **What it counts is root tissue in open air**, not root tissue above
-    /// some line. A root threading an ant gallery or a crack is underground
-    /// and fine; one standing in the sky with nothing but its own plant
-    /// around it is the defect. That is also exactly the quantity the fix
-    /// controls, so the number and the rule are the same thing.
+    /// **A growth-level reproduction was attempted and abandoned as blind,
+    /// which is worth recording so nobody rebuilds it.** A walled bed with
+    /// rain over it reads the same with the rule on and off — byte for
+    /// byte, 66 root cells and one above the bed either way — because the
+    /// bug cannot happen in a static scene at all. A root cannot enter
+    /// `Liquid` (`growable` refuses it: *"Liquid is Absorb's business, not
+    /// a thing to grow through"*), so the climb path has to be **air**
+    /// while the attractor sits above it — and standing water falls into
+    /// that path, while holding it up needs a floor that blocks the climb.
+    /// The defect needs *transient* rain in an open, draining world, which
+    /// is the grove the owner was looking at and is not a unit scene. §W6
+    /// carries that as still-open work.
+    ///
+    /// So this asserts the rule directly, and is sensitive to it: both root
+    /// refusals below pass without the substrate requirement.
     #[test]
-    fn a_root_does_not_climb_out_of_the_ground_toward_standing_water() {
+    fn a_root_may_cross_a_gap_but_not_climb_into_open_air() {
+        /// Root penetration force. Every shipped species puts a non-zero one
+        /// on `RootTip` and exactly `0.0` on every shoot behaviour, which is
+        /// what makes this the discriminator `growable` keys on.
+        const ROOT: f32 = 1.0;
+        const SHOOT: f32 = 0.0;
+
         let mut w = test_world();
-        plant_tree_on_ground(&mut w, 100, 60);
-        let id = w.get(100, 60).organism_id();
-        assert_ne!(id, 0, "test setup: the planted seed should own its cell");
-
-        // **Rain that keeps falling, because water falls.** The first draft
-        // of this scene placed a few rows of water and ran; by the time
-        // anything grew it had drained into the bed and the pull it was
-        // built on was gone -- the roots never left the soil and the test
-        // reproduced nothing. That is the trap
-        // `roots_steer_toward_off_axis_water_via_hydrotropism` records in
-        // its own comment: *"fine for a read of diffused humidity, and
-        // wrong for a read of the water itself: water falls."*
-        //
-        // The bed is soil rows y+1..=y+8, so the surface is **61** and
-        // anything at 60 or above is out of the ground. The water sits at
-        // 56..58 with open air at 59-60 between it and the soil, which is
-        // both what a rained-on grove looks like and what the root needs to
-        // be able to climb into: `MOISTURE_SENSOR_OFFSET` is 4, so a root at
-        // 62 reads 58 and sees water.
-        const SURFACE: i32 = 61;
-        let rain = |w: &mut World| {
-            for x in 93..108 {
-                for y in 56..59 {
-                    if w.get(x, y).material == material::EMPTY {
-                        w.set(x, y, Cell::new(material::WATER, 0));
-                    }
-                }
-            }
-        };
-        rain(&mut w);
-        let pull = organism::moisture_pull(&w, 100.0, 62.0);
-        println!("moisture pull at a root under the rain: {pull:?}");
-        assert!(
-            pull.is_some_and(|(d, s)| d.1 < 0.0 && s >= MIZ_THRESHOLD),
-            "test setup: the rain must pull upward and clear the threshold, got {pull:?}"
-        );
-
-        for _ in 0..12 {
-            rain(&mut w);
-            run_with_fields(&mut w, 1_000);
-        }
-
-        let Some(state) = w.organism(id) else {
-            panic!("the plant died; this test cannot say anything about its roots");
-        };
-        let mut roots = 0usize;
-        let mut above = Vec::new();
-        for &(cx, cy) in state.cells.keys() {
-            let cell = w.get(cx, cy);
-            if cell.organism_id() != id {
-                continue;
-            }
-            let is_root = matches!(organism::cell_type(cell.aux()), Some(CellType::RootTip))
-                || w.materials.get(cell.material).reinforces_powder;
-            if !is_root {
-                continue;
-            }
-            roots += 1;
-            if cy < SURFACE {
-                above.push((cx, cy));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for y in 61..69 {
+            for x in 90..110 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
             }
         }
-        above.sort_unstable_by_key(|&(x, y)| (y, x));
-        let highest = above.first().map(|&(_, y)| SURFACE - y).unwrap_or(0);
-        println!(
-            "{roots} root cells; {} of them above the bed (surface y={SURFACE}), highest {highest} cells up: {:?}",
-            above.len(),
-            &above[..above.len().min(8)]
+
+        // One cell above the bed still has ground against it, so a root may
+        // take it -- a root at the surface is not doing anything wrong.
+        assert!(growable(&w, 100, 60, ROOT), "a root must be able to reach the cell just above the bed");
+        // Two above, nothing but air around it: that is the sky, and it is
+        // the step that walked roots up out of the ground.
+        assert!(
+            !growable(&w, 100, 59, ROOT),
+            "a root took a cell with no ground touching it -- the step §W6 is about, and rain four cells up \
+is enough to point a tip at it"
         );
 
-        assert!(roots > 0, "test setup: the plant grew no roots, so this measures nothing");
-        // Bar set from measurement below, not from an aspiration.
-        assert!(
-            highest <= 1,
-            "a root climbed {highest} cells above the bed ({} cells out of the ground, {:?}). Free water \
-outbids every soil by 7.6x over MIZ_THRESHOLD and `Grow`'s RootTip arm takes hydrotropism INSTEAD of \
-gravity, so rain walks a root up out of the ground -- §W6.",
-            above.len(),
-            &above[..above.len().min(8)]
-        );
+        // **A shoot is unaffected**, because open air is where it lives.
+        assert!(growable(&w, 100, 60, SHOOT), "a shoot must still take open air");
+        assert!(growable(&w, 100, 59, SHOOT), "a shoot must still take open air well clear of the ground");
+
+        // **The over-reach guard**: a cavity inside the ground is not the
+        // sky. A root threading an ant gallery or a crack has walls against
+        // it and must still go there, or this rule costs more than the bug.
+        w.set(100, 65, Cell::EMPTY);
+        assert!(growable(&w, 100, 65, ROOT), "a root must still enter a cavity underground -- walls are ground");
+        w.set(100, 64, Cell::EMPTY);
+        assert!(growable(&w, 100, 64, ROOT), "a root must still cross a gap inside the bed");
     }
 
     /// **A severed crown is shed; an intact plant loses nothing** — §W7.

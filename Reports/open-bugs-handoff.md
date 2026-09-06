@@ -145,7 +145,7 @@ point.
 | W4 | **OPEN** | 9617 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9677 | The lab's bed grows a water table on its stone floor, and it does not stop |
 | W6 | **OPEN** | 9728 | Free water outbids every soil, so roots climb out of the ground toward it |
-| W7 | closed | 9805 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| W7 | closed | 9841 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 
 <!-- END GENERATED INDEX -->
 
@@ -9725,7 +9725,7 @@ which fits the owner's stated direction — *"the world starts with nothing, but
 the user can add plants, creatures, water, food, soil"* — better than a
 constant would.
 
-### W6. Free water outbids every soil, so roots climb out of the ground toward it — **OPEN**
+### W6. Free water outbids every soil, so roots climb out of the ground toward it — **RULE FIXED 2026-09-06 (a root may no longer take a cell with no ground against it); the end-to-end reproduction is STILL OPEN and a static scene cannot give it**
 
 Reported by the owner 2026-09-06, by eye, on the roots-on/off review card:
 *"There is an issue in option a where the roots are growing into the
@@ -9781,6 +9781,42 @@ Neither constrains the vertical sign at all, so the upward case was never in
 scope for either. This is `CLAUDE.md`'s "a guard must be able to fail for the
 replacement artifact", in the form where the artifact was never in the
 guard's field of view.
+
+**FIXED at link 4, 2026-09-06.** `growable` now lets a `RootTip` take an
+`EMPTY` cell only if `touches_substrate` — any of its eight neighbours is
+non-organism `Solid` or `Powder`. That separates a root threading an ant
+gallery or a crack, which has walls against it, from one standing in the sky
+with nothing but its own plant around it; both are `EMPTY` and nothing local
+to the cell itself tells them apart. A root may still **cross** a gap, since
+the far side of one has ground on it, and a shoot is untouched because open
+air is where it lives. `penetration_force` is the root/shoot discriminator
+and it is checked rather than assumed: across all seven shipped species it is
+`0.0` on every shoot behaviour and non-zero only on `RootTip`.
+
+Pinned by `a_root_may_cross_a_gap_but_not_climb_into_open_air`, which
+**fails without the rule** — both root refusals pass when it is removed.
+
+**The end-to-end reproduction is still open, and this is why — record it
+before rebuilding one.** A growth-level test was written and abandoned as
+**blind**: a walled bed under rain reads byte-identically with the rule on
+and off (66 root cells, one above the bed, either way). The defect cannot
+occur in a static scene at all. A root cannot enter `Liquid` — `growable`
+refuses it, *"`Liquid` is `Absorb`'s business, not a thing to grow
+through"* — so the climb path must be **air** while the attractor sits
+above it. Standing water falls into that path; holding it up needs a floor
+that blocks the climb. **It needs transient rain in an open, draining
+world**, which is the grove the owner was looking at and is not a unit
+scene. Two earlier drafts of that test failed for their own reasons and are
+worth not repeating: one counted root cells with no substrate contact as
+"in the air", which flags roots buried in their own root ball because the
+soil they grew through was displaced; the other let the rain drain away
+before anything grew, which is the trap
+`roots_steer_toward_off_axis_water_via_hydrotropism` records in its own
+comment.
+
+So what remains is **confirming the owner's observation goes away**, in the
+grove, with root cells above the surface counted before and after. Until
+that runs, the rule is fixed and the sighting is not closed.
 
 **Not simply "free water should read zero".** Hydrotropism toward a water
 pocket is wanted and is what the authority test above pins; making
