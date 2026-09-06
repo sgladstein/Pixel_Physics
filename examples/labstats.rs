@@ -515,6 +515,27 @@ fn main() {
         // chewing on something it will never get through -- which is what the
         // graded bite makes possible and the old binary could not express.
         println!("--- biting --- eats {} gnaws {} bites_refused {}", st.eats, st.gnaws, st.bites_refused);
+        // **The fight verb and the alarm scent, as counters beside the mouth's
+        // own.** Both are opt-in -- nothing that ships carries a weight on
+        // `BrainOutput::Attack`, and the alarm plane is not even allocated
+        // until something is bitten -- so a run of zeros here is the expected
+        // reading and not a broken harness. What the line is for is the other
+        // case: `attacks` is the swing counter and `attack_cells`/
+        // `attack_kills` are its effect counters from the far side of the
+        // call, and a rising swing count with flat effect counters is an
+        // animal chewing on something it will never get through.
+        //
+        // `alarm plane` says whether the plane exists at all, which
+        // `deposits` alone cannot: a plane that was never made and one that
+        // has decayed to zero read the same everywhere.
+        println!(
+            "--- fighting --- attacks {} cells {} kills {} | alarm deposits {} | alarm plane {}",
+            st.attacks,
+            st.attack_cells,
+            st.attack_kills,
+            lab.world.pheromones.stats.deposits_alarm,
+            if lab.world.pheromones.alarm_is_live() { "live" } else { "never written" }
+        );
         // **How much of an animal's life is spent in the open** -- the number
         // that decides whether an exposure price can select for anything at
         // all. A colony outdoors on essentially every tick has no sheltering

@@ -2425,8 +2425,8 @@ fn construction_scene() {
 
     // **One colony, not fifty-five.** `World::plant_ant` claims a fresh
     // colony per call, so a loop of it builds a crowd of strangers that only
-    // *looks* like a colony -- inert while `colony_rivalry` is off, and the
-    // whole scene the moment it is not. Measured with the dial on before this
+    // *looks* like a colony -- inert while every colony smells the same, and
+    // the whole scene the moment they do not. Measured with them apart before this
     // line was written: attributed drops **237 -> 22** and the ratio 1.36x ->
     // 1.14x, i.e. the ants stopped foraging and started eating each other.
     // That is `CLAUDE.md`'s *a scene that contradicts the code will look like

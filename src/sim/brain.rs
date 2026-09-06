@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 24;
+pub const BRAIN_INPUTS: usize = 25;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -52,7 +52,7 @@ pub const BRAIN_INPUTS: usize = 24;
 /// values, so a sampled genome at a given seed is a different animal and
 /// every `creature_space` baseline taken before this is void.
 pub const BRAIN_HIDDEN: usize = 8;
-pub const BRAIN_OUTPUTS: usize = 12;
+pub const BRAIN_OUTPUTS: usize = 13;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -216,9 +216,10 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "SurfaceCurvature",
     "ThreatNear",
     "ThreatBearing",
+    "Alarm",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
-    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil"];
+    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack"];
 
 /// **The genome's shape, as a stored jar remembers it.**
 ///
@@ -688,6 +689,26 @@ pub enum BrainInput {
     /// a negative weight onto `Turn` is flight, a positive one is facing
     /// it, and which pays is the bed's to decide.
     ThreatBearing = 23,
+    /// **How loud the alarm is on the ground ahead** -- the third pheromone
+    /// plane, written by an animal that is being bitten and forgotten within
+    /// about a second and a half of play (`pheromone::ALARM_RHO`).
+    ///
+    /// **One slot, not the front/lateral/along triple the trail planes get**,
+    /// and the asymmetry is the design rather than an economy. A trail is a
+    /// *route*: which way it runs is the whole of its information, so an
+    /// animal needs the gradient. An alarm is an *event*: how near and how
+    /// bad, and the direction it came from is already carried by
+    /// `ThreatBearing` for anything the animal can see. A lateral slot here
+    /// would be a second, worse bearing sense competing with the real one.
+    ///
+    /// **The sign of the response is the genome's, exactly as `ThreatBearing`
+    /// leaves it.** A positive weight onto `Move` is a colony that scatters,
+    /// a positive one onto `Turn` toward the alarm is a colony that
+    /// converges, and which pays is the bed's to decide -- the recruit-or-
+    /// scatter pair `Reports/creature-groups-and-combat-design-2026-09-06.md`
+    /// §5 item 6 wants breedable toward either end. Nothing that ships is
+    /// wired to it.
+    Alarm = 24,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -820,6 +841,30 @@ pub enum BrainOutput {
     /// Appended, so `GENOME_LEN` does not change and no existing weight
     /// moves: `OUTPUT_SLOTS` is 64 against a live count of 11.
     DropSpoil = 11,
+    /// **Bite something that is not kin, and do not eat it** — the verb that
+    /// makes fighting a decision rather than a side effect of hunger.
+    ///
+    /// Every bite in this engine until now was the `Feed` path: an animal
+    /// bites what it is about to swallow, so a colony could only ever fight
+    /// *by being hungry beside* a rival, and territorial defence -- biting a
+    /// stranger you are not going to eat -- was unexpressible
+    /// (`Reports/creature-groups-and-combat-design-2026-09-06.md` §4b).
+    ///
+    /// **Same graded bite, same jaw price, no food.** It wears the target at
+    /// `(bite/armour)^2` a closure banked on the victim, exactly as gnawing
+    /// does, and it is billed the same `dig_cost_in_moves` per closure. What
+    /// it does not do is fill the crop or sate anything: an animal that
+    /// spends its day attacking starves, which is the price that makes a
+    /// soldier a real trade against a forager rather than a free upgrade.
+    ///
+    /// **Target is the nearest non-kin animal in reach, not the best
+    /// mouthful.** `adjacent_food_counted` ranks by what the gut would get,
+    /// which is the wrong question for a fight: a rival ant and a leaf are
+    /// not competing offers.
+    ///
+    /// Unwired it is `squash(0) = 0` and the verb never fires, so every
+    /// shipped animal is exactly what it was and pays one comparison for it.
+    Attack = 12,
 }
 
 /// One authored connection, as a species file writes it:
@@ -944,6 +989,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::SurfaceCurvature,
     BrainInput::ThreatNear,
     BrainInput::ThreatBearing,
+    BrainInput::Alarm,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -959,6 +1005,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::Feed,
     BrainOutput::Impulse,
     BrainOutput::DropSpoil,
+    BrainOutput::Attack,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -1559,7 +1606,15 @@ mod tests {
         // 544 -> 584 on 2026-09-06 with `ThreatNear`/`ThreatBearing`: two
         // input columns across 12 outputs and 8 hidden units. Every species'
         // `mutation_rate` is re-derived to 3.18 / 584 in the same change.
-        assert_eq!(live, 584, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        //
+        // 584 -> 604 -> 637 later the same day with `Alarm` (an input) and
+        // `Attack` (an output), in one change. An input column is 20 slots
+        // (12 outputs + 8 hidden); an **output row is 33** (25 inputs + 8
+        // hidden), which is the asymmetry to know before appending: a verb
+        // costs the mutable surface two-thirds again what a sense does.
+        // Every species' `mutation_rate` re-derived to `3.18 / 637 =
+        // 0.0049922` in the same change.
+        assert_eq!(live, 637, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1611,7 +1666,25 @@ mod tests {
         // reserve, `GENOME_LEN` is still 12,352, no existing weight moves.
         // `live_slots` 544 -> 584 and every species' `mutation_rate` is
         // re-derived to `3.18 / 584 = 0.0054452` in this same change.
-        assert_eq!(genome_manifest(), 437_780_030);
+        //
+        // **Moved again 2026-09-06 by `Alarm` and `Attack` together** -- the
+        // third pheromone plane's input and the fight verb's output -- and
+        // this is the first append on the OUTPUT axis since the layout was
+        // reserved. Lawful, and the reservation is exactly what makes it so:
+        // outputs 12 -> 13 and inputs 24 -> 25 light up a row and a column of
+        // 64-wide reserves that already existed and were already zero,
+        // `GENOME_LEN` is still 12,352, and not one existing weight moves.
+        // The 248-slot growth this doc describes as unlawful was an output
+        // append under the *old* live-sized layout; the same append is now a
+        // no-op on every stored genome, which is what the reserve was bought
+        // for.
+        //
+        // `live_slots` 584 -> 637 and every species' `mutation_rate` is
+        // re-derived to `3.18 / 637 = 0.0049922` in this same change.
+        // **Landed together on purpose**: two appends in one change is one
+        // re-derivation and one break in birth-draw comparability instead of
+        // two, and `CLAUDE.md` requires a seed sweep across either.
+        assert_eq!(genome_manifest(), 550_849_377);
     }
 
     #[test]

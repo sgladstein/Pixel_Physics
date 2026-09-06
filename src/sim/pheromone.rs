@@ -124,11 +124,56 @@ pub const DEPOSIT: u8 = 40;
 /// chunk size would still be correct.
 const TILE: usize = 64;
 
-/// Which plane. **Meaning-free by construction** — see the module doc.
+/// **How fast the alarm plane forgets, per pass**, against `DECAY_RHO`'s
+/// 0.03 for the two trail planes.
+///
+/// **A trail is a map and an alarm is an event**, and that is the whole of
+/// the difference. A trail has to survive being laid once and returned to
+/// minutes later, which is the argument `DECAY_RHO`'s own doc makes for
+/// setting it below the literature band. An alarm has the opposite job: it
+/// says *something is happening here now*, and a plane that remembered every
+/// bite of the last ten minutes would be a map of where fights have ever
+/// happened -- which is a trail with extra steps, and the thing
+/// `pheromone.rs`'s module doc means by resisting a third plane that is not
+/// its own signal.
+///
+/// **0.25 is a burst that is gone in about a hundred and fifty frames**:
+/// `0.75^n` passes under 5% at n = 11, and a pass is `PHEROMONE_INTERVAL`
+/// (12) frames, so a bite is loud for roughly a second and a half of play and
+/// then is not there. It is a dial on the parameters page rather than a
+/// tuned constant -- what the box wants has not been measured, and the
+/// standing direction is to expose rather than to balance.
+pub const ALARM_RHO: f32 = 0.25;
+
+/// What one bite writes into the alarm plane, of 255.
+///
+/// **Six times `DEPOSIT`, and it is not the same kind of number.** A trail
+/// deposit is one contribution to a shared gradient that a dozen ants
+/// reinforce -- it sits well below saturation on purpose, because
+/// differential reinforcement *is* the path-selection algorithm. An alarm is
+/// a single event that has to be legible on its own against a plane that is
+/// otherwise zero, and nothing reinforces it. Saturating on a bad enough
+/// fight is the right failure: a swarm on one animal should read as loud.
+pub const ALARM_DEPOSIT: u8 = 240;
+
+/// Which plane. **Meaning-free by construction for the two trail planes** —
+/// see the module doc. `Alarm` is the exception and says so in its own name:
+/// it carries one meaning, written by one event.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Channel {
     A = 0,
     B = 1,
+    /// **Emitted by an animal that is being bitten**, decaying fast, read as
+    /// `BrainInput::Alarm`. The one signal that lets a colony act *as* a
+    /// colony in a fight -- recruit, swarm, flee -- rather than as fifty
+    /// animals each deciding alone
+    /// (`Reports/creature-groups-and-combat-design-2026-09-06.md` §4d.3).
+    ///
+    /// **Owned by nobody, deliberately.** Salting the planes per colony was
+    /// the other option in that section and is not this: a rival's alarm is
+    /// audible, which is how a raid is noticed. What it is not is a *trail*
+    /// -- see `ALARM_RHO`.
+    Alarm = 2,
 }
 
 /// `decay_lut[v] < v` for every `v > 0`, so evaporation provably reaches
@@ -196,6 +241,17 @@ pub struct PheromonePlane {
 impl PheromonePlane {
     fn new(bounds: Rect) -> Self {
         Self::with_params(bounds, DIFFUSE, DECAY_RHO)
+    }
+
+    /// Re-derive the decay table for a new rate, in place.
+    ///
+    /// **The table, not a stored rate**, because `step` reads
+    /// `decay_lut[v]` and nothing else: a plane whose `rho` field had moved
+    /// and whose table had not would decay at the old rate while every
+    /// readout said the new one. Rebuilding 256 bytes is cheaper than the
+    /// branch that would avoid it.
+    fn set_rho(&mut self, rho: f32) {
+        self.decay_lut = build_decay_lut(rho);
     }
 
     fn with_params(bounds: Rect, diffuse: f32, rho: f32) -> Self {
@@ -366,6 +422,12 @@ impl PheromonePlane {
 pub struct PheromoneStats {
     pub deposits_a: u64,
     pub deposits_b: u64,
+    /// **Alarm deposits — one per bite that landed on a living animal.**
+    /// The "did it fire at all" counter for the third plane, and the only
+    /// thing that separates a quiet alarm from an alarm nothing ever wrote:
+    /// a plane that does not exist and a plane that has decayed to zero
+    /// sample identically.
+    pub deposits_alarm: u64,
     pub passes: u64,
     /// Tiles actually processed across every pass. **Zero on a settled
     /// world is the whole design goal**, and a counter is the only thing
@@ -376,12 +438,57 @@ pub struct PheromoneStats {
 #[derive(Clone)]
 pub struct Pheromones {
     planes: [PheromonePlane; 2],
+    /// **Allocated on the first bite, not by `new`** — the whole point of
+    /// the field being an `Option`.
+    ///
+    /// The module doc above prices a plane at ~40 MB for the shipped
+    /// 8192x2560 world and notes that both trail planes are allocated
+    /// eagerly whether or not a creature exists, *"so this is a real
+    /// standing cost, not a worst-case bound"*. A third plane on those terms
+    /// would be 40 MB every session for a signal that many worlds never
+    /// write once: nothing bites anything in a world with no predator and no
+    /// rivalry, and `sample` on `None` is a null test rather than a read.
+    ///
+    /// It is never freed once made. A world that has had one fight will have
+    /// more, and dropping and re-allocating 40 MB on a quiet minute is worse
+    /// than holding it.
+    alarm: Option<PheromonePlane>,
+    /// Kept so the lazy plane can be built to the same bounds as the other
+    /// two, long after `new` returned.
+    bounds: Rect,
+    /// How fast the alarm plane forgets, as a dial rather than a constant —
+    /// `ALARM_RHO` is only the shipped setting. Kept here as well as inside
+    /// the plane because the plane may not exist yet: a value set before the
+    /// first bite has to survive until there is something to apply it to.
+    alarm_rho: f32,
     pub stats: PheromoneStats,
 }
 
 impl Pheromones {
     pub fn new(bounds: Rect) -> Self {
-        Self { planes: [PheromonePlane::new(bounds), PheromonePlane::new(bounds)], stats: PheromoneStats::default() }
+        Self {
+            planes: [PheromonePlane::new(bounds), PheromonePlane::new(bounds)],
+            alarm: None,
+            bounds,
+            alarm_rho: ALARM_RHO,
+            stats: PheromoneStats::default(),
+        }
+    }
+
+    /// **How fast the alarm plane forgets.** Applied to the standing plane if
+    /// there is one and remembered for the plane there may be later, because
+    /// the two have to agree: a dial that only reached planes made *after* it
+    /// moved would do nothing at all in the box the player is looking at,
+    /// which is the shape of a knob that reads as disconnected.
+    pub fn set_alarm_rho(&mut self, rho: f32) {
+        self.alarm_rho = rho;
+        if let Some(plane) = &mut self.alarm {
+            plane.set_rho(rho);
+        }
+    }
+
+    pub fn alarm_rho(&self) -> f32 {
+        self.alarm_rho
     }
 
     /// Both planes with non-default diffusion/decay — for sweeps only.
@@ -389,30 +496,86 @@ impl Pheromones {
     fn with_params(bounds: Rect, diffuse: f32, rho: f32) -> Self {
         Self {
             planes: [PheromonePlane::with_params(bounds, diffuse, rho), PheromonePlane::with_params(bounds, diffuse, rho)],
+            alarm: None,
+            bounds,
+            alarm_rho: ALARM_RHO,
             stats: PheromoneStats::default(),
         }
     }
 
+    /// One plane, or `None` for an alarm plane nothing has written yet.
+    ///
+    /// **Returns an `Option` rather than panicking or minting the plane**,
+    /// because every caller of this is a *reader* — an overlay, a harness,
+    /// a max — and a reader that allocated 40 MB by looking would make
+    /// switching a debug overlay on the most expensive thing in the frame.
+    #[inline]
+    pub fn plane_opt(&self, channel: Channel) -> Option<&PheromonePlane> {
+        match channel {
+            Channel::A | Channel::B => Some(&self.planes[channel as usize]),
+            Channel::Alarm => self.alarm.as_ref(),
+        }
+    }
+
+    /// One of the two trail planes, which always exist.
+    ///
+    /// **Panics on `Channel::Alarm`**, and that is deliberate rather than
+    /// lazy: every existing caller of this asks for A or B by name and none
+    /// of them can be handed an alarm plane by accident, so the alternative
+    /// — returning an empty plane — would let a reader silently measure a
+    /// zero that means "not allocated" as though it meant "no alarm here".
+    /// `plane_opt` is the one that answers honestly.
     #[inline]
     pub fn plane(&self, channel: Channel) -> &PheromonePlane {
-        &self.planes[channel as usize]
+        match channel {
+            Channel::A | Channel::B => &self.planes[channel as usize],
+            Channel::Alarm => panic!("the alarm plane may not exist; read it through plane_opt"),
+        }
     }
 
     #[inline]
     pub fn sample(&self, channel: Channel, x: i32, y: i32) -> u8 {
-        self.planes[channel as usize].sample(x, y)
+        match channel {
+            Channel::A | Channel::B => self.planes[channel as usize].sample(x, y),
+            // A world in which nothing has been bitten reads a flat zero
+            // here without touching a byte of memory that was never
+            // allocated -- which is exactly what an animal should read.
+            Channel::Alarm => self.alarm.as_ref().map_or(0, |p| p.sample(x, y)),
+        }
     }
 
     pub fn deposit(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
         if amount == 0 {
             return;
         }
+        if channel == Channel::Alarm {
+            // **The allocation happens here and nowhere else.** First bite in
+            // the world's life; every one after it is an ordinary deposit.
+            let (bounds, rho) = (self.bounds, self.alarm_rho);
+            let plane = self.alarm.get_or_insert_with(|| PheromonePlane::with_params(bounds, DIFFUSE, rho));
+            if plane.deposit(x, y, amount) {
+                self.stats.deposits_alarm += 1;
+            }
+            return;
+        }
         if self.planes[channel as usize].deposit(x, y, amount) {
             match channel {
                 Channel::A => self.stats.deposits_a += 1,
                 Channel::B => self.stats.deposits_b += 1,
+                Channel::Alarm => unreachable!("handled above"),
             }
         }
+    }
+
+    /// Whether anything in this world has ever been bitten hard enough to
+    /// call out — i.e. whether the alarm plane exists at all.
+    ///
+    /// The counter half of the lazy allocation: an alarm that reads zero
+    /// everywhere and an alarm plane that was never made look identical from
+    /// `sample`, and only one of them is a statement about the world.
+    #[inline]
+    pub fn alarm_is_live(&self) -> bool {
+        self.alarm.is_some()
     }
 
     /// Run a pass on both planes. Callers call this every frame; the
@@ -437,6 +600,12 @@ impl Pheromones {
         self.stats.passes += 1;
         for plane in &mut self.planes {
             self.stats.tiles_processed += plane.step() as u64;
+        }
+        // The alarm plane pays its pass only once it exists, and it sleeps by
+        // tile exactly as the other two do -- so a world that had one fight
+        // an hour ago is back to two planes' worth of work, not three.
+        if let Some(alarm) = &mut self.alarm {
+            self.stats.tiles_processed += alarm.step() as u64;
         }
     }
 }
