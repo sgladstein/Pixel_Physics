@@ -901,7 +901,22 @@ signature; `Gut` lost `colony`/`rivalry` and gained `scent`/`tolerance_sq`/
 `crosses_kinds`; `World::colony_rivalry` no longer exists (`labstats
 rivalry=1` is an alias for `tolerance=-1 spread=1`). `armour_at` reads
 `st.traits` directly and will want `expressed` traits the day the morph axis
-lands — flagged, not changed.
+lands — flagged, not changed. **Agreed order, by poke-trigger both ways
+(16:22 UTC):** its armour-reach PR lands first, this branch merges `main`
+and lands after. Its diff meets this one in four small places it named —
+`gut_of`'s `bite:` line gains a `world.trait_reach` argument, the
+`TRAIT_ROWS` loop's span becomes `allele_bound(slot, reach)` (1.0 for every
+scent-side slot, so no change here), `specimen::drift`'s clamp reads the
+same bound, and `Dials` gains `trait_reach` with a *named* serde default.
+Two of its findings bind here and were already met: alleles are drawn in
+two places (`try_bud` and `specimen::drift`; `creature::trait_width` serves
+both), and a new `Dials` field wants a named default unless it ships at
+zero (`scent_drift` and `scent_spread` are species fields and ship at 0).
+Its third — `World::plant_ant` claims a fresh colony per call, so a scene
+that places ants in a loop is N colonies — matters to any bed read through
+`regroup_by_scent`: at the shipped dials every label is one point and the
+pass is a no-op, so nothing moved, but a harness that turns the dials on
+over a `plant_ant` loop is measuring fifty colonies.
 
 ## Deliberately not being built yet
 
