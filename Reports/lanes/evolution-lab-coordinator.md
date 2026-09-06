@@ -720,6 +720,18 @@ session cannot reconstruct is here.*
   greedily, and levelling the neighbourhood span **418 / 459 / 411** shed cells
   on the `reinforces_powder` guard; only *minting* it back at field capacity
   recovers the number (198), and that cannot ship. In `dead-ends.md`.
+- **Both thresholds were wrong because the rule was, and the owner had already
+  said so.** Landed at `SOIL_WATERLOGGED`, then switched off entirely the same
+  day on the owner's *"the entire ground in the evolution lab should be able to
+  dig tunnels/chambers"* -- which restates design guide **§2b**, already on the
+  record since 2026-08-30: *"a roof that falls in is what was declined."* **The
+  measurement that reversed it is the transferable part**: a count of cells
+  past a threshold is a projection, and profiling the bed *by depth* showed the
+  waterlogged cells are not scattered beside roots but a **water table standing
+  on the stone floor** -- 94 cells to 1,559 over 12,000 frames, monotone, while
+  every band above held flat. A rising permanent dead zone is not the graded
+  hazard both thresholds were argued as. Filed as **§W5**; lining in the lab
+  bed at frame 12,000 went **40 -> 182 -> 354** across the three builds.
 - **The lab's colony still cannot be photographed digging.** The wall census
   moves 40 → 182 and `roofed` void does not, because the colony starves 52 →
   17 ants by frame 12,000 and `digs` plateaus. That die-off has been in

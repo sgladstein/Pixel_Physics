@@ -294,6 +294,46 @@ fn bed_census(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> Vec<(String,
     v
 }
 
+/// **Where in the bed the waterlogged cells are**, by depth band — the
+/// question `moisture_bands` cannot answer and the one that decides how much
+/// of the box can hold a tunnel.
+///
+/// A count of cells past the un-pack line says how many; it does not say
+/// whether they are scattered beside roots (a root breaking into a gallery,
+/// which is local and arguably wanted) or stacked in a band at the bottom of
+/// the bed (a water table, which makes a whole depth range unusable). Those
+/// are the same number and opposite findings — `CLAUDE.md`'s *ask what your
+/// number counts* — and only a profile separates them.
+///
+/// Eight bands from the surface down, each printed as
+/// `over-waterlogged/soil cells`.
+fn depth_profile(world: &World, x0: i32, x1: i32, y0: i32, y1: i32) -> Vec<(i32, usize, usize, f64)> {
+    let rows = y1 - y0;
+    let band = (rows / 8).max(1);
+    let mut out = Vec::new();
+    let mut y = y0;
+    while y < y1 {
+        let end = (y + band).min(y1);
+        let (mut over, mut cells, mut total) = (0usize, 0usize, 0u64);
+        for yy in y..end {
+            for x in x0..x1 {
+                let c = world.get(x, yy);
+                if world.materials.get(c.material).water_capacity == 0 {
+                    continue;
+                }
+                cells += 1;
+                total += u64::from(c.aux());
+                if c.aux() > material::SOIL_WATERLOGGED {
+                    over += 1;
+                }
+            }
+        }
+        out.push((y - y0, over, cells, total as f64 / cells.max(1) as f64));
+        y = end;
+    }
+    out
+}
+
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(9_000);
     let seeds: u64 = arg("seeds").unwrap_or(2);
@@ -383,6 +423,14 @@ fn main() {
             println!(
                 "      soil water mean {mean:>7.1}  total {total:>10}  free water cells {free:>4}  atmosphere {:>10.0}",
                 world.atmospheric_bank
+            );
+            let prof = depth_profile(world, x0, x1, y0, y1);
+            println!(
+                "      by depth (rows below the surface)  {}",
+                prof.iter()
+                    .map(|(d, over, cells, mean)| format!("{d}:{over}/{cells} m{mean:.0}"))
+                    .collect::<Vec<_>>()
+                    .join("  ")
             );
             let b = moisture_bands(world, x0, x1, y0, y1);
             println!(
