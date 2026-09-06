@@ -1,0 +1,46 @@
+{
+  "id": "20260906T052322480Z-f4ebec",
+  "created": "2026-09-06T05:23:22Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-soil-layer-tjkyv4",
+    "commit": "626a1337",
+    "agent": null,
+    "session_id": "1d2a3a78-704c-54ad-82e0-24247e340db6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "An ant tunnel in damp soil, 1,200 frames after it was cut",
+  "question": "Both beds are the same excavation in the same soil, one unit of water over field capacity — the state the lab's bed reaches within a few hundred frames of anything being planted in it. Does either read as a nest an ant lives in?",
+  "context_md": "burrow_probe arms=damp, seed 1, frame 1200. The shaft, gallery and chamber are carved and lined exactly as creature::line_burrow lines them (367 wall cells worked into packedsoil in BOTH arms, so this is not a digging difference). The only thing that differs is the moisture at which a worked wall gives way: SOIL_FIELD_CAPACITY, which is where drained ground rests, against a new SOIL_WATERLOGGED half-way up the drainable band. Gallery open at frame 1200: 0 of 180 for one arm, 180 of 180 for the other; the losing arm is 100% caved by frame 5.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "un-pack at field capacity (shipped)",
+      "files": [
+        "20260906T052322480Z-f4ebec/000-before_damp.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "un-pack at waterlogged (this change)",
+      "files": [
+        "20260906T052322480Z-f4ebec/001-after_damp.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
