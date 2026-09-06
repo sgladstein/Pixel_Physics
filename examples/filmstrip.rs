@@ -1781,6 +1781,25 @@ fn build_scene(args: &Args) -> World {
             }
             assert!(attackers > 0, "scene=fight placed no attackers -- there is nothing to grade the defender against");
 
+            // **`gnaws` is the number to read across two `reach=` arms, and
+            // `frames_to_first_lost_cell` is NOT.** Measured 2026-09-06: the
+            // two arms report 0 and 6 gnaws -- one bite against six, which is
+            // exactly the grading -- and both report first loss at frame 162,
+            // which looks like the reach doing nothing and is not.
+            //
+            // The arms are *different worlds* from the first tick. Armour is
+            // priced per tick (`armour_fraction`), so the armoured defender
+            // burns nine times the plate tax, so its `BrainInput::Energy`
+            // differs, so it moves somewhere else -- and where two ants
+            // happen to meet is then a different schedule in each arm. A
+            // frame number compared across that is comparing two worlds, the
+            // trap `CLAUDE.md` names for cascades arriving in a fight.
+            //
+            // `gnaws` survives it because it counts a *mechanism* (a bite
+            // that failed to open a cell) rather than a schedule. The
+            // time-to-breach claim belongs to
+            // `a_maximally_armoured_ant_is_graded_only_when_the_reach_allows_it`,
+            // which takes a median over six seeds for this reason.
             println!("scene=fight reach={} : defender armour={} at {FIGHT_DEFENDER:?}, {attackers} attackers at colony 2", args.reach, args.reach);
         }
         "colony" => {
