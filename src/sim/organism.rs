@@ -4506,6 +4506,24 @@ pub struct OrganismState {
     /// soil reads "not short" and any rule keyed on it defers rather than
     /// fires.
     pub root_zone_water: f32,
+    /// The mean fraction of soil nutrient left at this plant's own root
+    /// faces, `0.0..=1.0` — the second resource axis, and what prices new
+    /// tissue.
+    ///
+    /// **1.0 when there is nothing to say**, exactly like `root_zone_water`
+    /// beside it: a plant with no soil faces has no reading, and a rule that
+    /// fired on a missing reading would be inventing one. That default cost
+    /// a bug once already — `break_root_tips` read `root_zone_water`'s 1.0
+    /// as *demand met* for a plant with no countable contact at all — so the
+    /// rule for anything keyed here is the same: check the plant HAS a
+    /// reading before believing it.
+    ///
+    /// Nutrient is deliberately **not** a Liebig `min` against water:
+    /// `plant-soil-nutrient-plan-2026-09-05.md` §3c shows `min` gives the
+    /// non-binding resource exactly zero marginal value, collapses income to
+    /// one axis, and erases the stomatal locus's fitness signal. It prices
+    /// *construction* instead — see `Behavior::Grow`.
+    pub nutrient_status: f32,
     pub shoot_cells: u32,
     /// **Flower and fruit cells**, counted apart from `shoot_cells` above.
     ///
