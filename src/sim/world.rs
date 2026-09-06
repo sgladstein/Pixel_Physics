@@ -3032,6 +3032,41 @@ impl World {
             .collect()
     }
 
+    /// **Live cells per founding line, heaviest first.**
+    ///
+    /// The census behind the lineage overlay, and it lives here rather than
+    /// in `render.rs` for the split every other channel uses: the world owns
+    /// what the quantity *is* and the renderer owns what colour it becomes.
+    /// It is also the only place that can compute it cheaply -- `organisms`
+    /// is private and addressed by stable index, so any caller outside would
+    /// pay `live_organism_ids`' allocation and then a decode per handle.
+    ///
+    /// **Cells, not head-count, and the difference is the whole point.** A
+    /// line of forty seedlings and a line of four mature trees are not the
+    /// same claim on the bed, and a selection box is asked which line is
+    /// *taking* it. Counting individuals would rank a stand of failures over
+    /// the tree shading them out.
+    ///
+    /// **Total order, never a bare mass sort.** Ties are broken on the line
+    /// number, so two lines of equal mass cannot swap places between frames
+    /// -- which would make them swap *colours* on screen with nothing in the
+    /// world having changed. `CLAUDE.md` records tie-order as rare,
+    /// catastrophic and invisible to the suite; this is that hazard in its
+    /// visible form.
+    pub fn lineage_mass(&self) -> Vec<(u32, u32)> {
+        let mut by_line: std::collections::HashMap<u32, u32> = std::collections::HashMap::new();
+        for slot in self.organisms.iter() {
+            let Some(state) = &slot.state else { continue };
+            // A senescent body is still standing and still holds its ground,
+            // so it still counts: the overlay answers "who holds the bed",
+            // and rubble that has not rotted yet is holding it.
+            *by_line.entry(state.lineage).or_insert(0) += state.cells.len() as u32;
+        }
+        let mut out: Vec<(u32, u32)> = by_line.into_iter().collect();
+        out.sort_unstable_by(|a, b| b.1.cmp(&a.1).then(a.0.cmp(&b.0)));
+        out
+    }
+
     /// Advance every promoted liquid body by one frame — its own serial
     /// phase, after the CA sweep and before active sites (`app.rs`'s own
     /// comment on the call site has the frame-order reasoning; design doc
@@ -6409,6 +6444,103 @@ fn aux_trap_frame() -> Option<u64> {
 
 #[cfg(test)]
 mod tests {
+
+    /// An organism of `cells` cells on founding line `line`, laid along row
+    /// 0 from `next` so no two bodies share a cell. Built through the real
+    /// `push_organism` seam rather than by pushing a slot, so the census is
+    /// walking the same store the engine fills.
+    fn spawn_line(world: &mut World, line: u32, cells: usize, next: &mut i32) -> u16 {
+        let species = crate::sim::organism::SpeciesId(0);
+        let Some(id) = world.push_organism(species) else { return 0 };
+        let Some(state) = world.organism_mut(id) else { return 0 };
+        state.lineage = line;
+        for _ in 0..cells {
+            state.cells.insert((*next, 0), crate::sim::organism::OrganismCell::default());
+            *next += 1;
+        }
+        id
+    }
+
+    /// **`lineage_mass` ranks by cells and its order is total.**
+    ///
+    /// Three claims, and each is a thing the overlay reading it would get
+    /// visibly wrong. Ranking by head-count would put a line of failed
+    /// seedlings above the tree shading them out. A bare mass sort would let
+    /// two equal lines swap places between frames -- and therefore swap
+    /// *colours* on screen with nothing in the world having changed, which is
+    /// `CLAUDE.md`'s tie-order hazard in the one form a player can see. And a
+    /// total that does not match the live population means the overlay is
+    /// colouring off a census of something else.
+    #[test]
+    fn lineage_mass_ranks_by_cells_with_a_total_order() {
+        let mut world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        // Line 7: four organisms of one cell. Line 3: one organism of two.
+        // Head-count says 7 wins 4-to-1; cells say 7 wins 4-to-2 -- so the
+        // arms have to differ in *rank*, not merely in number, for this to
+        // discriminate. Line 9 gets three cells and takes the top, which is
+        // the arm head-count would rank last.
+        let plan: [(u32, &[usize]); 3] = [(7, &[1, 1, 1, 1]), (3, &[2]), (9, &[3])];
+        let mut placed = 0i32;
+        for (line, bodies) in plan {
+            for cells in bodies {
+                let id = spawn_line(&mut world, line, *cells, &mut placed);
+                assert!(id != 0, "test setup: the world refused an organism");
+            }
+        }
+        let census = world.lineage_mass();
+        assert_eq!(
+            census,
+            vec![(7, 4), (9, 3), (3, 2)],
+            "ranked by cells, heaviest first -- head-count would have put line 9 last"
+        );
+
+        // **Ties break on the line number, ascending -- checked over six
+        // tied lines rather than one.** A single tie catches a missing
+        // tie-break only half the time: without it the order is whatever the
+        // census `HashMap` iterated, which is fixed within a process and so
+        // has an even chance of being right by luck. Six tied lines put that
+        // at one in 720, which is the difference between a guard and a coin.
+        for line in [12, 4, 8, 2, 11, 1] {
+            assert!(spawn_line(&mut world, line, 4, &mut placed) != 0, "test setup");
+        }
+        let tied = world.lineage_mass();
+        let top: Vec<u32> = tied.iter().take_while(|(_, m)| *m == 4).map(|(l, _)| *l).collect();
+        assert_eq!(
+            top,
+            vec![1, 2, 4, 7, 8, 11, 12],
+            "seven lines of four cells must come out in line order, not in census order"
+        );
+        assert_eq!(tied, world.lineage_mass(), "two censuses of one world disagreed");
+
+        let live: u32 = world
+            .live_organism_ids()
+            .into_iter()
+            .filter_map(|id| world.organism(id))
+            .map(|s| s.cells.len() as u32)
+            .sum();
+        assert_eq!(tied.iter().map(|(_, m)| m).sum::<u32>(), live, "the census lost or invented cells");
+    }
+
+    /// **A freed organism leaves its cells behind, and the census must not
+    /// count them.** `free_organism` clears the slot and leaves the handle
+    /// written in the world, so a census walking *cells* rather than slots
+    /// would go on crediting a line with ground it no longer holds -- the
+    /// exact opposite of what "who holds the bed" means.
+    #[test]
+    fn lineage_mass_drops_a_line_once_its_last_body_is_freed() {
+        let mut world = crate::sim::world::World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let mut placed = 0i32;
+        let doomed = spawn_line(&mut world, 5, 2, &mut placed);
+        let _keeper = spawn_line(&mut world, 6, 1, &mut placed);
+        assert_eq!(world.lineage_mass(), vec![(5, 2), (6, 1)], "test setup");
+
+        world.free_organism(doomed);
+        assert_eq!(
+            world.lineage_mass(),
+            vec![(6, 1)],
+            "line 5 is still counted after its only body was freed"
+        );
+    }
     use super::*;
 
     fn test_world() -> World {

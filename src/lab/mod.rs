@@ -1755,15 +1755,34 @@ impl Lab {
     /// -- a death, or a slot reused by something else -- and says so, rather
     /// than letting the page quietly become a different animal.
     fn follow_pin(&mut self) {
-        let Some(who) = self.ui.pinned() else { return };
+        let Some(who) = self.ui.pinned() else {
+            // No pin, no subject. `LineageOne` then greys the bed, which is
+            // what it should do -- see the variant's doc for why that beats
+            // drawing nothing.
+            self.renderer.focus_lineage = None;
+            return;
+        };
         let Some(state) = who.resolve(&self.world) else {
             // The pin is kept rather than dropped: the page says THIS ONE HAS
             // DIED, which is the thing worth knowing, and RELEASE is how you
             // put it away. A pin that vanished on its own would leave the
             // player wondering whether they mis-clicked.
+            //
+            // **`focus_lineage` is kept with it, deliberately.** The
+            // individual is gone and its *line* may not be, and "did this one
+            // leave anything behind" is the question a selection box is being
+            // asked -- so the overlay goes on showing the line while the
+            // roster shows the death. Clearing it here would blank the answer
+            // at the moment it got interesting.
             self.ui.stop_following();
             return;
         };
+        // **The lineage overlay's subject, refreshed with the pin.** Set
+        // here rather than at the click because a pin outlives the click and
+        // the overlay has to follow it -- including across a `RosterSelect`
+        // that moves the pin to a different line without touching the
+        // overlay chip. See `Renderer::focus_lineage`.
+        self.renderer.focus_lineage = Some(state.lineage);
         let at = roster::anchor_of(state);
         if let Some(at) = at {
             self.ui.inspect_at(at, who.id);
@@ -4131,6 +4150,228 @@ mod tests {
             wanted.id,
             "the page is pointed at a cell the pinned animal does not own"
         );
+    }
+
+    /// **ONE LINE paints the pinned individual's founding line and greys
+    /// everything else alive.**
+    ///
+    /// Asserted on the rendered pixels rather than on the overlay enum,
+    /// because everything interesting here happens between the two: the pin
+    /// has to reach `Renderer::focus_lineage`, the channel has to resolve a
+    /// cell's handle to a *live* organism, and the colour has to be a full
+    /// replace rather than a blend. An enum check would pass for a build
+    /// that painted nothing at all.
+    ///
+    /// Both halves, because a channel that paints everything and one that
+    /// paints nothing each satisfy one of them.
+    #[test]
+    fn the_one_line_overlay_paints_the_pinned_line_and_greys_the_rest() {
+        let mut lab = bench();
+        // **Stocked on the right of the bed, not the middle.** A pin forces
+        // the cell page open, and with no other page up it anchors at the
+        // left margin -- 4..181 of a 512-wide screen, measured. The first run
+        // of this guard stocked at the centre, put every ant at x=153, and
+        // asserted `PANEL_BG` against a lineage colour.
+        let x = lab.spec.width * 4 / 5;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+
+        let rows = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        // A stocked colony claims a fresh lineage per animal, so two rows are
+        // two lines -- which is the situation this overlay is for.
+        let mine = rows.iter().find(|r| rows.iter().any(|o| o.lineage != r.lineage)).expect("two lines");
+        // **The furthest other line, not the nearest.** A pin draws a reticle
+        // with ticks *outside* its ring, and a stocked colony is packed --
+        // the first run of this guard sampled the ant next door and read
+        // `MARKER` (255,214,92) where it wanted the grey. That is chrome
+        // drawn over the channel, not the channel being wrong, so the fix is
+        // to sample out of the marker's reach rather than to widen the
+        // assertion.
+        let other = rows
+            .iter()
+            .filter(|r| r.lineage != mine.lineage)
+            .max_by_key(|r| (r.at.0 - mine.at.0).abs() + (r.at.1 - mine.at.1).abs())
+            .expect("a second line");
+        assert!(
+            (other.at.0 - mine.at.0).abs() + (other.at.1 - mine.at.1).abs() > 8,
+            "test setup: every other line is inside the pin marker's reach"
+        );
+        let (mine_at, other_at) = (mine.at, other.at);
+        lab.ui.pin(mine.who);
+
+        lab.renderer.organism_overlay = crate::render::OrganismOverlay::LineageOne;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+        assert_eq!(lab.renderer.focus_lineage, Some(mine.lineage), "the pin never reached the renderer");
+
+        // **Sampled where the interface is not standing over the world.**
+        // A pin opens the cell page, and with no other page up it anchors at
+        // the left margin -- straight over the bed. Reading a covered pixel
+        // measures the panel, which is a picture of `PANEL_BG` being asserted
+        // against a lineage colour: the first run of this guard failed
+        // exactly that way, and the failure was the harness rather than the
+        // channel.
+        let want = |c: [f32; 3]| -> [u8; 3] { [c[0] as u8, c[1] as u8, c[2] as u8] };
+        let sample = |who: roster::Individual, at: (i32, i32), lab: &Lab, buf: &[u8]| -> Option<[u8; 3]> {
+            let state = who.resolve(&lab.world)?;
+            // Any cell of the body, not only its anchor: an ant is two cells
+            // and the panel may be over one of them.
+            let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+            cells.sort_unstable();
+            cells.push(at);
+            for (wx, wy) in cells {
+                let Some((sx, sy)) = lab.renderer.world_to_screen(wx, wy) else { continue };
+                if lab.ui.covers(sx, sy) || sx < 0 || sy < 0 || sx >= WIDTH as i32 || sy >= HEIGHT as i32 {
+                    continue;
+                }
+                let o = ((sy * WIDTH as i32 + sx) * 4) as usize;
+                return Some([buf[o], buf[o + 1], buf[o + 2]]);
+            }
+            None
+        };
+        assert_eq!(
+            sample(mine.who, mine_at, &lab, &buf),
+            Some(want(crate::render::LINEAGE_COLOURS[0])),
+            "the pinned line is not highlighted"
+        );
+        assert_eq!(
+            sample(other.who, other_at, &lab, &buf),
+            Some(want(crate::render::LINEAGE_OTHER)),
+            "another line is not greyed"
+        );
+    }
+
+    /// **FOUNDING LINES gives the heaviest lines a colour each and greys
+    /// the rest.**
+    ///
+    /// The other half of the overlay, and the half with a bound in it:
+    /// `lineage` is an unbounded counter, so only the top
+    /// `LINEAGE_COLOURS.len()` can have a colour and everything past that
+    /// has to read as "not one of the ones winning". Both ends are asserted
+    /// -- a build that coloured everything and one that coloured nothing
+    /// each satisfy one of them.
+    ///
+    /// It also pins the cost claim the channel is documented under: two
+    /// draws of a world that has not moved must produce the same ranking, or
+    /// the "repaint only when the mapping changes" amortisation is repainting
+    /// every frame.
+    #[test]
+    fn the_founding_lines_overlay_colours_the_heaviest_and_greys_the_tail() {
+        let mut lab = bench();
+        let x = lab.spec.width * 4 / 5;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+        lab.ui.release_pin();
+
+        let census = lab.world.lineage_mass();
+        assert!(
+            census.len() > crate::render::LINEAGE_COLOURS.len(),
+            "test setup: {} lines, need more than the {} colours for the tail to exist",
+            census.len(),
+            crate::render::LINEAGE_COLOURS.len()
+        );
+        let top = census[0].0;
+        let tail = census[crate::render::LINEAGE_COLOURS.len()].0;
+
+        lab.renderer.organism_overlay = crate::render::OrganismOverlay::Lineage;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+
+        let want = |c: [f32; 3]| -> [u8; 3] { [c[0] as u8, c[1] as u8, c[2] as u8] };
+        let of_line = |line: u32, lab: &Lab, buf: &[u8]| -> Option<[u8; 3]> {
+            for id in lab.world.live_organism_ids() {
+                let Some(state) = lab.world.organism(id) else { continue };
+                if state.lineage != line {
+                    continue;
+                }
+                let mut cells: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+                cells.sort_unstable();
+                for (wx, wy) in cells {
+                    let Some((sx, sy)) = lab.renderer.world_to_screen(wx, wy) else { continue };
+                    if lab.ui.covers(sx, sy) || sx < 0 || sy < 0 || sx >= WIDTH as i32 || sy >= HEIGHT as i32 {
+                        continue;
+                    }
+                    let o = ((sy * WIDTH as i32 + sx) * 4) as usize;
+                    return Some([buf[o], buf[o + 1], buf[o + 2]]);
+                }
+            }
+            None
+        };
+        assert_eq!(
+            of_line(top, &lab, &buf),
+            Some(want(crate::render::LINEAGE_COLOURS[0])),
+            "the heaviest line did not take the first colour"
+        );
+        assert_eq!(
+            of_line(tail, &lab, &buf),
+            Some(want(crate::render::LINEAGE_OTHER)),
+            "a line past the end of the palette was given a colour"
+        );
+
+        // A second draw of an unmoved world must not reshuffle the mapping.
+        let before = lab.world.lineage_mass();
+        lab.draw(&mut buf, 60.0);
+        assert_eq!(before, lab.world.lineage_mass(), "the ranking moved with the world frozen");
+        assert_eq!(
+            of_line(top, &lab, &buf),
+            Some(want(crate::render::LINEAGE_COLOURS[0])),
+            "the heaviest line changed colour between two draws of one world"
+        );
+    }
+
+    /// **With nothing pinned it greys the bed rather than looking switched
+    /// off.** A channel that paints normally when it has no subject is
+    /// indistinguishable from the overlay being off, which is the confusion
+    /// `CLAUDE.md` records for a debug view whose failures all look the same.
+    #[test]
+    fn the_one_line_overlay_greys_the_bed_with_nothing_pinned() {
+        let mut lab = bench();
+        let x = lab.spec.width / 2;
+        let surface = lab.spec.ground_y;
+        lab.act(ui::Action::Tool(ui::Tool::Colony));
+        click_cell(&mut lab, x, surface);
+        let rows = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(!rows.is_empty(), "test setup: the colony released nobody");
+        let ats: Vec<(i32, i32)> = rows.iter().map(|r| r.at).collect();
+
+        lab.ui.release_pin();
+        lab.renderer.organism_overlay = crate::render::OrganismOverlay::LineageOne;
+        let mut buf = vec![0u8; (WIDTH * HEIGHT * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+        assert_eq!(lab.renderer.focus_lineage, None, "a released pin left a subject behind");
+
+        let grey = [
+            crate::render::LINEAGE_OTHER[0] as u8,
+            crate::render::LINEAGE_OTHER[1] as u8,
+            crate::render::LINEAGE_OTHER[2] as u8,
+        ];
+        let mut checked = 0;
+        for at in ats {
+            let Some((sx, sy)) = lab.renderer.world_to_screen(at.0, at.1) else { continue };
+            if lab.ui.covers(sx, sy) {
+                continue;
+            }
+            let o = ((sy * WIDTH as i32 + sx) * 4) as usize;
+            assert_eq!([buf[o], buf[o + 1], buf[o + 2]], grey, "an animal at {at:?} was not greyed");
+            checked += 1;
+        }
+        // Otherwise a build where the interface covered every animal would
+        // pass this having asserted nothing at all.
+        assert!(checked > 0, "no animal was visible to check");
     }
 
     /// **CULL REST keeps the marked ones and takes everything else.**

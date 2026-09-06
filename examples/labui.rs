@@ -19,6 +19,7 @@
 //! founders to have grown into something the pages have numbers about).
 
 use pixel_physics::lab::roster;
+use pixel_physics::render;
 use pixel_physics::lab::ui::{Action, Panel, Tool};
 use pixel_physics::lab::{scene::LabBox, Lab, HEIGHT, WIDTH};
 
@@ -446,6 +447,158 @@ fn main() {
             tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
         }
     }
+    // 6a-quinquies. **The lineage overlay, both modes.** The one channel in
+    //               the lab that asks a question about the population rather
+    //               than about one thing, so it is also the one whose picture
+    //               cannot be read without a count beside it: a bed drawn in
+    //               six colours and a bed drawn in six colours where one line
+    //               holds 80% of the ground look the same at a glance, and
+    //               only the census says which it is.
+    {
+        // Away from any page, so the bed is not half-covered by chrome.
+        if let Some(open) = lab.ui.panel {
+            let at = match open {
+                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
+                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
+                other => centre(&lab, Action::Panel(other)),
+            };
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        lab.ui.release_pin();
+        // **And put the cell page away.** Releasing the pin stops `follow_pin`
+        // re-aiming it but does not close it, so the page stays open on
+        // whatever was last inspected -- a third of the bed behind a panel, in
+        // a tile whose whole subject is how the bed is divided up.
+        if let Some(at) = lab.ui.inspecting() {
+            lab.ui.inspect(&lab.world, at);
+        }
+        lab.set_cursor(None);
+
+        let census = lab.world.lineage_mass();
+        let total: u32 = census.iter().map(|(_, m)| m).sum();
+        let shown = census.len().min(6);
+        let held: u32 = census.iter().take(shown).map(|(_, m)| m).sum();
+        fired.push(format!(
+            "LINEAGE: {} lines over {total} cells; the top {shown} hold {held} ({}%), heaviest line {} with {}",
+            census.len(),
+            (held * 100).checked_div(total).unwrap_or(0),
+            census.first().map_or(0, |(l, _)| *l),
+            census.first().map_or(0, |(_, m)| *m),
+        ));
+
+        lab.renderer.organism_overlay = render::OrganismOverlay::Lineage;
+        tiles.push(("LINEAGE: FOUNDING LINES".into(), shot(&mut lab)));
+
+        // ...and the same bed with one line picked out. **The heaviest line,
+        // found rather than assumed**: row 0 of the animal list was an ant
+        // holding 2 of 1,306 cells, and a tile of a 0% highlight is a picture
+        // of the overlay failing. Pinned through the roster, because the pin
+        // is what drives it and a directly-set focus would photograph a path
+        // no player can take.
+        let top_line = census.first().map_or(0, |(l, _)| *l);
+        let animal = lab.world.live_organism_ids().into_iter().any(|id| {
+            lab.world.organism(id).is_some_and(|st| {
+                st.lineage == top_line && lab.world.species.get(st.species).creature.is_some()
+            })
+        });
+        let (cover, list, kingdom) = if animal {
+            (Panel::Ants, Panel::AntList, roster::Kingdom::Creatures)
+        } else {
+            (Panel::Plants, Panel::PlantList, roster::Kingdom::Plants)
+        };
+        open_list(&mut lab, cover, list);
+        let (key, desc) = lab.ui.roster_sort_key(kingdom);
+        let row = roster::rows(&lab.world, kingdom, key, desc, lab.ui.roster_filter())
+            .iter()
+            .position(|r| r.lineage == top_line);
+        match row {
+            Some(row) => {
+                let at = centre(&lab, Action::RosterSelect(row));
+                click(&mut lab, at);
+                let _ = shot(&mut lab);
+            }
+            None => fired.push(format!("LINEAGE ONE: no row carries the heaviest line {top_line}")),
+        }
+        // **Then leave the roster, because the pin outlives it.** The table
+        // and the cell page together cover almost the whole screen, and the
+        // subject of this tile is the *bed*: the first render of it was a
+        // picture of two panels with a sliver of ground above them. Pressing
+        // BACK is also the gesture -- pick your line in the list, then go and
+        // look at where it is.
+        let at = centre(&lab, Action::Panel(cover));
+        click(&mut lab, at);
+        let _ = shot(&mut lab);
+        if lab.ui.panel.is_some() {
+            let at = centre(&lab, Action::Panel(cover));
+            click(&mut lab, at);
+            let _ = shot(&mut lab);
+        }
+        let line = lab.renderer.focus_lineage;
+        let mass = census.iter().find(|(l, _)| Some(*l) == line).map_or(0, |(_, m)| *m);
+        fired.push(format!(
+            "LINEAGE ONE: line {line:?} holds {mass} of {total} cells ({}%), the heaviest of {}",
+            (mass * 100).checked_div(total).unwrap_or(0),
+            census.len()
+        ));
+        lab.renderer.organism_overlay = render::OrganismOverlay::LineageOne;
+        lab.set_cursor(None);
+        tiles.push(("LINEAGE: ONE LINE".into(), shot(&mut lab)));
+
+        // **What the channel costs, as a counter rather than a clock.** The
+        // overlay is documented as repainting only on the frames the ranking
+        // moves, against the animated grain's measured ~10 ms every frame --
+        // so the quantity that decides whether that is worth anything is how
+        // often it moves. Counted over a live box rather than argued: a
+        // ranking that reshuffles every tick would be paying the full bill
+        // under a comment claiming it does not.
+        let ranked = |lab: &Lab| -> Vec<u32> {
+            lab.world.lineage_mass().into_iter().take(6).map(|(l, _)| l).collect()
+        };
+        let mut previous = ranked(&lab);
+        let (mut moved, ticks) = (0u32, 600);
+        for _ in 0..ticks {
+            lab.tick_for_harness();
+            let now = ranked(&lab);
+            if now != previous {
+                moved += 1;
+                previous = now;
+            }
+        }
+        // **And the positive control, because 0 of 600 is exactly the tidy
+        // null `CLAUDE.md` says to distrust.** A counter that cannot move
+        // reads identically to a channel that is genuinely free. Killing the
+        // heaviest line has to reshuffle the top six; if this comes back 0
+        // too, the number above is measuring the probe.
+        let doomed = ranked(&lab).first().copied().unwrap_or(0);
+        for id in lab.world.live_organism_ids() {
+            if lab.world.organism(id).is_some_and(|st| st.lineage == doomed) {
+                lab.world.mark_organism_senescent(id);
+            }
+        }
+        let mut control_previous = ranked(&lab);
+        let mut control_moved = 0u32;
+        for _ in 0..6000 {
+            lab.tick_for_harness();
+            let now = ranked(&lab);
+            if now != control_previous {
+                control_moved += 1;
+                control_previous = now;
+            }
+        }
+        fired.push(format!(
+            "LINEAGE cost: the top-6 mapping moved on {moved} of {ticks} ticks -- that is how often this channel forces a full redraw. Control, after culling the heaviest line: {control_moved} moves in 6000"
+        ));
+
+        lab.renderer.organism_overlay = render::OrganismOverlay::Off;
+        // **Hand the pin back.** `RosterSelect` toggles, so a block that
+        // leaves row 0 pinned makes the next block's first click *unpin* it
+        // -- and the verbs that need a pin then have no button, which is how
+        // this was found: the CULL block below panicked on a missing SPARE.
+        lab.ui.release_pin();
+        let _ = shot(&mut lab);
+    }
+
     // 6a-quater. **SPARE and CULL REST: keep these, kill the others.**
     //            Driven through the real chips, because the gesture is the
     //            feature: pin a row, press SPARE, pin another, press SPARE,

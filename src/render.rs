@@ -1150,6 +1150,41 @@ pub enum OrganismOverlay {
     /// cantilever's root, so a linear ramp is a black plant with three lit
     /// cells on it. See `SCALAR_RAMP_BEND_DECADES`.
     Stress,
+    /// **Which founding line holds the bed** — the heaviest few lines each
+    /// in their own colour, everything else one flat grey.
+    ///
+    /// The only channel here that asks a question about the *population*
+    /// rather than about a cell or an individual, and it is the question a
+    /// selection box exists to ask: is one line taking over? The roster's
+    /// `LINE` filter can already narrow the table to one founding line, but
+    /// a list of forty rows cannot show where those forty are or what share
+    /// of the ground they hold -- one line spread thin everywhere and one
+    /// line owning the left third produce the same table.
+    ///
+    /// **Ranked by cells, not by head-count** (`World::lineage_mass`), and
+    /// **only the top [`LINEAGE_COLOURS`]`.len()`** get a colour: `lineage`
+    /// is an unbounded counter and a long run has hundreds of founders, so
+    /// a colour per line is a hash into noise rather than a readout. The
+    /// rest draw in [`LINEAGE_OTHER`], which is the honest answer -- "not
+    /// one of the ones winning" is the fact worth carrying.
+    Lineage,
+    /// **Where one line is**, and nothing else: the focused line in the
+    /// first lineage colour, every other living thing in [`LINEAGE_OTHER`].
+    ///
+    /// The spatial form of the roster's `LINE` filter, driven by the same
+    /// pin. Separate from [`OrganismOverlay::Lineage`] rather than a mode
+    /// of it because the two answer different questions -- *which* lines
+    /// win, against *where* this one is -- and a single overlay that
+    /// silently changed meaning when a pin appeared would be a readout you
+    /// cannot learn.
+    ///
+    /// **With nothing focused it greys the whole bed rather than drawing
+    /// nothing.** A channel that paints normally when it has no subject is
+    /// indistinguishable from the overlay being off, which is exactly the
+    /// confusion `CLAUDE.md` records for a debug view whose failures all
+    /// look identical. A desaturated world says "this is on, and it has
+    /// nobody to show you".
+    LineageOne,
 }
 
 impl OrganismOverlay {
@@ -1168,7 +1203,9 @@ impl OrganismOverlay {
             OrganismOverlay::SoilMoisture => OrganismOverlay::FoodValue,
             OrganismOverlay::FoodValue => OrganismOverlay::GutBias,
             OrganismOverlay::GutBias => OrganismOverlay::Stress,
-            OrganismOverlay::Stress => OrganismOverlay::Off,
+            OrganismOverlay::Stress => OrganismOverlay::Lineage,
+            OrganismOverlay::Lineage => OrganismOverlay::LineageOne,
+            OrganismOverlay::LineageOne => OrganismOverlay::Off,
         }
     }
 
@@ -1184,9 +1221,45 @@ impl OrganismOverlay {
             OrganismOverlay::FoodValue => "FOOD VALUE",
             OrganismOverlay::GutBias => "GUT BIAS",
             OrganismOverlay::Stress => "BENDING STRESS",
+            OrganismOverlay::Lineage => "FOUNDING LINES",
+            OrganismOverlay::LineageOne => "ONE LINE",
         }
     }
 }
+
+/// **The founding-line palette: six hues, and six is a decision.**
+///
+/// `OrganismState::lineage` is an unbounded monotonic counter, so "colour by
+/// line" is not a design -- a bed with two hundred founders has no two
+/// hundred colours a person can hold apart, and hashing the id into a wheel
+/// produces a picture that *looks* like information and carries none. Six is
+/// about the limit of a categorical set read at a glance, and the overlay is
+/// asked "which lines are winning", which is a question about a handful.
+///
+/// Chosen for separation on this engine's dark ground and against each other
+/// rather than for prettiness, and deliberately unlike the material palette:
+/// this is a false-colour readout and a line drawn in wood-brown would be
+/// read as wood. The same law every ramp above is written under -- a **full
+/// replace**, never a blend into the cell's own colour, because a
+/// magnitude-scaled blend once produced a canopy sheet that read as blank.
+pub(crate) const LINEAGE_COLOURS: [[f32; 3]; 6] = [
+    [255.0, 90.0, 90.0],
+    [90.0, 200.0, 255.0],
+    [255.0, 210.0, 80.0],
+    [140.0, 255.0, 130.0],
+    [230.0, 130.0, 255.0],
+    [255.0, 150.0, 60.0],
+];
+
+/// **Everything that is not one of the coloured lines.**
+///
+/// Dim, desaturated and still clearly *painted* -- it has to read as "an
+/// organism the overlay is not highlighting" and not as bare ground, or the
+/// picture answers a different question (where is anything alive) than the
+/// one asked (which line is this). Above `SCALAR_RAMP_FLOOR`'s darkness for
+/// that reason: the floor of a magnitude ramp means "almost none of the
+/// quantity", and there is no quantity here to have almost none of.
+pub(crate) const LINEAGE_OTHER: [f32; 3] = [96.0, 100.0, 108.0];
 
 /// Per-`CellType` colours for `OrganismOverlay::CellType`. Deliberately
 /// high-contrast and *not* botanically suggestive — this is a debug
@@ -2100,6 +2173,33 @@ pub struct Renderer {
     /// `last_zoom_state` exists, and the reason this overlay can otherwise
     /// leave the dirty-rect skip alone.
     last_organism_overlay: OrganismOverlay,
+    /// **The founding line [`OrganismOverlay::LineageOne`] highlights**, set
+    /// by whatever is holding a pin -- the lab's roster does it every frame
+    /// from `Ui::pinned`.
+    ///
+    /// On the renderer rather than passed into `draw` because
+    /// `apply_organism_overlay` is a `&self` method called per cell, and
+    /// because the outdoor game has no roster: there it simply stays `None`
+    /// and the channel greys the world, which is what it should do with
+    /// nobody selected.
+    pub focus_lineage: Option<u32>,
+    /// `focus_lineage` as of the last `draw`. A change repaints for
+    /// `last_organism_overlay`'s reason -- the channel is the same but every
+    /// tinted pixel now means something else -- and the overlay enum alone
+    /// cannot see it, because moving the pin does not change the variant.
+    last_focus_lineage: Option<u32>,
+    /// **Line number to palette slot, rebuilt every drawn frame the
+    /// lineage overlay is on**, heaviest line first.
+    ///
+    /// Cached rather than recomputed per cell for the obvious reason, and
+    /// *compared* against last frame's for a less obvious one: the ranking
+    /// changes when nothing dirties a chunk -- a line loses its last
+    /// seedling somewhere off screen and every remaining line shifts a
+    /// colour. So the full redraw is paid on the frames the mapping
+    /// actually moves and not on every frame, which is the same
+    /// amortisation the stepped grain modes use and for the same measured
+    /// reason: a redraw every frame on a settled world costs ~10 ms.
+    lineage_ranks: Vec<(u32, usize)>,
     /// `(zoom, zoom_out_stride)` as of the last `draw` call — a change since
     /// then means the whole frame buffer's existing bytes were computed at
     /// the wrong scale, forcing one full redraw to re-establish it before
@@ -2377,6 +2477,9 @@ impl Renderer {
             field_overlay: FieldOverlay::Off,
             organism_overlay: OrganismOverlay::Off,
             last_organism_overlay: OrganismOverlay::Off,
+            focus_lineage: None,
+            last_focus_lineage: None,
+            lineage_ranks: Vec::new(),
             last_zoom_state: None,
             last_look: None,
             glow_tiles: std::collections::HashSet::new(),
@@ -2943,8 +3046,42 @@ impl Renderer {
         // channels that read the sidecar rather than `Cell::aux` — one every
         // frame, since those values change with no chunk dirtied. See
         // `organism_overlay`'s own doc for why that split is exact.
-        let organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
+        let mut organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
         self.last_organism_overlay = self.organism_overlay;
+
+        // **The founding-line ranking, rebuilt here and compared, not
+        // recomputed per cell.** See `lineage_ranks`: the mapping moves with
+        // nothing in the world dirtied, so a change is its own reason for one
+        // full redraw -- and *only* a change is, which is what keeps this
+        // channel off the ~10 ms/frame bill the animated grain pays.
+        match self.organism_overlay {
+            OrganismOverlay::Lineage => {
+                let ranks: Vec<(u32, usize)> = world
+                    .lineage_mass()
+                    .into_iter()
+                    .take(LINEAGE_COLOURS.len())
+                    .enumerate()
+                    .map(|(rank, (line, _))| (line, rank))
+                    .collect();
+                if ranks != self.lineage_ranks {
+                    self.lineage_ranks = ranks;
+                    organism_overlay_changed = true;
+                }
+            }
+            // Dropped the moment the channel is off, so switching back to it
+            // cannot paint one frame from a stale ranking.
+            _ if !self.lineage_ranks.is_empty() => {
+                self.lineage_ranks.clear();
+                organism_overlay_changed = true;
+            }
+            _ => {}
+        }
+        if self.last_focus_lineage != self.focus_lineage {
+            self.last_focus_lineage = self.focus_lineage;
+            if self.organism_overlay == OrganismOverlay::LineageOne {
+                organism_overlay_changed = true;
+            }
+        }
         let organism_overlay_is_live = matches!(
             self.organism_overlay,
             OrganismOverlay::Resource | OrganismOverlay::CanopyDensity | OrganismOverlay::VeinConductance
@@ -5560,6 +5697,36 @@ impl Renderer {
             }
             return out;
         }
+        if matches!(self.organism_overlay, OrganismOverlay::Lineage | OrganismOverlay::LineageOne) {
+            // **`world.organism`, not the raw handle.** `free_organism`
+            // clears the slot and leaves the id written in the cells, so a
+            // dead body still reads back a handle -- painting off that would
+            // colour corpses into a line that no longer holds them, which is
+            // the opposite of what "who holds the bed" means. `None` here
+            // falls through to `base`, so rubble draws as rubble.
+            let Some(state) = world.organism(cell.organism_id()) else {
+                return base;
+            };
+            let colour = if self.organism_overlay == OrganismOverlay::LineageOne {
+                // With nothing focused every organism takes the other-colour,
+                // which greys the bed rather than leaving it looking as though
+                // the overlay were off. See the variant's own doc.
+                match self.focus_lineage {
+                    Some(line) if line == state.lineage => LINEAGE_COLOURS[0],
+                    _ => LINEAGE_OTHER,
+                }
+            } else {
+                self.lineage_ranks
+                    .iter()
+                    .find(|(line, _)| *line == state.lineage)
+                    .map_or(LINEAGE_OTHER, |(_, rank)| LINEAGE_COLOURS[*rank])
+            };
+            let mut out = base;
+            for (c, r) in out.iter_mut().take(3).zip(colour) {
+                *c = r.round().clamp(0.0, 255.0) as u8;
+            }
+            return out;
+        }
         if self.organism_overlay == OrganismOverlay::GutBias {
             // Asks the *organism*, not the cell: `gut_bias` is a property of
             // the animal, and every cell of a chain carries the same one.
@@ -5668,7 +5835,18 @@ impl Renderer {
             // about every cell in the world -- a fallen leaf and a corpse
             // are food and belong to no organism, which is exactly the case
             // the tissue guard below would drop.
-            OrganismOverlay::Off | OrganismOverlay::PlantHealth | OrganismOverlay::SoilMoisture | OrganismOverlay::FoodValue | OrganismOverlay::GutBias => return base,
+            //
+            // The two lineage channels join them for a reason of their own:
+            // they ask about the *organism*, and the tissue guard above
+            // admits any cell carrying a handle -- including one a dead
+            // organism left written behind it.
+            OrganismOverlay::Off
+            | OrganismOverlay::PlantHealth
+            | OrganismOverlay::SoilMoisture
+            | OrganismOverlay::FoodValue
+            | OrganismOverlay::GutBias
+            | OrganismOverlay::Lineage
+            | OrganismOverlay::LineageOne => return base,
             OrganismOverlay::CellType => {
                 // An unrecognized type bit pattern is a real possibility
                 // (`organism.rs`'s own `an_unrecognized_type_bit_pattern_
