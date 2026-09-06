@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
+use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -1508,6 +1508,12 @@ pub const CURVATURE_MAX: f32 = 16.0;
 /// is what carries a beetle from 0.3 to soil's 0.8.
 pub const DIG_FORCE_SPAN: f32 = 1.0;
 
+/// The thinnest plate a lineage may evolve, as a multiple of its material's
+/// own resistance. Not zero: armour of nothing means any mouth opens the cell
+/// in one bite whatever its force, which puts a threshold back at the bottom
+/// of an axis built to remove one.
+pub const ARMOUR_MIN: f32 = 0.1;
+
 /// The smallest crop a lineage may evolve, in joules of face value.
 /// `CreatureDef::crop_capacity`'s own doc: a cell only leaves the crop at
 /// whole unit worth, so an animal under one unit can never put anything down
@@ -1632,6 +1638,35 @@ fn ratio_factor(t: f32) -> f32 {
     } else {
         1.0 - t
     }
+}
+
+/// **How well armoured this particular animal is**, as a multiplier on
+/// whatever its body material already resists at.
+///
+/// One toughness number, not two: `penetration_resistance` is the armour and
+/// this scales it. The reciprocal axis, so `-1` is half the plate and `+1`
+/// twice it, and `0` is exactly what the species was authored with.
+///
+/// Floored above zero. Armour of literally nothing would make a cell fall to
+/// any mouth in one bite regardless of force, which re-introduces a threshold
+/// at the bottom of the axis -- the shape this whole change removed.
+pub fn armour_of(traits: &[f32; CREATURE_TRAITS]) -> f32 {
+    (1.0 / ratio_factor(traits[TRAIT_ARMOUR]).max(f32::EPSILON)).max(ARMOUR_MIN)
+}
+
+/// **The armour of whatever is standing at a cell**, material times the
+/// occupant's own allele.
+///
+/// A loose cell -- a corpse, a leaf, a wall -- has no occupant and no allele,
+/// so it resists exactly what its material says. Only a living animal carries
+/// a plate it inherited.
+fn armour_at(world: &World, cell: Cell) -> f32 {
+    let base = world.materials.get(cell.material).penetration_resistance;
+    let organism = cell.organism_id();
+    if organism == 0 {
+        return base;
+    }
+    base * world.organism(organism).map_or(1.0, |st| armour_of(&st.traits))
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -2260,6 +2295,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     let jaw_traits = traits_of(world, organism, def);
     let force_tax =
         def.force_fraction * def.start_energy * dig_force_of(def, &jaw_traits).max(bite_force_of(def, &jaw_traits));
+    // **The plate is carried whether or not anything bites today.** Charging
+    // only when hit would price *being attacked* rather than *being
+    // armoured*, and a lineage nothing happens to eat would wear it free.
+    // Read off the head cell -- the material this animal is actually made
+    // of, taken from the world rather than re-derived from the species name,
+    // so a species made of chitin pays for chitin and the bill cannot
+    // disagree with what a mouth on the other side reads.
+    let armour_tax = def.armour_fraction
+        * def.start_energy
+        * world.materials.get(world.get(x, y).material).penetration_resistance
+        * armour_of(&jaw_traits);
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
     // paying to be somewhere rather than to do something -- and gated on the
@@ -2274,12 +2320,13 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     } else {
         0.0
     };
-    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + exposure;
+    let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + armour_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
     // `EnergyLedger::expected_live_total` for no attribution the
     // `sight_cells_read` counter does not already give.
-    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + force_tax + exposure) as f64;
+    world.energy_ledger.metabolized += (idle + sight_tax + curvature_tax + force_tax + armour_tax + exposure) as f64;
+    world.creature_stats.armour_energy += armour_tax as f64;
     world.creature_stats.force_energy += force_tax as f64;
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
@@ -2298,7 +2345,29 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // vanishes at the 0.0 default -- `dug` is 0 on the overwhelming majority
     // of ticks and the multiply is skipped, so a species that has not opted
     // in is bit-identical and pays not even the arithmetic.
-    let dug = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **Gnawing comes back as work for the caller to charge, exactly as
+    // `dug` does.** `act` decides what an animal did; `creature_tick` owns
+    // the ledger. One place where work becomes energy.
+    let Did { dug, gnawed: gnaw_work } = act(world, x, y, organism, def, &outputs, &mut draw);
+    // **Working the jaw costs, and leaving it free was a real defect.**
+    // Measured the moment the beetle was armoured for play: an ant beat a
+    // beetle that had just been made *tougher* -- two cells off it, none off
+    // the ant. Gnawing never swallows, so it never fills the crop and never
+    // sates: an ant that used to eat one beetle cell and stop now chews for
+    // ever at no cost, and armour made a target MORE attractive to sustained
+    // attack rather than less.
+    //
+    // Priced as what it is -- the same jaw work `dig_cost_in_moves` charges
+    // for cutting a cell of ground, scaled by the progress each bite made.
+    // Wearing through a cell costs what cutting one costs, however many bites
+    // it took: the price is on the work, not on the attempt, so a hard target
+    // is not also a cheap one.
+    if gnaw_work > 0.0 && def.dig_cost_in_moves > 0.0 {
+        let jaw = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * gnaw_work;
+        spent += jaw;
+        world.energy_ledger.metabolized += jaw as f64;
+        world.creature_stats.gnaw_energy += jaw as f64;
+    }
     if dug > 0 && def.dig_cost_in_moves > 0.0 {
         let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * dug as f32;
         spent += cost;
@@ -3080,7 +3149,7 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
 }
 
 fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
-    adjacent_food_counted(world, x, y, gut).0
+    adjacent_food_counted(world, x, y, gut).best
 }
 
 /// `adjacent_food`, plus **how many mouthfuls this gut wanted and this
@@ -3095,9 +3164,33 @@ fn adjacent_food(world: &World, x: i32, y: i32, gut: Gut) -> Option<(f32, i32, i
 /// Split from `adjacent_food` rather than folded into it because
 /// `eval_brain` calls the same scan for `BrainInput::FoodAdjacent` and must
 /// not book anything: a sense is not an event.
-fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> (Option<(f32, i32, i32, material::MaterialId)>, u64) {
-    let mut best: Option<(f32, i32, i32, material::MaterialId)> = None;
+/// The best mouthful on offer: what it is worth to this gut, where it is,
+/// and what it is made of.
+type Mouthful = (f32, i32, i32, material::MaterialId);
+
+/// What one scan of the eight neighbours found.
+///
+/// A named type rather than a tuple because the third field is the one a
+/// reader will get wrong: `damage` is **what a single bite takes off the
+/// chosen cell**, `1.0` for anything this mouth opens in one go and less for
+/// a plate it has to wear down. It is not a probability and there is no roll
+/// anywhere behind it -- see `OrganismState::gnawed`.
+struct FoodScan {
+    best: Option<Mouthful>,
+    refused: u64,
+    damage: f32,
+}
+
+fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> FoodScan {
+    let mut best: Option<Mouthful> = None;
     let mut refused = 0u64;
+    // Ranked separately from what is returned, so the returned `gain` keeps
+    // meaning what it always meant.
+    let mut best_rank = f32::NEG_INFINITY;
+    // What one bite takes off the chosen cell, 0..=1. Always 1 for anything
+    // this mouth can open in a single go, which is every cell that was
+    // edible before this landed.
+    let mut best_damage = 1.0f32;
     for &(dx, dy) in NEIGHBOURS_8.iter() {
         let cell = world.get(x + dx, y + dy);
         if !gut.eats_kin && is_living_kin(world, cell, gut.species) {
@@ -3122,15 +3215,66 @@ fn adjacent_food_counted(world: &World, x: i32, y: i32, gut: Gut) -> (Option<(f3
         // fails `1.0 >= 100.0` and nothing eats anything, ever. The gate
         // and the seventeen authored resistances are one atomic change for
         // that reason.
-        if world.materials.get(cell.material).penetration_resistance > gut.bite {
+        // **Armour is worn down, not passed or failed.** Owner's ruling,
+        // 2026-09-06: *"nothing should be binary edible or inedible. Beetle
+        // should be stronger than an ant but it can be overwhelmed or
+        // unlucky."* This line read
+        // `if resistance > gut.bite { refused; continue }` -- a hard
+        // threshold, and the reason a beetle flips from *food* to
+        // *invulnerable* across one comparison with nothing in between. That
+        // is the house rule about distributions arriving on the mouth.
+        //
+        // **`(bite / armour)` squared, and the square is what gives armour
+        // its value.** Linear would make a half-strength mouth half as slow;
+        // quadratic makes it four times as slow, so a plated animal is worth
+        // the plate. The ratio is clamped at 1, so:
+        //
+        //   bite >= armour   ratio 1      one bite, exactly as before
+        //   bite = 0.8x      0.64 a bite  two bites
+        //   bite = 0.5x      0.25 a bite  four bites
+        //   bite = 0.25x     0.06 a bite  sixteen bites
+        //
+        // **Continuous at the old threshold rather than a new
+        // discontinuity**: at `bite == armour` this returns exactly 1.0 and
+        // the mouthful is taken on the spot, so every bite that succeeded
+        // before succeeds now, in the same tick, for the same cells.
+        let armour = armour_at(world, cell);
+        let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
+        let damage = ratio * ratio;
+        if damage <= 0.0 {
+            // A mouth with no force at all. Nothing to wear down, and
+            // choosing this target would be a fixation on the impossible.
             refused += 1;
             continue;
         }
-        if best.is_none_or(|(b, ..)| gain > b) {
+        if damage < 1.0 {
+            // **`refused` keeps its meaning: a bite that bounced.** It is
+            // now "did not open in one go" rather than "will never open",
+            // which is the same event from the animal's side -- the mouth
+            // closed on something and nothing came off.
+            refused += 1;
+        }
+        // **Ranked on expected yield per bite, not on yield.** A cell that
+        // takes sixteen bites is worth a sixteenth of its face value to an
+        // animal choosing where to put its mouth, and without this an ant
+        // beside a leaf and an armoured beetle would fixate on the beetle
+        // for its larger raw gain and starve gnawing it. Every cell that
+        // was edible before scores `gain * 1.0`, so the ordering among them
+        // is untouched.
+        //
+        // **Ranked on expected yield, but `best` still carries the GAIN.**
+        // The caller reports it as `best_offer` -- "the best mouthful that
+        // was on offer" -- and a figure that silently became yield-per-bite
+        // would be a counter answering a different question than its name,
+        // which is this repo's most-repeated measurement failure.
+        let expected = gain * damage;
+        if expected > best_rank {
+            best_rank = expected;
             best = Some((gain, x + dx, y + dy, cell.material));
+            best_damage = damage;
         }
     }
-    (best, refused)
+    FoodScan { best, refused, damage: best_damage }
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -3510,7 +3654,25 @@ pub fn moisture_gradient(world: &World, x: i32, y: i32) -> f32 {
 /// not inside `launch`, so the energy ledger has one owner"*. `creature_tick`
 /// owns `spent`; a second function reaching into the bank is how a cost ends
 /// up applied twice or not at all.
-fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> u32 {
+/// **What an animal actually did this tick**, for the caller to charge.
+///
+/// A struct rather than a pair of out-parameters: the out-param version took
+/// `act` to eight arguments and clippy was right to refuse it. `act` decides
+/// what happened and `creature_tick` owns the ledger, so everything that costs
+/// energy leaves through here.
+#[derive(Default, Clone, Copy)]
+struct Did {
+    /// Cells excavated, priced at `dig_cost_in_moves` each.
+    dug: u32,
+    /// Total bite progress made against targets too armoured to swallow, in
+    /// cells: `0.39` is one bite that took 39% off a cell. Priced as the same
+    /// jaw work as digging, so wearing through a cell costs what cutting one
+    /// costs however many bites it took.
+    gnawed: f32,
+}
+
+fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
+    let mut did = Did::default();
     use brain::BrainOutput as O;
     let crop = world.organism(organism).and_then(|s| s.crop);
     let dig_urge = outputs[O::Dig as usize].clamp(0.0, 1.0);
@@ -3576,9 +3738,57 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // therefore blind to plant matter *as a load* until the meat digests
         // down, which is a trade (foragers work in runs on one resource)
         // rather than a rule about preference.
-        let (offered, refused) = adjacent_food_counted(world, x, y, gut);
+        let FoodScan { best: offered, refused, damage: bite_damage } = adjacent_food_counted(world, x, y, gut);
         world.creature_stats.bites_refused += refused;
-        if let Some((offer, fxx, fyy, food)) = offered.filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
+        // **The gnawing step, and it lives here rather than in the scan
+        // because a sense is not an event.** `adjacent_food_counted` is
+        // called by `eval_brain` for `BrainInput::FoodAdjacent` as well as
+        // by this path, and its own doc says that scan must book nothing --
+        // so damage accrues on the act side only. Wearing a beetle down by
+        // *looking* at it would be the same class of bug as a counter that
+        // fires on the probe rather than the mechanism.
+        let mut may_swallow = true;
+        if let Some((_, fxx, fyy, _)) = offered {
+            if bite_damage < 1.0 {
+                // The target is worn, not swallowed, unless this bite is the
+                // one that finishes the cell. Only an organism can be worn:
+                // a loose cell has nowhere to carry the damage, and every
+                // such cell in the world is soft enough to take in one bite
+                // anyway (`corpse` is 0.1 against a mouth of 1.0).
+                let victim = world.get(fxx, fyy).organism_id();
+                may_swallow = false;
+                if victim != 0 {
+                    let done = world.organism(victim).is_some_and(|st| st.gnawed + bite_damage >= 1.0);
+                    if let Some(st) = world.organism_mut(victim) {
+                        st.gnawed = if done { 0.0 } else { st.gnawed + bite_damage };
+                    }
+                    may_swallow = done;
+                    world.creature_stats.gnaws += 1;
+                    // **Working the jaw costs, and leaving it free was a real
+                    // defect rather than an omission.** Measured the moment
+                    // the beetle was armoured for play: an ant beat a beetle
+                    // that had just been made *tougher*, 2 cells taken off it
+                    // and none taken off the ant. Gnawing never swallows, so
+                    // it never fills the crop and never sates -- an ant that
+                    // used to eat one beetle cell and stop now chews for
+                    // ever, for nothing, and armour made a target MORE
+                    // attractive to sustained attack instead of less.
+                    //
+                    // Priced as what it is: the same jaw work `dig_cost_in_
+                    // moves` charges for cutting a cell of ground, scaled by
+                    // the progress this bite actually made. Wearing through a
+                    // cell therefore costs the same as cutting one, however
+                    // many bites it took -- the price is on the work, not on
+                    // the attempt, so a hard target is not also a cheap one.
+                    // Returned for the caller to charge, exactly as `dug` is:
+                    // `act` decides what an animal did and `creature_tick`
+                    // owns the ledger, so there is one place where work
+                    // becomes energy.
+                    did.gnawed += bite_damage;
+                }
+            }
+        }
+        if let Some((offer, fxx, fyy, food)) = offered.filter(|_| may_swallow).filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
             // **The near side of `best_bite`, recorded before the roll.** An
             // animal that was offered a flower and failed its feed roll, and
             // one that never came near a flower, are the same `best_bite` and
@@ -3681,7 +3891,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // two verbs merged when the decision between them went away.
                 world.creature_stats.eats += 1;
                 world.creature_stats.best_bite = world.creature_stats.best_bite.max(worth);
-                return 0;
+                return did;
             }
         }
     }
@@ -3759,7 +3969,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     }
                 }
             }
-            return 0;
+            return did;
         }
     }
 
@@ -3848,7 +4058,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // Laden either way: a full mandible is a mandible that cannot cut,
         // which is what makes a burrow grow at the rate the colony can clear
         // it rather than at the rate a constant sets.
-        return 0;
+        return did;
     }
 
     // --- dig --------------------------------------------------------------
@@ -3969,10 +4179,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 state.life.digs += 1;
             }
             line_burrow(world, tx, ty);
-            return 1;
+            return Did { dug: 1, ..did };
         }
     }
-    0
+    Did { dug: 0, ..did }
 }
 
 /// How far up a pellet may be carried to reach the surface, in cells.
@@ -7215,6 +7425,119 @@ mod tests {
         );
     }
 
+    /// **A mouth that cannot open a cell in one bite wears it down, and
+    /// several mouths wear it down together.**
+    ///
+    /// Owner's ruling, 2026-09-06: *"nothing should be binary edible or
+    /// inedible. Beetle should be stronger than an ant but it can be
+    /// overwhelmed or unlucky."*
+    ///
+    /// Three claims, and the third is the one the ruling is really about.
+    #[test]
+    fn armour_is_worn_down_and_a_swarm_wears_it_faster() {
+        let w = test_world();
+        let ant = w.species.get(w.species.id_of("ant").expect("ant")).creature.as_ref().expect("creature").clone();
+        let neutral = [0.0f32; CREATURE_TRAITS];
+
+        // --- 1. the damage curve is continuous at the old threshold ---
+        // Everything that could be bitten before is still bitten in one go,
+        // which is what makes this change safe to land: the function returns
+        // exactly 1.0 at `bite == armour` rather than stepping there.
+        let damage = |bite: f32, armour: f32| {
+            let r = if armour <= 0.0 { 1.0 } else { (bite / armour).clamp(0.0, 1.0) };
+            r * r
+        };
+        assert_eq!(damage(1.0, 1.0), 1.0, "at bite == armour the mouthful must still be taken whole, or this is a new discontinuity rather than the removal of one");
+        assert_eq!(damage(2.0, 0.8), 1.0, "a mouth stronger than the plate is unchanged");
+        assert!(damage(0.5, 1.0) < 1.0 && damage(0.5, 1.0) > 0.0, "a mouth weaker than the plate must make progress, not bounce");
+        // Quadratic: half the bite is a quarter the progress, which is what
+        // makes a plate worth wearing rather than a small tax on the biter.
+        assert!((damage(0.5, 1.0) - 0.25).abs() < 1e-6, "the curve must be quadratic in the ratio: {}", damage(0.5, 1.0));
+
+        // --- 2. armour is the material's, scaled by the animal's own allele ---
+        let at = |t: f32| {
+            let mut tr = [0.0f32; CREATURE_TRAITS];
+            tr[TRAIT_ARMOUR] = t;
+            armour_of(&tr)
+        };
+        assert_eq!(armour_of(&neutral), 1.0, "a neutral allele must leave the species' authored armour exactly alone");
+        assert!((at(1.0) - 2.0).abs() < 1e-6, "the top of the axis is twice the plate: {}", at(1.0));
+        assert!((at(-1.0) - 0.5).abs() < 1e-6, "the bottom is half it: {}", at(-1.0));
+        assert!(at(-1.0) >= ARMOUR_MIN, "armour must never reach nothing, or any mouth opens any cell in one bite again");
+        let _ = ant;
+
+        // **The swarm claim is NOT tested here, deliberately.** Written out
+        // as arithmetic in this test it was a tautology: reimplementing the
+        // accumulation loop in the assertion would pass just as happily with
+        // the damage banked on the ATTACKER, which is the one arrangement
+        // under which swarming does not work. It needs a running world, and
+        // it has one in `a_swarm_gets_through_what_one_mouth_cannot`.
+    }
+
+    /// **THE RULING, in a running world: one mouth cannot, several together
+    /// can.**
+    ///
+    /// Owner, 2026-09-06: a beetle *"can be overwhelmed"*. This is that
+    /// sentence as a measurement, and it is the guard the arithmetic one
+    /// above cannot be.
+    ///
+    /// **Written after catching myself proving it with algebra.** The first
+    /// version reimplemented the damage loop inside the assertion and
+    /// asserted against its own model — green, and blind to the only
+    /// mistake that matters here, which is banking the damage on the
+    /// attacker instead of the victim. Eight ants would then be eight
+    /// separate quarter-finished holes and no beetle would ever fall, and
+    /// that test could not have told the difference.
+    #[test]
+    fn a_swarm_gets_through_what_one_mouth_cannot() {
+        let cells_taken = |attackers: i32| -> (u64, usize) {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 80..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
+            // A plate no single ant mouth can open in one bite. The beetle
+            // authors 0.8 against an ant's 1.0, so it is edible as shipped --
+            // this is the armoured lineage the gene makes possible.
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_ARMOUR] = 1.0;
+            }
+            let before = w.organism(beetle).map_or(0, |st| st.chain.len());
+            for i in 0..attackers {
+                // Spread along the floor so they converge rather than
+                // failing to place on top of each other.
+                // Clear of the beetle's own cells at x=100: a spawn onto an
+                // occupied cell panics, and eight ants stacked on one column
+                // would too.
+                let a = spawn(&mut w, "ant", 84 + i * 2, 119);
+                if let Some(st) = w.organism_mut(a) {
+                    st.energy = 100_000.0;
+                }
+            }
+            run(&mut w, 900);
+            let after = w.organism(beetle).map_or(0, |st| st.chain.len());
+            (w.creature_stats.gnaws, before.saturating_sub(after))
+        };
+
+        let (lone_gnaws, lone_lost) = cells_taken(1);
+        let (swarm_gnaws, swarm_lost) = cells_taken(8);
+
+        assert!(
+            lone_gnaws > 0 || swarm_gnaws > 0,
+            "nothing gnawed at all in either arm, so this measures ants that never reached the beetle rather than a plate"
+        );
+        assert!(
+            swarm_gnaws > lone_gnaws,
+            "eight mouths must land more bites than one: {lone_gnaws} against {swarm_gnaws}"
+        );
+        assert!(
+            swarm_lost >= lone_lost,
+            "eight mouths must take at least as much off an armoured beetle as one does -- if they take less, the damage is being banked per attacker and the swarm is eight separate holes: {lone_lost} cells alone against {swarm_lost} for eight"
+        );
+    }
+
     /// **The four fields the prices unlocked are heritable, each on the shape
     /// its quantity wants, and none of them gated on the species.**
     ///
@@ -8962,17 +9285,26 @@ mod tests {
         }
     }
 
-    /// **Armour refuses a bite, and the refusal is counted.**
+    /// **Armour slows a bite that softer flesh does not slow — and it no
+    /// longer stops one.**
     ///
-    /// The end-to-end half of the guard above: the table being authored
-    /// correctly is one claim, and `adjacent_food` actually reading it is
-    /// another. A beetle (`dig_force: 0.3`, and no authored `bite_force`)
-    /// is offered plain `ant` flesh at 0.25 and takes it; offered
-    /// `chitin_pale` at 0.5 it is offered nothing at all, and
-    /// `CreatureStats::bites_refused` is what says the difference was
-    /// armour rather than an empty neighbourhood.
+    /// **This test used to be called `armour_stops_a_bite_...` and asserted
+    /// the opposite.** It failed the moment the graded bite landed, which is
+    /// the correct outcome and the reason it was a real guard rather than a
+    /// decorative one: it was holding the binary contract the owner ruled
+    /// against on 2026-09-06 (*"nothing should be binary edible or
+    /// inedible"*). Rewritten to the new contract rather than deleted,
+    /// because the end-to-end claim underneath it still matters — the
+    /// material table being authored correctly is one thing and
+    /// `adjacent_food` actually reading it is another.
+    ///
+    /// A beetle (`dig_force: 0.3`, no authored `bite_force`) offered plain
+    /// `ant` flesh at 0.25 takes it whole in one bite. Offered `chitin_pale`
+    /// at 0.5 it is still *offered* it — armour is not a wall — but the bite
+    /// takes only a fraction off, and `bites_refused` is what says the
+    /// difference was armour rather than an empty neighbourhood.
     #[test]
-    fn armour_stops_a_bite_that_softer_flesh_does_not() {
+    fn armour_slows_a_bite_that_softer_flesh_does_not() {
         let offer = |material_name: &str| {
             let mut w = test_world();
             let beetle = spawn(&mut w, "beetle", 100, 100);
@@ -8984,19 +9316,30 @@ mod tests {
             w.set(hx + 1, hy, Cell::new(flesh, 0));
             let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
             let gut = gut_of(&w, beetle, &def);
-            let (best, refused) = adjacent_food_counted(&w, hx, hy, gut);
-            (best.is_some(), refused, w.materials.get(flesh).penetration_resistance, def.bite_force())
+            let FoodScan { best, refused, damage } = adjacent_food_counted(&w, hx, hy, gut);
+            (best.is_some(), refused, damage, w.materials.get(flesh).penetration_resistance, def.bite_force())
         };
 
-        let (soft_taken, soft_refused, soft_resist, force) = offer("ant");
+        let (soft_taken, soft_refused, soft_damage, soft_resist, force) = offer("ant");
         assert!(soft_resist < force, "test setup: plain ant flesh has to be under the beetle's bite ({soft_resist} vs {force}) or this arm proves nothing");
         assert!(soft_taken, "a beetle must be able to bite plain ant flesh, or predation is gone");
         assert_eq!(soft_refused, 0, "and nothing should have been refused");
+        assert_eq!(soft_damage, 1.0, "flesh softer than the mouth comes off whole, in one bite, exactly as it always did");
 
-        let (hard_taken, hard_refused, hard_resist, _) = offer("chitin_pale");
+        let (hard_taken, hard_refused, hard_damage, hard_resist, _) = offer("chitin_pale");
         assert!(hard_resist > force, "test setup: chitin_pale has to be above the beetle's bite ({hard_resist} vs {force}) or this arm proves nothing");
-        assert!(!hard_taken, "armour at {hard_resist} must refuse a bite of {force}");
-        assert_eq!(hard_refused, 1, "and the refusal has to be counted, or a bounce and an empty neighbourhood are the same silence");
+        // **The reversal.** Armour is no longer a wall: the mouthful is still
+        // offered, and what changes is how much comes off per bite.
+        assert!(hard_taken, "armour at {hard_resist} must no longer REFUSE a bite of {force} -- it is worn down, and a mouthful that is not offered at all cannot be worn");
+        assert!(
+            hard_damage > 0.0 && hard_damage < 1.0,
+            "a plate above the mouth must take more than one bite and fewer than infinite: {hard_damage} off per bite"
+        );
+        assert!(
+            hard_damage < soft_damage,
+            "the armoured mouthful must come off slower than the soft one, or armour is doing nothing: {hard_damage} against {soft_damage}"
+        );
+        assert_eq!(hard_refused, 1, "and the bounce still has to be counted, or a slow bite and an empty neighbourhood are the same silence");
     }
 
     /// **A bite in the middle of a chain severs it: what stays attached
