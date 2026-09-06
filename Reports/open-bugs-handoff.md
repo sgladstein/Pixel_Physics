@@ -9763,6 +9763,15 @@ pulls roots **down**, and nobody notices because that is where they were going.
 four cells above reads **0.380 upward**. It passes, because it documents
 what the engine does today rather than what it should do.
 
+**What is measured and what is inferred, kept apart.** Links 1-2 are
+measured directly by that test (`dir (0.000, -1.000)`, strength 0.380);
+links 3-4 are read off the source, not exercised — no test here grows a
+root out of the ground. The *outcome* is not in doubt because the owner
+observed it in play; what this entry adds is the mechanism, and the one
+step nobody has instrumented is the tip actually taking the upward cell.
+A fix should start by writing that missing arm, so there is something to
+watch go green.
+
 **Why no existing guard caught it.**
 `roots_steer_toward_off_axis_water_via_hydrotropism` is the named authority
 on this channel and it asserts `dir.0 > 0.0` — a **horizontal** pull toward a
