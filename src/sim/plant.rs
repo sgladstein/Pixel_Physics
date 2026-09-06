@@ -20212,19 +20212,34 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
         const OLD: usize = (LIFE * 2.5) as usize;
 
+        /// -> is **the plant this arm planted** still alive?
+        ///
+        /// **It asked "is anything in the world alive" until 2026-09-06, and
+        /// that is a different question.** A founder that dies of age leaves
+        /// seed behind, so by `OLD` the bed can hold a germinated *descendant*
+        /// -- a different organism, at a different age, rolling its own
+        /// hazard, since `old_age_chance` is drawn from a stream keyed on
+        /// `organism_id`. The founder had died exactly as this test says it
+        /// must and the arm still read "alive". Caught when the soil nutrient
+        /// was switched on: nothing about that change touches `dies_of_age`,
+        /// which reads only `age_ticks` and `life_half_life`, but it moved
+        /// growth enough to change *when the second generation arrives*, and
+        /// a population-wide check is sensitive to that where the founder's
+        /// own fate is not.
         fn run_arm(life: f32, frames: usize) -> bool {
             let mut w = test_world();
             let tree = w.species.id_of("tree").expect("tree is compiled in");
             w.species.get_mut(tree).life_half_life = life;
             plant_tree_on_ground(&mut w, 100, 60);
+            let founder = w.get(100, 60).organism_id();
+            assert_ne!(founder, 0, "test setup: the planted seed should own its cell");
             run_with_fields(&mut w, frames);
             // Alive means an organism that is not senescent and still holds
             // tissue -- `rot_remains` thins a marked plant over the following
             // frames, so "no cells left" and "marked" are the same death at
             // two moments and either one answers.
-            w.live_organism_ids().into_iter().any(|id| {
-                w.organism(id).is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
-            })
+            w.organism(founder)
+                .is_some_and(|s| !s.senescent && s.cells.len() > 1 && w.species.get(s.species).creature.is_none())
         }
 
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
