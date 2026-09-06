@@ -1,0 +1,37 @@
+{
+  "id": "20260906T231327438Z-36e71a",
+  "created": "2026-09-06T23:13:27Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-roots-transport-lj7nip",
+    "commit": "69c76241",
+    "agent": null,
+    "session_id": "fe8bc5b9-4346-539e-8191-8d1ce81b894d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Which of these is 'roots growing into the tree/sky'?",
+  "question": "Your own roots-on sheet from 2026-09-05, magnified 4x at two places. I can see two different things and I think I have been fixing the wrong one.\n\nLEFT: a whole plant rendered pale cream instead of brown, with a thin pale strand curling in the air beside it.\nRIGHT: a normal brown tree with a thin 1-cell strand hanging straight down out of the canopy into open air, ending in nothing.\n\nWhich did you mean -- or is it something else in that sheet?\n\nMeasured on a fresh grove at the same settings (6 seeds, 24,000 frames): 387 root cells have open sky above them but ALL sit at ground level, i.e. ordinary surface roots; only 14 root cells are more than 2 cells above their own collar, worst rise 7. Neither number is large, and the rule I shipped moves both within noise -- so I cannot reproduce what you saw, and I would rather ask than keep guessing.",
+  "context_md": "",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260906T231327438Z-36e71a/000-tendrils.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
