@@ -13,6 +13,9 @@
 //! cargo run --release --example creature_arena -- arm=same mirror=off   # the control that means something
 //! cargo run --release --example creature_arena -- arm=lethal seeds=12   # the mandatory negative control
 //! cargo run --release --example creature_arena -- arm=random seeds=12
+//! # the developmental race: arm B's children are made at +1 and armour moves 0.8 per unit of it;
+//! # plasticity=0 is the null (same genome, dial off), predators= is the pressure
+//! cargo run --release --example creature_arena -- arm=wire wire=Bias:Provision:1.0 dev=armour:0.8 plasticity=1 predators=8 frames=24000
 //! ```
 //!
 //! # Why an instrument comes before the mechanism
@@ -149,6 +152,32 @@ fn input_by_name(name: &str) -> Option<brain::BrainInput> {
 
 fn output_by_name(name: &str) -> Option<brain::BrainOutput> {
     brain::OUTPUTS.iter().copied().find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(name))
+}
+
+/// **`dev=trait:weight[,...]` -- developmental weights SET on arm B**, on top
+/// of whatever `arm=` did to its brain. The developmental block
+/// (`brain::TRAIT_SLOTS`) is the other half of the plasticity channel: a
+/// weight here says how far a child's expressed trait moves per unit of
+/// what its parent handed it, and `World::plasticity` (`plasticity=`
+/// below) is the dial that lets any of it count. So the paired race this
+/// exists for is `arm=wire wire=Bias:Provision:1.0 dev=armour:0.8` at
+/// `plasticity=1` against the same arm at `plasticity=0`: the genome is
+/// identical in both, and only the dial separates them.
+///
+/// Resolved through `batch::trait_name` rather than `params::TRAIT_ROWS`,
+/// which is `pub(crate)` to `lab`; this binary is outside it.
+fn dev_rider() -> Vec<(usize, f32)> {
+    let Some(spec) = arg_str("dev") else { return Vec::new() };
+    spec.split(',')
+        .map(|pair| {
+            let (name, w) = pair.split_once(':').unwrap_or_else(|| panic!("dev entry {pair:?} wants trait_name:weight, e.g. dev=armour:0.8"));
+            let slot = (0..pixel_physics::sim::organism::CREATURE_TRAITS)
+                .find(|&s| pixel_physics::lab::batch::trait_name(s).eq_ignore_ascii_case(name))
+                .unwrap_or_else(|| panic!("dev trait {name:?} is not one of the CREATURE_TRAITS rows"));
+            let w: f32 = w.parse().unwrap_or_else(|_| panic!("dev weight {w:?} does not parse"));
+            (slot, w)
+        })
+        .collect()
 }
 
 impl Arm {
@@ -403,6 +432,12 @@ fn direction(shares: &[f64]) -> (usize, usize, usize) {
 fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64) -> Outcome {
     let mut w = spec.build();
     let species_id = w.species.id_of(&spec.colony_species).expect("colony species is compiled in");
+    // **The plasticity dial**, read exactly where `World::plasticity`'s own
+    // doc says it is. 0 is shipped: a developmental block on arm B is then
+    // carried and never expressed, which is the null the `dev=` race needs.
+    if let Some(v) = arg::<f32>("plasticity") {
+        w.plasticity = v;
+    }
     // **The economy, as arguments — because "does this environment select
     // for X" is a question about the environment, and an arena that can only
     // vary the *genome* can only ever answer half of it.**
@@ -444,8 +479,16 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
     // Drawing it from the world's own generator would put the two mirror
     // runs on different draws, and the mirror's whole job is that the pair
     // differs in the arm assignment and in nothing else.
-    let (arm_b, moved) = arm.clone().apply(&base, 0x_A470_0000 ^ arm_seed);
-    if *arm != Arm::Same {
+    let (mut arm_b, mut moved) = arm.clone().apply(&base, 0x_A470_0000 ^ arm_seed);
+    let dev = dev_rider();
+    for &(slot, w) in &dev {
+        let i = brain::dev_slot(slot);
+        if arm_b[i] != w {
+            arm_b[i] = w;
+            moved += 1;
+        }
+    }
+    if *arm != Arm::Same || !dev.is_empty() {
         assert!(moved > 0, "arm= matched no live slot, so both arms carry one genome. Two identical arms read as a clean 50/50, which is indistinguishable from the finding this harness exists to make");
     }
 
@@ -547,8 +590,15 @@ fn main() {
     let species = arg_str("species").unwrap_or_else(|| LabBox::default().colony_species);
     let founders: usize = arg("founders").unwrap_or(LabBox::default().founders);
 
-    println!("creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders}", if mirror { "on" } else { "off" });
-    if arm == Arm::Same && mirror {
+    let dev = dev_rider();
+    println!(
+        "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders} predators={} plasticity={} dev={:?}",
+        if mirror { "on" } else { "off" },
+        arg::<i32>("predators").unwrap_or(0),
+        arg::<f32>("plasticity").unwrap_or(0.0),
+        dev.iter().map(|&(slot, w)| format!("{}:{w}", pixel_physics::lab::batch::trait_name(slot))).collect::<Vec<_>>(),
+    );
+    if arm == Arm::Same && mirror && dev.is_empty() {
         println!("  NOTE: arm=same with mirror=on is an ALGEBRAIC IDENTITY -- one simulation with the labels swapped.");
         println!("        It must read exactly 50.0%, and that says only that the harness runs. Use mirror=off for the control that means something.");
     }

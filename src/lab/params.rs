@@ -184,6 +184,16 @@ pub enum Knob {
     /// material field appears in at all. A row here prints `ON`/`OFF` rather
     /// than `1.000`/`0.000`, which is [`Param::shown`]'s whole purpose.
     Rule { field: &'static str },
+    /// **A scalar of the simulation itself** — a plain `f32` on [`World`] or
+    /// on something it owns, live on the next tick.
+    ///
+    /// `Knob::Rule`'s sibling, and its own kind for exactly the same reason:
+    /// what it moves is not any one material's or species' number. The first
+    /// of these is the alarm scent's decay, which is a property of the
+    /// *ground* — every animal in the box reads one plane, and a rate
+    /// authored per species would let two animals standing on the same cell
+    /// disagree about how old the blood on it is.
+    Scalar { field: &'static str },
     /// Shown, and not changeable from here. The panel draws no `-`/`+` pair on
     /// one of these and [`write`] refuses it; see this module's own doc for
     /// the three that are like this and why.
@@ -770,6 +780,19 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
             "WHETHER THIS KIND CAN EVER COUNT ANOTHER KIND AS FAMILY. OFF, A BEETLE IS NEVER AN ANT'S FAMILY HOWEVER ALIKE THEY SMELL, AND SCENT ONLY DECIDES WHO IS FAMILY AMONG ANTS. ON, ONLY SCENT DECIDES, SO A LINEAGE THAT DRIFTS ONTO ANOTHER KIND'S SCENT IS ADOPTED BY IT -- REAL BIOLOGY, AND POSSIBLY ABSURD TO WATCH. OFF IS THE SHIPPED BEHAVIOUR.",
         ));
     }
+    // **The alarm scent's one number.** A rule of the box rather than a
+    // property of any animal -- it is how fast the *ground* forgets -- so it
+    // sits under the rivalry rule for `plant_mechanics_rows`' reason and not
+    // among the species scalars above.
+    out.push(float(
+        g,
+        Knob::Scalar { field: "alarm_decay" },
+        "colonies",
+        "alarm_fades",
+        world.pheromones.alarm_rho(),
+        span(0.0, 1.0, 0.01),
+        "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+    ));
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -862,6 +885,20 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
                 world.trait_reach,
                 span(0.0, creature::TRAIT_REACH_MAX, 0.25),
                 "HOW FAR A LINEAGE MAY EVOLVE ON THE TWO ROWS THAT ARE READ AGAINST EACH OTHER -- ARMOUR AND DIG FORCE -- AS A MULTIPLE OF THE RANGE EVERY OTHER ROW HAS. AT 1, THE SHIPPED SETTING, THE BEST PLATE AN ANT CAN REACH IS HALF WHAT AN ANT'S BITE OPENS, SO ANT AGAINST ANT IS ONE BITE WHOEVER BITES FIRST -- NO GRADING AND NO BEING OVERWHELMED. WIND IT UP AND A LINEAGE CAN GROW A SHELL THAT TAKES SEVERAL BITES, AND ANOTHER CAN GROW THE JAW THAT ANSWERS IT: AT 8 A MAXIMALLY ARMOURED ANT TAKES FIVE OR SIX BITES FROM AN ORDINARY ONE. BOTH SIDES MOVE TOGETHER ON PURPOSE -- WIDENING ONLY THE SHELL WOULD DECIDE THE FIGHT INSTEAD OF OPENING IT. NEITHER IS FREE: A THICKER PLATE AND A HARDER JAW ARE BOTH BILLED EVERY TURN ON THE COSTS PAGE. ZERO IS THE OTHER USEFUL END -- IT PINS BOTH ROWS WHERE THEY START, SO THEY STOP DRIFTING WHILE EVERYTHING ELSE GOES ON MUTATING, WHICH IS THE CONTROL ARM. IT REACHES EVERY ANIMAL IN THE BOX, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
+            ));
+            // **The one dial over the developmental block**
+            // (`brain::TRAIT_SLOTS`), beside the dial over the two heritable
+            // rows it shares this page with -- both govern how far a body
+            // may sit from its ancestral genome, one across generations and
+            // this one within a single birth.
+            out.push(float(
+                g,
+                Knob::Heredity { field: "plasticity" },
+                "genome",
+                "plasticity",
+                world.plasticity,
+                span(0.0, 2.0, 0.05),
+                "HOW FAR A NEWBORN'S BODY MAY DIFFER FROM ITS GENES ACCORDING TO THE STATE ITS PARENT WAS IN. EVERY ANIMAL CARRIES A HERITABLE SET OF DEVELOPMENTAL WEIGHTS, ONE PER BODY TRAIT, AND A PARENT'S BRAIN HANDS EACH CHILD ONE NUMBER AT BIRTH FROM WHATEVER IT SENSES; THE CHILD'S BODY IS ITS GENES SHIFTED BY THE TWO MULTIPLIED, TIMES THIS. AT 0 -- THE SHIPPED SETTING -- EVERY ANIMAL IS EXACTLY ITS GENES. TURN IT UP AND A LINE MAY FIND THAT A CROWDED OR A THREATENED PARENT SHOULD MAKE A DIFFERENT CHILD: AN ARMOURED ONE, A SMALL-CROP ONE, ONE NOBODY DESIGNED. NOTHING HERE SAYS WHICH; THAT IS THE LINE'S TO FIND, AND THE ANIMAL PAGE SHOWS WHAT EACH ONE WAS MADE WITH.",
             ));
         }
     }
@@ -962,7 +999,7 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
 
 /// **The world-level dials the parameters page exposes that are not a
 /// material or species field** — the three [`Knob::Rule`] switches and the
-/// five [`Knob::Heredity`] numbers, all plain fields on [`World`] with no
+/// seven [`Knob::Heredity`] numbers, all plain fields on [`World`] with no
 /// asset file of their own. Everything else the page can save round-trips
 /// through `assets/materials` or `assets/species`; these had no file at all
 /// until this type, which was the larger half of "There is no save"
@@ -979,6 +1016,11 @@ fn shipped_trait_reach() -> f32 {
     creature::TRAIT_REACH_DEFAULT
 }
 
+/// As `shipped_trait_reach`, for the alarm scent's decay.
+fn shipped_alarm_decay() -> f32 {
+    crate::sim::pheromone::ALARM_RHO
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dials {
     pub plant_load_failure: bool,
@@ -992,6 +1034,19 @@ pub struct Dials {
     /// mutating again. The named default is `creature::TRAIT_REACH_DEFAULT`.
     #[serde(default = "shipped_trait_reach")]
     pub trait_reach: f32,
+    /// `World::plasticity`. **Plain `#[serde(default)]` is right here**,
+    /// unlike `trait_reach` above: 0.0 *is* the shipped behaviour -- every
+    /// animal expresses its genotype exactly -- so a dials file saved
+    /// before this key existed loading it as 0.0 is loading the truth, not
+    /// a stand-in for it.
+    #[serde(default)]
+    pub plasticity: f32,
+    /// `Pheromones::alarm_rho`. Named default for `trait_reach`'s reason: a
+    /// dials file written before this key existed would otherwise load 0.0,
+    /// which is an alarm that never fades — the exact setting the row's own
+    /// note says makes the signal useless.
+    #[serde(default = "shipped_alarm_decay")]
+    pub alarm_decay: f32,
     pub mutation_sigma: f32,
     pub fate_mutation_chance: f32,
     pub param_mutation_chance: f32,
@@ -1021,6 +1076,8 @@ impl Dials {
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
             trait_reach: world.trait_reach,
+            plasticity: world.plasticity,
+            alarm_decay: world.pheromones.alarm_rho(),
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
             param_mutation_chance: world.param_mutation_chance,
@@ -1050,6 +1107,8 @@ impl Dials {
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
         world.trait_reach = self.trait_reach;
+        world.plasticity = self.plasticity;
+        world.pheromones.set_alarm_rho(self.alarm_decay);
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1244,6 +1303,16 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 world.trait_reach = value;
                 return true;
             }
+            // **Ahead of the rate guard, for `trait_reach`'s reason**: this
+            // row's span runs to 2.0, so the shared 0..=1 predicate would
+            // refuse the top half of its own range.
+            if *field == "plasticity" {
+                if !(0.0..=2.0).contains(&value) {
+                    return false;
+                }
+                world.plasticity = value;
+                return true;
+            }
             if !crate::sim::plant::settable_rate(value) {
                 return false;
             }
@@ -1266,6 +1335,20 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_load_failure" => world.plant_load_failure = on,
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
+                _ => return false,
+            }
+            true
+        }
+        Knob::Scalar { field } => {
+            match *field {
+                // Bounded as a rate, like the four drift dials, because it is
+                // one: a fraction of what is there that goes away per pass.
+                "alarm_decay" => {
+                    if !(0.0..=1.0).contains(&value) {
+                        return false;
+                    }
+                    world.pheromones.set_alarm_rho(value);
+                }
                 _ => return false,
             }
             true
@@ -1392,7 +1475,7 @@ pub fn save(param: &Param, world: &World, spec: &LabBox) -> Result<String, Strin
             spec.save()?;
             Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
         }
-        Knob::Rule { .. } | Knob::Heredity { .. } => {
+        Knob::Rule { .. } | Knob::Heredity { .. } | Knob::Scalar { .. } => {
             Dials::from_world(world).save()?;
             Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
         }
@@ -1423,7 +1506,7 @@ pub fn save(param: &Param, world: &World, spec: &LabBox) -> Result<String, Strin
 pub fn save_check(param: &Param) -> String {
     match &param.knob {
         Knob::Bed { .. } => format!("would write {}", LabBox::ASSET_PATH),
-        Knob::Rule { .. } | Knob::Heredity { .. } => format!("would write {}", Dials::ASSET_PATH),
+        Knob::Rule { .. } | Knob::Heredity { .. } | Knob::Scalar { .. } => format!("would write {}", Dials::ASSET_PATH),
         _ => match planned_edit(param) {
             Ok((path, _)) => format!("would write {}", path.display()),
             Err(e) => e,
@@ -1444,6 +1527,7 @@ fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
         Knob::Bed { .. } => return Err("unreachable via save/save_check -- see LabBox::save".into()),
         Knob::Rule { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
         Knob::Heredity { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
+        Knob::Scalar { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }
         | Knob::CreatureTrait { species, .. }
@@ -1627,6 +1711,16 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             genome.push((name.to_uppercase(), format!("{:+.3}", state.traits[*slot]),
                 format!("THIS ANIMAL'S OWN {}, INHERITED WITH JITTER RATHER THAN THE SPECIES VALUE ON THE ANTS PAGE. COMPARE THE TWO AND YOU ARE LOOKING AT HOW FAR THIS LINEAGE HAS DRIFTED.", name.replace('_', " ").to_uppercase())));
         }
+        // **The one phenotype in a group otherwise all genotype.** It sits
+        // under `GENOME` rather than `STATE` anyway, because it is drawn
+        // once at birth and carried for life exactly as the trait rows
+        // above it are -- the difference is only that it was never in the
+        // genome to begin with. See `OrganismState::made`.
+        genome.push((
+            "MADE".into(),
+            format!("{:+.2}", state.made),
+            "THE NUMBER THIS ANIMAL'S PARENT HANDED IT AT BIRTH. ITS BODY IS ITS GENES SHIFTED BY THIS TIMES ITS DEVELOPMENTAL WEIGHTS TIMES THE PLASTICITY DIAL. 0 FOR A FOUNDER OR A RELEASED JAR.".into(),
+        ));
         // **`forage_max`, not `since_nest`, and the swap is the same one the
         // roster's `FAR` row made.** This row read `SINCE NEST` and told the
         // reader that *"a number that only ever climbs is an ant that is
@@ -1882,6 +1976,7 @@ mod tests {
         world.plant_bending = true;
         world.mutation_sigma = 0.25;
         world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
+        world.plasticity = 0.6;
         Dials::from_world(&world).save().expect("save");
 
         let loaded = Dials::load_saved().expect("a just-saved file parses back");
@@ -1890,6 +1985,7 @@ mod tests {
         assert_eq!(loaded.mutation_sigma, 0.25);
         // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
         assert_eq!(loaded.developmental_key, 4);
+        assert_eq!(loaded.plasticity, 0.6);
 
         let mut fresh = bed().0;
         loaded.apply_to(&mut fresh);
@@ -1897,6 +1993,7 @@ mod tests {
         assert!(fresh.plant_bending);
         assert_eq!(fresh.mutation_sigma, 0.25);
         assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
+        assert_eq!(fresh.plasticity, 0.6);
 
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(Dials::ASSET_PATH_ENV);

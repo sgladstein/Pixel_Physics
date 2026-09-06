@@ -921,14 +921,18 @@ between. A re-run that reproduces every direction and no magnitude is what a
 voided table should look like; if the directions had moved too, the fix would
 have been the suspect.
 
-**The `ascii` deposition gate across the rivalry dial, with both controls:**
+**The `ascii` deposition gate with colonies made strangers, and both
+controls.** Taken while `colony_rivalry` was still a switch; it is the same
+measurement under the scent dials, whose narrow end
+(`PIXEL_PHYSICS_COLONY_RIVALRY=on`, now `tolerance -1` and `spread 1`) is
+what that switch became:
 
 | arm | attributed drops | laden ants | ratio |
 |---|---|---|---|
-| shipped (one colony, dial off) | 237 | 2,962 | **1.36x** |
-| one colony, dial **on** | 237 | 2,962 | **1.36x**, digit for digit |
-| 55 colonies, dial on — the scene as it stood | 22 | 2,590 | 1.14x |
-| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9`, dial off | 438 | 4,631 | **0.69x** |
+| shipped (one colony, nestmates) | 237 | 2,962 | **1.36x** |
+| one colony, made strangers | 237 | 2,962 | **1.36x**, digit for digit |
+| 55 colonies, made strangers — the scene as it stood | 22 | 2,590 | 1.14x |
+| `PIXEL_PHYSICS_DROP_MOISTURE=off:0.9` | 438 | 4,631 | **0.69x** |
 
 The last row is the sensitivity control and it fires the assertion, so the
 gate is not blind. The third row is the finding: the scene was fifty-five
@@ -1042,7 +1046,154 @@ that places ants in a loop is N colonies — matters to any bed read through
 pass is a no-op, so nothing moved, but a harness that turns the dials on
 over a `plant_ant` loop is measuring fifty colonies.
 
-## Round fifteen, 2026-09-06 — the tick, 2-5x, without changing a cell
+## Round fifteen, 2026-09-06 — the alarm, the verb, and the flight question closed
+
+*Same branch and line. PR #268 (the armour reach) merged first, then the
+signature session's #267 while this was in review -- so this round's work was
+written against `colony_rivalry` and lands after that switch retired into the
+scent dials. README's "Creature groups status" is the shipped half.*
+
+**The flight question is closed, and the closure is worth more than the
+answer.** Last night's null had three named excuses (§4a) and all three are
+now measured away: the eye saw hunters on **one cast in thirteen** (141,996
+and 162,923 sightings across two six-seed races, duty cycle 7.4% and 8.3%);
+the bed was rebuilt until predation was **35% of ant deaths** instead of ~5%
+(`founders=48 predators=4`, found by sweeping against `labstats`' per-group
+tally rather than guessing); and a *run-away* wiring — adding the engine's own
+milling-versus-commuting number, `Persist` — did **worse** than the turn, 47.9%
+median against 52.4%, 1 seed of 6 above half against 4. Both inside the
+harness's noise floor.
+
+**Two things a later session should not have to re-derive.**
+
+- **The old arena bed could not have answered this question at any horizon.**
+  It starves 52 ants to single digits before the 12,000-frame grant runs out,
+  so a race in it reads who starved slower. The horizon was only ever half the
+  problem; *the larder* was the other half, and the harness's own warning line
+  says nothing about it.
+- **The run-away arm carries four named weights against two, and
+  `synapse_fraction` bills every active connection every tick.** So its lower
+  share is not attributable to the wiring shape — a fair comparison needs the
+  weight count held equal, and `arm=wire` has no way to say that today. I
+  would not read the 47.9% as "running away is worse than turning".
+
+**The alarm plane and the `Attack` verb landed together, and the reason is the
+genome.** Each is an append — `Alarm` an input, `Attack` an output — and each
+shifts every birth draw and forces `mutation_rate` to be re-derived. Landing
+them in one change is **one** re-derivation and **one** break in birth-draw
+comparability instead of two. `live_slots` 584 → 637, rate `3.18 / 637`.
+
+**The number to carry forward: an input column is 20 live slots, an output row
+is 33.** A verb costs the mutable surface two-thirds again what a sense does,
+and nothing in the genome docs said so before today.
+
+**What each settled that its design sketch had not.**
+
+- **The alarm is one input, not the front/lateral pair the trails get.** A
+  trail is a route and needs a gradient; an alarm is an event, and the
+  direction a hunter is in is already `ThreatBearing`'s. A lateral alarm slot
+  would be a second, worse bearing sense competing with the real one.
+- **The alarm plane is allocated on the first bite.** Eagerly it is **~40 MB**
+  standing at the shipped world size, for a signal many worlds never write
+  once. `alarm_is_live()` exists because a plane that was never made and one
+  that decayed to zero sample identically.
+- **`Attack` needed its own scan, not a re-ranked food scan.**
+  `adjacent_food_counted` ranks by what the gut would get, so an animal
+  defending its nest against something it cannot digest scores every candidate
+  at zero and picks nothing.
+- **And it is priced per jaw closure, against what §4b's own sketch asked
+  for.** The sketch said "per progress"; `dead-ends.md` already records that a
+  per-unit-of-progress price on a divisible job is a *constant total* for the
+  job and therefore cannot deter. The report has been corrected.
+
+**One measurement that surprised me and is worth reusing.** A genome append
+shifts birth draws, so `ascii` should have moved — and the deposition gate came
+back **1.36x on 237 drops from 2,962 laden ants, digit for digit**. The reason
+is that scene has *no births in it*: fifty-five founders placed from the
+species genome, none of which ever breeds. So "a genome append moves every
+seeded scene" is true only of scenes that reproduce, and the ones that do not
+are a free byte-identity check across an append.
+
+## Round sixteen, 2026-09-06 evening — a child can be made differently, and nothing names a caste
+
+*Same branch as round fourteen (`claude/evolution-lab-signature-castes-gfm0r2`),
+restarted from `main` after #267 and #271 landed. The owner's question was
+"how much of this caste design is hard-coding behaviour I don't want, versus
+making it possible in the engine?" — and the answer overturned §2 of the
+report: the authored soldier morph came out, and what went in is the general
+channel. Record:
+[`../creature-signature-and-castes-2026-09-06.md`](../creature-signature-and-castes-2026-09-06.md)
+§2c–§2g; shipped half in README's "Creature groups status", third block.*
+
+**Landed:** `BrainOutput::Provision` (read once at budding), `BrainInput::Made`,
+`OrganismState::made` (a phenotype: not inherited, not jarred, zero for every
+founder), a positional developmental block after the last brain block
+(`brain::TRAIT_SLOTS`, `dev_slot`, `Plastic(slot, weight)` in the jar's sparse
+form and in a species file as `plastic:`), `creature::expressed_traits` —
+genotype plus `plasticity × made × block` inside each allele bound — behind
+every phenotype reader, and `World::plasticity` on the GENOME page at zero.
+`mutation_rate` re-derived 3.18/706. `labstats` grew `plasticity= provision=
+dev=` and a `--- development ---` block; `creature_arena` grew `dev=` and
+`plasticity=`, so the race for the channel is one genome under two dials.
+
+**What the work overturned, which a later session cannot reconstruct:**
+
+- **A caste is not a thing the engine should know.** §2c's first draft had
+  `TRAIT_MORPH`, a soldier's armour and jaw authored in the species file, and
+  a "make a soldier" output. Every one of those is a decision about what a
+  caste *is*, made by us; the owner's ruling is that the engine makes castes
+  *possible* and a line finds them or does not. So there is one number handed
+  at birth, one heritable linear map from it to the body, and one dial. What
+  is still authored is the engine's limit, not a design: bodies vary only
+  along the fourteen trait axes that exist, development is one scalar handed
+  once, and the map is linear.
+- **The dial gates the expressing, not the handing, and that is the control
+  that proves the channel.** With `Bias → Provision` wired on every ant at
+  dial zero, 28 of 44 living children still carry `made = 0.5` and no body
+  moves (within-line armour spreads 0.08–0.32, the mutational floor); at dial
+  one the same wiring spreads one line 0.000 .. 0.647. A reader who only
+  measured the dial-up arm would not know which half of the channel moved.
+- **A provision keyed on a sense hands almost nothing; a line has to find the
+  bias term.** `Crowding → Provision = 2.0` made 1 child of 20 over 0.25,
+  because an ant that has just afforded a child is rarely in a crowd. The
+  sense-keyed castes the wiki describes are reachable, but they are a
+  two-weight wiring at minimum.
+- **The shipped bed is not byte-identical and cannot be** — a genome append
+  moves every birth's mutation draws — so the acceptance is a paired seed
+  sweep, and it reads as the same distribution on three seeds with the block
+  at zero on every slot.
+- **"Selected for" does not follow from "connected", and the arena says so
+  in one run.** The developmental race on the bed with teeth reads dial 1 at
+  a median 50.9% against dial 0 at 51.6% on the same genome, 3 seeds below
+  half in each — the harness's null. Two structural reasons, both the bed's:
+  the living at 24,000 frames are mostly founders (deepest generation 3–7
+  against 52 founders per arm), and a +0.40 plate at the shipped reach is
+  under the bite (the plate passes it only above reach 3). A session that
+  wants *found* runs the same command at `reach≥3` on a bed where children
+  are the majority; do not read this null as the mechanism being dead —
+  the positive controls say it is not.
+
+- **Two of round fifteen's guards were riding on births, and the rate
+  re-derivation is what showed it.** `the_jaw_allele_decides_what_an_animal_
+  can_cut` and `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+  allows_it` give their animals 100,000 energy, so they breed inside the
+  budget, and which slots a child mutates moves with `mutation_rate`; the
+  637 → 706 re-derivation flipped both (0 digs at the top of the jaw axis;
+  one defender of six standing at the shipped reach) with jaw and plate
+  untouched. Bisected to the three `.ron` lines, confirmed by restoring
+  the old rate. Both now breed clones (`mutation_rate = 0.0` on the test's
+  own species copy), watched going red with their faults back. The general
+  form is `CLAUDE.md`'s shared-`Rng` gotcha one step out: a guard over a
+  mechanism must not be a function of what a child happened to draw, and
+  every append re-derives the rate, so any guard that lets its animals
+  breed is one append from flipping.
+
+**Environment, one line:** the two-colony `labstats` bed breeds on seed 2
+(32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
+a positive control over births goes to seed 2, and the arena's bed with teeth
+is round fifteen's `founders=48 predators=4`.
+
+## Round seventeen, 2026-09-06 — the tick, 2-5x, without changing a cell
 
 *Owner: "increase the performance so I can run at faster rates... I am
 looking for 2-10x", and then "the most important performance to fix is once

@@ -705,6 +705,20 @@ pub struct CreatureStats {
     /// every shipped scene bar one -- so a non-zero here is the whole
     /// evidence that the mechanism exists.
     pub bites_refused: u64,
+    /// **Jaw closures made by the `Attack` verb** — a fight that is not a
+    /// meal. Zero for the whole world until a genome carries a weight on
+    /// `BrainOutput::Attack`, which is the guard that says the verb is
+    /// opt-in rather than merely quiet.
+    pub attacks: u64,
+    /// Attack closures that broke through a cell. `/ attacks` is how many
+    /// bites a fight is taking, which is the quantity the arms-race reach
+    /// moves and the one a bite count alone cannot report.
+    pub attack_cells: u64,
+    /// **Attacks that killed** — the effect counter from the far side of the
+    /// call, paired with `attacks` for the reason `CLAUDE.md` insists on:
+    /// a count of swings is not a count of hits, and this repo has already
+    /// paid for 23 swings that removed 0 cells.
+    pub attack_kills: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
@@ -1557,6 +1571,18 @@ pub struct World {
     /// lane could not build: it pins both alleles at 0, so those two traits
     /// stop drifting while every other slot goes on mutating.
     pub trait_reach: f32,
+    /// **How far a child's expressed body may move with the number its
+    /// parent handed it** -- the one dial over the developmental block
+    /// (`brain::TRAIT_SLOTS`), a multiplier on `made x block`, read by
+    /// `creature::expressed_traits`. Zero, the default, is the shipped bed:
+    /// every animal expresses its genotype exactly whatever its block and
+    /// its `Provision` wiring drift to, and the reader is one comparison.
+    /// A rule of the box rather than a species field for `trait_reach`'s
+    /// reason: the one place the expressed body is computed reads it with
+    /// no species lookup, in the predicate the mouth, the eye and the kin
+    /// sense call per neighbour per tick. On the GENOME page; carried
+    /// across a rebuild by `lab::params::Dials`.
+    pub plasticity: f32,
     /// **Seeds that waited for water and then germinated** — the counter
     /// for the dormancy mechanic, because a picture cannot show it and no
     /// existing readout separates the cases.
@@ -1696,6 +1722,18 @@ pub struct World {
     /// contributes eight. Read against `leaf_cells_built` beside it — the
     /// ratio is what binds, not either number alone.
     pub leaf_cells_unaffordable: u64,
+
+    /// **Cells shed because they had no path to a drinking root** —
+    /// `plant::shed_cut_off_tissue`, and §W7's "did it fire" number.
+    ///
+    /// A severed crown and a crown that was never severed are the same
+    /// picture at contact-sheet zoom, and the whole defect §W7 records is
+    /// one that looked like nothing happening. Zero is the expected reading
+    /// on an undisturbed world: nothing cuts a plant in half on its own, so
+    /// a non-zero here without a cut is this rule reaching tissue it should
+    /// not — most likely a traversal that stopped using the eight
+    /// neighbourhood `Grow` writes with.
+    pub plant_cut_off_cells_shed: u64,
 
     /// Leaf cells actually placed, the denominator for
     /// `leaf_cells_unaffordable`.
@@ -2985,6 +3023,7 @@ impl World {
             next_colony: 1,
             colony_parents: Vec::new(),
             trait_reach: creature::TRAIT_REACH_DEFAULT,
+            plasticity: 0.0,
             seeds_germinated_after_waiting: 0,
             germinations: 0,
             fate_mutation_rolls: 0,
@@ -2994,6 +3033,7 @@ impl World {
             param_mutation_rolls: 0,
             param_mutations_applied: 0,
             leaf_cells_unaffordable: 0,
+            plant_cut_off_cells_shed: 0,
             leaf_cells_built: 0,
             wood_cells_built: 0,
             seed_budget_blocked: 0,
@@ -3614,6 +3654,7 @@ impl World {
             // place it is ever set to zero other than the bite that cashes
             // a whole cell in.
             gnawed: 0.0,
+            made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
             origin: None,
@@ -4367,7 +4408,10 @@ impl World {
                 continue;
             }
             let key = (state.species, state.colony);
-            let member = Member { id, lineage: state.lineage, traits: state.traits };
+            let member = Member { id, lineage: state.lineage, // The expressed body, not the genotype: what an animal smells
+                // like is what it is made of, and a provisioned child may be
+                // made of something its genes alone would not say.
+                traits: crate::sim::creature::expressed_traits(state, self.plasticity, self.trait_reach) };
             match groups.iter_mut().find(|(k, _)| *k == key) {
                 Some((_, members)) => members.push(member),
                 None => groups.push((key, vec![member])),

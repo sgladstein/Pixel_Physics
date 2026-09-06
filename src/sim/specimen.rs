@@ -300,6 +300,12 @@ pub struct CreatureGenetics {
     pub hidden: Vec<brain::HiddenWire>,
     pub outputs: Vec<brain::OutputWire>,
     pub recurrence: Vec<brain::Recurrence>,
+    /// The developmental block, `brain::TRAIT_SLOTS` -- see `brain::Plastic`.
+    /// `#[serde(default)]` so every jar written before 2026-09-06 still
+    /// loads; it loads as an empty block, which is a block of zeros, exactly
+    /// what a genome captured before the block existed actually carries.
+    #[serde(default)]
+    pub plastic: Vec<brain::Plastic>,
 }
 
 // -------------------------------------------------------------- the errors
@@ -430,6 +436,7 @@ fn genetics_of(species: &Species, state: &OrganismState) -> Genetics {
             hidden: wiring.hidden,
             outputs: wiring.outputs,
             recurrence: wiring.recurrence,
+            plastic: wiring.plastic,
         })
     } else {
         Genetics::Plant(PlantGenetics {
@@ -514,6 +521,7 @@ pub fn drift(world: &World, spec: &Specimen, broods: u32, name: &str, rng: &mut 
             g.hidden = wiring.hidden;
             g.outputs = wiring.outputs;
             g.recurrence = wiring.recurrence;
+            g.plastic = wiring.plastic;
         }
         (Genetics::Plant(g), _) => {
             let mut draws: [f32; organism::GENOTYPE_TRAITS] = padded(&g.draws, "DRAWS")?;
@@ -593,7 +601,7 @@ fn genome_of(g: &CreatureGenetics) -> Result<Vec<f32>, ShelfError> {
             None => return Err(ShelfError::StaleGenome(g.manifest, current)),
         }
     }
-    Ok(brain::genome_from_wiring(&g.instincts, &g.hidden, &g.outputs, &g.recurrence))
+    Ok(brain::genome_from_wiring_plastic(&g.instincts, &g.hidden, &g.outputs, &g.recurrence, &g.plastic))
 }
 
 /// A stored per-slot vector widened to this build's width.
@@ -1365,6 +1373,53 @@ mod tests {
         let after = w.organism(out.organism).expect("sown");
         assert_eq!(&after.genotype_draws[..kept.len()], &kept[..], "the slots the jar did have were not carried");
         assert_eq!(after.genotype_draws[GENOTYPE_TRAITS - 1], 0.0, "an appended slot must read as the species mean, not as noise");
+    }
+
+    /// **The migration this design is for, on the developmental axis.**
+    /// Every jar written before 2026-09-06 has no `plastic` key at all --
+    /// there was nothing to have one for -- and `#[serde(default)]` is what
+    /// keeps that shelf openable rather than dead, exactly as it does for
+    /// `layout` above. Put the fault back (drop the attribute from
+    /// `CreatureGenetics::plastic`) and this goes red: RON refuses a struct
+    /// missing a field with no default.
+    #[test]
+    fn a_jar_with_no_plastic_field_still_loads_as_a_zero_block() {
+        let mut w = floored_world();
+        let id = distinctive_ant(&mut w);
+        let spec = capture(&w, id, "keeper").expect("keepable");
+        let text = to_ron(&spec).expect("serializes");
+        // A freshly captured ant has no developmental weights set, so the
+        // block is empty and the pretty printer renders it on one line --
+        // asserted rather than assumed, so a format change fails loudly
+        // here instead of silently leaving the field in place below.
+        assert!(text.contains("plastic: [],"), "test setup: expected an empty, one-line plastic block, got:\n{text}");
+        let stripped = text.replacen("plastic: [],\n", "", 1);
+        let back: Specimen = ron::from_str(&stripped).expect("a jar written before the developmental block existed must still parse");
+        let Genetics::Creature(g) = &back.genetics else { panic!("creature") };
+        assert!(g.plastic.is_empty(), "a jar with no plastic field must load as a zero block, not fail or invent one");
+    }
+
+    /// **The fault the old four-list form would produce, put back.** Before
+    /// `plastic` existed on the jar, `genome_of` rebuilt a genome through
+    /// `brain::genome_from_wiring` alone, which never touches
+    /// `brain::TRAIT_SLOTS` -- so a captured animal's developmental block
+    /// would come back zeroed regardless of what it was captured with. Put
+    /// that back (call `brain::genome_from_wiring` instead of
+    /// `genome_from_wiring_plastic` in `genome_of`) and this goes red.
+    #[test]
+    fn a_kept_ants_developmental_block_survives_the_jar() {
+        let mut w = floored_world();
+        let id = distinctive_ant(&mut w);
+        w.organism_mut(id).expect("live ant").genome[brain::dev_slot(organism::TRAIT_ARMOUR)] = 0.6;
+
+        let spec = capture(&w, id, "keeper").expect("keepable");
+        let mut r = shelf_rng();
+        let out = release(&mut w, &spec, 140, 100, 0, &mut r).expect("released onto bare stone");
+        let after = w.organism(out.organism).expect("the released ant");
+        assert_eq!(
+            after.genome[brain::dev_slot(organism::TRAIT_ARMOUR)], 0.6,
+            "the developmental block did not survive the jar -- the old four-list form reads 0.0 here"
+        );
     }
 
     #[test]

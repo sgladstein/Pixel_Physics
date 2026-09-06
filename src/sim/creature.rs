@@ -1062,6 +1062,9 @@ enum Origin {
         lineage: u32,
         /// The parent's, copied — a child is born into its parent's colony.
         colony: u32,
+        /// What the parent handed this child -- its `Provision` output at
+        /// the moment of budding. See `OrganismState::made`.
+        made: f32,
     },
     /// **A founder with a chosen genome** — one released from the specimen
     /// shelf (`sim::specimen`).
@@ -1183,12 +1186,16 @@ fn place_creature(
                 state.inherited = false;
                 state.generation = 0;
             }
-            Origin::Bud { genome, traits, generation, .. } => {
+            Origin::Bud { genome, traits, generation, made, .. } => {
                 // **The child's genome came from its parent**, already
                 // mutated by the caller. This is the whole of heredity: one
                 // assignment, and the reason S1-S5 were all inert until now.
                 state.genome = genome.clone();
                 state.traits = *traits;
+                // **The one thing about a child that is neither inherited
+                // nor drawn**: how it was provisioned. A founder and a
+                // released jar keep the allocator's zero.
+                state.made = *made;
                 state.inherited = true;
                 // **Read off the parent by the caller and passed in whole.**
                 // The failure this shape exists to avoid is a
@@ -1743,7 +1750,43 @@ pub fn reproduce_fraction(t: f32) -> f32 {
 /// standing animals kept their founded copies, and three alleles returned
 /// byte-identical counters.
 fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_TRAITS] {
-    world.organism(organism).map_or(def.traits, |st| st.traits)
+    world.organism(organism).map_or(def.traits, |st| expressed_traits(st, world.plasticity, world.trait_reach))
+}
+
+/// **The body this animal actually has**: its inherited trait vector,
+/// shifted on every slot by the developmental block times the number its
+/// parent handed it, times the box's `plasticity` dial, and held inside
+/// each slot's own bound.
+///
+/// **This is the one line that makes a caste possible, and it names no
+/// caste.** `state.traits` stays the genotype -- `try_bud` inherits and
+/// mutates *that* -- and what a lineage evolves is the block
+/// (`brain::TRAIT_SLOTS`, in the genome, mutated with the wiring) and the
+/// `Provision` wiring that decides what a parent hands a child. Which slots
+/// move, which way and on what signal is the lineage's to find;
+/// `Reports/creature-signature-and-castes-2026-09-06.md` §2c is the
+/// reasoning and §2d the measurement that tells "found" from "reachable".
+///
+/// **At the shipped dial this is one comparison and a copy**, so the
+/// predicate the mouth, the eye and the kin sense call per neighbour per
+/// tick pays nothing for it; a founder's `made` is zero for the same
+/// reason. The genome is `mem::take`n during the brain's own evaluation,
+/// and a reader that lands inside that window sees no block rather than a
+/// panic.
+pub fn expressed_traits(state: &organism::OrganismState, plasticity: f32, reach: f32) -> [f32; CREATURE_TRAITS] {
+    let mut t = state.traits;
+    if plasticity <= 0.0 || state.made == 0.0 {
+        return t;
+    }
+    let push = plasticity * state.made;
+    for (slot, v) in t.iter_mut().enumerate() {
+        let p = state.genome.get(brain::dev_slot(slot)).copied().unwrap_or(0.0);
+        if p != 0.0 {
+            let bound = allele_bound(slot, reach);
+            *v = (*v + push * p).clamp(-bound, bound);
+        }
+    }
+    t
 }
 
 fn ratio_factor(t: f32) -> f32 {
@@ -1800,7 +1843,7 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     if organism == 0 {
         return base;
     }
-    base * world.organism(organism).map_or(1.0, |st| armour_of(&st.traits, world.trait_reach))
+    base * world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach))
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -1897,7 +1940,7 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 /// individual that is scheduled on its own pace and charged on its species'
 /// would be metabolising at a rate nothing on screen explains.
 pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
-    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &st.traits))
+    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)))
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -1912,7 +1955,7 @@ pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -
 /// scheduling from here would in fact work today — returning the site
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
-fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<ActiveSite> {
+fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
     let state = world.organism(organism)?;
     let parent_traits = state.traits;
     // **This animal's bar, on two counts now.** `TRAIT_REPRODUCE_AT` scales
@@ -1998,6 +2041,12 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
                 generation: parent_generation.saturating_add(1),
                 lineage: parent_lineage,
                 colony: parent_colony,
+                // **What the parent hands this child**, from the tick's own
+                // brain evaluation -- the one channel by which a parent's
+                // state reaches a child's body. A parent that wires nothing
+                // onto `Provision` hands `squash(0) = 0`, and the child is
+                // made of exactly its genes.
+                made: provision.clamp(-1.0, 1.0),
             },
         ) {
             site = Some(s);
@@ -2395,7 +2444,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
     // field would report it as never having looked.
-    if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
+    if world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach))) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         // **The hunted side's counter, beside the hunter's.** An image of
@@ -2808,7 +2857,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // which turns the whole mechanism into a way of converting a doomed
     // animal into a fresh one for free.
     if !sites.is_empty() {
-        if let Some(child) = try_bud(world, organism, def) {
+        if let Some(child) = try_bud(world, organism, def, outputs[brain::BrainOutput::Provision as usize]) {
             sites.push(child);
         }
     }
@@ -2851,7 +2900,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     if reach <= 0 {
         return (Sightings::default(), 0);
     }
@@ -2915,6 +2964,17 @@ fn sense(
         inputs[slot as usize] = (ahead - here) / (ahead + here + 1.0);
     }
 
+    // **The alarm, read ahead of the animal on the same cell the trail
+    // planes are read from.** One slot and no lateral partner -- see
+    // `BrainInput::Alarm`: an alarm is an event, not a route, and the
+    // direction a hunter is in already has a sense of its own.
+    //
+    // **Free until something is bitten.** `Pheromones::sample` on an alarm
+    // plane that was never allocated is a null test, not a read, so a world
+    // in which nothing has ever fought pays one branch per animal per tick
+    // for this and touches no memory.
+    inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, fx, fy) as f32 / 255.0;
+
     let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
     inputs[I::MoistureFront as usize] = moisture_at(fx, fy);
     inputs[I::MoistureLateral as usize] = moisture_at(rx, ry) - moisture_at(lx, ly);
@@ -2942,6 +3002,10 @@ fn sense(
 
     if let Some(state) = world.organism(organism) {
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+        // **How this animal was made**, so behaviour can depend on it --
+        // `BrainInput::Made`. Zero for every founder and every animal that
+        // ships, so the slot reads a constant until a lineage provisions.
+        inputs[I::Made as usize] = state.made;
         // **Graded, and this is what replaced `hunger_fraction`.** As a
         // boolean this said only "holding something"; as crop fill it says
         // *how full*, which is the quantity the four hidden units in
@@ -2954,7 +3018,7 @@ fn sense(
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
         let crop_fill = state.crop.map_or(0.0, |c| {
-            let cap = crop_capacity_of(def, &state.traits);
+            let cap = crop_capacity_of(def, &expressed_traits(state, world.plasticity, world.trait_reach));
             if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 }
         });
         // **A mandible full of spoil is carrying something, and this sensor
@@ -3034,7 +3098,7 @@ fn sense(
     // distance normalisations below have to read the same number -- an eye
     // that casts to one reach and normalises against another reports a
     // nearness that does not mean what the brain thinks it means.
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     let seen_all = if reach > 0 {
         sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
@@ -3260,6 +3324,81 @@ struct Gut {
     bite: f32,
 }
 
+/// **The nearest animal in reach that is not kin** — `Attack`'s target rule,
+/// and the reason it is not `adjacent_food_counted`.
+///
+/// That scan ranks by what the gut would *get*, which is the wrong question
+/// for a fight: a rival ant and a fallen leaf are not competing offers, and
+/// an animal defending its nest against something it cannot digest would
+/// score every candidate at zero and pick nothing. This one asks only *is it
+/// alive, is it somebody else, and is it not mine*.
+///
+/// **"Nearest" is the ring order, and that means nearest to the mouth.** The
+/// walk is the same deduplicated body ring `adjacent_food_counted` uses --
+/// the head's eight neighbours first, then each following body cell's -- so
+/// the first candidate found is the one closest to the front of the animal.
+/// Every cell in the ring is adjacent by construction, so a distance
+/// comparison between them would be a tie-break dressed as a measurement,
+/// and `CLAUDE.md` has a standing entry about what tie order silently
+/// decides.
+///
+/// **Kin is `is_living_kin` and nothing else**, so the colony rivalry dial
+/// and, later, the heritable signature reach this verb without it knowing
+/// they exist -- one predicate at the mouth, the eye, the kin sense and now
+/// the fist. `eats_kin` is deliberately *not* consulted: that gene is about
+/// what an animal will swallow in a hungry hour, and this is not eating.
+fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(i32, i32)> {
+    let fallback = [head];
+    let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    for (i, &(bx, by)) in body.iter().enumerate() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (bx + dx, by + dy);
+            // The same earlier-cells skip the food scan makes, for the same
+            // reason: a 2x2 body reaches most of its ring from two cells, and
+            // a target visited twice would be counted twice by anything
+            // downstream that counts.
+            if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
+                continue;
+            }
+            let cell = world.get(nx, ny);
+            let owner = cell.organism_id();
+            if owner == 0 || owner == organism || world.organism(owner).is_none() {
+                continue;
+            }
+            if is_living_kin(world, cell, gut) {
+                continue;
+            }
+            return Some((nx, ny));
+        }
+    }
+    None
+}
+
+/// **An animal being bitten calls out**, on the alarm plane, at the cell that
+/// was bitten.
+///
+/// One function rather than two deposit calls, because the bite has two
+/// arrivals -- the gnaw that wears a cell and the swallow that takes one
+/// whole -- and a signal written at only one of them would be a colony that
+/// hears its members chewed and not its members killed.
+///
+/// **At the victim's cell, not the attacker's.** They are neighbours, so at
+/// the scale a nestmate reads this the difference is nothing; what it buys is
+/// that the reading is true for a body cell on the far side of a long animal
+/// from whatever is eating it, and it puts the mark where the fight is rather
+/// than where the mouth is.
+///
+/// **The victim does not pay for it, and that is the honest choice rather
+/// than the generous one.** Every other emission in this engine is a *verb* —
+/// an animal decides to lay a trail and `emit_cost_in_moves` bills it. This
+/// is not a decision: it is what being bitten does, the way a wound bleeds,
+/// so charging for it would price *being attacked* — the exact defect
+/// `armour_fraction`'s doc records for the plate, arriving on the other side
+/// of the same fight.
+fn cry_alarm(world: &mut World, x: i32, y: i32) {
+    world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
+}
+
 fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
     let traits = traits_of(world, organism, def);
     let radius = tolerance_radius(&traits);
@@ -3396,7 +3535,7 @@ fn apply_colony_scent(traits: &mut [f32; CREATURE_TRAITS], seed: u64, colony: u3
 /// that goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
 fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
     world.organism(cell.organism_id()).is_some_and(|s| {
-        (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&s.traits), &gut.scent) <= gut.tolerance_sq
+        (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&expressed_traits(s, world.plasticity, world.trait_reach)), &gut.scent) <= gut.tolerance_sq
     })
 }
 
@@ -4139,6 +4278,76 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // evolution cannot select for one against the other. See
     // `brain::BrainOutput::DropSpoil` for what forced it.
     let dump_urge = outputs[O::DropSpoil as usize].clamp(0.0, 1.0);
+    // **Fighting is its own verb since 2026-09-06**, and the argument is the
+    // one the two comments above make twice: while an act shares an output
+    // with another, evolution cannot select for one against the other. Here
+    // it shared with `Feed`, so "defend the nest" and "be hungry" were one
+    // gene and a colony could only fight by starving.
+    let attack_urge = outputs[O::Attack as usize].clamp(0.0, 1.0);
+
+    // --- fight ----------------------------------------------------------
+    //
+    // **Before the ingest block, because a fight is not a meal and the two
+    // must not compete for the same tick's mouth.** An animal that attacks
+    // still eats afterwards if anything is going; what it does not do is
+    // pick between them, which is the confusion `Feed` was split out to end.
+    //
+    // **Gated on the urge before the scan, and that gate is the whole cost
+    // of this verb for every animal that ships.** `squash(0)` is exactly 0
+    // and the shipped genomes carry no weight here, so an ant pays one float
+    // comparison per tick and never walks the ring -- `CLAUDE.md`'s rule
+    // about guarding hot-path work at the call site that already has the
+    // data, with the datum being the output the brain just produced.
+    if attack_urge > 0.0 && draw.unit_f32() < attack_urge {
+        // Read here rather than reusing the ingest block's copy below,
+        // deliberately: this way an animal with no weight on `Attack` never
+        // builds a `Gut` for a verb it will not use, and the whole fight path
+        // is one comparison for everything that ships.
+        let gut = gut_of(world, organism, def);
+        if let Some((tx, ty)) = nearest_foe(world, organism, (x, y), gut) {
+            let cell = world.get(tx, ty);
+            // The same arithmetic the mouth uses, read from the same two
+            // functions -- a second copy of `(bite/armour)^2` is how the
+            // fight and the meal come to disagree about how hard a beetle is.
+            let armour = armour_at(world, cell);
+            let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
+            let damage = ratio * ratio;
+            let victim = cell.organism_id();
+            if damage > 0.0 && victim != 0 {
+                // Being bitten is being bitten, whichever verb did it.
+                cry_alarm(world, tx, ty);
+                world.creature_stats.attacks += 1;
+                // Priced as jaw work, per closure, exactly as gnawing is --
+                // `Did::gnaws` is the count `creature_tick` bills, and
+                // routing through it rather than through a second account is
+                // what keeps one apparatus at one price.
+                did.gnaws += 1;
+                let done = world.organism(victim).is_some_and(|st| st.gnawed + damage >= 1.0);
+                if let Some(st) = world.organism_mut(victim) {
+                    st.gnawed = if done { 0.0 } else { st.gnawed + damage };
+                }
+                if done {
+                    // **The cell comes off and nobody eats it.** Read the
+                    // victim's identity before the removal, exactly as the
+                    // swallow path does and for the same reason:
+                    // `reconcile_chain` frees the slot when the lost cell was
+                    // the deciding one, and the identity goes with it.
+                    let victim_group = world
+                        .organism(victim)
+                        .filter(|s| !s.chain.is_empty())
+                        .map(|s| (s.species, s.colony));
+                    world.set(tx, ty, Cell::EMPTY);
+                    world.creature_stats.attack_cells += 1;
+                    if !reconcile_chain(world, victim) {
+                        world.creature_stats.attack_kills += 1;
+                        if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
+                            world.tally_kill(v, me);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     // --- ingest ---------------------------------------------------------
     //
@@ -4208,6 +4417,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let victim = world.get(fxx, fyy).organism_id();
                 may_swallow = false;
                 if victim != 0 {
+                    cry_alarm(world, fxx, fyy);
                     let done = world.organism(victim).is_some_and(|st| st.gnawed + bite_damage >= 1.0);
                     if let Some(st) = world.organism_mut(victim) {
                         st.gnawed = if done { 0.0 } else { st.gnawed + bite_damage };
@@ -4236,6 +4446,18 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     // becomes energy.
                     did.gnaws += 1;
                 }
+            }
+        }
+        // **The one-shot case, and it is the one that would have been
+        // missed.** A bite hard enough to take a cell whole never enters the
+        // gnaw branch above, so an animal killed outright by a single bite
+        // would have died silently while a chewed one called out -- exactly
+        // backwards, since the one-shot is the worse thing to happen to a
+        // colony. Read before the swallow, because after it the cell belongs
+        // to nobody.
+        if let Some((_, fxx, fyy, _)) = offered.filter(|_| may_swallow) {
+            if world.get(fxx, fyy).organism_id() != 0 {
+                cry_alarm(world, fxx, fyy);
             }
         }
         if let Some((offer, fxx, fyy, food)) = offered.filter(|_| may_swallow).filter(|&(_, _, _, m)| crop.is_none_or(|c| c.material == m)) {
@@ -8286,7 +8508,19 @@ mod tests {
             // decide and both arms report zero -- which is what the first
             // version of this test measured.
             let species = w.species.id_of("beetle").expect("beetle species");
-            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // **Children are clones here, and the reason is a measurement.**
+            // A beetle at 100,000 energy breeds inside 1,200 frames, and a
+            // child's mutations -- which slots, and so how many draws --
+            // depend on `mutation_rate`. Re-deriving that rate for the
+            // developmental block (0.0049922 -> 0.0045042, 2026-09-06)
+            // flipped this test from 1 dig to 0 at the top of the jaw axis
+            // with the jaw untouched: the arm was a function of what a child
+            // happened to inherit, not of the allele it is named for. At
+            // rate 0 the child is its parent, and no future re-derivation
+            // (every append re-derives it) can reach this guard.
+            def.mutation_rate = 0.0;
+            w.species.set_creature(species, def.clone());
             w.species.set_genome(
                 species,
                 brain::genome_from_wiring(
@@ -8412,8 +8646,12 @@ mod tests {
     #[test]
     fn a_swarm_gets_through_what_one_mouth_cannot() {
         // (bites that bounced, frame the first cell came off, cells lost)
-        let cells_taken = |attackers: i32| -> (u64, usize, usize) {
+        const BUDGET: usize = 900;
+        let cells_taken_seed = |attackers: i32, seed: u64| -> (u64, usize, usize) {
             let mut w = test_world();
+            if seed > 0 {
+                w.seed = 1234 + seed * 7919;
+            }
             let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
             for x in 80..140 {
                 w.set(x, 120, Cell::new(floor, 0).with_attached(true));
@@ -8441,7 +8679,7 @@ mod tests {
             // Frame by frame, because the answer is *when* the plate first
             // gives, not what is left at the end.
             let mut first_loss = 0usize;
-            for f in 1..=900 {
+            for f in 1..=BUDGET {
                 run(&mut w, 1);
                 let n = w.organism(beetle).map_or(0, |st| st.chain.len());
                 if n < before {
@@ -8453,27 +8691,73 @@ mod tests {
             (w.creature_stats.gnaws, first_loss, before.saturating_sub(after))
         };
 
-        let (lone_gnaws, lone_first, lone_lost) = cells_taken(1);
-        let (swarm_gnaws, swarm_first, swarm_lost) = cells_taken(8);
+        for seed in 0..8u64 {
+            let (_, l, _) = cells_taken_seed(1, seed);
+            let (_, sw, _) = cells_taken_seed(8, seed);
+            println!("PROBE seed={seed} lone={l} swarm={sw}");
+        }
+        // **Eight seeds, and this guard was a single one until 2026-09-06.**
+        // What moved it is the shape `CLAUDE.md` warns about rather than any
+        // change to the mechanism: the ants here are handed 100,000 J, which
+        // clears the ant's 1,100 reproduce threshold two orders over, so this
+        // scene *breeds* -- and a genome append shifts every birth draw. The
+        // `Alarm`/`Attack` appends moved the shipped seed's ratio from
+        // 5.3x to 1.9x against a 2x bar, and nothing about swarming had
+        // changed. Measured across seeds on that same build:
+        //
+        //   seed    0    1    2    3      4    5    6    7
+        //   lone   90  210  444  804  never  199  320  198
+        //   swarm  48   19   36   40     19   33   24   87
+        //
+        // Eight of eight in the same direction, median 205 against 34. So the
+        // repair is a sweep, not a looser bar -- a bar on one draw from a
+        // distribution that wide is a coin toss wearing an assertion.
+        let mut lone: Vec<usize> = Vec::new();
+        let mut swarm: Vec<usize> = Vec::new();
+        let mut sooner = 0usize;
+        let (mut any_gnaws, mut lost_ok) = (false, true);
+        for seed in 0..8u64 {
+            let (lg, lf, ll) = cells_taken_seed(1, seed);
+            let (sg, sf, sl) = cells_taken_seed(8, seed);
+            any_gnaws |= lg > 0 || sg > 0;
+            lost_ok &= sl >= ll;
+            // A plate that never gives inside the budget is the strongest
+            // version of "later", not a missing sample.
+            let (lf, sf) = (if lf == 0 { BUDGET } else { lf }, if sf == 0 { BUDGET } else { sf });
+            if sf < lf {
+                sooner += 1;
+            }
+            lone.push(lf);
+            swarm.push(sf);
+        }
+        lone.sort_unstable();
+        swarm.sort_unstable();
+        let (lone_first, swarm_first) = (lone[lone.len() / 2], swarm[swarm.len() / 2]);
 
         assert!(
-            lone_gnaws > 0 || swarm_gnaws > 0,
-            "nothing gnawed at all in either arm, so this measures ants that never reached the beetle rather than a plate"
+            any_gnaws,
+            "nothing gnawed at all on any seed, so this measures ants that never reached the beetle rather than a plate"
         );
         assert!(
-            lone_first > 0 && swarm_first > 0,
-            "the plate has to give in both arms or there is no time to compare: {lone_first} alone, {swarm_first} for eight"
+            swarm_first < BUDGET,
+            "the plate has to give for the swarm or there is no time to compare: median frame {swarm_first} of a {BUDGET}-frame budget"
         );
-        // 2x, against a measured 5-6x on both sides of the whole-body scan --
-        // headroom rather than a bar sitting on the value, and it is a
-        // *ratio*, so it does not care how fast the machine ran.
+        // 2x on the median, against a measured 6x, and 6 of 8 seeds in the
+        // right direction against a measured 8 of 8. Headroom on both, and
+        // both are *ratios* or counts, so neither cares how fast the machine
+        // ran.
         assert!(
             swarm_first * 2 < lone_first,
-            "eight mouths must breach the plate far sooner than one -- if they do not, the damage is being banked per attacker and the swarm is eight separate quarter-finished holes: frame {lone_first} alone against {swarm_first} for eight"
+            "eight mouths must breach the plate far sooner than one -- if they do not, the damage is being banked per attacker and the swarm is eight separate quarter-finished holes: median frame {lone_first} alone against {swarm_first} for eight, over {} seeds",
+            lone.len()
         );
         assert!(
-            swarm_lost >= lone_lost,
-            "eight mouths must take at least as much off an armoured beetle as one does: {lone_lost} cells alone against {swarm_lost} for eight"
+            sooner >= 6,
+            "the swarm must breach sooner on nearly every seed, or the median above is one lucky world: {sooner} of 8"
+        );
+        assert!(
+            lost_ok,
+            "eight mouths must take at least as much off an armoured beetle as one does, on every seed"
         );
     }
 
@@ -8655,6 +8939,19 @@ mod tests {
                 let mut w = test_world();
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
+                // **Clone children**, for the reason `the_jaw_allele_decides_
+                // what_an_animal_can_cut` gives: four ants at 100,000 energy
+                // breed inside the budget, and which slots a child mutates
+                // moves with `mutation_rate`, so the 2026-09-06 re-derivation
+                // (637 -> 706 live slots) left one defender of six standing
+                // at the shipped reach with the plate untouched. This guard
+                // is over a plate under a mouth, not over what a child drew.
+                {
+                    let ant = w.species.id_of("ant").expect("ant species");
+                    let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
+                    def.mutation_rate = 0.0;
+                    w.species.set_creature(ant, def);
+                }
                 // Ant against ant needs the two to be strangers; without
                 // this every ant is every other ant's nestmate and the scene
                 // holds no fight at all. Kin is a scent distance now, so the
@@ -8728,6 +9025,219 @@ mod tests {
             TRAIT_REACH_MAX,
             TRAIT_REACH_DEFAULT
         );
+    }
+
+    /// **An animal being bitten calls out, an animal that is not does not,
+    /// and a world where nothing has ever been bitten has no plane at all.**
+    ///
+    /// Three claims, and the third is the one that keeps the third plane
+    /// affordable: `pheromone.rs` prices a plane at ~40 MB for the shipped
+    /// 8192x2560 world and allocates the two trail planes eagerly. The alarm
+    /// plane is allocated on the first deposit, so `alarm_is_live` is a
+    /// statement about the world rather than about a sample — a plane that
+    /// was never made and one that has decayed to zero read the same 0.
+    #[test]
+    fn being_bitten_calls_out_and_nothing_else_does() {
+        // A colony foraging in peace: nothing bites anything.
+        let mut quiet = test_world();
+        let soil = quiet.materials.id_of("soil").expect("soil");
+        for x in 40..180 {
+            for y in 110..130 {
+                quiet.set(x, y, Cell::new(soil, 0).with_attached(true));
+            }
+        }
+        for i in 0..8 {
+            let a = spawn(&mut quiet, "ant", 50 + i * 8, 109);
+            if let Some(st) = quiet.organism_mut(a) {
+                st.energy = 100_000.0;
+            }
+        }
+        run(&mut quiet, 1_200);
+        assert_eq!(
+            quiet.pheromones.stats.deposits_alarm, 0,
+            "a colony that has fought nothing must not have written the alarm plane once"
+        );
+        assert!(
+            !quiet.pheromones.alarm_is_live(),
+            "the alarm plane must not be allocated in a world that has never had a fight -- that is 40 MB at the shipped world size"
+        );
+
+        // The same bed with a fight in it. Kin is a scent distance, so the
+        // two sides get scents a whole channel apart and a tolerance of `-1`
+        // (radius 0) -- the narrow end the retired `colony_rivalry` switch
+        // became. Without it every ant is every other ant's nestmate and the
+        // scene holds no fight at all.
+        let mut fight = test_world();
+        let floor = fight.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 80..140 {
+            fight.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        let defender = spawn(&mut fight, "ant", 100, 119);
+        if let Some(st) = fight.organism_mut(defender) {
+            st.traits[TRAIT_TOLERANCE] = -1.0;
+            st.colony = 1;
+            st.energy = 100_000.0;
+        }
+        for i in 0..3 {
+            let attacker = spawn(&mut fight, "ant", 103 + i * 3, 119);
+            if let Some(st) = fight.organism_mut(attacker) {
+                st.traits[SCENT_SLOTS[0]] = 1.0;
+                st.traits[TRAIT_TOLERANCE] = -1.0;
+                st.colony = 2;
+                st.energy = 100_000.0;
+            }
+        }
+        run(&mut fight, 600);
+        assert!(
+            fight.pheromones.stats.deposits_alarm > 0,
+            "a bitten animal must write the alarm plane: {} deposits",
+            fight.pheromones.stats.deposits_alarm
+        );
+        assert!(fight.pheromones.alarm_is_live(), "the first bite allocates the plane");
+    }
+
+    /// **The alarm forgets far faster than a trail does**, which is the whole
+    /// of what makes it a different signal rather than a third trail.
+    ///
+    /// Paired on one deposit each, so it cancels everything the rule is not
+    /// about — the same height, the same cell, the same number of passes.
+    #[test]
+    fn the_alarm_forgets_faster_than_a_trail() {
+        let mut w = test_world();
+        w.deposit_pheromone(Channel::A, 100, 100, 240);
+        w.deposit_pheromone(Channel::Alarm, 100, 100, 240);
+        let (trail0, alarm0) = (w.pheromone_at(Channel::A, 100, 100), w.pheromone_at(Channel::Alarm, 100, 100));
+        assert_eq!(trail0, alarm0, "the arms must start level or the comparison below is about the deposit, not the decay");
+        // **Eight passes, not twenty, and the reason is worth stating.** A
+        // lone deposit fades on *both* planes -- diffusion spreads one cell's
+        // worth over its neighbourhood whatever the decay rate -- so past
+        // about seventeen passes the trail is gone too and the arms tie at
+        // zero, which would pass a badly written version of this test for
+        // the wrong reason. A real trail is re-laid; this one is not. Eight
+        // passes is where the mechanism under test is legible: measured,
+        // trail 31 against alarm 3.
+        for pass in 1..=8u64 {
+            w.pheromones.step(pass * pheromone::PHEROMONE_INTERVAL, pheromone::PHEROMONE_INTERVAL);
+        }
+        let trail = w.pheromone_at(Channel::A, 100, 100);
+        let alarm = w.pheromone_at(Channel::Alarm, 100, 100);
+        assert!(trail > 8, "eight passes must not clear a trail, or this is measuring diffusion rather than decay: {trail}");
+        // 4x, against a measured 10x -- headroom rather than a bar on the
+        // value, and a ratio, so the deposit height can be re-authored
+        // without re-tuning the guard.
+        assert!(
+            alarm * 4 < trail,
+            "the alarm must be nearly gone while the trail is still there -- an alarm that lingers is a map of where fights have happened, which is a trail: alarm {alarm} against trail {trail}"
+        );
+        // And the far end: the alarm is *gone*, not merely lower. A signal
+        // that decays to a permanent floor is the ghost-trail failure
+        // `build_decay_lut`'s doc records, on a plane where it would mean
+        // every cell that ever saw a fight stays alarming for ever.
+        for pass in 9..=12u64 {
+            w.pheromones.step(pass * pheromone::PHEROMONE_INTERVAL, pheromone::PHEROMONE_INTERVAL);
+        }
+        assert_eq!(
+            w.pheromone_at(Channel::Alarm, 100, 100),
+            0,
+            "one bite must be forgotten inside about a hundred and fifty frames of play"
+        );
+    }
+
+    /// **The `Attack` verb bites a stranger it is not going to eat, is
+    /// billed for it, and gets nothing back.**
+    ///
+    /// Owner's ruling by way of the design report (§4b): territorial defence
+    /// was unexpressible because every bite in the engine was the `Feed`
+    /// path, so a colony could only fight *by being hungry beside* a rival.
+    ///
+    /// **Four claims, and the last two are what stop this being a second
+    /// mouth.** It fires (counter from the far side of the call); it needs a
+    /// non-kin target (the same predicate the mouth reads); it costs the
+    /// attacker energy; and it feeds nobody -- the attacker's crop is empty
+    /// at the end of a run in which it took a rival apart.
+    #[test]
+    fn attacking_costs_the_jaw_and_yields_no_food() {
+        // (attacks, cells taken, attacker energy spent, attacker crop)
+        // `strangers` is what the retired `colony_rivalry` switch used to be:
+        // two scents a whole channel apart at a tolerance of `-1`, against
+        // two identical ones that are therefore nestmates.
+        let fight_wired = |strangers: bool, wired: bool| -> (u64, u64, f32, bool) {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 80..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            // **The verb has to be wired or nothing happens at all**, which
+            // is the point of it being an output: nothing that ships carries
+            // a weight here.
+            let species = w.species.id_of("ant").expect("ant species");
+            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            if wired {
+                w.species.set_genome(
+                    species,
+                    brain::genome_from_wiring(
+                        &[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Attack, 4.0)],
+                        &def.hidden_wiring,
+                        &def.hidden_outputs,
+                        &def.recurrence,
+                    ),
+                );
+            }
+            let defender = spawn(&mut w, "ant", 100, 119);
+            if let Some(st) = w.organism_mut(defender) {
+                st.traits[TRAIT_TOLERANCE] = -1.0;
+                st.colony = 1;
+                st.energy = 100_000.0;
+            }
+            let attacker = spawn(&mut w, "ant", 102, 119);
+            let start = if let Some(st) = w.organism_mut(attacker) {
+                // The one line that separates the two arms: a scent a whole
+                // channel away makes these two strangers, an identical one
+                // makes them nestmates.
+                if strangers {
+                    st.traits[SCENT_SLOTS[0]] = 1.0;
+                }
+                st.traits[TRAIT_TOLERANCE] = -1.0;
+                st.colony = 2;
+                st.energy = 100_000.0;
+                st.energy
+            } else {
+                0.0
+            };
+            run(&mut w, 400);
+            let spent = start - w.organism(attacker).map_or(start, |st| st.energy);
+            let fed = w.organism(attacker).is_some_and(|st| st.crop.is_some());
+            (w.creature_stats.attacks, w.creature_stats.attack_cells, spent, fed)
+        };
+
+        let (strangers, cells, spent, fed) = fight_wired(true, true);
+        let (nestmates, kin_cells, _, _) = fight_wired(false, true);
+        // **The opt-in control, and the one that says the shipped bed did not
+        // move.** Same scene, same strangers, the *authored* ant genome:
+        // `squash(0)` is exactly 0, so an animal carrying no weight on
+        // `Attack` must never swing. Without this arm the test would be
+        // green on a verb that fired for everybody, since both arms above
+        // wire it.
+        let (unwired, unwired_cells, _, _) = fight_wired(true, false);
+        assert!(
+            strangers > 0,
+            "the wired verb never fired against a stranger, so nothing below is about attacking: {strangers} attacks"
+        );
+        assert!(
+            cells > 0,
+            "the verb swung {strangers} times and took nothing off anybody -- a swing counter with no effect counter beside it is the null this repo has already paid for"
+        );
+        assert_eq!(
+            nestmates, 0,
+            "an ant must not attack its own nestmate: the same colony with rivalry off produced {nestmates} attacks and {kin_cells} cells"
+        );
+        assert_eq!(
+            (unwired, unwired_cells),
+            (0, 0),
+            "the shipped ant carries no weight on Attack and must never swing: {unwired} attacks, {unwired_cells} cells -- if this fires, every animal in every bed started fighting the day the verb landed"
+        );
+        assert!(spent > 0.0, "fighting must cost the jaw something: {spent} J spent over 400 frames");
+        assert!(!fed, "an attack must not fill the crop -- if it feeds, it is the Feed path wearing a new name");
     }
 
     /// **The four fields the prices unlocked are heritable, each on the shape
@@ -10634,6 +11144,113 @@ mod tests {
     /// claimed its own would make every colony dissolve into singletons at
     /// the first generation -- which the graph would draw as a colony that
     /// never grows while the box fills with animals.
+    /// **A child is made of what its parent's brain hands it, and a founder
+    /// is made of nothing.** `BrainOutput::Provision` is the one channel by
+    /// which a parent's state reaches a child's body, and this is the guard
+    /// that the channel is connected end to end: a founder wired
+    /// `(Bias, Provision, +4)` buds children whose `made` reads
+    /// `squash(4) = 0.8`, the same wiring negated reads `-0.8`, and an
+    /// unwired founder -- every shipped animal -- buds children made of
+    /// exactly nothing. Three arms so it can fail in every direction; the
+    /// founders' own `made` is asserted zero in each, because a founder is
+    /// handed nothing by anyone.
+    ///
+    /// Put the fault back by dropping `made` from `Origin::Bud` (every
+    /// child then reads the allocator's zero) and the first two arms go red.
+    #[test]
+    fn a_child_is_made_of_what_its_parent_hands_it() {
+        let made_of = |provision_weight: Option<f32>| -> Vec<f32> {
+            let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+            if let Some(weight) = provision_weight {
+                let ant = w.species.id_of("ant").expect("ant");
+                let mut genome = w.species.get(ant).genome.clone();
+                genome[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Provision)] = weight;
+                // On the standing founders, not only the species: a founder
+                // copied the species genome at placement and would not see
+                // a later `set_genome`.
+                for &id in &founders {
+                    if let Some(st) = w.organism_mut(id) {
+                        st.genome = genome.clone();
+                    }
+                }
+            }
+            run(&mut w, 60);
+            assert!(w.creature_stats.births > 0, "nothing was born, so nothing was provisioned and this arm proves nothing");
+            for &id in &founders {
+                if let Some(st) = w.organism(id) {
+                    assert_eq!(st.made, 0.0, "a founder is handed nothing by anyone");
+                }
+            }
+            live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).filter_map(|id| w.organism(id).map(|s| s.made)).collect()
+        };
+        let plus = made_of(Some(4.0));
+        assert!(!plus.is_empty() && plus.iter().all(|&m| m > 0.5), "a parent wired +4 onto Provision hands squash(4) = 0.8: {plus:?}");
+        let minus = made_of(Some(-4.0));
+        assert!(!minus.is_empty() && minus.iter().all(|&m| m < -0.5), "and -4 hands -0.8: {minus:?}");
+        let none = made_of(None);
+        assert!(!none.is_empty() && none.iter().all(|&m| m == 0.0), "an unwired parent -- every shipped animal -- hands exactly nothing: {none:?}");
+    }
+
+    /// **Plasticity moves the body an animal expresses and never the genes
+    /// it passes on.** One ant, `made = 1`, a developmental weight of `0.5`
+    /// on the armour slot: with the box's `plasticity` at the shipped zero
+    /// its expressed armour is its genotype's, and `armour_at` -- the
+    /// reader every bite goes through -- agrees; at `1.0` the expressed
+    /// slot is `0.5` higher and `armour_at` moves with it, while
+    /// `state.traits` reads exactly what it did. Both arms, so a dial that
+    /// did nothing and a dial that leaked into the genotype both fail.
+    #[test]
+    fn plasticity_moves_the_expressed_body_and_not_the_genotype() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(id, 0, "the ant must place");
+        let genotype = w.organism(id).expect("live").traits;
+        {
+            let st = w.organism_mut(id).expect("live");
+            st.made = 1.0;
+            st.genome[brain::dev_slot(TRAIT_ARMOUR)] = 0.5;
+        }
+        let cell = w.get(100, 100);
+        w.plasticity = 0.0;
+        let st = w.organism(id).expect("live");
+        assert_eq!(expressed_traits(st, w.plasticity, w.trait_reach), genotype, "at the shipped dial the expressed body is the genotype, whatever the block says");
+        let armour_off = armour_at(&w, cell);
+        w.plasticity = 1.0;
+        let st = w.organism(id).expect("live");
+        let expressed = expressed_traits(st, w.plasticity, w.trait_reach);
+        assert!((expressed[TRAIT_ARMOUR] - (genotype[TRAIT_ARMOUR] + 0.5)).abs() < 1e-6, "made 1 x weight 0.5 x dial 1 lifts the armour slot by 0.5: {} -> {}", genotype[TRAIT_ARMOUR], expressed[TRAIT_ARMOUR]);
+        for slot in 0..CREATURE_TRAITS {
+            if slot != TRAIT_ARMOUR {
+                assert_eq!(expressed[slot], genotype[slot], "a slot with no developmental weight does not move");
+            }
+        }
+        assert!(armour_at(&w, cell) > armour_off, "the bite's own reader sees the expressed plate, not the genotype's");
+        assert_eq!(w.organism(id).expect("live").traits, genotype, "the genotype is untouched -- it is what the children inherit");
+    }
+
+    /// **The brain reads how its animal was made.** `BrainInput::Made` is
+    /// the child's `made`, so behaviour can depend on provisioning; the slot
+    /// reads zero for a founder and exactly the value for a provisioned
+    /// animal.
+    #[test]
+    fn the_brain_reads_what_its_animal_was_made_with() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::Made as usize], 0.0, "a founder was made of nothing");
+        w.organism_mut(id).expect("live").made = 0.7;
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::Made as usize], 0.7);
+    }
+
     #[test]
     fn a_child_is_born_into_its_parents_colony() {
         let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);

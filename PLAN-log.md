@@ -4418,4 +4418,4 @@ below a size threshold, the momentum skip without its "no chunk awake"
 condition, and `rebuild_blocked` rescanning only written blocks. Paired,
 alternating, whole-frame: full box 6.6 → 2.7 ms, one small plant 2.8 →
 0.5. Account: `Reports/evolution-lab-frame-cost-2026-09-01.md` §16;
-coordinator note round fifteen.
+coordinator note round seventeen.
