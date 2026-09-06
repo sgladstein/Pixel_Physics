@@ -103,4 +103,13 @@
     // amputating a sward. Attachment is still checked separately, so grass
     // whose roots are dug away still goes.
     max_unsupported_span: 1,
+    // **The armour table's soft band, on the same argument `leaf.ron` makes
+    // and for tissue that needs it more.** A blade of grass is a lamina on
+    // a stem a cell wide; it punctures at almost nothing, and it is the
+    // tissue an animal walking on the ground actually meets. Left unauthored
+    // it sat at the 100.0 default, which prices a meadow like heartwood.
+    //
+    // Same value as `leaf` and `moss` -- this is soft tissue and the three
+    // are not meaningfully different to a mandible.
+    penetration_resistance: 0.1,
 )
