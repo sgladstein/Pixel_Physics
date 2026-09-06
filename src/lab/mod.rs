@@ -353,7 +353,16 @@ impl Lab {
             world,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
-            renderer: Renderer::new(),
+            renderer: {
+                // **Every animal wears its colony's colour from the first
+                // frame.** Owner, 2026-09-06: the ants and the beetles could
+                // only be told apart with the gut overlay on. `Off` is the
+                // outdoor game's default and stays it; the lab is the game
+                // whose whole point is watching groups.
+                let mut r = Renderer::new();
+                r.creature_colour = crate::render::CreatureColour::Colony;
+                r
+            },
             player_tuning: player::Tuning::default(),
             time: time::TimeControl::new(),
             stats: stats::Stats::new(),
@@ -2287,6 +2296,10 @@ impl Lab {
         let mut placed = 0;
         let mut moved = 0;
         let mut refusal = None;
+        // **One colony per release gesture**, founded by the first animal
+        // that fits and joined by the rest -- `found_colony_of`'s rule, so
+        // a jar released as a colony graphs and colours as one group.
+        let mut colony: Option<u32> = None;
         for (sx, sy) in sites {
             // **Its own stream per individual, keyed on the frame and the
             // release point.** Two reasons, and the second is the whole of
@@ -2298,10 +2311,13 @@ impl Lab {
             // whose members drift independently, which is what makes the
             // spread a spread rather than one mutation applied fifty times.
             let mut rng = crate::sim::rng::stream(self.world.seed, sx as u64, sy as u64, self.world.frame);
-            match specimen::release(&mut self.world, &jar, sx, sy, broods, &mut rng) {
+            match specimen::release_in(&mut self.world, &jar, sx, sy, broods, &mut rng, colony) {
                 Ok(out) => {
                     placed += 1;
                     moved += out.moved;
+                    if colony.is_none() {
+                        colony = self.world.organism(out.organism).map(|s| s.colony).filter(|c| *c != 0);
+                    }
                 }
                 Err(e) => refusal = Some(e),
             }

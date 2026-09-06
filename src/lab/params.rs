@@ -738,6 +738,18 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
 
+    // **The one rule on this page**, under its own header so a page of one
+    // species' numbers does not appear to have grown a row that reaches
+    // every animal -- `plant_mechanics_rows`' reasoning. See
+    // `World::colony_rivalry` for exactly what it changes and does not.
+    out.push(toggle(
+        g,
+        Knob::Rule { field: "colony_rivalry" },
+        "colonies",
+        "rivalry",
+        world.colony_rivalry,
+        "WHETHER TWO COLONIES OF ONE KIND ARE STRANGERS. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED IS ITS OWN COLONY, AND ITS CHILDREN ARE BORN INTO IT -- THE GRAPH ON THE ANTS PAGE AND THE COLOURS IN THE BOX ARE THAT SPLIT. OFF IS THE SHIPPED BEHAVIOUR: A COLONY IS A LABEL, EVERY ANT IS EVERY OTHER ANT'S NESTMATE, AND ANTS NEVER BITE ANTS. ON, AN ANT FROM ANOTHER COLONY IS NOT KIN, SO A HUNGRY ANT WILL EAT ONE EXACTLY AS IT WOULD EAT A BEETLE, AND THE TWO COLONIES STOP DRAWING TOGETHER. IT ADDS NO NEW WAY OF FIGHTING AND THEY STILL SHARE ONE SET OF SCENT TRAILS. FELT ON THE NEXT TICK, LASTS THE SESSION, SAVED WITH THE OTHER RULES.",
+    ));
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -914,6 +926,12 @@ pub struct Dials {
     pub plant_load_failure: bool,
     pub plant_bending: bool,
     pub plant_size_cadence: bool,
+    /// `World::colony_rivalry`. `serde(default)` because this field arrived
+    /// after the file did: a `lab_dials.ron` saved before 2026-09-06 has no
+    /// such key, and without the default `load_saved` would refuse the whole
+    /// file and silently drop every other dial the player had set.
+    #[serde(default)]
+    pub colony_rivalry: bool,
     pub mutation_sigma: f32,
     pub fate_mutation_chance: f32,
     pub param_mutation_chance: f32,
@@ -942,6 +960,7 @@ impl Dials {
             plant_load_failure: world.plant_load_failure,
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
+            colony_rivalry: world.colony_rivalry,
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
             param_mutation_chance: world.param_mutation_chance,
@@ -970,6 +989,7 @@ impl Dials {
         world.plant_load_failure = self.plant_load_failure;
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
+        world.colony_rivalry = self.colony_rivalry;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1172,6 +1192,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_load_failure" => world.plant_load_failure = on,
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
+                "colony_rivalry" => world.colony_rivalry = on,
                 _ => return false,
             }
             true
@@ -1478,6 +1499,10 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
         "HOW MANY ANCESTORS BACK TO A FOUNDER. A FOUNDER IS 0. IF THIS NEVER LEAVES 0 OR 1, NOTHING IN THE BOX IS BREEDING, WHICH IS THE ONE THING A POPULATION COUNT CANNOT TELL YOU BY ITSELF.");
     row("LINEAGE", state.lineage.to_string(),
         "WHICH FOUNDING LINE THIS INDIVIDUAL COMES FROM. TWO ANIMALS WITH THE SAME LINEAGE SHARE AN ANCESTOR IN THIS BOX; TWO WITH DIFFERENT ONES DO NOT.");
+    if species.creature.is_some() {
+        row("COLONY", state.colony.to_string(),
+            "WHICH GROUP THIS ANIMAL BELONGS TO: THE CLICK, PLACEMENT OR RELEASE THAT PUT ITS FOUNDERS DOWN, COUNTED IN ORDER, AND EVERYTHING BORN TO THEM SINCE. IT IS THE GROUP THE ANTS PAGE GRAPHS AND THE COLOUR THE ANIMAL WEARS. WITH RIVALRY ON, ANIMALS OF ANOTHER COLONY ARE NOT ITS KIN.");
+    }
     // **Three states, not two.** `inherited` alone would report a specimen
     // released off the shelf as either "born here" (it was not -- nothing in
     // the box bore it) or "founder" (true economically, and it hides the one
@@ -1781,12 +1806,14 @@ mod tests {
 
         let (mut world, _) = bed();
         world.plant_load_failure = false;
+        world.colony_rivalry = true;
         world.mutation_sigma = 0.25;
         world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
         Dials::from_world(&world).save().expect("save");
 
         let loaded = Dials::load_saved().expect("a just-saved file parses back");
         assert!(!loaded.plant_load_failure);
+        assert!(loaded.colony_rivalry);
         assert_eq!(loaded.mutation_sigma, 0.25);
         // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
         assert_eq!(loaded.developmental_key, 4);
@@ -1794,9 +1821,33 @@ mod tests {
         let mut fresh = bed().0;
         loaded.apply_to(&mut fresh);
         assert!(!fresh.plant_load_failure);
+        assert!(fresh.colony_rivalry);
         assert_eq!(fresh.mutation_sigma, 0.25);
         assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
 
+        let _ = std::fs::remove_file(&path);
+        std::env::remove_var(Dials::ASSET_PATH_ENV);
+    }
+
+    /// **A dials file saved before `colony_rivalry` existed still loads.**
+    /// Without `serde(default)` on the new field, `load_saved` would return
+    /// `None` for every pre-2026-09-06 file and the player's other seven
+    /// dials would silently revert -- a reader with no writer, looking
+    /// exactly like a fresh install. Put the fault back by deleting the
+    /// attribute and this goes red.
+    #[test]
+    fn a_dials_file_without_the_rivalry_key_still_parses() {
+        let _guard = STATE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let path = scratch_path("dials_old");
+        std::env::set_var(Dials::ASSET_PATH_ENV, &path);
+        std::fs::write(
+            &path,
+            "(plant_load_failure: false, plant_bending: true, plant_size_cadence: false, mutation_sigma: 0.25, fate_mutation_chance: 0.1, param_mutation_chance: 0.1, param_mutation_sigma: 0.1, developmental_key: 0)\n",
+        )
+        .expect("write");
+        let loaded = Dials::load_saved().expect("an old file must still parse");
+        assert!(!loaded.plant_load_failure, "the other dials survive");
+        assert!(!loaded.colony_rivalry, "the missing key defaults to the shipped behaviour");
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(Dials::ASSET_PATH_ENV);
     }

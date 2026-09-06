@@ -905,8 +905,14 @@ impl LabBox {
         // bed rather than an ordering artifact, and `Planted::beetles` is
         // the only place it is visible.
         let mut beetles = 0usize;
+        // One colony for the bed's beetles, like the ants: the spec places
+        // them as a group, so they graph and colour as one.
+        let mut colony: Option<u32> = None;
         for x in self.predator_columns() {
-            if let Some(site) = crate::sim::creature::plant_creature_seed(&mut w, x, self.ground_y - 2, "beetle") {
+            if let Some(site) = crate::sim::creature::plant_creature_seed_in(&mut w, x, self.ground_y - 2, "beetle", colony) {
+                if colony.is_none() {
+                    colony = crate::sim::creature::colony_of_site(&w, &site);
+                }
                 w.schedule_active_site(site);
                 beetles += 1;
             }

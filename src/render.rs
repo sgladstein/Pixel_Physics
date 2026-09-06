@@ -1227,6 +1227,106 @@ impl OrganismOverlay {
     }
 }
 
+/// **What colour an animal wears in the box** — the group it belongs to,
+/// or its own material.
+///
+/// Owner, 2026-09-06, having watched ants and beetles fight for the first
+/// time: *"I had to use a gut bias overlay to clearly see the ants and
+/// beetles... adjust creature color (by creature and/or colony)."* Both
+/// species ship as dark browns on dark soil, and the one legible thing at
+/// 1-2 px -- contrast against the ground -- is exactly what the material
+/// palettes do not give. A debug overlay was standing in for the picture.
+///
+/// So this is a mode rather than a palette edit, for the reason five grain
+/// modes went behind one key: *"for does this look right, ship a runtime
+/// selector rather than choosing"*. `Off` is byte-identical to the shipped
+/// draw and is what the outdoor game runs. `Species` colours by kind.
+/// `Colony` colours by `OrganismState::colony`, which is what the lab
+/// opens on -- and **the same colour is the group's colour on the ANTS
+/// page's population graph**, through [`group_colour`], so the line you
+/// are watching fall and the animals you are watching die are one colour.
+///
+/// **A replace, not a tint**, and that is the whole lesson of `GUT_TINT_*`
+/// above: a 45% pull toward green lost a blind A/B and every subtle
+/// recolour here has read as nothing. The body's own shading survives
+/// through its luminance ratio (see the `cell_colour` block), so a
+/// countershaded beetle is still a paler head over a darker belly, in the
+/// group's hue.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CreatureColour {
+    /// The material palette, exactly as before this existed.
+    Off,
+    /// One colour per species, `SpeciesId` into [`GROUP_COLOURS`].
+    Species,
+    /// One colour per `OrganismState::colony`, in placement order: the
+    /// first group you put down wears the first colour.
+    Colony,
+}
+
+impl CreatureColour {
+    pub fn next(self) -> Self {
+        match self {
+            CreatureColour::Off => CreatureColour::Species,
+            CreatureColour::Species => CreatureColour::Colony,
+            CreatureColour::Colony => CreatureColour::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            CreatureColour::Off => "OWN COLOUR",
+            CreatureColour::Species => "BY SPECIES",
+            CreatureColour::Colony => "BY COLONY",
+        }
+    }
+}
+
+/// **The group palette: eight colours, all of them absent from the bed.**
+///
+/// The bed is browns, greens and a blue-grey sky, and every material an
+/// animal is made of is a brown -- so these are the hues the world does not
+/// use, bright enough to stand off soil at one cell, and ordered so that
+/// neighbouring entries are far apart on the wheel (the first two groups a
+/// player places are the pair they most need to tell apart). Eight rather
+/// than `LINEAGE_COLOURS`' six because a colony is something the player
+/// counts up by hand and eight is about where that stops; past it the
+/// palette wraps and the legend says so by number.
+///
+/// **Deliberately not `LINEAGE_COLOURS`.** That palette is a false-colour
+/// readout you switch on to ask a question; this one is what the animals
+/// *are* while you play. Sharing them would make the founding-lines overlay
+/// look like the colony view with the numbers shuffled.
+pub const GROUP_COLOURS: [[f32; 3]; 8] = [
+    [255.0, 196.0, 40.0],  // amber
+    [70.0, 200.0, 255.0],  // sky
+    [255.0, 96.0, 130.0],  // rose
+    [160.0, 255.0, 90.0],  // lime
+    [220.0, 130.0, 255.0], // violet
+    [255.0, 140.0, 40.0],  // orange
+    [90.0, 255.0, 220.0],  // mint
+    [245.0, 245.0, 245.0], // white
+];
+
+/// What animals of no colony draw in under `CreatureColour::Colony` --
+/// a test's `push_organism` body, or anything from before the label existed.
+/// Grey rather than a palette slot so it cannot be mistaken for a group.
+pub const GROUP_NONE: [f32; 3] = [150.0, 150.0, 150.0];
+
+/// **The one definition of a group's colour**, read by the renderer for the
+/// animal and by the lab's ANTS page for the graph line and legend swatch.
+/// `None` under `Off`, where the animal wears its material.
+pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32) -> Option<[f32; 3]> {
+    match mode {
+        CreatureColour::Off => None,
+        CreatureColour::Species => Some(GROUP_COLOURS[species.0 as usize % GROUP_COLOURS.len()]),
+        CreatureColour::Colony => Some(if colony == 0 {
+            GROUP_NONE
+        } else {
+            GROUP_COLOURS[(colony as usize - 1) % GROUP_COLOURS.len()]
+        }),
+    }
+}
+
 /// **The founding-line palette: six hues, and six is a decision.**
 ///
 /// `OrganismState::lineage` is an unbounded monotonic counter, so "colour by
@@ -2167,6 +2267,13 @@ pub struct Renderer {
     /// debug overlay that is `Off` by default and costs exactly nothing
     /// then, which is the same bargain `field_overlay` already makes.
     pub organism_overlay: OrganismOverlay,
+    /// **Which colour an animal wears** -- see [`CreatureColour`]. `Off`
+    /// here; the lab sets `Colony` when it builds its renderer.
+    pub creature_colour: CreatureColour,
+    /// `creature_colour` as of the last `draw`, for `last_organism_overlay`'s
+    /// reason: every creature pixel in the buffer was painted in the old
+    /// mode, and a switch dirties no chunk.
+    last_creature_colour: CreatureColour,
     /// `organism_overlay` as of the last `draw` call. A change means every
     /// existing pixel in the buffer was tinted for a different channel, so
     /// one full redraw has to re-establish it — the same reason
@@ -2476,6 +2583,8 @@ impl Renderer {
             zoom_out_stride: 1,
             field_overlay: FieldOverlay::Off,
             organism_overlay: OrganismOverlay::Off,
+            creature_colour: CreatureColour::Off,
+            last_creature_colour: CreatureColour::Off,
             last_organism_overlay: OrganismOverlay::Off,
             focus_lineage: None,
             last_focus_lineage: None,
@@ -2685,6 +2794,11 @@ impl Renderer {
     /// real running plant answers.
     pub fn cycle_organism_overlay(&mut self) {
         self.organism_overlay = self.organism_overlay.next();
+    }
+
+    /// Step the creature colour mode — see [`CreatureColour`].
+    pub fn cycle_creature_colour(&mut self) {
+        self.creature_colour = self.creature_colour.next();
     }
 
     /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
@@ -3048,6 +3162,12 @@ impl Renderer {
         // `organism_overlay`'s own doc for why that split is exact.
         let mut organism_overlay_changed = self.last_organism_overlay != self.organism_overlay;
         self.last_organism_overlay = self.organism_overlay;
+        // The creature colour mode rides the same trigger: a switch repaints
+        // ~150 creature cells and no chunk is dirtied by it.
+        if self.last_creature_colour != self.creature_colour {
+            self.last_creature_colour = self.creature_colour;
+            organism_overlay_changed = true;
+        }
 
         // **The founding-line ranking, rebuilt here and compared, not
         // recomputed per cell.** See `lineage_ranks`: the mapping moves with
@@ -5136,11 +5256,30 @@ impl Renderer {
         // cells in a colony pay the lookup.
         if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
             if let Some(state) = world.organism(cell.organism_id()) {
-                let bias = state.traits[organism::TRAIT_GUT_BIAS].clamp(-1.0, 1.0);
-                let tint = if bias < 0.0 { GUT_TINT_PLANT } else { GUT_TINT_FLESH };
-                let t = bias.abs() * GUT_TINT_STRENGTH;
-                for (c, target) in base.iter_mut().take(3).zip(tint) {
-                    *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony) {
+                    // **The group's colour, at this cell's own brightness.**
+                    // A material palette is three shades of one brown and
+                    // the body's countershading is written in which shade
+                    // each cell drew, so the shade is kept as a luminance
+                    // ratio against the palette's brightest entry -- floored
+                    // so the darkest belly cell is still unmistakably the
+                    // group's hue and not the soil's. Three entries, on the
+                    // ~150 cells that reach here; the same cost as the gut
+                    // tint this replaces.
+                    const DARKEST: f32 = 0.55;
+                    let luma = |c: [u8; 4]| c[0] as f32 * 0.299 + c[1] as f32 * 0.587 + c[2] as f32 * 0.114;
+                    let brightest = palette.iter().map(|&c| luma(c)).fold(1.0, f32::max);
+                    let ratio = (luma(base) / brightest).clamp(DARKEST, 1.0);
+                    for (c, g) in base.iter_mut().take(3).zip(group) {
+                        *c = (g * ratio).round().clamp(0.0, 255.0) as u8;
+                    }
+                } else {
+                    let bias = state.traits[organism::TRAIT_GUT_BIAS].clamp(-1.0, 1.0);
+                    let tint = if bias < 0.0 { GUT_TINT_PLANT } else { GUT_TINT_FLESH };
+                    let t = bias.abs() * GUT_TINT_STRENGTH;
+                    for (c, target) in base.iter_mut().take(3).zip(tint) {
+                        *c = (*c as f32 + (target - *c as f32) * t).round().clamp(0.0, 255.0) as u8;
+                    }
                 }
                 // **What it is carrying, on the brightness axis.** Rides the
                 // organism lookup the gut tint has already paid for -- this

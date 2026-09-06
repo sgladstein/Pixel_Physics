@@ -681,6 +681,54 @@ bit-identical-sweep problem `fate_mutation_chance`'s doc records). The new
 file is a separate, gitignored, runtime-only state file rather than a
 species field, so that argument still holds and was not re-litigated.
 
+## Round eleven, 2026-09-06 — groups: who is who, and who is family
+
+*Owner, after the first ant-and-beetle equilibrium ("the most fun I have had
+in the game yet"): could not tell the species apart without the gut overlay;
+could only graph the total; asked how groups are defined, whether two clicks
+are two colonies, whether ant colonies ever fight, how friend is told from
+foe, and whether an ant is always an ant. Branch
+`claude/evolution-lab-creatures-v57wnd`. **The design of record is
+[`../creature-groups-and-combat-design-2026-09-06.md`](../creature-groups-and-combat-design-2026-09-06.md)**;
+the shipped half is README's "Creature groups status". This session took
+over the creature line from `session_01DQxG4SzcwrAeNC9tZTfvMo` (PR #255,
+fight mechanics) by poke-trigger; its handoff file is owed on its branch.*
+
+**What the questions turned out to mean, which no reader should have to
+re-derive:**
+
+- **Nothing in the engine knew a click had happened.** `found_colony_of`
+  placed animals and painted a nest; the animals carried a `lineage` (one
+  per founder, so fifty-two per colony) and a `species`, and that was the
+  whole of identity. Two clicks were one population. Now `OrganismState::
+  colony` is claimed **once per gesture by the first animal that fits**, the
+  rest join, children inherit — a founding that tries fifty stations claims
+  one number, so `ANT 3` is the third thing the player put down.
+- **"Foe" does not exist and never did.** `is_living_kin` is one predicate
+  (same species) read at the mouth, the eye and the kin sense; everything
+  not kin is either digestible or furniture. The owner's "equilibrium" was
+  predator–prey, not war, because no second ant colony could exist. The
+  `colony rivalry` dial (parameters, ANTS page, **off**) narrows kin to the
+  colony; on, a hungry ant eats a stranger as it eats a beetle and the kin
+  sense stops pulling colonies together. **It adds no verb and no private
+  scent** — both colonies still write the same two pheromone planes — and
+  the report says so rather than pretending otherwise.
+- **An ant is always an ant, by construction**: `state.species` is written
+  once. Speciation is the report's §3 — a heritable scent signature and
+  tolerance replacing the species bit — and it is designed, not built.
+- **The colour is a replace, not a tint**, because `GUT_TINT_*`'s 45% pull
+  lost a blind A/B and every subtle recolour here has read as blank. Species
+  and colony modes plus `Off` (the outdoor game's, byte-identical) behind one
+  selector; the graph line under each group is the same colour through one
+  function, `render::group_colour`.
+
+**Two things that bind on what comes next:** the report's order (§6) puts
+`ThreatNear` before anything on the prey side, because *a bed cannot select
+for what the animal cannot perceive* and the prey has no sense for the
+predator; and it budgets the kin-sense re-calibration inside the signature
+work, not after it (`CLAUDE.md`'s shared-budget rule — `KinNear`'s authored
+weights were fitted against a kin that was every ant).
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

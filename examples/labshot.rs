@@ -223,6 +223,14 @@ fn main() {
         (v[0], v[1], v[2], v[3])
     });
     let mut renderer = Renderer::new();
+    // `colour=off|species|colony` -- what an animal wears, the lab's own
+    // default being `colony`. Off is the shipped material draw, which is
+    // the control arm for any card judging the group colours.
+    renderer.creature_colour = match arg::<String>("colour").as_deref() {
+        Some("off") => pixel_physics::render::CreatureColour::Off,
+        Some("species") => pixel_physics::render::CreatureColour::Species,
+        _ => pixel_physics::render::CreatureColour::Colony,
+    };
     for _ in 1..zoom {
         renderer.adjust_zoom(1);
     }

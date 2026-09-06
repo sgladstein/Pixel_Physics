@@ -4365,3 +4365,36 @@ spans 0.765 to 1.676, with the lever running *backwards* on two seeds in
 sixteen. It is now a median plus a direction count plus an answerable count
 over twelve paired seeds (1.195 with the switches off, 1.406 with them on),
 and both new guards have positive controls that put the fault back.
+
+## 2026-09-06 — groups: who is who in the box, and who is family
+
+The owner's first ant-and-beetle equilibrium was played with the gut-bias
+overlay on, because both species are browns on brown soil, and with one
+population line, because the lab could only count animals. Their questions —
+are two clicks two colonies, do colonies ever fight, how is friend told from
+foe, is an ant always an ant — turned out to have one answer each from the
+code: **nothing knew a click had happened**, kin was the species and nothing
+else, "foe" did not exist (only *food I can digest*), and `state.species` is
+written once. Design of record:
+`Reports/creature-groups-and-combat-design-2026-09-06.md`; shipped half in
+README's "Creature groups status".
+
+**Landed:** `OrganismState::colony`, one label per placement gesture claimed
+by the first animal that fits and inherited at birth; animals drawn in their
+group's colour (`render::CreatureColour`, a replace not a tint, off in the
+outdoor game) with the ANTS page graphing each group on one axis in the same
+colour; and a `colony rivalry` rule, off, under which `is_living_kin` needs
+the colony as well as the species — so a hungry ant eats a stranger by the
+arithmetic that makes it eat a beetle (`480 x 0.25 = 120 J` against a `12 J`
+bar) and nothing else changes. Guards: a stranger is kin until the dial is
+on and still kin with it on inside one colony; one founding claims one label
+and the next claims the next; a child is born into its parent's colony; a
+dials file saved before the field existed still parses.
+
+**Not landed, and said so:** no aggression verb, no private scent (both
+colonies write the same two pheromone planes), no response to being bitten,
+no per-group deaths. The report orders them — `ThreatNear` first, because
+the prey has no sense for the predator and *a bed cannot select for what the
+animal cannot perceive* — and puts the heritable scent signature that makes
+speciation graded after it, with the kin-sense re-calibration budgeted
+inside that work rather than after.
