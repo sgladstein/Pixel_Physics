@@ -259,6 +259,46 @@ to matter (§2's tallies say beetle kills run a tenth of deaths), and
 whether `−0.8` onto `Turn` is a flight at all rather than a spin. Each is a
 cheap next run; none was taken tonight. "Does flight pay" is open.
 
+**CLOSED 2026-09-06, and the answer is still no — but not for any of the
+three reasons above.** All three unknowns were run.
+
+1. **The wired arm saw hunters constantly.** `creature_arena` now prints
+   `threat_sightings` and its duty cycle beside every race, with a loud
+   warning when the count is zero. Over the two races below: **141,996 and
+   162,923 sightings, duty cycle 7.4% and 8.3%** — the eye had a hunter to
+   report on roughly one cast in thirteen. The null was never a dead sense.
+2. **The bed was rebuilt so beetles actually kill.** The old arena bed starves
+   its colony to single digits before the grant runs out, so predation was
+   ~5% of deaths and the arms could not separate. `founders=48 predators=4`
+   holds 23–63 ants per arm at 24,000 frames with **13 killed against 24
+   starved — 35% of mortality is predation**, found by sweeping `founders=`
+   and `predators=` against `labstats`' per-group tally rather than guessing.
+3. **A "run away" wiring did worse than the turn.** `Persist` is the engine's
+   own milling-versus-commuting number, so a flight without it is dithering;
+   adding `ThreatNear→Persist +0.8` and `ThreatNear→Tumble −0.6` to the
+   original two weights is a run rather than a spin.
+
+Raced at **24,000 frames, past the founding grant** (the harness confirms the
+horizon now outlasts the endowment), six seeds, mirrored:
+
+| arm B's wiring | B share of animals, median | seeds B > 50% | spread |
+|---|---|---|---|
+| `ThreatBearing→Turn −0.8`, `ThreatNear→Move +0.6` | 52.4% (q1 48.9, q3 53.2) | 4 of 6 | 37.1–60.2% |
+| …plus `ThreatNear→Persist +0.8`, `ThreatNear→Tumble −0.6` | **47.9%** (q1 38.9, q3 50.0) | 1 of 6, 1 tied | 35.5–55.1% |
+
+Both sit inside the harness's own noise floor (2.42–3.12x on the world seed
+alone). **One confound, stated because it is not small**: the run-away arm
+carries four named weights against two, and `synapse_fraction` bills every
+active connection every tick — so its lower share is not attributable to the
+shape of the wiring alone, and a fair version of that comparison needs the
+weight count held equal.
+
+**So "does flight pay" is answered no, in this bed, at this horizon, with the
+sense firing and predation at a third of deaths.** What is left is not on the
+prey's side at all: §4f's two open items — generations run ~8,600 frames and
+88% of affordable births fail on geometry — mean selection has very little to
+act on however good the behaviour is. That is Gate 2, and it is still unrun.
+
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a
 gallery, warning a nestmate — none of them is selectable, because the
@@ -310,7 +350,7 @@ reshaped those scenes), not the 1.03x above; `PIXEL_PHYSICS_DROP_MOISTURE=
 off:0.9` reads 0.70x and is the control that tells a broken mechanism from a
 blind guard.
 
-### 4b. Fighting is only eating — the missing verb
+### 4b. Fighting is only eating — the missing verb (BUILT 2026-09-06)
 
 An ant bites a rival only when hungry and adjacent, because the bite is the
 `Feed` path. Territorial defence — biting a stranger you are *not* going to
@@ -321,6 +361,28 @@ it sates nothing. Then a colony can evolve to fight for ground and the price
 of doing so is visible in the ledger. Without 4a it will never be selected
 for, because the animal cannot tell a threat from furniture; with it, the
 hunting-ground scenario (PR #253's S6) becomes runnable.
+
+**Built as specified**, as `BrainOutput::Attack` — the first append on the
+output axis since the genome layout was reserved, and lawful because of it.
+Two departures from the sketch above, both deliberate:
+
+- **The target rule needed its own scan, not a re-ranking.**
+  `adjacent_food_counted` scores by what the gut would get, so an animal
+  defending its nest against something it cannot digest scores every candidate
+  at zero and picks nothing. `creature::nearest_foe` walks the same
+  deduplicated whole-body ring and asks only *alive, somebody else, not kin* —
+  and reads `is_living_kin`, so the rivalry dial and the §3 signature reach
+  the verb without it knowing they exist.
+- **Priced per closure, not per progress.** The sketch says "the same
+  `dig_cost_in_moves` per progress"; `dead-ends.md` records why that is wrong
+  — a per-unit-of-progress price on a divisible job is a *constant total* for
+  the job, so it cannot deter. It routes through `Did::gnaws` for the same
+  per-jaw-closure bill the gnaw takes.
+
+A killed cell is destroyed rather than eaten, which is the accounted path
+every other non-eating removal already takes. Guarded by
+`attacking_costs_the_jaw_and_yields_no_food`, whose last two assertions are
+the ones that stop this being a second mouth: energy spent, crop empty.
 
 ### 4c. Injury is permanent — a missing middle
 
@@ -346,7 +408,7 @@ cheapest first:
    K)` for a small `K`. Memory is `K` times two planes (a 512×320 plane is
    160 KB; `K = 4` is 1.3 MB) and it makes every colony's trail invisible to
    every other, which is more than real ants have.
-3. **A third plane, alarm**, owned by nobody: emitted on being bitten,
+3. **A third plane, alarm** — **BUILT 2026-09-06** — owned by nobody: emitted on being bitten,
    decaying fast, read as `AlarmFront`. `pheromone.rs` says *resist a third
    until a concrete consumer exists*; being bitten is that consumer, and it
    is the one signal that makes a colony act *as* a colony in a fight —
@@ -354,6 +416,25 @@ cheapest first:
 
 Order: 3 before 2. Alarm changes what a fight looks like on screen; private
 trails change a number.
+
+**3 is built and 2 is not.** `pheromone::Channel::Alarm` at `ALARM_RHO` 0.25
+a pass against the trails' 0.03, read as `BrainInput::Alarm`. Three things
+the sketch did not say and the build had to settle:
+
+- **It is one input, not the front/lateral pair the trail planes carry.** A
+  trail is a route and its gradient is the whole of its information; an alarm
+  is an event, and the direction the hunter is in is already `ThreatBearing`.
+  A lateral alarm slot would be a second, worse bearing sense competing with
+  the real one.
+- **The plane is allocated on the first bite.** Eagerly it would be ~40 MB
+  standing at the shipped world size for a signal many worlds never write
+  once. `Pheromones::alarm_is_live` exists because a plane that was never made
+  and one that has decayed to zero sample identically.
+- **The victim does not pay for it.** Every other emission here is a verb an
+  animal decides on and `emit_cost_in_moves` bills; this is what being bitten
+  *does*. Charging for it would price being attacked — the defect
+  `armour_fraction`'s doc records for the plate, arriving on the other side of
+  the same fight.
 
 ### 4e. Nothing scored a fight — half closed the same evening
 

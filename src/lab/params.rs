@@ -184,6 +184,16 @@ pub enum Knob {
     /// material field appears in at all. A row here prints `ON`/`OFF` rather
     /// than `1.000`/`0.000`, which is [`Param::shown`]'s whole purpose.
     Rule { field: &'static str },
+    /// **A scalar of the simulation itself** — a plain `f32` on [`World`] or
+    /// on something it owns, live on the next tick.
+    ///
+    /// `Knob::Rule`'s sibling, and its own kind for exactly the same reason:
+    /// what it moves is not any one material's or species' number. The first
+    /// of these is the alarm scent's decay, which is a property of the
+    /// *ground* — every animal in the box reads one plane, and a rate
+    /// authored per species would let two animals standing on the same cell
+    /// disagree about how old the blood on it is.
+    Scalar { field: &'static str },
     /// Shown, and not changeable from here. The panel draws no `-`/`+` pair on
     /// one of these and [`write`] refuses it; see this module's own doc for
     /// the three that are like this and why.
@@ -749,7 +759,20 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "colonies",
         "rivalry",
         world.colony_rivalry,
-        "WHETHER TWO COLONIES OF ONE KIND ARE STRANGERS. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED IS ITS OWN COLONY, AND ITS CHILDREN ARE BORN INTO IT -- THE GRAPH ON THE ANTS PAGE AND THE COLOURS IN THE BOX ARE THAT SPLIT. OFF IS THE SHIPPED BEHAVIOUR: A COLONY IS A LABEL, EVERY ANT IS EVERY OTHER ANT'S NESTMATE, AND ANTS NEVER BITE ANTS. ON, AN ANT FROM ANOTHER COLONY IS NOT KIN, SO A HUNGRY ANT WILL EAT ONE EXACTLY AS IT WOULD EAT A BEETLE, AND THE TWO COLONIES STOP DRAWING TOGETHER. IT ADDS NO NEW WAY OF FIGHTING AND THEY STILL SHARE ONE SET OF SCENT TRAILS. FELT ON THE NEXT TICK, LASTS THE SESSION, SAVED WITH THE OTHER RULES.",
+        "WHETHER TWO COLONIES OF ONE KIND ARE STRANGERS. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED IS ITS OWN COLONY, AND ITS CHILDREN ARE BORN INTO IT -- THE GRAPH ON THE ANTS PAGE AND THE COLOURS IN THE BOX ARE THAT SPLIT. OFF IS THE SHIPPED BEHAVIOUR: A COLONY IS A LABEL, EVERY ANT IS EVERY OTHER ANT'S NESTMATE, AND ANTS NEVER BITE ANTS. ON, AN ANT FROM ANOTHER COLONY IS NOT KIN, SO A HUNGRY ANT WILL EAT ONE EXACTLY AS IT WOULD EAT A BEETLE, AND THE TWO COLONIES STOP DRAWING TOGETHER. THEY STILL SHARE ONE SET OF SCENT TRAILS. FELT ON THE NEXT TICK, LASTS THE SESSION, SAVED WITH THE OTHER RULES.",
+    ));
+    // **The alarm scent's one number.** A rule of the box rather than a
+    // property of any animal -- it is how fast the *ground* forgets -- so it
+    // sits under the rivalry rule for `plant_mechanics_rows`' reason and not
+    // among the species scalars above.
+    out.push(float(
+        g,
+        Knob::Scalar { field: "alarm_decay" },
+        "colonies",
+        "alarm_fades",
+        world.pheromones.alarm_rho(),
+        span(0.0, 1.0, 0.01),
+        "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
 }
 
@@ -947,6 +970,11 @@ fn shipped_trait_reach() -> f32 {
     creature::TRAIT_REACH_DEFAULT
 }
 
+/// As `shipped_trait_reach`, for the alarm scent's decay.
+fn shipped_alarm_decay() -> f32 {
+    crate::sim::pheromone::ALARM_RHO
+}
+
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dials {
     pub plant_load_failure: bool,
@@ -966,6 +994,12 @@ pub struct Dials {
     /// mutating again. The named default is `creature::TRAIT_REACH_DEFAULT`.
     #[serde(default = "shipped_trait_reach")]
     pub trait_reach: f32,
+    /// `Pheromones::alarm_rho`. Named default for `trait_reach`'s reason: a
+    /// dials file written before this key existed would otherwise load 0.0,
+    /// which is an alarm that never fades — the exact setting the row's own
+    /// note says makes the signal useless.
+    #[serde(default = "shipped_alarm_decay")]
+    pub alarm_decay: f32,
     pub mutation_sigma: f32,
     pub fate_mutation_chance: f32,
     pub param_mutation_chance: f32,
@@ -996,6 +1030,7 @@ impl Dials {
             plant_size_cadence: world.plant_size_cadence,
             colony_rivalry: world.colony_rivalry,
             trait_reach: world.trait_reach,
+            alarm_decay: world.pheromones.alarm_rho(),
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
             param_mutation_chance: world.param_mutation_chance,
@@ -1026,6 +1061,7 @@ impl Dials {
         world.plant_size_cadence = self.plant_size_cadence;
         world.colony_rivalry = self.colony_rivalry;
         world.trait_reach = self.trait_reach;
+        world.pheromones.set_alarm_rho(self.alarm_decay);
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1244,6 +1280,20 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
             }
             true
         }
+        Knob::Scalar { field } => {
+            match *field {
+                // Bounded as a rate, like the four drift dials, because it is
+                // one: a fraction of what is there that goes away per pass.
+                "alarm_decay" => {
+                    if !(0.0..=1.0).contains(&value) {
+                        return false;
+                    }
+                    world.pheromones.set_alarm_rho(value);
+                }
+                _ => return false,
+            }
+            true
+        }
         Knob::Bed { field } => write_bed(spec, field, value),
     }
 }
@@ -1366,7 +1416,7 @@ pub fn save(param: &Param, world: &World, spec: &LabBox) -> Result<String, Strin
             spec.save()?;
             Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
         }
-        Knob::Rule { .. } | Knob::Heredity { .. } => {
+        Knob::Rule { .. } | Knob::Heredity { .. } | Knob::Scalar { .. } => {
             Dials::from_world(world).save()?;
             Ok(format!("SAVED {} = {}", param.tunable.name.to_uppercase(), param.tunable.display()))
         }
@@ -1397,7 +1447,7 @@ pub fn save(param: &Param, world: &World, spec: &LabBox) -> Result<String, Strin
 pub fn save_check(param: &Param) -> String {
     match &param.knob {
         Knob::Bed { .. } => format!("would write {}", LabBox::ASSET_PATH),
-        Knob::Rule { .. } | Knob::Heredity { .. } => format!("would write {}", Dials::ASSET_PATH),
+        Knob::Rule { .. } | Knob::Heredity { .. } | Knob::Scalar { .. } => format!("would write {}", Dials::ASSET_PATH),
         _ => match planned_edit(param) {
             Ok((path, _)) => format!("would write {}", path.display()),
             Err(e) => e,
@@ -1418,6 +1468,7 @@ fn planned_edit(param: &Param) -> Result<(std::path::PathBuf, String), String> {
         Knob::Bed { .. } => return Err("unreachable via save/save_check -- see LabBox::save".into()),
         Knob::Rule { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
         Knob::Heredity { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
+        Knob::Scalar { .. } => return Err("unreachable via save/save_check -- see Dials::save".into()),
         Knob::Material { material, .. } => (material::ASSET_DIR, material.to_string()),
         Knob::Creature { species, .. }
         | Knob::CreatureTrait { species, .. }

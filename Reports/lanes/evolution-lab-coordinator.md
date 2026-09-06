@@ -943,6 +943,72 @@ to 8 does not make lineages armour faster, it only stops them hitting a wall.
 A bed left to itself at reach 8 will look exactly like a bed at reach 1 for a
 long time.
 
+## Round fourteen, 2026-09-06 — the alarm, the verb, and the flight question closed
+
+*Same branch and line. PR #268 (the armour reach) merged first; this is the
+second. README's "Creature groups status" is the shipped half.*
+
+**The flight question is closed, and the closure is worth more than the
+answer.** Last night's null had three named excuses (§4a) and all three are
+now measured away: the eye saw hunters on **one cast in thirteen** (141,996
+and 162,923 sightings across two six-seed races, duty cycle 7.4% and 8.3%);
+the bed was rebuilt until predation was **35% of ant deaths** instead of ~5%
+(`founders=48 predators=4`, found by sweeping against `labstats`' per-group
+tally rather than guessing); and a *run-away* wiring — adding the engine's own
+milling-versus-commuting number, `Persist` — did **worse** than the turn, 47.9%
+median against 52.4%, 1 seed of 6 above half against 4. Both inside the
+harness's noise floor.
+
+**Two things a later session should not have to re-derive.**
+
+- **The old arena bed could not have answered this question at any horizon.**
+  It starves 52 ants to single digits before the 12,000-frame grant runs out,
+  so a race in it reads who starved slower. The horizon was only ever half the
+  problem; *the larder* was the other half, and the harness's own warning line
+  says nothing about it.
+- **The run-away arm carries four named weights against two, and
+  `synapse_fraction` bills every active connection every tick.** So its lower
+  share is not attributable to the wiring shape — a fair comparison needs the
+  weight count held equal, and `arm=wire` has no way to say that today. I
+  would not read the 47.9% as "running away is worse than turning".
+
+**The alarm plane and the `Attack` verb landed together, and the reason is the
+genome.** Each is an append — `Alarm` an input, `Attack` an output — and each
+shifts every birth draw and forces `mutation_rate` to be re-derived. Landing
+them in one change is **one** re-derivation and **one** break in birth-draw
+comparability instead of two. `live_slots` 584 → 637, rate `3.18 / 637`.
+
+**The number to carry forward: an input column is 20 live slots, an output row
+is 33.** A verb costs the mutable surface two-thirds again what a sense does,
+and nothing in the genome docs said so before today.
+
+**What each settled that its design sketch had not.**
+
+- **The alarm is one input, not the front/lateral pair the trails get.** A
+  trail is a route and needs a gradient; an alarm is an event, and the
+  direction a hunter is in is already `ThreatBearing`'s. A lateral alarm slot
+  would be a second, worse bearing sense competing with the real one.
+- **The alarm plane is allocated on the first bite.** Eagerly it is **~40 MB**
+  standing at the shipped world size, for a signal many worlds never write
+  once. `alarm_is_live()` exists because a plane that was never made and one
+  that decayed to zero sample identically.
+- **`Attack` needed its own scan, not a re-ranked food scan.**
+  `adjacent_food_counted` ranks by what the gut would get, so an animal
+  defending its nest against something it cannot digest scores every candidate
+  at zero and picks nothing.
+- **And it is priced per jaw closure, against what §4b's own sketch asked
+  for.** The sketch said "per progress"; `dead-ends.md` already records that a
+  per-unit-of-progress price on a divisible job is a *constant total* for the
+  job and therefore cannot deter. The report has been corrected.
+
+**One measurement that surprised me and is worth reusing.** A genome append
+shifts birth draws, so `ascii` should have moved — and the deposition gate came
+back **1.36x on 237 drops from 2,962 laden ants, digit for digit**. The reason
+is that scene has *no births in it*: fifty-five founders placed from the
+species genome, none of which ever breeds. So "a genome append moves every
+seeded scene" is true only of scenes that reproduce, and the ones that do not
+are a free byte-identity check across an append.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

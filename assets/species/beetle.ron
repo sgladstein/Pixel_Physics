@@ -182,7 +182,7 @@
         // measured what a beetle lineage should drift at, and two unexplained
         // rates would be worse than one shared one. A number to re-derive
         // when a beetle line is actually being bred, not before.
-        mutation_rate: 0.0054452,
+        mutation_rate: 0.0049922,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see

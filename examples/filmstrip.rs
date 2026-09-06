@@ -117,6 +117,13 @@ const HOP_IMPULSE_WEIGHT: f32 = 2.0;
 /// germinates looks identical to a scene where growth is broken.
 const TREE_GROUND_Y: i32 = 40;
 
+/// `scene=fight`'s defender position, on the narrow stone shelf that scene
+/// builds at y=120. Named so `build_scene` and `run_once` cannot drift apart
+/// on where the defender actually is -- ported, coordinates and all, from
+/// `creature.rs`'s `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+/// allows_it`.
+const FIGHT_DEFENDER: (i32, i32) = (100, 119);
+
 /// `scene=coldsnap`'s seed, and the run of frames it is aimed at.
 ///
 /// **Found by search rather than picked**, the same way `weather.rs`'s own
@@ -1700,6 +1707,82 @@ fn build_scene(args: &Args) -> World {
                 args.blind, def.sight_range
             );
         }
+        // A graded fight, not a coin flip: three attacker ants against one
+        // armoured defender on a narrow stone shelf, `colony_rivalry` on so
+        // ant meets ant as an enemy rather than a nestmate. Ported from
+        // `creature.rs`'s
+        // `a_maximally_armoured_ant_is_graded_only_when_the_reach_allows_it`,
+        // which is where this arithmetic is derived and where the six-seed
+        // medians below come from
+        // (`Reports/lanes/creature-fight-handoff-2026-09-06.md`): ant flesh
+        // resists 0.25 and an ant bites at 1.0, so the plate only starts
+        // outlasting the bite once `reach=` widens the shared axis past 3.
+        "fight" => {
+            use pixel_physics::sim::creature::plant_creature_seed_in;
+            use pixel_physics::sim::organism::TRAIT_ARMOUR;
+
+            // Without this, every ant is every other ant's nestmate and the
+            // scene holds no fight at all.
+            w.colony_rivalry = true;
+            w.trait_reach = args.reach;
+
+            for x in 80..140 {
+                w.set(x, 120, Cell::new(material::STONE, 0).with_attached(true));
+            }
+
+            // Rich in both arms, so this measures a plate rather than a
+            // starvation race -- the same reasoning the ported test uses.
+            // Set on the species template rather than on a placed animal:
+            // `World::organism_mut` is `pub(crate)`, so an example cannot
+            // reach a live organism's energy after it is placed (see
+            // `predation_probe.rs`'s note on the identical wall), but the
+            // template every new body is stamped from is public.
+            let species = w.species.id_of("ant").expect("ant species");
+            let mut def = w.species.get(species).creature.clone().expect("ant is a creature");
+            def.start_energy = 100_000.0;
+            // **Measured, not assumed: an energy bank this size clears
+            // `ant.ron`'s `reproduce_threshold` (1100.0) by nearly two orders
+            // of magnitude**, and `creature::try_bud`'s only gate is
+            // `bank >= bar` -- so the first cut of this scene bred instead of
+            // fighting, 4 ants becoming 15 over one run with the extra
+            // attackers doing exactly what the swarm test says a swarm does.
+            // The test this scene ports never notices, because its own
+            // assertion reads one organism's chain and never censuses the
+            // population -- a scene that renders the whole world does. Zero
+            // is `reproduce_at_of`'s own switch (`threshold > 0.0`), so this
+            // is off rather than tuned under a bar that would drift the
+            // moment `ant.ron` does.
+            def.reproduce_threshold = 0.0;
+            w.species.set_creature(species, def);
+
+            // The defender: the top of whatever `reach` this arm was given
+            // -- the best plate a lineage could ever reach at this reach.
+            let defender = match plant_creature_seed_in(&mut w, FIGHT_DEFENDER.0, FIGHT_DEFENDER.1, "ant", Some(1)) {
+                Some(site) => {
+                    w.schedule_active_site(site);
+                    w.get(FIGHT_DEFENDER.0, FIGHT_DEFENDER.1).organism_id()
+                }
+                None => 0,
+            };
+            assert_ne!(defender, 0, "scene=fight placed no defender -- this scene does not contain the situation it claims to");
+            assert!(w.set_organism_trait(defender, TRAIT_ARMOUR, args.reach), "TRAIT_ARMOUR out of CREATURE_TRAITS range");
+
+            // Three attackers, all at the authored jaw. More than one
+            // because two ants that wander apart make contact intermittent,
+            // and the question is how long the plate holds under a mouth
+            // rather than how long a blind animal takes to find one.
+            let mut attackers = 0;
+            for i in 0..3i32 {
+                let ax = 103 + i * 3;
+                if let Some(site) = plant_creature_seed_in(&mut w, ax, 119, "ant", Some(2)) {
+                    w.schedule_active_site(site);
+                    attackers += 1;
+                }
+            }
+            assert!(attackers > 0, "scene=fight placed no attackers -- there is nothing to grade the defender against");
+
+            println!("scene=fight reach={} : defender armour={} at {FIGHT_DEFENDER:?}, {attackers} attackers at colony 2", args.reach, args.reach);
+        }
         "colony" => {
             let (presets, err) = pixel_physics::worldgen::WorldgenPresets::load();
             if let Some(e) = err {
@@ -2643,6 +2726,13 @@ struct Args {
     /// `scene=hedge`'s diet allele. Defaults to the carnivore end so the
     /// hedge is scenery rather than lunch -- see that scene's own note.
     hedge_gut: f32,
+    /// `scene=fight`'s armour axis. Sets `World::trait_reach` AND the
+    /// defender's `TRAIT_ARMOUR` allele to the same number by construction
+    /// -- the defender is planted at the top of whatever axis this arm was
+    /// given, so the two can never independently drift into measuring
+    /// different reaches. Defaults to the shipped reach, at which the test
+    /// this scene ports says the plate cannot outlast one bite.
+    reach: f32,
     /// `day=`/`weather=`/`growth=`/`creatures=`/`gnome=` — the world-speed
     /// knobs (`sim::clock`), each "N times slower than baseline".
     ///
@@ -3393,6 +3483,7 @@ fn parse() -> Args {
         genome: String::from("authored"),
         blind: false,
         hedge_gut: 1.0,
+        reach: pixel_physics::sim::creature::TRAIT_REACH_DEFAULT,
         impulse: HOP_IMPULSE_WEIGHT,
         hop_body: String::new(),
         crop: Rect::new(0, 0, WIDTH - 1, HEIGHT - 1),
@@ -3524,6 +3615,7 @@ fn parse() -> Args {
             "genome" => a.genome = v.to_string(),
             "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
             "gut" => a.hedge_gut = v.parse::<f32>().expect("gut=<-1.0..1.0>"),
+            "reach" => a.reach = v.parse::<f32>().expect("reach=<f32>"),
             "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
             "body" => a.hop_body = v.to_string(),
             "driver" => a.parallel_driver = v != "serial",
@@ -3793,6 +3885,16 @@ fn parse() -> Args {
     if named_gif && !a.gif {
         println!("gif: out is named .gif, so writing an animation ({} frames at true speed)", a.count);
         a.gif = true;
+    }
+    // scene=fight's animals are 1-2px, standing in a 60-cell strip of a
+    // 512x320 world -- an uncropped sheet is almost entirely bare floor and
+    // sky, worthless at the zoom this scene needs to read a bite landing.
+    // Default to the contested stretch, unless the caller already asked for
+    // a crop of their own -- checked against the parser's own default above
+    // rather than a separate `crop_given` flag, the same way `named_gif`
+    // above infers intent from a value rather than adding a flag for it.
+    if a.scene == "fight" && a.crop == Rect::new(0, 0, WIDTH - 1, HEIGHT - 1) {
+        a.crop = Rect::new(88, 110, 117, 121);
     }
     a
 }
@@ -4208,6 +4310,14 @@ fn advance(
     pixel_physics::sim::particle::throw_splashes(world, particles);
     particles.step(world);
     world.step_fields();
+    // scene=fight's own per-frame read -- see `Gnome::fight_defender`'s doc
+    // for why this lives on `gnome` rather than as an argument here.
+    if gnome.fight_defender != 0 && gnome.fight_first_loss.is_none() {
+        let now = world.organism(gnome.fight_defender).map_or(0, |st| st.chain.len());
+        if now < gnome.fight_defender_start {
+            gnome.fight_first_loss = Some(step_no + 1);
+        }
+    }
 }
 
 /// The scripted gnome, and the tally of what his verbs actually did.
@@ -4266,6 +4376,19 @@ struct Gnome {
     strokes: usize,
     chips: usize,
     living_strokes: usize,
+    /// `scene=fight`'s own per-frame read, carried here rather than as
+    /// extra parameters on `advance` -- that function already has exactly
+    /// clippy's `too_many_arguments` ceiling of 7, and three more scene-
+    /// specific ones would trip it for every one of its three call sites.
+    /// `fight_defender == 0` for every scene but that one, so the check
+    /// `advance` runs each frame is one cheap comparison against a `u16`
+    /// that never moves elsewhere.
+    fight_defender: u16,
+    fight_defender_start: usize,
+    /// First tick `fight_defender`'s cell count dropped below where it
+    /// started. `None` for "never happened", not zero, so a plate that
+    /// never gives at all reads as distinct from one bitten on frame zero.
+    fight_first_loss: Option<usize>,
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -4357,6 +4480,13 @@ impl Gnome {
             strokes: 0,
             chips: 0,
             living_strokes: 0,
+            // Real values are filled in by `run_once` right after
+            // construction, once the scene has told it where the defender
+            // ended up -- `for_scene` only knows the scene's name, not its
+            // organisms.
+            fight_defender: 0,
+            fight_defender_start: 0,
+            fight_first_loss: None,
         }
     }
 
@@ -6061,6 +6191,18 @@ fn report_colony(world: &World, render: bool) {
     );
 }
 
+/// `scene=fight`'s three counters, printed in a form meant to be pasted
+/// straight into a review card's `meta`. An image cannot say whether the
+/// graded bite this scene exists to show actually landed -- this repo has
+/// already shipped a collapse that looked right on screen with its own
+/// counter sitting at zero for the whole run (`CLAUDE.md`: "did it fire at
+/// all" needs a counter, not a picture).
+fn print_fight_summary(world: &World, defender: u16, first_loss: Option<usize>) {
+    println!("scene=fight gnaws={}", world.creature_stats.gnaws);
+    println!("scene=fight frames_to_first_lost_cell={}", first_loss.map_or_else(|| "never".to_string(), |f| f.to_string()));
+    println!("scene=fight defender_alive={}", world.organism(defender).is_some());
+}
+
 /// One full run. Returns its worst frame in ms, the finished world, the
 /// peak concurrent body count and how much material the world held *before*
 /// the first step. `render` is false for the extra timing samples, which do
@@ -6070,6 +6212,16 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     // After `build`, which may construct the world several different ways --
     // one place to set it means a scene cannot silently opt out.
     world.clock = args.clock;
+    // scene=fight's defender and its starting cell count, read before any
+    // frame runs -- CLAUDE.md: "size a problem at the moment it starts, not
+    // after it has been running". Reading this even one frame late could
+    // already be sampling post-bite state instead of the whole body.
+    // Gated on the scene name rather than "whatever organism sits at this
+    // cell": every other scene leaves (100, 119) empty, but nothing
+    // guarantees that, and a colony scene coincidentally standing an ant
+    // there would silently borrow this scene's counters.
+    let fight_defender = if args.scene == "fight" { world.get(FIGHT_DEFENDER.0, FIGHT_DEFENDER.1).organism_id() } else { 0 };
+    let fight_defender_start = world.organism(fight_defender).map_or(0, |st| st.chain.len());
     // Censused before the first step and after the last, because a failure
     // count cannot answer "how much did this eat" -- see `Args::max_lost`.
     // Taken here rather than in `build` so it includes whatever the scene
@@ -6151,6 +6303,8 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         blasts.tuning.smoke_fraction = v;
     }
     let mut gnome = Gnome::for_scene(&args.scene, args.dig_yield, args.shoulder_grains, args.splash);
+    gnome.fight_defender = fight_defender;
+    gnome.fight_defender_start = fight_defender_start;
     // Set on the character rather than passed to `dig`: the style is his
     // state, exactly as it is in the app, so the harness and the game reach
     // the mechanism through the same door.
@@ -6293,6 +6447,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         // footgun -- and both sides of this merge fixed the branch's
         // silence for a different counter. Both kept.
         report_colony(&world, render);
+        if args.scene == "fight" && render {
+            print_fight_summary(&world, fight_defender, gnome.fight_first_loss);
+        }
         return (0.0, world, gnome, (peak_bodies, peak_tissue), cells_before, cave_before);
     }
 
@@ -7589,6 +7746,9 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         }
     }
     println!("worst full-screen draw: {worst_draw_ms:.2} ms");
+    if args.scene == "fight" && render {
+        print_fight_summary(&world, fight_defender, gnome.fight_first_loss);
+    }
     // The sheet is written in the `if render` block above and nowhere else.
     // An unguarded second write stood here after the merge, so a rendered run
     // encoded and announced the same PNG twice, and a timing-only `repeat=`

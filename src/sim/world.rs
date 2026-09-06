@@ -691,6 +691,20 @@ pub struct CreatureStats {
     /// every shipped scene bar one -- so a non-zero here is the whole
     /// evidence that the mechanism exists.
     pub bites_refused: u64,
+    /// **Jaw closures made by the `Attack` verb** — a fight that is not a
+    /// meal. Zero for the whole world until a genome carries a weight on
+    /// `BrainOutput::Attack`, which is the guard that says the verb is
+    /// opt-in rather than merely quiet.
+    pub attacks: u64,
+    /// Attack closures that broke through a cell. `/ attacks` is how many
+    /// bites a fight is taking, which is the quantity the arms-race reach
+    /// moves and the one a bite count alone cannot report.
+    pub attack_cells: u64,
+    /// **Attacks that killed** — the effect counter from the far side of the
+    /// call, paired with `attacks` for the reason `CLAUDE.md` insists on:
+    /// a count of swings is not a count of hits, and this repo has already
+    /// paid for 23 swings that removed 0 cells.
+    pub attack_kills: u64,
     /// **Severing events**: a creature that lost a body cell and came apart
     /// at it, rather than merely shortening.
     ///
