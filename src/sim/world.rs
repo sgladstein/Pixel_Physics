@@ -6056,7 +6056,7 @@ impl World {
         if !crate::sim::update::moisture_phase_enabled() {
             return;
         }
-        let mut plans: Vec<(ChunkCoord, crate::sim::chunk::SweepPlan)> = Vec::new();
+        let mut plans: Vec<(ChunkCoord, crate::sim::chunk::MoistPlan)> = Vec::new();
         for (coord, chunk) in self.chunks.iter_mut() {
             if let Some(plan) = chunk.take_moist_plan() {
                 plans.push((coord, plan));
@@ -6103,19 +6103,33 @@ impl World {
                 continue;
             };
             let mut view = MoistureView::new(*coord, chunk, self);
-            for y in (plan.bounds.min_y..=plan.bounds.max_y).rev() {
-                let Some((min_x, max_x)) = plan.row(y) else {
-                    continue;
-                };
-                for x in min_x..=max_x {
-                    stats.visited += 1;
-                    let cell = view.get(x, y);
-                    if view.world.materials.get(cell.material).water_capacity == 0 {
-                        continue;
+            // Rows bottom first -- larger `y` is lower -- matching the sweep,
+            // because drainage moves water downward and a column drains as a
+            // unit that way. The two arms are written out rather than sharing
+            // an iterator: routing the default span walk through the bitmap's
+            // shape measured **+0.03 ms a frame** on the full box, paired,
+            // which is a third of what the bitmap itself buys there.
+            match plan {
+                crate::sim::chunk::MoistPlan::Rows(p) => {
+                    for y in (p.bounds.min_y..=p.bounds.max_y).rev() {
+                        let Some((min_x, max_x)) = p.row(y) else {
+                            continue;
+                        };
+                        for x in min_x..=max_x {
+                            visit_soil_water(&mut view, &mut stats, x, y);
+                        }
                     }
-                    stats.soil += 1;
-                    if crate::sim::update::update_soil_water(&mut view, x, y) {
-                        stats.changed += 1;
+                }
+                crate::sim::chunk::MoistPlan::Cells(marks) => {
+                    let b = coord.bounds();
+                    for ly in (0..CHUNK_SIZE).rev() {
+                        let mut v = crate::sim::chunk::moist_row_mask(marks, ly);
+                        let y = b.min_y + ly;
+                        while v != 0 {
+                            let x = b.min_x + v.trailing_zeros() as i32 - 1;
+                            v &= v - 1;
+                            visit_soil_water(&mut view, &mut stats, x, y);
+                        }
                     }
                 }
             }
@@ -6948,6 +6962,23 @@ impl CellSurface for World {
     #[inline]
     fn credit_atmosphere(&mut self, fill: u16) {
         World::credit_atmosphere(self, fill);
+    }
+}
+
+/// One cell of the soil-moisture pass, shared by the two shapes of plan
+/// `World::step_soil_water` can be handed. The `water_capacity` prefilter is
+/// here rather than inside `update_soil_water` because the counters want to
+/// separate "walked" from "was soil" -- see `SoilWaterStats`.
+#[inline]
+fn visit_soil_water(view: &mut MoistureView, stats: &mut SoilWaterStats, x: i32, y: i32) {
+    stats.visited += 1;
+    let cell = view.get(x, y);
+    if view.world.materials.get(cell.material).water_capacity == 0 {
+        return;
+    }
+    stats.soil += 1;
+    if crate::sim::update::update_soil_water(view, x, y) {
+        stats.changed += 1;
     }
 }
 
