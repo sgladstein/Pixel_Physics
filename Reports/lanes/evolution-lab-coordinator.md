@@ -1286,7 +1286,11 @@ what a later session cannot reconstruct is here.*
   visits down 1.9x to 2.9x, `sw chgd` within 0.3% — a third of the visits
   moving the same water. Standing biomass +6.5% / +1.0% / +0.5% / 0%. Blind
   A/B `20260907T030350034Z-de4164` asks whether the bed looks any different;
-  **the default flip is the owner's and was deliberately not taken.**
+  **the default flip is the owner's and was deliberately not taken** — and
+  those biomass figures are four beds at **one seed each**, so the sweep
+  `CLAUDE.md` asks for over a model touching procedural content is owed
+  before it moves. What one seed does establish is the null it had to
+  exclude: the bed did not die.
 - **Two things a timing alone would have called wins.** `end_sweep` seeded
   the new bitmap under `as_mut()` where `take_moist_plan` leaves it `None`
   every tick, so the ordinary channel's contribution vanished from the second

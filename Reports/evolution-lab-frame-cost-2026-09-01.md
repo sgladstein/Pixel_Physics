@@ -1549,6 +1549,16 @@ queue as `20260907T030350034Z-de4164`, in the SOIL MOISTURE channel because the
 shipped material colours tint wet soil so faintly that the two beds are
 indistinguishable in them. `labshot` gained `channel=` for it.
 
+**And one thing that has *not* been done and is owed before the default moves.**
+The biomass figures above are **four beds at one seed each**, and `CLAUDE.md`'s
+own rule is that a change to a model over procedural content is judged on an
+order statistic over a seed sweep, because outcomes here are chaotic in the seed
+— §S2's anchor rule read 1.64x over six seeds and 1.08x over the next twelve.
++6.5% biomass on one seed of the full box is a sample from a wide distribution
+and is not evidence that the narrow set grows a better bed; what it *is*
+evidence of is that the bed did not die, which is the null this needed to
+exclude. Before the default flips, run the sweep.
+
 ### 17.4 What the gates were, and the two nulls that were not
 
 Every pure change was checked with `lab_cost`'s `world hash` **and** `field
