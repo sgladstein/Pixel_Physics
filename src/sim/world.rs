@@ -6001,19 +6001,28 @@ impl World {
         // `HashMap` probe. The prefilter in `step_soil_water` is what moved
         // that number. Kept because it is strictly less work and three lines,
         // not because it bought anything measurable here.
+        self.mark_moist_neighbours(x, y, coord);
+        self.touched_chunks.insert(coord);
+    }
+
+    /// The cross-chunk half of [`Self::set_soil_moisture`], factored out so
+    /// [`MoistureView`] can replay it for a write it made while its own chunk
+    /// was out of the map. Idempotent -- `mark_moist_dirty` is a span union
+    /// and a bit set -- which is what makes that replay exact rather than
+    /// approximately right.
+    fn mark_moist_neighbours(&mut self, x: i32, y: i32, owner: ChunkCoord) {
         let lx = x.rem_euclid(CHUNK_SIZE);
         let ly = y.rem_euclid(CHUNK_SIZE);
         if lx == 0 || ly == 0 || lx == CHUNK_SIZE - 1 || ly == CHUNK_SIZE - 1 {
             for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
                 let n = ChunkCoord::containing(x + dx, y + dy);
-                if n != coord {
+                if n != owner {
                     if let Some(c) = self.chunks.get_mut(&n) {
                         c.mark_moist_dirty(x, y);
                     }
                 }
             }
         }
-        self.touched_chunks.insert(coord);
     }
 
     /// **Soil moisture, as its own phase.**
@@ -6074,25 +6083,45 @@ impl World {
         // 4,145 cells that each make ~10 `World::get`/`set` calls, every one a
         // `HashMap` probe. Making those chunk-local means a `ChunkView` and
         // the checkerboard, which is the named next step rather than this one.
-        self.soil_water_stats = SoilWaterStats { chunks: plans.len() as u64, ..Default::default() };
-        for (_, plan) in &plans {
+        //
+        // **And the surface the pass runs on is chunk-local, which is what
+        // the note above asked for.** Each plan's chunk is taken out of the
+        // map for the length of its own walk and handed to a
+        // [`MoistureView`], so the ~10 reads and writes each cell makes are
+        // an index into a resident array rather than a chunk-map lookup and
+        // an indirection. It is bit-identical -- `lab_cost`'s `world hash`,
+        // `field hash` and the three `sw` counters, on both beds -- and the
+        // reasoning for each write channel is on the view itself.
+        let mut stats = SoilWaterStats { chunks: plans.len() as u64, ..Default::default() };
+        for (coord, plan) in &plans {
+            let Some(chunk) = self.take_chunk(*coord) else {
+                // A plan came from this chunk a few lines ago and nothing
+                // between here and there removes one, so this is
+                // unreachable; skipping rather than asserting keeps a future
+                // streaming eviction from being a panic.
+                debug_assert!(false, "a chunk with a moisture plan went missing before its walk");
+                continue;
+            };
+            let mut view = MoistureView::new(*coord, chunk, self);
             for y in (plan.bounds.min_y..=plan.bounds.max_y).rev() {
                 let Some((min_x, max_x)) = plan.row(y) else {
                     continue;
                 };
                 for x in min_x..=max_x {
-                    self.soil_water_stats.visited += 1;
-                    let cell = self.get(x, y);
-                    if self.materials.get(cell.material).water_capacity == 0 {
+                    stats.visited += 1;
+                    let cell = view.get(x, y);
+                    if view.world.materials.get(cell.material).water_capacity == 0 {
                         continue;
                     }
-                    self.soil_water_stats.soil += 1;
-                    if crate::sim::update::update_soil_water(self, x, y) {
-                        self.soil_water_stats.changed += 1;
+                    stats.soil += 1;
+                    if crate::sim::update::update_soil_water(&mut view, x, y) {
+                        stats.changed += 1;
                     }
                 }
             }
+            view.finish();
         }
+        self.soil_water_stats = stats;
     }
 
     /// [`Chunk::sweep_plan`] — the same region with the per-row spans that
@@ -6919,6 +6948,304 @@ impl CellSurface for World {
     #[inline]
     fn credit_atmosphere(&mut self, fill: u16) {
         World::credit_atmosphere(self, fill);
+    }
+}
+
+/// **The soil-moisture pass's chunk-local surface** — `World::step_soil_water`
+/// walking one chunk with that chunk taken out of the map and held by value.
+///
+/// # Why it exists
+///
+/// `update::update_soil_water` makes roughly ten `CellSurface` calls per soil
+/// cell — its own cell, four infiltration neighbours, two capillary faces, the
+/// cell below, and whatever `evaporation::schedule_damp_soil` reads — and with
+/// `S = World` every one of them resolved a chunk before it could touch a byte.
+/// The moisture pass was the largest single function in the lab's profile for
+/// exactly that reason (`Reports/evolution-lab-frame-cost-2026-09-01.md` §16.1),
+/// and the fix `§8` named and `§16.4` put first is this: hold the chunk, serve
+/// every read inside it from its own array, and reach for the shared `World`
+/// only at the chunk's edge.
+///
+/// # What it changes, and the argument that it changes nothing
+///
+/// This is a **pure** change and the gate is `lab_cost`'s `world hash`, `field
+/// hash` and the three `sw` counters on both beds. Four things had to be
+/// arranged for that to be true, and each of them is a way a later edit could
+/// break it:
+///
+/// - **A read inside the chunk must still answer `Cell::OUT_OF_BOUNDS` outside
+///   the world.** `inner` is the chunk's bounds *intersected with the world's*,
+///   so a cell in the chunk but past the world edge falls through to
+///   `World::get`, which is what says `OUT_OF_BOUNDS`. Testing chunk bounds
+///   alone would have quietly turned the world edge into empty space.
+/// - **Writes stay immediate, in both directions.** The plans are walked lower
+///   chunk rows first, so a write into the chunk *above* lands in a chunk this
+///   pass has not reached yet, and it must see the drained liquid. So a local
+///   write goes straight into `self.chunk` and a remote one straight through
+///   `World::write_cell`; nothing about the cell values is deferred.
+/// - **What *is* deferred is bookkeeping nothing in the pass reads**: the
+///   `managed()` demotion, `reindex_organism_cell`, and the `AUX_TRAP` probe.
+///   `update_soil_water` never asks about a liquid body, an organism's cell
+///   list or a support distance, so replaying these after `put_chunk` is
+///   invisible to it — and deferring the demotion is not merely convenient,
+///   it is *required*: `demote_body_at` walks a body's own cells, which can
+///   run back into this chunk, and while the chunk is out of the map those
+///   reads would answer empty and the flag would never be cleared.
+/// - **A remote write's cross-chunk dirty marks have to be replayed.**
+///   `World::write_cell`'s `touch_neighbours`, and `set_soil_moisture`'s edge
+///   rule, both mark *resident* neighbours — and this chunk is not resident
+///   while its own walk is running, so a mark aimed at it is dropped. Losing
+///   one is not a cosmetic difference: it is a chunk that does not get swept.
+///   Both are re-run verbatim after `put_chunk`, which is exact because both
+///   are span unions and bit sets and therefore idempotent.
+///
+/// # What it deliberately does not implement
+///
+/// The pass calls exactly `get`, `set`, `set_moisture`, `materials`,
+/// `schedule_active_site` and `frame`. The rest of `CellSurface` is forwarded
+/// to the shared `World` for completeness, and the field-reading ones
+/// (`field_moisture_at`, `ground_wetness_at`, `field_wind_at`) would read this
+/// chunk's cells as empty while it is out of the map. Nothing reaches them from
+/// here; a future rule in `update_soil_water` that did would need them served
+/// locally first.
+pub(crate) struct MoistureView<'w> {
+    coord: ChunkCoord,
+    /// The chunk's own bounds intersected with the world's — the test for
+    /// "serve this from the resident array". See the type doc for why the
+    /// intersection and not the chunk's bounds alone.
+    inner: Rect,
+    chunk: Chunk,
+    world: &'w mut World,
+    /// `(x, y, old, new)` for every write that needs `World::set`'s tail
+    /// replayed — see the type doc. Filtered at the write, so an ordinary
+    /// soil write queues nothing at all.
+    deferred: Vec<(i32, i32, Cell, Cell)>,
+    /// Positions written outside this chunk on the ordinary channel, whose
+    /// `touch_neighbours` is re-run after `put_chunk`.
+    remarks: Vec<(i32, i32)>,
+    /// The same, one channel over, for `set_soil_moisture`'s edge rule.
+    moist_remarks: Vec<(i32, i32)>,
+    /// Whether any moisture write landed in this chunk — `set_soil_moisture`
+    /// inserts its own coord into `touched_chunks` per write, and a `HashSet`
+    /// makes doing it once at the end identical.
+    touched: bool,
+}
+
+impl<'w> MoistureView<'w> {
+    fn new(coord: ChunkCoord, chunk: Chunk, world: &'w mut World) -> Self {
+        let inner = match world.bounds {
+            Some(b) => coord.bounds().intersection(b).unwrap_or(Rect::point(i32::MIN, i32::MIN)),
+            None => coord.bounds(),
+        };
+        Self {
+            coord,
+            inner,
+            chunk,
+            world,
+            deferred: Vec::new(),
+            remarks: Vec::new(),
+            moist_remarks: Vec::new(),
+            touched: false,
+        }
+    }
+
+    /// Put the chunk back and replay everything that could not happen while it
+    /// was out of the map. Order between the three replays does not matter —
+    /// dirty marks are unions, and the deferred tail touches neither.
+    fn finish(self) {
+        let Self { coord, chunk, world, deferred, remarks, moist_remarks, touched, .. } = self;
+        world.put_chunk(coord, chunk);
+        for (x, y) in remarks {
+            world.touch_neighbours(x, y, ChunkCoord::containing(x, y));
+        }
+        for (x, y) in moist_remarks {
+            world.mark_moist_neighbours(x, y, ChunkCoord::containing(x, y));
+        }
+        for (x, y, old, cell) in deferred {
+            // The probe runs late by a chunk-walk rather than at the write.
+            // It is off unless `AUX_TRAP` is set and it reports rather than
+            // decides, so this costs a diagnostic some precision about the
+            // neighbourhood at the instant of the write and nothing else.
+            if aux_trap_frame().is_some_and(|from| world.frame >= from) {
+                world.report_false_anchor(x, y, old, cell);
+            }
+            if old.managed() {
+                world.demote_body_at(x, y);
+            }
+            world.reindex_organism_cell(x, y, old.organism_id(), cell.organism_id());
+        }
+        if touched {
+            world.touched_chunks.insert(coord);
+        }
+    }
+
+    /// Queue `World::set`'s tail for `(x, y)`, if it has anything to do.
+    ///
+    /// The two guards mirror `set`'s own: `reindex_organism_cell` returns
+    /// immediately on `was == now`, and the demotion only fires on a
+    /// `managed()` cell being overwritten — which in this pass means only
+    /// infiltration drinking a promoted pool, since the moisture channel never
+    /// touches a liquid.
+    #[inline]
+    fn defer_write_tail(&mut self, x: i32, y: i32, old: Cell, cell: Cell) {
+        if old.managed() || old.organism_id() != cell.organism_id() || aux_trap_frame().is_some() {
+            self.deferred.push((x, y, old, cell));
+        }
+    }
+}
+
+impl CellSurface for MoistureView<'_> {
+    #[inline]
+    fn get(&self, x: i32, y: i32) -> Cell {
+        if self.inner.contains(x, y) {
+            return self.chunk.get_world(x, y);
+        }
+        self.world.get(x, y)
+    }
+
+    fn set(&mut self, x: i32, y: i32, cell: Cell) {
+        if self.inner.contains(x, y) {
+            let old = self.chunk.get_world(x, y);
+            let reach = self.world.materials.get(cell.material).sweep_reach();
+            let is_liquid = self.world.materials.kind(cell.material) == MaterialKind::Liquid;
+            self.chunk.set_world(x, y, cell, reach, is_liquid);
+            // `touch_neighbours` skips the owning chunk, so every mark it
+            // makes lands somewhere still resident and it can run now.
+            self.world.touch_neighbours(x, y, self.coord);
+            self.defer_write_tail(x, y, old, cell);
+        } else {
+            if !self.world.in_bounds(x, y) {
+                return;
+            }
+            let old = self.world.write_cell(x, y, cell);
+            self.remarks.push((x, y));
+            self.defer_write_tail(x, y, old, cell);
+        }
+    }
+
+    fn set_moisture(&mut self, x: i32, y: i32, cell: Cell) {
+        if !crate::sim::update::moisture_phase_enabled() {
+            self.set(x, y, cell);
+            return;
+        }
+        if self.inner.contains(x, y) {
+            self.chunk.set_world_quiet(x, y, cell);
+            self.chunk.mark_moist_dirty(x, y);
+            self.world.mark_moist_neighbours(x, y, self.coord);
+            self.touched = true;
+        } else {
+            self.world.set_soil_moisture(x, y, cell);
+            // Only if the write actually landed: `set_soil_moisture` marks
+            // nothing at all for a chunk that is not resident, so a remark
+            // there would invent a mark the old code never made.
+            if self.world.chunks.contains_key(&ChunkCoord::containing(x, y)) {
+                self.moist_remarks.push((x, y));
+            }
+        }
+    }
+
+    #[inline]
+    fn in_bounds(&self, x: i32, y: i32) -> bool {
+        self.world.in_bounds(x, y)
+    }
+
+    fn clear_moved(&mut self, x: i32, y: i32) {
+        if self.inner.contains(x, y) {
+            let cell = self.chunk.get_world(x, y).with_moved(false);
+            self.chunk.set_world_quiet(x, y, cell);
+        } else {
+            self.world.clear_moved(x, y);
+        }
+    }
+
+    fn clear_undercut(&mut self, x: i32, y: i32) {
+        if self.inner.contains(x, y) {
+            let cell = self.chunk.get_world(x, y).with_undercut(false);
+            self.chunk.set_world_quiet(x, y, cell);
+        } else {
+            self.world.clear_undercut(x, y);
+        }
+    }
+
+    #[inline]
+    fn materials(&self) -> &MaterialRegistry {
+        &self.world.materials
+    }
+
+    #[inline]
+    fn begin_visit(&mut self, x: i32, y: i32) {
+        let (seed, frame) = (self.world.seed, self.world.frame);
+        self.world.visit_rng.begin(seed, x, y, frame);
+    }
+
+    #[inline]
+    fn rng(&mut self) -> &mut Rng {
+        self.world.visit_rng.get(&mut self.world.rng)
+    }
+
+    fn add_heat(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
+        self.world.add_heat(x, y, radius, amount)
+    }
+
+    fn add_light(&mut self, x: i32, y: i32, radius: i32, amount: f32) {
+        self.world.add_light(x, y, radius, amount)
+    }
+
+    fn field_moisture_at(&self, x: i32, y: i32) -> f32 {
+        self.world.field_at(x, y).moisture
+    }
+
+    fn ground_wetness_at(&self, x: i32, y: i32) -> f32 {
+        World::ground_wetness_at(self.world, x, y)
+    }
+
+    fn field_wind_at(&self, x: i32, y: i32) -> (f32, f32) {
+        let f = self.world.field_at(x, y);
+        (f.vx, f.vy)
+    }
+
+    #[inline]
+    fn frame(&self) -> u64 {
+        self.world.frame
+    }
+
+    fn organism_due(&self, base_interval: u64) -> u64 {
+        self.world.organism_due(base_interval)
+    }
+
+    #[inline]
+    fn schedule_active_site(&mut self, site: ActiveSite) {
+        self.world.schedule_active_site(site)
+    }
+
+    fn record_disturbance(&mut self, x: i32, y: i32, extent: i32) {
+        self.world.record_disturbance(x, y, extent)
+    }
+
+    fn absorb_liquid(&mut self, x: i32, y: i32, fill: u32) {
+        self.world.absorb_liquid(x, y, fill)
+    }
+
+    fn report_splash(&mut self, x: i32, y: i32, strength: f32) {
+        if self.world.splash_sites.len() < MAX_SPLASH_SITES {
+            self.world.splash_sites.push((x, y, strength));
+        }
+    }
+
+    fn book_meat_lost(&mut self, worth: f64) {
+        self.world.energy_ledger.meat_lost += worth;
+    }
+
+    fn count_phase_event(&mut self, event: crate::sim::fire::PhaseEvent) {
+        self.world.phase_changes.record(event);
+    }
+
+    fn is_outdoors(&self, x: i32, y: i32) -> bool {
+        World::is_outdoors(self.world, x, y)
+    }
+
+    fn credit_atmosphere(&mut self, fill: u16) {
+        self.world.credit_atmosphere(fill);
     }
 }
 
