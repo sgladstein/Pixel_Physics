@@ -1,0 +1,48 @@
+{
+  "id": "20260907T061809934Z-1785d0",
+  "created": "2026-09-07T06:18:09Z",
+  "board": "liquids",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/water-drips-through-plants",
+    "commit": "def85689",
+    "agent": null,
+    "session_id": "e23715d2-1789-5d59-98ad-c0fb3b91307e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rain on a wood: does it drip through, and does the drip read right?",
+  "question": "One of these lets rain work down through the canopy a drop at a time; the other leaves it standing in the branches. Does the dripping one read as rain falling through a tree, or is the rate wrong — too fast to be a drip, or too slow to clear?",
+  "context_md": "Same binary, same seed, same wood, rain pinned on throughout; one env switch is the only difference. Before this, 89-96% of every liquid cell in the world stood on living tissue, mean 55-70 rows above the floor and as high as 107 -- almost no rain reached the ground in a wood at all. At the shipped rate that falls to 61-69%, and the mean height to 28-51 rows. The rate is the one thing I cannot measure: 24 frames per drop was too slow to clear anything, 2 clears most but may read as water falling straight through rather than beading and dripping. 8 is the middle and is what these show. Watch for whether drops are visible as individual drops -- water and sky are both blue, so motion is the only thing that separates a droplet from a gap in the leaves.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "water stands on the canopy (main)",
+      "files": [
+        "20260907T061809934Z-1785d0/000-drip_off.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 70
+    },
+    {
+      "label": "drips through, period 8",
+      "files": [
+        "20260907T061809934Z-1785d0/001-drip_on.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 70
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
