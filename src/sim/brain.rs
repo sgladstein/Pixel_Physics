@@ -919,7 +919,9 @@ pub enum BrainOutput {
     /// the alarm plane is the wiring's, so the engine never says what a
     /// caste is *for*; it says only that a body may depend on the state its
     /// parent was in. Unwired it is `squash(0) = 0`, every child is made of
-    /// nothing, and the shipped bed expresses its genotype exactly.
+    /// nothing, and the bed expresses its genotype exactly whatever the dial
+    /// (`World::plasticity`, shipping at 1) says -- nothing changes until a
+    /// line wires this.
     Provision = 13,
 }
 

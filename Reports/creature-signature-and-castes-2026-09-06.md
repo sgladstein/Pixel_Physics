@@ -19,7 +19,7 @@ whose §3 it builds and whose §7 decisions it carries as dials.*
 | is an ant always an ant? | **Yes, by construction.** `state.species` was written once and `is_living_kin` was *same species* (and, behind a one-evening `colony rivalry` switch, *same colony label*). A lineage could drift as far as it liked and be nobody's stranger | **No.** Kin is *the other animal's scent within my tolerance*, both heritable. Two clicks start a little apart (a founding offset), children drift (`scent_drift`), and a lineage that drifts past every other's tolerance is, to them, a new kind — which the ANTS page names (`ANT 1b`) and draws as its own line. The rivalry switch retired into the tolerance dial's narrow end |
 | is a beetle ever an ant's family? | never | never, **unless** the ant's kind has `kin_crosses_kinds` on — the owner's §7 call, shipped as a dial defaulting to no |
 | what does the shipped bed do? | one family | **exactly what it did**: spread 0 and drift 0 put every ant on one point, the new slots consume no birth draw, and the two-colony census is byte-identical to `main` (§1e) |
-| can a colony grow workers and soldiers? | no mechanism: every ant buds a copy of itself and nothing about the parent's state reaches the child's body | **Yes, if the engine lets a child's body depend on the state its parent was in when it budded** — plasticity, and nothing more. The first draft of §2 authored what a soldier *is* (which sense it answers, which slots move, which way); the owner ruled that out, and §2 now designs the general mechanism — a brain output the parent evaluates at budding, a heritable plasticity block, one line in the trait reader — under which a soldier caste is something a lineage *finds*, and castes we never thought of are equally reachable. **Built the same evening** (§2f): one output the parent evaluates at budding, one number the child keeps, a heritable developmental block, one dial at zero. **Measured** (§2g): the shipped bed is the same distribution with the block at zero on every slot; the channel is connected and the dial gates it; and the arena on the bed with teeth reads the developmental arm as the null — *reachable, connected, gated; not yet found*, for two reasons that are the bed's |
+| can a colony grow workers and soldiers? | no mechanism: every ant buds a copy of itself and nothing about the parent's state reaches the child's body | **Yes, if the engine lets a child's body depend on the state its parent was in when it budded** — plasticity, and nothing more. The first draft of §2 authored what a soldier *is* (which sense it answers, which slots move, which way); the owner ruled that out, and §2 now designs the general mechanism — a brain output the parent evaluates at budding, a heritable plasticity block, one line in the trait reader — under which a soldier caste is something a lineage *finds*, and castes we never thought of are equally reachable. **Built the same evening** (§2f): one output the parent evaluates at budding, one number the child keeps, a heritable developmental block, one dial — landed at zero, **shipped on** by the owner's ruling (§2h). **Measured** (§2g): the shipped bed is the same distribution with the block at zero on every slot; the channel is connected and the dial gates it; and the arena on the bed with teeth reads the developmental arm as the null — *reachable, connected, gated; not yet found*, for two reasons that are the bed's |
 
 ---
 
@@ -495,16 +495,20 @@ Everything in §2c is on this branch, on top of the alarm plane and the
   scent, and `regroup_by_scent`; the genotype `state.traits` is what
   `try_bud` inherits and mutates.
 - **`World::plasticity`** — the one dial, on the GENOME page beside the
-  arms-race reach, saved with the dials. Zero, the default, is the shipped
-  bed: the reader is one comparison and every animal expresses its
-  genotype exactly whatever its block and its `Provision` wiring drift to.
+  arms-race reach, saved with the dials. It landed at zero and **ships at
+  one** since the owner's ruling later that evening (§2h): the block
+  counts at face value, and until a line wires `Provision` every animal is
+  made of exactly nothing and the reader is one comparison. Zero is the
+  clonal control, in which every animal expresses its genotype exactly
+  whatever its block drifts to.
 - **Costs.** The live mutable surface moved 637 → 706 (`Made` is an
   input column of 21, `Provision` an output row of 34, the block 14) and
   every species' `mutation_rate` is re-derived to `3.18 / 706 = 0.0045042`
   so the expected point mutations per child stay where they were. As with
   every brain append before it, births are not byte-identical to the
   previous build — `brain::mutate` draws once per live slot — so the
-  comparison is a seed sweep (§2g). Per tick, at the shipped dial: one
+  comparison is a seed sweep (§2g). Per tick, for every animal made of
+  nothing — which is every animal until a line finds the channel: one
   float compare per trait read.
 
 **What is still authored, stated once more so nobody mistakes it for
@@ -612,6 +616,47 @@ and a bed or horizon where the children are the majority; both are one
 command each now, and neither is this branch's to decide.
 
 ---
+
+### 2h. Decision: it ships on
+
+**Owner, 2026-09-06 evening, against the card that offered 0 or 1: *"ship
+plasticity on."*** `creature::PLASTICITY_DEFAULT` is 1.0, `World` starts
+there, and a dials file saved before the key existed loads it (a named
+serde default, for the same reason `trait_reach` has one: the derive's
+0.0 is the clonal control, not the shipped bed). What that changes, and
+what it does not:
+
+- **Nothing moves until a line wires `Provision`.** An unwired output is
+  exactly `squash(0) = 0`, so every founder and every child of an unwired
+  line is made of nothing and `expressed_traits` returns its genotype in
+  one comparison, at any dial. The shipped box is therefore one in which
+  a caste *can* be found, and no line has yet; the cost per tick is
+  unchanged until one does.
+- **Mutation can now reach the body.** At dial zero a line that drifted a
+  weight into `Provision` and a developmental weight beside it carried
+  both inertly (§2g's shipped census saw one such child, `made` 0.04). At
+  one, the same drift expresses — small, because both weights start small,
+  and priced by the levies every trait already pays.
+- **The two controls keep their meaning.** Dial zero is still the clonal
+  control the arena race and `plasticity_moves_the_expressed_body_and_not_
+  the_genotype` use; the arena's `plasticity=` and `labstats`'s echo read
+  the world's actual value, so a harness cannot silently measure the old
+  default.
+
+**Measured, on the merged head with the dial at its new default.** The
+two-colony bed (`labstats colonies=2 founders=8 frames=24000`) at the
+shipped dial against the same binary at `plasticity=0`, three seeds:
+**byte-identical apart from the echo line** on all three, every frame
+line, the verb accounts and the group tally — because no child in any of
+the three runs was made of anything (the largest `made` over the living is
+0.04, on one child of seed 2, with a developmental block that reads 0.000
+on every slot). Run twice as long on the seed that breeds (seed 2, 48,000
+frames, 84 births, 46 alive at the end across both colonies), the block
+still reads zero on every slot and no living child is over |made| 0.25 —
+so at the shipped mutation rate a line has not found the channel inside
+two colony lifetimes, which is the expected reading of a channel that
+needs two weights to land together. The shipped box is one in which a
+caste can be found; it is not one in which a caste is.
 
 ## 3. What this overturned, and what the next session must not re-derive
 
