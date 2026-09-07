@@ -898,7 +898,7 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
                 "plasticity",
                 world.plasticity,
                 span(0.0, 2.0, 0.05),
-                "HOW FAR A NEWBORN'S BODY MAY DIFFER FROM ITS GENES ACCORDING TO THE STATE ITS PARENT WAS IN. EVERY ANIMAL CARRIES A HERITABLE SET OF DEVELOPMENTAL WEIGHTS, ONE PER BODY TRAIT, AND A PARENT'S BRAIN HANDS EACH CHILD ONE NUMBER AT BIRTH FROM WHATEVER IT SENSES; THE CHILD'S BODY IS ITS GENES SHIFTED BY THE TWO MULTIPLIED, TIMES THIS. AT 0 -- THE SHIPPED SETTING -- EVERY ANIMAL IS EXACTLY ITS GENES. TURN IT UP AND A LINE MAY FIND THAT A CROWDED OR A THREATENED PARENT SHOULD MAKE A DIFFERENT CHILD: AN ARMOURED ONE, A SMALL-CROP ONE, ONE NOBODY DESIGNED. NOTHING HERE SAYS WHICH; THAT IS THE LINE'S TO FIND, AND THE ANIMAL PAGE SHOWS WHAT EACH ONE WAS MADE WITH.",
+                "HOW FAR A NEWBORN'S BODY MAY DIFFER FROM ITS GENES ACCORDING TO THE STATE ITS PARENT WAS IN. EVERY ANIMAL CARRIES A HERITABLE SET OF DEVELOPMENTAL WEIGHTS, ONE PER BODY TRAIT, AND A PARENT'S BRAIN HANDS EACH CHILD ONE NUMBER AT BIRTH FROM WHATEVER IT SENSES; THE CHILD'S BODY IS ITS GENES SHIFTED BY THE TWO MULTIPLIED, TIMES THIS. IT SHIPS AT 1, SO A LINE MAY FIND THAT A CROWDED OR A THREATENED PARENT SHOULD MAKE A DIFFERENT CHILD: AN ARMOURED ONE, A SMALL-CROP ONE, ONE NOBODY DESIGNED. NOTHING HERE SAYS WHICH; THAT IS THE LINE'S TO FIND, AND A LINE THAT HAS FOUND NOTHING MAKES CHILDREN EXACTLY OF ITS GENES. AT 0 EVERY ANIMAL IS EXACTLY ITS GENES WHATEVER ITS LINE FINDS. THE ANIMAL PAGE SHOWS WHAT EACH ONE WAS MADE WITH.",
             ));
         }
     }
@@ -1016,6 +1016,12 @@ fn shipped_trait_reach() -> f32 {
     creature::TRAIT_REACH_DEFAULT
 }
 
+/// The value a `lab_dials.ron` written before `plasticity` existed loads at:
+/// the shipped dial, for `shipped_trait_reach`'s reason.
+fn shipped_plasticity() -> f32 {
+    creature::PLASTICITY_DEFAULT
+}
+
 /// As `shipped_trait_reach`, for the alarm scent's decay.
 fn shipped_alarm_decay() -> f32 {
     crate::sim::pheromone::ALARM_RHO
@@ -1034,12 +1040,13 @@ pub struct Dials {
     /// mutating again. The named default is `creature::TRAIT_REACH_DEFAULT`.
     #[serde(default = "shipped_trait_reach")]
     pub trait_reach: f32,
-    /// `World::plasticity`. **Plain `#[serde(default)]` is right here**,
-    /// unlike `trait_reach` above: 0.0 *is* the shipped behaviour -- every
-    /// animal expresses its genotype exactly -- so a dials file saved
-    /// before this key existed loading it as 0.0 is loading the truth, not
-    /// a stand-in for it.
-    #[serde(default)]
+    /// `World::plasticity`. **A named default, for `trait_reach`'s reason,
+    /// since the owner shipped it on (2026-09-06)**: the derive's 0.0 is the
+    /// clonal control, not the shipped bed, so a dials file saved before
+    /// this key existed would otherwise silently switch development off.
+    /// (Until that ruling this was a plain `#[serde(default)]`, and 0.0 was
+    /// the truth; the ruling is what moved it.)
+    #[serde(default = "shipped_plasticity")]
     pub plasticity: f32,
     /// `Pheromones::alarm_rho`. Named default for `trait_reach`'s reason: a
     /// dials file written before this key existed would otherwise load 0.0,

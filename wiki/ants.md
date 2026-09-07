@@ -4,7 +4,8 @@
 from its parent's genes** -- a parent hands each child one number from
 whatever its brain senses, and heritable developmental weights turn that
 number into a body, so a line can find its own castes and nothing in the box
-says what a caste is; see "A child can be made differently" below. Earlier
+says what a caste is; the dial over it ships on, by the owner's ruling that
+evening; see "A child can be made differently" below. Earlier
 that day, **who is family became a matter of scent**
 -- every animal carries a heritable scent and a heritable tolerance, two
 colonies start a little apart and drift, and a lineage that drifts out of its
@@ -310,10 +311,12 @@ child that stays where its family is thickest, say, or a small, quick one
 that wanders. That is what a caste is, and nothing in the box says what a
 caste should be: the weights and the wiring are the line's to find, and a
 line that finds nothing makes children exactly of its genes. It is all
-behind one dial on the genome page, **plasticity**, which ships at zero; the
-animal's own page shows what it was made with. The number is not inherited
-and a jar does not keep it, so a released animal is made of nothing, and the
-box that ships is exactly what it was.
+behind one dial on the genome page, **plasticity**, which ships on — so
+the shipped box is one in which a line *can* find a caste, and no line has
+yet — and the animal's own page shows what it was made with. Turned to
+zero, every animal is exactly its genes whatever its line finds. The number
+is not inherited and a jar does not keep it, so a released animal is made
+of nothing.
 
 **They can see what hunts them, if they can see at all.** An animal with
 eyes used to see two things at a distance: something it could eat, and its
