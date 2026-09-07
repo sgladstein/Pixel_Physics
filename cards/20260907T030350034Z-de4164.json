@@ -1,0 +1,56 @@
+{
+  "id": "20260907T030350034Z-de4164",
+  "created": "2026-09-07T03:03:50Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-tick-speed-ln4tdp",
+    "commit": "7b75179a",
+    "agent": null,
+    "session_id": "3712a655-23df-5ca0-b907-04bb14192e34",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Soil wetness: two rules for which cells the moisture pass reconsiders",
+  "question": "Same bed, same seed, frame 12,000, rendered in the SOIL MOISTURE channel. One of these reconsiders 2.4x fewer cells each tick and runs the whole tick 1.2x faster. Does either read as wrong — a drier bed, a water table that has broken up, a band or a grid that should not be there?",
+  "context_md": "**What is different.** The soil-moisture pass decides which cells to look at from a set of marks. Today it walks the *row hull* of those marks: two marks forty columns apart put all forty cells between them in the set. The narrow rule walks each mark plus the four cells it shares a face with, which is exactly the set a write can change.\n\n**So it is not identical, and here is the one way it shows.** A cell diagonally next to a mark is in the row hull and not in the four-neighbourhood. Normally nothing it reads has moved — but a capillary write made earlier in the *same* tick can have changed one of the cells it does read, and under the wide rule it reacts in that tick. Under the narrow rule it waits one tick. The water goes to the same place; some of it arrives a tick later.\n\n**Measured on this bed** (herb, 128 founders, one colony, 12,000 frames, four threads, two runs a side): visits 21,286 -> 8,850 a tick, whole frame 2.31 -> 1.91 ms, standing plant cells 11,774 -> 11,893. On the box the owner plays — 256 founders, three colonies — it is 6,982 -> 3,635 visits and 1.79 -> 1.62 ms. On one small herb alone the two are bit-identical at 6,000 frames.\n\n**In the shipped material colours the two beds are indistinguishable**, because wet soil is only faintly tinted; this is the channel where a difference would show at all, which is why the card is in it.\n\nIt is behind PIXEL_PHYSICS_MOISTURE_MARKS=cells, default off. Flipping the default is your call, not a measurement.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A — row hull (current default)",
+      "files": [
+        "20260907T030350034Z-de4164/000-z-soil-rows.png"
+      ],
+      "caption": "the row hull of every mark, dilated one row and one column",
+      "meta": {
+        "cells visited per tick": 21286,
+        "cells changed per tick": 3729,
+        "whole frame ms": "2.295 / 2.330",
+        "standing plant cells": 11774
+      },
+      "focus": null
+    },
+    {
+      "label": "B — per-cell marks, 4-neighbourhood",
+      "files": [
+        "20260907T030350034Z-de4164/001-z-soil-cells.png"
+      ],
+      "caption": "each mark plus the four cells it shares a face with",
+      "meta": {
+        "cells visited per tick": 8850,
+        "cells changed per tick": 3619,
+        "whole frame ms": "1.905 / 1.909",
+        "standing plant cells": 11893
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
