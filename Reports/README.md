@@ -2324,7 +2324,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   only written blocks -- measure paired and alternating **full box (256 founders, 3 colonies) **6.6 → 2.7 ms**, 128 founders + colony 7.0 → 2.8, 16 trees 4.1 → 1.1, one small plant 2.8 → 0.5 -- dials 2.6x → 6.0x, 4.0x → 15x and 6x → 34x on the measuring box**.
   It also corrects §15.3: the "0.006 ms moisture pass" was the field's
   moisture-*source* seeding, not `step_soil_water`, which was the largest
-  single function in the profile.
+  single function in the profile. **§17 (2026-09-07) works §16.4's list.**
+  Two more pure changes on the same gate — the pheromone plane's 3x3 mean as
+  an **exact** integer sliding window (2.6x on the phase; nine `u8`s sum below
+  2^24, so the old `f32` running sum was already an exact integer), and the
+  moisture pass reading **its own chunk** instead of the chunk map. Then a
+  behaviour change behind `PIXEL_PHYSICS_MOISTURE_MARKS=cells`, **default
+  off**: a per-cell mark bitmap dilated by the 4-neighbourhood instead of the
+  per-row hull, **1.9x to 2.9x fewer visits moving the same water** (`sw chgd`
+  within 0.3%), base to switch-on **1.30x / 1.40x / 1.33x / 1.21x** on the four
+  beds. Three findings outlast the numbers. **§16's per-phase shares do not
+  transfer between machines** — the same command on the same commit is 2.10 ms
+  here against 2.72 there, with `pheromones` *larger* and `ca_sweep` smaller —
+  so a phase share is a fact about a box. **A new switch cost the path nobody
+  opted into +0.03 ms**, a third of what it buys, from a `OnceLock` read on a
+  per-write path and from routing the default walk through the new shape; both
+  measured out rather than argued about. And **`ORGANISM_PASS` reframes the
+  flat profile**: `perf` puts `transport` + `organism_upkeep` at 2.9% of
+  samples, which reads as "the plants are not the problem", but those are leaf
+  frames — `step_organisms` whole is **0.24 ms of a 1.76 ms frame and 55% of
+  the `active_sites` phase**, and it is the next item.
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
   **built, measured and STOPPED 2026-09-05; adversarially reviewed before
   being put forward (§8 records what the review changed, including two claims

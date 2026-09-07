@@ -23,6 +23,7 @@
 //! cargo run --release --example labshot
 //! cargo run --release --example labshot -- frames=0,600,3000,9000 out=lab.png
 //! cargo run --release --example labshot -- founders=8 walls=4 frames=0,3000,12000,30000
+//! cargo run --release --example labshot -- channel=soil frames=0,3000,12000
 //! ```
 
 use pixel_physics::lab::scenario::Scenario;
@@ -269,6 +270,21 @@ fn main() {
         Some("off") => pixel_physics::render::CreatureColour::Off,
         Some("species") => pixel_physics::render::CreatureColour::Species,
         _ => pixel_physics::render::CreatureColour::Colony,
+    };
+    // **`channel=` -- render the sheet through one of `render.rs`'s debug
+    // overlays instead of the material colours**, the same door
+    // `filmstrip`'s own `channel=` opens for the outdoor scenes. Added for
+    // the soil-wetness A/B in
+    // `Reports/evolution-lab-frame-cost-2026-09-01.md` §17: the shipped
+    // colours do tint wet soil, but a full-replace ramp is what makes a
+    // *profile* legible, and `CLAUDE.md`'s own rule is that a
+    // magnitude-scaled blend into the cell's own colour reads as blank.
+    // Unknown values are ignored rather than rejected, matching `filmstrip`.
+    renderer.organism_overlay = match arg::<String>("channel").as_deref() {
+        Some("soil") => pixel_physics::render::OrganismOverlay::SoilMoisture,
+        Some("celltype") => pixel_physics::render::OrganismOverlay::CellType,
+        Some("resource") => pixel_physics::render::OrganismOverlay::Resource,
+        _ => pixel_physics::render::OrganismOverlay::Off,
     };
     for _ in 1..zoom {
         renderer.adjust_zoom(1);
