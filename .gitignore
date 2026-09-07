@@ -1,4 +1,10 @@
 /target
+# `perf` needs debug line tables, which the shipped release profile does not
+# carry, so the profiling recipe builds into its own directory
+# (`CARGO_TARGET_DIR=target-prof CARGO_PROFILE_RELEASE_DEBUG=line-tables-only`)
+# rather than invalidating `target/` and forcing a full rebuild back. It is
+# build output like `/target` and it is ~1 GB.
+/target-prof
 **/*.rs.bk
 __pycache__/
 
