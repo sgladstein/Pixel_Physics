@@ -1256,6 +1256,64 @@ pass (chunk-local reads, then fewer visits — which is a behaviour change and
 wants a switch), pheromones (an exact integer sliding window, ~3x on 0.43
 ms), the plant passes. The sweep spans stay off: they drop real work.
 
+## Round eighteen, 2026-09-07 — the moisture pass, and where the tick now is
+
+*Branch `claude/evolution-lab-tick-speed-ln4tdp`, working round seventeen's
+handed-forward list. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§17.** Two pure changes gated on `world hash` + `field hash` on both beds, one
+behaviour change behind a switch with a blind A/B in the owner's queue. Only
+what a later session cannot reconstruct is here.*
+
+- **The full box on this box is not the full box in §16's table, and that is
+  not a regression.** Same command, same `main`: 2.10 ms here against 2.72
+  there, with `pheromones` *larger* (0.57 vs 0.43) and `ca_sweep` smaller
+  (0.98 vs 1.52). So §16's per-phase shares do not transfer, and every figure
+  in §17 is paired against a baseline binary built and run in the same
+  session. **Do not carry a phase share across machines here.**
+- **The pheromone window and the moisture chunk-view are both in, both
+  bit-identical**: pheromones 2.6x on the phase, the moisture pass −0.23 to
+  −0.35 ms of `ca_sweep` on the tree and herb beds. **On the full box the
+  chunk-view is inside the run-to-run spread** — `ca_sweep` falls by 0.06
+  every pair and `active_sites` rises by 0.03 every pair, three pairs up and
+  three down on the whole frame. Its win scales with `sw seen`, and the
+  256-founder bed at frames 8,000-12,000 has crowded itself down to 6,982
+  visits a tick where the 128-founder bed at 3,000 has 30,662.
+- **Fewer visits is the item that actually moved the full box**, and it is a
+  behaviour change: `PIXEL_PHYSICS_MOISTURE_MARKS=cells`, **default off**,
+  a per-cell bitmap dilated by the 4-neighbourhood instead of the row hull.
+  Base to switch-on across the four beds: **1.30x, 1.40x, 1.33x, 1.21x**,
+  visits down 1.9x to 2.9x, `sw chgd` within 0.3% — a third of the visits
+  moving the same water. Standing biomass +6.5% / +1.0% / +0.5% / 0%. Blind
+  A/B `20260907T030350034Z-de4164` asks whether the bed looks any different;
+  **the default flip is the owner's and was deliberately not taken.**
+- **Two things a timing alone would have called wins.** `end_sweep` seeded
+  the new bitmap under `as_mut()` where `take_moist_plan` leaves it `None`
+  every tick, so the ordinary channel's contribution vanished from the second
+  tick on: `sw seen` **exactly 0 by frame 6**, the frame 3x faster, and the
+  world hash equal to `SOIL_WATER=off`'s. And the new plumbing cost the
+  *default* path +0.03 ms — a third of what the switch buys — from routing
+  the span walk through the bitmap's shape and from a `OnceLock` read inside
+  `mark_moist_dirty`, which is per write. Both measured out; the switch now
+  resolves once into a `Chunk` field.
+- **`ORGANISM_PASS` reframes the flat profile, and this is the reusable
+  finding.** `perf` puts `transport` + `organism_upkeep` at 2.9% of samples,
+  which reads as "the plants are not the problem". They are leaf frames:
+  `step_organisms` whole is **0.243 ms of a 1.76 ms frame, 14%**, charged to
+  `active_sites` — **the plants are 55% of that phase**. `upkeep` 0.075 and
+  `transport` 0.093 are two thirds of it. That is the next item.
+- **`labshot` takes `channel=`** now (`soil|celltype|resource`), because the
+  shipped material colours tint wet soil so faintly that a card about a
+  wetness profile is unreadable in them.
+
+**Next, in the order the profile puts it** (§17.5): the plant passes
+(`transport`, `organism_upkeep` — hoist `world.get`/`organism_cell` into
+per-pass arrays, §12's pattern; **not** binary search over the index maps,
+§12.4); the moisture pass again, where what is left is per-cell arithmetic
+rather than addressing; and `roundf` at 1.7% of samples, which is the
+pheromone blend's `.round()` as an out-of-line libm call — cheap, and **not**
+free of behaviour risk, so it needs the hash gate rather than an argument.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

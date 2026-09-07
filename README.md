@@ -71,9 +71,9 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Status](#status) | 6666 |
 | [License](#license) | 6777 |
 | [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 6801 |
-| [Lab scenarios status — a saved starting box with a question written on it](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) | 6941 |
-| [Soil nutrient status — ground is worth something water is not](#soil-nutrient-status--ground-is-worth-something-water-is-not) | 7027 |
-| [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 7070 |
+| [Lab scenarios status — a saved starting box with a question written on it](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) | 6958 |
+| [Soil nutrient status — ground is worth something water is not](#soil-nutrient-status--ground-is-worth-something-water-is-not) | 7044 |
+| [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 7087 |
 
 ### Milestones, in numeric order
 
@@ -118,13 +118,13 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1731, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7027, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1251, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4203, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4306, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1373, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1663, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1321, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1581, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4486, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4723, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4800, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6186, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5120, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5168, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5399, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6078 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2144, [The ant colony](#the-ant-colony--status) 3424, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6186, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5168, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5399, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6248, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6078, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7070 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1731, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7044, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1251, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4203, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4306, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1373, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1663, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1321, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1581, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4486, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4723, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4800, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6186, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5120, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5168, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5399, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6078 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2144, [The ant colony](#the-ant-colony--status) 3424, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6186, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5168, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5399, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6248, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6078, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7087 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1917, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4486, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4723, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4800, [M8 status](#m8-status--started-not-complete) 2684 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 838, [Materials](#materials) 262 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1015, [M7 status](#m7-status) 986 |
 | **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 812, [The coarse field grid](#the-coarse-field-grid) 523 |
-| **powders and granular flow** | engine | [Materials](#materials) 262, [Architecture](#architecture) 336, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7070 |
+| **powders and granular flow** | engine | [Materials](#materials) 262, [Architecture](#architecture) 336, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7087 |
 | **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 523, [M12/M13 status](#m12m13-status) 785, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4993 |
 | **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3237, [Architecture](#architecture) 336 |
 | **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2797, [Controls](#controls) 196 |
@@ -132,7 +132,7 @@ about what you may read.
 | **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2551, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2596, [Rendering performance](#rendering-performance--overnight-run-section-11) 2664, [M6 deferral](#m6-deferral) 1146 |
 | **performance and the parallel sweep** | engine | [Performance](#performance) 6386, [M5 status](#m5-status) 1156, [Architecture](#architecture) 336, [Rendering performance](#rendering-performance--overnight-run-section-11) 2664, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 6801 |
 | **materials and the data schema** | engine | [Materials](#materials) 262, [M12/M13 status](#m12m13-status) 785 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4993, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7070 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 4993, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7087 |
 | **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5120 |
 | **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6186 |
 | **finding one individual among all of them** | lab | [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5168 |
@@ -145,7 +145,7 @@ about what you may read.
 | **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6248 |
 | **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 6801 |
 | **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 6336 |
-| **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 6941 |
+| **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 6958 |
 
 <!-- END GENERATED TOC -->
 
@@ -6933,10 +6933,27 @@ whole-frame mean, this box: **full box (256 founders, 3 colonies) 6.6 →
 small plant 2.8 → 0.5** — dials 2.6x → 6.0x, 4.0x → 15x
 and 6.0x → 34x. Rayon measured a *net cost* at lab scale (the tick
 10% faster on one thread than four), which is what the owner's 40% CPU
-reading was. What is left, in order, is the moisture pass (chunk-local
-reads, then fewer visits — a behaviour change), pheromones (an exact integer
-sliding window), and the plant passes. Report §16,
+reading was. Report §16,
 [`evolution-lab-frame-cost-2026-09-01.md`](Reports/evolution-lab-frame-cost-2026-09-01.md).
+
+**The moisture pass and the pheromone plane, 2026-09-07 (report §17).** Two
+more pure changes: the pheromone plane's 3x3 mean as an **exact** integer
+sliding window (nine `u8`s sum below 2^24, so the old `f32` running sum was
+already an exact integer — 2.6x on the phase), and the moisture pass reading
+**its own chunk** rather than the chunk map, which is what §8 named and what
+was the largest single function in the profile. Then a **behaviour change
+behind a switch, default off**: `PIXEL_PHYSICS_MOISTURE_MARKS=cells` replaces
+the pass's per-row mark hull with a per-cell bitmap dilated by the
+4-neighbourhood — the exact set a write can change. It visits **1.9x to 2.9x
+fewer cells and moves the same water** (`sw chgd` within 0.3%), and it is not
+bit-identical because a cell diagonal to a mark now reacts a tick later.
+Paired on this box, base to switch-on: **full box 2.10 → 1.61 ms, 128
+founders + colony 2.67 → 1.91, 16 trees 1.08 → 0.81, one small plant 0.236 →
+0.194**. Flipping the default is an owner decision and is waiting on a blind
+A/B in the review queue. **Where the tick is now**: the moisture pass is still
+the largest single function, and `ORGANISM_PASS` puts `plant::step_organisms`
+at **0.24 ms of a 1.76 ms frame — 55% of the `active_sites` phase**, which is
+the next item.
 
 ## Lab scenarios status — a saved starting box with a question written on it
 
