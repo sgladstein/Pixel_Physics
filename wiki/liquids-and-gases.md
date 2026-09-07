@@ -1,12 +1,31 @@
 # Liquids & Gases
 
-*Current as of: 2026-08-22 (steam joins the weather; rock sinks in water;
-a boulder entering a pool throws a crown; smoke and steam are see-through;
-smoke thins out and goes, and an explosion leaves some behind).*
+*Current as of: 2026-09-07 (rain drips through a canopy instead of sitting
+on it). Before that, 2026-08-22 (steam joins the weather; rock sinks in
+water; a boulder entering a pool throws a crown; smoke and steam are
+see-through; smoke thins out and goes, and an explosion leaves some
+behind).*
 
 Where a powder falls and piles, a liquid falls and then spreads sideways
 until it finds a level surface — the same way real water does, settling
 flatter and flatter over time rather than holding any kind of slope.
+
+**Rain does not sit on a tree.** Water that lands on leaves or branches
+works its way down through the crown and carries on to the ground, a drop at
+a time — so a wood in the rain drips for a while after the sky clears,
+instead of holding a permanent set of puddles up in its branches. It is the
+same reasoning that already applies to a falling leaf: the view is one
+vertical slice of a wood, a branch one cell wide is not a shelf spanning the
+tree's whole depth, and most of what lands on it goes past.
+
+Before this, almost none of the rain falling on a wood ever reached the
+ground: nine tenths of all the water in the world would be standing in the
+canopy, some of it a hundred rows up, and it stayed there. The water was not
+lost, but it was not going anywhere either.
+
+A drop still needs somewhere to go. Water on a branch with solid ground
+directly beneath it stays where it is, the same way a drift of fallen leaves
+piled against a trunk stays put rather than sinking into the roots.
 
 **Moving water runs white.** Water in motion — falling, pouring, spreading,
 splashing — draws pale and foamy, and goes back to its deep still colour

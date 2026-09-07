@@ -1176,9 +1176,9 @@ const _: () = assert!(
 /// than 32 rows above the ground **23% → 0%**, resting on plant tissue
 /// **57.6% → 44.1%**, and the four cells still airborne at frame 12,000 gone.
 ///
-/// Only cells whose material opts in (`Material::falls_through_organisms`,
-/// litter alone today) pass through; `deadwood` — a snapped branch — is
-/// chunky enough to hang up in a crown and deliberately still does.
+/// Only cells whose material opts in (`Material::falls_through_organisms`)
+/// pass through; `deadwood` — a snapped branch — is chunky enough to hang up
+/// in a crown and deliberately still does.
 ///
 /// **Through organism cells only, and it must find real air on the far
 /// side.** The scan stops dead at the first cell that is neither air nor
@@ -1219,6 +1219,105 @@ fn fall_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: 
         // `shed_to_litter` gives: the managed-aware helper reads a promoted
         // liquid body's container cells as not-empty, and the question here
         // is "can a leaf pass through".
+        if here.material == material::EMPTY {
+            return try_move(surface, x, y, x, probe);
+        }
+        if here.organism_id() == 0 {
+            return false;
+        }
+    }
+    false
+}
+
+/// **How long a drop sits on a leaf before it goes through**, in frames.
+///
+/// A rate rather than a teleport, and that is the whole difference between
+/// this and `fall_through_organism` above. A leaf that hits a branch is a
+/// solid object passing an obstacle and there is nothing to wait for; water
+/// on foliage *beads*, and the owner asked for it to **drip**. Passing it
+/// straight through would empty a crown the instant the rain stopped, which
+/// is the binary outcome `CLAUDE.md`'s first law rules out -- the middle
+/// here is a crown that keeps shedding for a while after the sky clears.
+///
+/// **Not an RNG draw**, deliberately. A roll per water cell per frame would
+/// both cost a draw on the hottest path and perturb the shared stream for
+/// every cell downstream of it. The frame number is already in hand and is
+/// free.
+///
+/// **Staggered by column** (`+ x`), which is not cosmetic: without it every
+/// drop in the world falls on the same frame and a wood sheds in curtains,
+/// one flat sheet at a time, instead of dripping. The phase is a property of
+/// the column so a given leaf drips at a steady beat rather than jittering.
+const DRIP_PERIOD_FRAMES: u64 = 8;
+
+/// The beat above, overridable so both arms of an A/B come from **one
+/// binary** -- `CANOPY_DRIP=0` turns dripping off entirely (the pre-change
+/// behaviour, water sits on the crown), and any other number is that many
+/// frames. There is no measurement that says what dripping *looks* like, so
+/// the rate is a judge-by-eye question and this is what makes it askable
+/// without a rebuild between the arms.
+fn drip_period() -> Option<u64> {
+    use std::sync::OnceLock;
+    static PERIOD: OnceLock<Option<u64>> = OnceLock::new();
+    *PERIOD.get_or_init(|| match std::env::var("CANOPY_DRIP") {
+        Ok(v) => match v.parse::<u64>() {
+            Ok(0) => None,
+            Ok(n) => Some(n),
+            Err(_) => Some(DRIP_PERIOD_FRAMES),
+        },
+        Err(_) => Some(DRIP_PERIOD_FRAMES),
+    })
+}
+
+/// Water on a leaf does not stay on the leaf — it drips through.
+///
+/// **The liquid half of `fall_through_organism`, and the 2D-slice rule
+/// applies unchanged**: a branch one cell wide is not a shelf spanning the
+/// tree's whole depth, so rain landing on it mostly goes past. Measured
+/// before this existed, on `scene=canopyrain` under pinned rain: **85-100%
+/// of every liquid cell in the world was standing on living tissue**, at a
+/// mean of 50-71 rows above the floor and as high as 107 — that is to say
+/// almost no rain reached the ground in a wood at all, and what did was
+/// what missed the canopy.
+///
+/// Why the liquid path needed its own: `update_liquid` tries straight down,
+/// a lateral descent, both diagonals and then fill transfer, and every one
+/// of those needs a target it can enter. A plant cell cannot be displaced,
+/// so water that lands on a crown has nowhere to go and simply sits.
+///
+/// **It never displaces tissue** — the landing cell must be genuinely empty,
+/// exactly as the powder version requires, so this can no more overwrite a
+/// leaf than a falling leaf can. That is what makes it far simpler than the
+/// creature case, where a body has to *be* somewhere and displacing a cell
+/// cost the plant its anchor.
+///
+/// Raw `material == EMPTY` rather than `is_empty()`, for the reason
+/// `fall_through_organism` gives: the managed-aware helper reads a promoted
+/// liquid body's container cells as occupied, and water pooled on a canopy is
+/// exactly the still water that gets promoted.
+fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below: Cell) -> bool {
+    // **Cheapest discriminator first, and it is a flag read on a `Cell` the
+    // caller already holds.** Water that is not sitting on living tissue --
+    // which is nearly all water, nearly all the time -- pays one branch and
+    // not a single lookup. This is the hottest path in the engine, which is
+    // also why the cell itself is fetched below rather than taken as an
+    // argument: `update_liquid` does not have it in hand here, and fetching
+    // one to pass in would charge every liquid cell in the world for a test
+    // that almost always fails on the line above.
+    if below.organism_id() == 0 {
+        return false;
+    }
+    if !surface.materials().get(surface.get(x, y).material).falls_through_organisms {
+        return false;
+    }
+    let Some(period) = drip_period() else {
+        return false;
+    };
+    if !(surface.frame() + x as u64).is_multiple_of(period) {
+        return false;
+    }
+    for probe in (y + 1)..(y + 1 + ORGANISM_TUNNEL_REACH) {
+        let here = surface.get(x, probe);
         if here.material == material::EMPTY {
             return try_move(surface, x, y, x, probe);
         }
@@ -1508,6 +1607,18 @@ fn update_liquid<S: CellSurface>(surface: &mut S, x: i32, y: i32, rightward: boo
     }
 
     if try_move(surface, x, y, x + first, y + 1) || try_move(surface, x, y, x + second, y + 1) {
+        return true;
+    }
+
+    // **After the ordinary moves, before the fill transfers.** Placed here
+    // for the reason `fall_through_organism` sits where it does in
+    // `update_powder`: it must run on a cell that is genuinely wedged, never
+    // in place of flowing. Before the transfers rather than after so a drop
+    // caught in a crown drips instead of spreading along the branch -- and
+    // on the frames its beat does not come up it falls through to them and
+    // spreads anyway, which is water finding the low point of a leaf before
+    // it goes over the edge.
+    if drip_through_organism(surface, x, y, below) {
         return true;
     }
 
@@ -2872,6 +2983,111 @@ mod tests {
     /// real `organism_id`, because that -- not `MaterialKind::Plant` -- is
     /// what the rule tests, for the same reason `shed_to_litter` gives: a
     /// leaf should fall past an ant standing under the tree too.
+    /// **Rain does not stay on the canopy it landed on.**
+    ///
+    /// The liquid counterpart of the litter test below, and it needs a
+    /// different scene for one reason: a liquid has a *long-range lateral
+    /// descent* that a powder does not, so the three-cell branch that holds
+    /// sand in place lets water walk straight off the edge and the scene
+    /// would not contain the situation it claims to test. The canopy here is
+    /// 108 cells wide with the drop in the middle -- 54 from either edge,
+    /// comfortably past `MAX_REACH` -- so the only way down is through.
+    ///
+    /// Three arms, two of them controls:
+    ///
+    /// - `water` on a canopy with air below must end up below it;
+    /// - `oil`, a liquid that does **not** carry
+    ///   `falls_through_organisms`, in the identical scene must not. That is
+    ///   the specificity control: it proves the flag is doing the work
+    ///   rather than "liquids now sink through plants";
+    /// - `water` on a canopy with **stone immediately under it** must not
+    ///   move, because the scan has to find real air on the far side. That
+    ///   is the same clause `litter`'s trunk-side drift arm protects, and
+    ///   without it a drop would tunnel through the tree and the ground both.
+    ///
+    /// A five-cell puddle rather than one drop, because `water` evaporates
+    /// and a single cell that happens to evaporate would read as a pass.
+    #[test]
+    fn water_drips_through_a_canopy_but_oil_and_a_roofed_canopy_do_not() {
+        let arm = |liquid: &str, roofed: bool| -> (u64, u64) {
+            let mut w = world_with_floor();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let id = w.materials.id_of(liquid).unwrap_or_else(|| panic!("{liquid} is compiled in"));
+            // **A basin with a canopy for a floor, and stone for walls.**
+            // The walls are the scene, not decoration: a liquid levels
+            // sideways fast, and on an open canopy -- even one 108 cells wide
+            // -- the *oil* control walked to the edge and fell off it, 85% of
+            // its volume ending below the canopy while carrying no flag at
+            // all. The scene has to make going through the only way out or it
+            // is not testing the rule.
+            //
+            // Stone rather than more tissue, so the walls cannot themselves
+            // be dripped through.
+            for y in 50..=62 {
+                w.set(59, y, Cell::new(material::STONE, 0));
+                w.set(71, y, Cell::new(material::STONE, 0));
+            }
+            // A real `organism_id`: that, not `MaterialKind::Plant`, is what
+            // the rule tests -- the same reason the litter test gives.
+            for y in 60..=62 {
+                for x in 60..=70 {
+                    w.set(x, y, Cell::new(wood, 0).with_organism_id(1));
+                }
+            }
+            if roofed {
+                for x in 60..=70 {
+                    w.set(x, 63, Cell::new(material::STONE, 0));
+                }
+            }
+            for x in 63..=67 {
+                w.set(x, 59, Cell::new(id, 0));
+            }
+            run(&mut w, 400);
+            // **Volume, not cells.** `CLAUDE.md`'s first liquid metric trap:
+            // a `Liquid` cell holds continuous fill, so five placed cells
+            // spread into dozens of part-full ones and a cell count measures
+            // *spreading*. The first version of this test counted cells and
+            // reported 128 of them below the canopy from five placed above
+            // it, which is not a conservation violation -- it is the wrong
+            // quantity.
+            let mut above = 0u64;
+            let mut below = 0u64;
+            for x in 0..128 {
+                for y in 0..128 {
+                    let c = w.get(x, y);
+                    if c.material == id {
+                        if y < 60 {
+                            above += liquid_fill(c) as u64;
+                        } else if y > 62 {
+                            below += liquid_fill(c) as u64;
+                        }
+                    }
+                }
+            }
+            (above, below)
+        };
+
+        let (water_above, water_below) = arm("water", false);
+        assert!(
+            water_below > 0 && water_above == 0,
+            "rain must go through the canopy, not sit on it: {water_above} fill still above, {water_below} below"
+        );
+
+        // Specificity: a liquid without the flag is unaffected.
+        let (oil_above, oil_below) = arm("oil", false);
+        assert!(
+            oil_above > 0 && oil_below == 0,
+            "oil does not carry falls_through_organisms and must stay put: {oil_above} fill above, {oil_below} below"
+        );
+
+        // The far side has to be real air, not the inside of a tree.
+        let (roofed_above, roofed_below) = arm("water", true);
+        assert!(
+            roofed_above > 0 && roofed_below == 0,
+            "a canopy with ground right under it offers nowhere to drip to: {roofed_above} fill above, {roofed_below} below"
+        );
+    }
+
     #[test]
     fn litter_falls_through_a_branch_but_sand_and_a_trunk_side_drift_do_not() {
         let mut w = world_with_floor();

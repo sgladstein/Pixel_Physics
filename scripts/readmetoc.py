@@ -207,6 +207,7 @@ TOPICS = {
     ],
     "liquids and gases": [
         "Liquid physics: compressible volume, not discrete occupied cells",
+        "Canopy throughfall status — rain drips through a wood",
         "The coarse field grid",
     ],
     # No section is *named* for powders: the angle-of-repose model is written up
