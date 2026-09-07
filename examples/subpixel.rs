@@ -50,7 +50,6 @@
 
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::cell::Cell;
-use pixel_physics::sim::chunk::ChunkCoord;
 use pixel_physics::sim::material::{self, MaterialKind};
 use pixel_physics::sim::organism::{self, CellType};
 use pixel_physics::sim::particle::ParticleSystem;
@@ -475,7 +474,7 @@ fn main() {
     let mut r = Renderer::new();
     r.pinned_light = a.daylight.map(pixel_physics::sky::frame_for_daylight);
     let mut plant_frame = vec![0u8; (W * H * 4) as usize];
-    let touched: std::collections::HashSet<ChunkCoord> = std::collections::HashSet::new();
+    let touched: pixel_physics::sim::fxhash::ChunkSet = pixel_physics::sim::fxhash::ChunkSet::default();
     r.draw(&world, &particles, &touched, &mut plant_frame, (W as u32, H as u32), true);
 
     // Per-cell class, read before the strip below removes the evidence.

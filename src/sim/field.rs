@@ -35,7 +35,7 @@
 //! from bugs in the coupling.
 
 use rayon::prelude::*;
-use std::collections::{HashMap, HashSet};
+use crate::sim::fxhash::{ChunkMap, ChunkSet};
 
 use super::cell::AMBIENT_TEMPERATURE;
 use super::chunk::{ChunkCoord, Rect, CHUNK_SIZE};
@@ -53,6 +53,11 @@ pub const FIELD_SCALE: i32 = 16;
 /// with no consistent size.
 pub const FIELD_TILE_SIZE: i32 = CHUNK_SIZE / FIELD_SCALE;
 pub const FIELD_TILE_AREA: usize = (FIELD_TILE_SIZE * FIELD_TILE_SIZE) as usize;
+// `Chunk::stale_blocks` marks writes per field block; the chunk states the
+// block size where it can see it, and this is what keeps the two the same.
+const _: () = assert!(super::chunk::STALE_BLOCK == FIELD_SCALE);
+const _: () = assert!(super::chunk::STALE_BLOCKS_PER_SIDE == FIELD_TILE_SIZE);
+const _: () = assert!(FIELD_TILE_AREA <= u16::BITS as usize);
 
 // --- Tuning constants -------------------------------------------------------
 //
@@ -206,6 +211,12 @@ pub struct FieldStats {
     pub passes: u64,
     /// Tiles actually solved, summed across every pass.
     pub tiles_solved: u64,
+    /// 16x16 blocks `rebuild_blocked` actually rescanned from the CA grid,
+    /// summed across every pass -- against `tiles_solved * FIELD_TILE_AREA`,
+    /// the number the full rescan used to pay. The "did it fire" counter for
+    /// `Chunk::stale_blocks`: a partial rescan that never took a partial
+    /// path reads as the full count here and as nothing in a timing.
+    pub blocks_scanned: u64,
 }
 
 /// One coarse cell: ambient conditions for an `FIELD_SCALE`-sided block of the
@@ -274,14 +285,26 @@ impl Default for FieldCell {
 /// The field data for one chunk: an 8x8 grid of [`FieldCell`], plus which of
 /// those cells are blocked by CA-solid material and which contain a
 /// `Liquid` CA cell.
+///
+/// **Every array below is inline (`[T; FIELD_TILE_AREA]`), not `Box<[T]>`.**
+/// `field::step` builds a fresh `FieldTile` per solved coord every frame
+/// (~25/frame in the lab bed), and seven boxed slices meant seven heap
+/// allocations and seven frees for that, ~3% of the profile
+/// (`examples/lab_cost`, tree bed, 32k frames). `FieldCell` is already
+/// `Copy`, which is what makes `[FieldCell::AMBIENT; N]` a literal rather
+/// than a loop. `Reports/dead-ends.md`'s `skip_momentum` (per-tile form)
+/// entry names this tile's storage as "walked by pointer-chasing" and says
+/// to retry once it is not; this is that condition met for the tile's own
+/// arrays (the outer `World::fields` is still a `ChunkMap`, deliberately —
+/// see that field's own doc).
 #[derive(Clone)]
 pub struct FieldTile {
-    cells: Box<[FieldCell]>,
+    cells: [FieldCell; FIELD_TILE_AREA],
     /// Recomputed from the CA grid every step — see `rebuild_blocked`. Kept
     /// alongside the field cells rather than derived on demand during the
     /// solve, because the solve reads it many times per step and CA lookups
     /// are not free.
-    blocked: Box<[bool]>,
+    blocked: [bool; FIELD_TILE_AREA],
     /// **What fraction of a downward ray this block passes**, quantized to
     /// 0..=255, recomputed in the same scan as `blocked`.
     ///
@@ -321,7 +344,7 @@ pub struct FieldTile {
     ///
     /// Costs one `u8` per field block and no extra scanning —
     /// `rebuild_blocked` already visits every CA cell in the block.
-    transmission: Box<[u8]>,
+    transmission: [u8; FIELD_TILE_AREA],
     /// Also recomputed every step, in the same scan as `blocked` — whether
     /// any `Liquid` CA cell falls inside this field block. `apply_moisture_
     /// sources` reads this at the end of `step` (mirroring `apply_sky`'s use
@@ -339,7 +362,7 @@ pub struct FieldTile {
     /// ground, and moss would not grow on damp earth. Grading the source is
     /// what closes the loop `Reports/plant-substrate-v2-design.md` §4d
     /// describes — infiltrate, hold, drink, deplete, *and be noticed*.
-    moisture_source: Box<[f32]>,
+    moisture_source: [f32; FIELD_TILE_AREA],
     /// Light emitted by the cells of each block — `Material::glow`, maxed
     /// over the block in the same scan `blocked`/`moisture_source` already
     /// run (`rebuild_blocked`). Recomputed per solve like both of those,
@@ -349,7 +372,7 @@ pub struct FieldTile {
     /// a soft halo for free and then converges — a static floor, exactly
     /// so the tile can sleep lit (the owner's local-light decision,
     /// 2026-08; the whole design is in `Material::glow`'s doc).
-    glow: Box<[f32]>,
+    glow: [f32; FIELD_TILE_AREA],
     /// Whether any block of this tile glows — the renderer's cheap gate
     /// for "is it worth sampling the field under this pixel".
     pub has_glow: bool,
@@ -372,7 +395,7 @@ pub struct FieldTile {
     /// cell moves an eighth of a block's worth of light from the trailing
     /// edge to the leading one. `Reports/lab-lamps-light-the-bed-2026-08-30.md`
     /// has the measured step profile at `FIELD_SCALE` 8 and 16.
-    beam: Box<[f32]>,
+    beam: [f32; FIELD_TILE_AREA],
     /// Whether any block of this tile beams — the descent's cheap gate. A
     /// world with no lamp in it takes `apply_sky_to`'s original loop
     /// verbatim, which is what makes this free for the outdoor game.
@@ -395,7 +418,7 @@ pub struct FieldTile {
     /// normally, so surface humidity, puddles and rain all behave as before —
     /// this is the hybrid persistence `Reports/worldgen-design.md` §8 asks
     /// for, not a second moisture channel.
-    moisture_floor: Box<[f32]>,
+    moisture_floor: [f32; FIELD_TILE_AREA],
     /// Whether every cell of this tile came out of its last solve with
     /// pressure, `vx` and `vy` at **exactly** zero.
     ///
@@ -449,17 +472,17 @@ impl FieldTile {
     /// painting impulses, but the internal storage stays out of its hands.
     pub(crate) fn new() -> Self {
         Self {
-            cells: vec![FieldCell::AMBIENT; FIELD_TILE_AREA].into_boxed_slice(),
-            blocked: vec![false; FIELD_TILE_AREA].into_boxed_slice(),
+            cells: [FieldCell::AMBIENT; FIELD_TILE_AREA],
+            blocked: [false; FIELD_TILE_AREA],
             // 255 is *clear*: a fresh tile passes light until the scan says
             // otherwise. Zero would mean "perfectly opaque", which is the
             // wrong default for a block nobody has looked at yet.
-            transmission: vec![u8::MAX; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_source: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
-            moisture_floor: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
-            glow: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            transmission: [u8::MAX; FIELD_TILE_AREA],
+            moisture_source: [0.0; FIELD_TILE_AREA],
+            moisture_floor: [0.0; FIELD_TILE_AREA],
+            glow: [0.0; FIELD_TILE_AREA],
             has_glow: false,
-            beam: vec![0.0; FIELD_TILE_AREA].into_boxed_slice(),
+            beam: [0.0; FIELD_TILE_AREA],
             has_beam: false,
             // False, so a tile nobody has scanned is always scanned rather
             // than carried. See the field's own doc.
@@ -694,7 +717,7 @@ pub(crate) fn tile_and_local(field_x: i32, field_y: i32) -> (ChunkCoord, i32, i3
 ///
 /// `pub(crate)`: `World::field_at` is the public read API; this is the shared
 /// implementation it and the solve passes both call.
-pub(crate) fn sample(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> FieldCell {
+pub(crate) fn sample(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> FieldCell {
     if let Some(b) = bounds {
         if !b.contains(world_x, world_y) {
             return FieldCell::AMBIENT;
@@ -730,7 +753,7 @@ pub(crate) fn sample(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect
 /// not resident, is a quiet no-op — the same shape `sample` takes, and the
 /// honest one: there is no air there to make humid.
 pub(crate) fn add_vapour_at(
-    tiles: &mut HashMap<ChunkCoord, FieldTile>,
+    tiles: &mut ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -769,7 +792,7 @@ pub(crate) fn add_vapour_at(
 }
 
 pub(crate) fn moisture_source_at(
-    tiles: &HashMap<ChunkCoord, FieldTile>,
+    tiles: &ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -815,7 +838,7 @@ pub(crate) fn moisture_source_at(
 /// block down is the ground. Fuel far from any ground -- a canopy a
 /// hundred rows up -- correctly reads dry, which is what a crown fire is.
 pub(crate) fn ground_wetness_at(
-    tiles: &HashMap<ChunkCoord, FieldTile>,
+    tiles: &ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -825,7 +848,7 @@ pub(crate) fn ground_wetness_at(
 }
 
 pub(crate) fn is_moisture_source(
-    tiles: &HashMap<ChunkCoord, FieldTile>,
+    tiles: &ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -861,7 +884,7 @@ pub(crate) fn is_moisture_source(
 /// tile is open and dark — both halves match `is_blocked`'s own edge
 /// semantics.
 fn blocked_and_glow(
-    tiles: &HashMap<ChunkCoord, FieldTile>,
+    tiles: &ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     world_x: i32,
     world_y: i32,
@@ -879,7 +902,7 @@ fn blocked_and_glow(
     }
 }
 
-pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
+pub(crate) fn is_blocked(tiles: &ChunkMap<FieldTile>, bounds: Option<Rect>, world_x: i32, world_y: i32) -> bool {
     if let Some(b) = bounds {
         // The world edge is a wall — every CA rule already treats it as one
         // via `Cell::OUT_OF_BOUNDS`; the field must agree, or pressure would
@@ -917,7 +940,7 @@ pub(crate) fn is_blocked(tiles: &HashMap<ChunkCoord, FieldTile>, bounds: Option<
 /// in practice, and it is exactly the kind of thing worth revisiting if a
 /// future milestone needs sharper containment than this gives.
 pub(crate) fn sample_bilinear(
-    tiles: &HashMap<ChunkCoord, FieldTile>,
+    tiles: &ChunkMap<FieldTile>,
     bounds: Option<Rect>,
     fx: f32,
     fy: f32,
@@ -1108,7 +1131,7 @@ pub fn step(world: &mut World) {
     // stale), or when it is next to such a tile — because the stencils below
     // read one field cell past their own tile, so a disturbance advances one
     // tile per frame and the ring is what lets it.
-    let mut awake: HashSet<ChunkCoord> = HashSet::with_capacity(coords.len());
+    let mut awake: ChunkSet = ChunkSet::with_capacity_and_hasher(coords.len(), Default::default());
     // **Whether anything anywhere is awake for a reason the momentum passes
     // care about.** A tile woken only by the sun has no news for pressure,
     // velocity or advection: it is settled and the CA under it has not
@@ -1182,7 +1205,7 @@ pub fn step(world: &mut World) {
     // What the velocity and advection snapshots must be able to *read*: the
     // tiles being solved, plus one ring, since a cell at a tile edge samples
     // into its neighbour.
-    let mut read: HashSet<ChunkCoord> = awake.clone();
+    let mut read: ChunkSet = awake.clone();
     for coord in awake.iter().copied().collect::<Vec<_>>() {
         for dy in -1..=1 {
             for dx in -1..=1 {
@@ -1196,17 +1219,40 @@ pub fn step(world: &mut World) {
     let mut read_coords: Vec<ChunkCoord> = read.into_iter().collect();
     read_coords.sort_unstable_by_key(|c| (c.y, c.x, c.slice));
 
-    // Nothing fluid anywhere means every tile in `solve` is a sun-woken one,
-    // so the three momentum passes have no tile to say anything new about --
-    // *provided* their channels have actually reached zero, which is what
-    // makes the skip a no-op rather than a freeze. Checked over `read_coords`
-    // and not `solve`, because `step_pressure` reads one field cell past each
-    // tile: a solved tile beside a *sleeping* one still holding velocity
-    // would take real divergence from it, and a skip keyed on the solve set
-    // alone would silently drop that.
+    // The three momentum passes have nothing to say when every tile they
+    // could read is already at zero -- *provided* their channels have
+    // actually reached zero, which is what makes the skip a no-op rather
+    // than a freeze. Checked over `read_coords` and not `solve`, because
+    // `step_pressure` reads one field cell past each tile: a solved tile
+    // beside a *sleeping* one still holding velocity would take real
+    // divergence from it, and a skip keyed on the solve set alone would
+    // silently drop that.
+    //
+    // **Whether the CA grid is awake does not enter into it, and until
+    // 2026-09-06 it did.** The skip also demanded `!any_fluid` -- no chunk
+    // awake anywhere -- on the reasoning that a sun-woken tile is the only
+    // kind with no news. That was the *original* criterion, from before
+    // `momentum_zero` existed; once every read tile is exactly zero the
+    // three passes are fixed points whatever the CA under them is doing:
+    // pressure is `(0 + 0 * k) * d`, velocity `(0 + (0 - 0) * k) * d`
+    // clamped, advection at zero displacement samples the cell itself, and
+    // a cell that has just become blocked resets to `AMBIENT`, which *is*
+    // zero. The only writer that can make a channel non-zero is
+    // `World::add_pressure_impulse`, and it clears `momentum_zero` on every
+    // tile it touches and unsettles them (`disturb_momentum`), which puts
+    // them in `read_coords` with the flag down. So the CA condition was
+    // never load-bearing -- and in the evolution lab it was never *met*: a
+    // growing plant or a walking ant keeps some chunk awake on every frame,
+    // so a sealed box with no wind in it solved pressure, velocity and
+    // advection over every tile every frame for nothing. Measured
+    // (`Reports/evolution-lab-frame-cost-2026-09-01.md` §15.2) those three
+    // were 45% of the field's cost there. `FIELD_MOMENTUM_QUIET_CA=1` puts
+    // the old condition back for a paired A/B; the `momentum` count the
+    // `FIELD_PASS` printer shows beside `solved` is the "did it fire"
+    // counter -- it reads 0 whenever this skip is taken.
     let skip_momentum = !momentum_enabled()
         || (sky_fast()
-            && !any_fluid
+            && !(momentum_skip_needs_quiet_ca() && any_fluid)
             && read_coords.iter().all(|c| world.fields_ref().get(c).is_some_and(|t| t.momentum_zero)));
     let momentum: &[ChunkCoord] = if skip_momentum { &[] } else { &solve };
 
@@ -1246,7 +1292,7 @@ pub fn step(world: &mut World) {
     // Iterating `solve` rather than filtering `coords` by `awake` builds the
     // same set -- `awake` is drawn from `coords` and its halo only admits
     // coords `world.chunk` already knows -- in a deterministic order.
-    let mut next: HashMap<ChunkCoord, FieldTile> = HashMap::with_capacity(solve.len());
+    let mut next: ChunkMap<FieldTile> = ChunkMap::with_capacity_and_hasher(solve.len(), Default::default());
     // **Which tiles need their CA-derived arrays rescanned, and which can
     // carry them forward.** See `FieldTile::inherit_derived` for the measured
     // cost this split exists to avoid.
@@ -1308,7 +1354,12 @@ pub fn step(world: &mut World) {
     // existed; a design for a light-only fast path written without it would
     // have been a guess about which of the five it was avoiding.
     let mut timing = PassTiming::new();
-    timing.time("blocked", || rebuild_blocked(world, &rescan, &mut next));
+    // Which blocks of each rescanned tile have actually been written since
+    // the field last looked -- see `Chunk::stale_blocks`. Taken here, before
+    // the shared borrow below, because taking clears the mark.
+    let stale: Vec<u16> = rescan.iter().map(|&c| world.take_stale_blocks(c)).collect();
+    let scanned = timing.time("blocked", || rebuild_blocked(world, &rescan, &stale, &mut next));
+    world.field_stats.blocks_scanned += scanned;
     timing.time("glowseed", || seed_light_from_glow(&carried, &mut next));
     timing.time("pressure", || step_pressure(world, momentum, &mut next));
     timing.time("velocity", || step_velocity(world, momentum, &read_coords, &mut next));
@@ -1397,7 +1448,7 @@ pub fn step(world: &mut World) {
     timing.time("converged", || mark_converged(world.fields_ref(), &solve, &mut next));
 
     let all_settled = solve.iter().all(|c| next.get(c).is_some_and(|t| t.settled()));
-    timing.report(world.frame, solve.len(), momentum.len());
+    timing.report(world.frame, solve.len(), momentum.len(), scanned);
     debug_drift(world, &solve, &next);
     world.merge_fields(next);
     world.set_fields_settled(all_settled);
@@ -1449,6 +1500,51 @@ fn momentum_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
     *ON.get_or_init(|| std::env::var("FIELD_MOMENTUM").map(|v| v != "0").unwrap_or(true))
+}
+
+/// Tiles a pass must hold before it is handed to rayon; below it the pass
+/// runs on the calling thread. **A tile is sixteen field cells**, so one
+/// tile's share of a pass is a microsecond or two, and a dispatch -- a
+/// worker wake-up, a join, and the spin-then-sleep rayon's workers do
+/// between jobs -- costs more than that many times over. Measured in the
+/// evolution lab (`examples/lab_cost`, tree bed, 16 founders, 12,000 frames,
+/// alternating 4,1,1,4 threads, 2026-09-06): `field` was **1.52 / 1.29 ms
+/// on four threads against 1.18 / 1.02 on one**, with the whole tick 10%
+/// faster serial. A `perf` profile of the same bed put ~20% of all samples
+/// in the scheduler and rayon's yield loop. The outdoor world at 8192x2560
+/// solves ~1,500 tiles a frame and stays above this threshold, so nothing
+/// there changes. `PIXEL_PHYSICS_PAR_MIN_TILES` overrides; `0` means always
+/// dispatch, which is the arm for a paired A/B. Read once per process.
+fn par_min_tiles() -> usize {
+    use std::sync::OnceLock;
+    static N: OnceLock<usize> = OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_PAR_MIN_TILES").ok().and_then(|v| v.parse().ok()).unwrap_or(256))
+}
+
+#[inline]
+fn tiles_parallel(n: usize) -> bool {
+    n >= par_min_tiles()
+}
+
+/// Run `body` over every tile of `next`, threaded above [`par_min_tiles`]
+/// and on the calling thread below it. The body writes only its own tile,
+/// so the order tiles are visited in cannot matter -- which is also what
+/// made the threaded form safe.
+fn for_each_tile(next: &mut ChunkMap<FieldTile>, body: impl Fn(&ChunkCoord, &mut FieldTile) + Sync + Send) {
+    if tiles_parallel(next.len()) {
+        next.par_iter_mut().for_each(|(coord, tile)| body(coord, tile));
+    } else {
+        next.iter_mut().for_each(|(coord, tile)| body(coord, tile));
+    }
+}
+
+/// `FIELD_MOMENTUM_QUIET_CA=1` restores the momentum skip's old extra
+/// condition -- no CA chunk awake anywhere -- for a paired A/B. See the
+/// comment at `skip_momentum` in `step` for why the condition was dropped.
+fn momentum_skip_needs_quiet_ca() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FIELD_MOMENTUM_QUIET_CA").as_deref() == Ok("1"))
 }
 
 /// **The control for "is a lamp's position a continuous knob or a block-sized
@@ -1612,7 +1708,7 @@ impl PassTiming {
     /// out of any number it reaches, and sampling `frame % every == 0` does
     /// the opposite -- it pins the reading to whichever phase that lands on.
     /// The window spans many days and averages the phase out.
-    fn report(&self, frame: u64, solved: usize, momentum: usize) {
+    fn report(&self, frame: u64, solved: usize, momentum: usize, blocks: u64) {
         use std::sync::atomic::Ordering::Relaxed;
         if self.every == 0 {
             return;
@@ -1629,6 +1725,7 @@ impl PassTiming {
         PASS_FRAMES.fetch_add(1, Relaxed);
         PASS_SOLVED.fetch_add(solved as u64, Relaxed);
         PASS_MOMENTUM.fetch_add(momentum as u64, Relaxed);
+        PASS_BLOCKS.fetch_add(blocks, Relaxed);
         if !frame.is_multiple_of(self.every) {
             return;
         }
@@ -1639,9 +1736,10 @@ impl PassTiming {
         acc.clear();
         println!(
             "  [pass] frame {frame:>6} per frame over {frames:.0}: solved {:>7.1} momentum {:>7.1} \
-             total {total:>7.3}ms | {}",
+             blocks {:>7.1} total {total:>7.3}ms | {}",
             PASS_SOLVED.swap(0, Relaxed) as f64 / frames,
             PASS_MOMENTUM.swap(0, Relaxed) as f64 / frames,
+            PASS_BLOCKS.swap(0, Relaxed) as f64 / frames,
             detail.join("  ")
         );
     }
@@ -1654,6 +1752,7 @@ static PASS_ACC: std::sync::Mutex<Vec<(&'static str, f64)>> = std::sync::Mutex::
 static PASS_FRAMES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PASS_SOLVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 static PASS_MOMENTUM: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static PASS_BLOCKS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 
 /// Per-channel attribution of *why* the solve set is not shrinking, printed
 /// when `FIELD_DRIFT=<every N frames>` is set. Off by default and reading one
@@ -1664,7 +1763,7 @@ static PASS_MOMENTUM: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 /// got it wrong. `mark_converged` short-circuits on the first channel over
 /// epsilon, so it cannot say what *else* was also moving, and pressure is
 /// tested first. Every channel is tested here, independently.
-fn debug_drift(world: &World, coords: &[ChunkCoord], next: &HashMap<ChunkCoord, FieldTile>) {
+fn debug_drift(world: &World, coords: &[ChunkCoord], next: &ChunkMap<FieldTile>) {
     use std::sync::OnceLock;
     static EVERY: OnceLock<u64> = OnceLock::new();
     let every = *EVERY.get_or_init(|| {
@@ -1812,9 +1911,9 @@ const SETTLE_EPSILON_MOISTURE: f32 = 0.005;
 /// Only `coords` (the tiles actually solved) are judged. A sleeping tile keeps
 /// the verdict it already had, which is correct: nothing touched it.
 fn mark_converged(
-    old: &HashMap<ChunkCoord, FieldTile>,
+    old: &ChunkMap<FieldTile>,
     coords: &[ChunkCoord],
-    next: &mut HashMap<ChunkCoord, FieldTile>,
+    next: &mut ChunkMap<FieldTile>,
 ) {
     for &coord in coords {
         let Some(old_tile) = old.get(&coord) else {
@@ -2274,8 +2373,8 @@ const COLUMN_TRANSMISSION: [f32; FIELD_SCALE as usize + 1] = [
 fn apply_sky_to(
     amplitude: f32,
     coords: &[ChunkCoord],
-    old: &HashMap<ChunkCoord, FieldTile>,
-    next: &mut HashMap<ChunkCoord, FieldTile>,
+    old: &ChunkMap<FieldTile>,
+    next: &mut ChunkMap<FieldTile>,
 ) {
     if coords.is_empty() {
         return;
@@ -2334,94 +2433,96 @@ fn apply_sky_to(
     // phase 1 already did -- 64 multiplies a tile, paid twice -- which is
     // the price of the cut and is far below what the threading returns.
     //
-    // **The `HashSet<ChunkCoord>` of lit tiles is gone rather than
+    // **The `ChunkSet` of lit tiles is gone rather than
     // parallelised.** It was built every frame, returned, and bound to
     // `_lit` at the single call site: an allocation and up to 5,120 inserts
     // per sky pass feeding nothing. `tile.sky_lit`, which `sky_drifted`
     // genuinely reads, is unaffected and still written below.
     let solved = &*next;
-    let entries: HashMap<ChunkCoord, [f32; FIELD_TILE_SIZE as usize]> = columns
-        .par_iter()
-        .flat_map_iter(|&cx| {
-            let mut carried = [amplitude; FIELD_TILE_SIZE as usize];
-            let mut out = Vec::new();
-            for cy in min_cy..=max_cy {
-                let coord = ChunkCoord::new(cx, cy);
-                let Some(tile) = solved.get(&coord) else {
-                    // Not in the solved subset. A *sleeping* tile still
-                    // stands in the light's way — treating it as open sky
-                    // would pour daylight through a sleeping mountain onto
-                    // whatever awake tile sits beneath it — so the walk
-                    // attenuates through the old map, read-only. No write
-                    // is lost: a lit tile whose value would change is in
-                    // the subset by `sky_drifted`'s construction, so a
-                    // sleeping tile either already holds this amplitude's
-                    // value (max-write no-op) or is dark (nothing to
-                    // write). No tile at all is genuinely open sky.
-                    if let Some(sleeping) = old.get(&coord) {
-                        // Two loops, and the beam-free one is the original
-                        // byte for byte. A world with no lamp in it must
-                        // take exactly the walk it took before this existed
-                        // -- `has_beam` is what buys that, and it is false
-                        // for every tile of the outdoor game.
-                        if sleeping.has_beam {
-                            for lx in 0..FIELD_TILE_SIZE {
-                                let c = &mut carried[lx as usize];
-                                for ly in 0..FIELD_TILE_SIZE {
-                                    *c = (*c * sleeping.transmission_local(lx, ly))
-                                        .max(sleeping.beam_local(lx, ly));
-                                }
-                            }
-                        } else {
-                            for lx in 0..FIELD_TILE_SIZE {
-                                let c = &mut carried[lx as usize];
-                                for ly in 0..FIELD_TILE_SIZE {
-                                    if *c <= 0.0 {
-                                        break;
-                                    }
-                                    *c *= sleeping.transmission_local(lx, ly);
-                                }
+    let walk = |&cx: &i32| {
+        let mut carried = [amplitude; FIELD_TILE_SIZE as usize];
+        let mut out = Vec::new();
+        for cy in min_cy..=max_cy {
+            let coord = ChunkCoord::new(cx, cy);
+            let Some(tile) = solved.get(&coord) else {
+                // Not in the solved subset. A *sleeping* tile still
+                // stands in the light's way — treating it as open sky
+                // would pour daylight through a sleeping mountain onto
+                // whatever awake tile sits beneath it — so the walk
+                // attenuates through the old map, read-only. No write
+                // is lost: a lit tile whose value would change is in
+                // the subset by `sky_drifted`'s construction, so a
+                // sleeping tile either already holds this amplitude's
+                // value (max-write no-op) or is dark (nothing to
+                // write). No tile at all is genuinely open sky.
+                if let Some(sleeping) = old.get(&coord) {
+                    // Two loops, and the beam-free one is the original
+                    // byte for byte. A world with no lamp in it must
+                    // take exactly the walk it took before this existed
+                    // -- `has_beam` is what buys that, and it is false
+                    // for every tile of the outdoor game.
+                    if sleeping.has_beam {
+                        for lx in 0..FIELD_TILE_SIZE {
+                            let c = &mut carried[lx as usize];
+                            for ly in 0..FIELD_TILE_SIZE {
+                                *c = (*c * sleeping.transmission_local(lx, ly))
+                                    .max(sleeping.beam_local(lx, ly));
                             }
                         }
-                    }
-                    continue;
-                };
-                // Recorded *before* attenuating: this is what arrives at
-                // the tile's top row, which is what phase 2 needs.
-                out.push((coord, carried));
-                if tile.has_beam {
-                    for lx in 0..FIELD_TILE_SIZE {
-                        let c = &mut carried[lx as usize];
-                        for ly in 0..FIELD_TILE_SIZE {
-                            // **Attenuate first, re-seed second**, and that
-                            // order is the whole point of `Material::beam`:
-                            // a fixture does not shade its own light, so a
-                            // lamp recessed into a ceiling throws what it
-                            // throws however thick the ceiling is. The other
-                            // order re-couples the crop's light to the
-                            // shell, which is the knob `lab::scene::CEILING`
-                            // was found to be the expensive way.
-                            *c = (*c * tile.transmission_local(lx, ly))
-                                .max(tile.beam_local(lx, ly));
-                        }
-                    }
-                } else {
-                    for lx in 0..FIELD_TILE_SIZE {
-                        let c = &mut carried[lx as usize];
-                        for ly in 0..FIELD_TILE_SIZE {
-                            if *c <= 0.0 {
-                                continue;
+                    } else {
+                        for lx in 0..FIELD_TILE_SIZE {
+                            let c = &mut carried[lx as usize];
+                            for ly in 0..FIELD_TILE_SIZE {
+                                if *c <= 0.0 {
+                                    break;
+                                }
+                                *c *= sleeping.transmission_local(lx, ly);
                             }
-                            *c *= tile.transmission_local(lx, ly);
                         }
                     }
                 }
+                continue;
+            };
+            // Recorded *before* attenuating: this is what arrives at
+            // the tile's top row, which is what phase 2 needs.
+            out.push((coord, carried));
+            if tile.has_beam {
+                for lx in 0..FIELD_TILE_SIZE {
+                    let c = &mut carried[lx as usize];
+                    for ly in 0..FIELD_TILE_SIZE {
+                        // **Attenuate first, re-seed second**, and that
+                        // order is the whole point of `Material::beam`:
+                        // a fixture does not shade its own light, so a
+                        // lamp recessed into a ceiling throws what it
+                        // throws however thick the ceiling is. The other
+                        // order re-couples the crop's light to the
+                        // shell, which is the knob `lab::scene::CEILING`
+                        // was found to be the expensive way.
+                        *c = (*c * tile.transmission_local(lx, ly))
+                            .max(tile.beam_local(lx, ly));
+                    }
+                }
+            } else {
+                for lx in 0..FIELD_TILE_SIZE {
+                    let c = &mut carried[lx as usize];
+                    for ly in 0..FIELD_TILE_SIZE {
+                        if *c <= 0.0 {
+                            continue;
+                        }
+                        *c *= tile.transmission_local(lx, ly);
+                    }
+                }
             }
-            out.into_iter()
-        })
-        .collect();
+        }
+        out.into_iter()
+    };
+    let entries: ChunkMap<[f32; FIELD_TILE_SIZE as usize]> = if tiles_parallel(coords.len()) {
+        columns.par_iter().flat_map_iter(walk).collect()
+    } else {
+        columns.iter().flat_map(walk).collect()
+    };
 
-    next.par_iter_mut().for_each(|(coord, tile)| {
+    for_each_tile(next, |coord, tile| {
         let Some(entry) = entries.get(coord) else {
             return; // outside [min_cy, max_cy], or in no walked column
         };
@@ -2558,7 +2659,7 @@ fn apply_sky_to(
 /// inside `apply_sky_to`'s: light carries an amplitude and this carries a
 /// pure attenuation, the two are separately gateable, and the cost is one
 /// downward pass over 2,560 field cells on a 512x320 world.
-fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     if coords.is_empty() {
         return;
     }
@@ -2581,34 +2682,36 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
     // `transmission`. So compute every solved tile's entry `reach`
     // read-only, then write the tiles independently.
     let solved = &*next;
-    let entries: HashMap<ChunkCoord, [f32; FIELD_TILE_SIZE as usize]> = columns
-        .par_iter()
-        .flat_map_iter(|&cx| {
-            // Starts at 1.0, not at the offset: this is the fraction of the
-            // sky's forcing that reaches a block, so it is the same quantity
-            // for the warm half of the day and the cool half. `apply_sky_to`
-            // folds the amplitude into its carried value instead, because
-            // light has no negative half to keep symmetric.
-            let mut reach = [1.0f32; FIELD_TILE_SIZE as usize];
-            let mut out = Vec::new();
-            for cy in min_cy..=max_cy {
-                let coord = ChunkCoord::new(cx, cy);
-                let Some(tile) = solved.get(&coord) else {
-                    continue; // no chunk here: open sky, carry on unchanged
-                };
-                out.push((coord, reach));
-                for lx in 0..FIELD_TILE_SIZE {
-                    let r = &mut reach[lx as usize];
-                    for ly in 0..FIELD_TILE_SIZE {
-                        *r *= tile.transmission_local(lx, ly);
-                    }
+    let walk = |&cx: &i32| {
+        // Starts at 1.0, not at the offset: this is the fraction of the
+        // sky's forcing that reaches a block, so it is the same quantity
+        // for the warm half of the day and the cool half. `apply_sky_to`
+        // folds the amplitude into its carried value instead, because
+        // light has no negative half to keep symmetric.
+        let mut reach = [1.0f32; FIELD_TILE_SIZE as usize];
+        let mut out = Vec::new();
+        for cy in min_cy..=max_cy {
+            let coord = ChunkCoord::new(cx, cy);
+            let Some(tile) = solved.get(&coord) else {
+                continue; // no chunk here: open sky, carry on unchanged
+            };
+            out.push((coord, reach));
+            for lx in 0..FIELD_TILE_SIZE {
+                let r = &mut reach[lx as usize];
+                for ly in 0..FIELD_TILE_SIZE {
+                    *r *= tile.transmission_local(lx, ly);
                 }
             }
-            out.into_iter()
-        })
-        .collect();
+        }
+        out.into_iter()
+    };
+    let entries: ChunkMap<[f32; FIELD_TILE_SIZE as usize]> = if tiles_parallel(coords.len()) {
+        columns.par_iter().flat_map_iter(walk).collect()
+    } else {
+        columns.iter().flat_map(walk).collect()
+    };
 
-    next.par_iter_mut().for_each(|(coord, tile)| {
+    for_each_tile(next, |coord, tile| {
         let Some(entry) = entries.get(coord) else {
             return; // outside [min_cy, max_cy], or in no walked column
         };
@@ -2661,7 +2764,7 @@ fn apply_sky_temperature_to(offset: f32, coords: &[ChunkCoord], next: &mut HashM
 /// neighbour substitution sees to that), so this only affects reads that
 /// land inside the wet-but-blocked block itself — exactly where a puddle's
 /// own dampness needs to still be visible.
-fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     for &coord in coords {
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
         for ly in 0..FIELD_TILE_SIZE {
@@ -2717,37 +2820,49 @@ fn apply_moisture_sources(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, 
 ///
 /// `has_glow` gates the whole tile, so this costs a bool check for the
 /// overwhelming majority of tiles, which glow nowhere.
-fn seed_light_from_glow(coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn seed_light_from_glow(coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     for &coord in coords {
         let Some(tile) = next.get_mut(&coord) else { continue };
-        if !tile.has_glow {
-            continue;
-        }
-        for ly in 0..FIELD_TILE_SIZE {
-            for lx in 0..FIELD_TILE_SIZE {
-                let glow = tile.glow_local(lx, ly);
-                if glow <= 0.0 {
-                    continue;
-                }
-                // Max, never assignment — same rule as the scan this
-                // replaces: sunlight down a shaft may already be brighter
-                // than the crystal.
-                let mut cell = tile.get_local(lx, ly);
-                if cell.light < glow {
-                    cell.light = glow;
-                    tile.set_local(lx, ly, cell);
-                }
+        seed_tile_light_from_glow(tile);
+    }
+}
+
+/// The per-tile half of [`seed_light_from_glow`], shared with the partial
+/// rescan in `rebuild_blocked`: a `max` per block, so applying it to a tile
+/// whose scanned blocks already wrote their floor changes nothing there and
+/// gives the inherited blocks the floor a full scan would have written.
+fn seed_tile_light_from_glow(tile: &mut FieldTile) {
+    if !tile.has_glow {
+        return;
+    }
+    for ly in 0..FIELD_TILE_SIZE {
+        for lx in 0..FIELD_TILE_SIZE {
+            let glow = tile.glow_local(lx, ly);
+            if glow <= 0.0 {
+                continue;
+            }
+            // Max, never assignment — same rule as the scan this
+            // replaces: sunlight down a shaft may already be brighter
+            // than the crystal.
+            let mut cell = tile.get_local(lx, ly);
+            if cell.light < glow {
+                cell.light = glow;
+                tile.set_local(lx, ly, cell);
             }
         }
     }
 }
 
-fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
-    for &coord in coords {
+fn rebuild_blocked(world: &World, coords: &[ChunkCoord], stale: &[u16], next: &mut ChunkMap<FieldTile>) -> u64 {
+    debug_assert_eq!(coords.len(), stale.len(), "one stale-block mask per rescanned coord");
+    let mut scanned = 0u64;
+    for (&coord, &mask) in coords.iter().zip(stale) {
         // Fetched once per chunk instead of once per *CA cell scanned*
         // (previously up to `FIELD_TILE_SIZE^2 * FIELD_SCALE^2` = 4096
         // `World::get` calls per chunk, each a bounds check plus a
-        // `HashMap<ChunkCoord, Chunk>` lookup). `coords` comes from
+        // `HashMap<ChunkCoord, Chunk>` lookup -- an index into `ChunkGrid`
+        // now, but the once-per-chunk hoist is the win either way, since it
+        // also removes the 4096x redundant re-reading). `coords` comes from
         // `world.chunks()` (see `step` above), so every entry is
         // guaranteed resident -- this can never be `None`. `Chunk::get_world`
         // still takes global coordinates and does its own local-index
@@ -2757,23 +2872,46 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
         // pointer is invariant across every field cell in this chunk, but
         // was previously looked up fresh on every single one of them.
         let tile = next.get_mut(&coord).expect("next was pre-populated with every coord in coords");
-        // `has_glow` is a max over the scan below, so it has to start false
-        // each solve or it can only ever latch on: `set_glow_local` raises
-        // it and nothing else lowers it, and a tile cloned from its last
-        // solve arrives with the old answer. Without this reset, mining out
-        // the last of a lining would leave the renderer sampling the field
-        // under that tile forever.
-        tile.has_glow = false;
-        // Same reset, same reason (`set_beam_local` only latches on): pull
-        // the fixture out of the ceiling and the block under it must stop
-        // beaming, not beam for ever.
-        tile.has_beam = false;
+        // **Only the blocks written since this tile's last scan**, when the
+        // last scan is still there to inherit from -- see
+        // `Chunk::stale_blocks`. A block nothing has written derives to the
+        // same five values it derived to last time, so this is exact, not
+        // approximate; what changes is that an awake chunk with an ant
+        // walking across one block costs one block's 256 cells rather than
+        // sixteen blocks' 4,096. `has_glow`/`has_beam` are latches the scan
+        // raises, so a partial scan recomputes them from all sixteen blocks
+        // at the end, and the glow light floor the scan writes per block is
+        // re-applied to the whole tile through `seed_tile_light_from_glow`,
+        // which is a `max` and therefore harmless where the scan already
+        // wrote it. `FIELD_CARRY=0` forces the full scan, the same switch
+        // that forces `inherit_derived` off for settled chunks.
+        let previous = world.fields_ref().get(&coord);
+        let partial = mask != u16::MAX && carry_derived() && previous.is_some_and(|p| p.derived_valid);
+        if let (true, Some(previous)) = (partial, previous) {
+            tile.inherit_derived(previous);
+        } else {
+            // `has_glow` is a max over the scan below, so it has to start false
+            // each solve or it can only ever latch on: `set_glow_local` raises
+            // it and nothing else lowers it, and a tile cloned from its last
+            // solve arrives with the old answer. Without this reset, mining out
+            // the last of a lining would leave the renderer sampling the field
+            // under that tile forever.
+            tile.has_glow = false;
+            // Same reset, same reason (`set_beam_local` only latches on): pull
+            // the fixture out of the ceiling and the block under it must stop
+            // beaming, not beam for ever.
+            tile.has_beam = false;
+        }
         // This scan is what makes the five arrays below real, and the flag is
         // what lets the next frame trust them.
         tile.derived_valid = true;
         let (ox, oy) = coord.origin();
         for ly in 0..FIELD_TILE_SIZE {
             for lx in 0..FIELD_TILE_SIZE {
+                if partial && mask & (1u16 << (ly * FIELD_TILE_SIZE + lx)) == 0 {
+                    continue; // unchanged since its last scan: inherited above
+                }
+                scanned += 1;
                 let bx0 = ox + lx * FIELD_SCALE;
                 let by0 = oy + ly * FIELD_SCALE;
                 let mut blocked = false;
@@ -2949,13 +3087,22 @@ fn rebuild_blocked(world: &World, coords: &[ChunkCoord], next: &mut HashMap<Chun
                 }
             }
         }
+        if partial {
+            // The latches, recomputed over every block rather than raised
+            // by the few that were scanned; and the light floor for the
+            // blocks that were inherited rather than scanned.
+            tile.has_glow = tile.glow.iter().any(|g| *g > 0.0);
+            tile.has_beam = tile.beam.iter().any(|b| *b > 0.0);
+            seed_tile_light_from_glow(tile);
+        }
     }
+    scanned
 }
 
 /// `pv += divergence(velocity) * coupling`, damped. Matches Air.cpp's
 /// pressure-from-velocity step: inflow from the left/top and outflow to the
 /// right/bottom raises pressure, and vice versa.
-fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn step_pressure(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     let old = world.fields_ref();
     let bounds = world.bounds();
     // Issue #6's hoist, one level further out: `par_solve_tiles` hands the
@@ -3004,8 +3151,13 @@ fn step_velocity(
     world: &World,
     coords: &[ChunkCoord],
     read: &[ChunkCoord],
-    next: &mut HashMap<ChunkCoord, FieldTile>,
+    next: &mut ChunkMap<FieldTile>,
 ) {
+    // The momentum skip hands this an empty solve set; the ring snapshot
+    // below is the only cost left in that case and it feeds nothing.
+    if coords.is_empty() {
+        return;
+    }
     let old = world.fields_ref();
     let bounds = world.bounds();
     // Read the just-computed pressure from `next` as an immutable snapshot
@@ -3021,22 +3173,29 @@ fn step_velocity(
     // looks plausible. The outer ring can sleep outside the subset `next`
     // now holds, so it falls back to the old map — the same state the
     // full-map clone used to carry forward for it.
-    let new_pressure: HashMap<ChunkCoord, FieldTile> = read
+    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
+    let new_pressure: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
+        read.iter().filter_map(snapshot).collect()
+    } else {
+        read
         // **Built in parallel**, because this clone is the serial half of an
         // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and a `FieldTile` owns six boxed
-        // slices, so this is on the order of 9,000 allocations per pass and
-        // 18,000 per frame, all of it on one worker while the rest wait.
-        // It is what held `par_solve_tiles`' speedup to 2-2.8x rather than
-        // 4x on this machine.
+        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
+        // boxed slices this was on the order of 9,000 allocations per pass
+        // and 18,000 per frame, all of it on one worker while the rest
+        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
+        // rather than 4x on this machine. The arrays are inline now
+        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
+        // ~1,500 copies of ~1 KB is still worth spreading.
         //
         // Contents are identical: the map is keyed by `ChunkCoord` and every
         // key in `read` is distinct, so no entry can collide and the finished
         // map does not depend on the order entries were inserted in. Only the
         // *build* order changes, and nothing reads that.
         .par_iter()
-        .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
-        .collect();
+        .filter_map(snapshot)
+        .collect()
+    };
 
     par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
@@ -3190,14 +3349,18 @@ fn step_velocity(
 /// taken across the whole engine in one command.
 fn par_solve_tiles(
     coords: &[ChunkCoord],
-    next: &mut HashMap<ChunkCoord, FieldTile>,
+    next: &mut ChunkMap<FieldTile>,
     body: impl Fn(ChunkCoord, &mut FieldTile) + Sync + Send,
 ) {
     if coords.is_empty() {
         return;
     }
     if coords.len() == next.len() {
-        next.par_iter_mut().for_each(|(&coord, tile)| body(coord, tile));
+        if tiles_parallel(coords.len()) {
+            next.par_iter_mut().for_each(|(&coord, tile)| body(coord, tile));
+        } else {
+            next.iter_mut().for_each(|(&coord, tile)| body(coord, tile));
+        }
         return;
     }
     // **Gathered by name, so a subset cannot gain a tile.** One serial walk
@@ -3207,7 +3370,7 @@ fn par_solve_tiles(
     // inside `par_iter_mut` keeps the load balanced: rayon splits work it can
     // see, and a map walk whose items mostly do nothing is not work it can
     // see.
-    let wanted: HashSet<ChunkCoord> = coords.iter().copied().collect();
+    let wanted: ChunkSet = coords.iter().copied().collect();
     let subset: Vec<(ChunkCoord, &mut FieldTile)> =
         next.iter_mut().filter(|(c, _)| wanted.contains(*c)).map(|(&c, t)| (c, t)).collect();
     debug_assert_eq!(
@@ -3217,10 +3380,14 @@ fn par_solve_tiles(
         subset.len(),
         wanted.len()
     );
-    subset.into_par_iter().for_each(|(coord, tile)| body(coord, tile));
+    if tiles_parallel(subset.len()) {
+        subset.into_par_iter().for_each(|(coord, tile)| body(coord, tile));
+    } else {
+        subset.into_iter().for_each(|(coord, tile)| body(coord, tile));
+    }
 }
 
-fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut HashMap<ChunkCoord, FieldTile>) {
+fn step_diffusion(world: &World, coords: &[ChunkCoord], next: &mut ChunkMap<FieldTile>) {
     let old = world.fields_ref();
     let bounds = world.bounds();
     par_solve_tiles(coords, next, |coord, tile| {
@@ -3400,31 +3567,42 @@ fn step_advection(
     coords: &[ChunkCoord],
     read: &[ChunkCoord],
     bounds: Option<Rect>,
-    old: &HashMap<ChunkCoord, FieldTile>,
-    next: &mut HashMap<ChunkCoord, FieldTile>,
+    old: &ChunkMap<FieldTile>,
+    next: &mut ChunkMap<FieldTile>,
 ) {
+    // As in `step_velocity`: an empty solve set has nothing to snapshot for.
+    if coords.is_empty() {
+        return;
+    }
     // Snapshot `next` as it stands after pressure/velocity/diffusion, so the
     // sampling below reads a fixed pre-advection state rather than a mix of
     // advected and not-yet-advected cells depending on iteration order.
     // Over `read` rather than `coords` — see `step_velocity` for why, and
     // for why the ring falls back to the old map now that `next` holds only
     // the solved subset.
-    let pre_advection: HashMap<ChunkCoord, FieldTile> = read
+    let snapshot = |&c: &ChunkCoord| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone()));
+    let pre_advection: ChunkMap<FieldTile> = if !tiles_parallel(read.len()) {
+        read.iter().filter_map(snapshot).collect()
+    } else {
+        read
         // **Built in parallel**, because this clone is the serial half of an
         // otherwise threaded pass. `read` is the solve set plus one ring --
-        // ~1,500 tiles at 8192x2560 -- and a `FieldTile` owns six boxed
-        // slices, so this is on the order of 9,000 allocations per pass and
-        // 18,000 per frame, all of it on one worker while the rest wait.
-        // It is what held `par_solve_tiles`' speedup to 2-2.8x rather than
-        // 4x on this machine.
+        // ~1,500 tiles at 8192x2560 -- and when a `FieldTile` owned six
+        // boxed slices this was on the order of 9,000 allocations per pass
+        // and 18,000 per frame, all of it on one worker while the rest
+        // waited. It is what held `par_solve_tiles`' speedup to 2-2.8x
+        // rather than 4x on this machine. The arrays are inline now
+        // (2026-09-06), so a clone is a copy rather than seven mallocs, but
+        // ~1,500 copies of ~1 KB is still worth spreading.
         //
         // Contents are identical: the map is keyed by `ChunkCoord` and every
         // key in `read` is distinct, so no entry can collide and the finished
         // map does not depend on the order entries were inserted in. Only the
         // *build* order changes, and nothing reads that.
         .par_iter()
-        .filter_map(|&c| next.get(&c).or_else(|| old.get(&c)).map(|t| (c, t.clone())))
-        .collect();
+        .filter_map(snapshot)
+        .collect()
+    };
 
     par_solve_tiles(coords, next, |coord, tile| {
         let (ox, oy) = coord.origin();
@@ -3512,7 +3690,7 @@ mod tests {
     #[test]
     fn a_subset_solve_touches_exactly_the_tiles_it_named() {
         let coords: Vec<ChunkCoord> = (0..64).map(|i| ChunkCoord::new(i % 8, i / 8)).collect();
-        let mut next: HashMap<ChunkCoord, FieldTile> =
+        let mut next: ChunkMap<FieldTile> =
             coords.iter().map(|&c| (c, FieldTile::new())).collect();
 
         // Every third tile, so the subset is neither contiguous nor the whole
@@ -3545,7 +3723,7 @@ mod tests {
     #[test]
     fn the_whole_set_and_the_gathered_path_agree() {
         let coords: Vec<ChunkCoord> = (0..32).map(|i| ChunkCoord::new(i % 8, i / 8)).collect();
-        let build = || -> HashMap<ChunkCoord, FieldTile> {
+        let build = || -> ChunkMap<FieldTile> {
             coords.iter().map(|&c| (c, FieldTile::new())).collect()
         };
         let body = |c: ChunkCoord, tile: &mut FieldTile| {
@@ -3621,9 +3799,10 @@ mod tests {
         assert!(carried.derived_valid, "the tile never recorded a real scan");
 
         // The control: what `rebuild_blocked` says about this same world now.
-        let mut fresh: HashMap<ChunkCoord, FieldTile> = HashMap::new();
+        let mut fresh: ChunkMap<FieldTile> = ChunkMap::default();
         fresh.insert(coord, FieldTile::new());
-        rebuild_blocked(&world, &[coord], &mut fresh);
+        // A full scan: the mask is what the field takes from a fresh chunk.
+        rebuild_blocked(&world, &[coord], &[u16::MAX], &mut fresh);
         let scanned = &fresh[&coord];
 
         assert_eq!(carried.has_glow, scanned.has_glow, "has_glow diverged from a fresh scan");
@@ -4412,7 +4591,7 @@ mod tests {
         }
         let before = w.field_at(20, 4).temperature;
         let coords: Vec<ChunkCoord> = w.chunks().map(|c| c.coord).collect();
-        let mut tiles: HashMap<ChunkCoord, FieldTile> =
+        let mut tiles: ChunkMap<FieldTile> =
             coords.iter().filter_map(|&c| w.fields_ref().get(&c).map(|t| (c, t.clone()))).collect();
         for _ in 0..10 {
             apply_sky_temperature_to(sky_temperature_offset(w.frame), &coords, &mut tiles);

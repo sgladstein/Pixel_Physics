@@ -850,6 +850,14 @@ fn main() {
     // census that agrees to five significant figures will not say so.
     if let Some((world, _, _)) = &last {
         println!("\nworld hash at frame {frames}: {:#018x}", world_hash(world));
+        // The field's own digest beside the grid's, because a field-only
+        // change (a skipped pass, an inherited channel) cannot move the
+        // grid for many frames and the grid hash alone would call it
+        // identical. `field::field_hash` covers every channel and flag.
+        println!(
+            "field hash at frame {frames}: {:#018x}",
+            pixel_physics::sim::field::field_hash(world)
+        );
     }
 
     // --- the founder question -------------------------------------------

@@ -38,6 +38,9 @@ fn best_of(runs: usize, mut f: impl FnMut() -> u64) -> (f64, u64) {
 
 /// Read every visible pixel's cell through the ordinary `World::get` — one
 /// `HashMap<ChunkCoord, Chunk>` lookup, and therefore one SipHash, per pixel.
+/// (`World::chunks` is a `ChunkGrid` now, so the per-pixel cost below is an
+/// index rather than a hash -- lower, and still one per pixel, which is
+/// exactly what `read_via_chunk_hoist` still avoids.)
 /// This is what `cell_colour` does today.
 fn read_via_world_get(world: &World, x0: i32, y0: i32) -> u64 {
     let mut acc = 0u64;
@@ -87,7 +90,7 @@ fn read_via_chunk_hoist(world: &World, x0: i32, y0: i32) -> u64 {
 fn branch_split() {
     use pixel_physics::sim::chunk::Rect;
     let mut frame = vec![0u8; PIXELS * 4];
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     let particles = pixel_physics::sim::particle::ParticleSystem::default();
 
     let mut case = |label: &str, fill: Option<pixel_physics::sim::material::MaterialId>| {
@@ -164,7 +167,7 @@ fn main() {
     assert_eq!(a, b, "the two read paths must return the same cells or the comparison is meaningless");
 
     let mut frame = vec![0u8; PIXELS * 4];
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     let particles = pixel_physics::sim::particle::ParticleSystem::default();
     let (draw_ms, _) = best_of(20, || {
         app.renderer.draw(&app.world, &particles, &touched, &mut frame, (WIDTH, HEIGHT), true) as u64
@@ -220,7 +223,7 @@ fn sky_share(renderer: &mut Renderer, world: &World, x0: i32, y0: i32) {
 /// bigger frame buffer also falls out of L2.
 fn viewport_scaling(app: &mut App) {
     let particles = pixel_physics::sim::particle::ParticleSystem::default();
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     let (x0, y0) = app.renderer.screen_to_world(0, 0);
 
     // **The generated world is not a valid control for this question**, and

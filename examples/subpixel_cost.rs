@@ -39,7 +39,7 @@ fn main() {
     for _ in 0..600 {
         app.update();
     }
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     let base_pixels = (WIDTH * HEIGHT) as f64;
 
     println!("same world region, same camera, drawn at increasing pixels per cell:\n");

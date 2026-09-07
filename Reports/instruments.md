@@ -61,7 +61,7 @@ Not an `examples/` binary — these read what an agent run already wrote down.
 
 | instrument | answers | notes |
 |---|---|---|
-| `lab_cost` | **Does the lab box live, and what does it cost?** — the plant and creature census over a long run, the organism-slot ceiling, the Gate 0 birth arithmetic in *this* bed, and whole-frame cost as the stand grows, with the achievable simulated-seconds-per-real-second at 60 Hz and 20 Hz | Gate 1 and Gate 3 of the evolution-lab design guide in one command. Three things it answers past its own question: `selftest=1` is a **positive-control suite over its own counters** (does the split tick reproduce `frame::step`, does a fan actually wake the box, does the leaf census read zero in an unplanted bed) and is the model for any harness that must not publish a null it cannot have moved; `walls=1,2,4,8,16 reps=N` runs **paired, round-robin** arms rather than arm-after-arm, which is the only timing shape that survives a loud machine; and `gut=` overrides the ant's diet gene *before the colony is founded*, so it can construct the case whose answer is known non-zero rather than only measuring the shipped one |
+| `lab_cost` | **Does the lab box live, and what does it cost?** — the plant and creature census over a long run, the organism-slot ceiling, the Gate 0 birth arithmetic in *this* bed, and whole-frame cost as the stand grows, with the achievable simulated-seconds-per-real-second at 60 Hz and 20 Hz | Gate 1 and Gate 3 of the evolution-lab design guide in one command. Three things it answers past its own question: `selftest=1` is a **positive-control suite over its own counters** (does the split tick reproduce `frame::step`, does a fan actually wake the box, does the leaf census read zero in an unplanted bed) and is the model for any harness that must not publish a null it cannot have moved; `walls=1,2,4,8,16 reps=N` runs **paired, round-robin** arms rather than arm-after-arm, which is the only timing shape that survives a loud machine; and `gut=` overrides the ant's diet gene *before the colony is founded*, so it can construct the case whose answer is known non-zero rather than only measuring the shipped one. Since 2026-09-06 it prints the **field hash beside the world hash**, because a field-only change cannot move the grid for many frames and the grid hash alone would call it identical -- the bit-identity check for anything touching `field.rs` is both lines matching |
 
 ## Plants
 
@@ -349,10 +349,15 @@ the correctness surface; it is **not** (4.9%, against a ~15% estimate --
 expensive" question, where the answer is usually that **repetition is not
 magnitude**.
 
-**`FIELD_PASS=<every N>` splits `field::step` ten ways**, and prints `solved`
-and `momentum` beside the timings -- how many tiles the selective solve
-actually visited, which is the number that says whether a field cost is "too
-much work" or "too much per unit of work". **It averages over the window as of
+**`FIELD_PASS=<every N>` splits `field::step` ten ways**, and prints `solved`,
+`momentum` and `blocks` beside the timings -- how many tiles the selective
+solve actually visited, how many of those the momentum passes ran over
+(**0 whenever the skip is taken**, which since 2026-09-06 is every frame of a
+sealed box with no wind), and how many 16x16 blocks `rebuild_blocked`
+actually rescanned from the CA grid against the `solved x 16` a full rescan
+would pay. Those are the numbers that say whether a field cost is "too much
+work" or "too much per unit of work", and the last two are the "did it fire"
+counters for two skips that read as nothing in a timing. **It averages over the window as of
 2026-09-04**, and for this pass that matters more than for its siblings: the
 field is driven by the sky, so a single sampled frame is a single *phase of a
 designed oscillator*, and `frame % every == 0` pins the reading to whichever

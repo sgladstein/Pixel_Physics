@@ -3,23 +3,30 @@
 //! Three invariants here are load-bearing for everything that comes later, and
 //! are cheap now but very expensive to retrofit:
 //!
-//! 1. Storage is a `HashMap<ChunkCoord, Chunk>`, never a flat array. A flat
-//!    `Vec<Cell>` indexed `y * width + x` is the single decision that would
-//!    force a rewrite when the streaming world arrives in M10.
+//! 1. Storage is a sparse chunk store addressed by `ChunkCoord`
+//!    (`ChunkGrid`: a dense window of `Option<Chunk>`, grown on demand),
+//!    never a flat cell array. A flat `Vec<Cell>` indexed `y * width + x` is
+//!    the single decision that would force a rewrite when the streaming
+//!    world arrives in M10 — `ChunkGrid` is not that: it stays
+//!    chunk-granular, and an unloaded chunk is still `None`, exactly what
+//!    M10 streaming needs; a lookup just costs an index instead of a hash
+//!    and a probe (`fxhash`'s module doc has the profile that motivated the
+//!    change).
 //! 2. Every coordinate crossing this API is a global signed world coordinate.
 //!    Screen space exists only in the renderer.
 //! 3. All cell access goes through `get`/`set`. That is the seam where chunk
 //!    load, generation and eviction get added later, without touching callers.
 
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::BinaryHeap;
 use std::sync::OnceLock;
 
 use super::cell::Cell;
-use super::chunk::{Chunk, ChunkCoord, Rect, CHUNK_SIZE, MAX_REACH};
+use super::chunk::{Chunk, ChunkCoord, ChunkGrid, Rect, CHUNK_SIZE, MAX_REACH};
 use super::creature;
 use super::decay;
 use super::field::{self, FieldCell, FieldTile, FIELD_SCALE};
+use super::fxhash::{ChunkMap, ChunkSet, PosSet};
 use super::liquid::{self, LiquidBody};
 use super::material::{self, MaterialId, MaterialKind, MaterialRegistry};
 use super::organism::{self, OrganismState, SpeciesId, SpeciesRegistry};
@@ -1041,10 +1048,10 @@ pub struct SoilWaterStats {
 
 #[derive(Clone)]
 pub struct World {
-    chunks: HashMap<ChunkCoord, Chunk>,
+    chunks: ChunkGrid,
     /// One tile per chunk, same lifetime — see the module doc on `field` for
     /// why tying them together avoids a second loading/unloading system.
-    fields: HashMap<ChunkCoord, FieldTile>,
+    fields: ChunkMap<FieldTile>,
     /// `Some` for the fixed-size world of M2; M10 sets this to `None` to mean
     /// unbounded, at which point reads outside loaded chunks trigger generation
     /// instead of returning the out-of-bounds sentinel.
@@ -1189,7 +1196,7 @@ pub struct World {
     /// — before `structural::tick` runs, so a check that legitimately
     /// re-schedules itself or a neighbour while running is a fresh
     /// request, not a stale one being silently dropped.
-    pending_structural_checks: std::collections::HashSet<(i32, i32)>,
+    pending_structural_checks: PosSet,
     /// Positions where a structural check was scheduled on a cell that is
     /// **not** body material — i.e. a hole. The seed set for
     /// `structural::reconverge_from_damage`.
@@ -1233,7 +1240,7 @@ pub struct World {
     /// `schedule_active_site` only when not already present, cleared in
     /// `pop_due_active_site` before the tick runs, so a site that
     /// reschedules itself is a fresh request rather than a dropped one.
-    pending_evaporation: std::collections::HashSet<(i32, i32)>,
+    pending_evaporation: PosSet,
     /// The same dedup index again, for `ActiveKind::Dissipate`, and
     /// load-bearing for the same reason as `pending_evaporation` directly
     /// above rather than merely for cost: the CA sweep asks for a
@@ -1247,7 +1254,7 @@ pub struct World {
     /// A third set rather than one keyed on kind, matching the choice made
     /// for `pending_evaporation`: the existing paths' behaviour stays
     /// untouched.
-    pending_dissipation: std::collections::HashSet<(i32, i32)>,
+    pending_dissipation: PosSet,
     /// The topmost row of *ground* in each column, indexed from
     /// `bounds.min_x`, recorded once and never revised. `i32::MAX` for a
     /// column that held no ground at all; empty until `freeze_sky_surface`
@@ -1358,7 +1365,7 @@ pub struct World {
     ///
     /// `Decay` carries no state beyond position, so `(x, y)` is an
     /// unambiguous key, exactly as for a structural check.
-    pending_decay_sites: std::collections::HashSet<(i32, i32)>,
+    pending_decay_sites: PosSet,
     /// Backing storage for promoted `liquid::LiquidBody` bodies (`Reports/
     /// liquid-heightfield-design.md` §9a) — the `World::organisms` /
     /// `OrganismSlot` generational-slot pattern, reused rather than
@@ -1378,7 +1385,7 @@ pub struct World {
     /// needing a denser index. A `Vec`, not `SmallVec` — the crate has no
     /// existing `smallvec` dependency and a body touching more than a
     /// couple of chunks is rare enough not to justify adding one.
-    body_index: HashMap<ChunkCoord, Vec<BodyId>>,
+    body_index: ChunkMap<Vec<BodyId>>,
     // M18's `creatures: Vec<CreatureState>` is **gone**, not moved. A
     // creature is an organism now (`Reports/creature-direction.md` §3a), so
     // its state lives in `organisms` below with everything else's. The
@@ -1991,7 +1998,7 @@ pub struct World {
     /// the settled-before check alone can't see that promotion happening
     /// in the very call that's checking it) was caught by an independent
     /// review and closed the same way, checking both before and after.
-    touched_chunks: std::collections::HashSet<ChunkCoord>,
+    touched_chunks: ChunkSet,
     /// Cells the load walks in `load.rs` may still visit this frame,
     /// refilled to `load::MAX_LOAD_CELLS_PER_FRAME` by `scheduler::step`.
     ///
@@ -2970,8 +2977,8 @@ impl World {
 
     pub fn new(bounds: Rect) -> Self {
         let mut world = Self {
-            chunks: HashMap::new(),
-            fields: HashMap::new(),
+            chunks: ChunkGrid::new(),
+            fields: ChunkMap::default(),
             bounds: Some(bounds),
             cell_scale: 1.0,
             frame: 0,
@@ -2986,17 +2993,17 @@ impl World {
             spring_ledger: crate::sim::spring::SpringLedger::default(),
             active_sites: BinaryHeap::new(),
             creature_sites: BinaryHeap::new(),
-            pending_structural_checks: std::collections::HashSet::new(),
+            pending_structural_checks: PosSet::default(),
             damage_seeds: Vec::new(),
-            pending_evaporation: std::collections::HashSet::new(),
-            pending_dissipation: std::collections::HashSet::new(),
+            pending_evaporation: PosSet::default(),
+            pending_dissipation: PosSet::default(),
             sky_surface: Vec::new(),
             underground: Vec::new(),
             ground_datum: Vec::new(),
-            pending_decay_sites: std::collections::HashSet::new(),
+            pending_decay_sites: PosSet::default(),
             bodies: Vec::new(),
             free_body_slots: Vec::new(),
-            body_index: HashMap::new(),
+            body_index: ChunkMap::default(),
             species: SpeciesRegistry::builtin(),
             pheromones: Pheromones::new(bounds),
             field_stats: field::FieldStats::default(),
@@ -3055,7 +3062,7 @@ impl World {
             roots_shed: 0,
             shed_stranded: 0,
             fields_settled: false,
-            touched_chunks: std::collections::HashSet::new(),
+            touched_chunks: ChunkSet::default(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
@@ -3114,7 +3121,7 @@ impl World {
         for cy in c0.y..=c1.y {
             for cx in c0.x..=c1.x {
                 let coord = ChunkCoord::new(cx, cy);
-                self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+                self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
                 self.fields.entry(coord).or_insert_with(FieldTile::new);
             }
         }
@@ -3663,7 +3670,7 @@ impl World {
             water_desiccation: 0.0,
             endowment: 0.0,
             species,
-            cells: std::collections::HashMap::new(),
+            cells: crate::sim::fxhash::PosMap::default(),
             root_cells: 0,
             contact_root_cells: 0,
             // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
@@ -4582,7 +4589,7 @@ impl World {
 
         let managed: Vec<(i32, i32)> = body.managed_positions().collect();
         let container = body.container_positions();
-        let touched_chunks: std::collections::HashSet<ChunkCoord> =
+        let touched_chunks: ChunkSet =
             managed.iter().chain(container.iter()).map(|&(px, py)| ChunkCoord::containing(px, py)).collect();
 
         let id = self.push_body(body);
@@ -4620,7 +4627,7 @@ impl World {
     pub(crate) fn demote_body(&mut self, id: BodyId) {
         let Some(body) = self.body(id) else { return };
         let positions: Vec<(i32, i32)> = body.managed_positions().chain(body.container_positions()).collect();
-        let touched_chunks: std::collections::HashSet<ChunkCoord> = positions.iter().map(|&(px, py)| ChunkCoord::containing(px, py)).collect();
+        let touched_chunks: ChunkSet = positions.iter().map(|&(px, py)| ChunkCoord::containing(px, py)).collect();
 
         for coord in touched_chunks {
             if let Some(list) = self.body_index.get_mut(&coord) {
@@ -4803,7 +4810,7 @@ impl World {
     /// it), just a wasted candidate check, not a correctness gap — noted in
     /// `PLAN.md` rather than fixed here.
     fn register_body_chunks(&mut self, id: BodyId, body: &LiquidBody) {
-        let touched: std::collections::HashSet<ChunkCoord> =
+        let touched: ChunkSet =
             body.managed_positions().chain(body.container_positions()).map(|(px, py)| ChunkCoord::containing(px, py)).collect();
         for coord in touched {
             let list = self.body_index.entry(coord).or_default();
@@ -5082,7 +5089,7 @@ impl World {
         self.fields.values().filter(|t| !t.settled()).count()
     }
 
-    pub(crate) fn fields_ref(&self) -> &HashMap<ChunkCoord, FieldTile> {
+    pub(crate) fn fields_ref(&self) -> &ChunkMap<FieldTile> {
         &self.fields
     }
 
@@ -5090,7 +5097,7 @@ impl World {
     /// `field::step`'s subset merge: solved tiles land, sleeping tiles are
     /// never cloned or touched. See the `next`-building comment in
     /// `field::step` for the design and the revert it supersedes.
-    pub(crate) fn merge_fields(&mut self, solved: HashMap<ChunkCoord, FieldTile>) {
+    pub(crate) fn merge_fields(&mut self, solved: ChunkMap<FieldTile>) {
         self.fields.extend(solved);
     }
 
@@ -5103,6 +5110,13 @@ impl World {
     // `Vec` element is what makes that safe without `unsafe`: a `Vec`'s
     // elements don't alias each other the way two `&mut` borrows into the
     // same `HashMap` would. See `parallel.rs` for the full picture.
+
+    /// [`Chunk::take_stale_blocks`] for the chunk at `coord`; a chunk that is
+    /// not resident answers "everything", which makes the field rescan the
+    /// whole tile, the safe direction.
+    pub(crate) fn take_stale_blocks(&mut self, coord: ChunkCoord) -> u16 {
+        self.chunks.get_mut(&coord).map_or(u16::MAX, |c| c.take_stale_blocks())
+    }
 
     pub(crate) fn take_chunk(&mut self, coord: ChunkCoord) -> Option<Chunk> {
         self.chunks.remove(&coord)
@@ -5235,7 +5249,7 @@ impl World {
             let coord = ChunkCoord::containing(x, y);
             // The last row of this chunk, or the end of the run.
             let seg_end = hi.min(coord.origin().1 + CHUNK_SIZE - 1);
-            let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+            let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
             let mut pending: Vec<(i32, Cell, Cell)> = Vec::new();
             for cy in y..=seg_end {
                 let cell = make(cy);
@@ -5523,7 +5537,7 @@ impl World {
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
-        let chunk = self.chunks.entry(coord).or_insert_with(|| Chunk::new(coord));
+        let chunk = self.chunks.get_or_insert_with(coord, || Chunk::new(coord));
         let old = chunk.get_world(x, y);
         chunk.set_world(x, y, cell, reach, is_liquid);
         self.touch_neighbours(x, y, coord);
@@ -6036,7 +6050,7 @@ impl World {
         let mut plans: Vec<(ChunkCoord, crate::sim::chunk::SweepPlan)> = Vec::new();
         for (coord, chunk) in self.chunks.iter_mut() {
             if let Some(plan) = chunk.take_moist_plan() {
-                plans.push((*coord, plan));
+                plans.push((coord, plan));
             }
         }
         // Deterministic order: chunk row descending (lower rows are larger
@@ -6773,7 +6787,7 @@ impl World {
     /// is the one real caller, once per frame; draining rather than only
     /// reading is what makes "since the last call" true without the caller
     /// needing to remember anything itself.
-    pub fn take_touched_chunks(&mut self) -> std::collections::HashSet<ChunkCoord> {
+    pub fn take_touched_chunks(&mut self) -> ChunkSet {
         std::mem::take(&mut self.touched_chunks)
     }
 }

@@ -206,7 +206,7 @@ fn render_plant_tight(w: &World, pad_x: i32, panel_h: u32) -> (Vec<u8>, u32, u32
     let mut renderer = Renderer::new();
     renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
     let particles = pixel_physics::sim::particle::ParticleSystem::new();
-    renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (width, height), true);
+    renderer.draw(w, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (width, height), true);
     let (mut x0, mut x1, mut y1) = (i32::MAX, i32::MIN, i32::MIN);
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
@@ -633,7 +633,7 @@ fn render_stand(w: &World) -> (Vec<u8>, u32, u32) {
         // picture rather than to a number.
         renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
         let particles = pixel_physics::sim::particle::ParticleSystem::new();
-        renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (width, height), true);
+        renderer.draw(w, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (width, height), true);
         // Crop to the band the stand occupies, with margin -- the scene is
         // 200 rows of sky over a bed, and a card of mostly sky is a card
         // nobody can judge. `review/SKILL.md`: render wide, declare tight.

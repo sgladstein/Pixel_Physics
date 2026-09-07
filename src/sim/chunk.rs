@@ -41,6 +41,16 @@ pub const CHUNK_AREA: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
 ///   smaller than `MAX_REACH` would be safe for one.
 pub const MAX_REACH: i32 = 32;
 
+/// Side of the square blocks [`Chunk::stale_blocks`] tracks writes at. It
+/// is the field's own block -- `field::FIELD_SCALE` -- and `field.rs` pins
+/// the two together with a compile-time assertion, so this constant is a
+/// statement about the field's geometry made where the chunk can see it,
+/// not a second knob.
+pub const STALE_BLOCK: i32 = 16;
+/// Blocks per chunk side: `CHUNK_SIZE / STALE_BLOCK`, 4, so a chunk's
+/// sixteen blocks fit the `u16` mask exactly.
+pub const STALE_BLOCKS_PER_SIDE: i32 = CHUNK_SIZE / STALE_BLOCK;
+
 /// Address of a chunk in the chunk grid. Signed, because the world extends in
 /// every direction once streaming arrives in M10.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
@@ -319,6 +329,25 @@ pub struct Chunk {
     /// and for the same reason: a write made during the pass must land in
     /// the *next* pass's set, not grow the one being walked.
     pending_moist_rows: [(i16, i16); SPAN_ROWS],
+    /// **Which 16x16 blocks have had a cell written since the field last
+    /// rescanned this chunk**, one bit per block, row-major, `u16::MAX` on a
+    /// fresh or woken chunk. `field::rebuild_blocked` derives five per-block
+    /// arrays (`blocked`, `transmission`, `moisture_source`, `glow`, `beam`)
+    /// from the CA cells under a tile, and used to rescan all sixteen blocks
+    /// of every awake chunk every frame -- 4,096 cell reads a chunk, and on
+    /// the evolution lab's beds the largest single field pass (measured
+    /// 2026-09-06: `blocked` 0.20-0.38 ms of a 0.29-0.47 ms field). A block
+    /// whose cells have not changed since its last scan derives to exactly
+    /// what it derived to then, so the field rescans only the blocks marked
+    /// here and inherits the rest. **Both write channels set it**: ordinary
+    /// writes through `mark_dirty`, and the quiet soil-moisture writes
+    /// through `mark_moist_dirty`, because `moisture_source` reads soil
+    /// wetness -- a mask fed only by the sweep's channel would let a damp
+    /// block go stale under a sleeping tile. Cleared by `take_stale_blocks`,
+    /// which only the field calls. Travels with the chunk through
+    /// `take_chunk`/`put_chunk`, so a chunk out on a rayon worker keeps its
+    /// marks.
+    stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -483,6 +512,7 @@ impl Chunk {
             // generated terrain arrives with whatever wetness worldgen gave
             // it and needs one pass to find its own equilibrium.
             pending_moist_rows: full_rows(coord),
+            stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
             nutrient_recovered_at: 0,
@@ -620,6 +650,7 @@ impl Chunk {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
+        self.stale_blocks |= self.block_bit(x, y);
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
         // is dropped here rather than clamped, which is the whole of the
@@ -773,6 +804,9 @@ impl Chunk {
     /// [`Self::pending_moist_rows`].
     #[inline]
     pub fn mark_moist_dirty(&mut self, x: i32, y: i32) {
+        // See `stale_blocks`: soil wetness is one of the things the field
+        // derives from a block, and this is the only channel it moves on.
+        self.stale_blocks |= self.block_bit(x, y);
         let ly = y - self.coord.bounds().min_y;
         if !(-1..=CHUNK_SIZE).contains(&ly) {
             return;
@@ -866,6 +900,29 @@ impl Chunk {
         self.dirty = Some(self.coord.bounds());
         self.dirty_rows = full_rows(self.coord);
         self.pending_moist_rows = full_rows(self.coord);
+        self.stale_blocks = u16::MAX;
+    }
+
+    /// The bit in [`Self::stale_blocks`] for the block holding world cell
+    /// `(x, y)`, or `0` when the cell is not in this chunk -- `mark_dirty`
+    /// and `mark_moist_dirty` are both called on *neighbour* chunks with the
+    /// writer's own coordinates, and a write outside this chunk changes none
+    /// of its cells.
+    #[inline]
+    fn block_bit(&self, x: i32, y: i32) -> u16 {
+        let (ox, oy) = self.coord.origin();
+        let (lx, ly) = (x - ox, y - oy);
+        if !(0..CHUNK_SIZE).contains(&lx) || !(0..CHUNK_SIZE).contains(&ly) {
+            return 0;
+        }
+        1u16 << ((ly / STALE_BLOCK) * STALE_BLOCKS_PER_SIDE + lx / STALE_BLOCK)
+    }
+
+    /// Take the stale-block mask, leaving it clear: the field has rescanned
+    /// those blocks and everything written from here on is new.
+    #[inline]
+    pub fn take_stale_blocks(&mut self) -> u16 {
+        std::mem::take(&mut self.stale_blocks)
     }
 
     pub fn cells(&self) -> &[Cell] {
@@ -881,6 +938,199 @@ fn seed_from_coord(coord: ChunkCoord) -> u64 {
     let x = (coord.x as u32) as u64;
     let y = (coord.y as u32) as u64;
     x.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ y.wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
+}
+
+/// How far past the union of the current window and a new coordinate to pad
+/// the grid on each side when it grows. Small and arbitrary — its only job
+/// is to absorb a few chunks of drift before the next resize, not to size
+/// the world; picking it too small just means more (cheap, amortised)
+/// resizes, never incorrect behaviour.
+const CHUNK_GRID_MARGIN: i32 = 4;
+
+/// A sparse chunk store addressed by `ChunkCoord`: a dense window of
+/// `Option<Chunk>` slots, grown on demand. Still chunk-granular -- an
+/// unloaded chunk is `None`, which is what keeps M10 streaming possible --
+/// but a lookup is two subtractions and an index, not a hash and a probe.
+/// `World::chunks` is this rather than `fxhash::ChunkMap<Chunk>`; the field
+/// tiles stay a map (`src/sim/world.rs`'s own doc says why).
+#[derive(Clone)]
+pub struct ChunkGrid {
+    min_x: i32,
+    min_y: i32,
+    cols: i32,
+    rows: i32,
+    slots: Vec<Option<Chunk>>,
+    len: usize,
+}
+
+impl ChunkGrid {
+    pub fn new() -> Self {
+        Self { min_x: 0, min_y: 0, cols: 0, rows: 0, slots: Vec::new(), len: 0 }
+    }
+
+    #[inline]
+    fn contains_coord(&self, coord: ChunkCoord) -> bool {
+        !self.slots.is_empty()
+            && coord.x >= self.min_x
+            && coord.x < self.min_x + self.cols
+            && coord.y >= self.min_y
+            && coord.y < self.min_y + self.rows
+    }
+
+    #[inline]
+    fn index_of(&self, coord: ChunkCoord) -> usize {
+        ((coord.y - self.min_y) * self.cols + (coord.x - self.min_x)) as usize
+    }
+
+    /// Grow the window so `coord` is inside it, moving existing slots across
+    /// unchanged. A no-op if `coord` is already covered.
+    fn ensure_capacity(&mut self, coord: ChunkCoord) {
+        if self.slots.is_empty() {
+            self.min_x = coord.x - CHUNK_GRID_MARGIN;
+            self.min_y = coord.y - CHUNK_GRID_MARGIN;
+            self.cols = 2 * CHUNK_GRID_MARGIN + 1;
+            self.rows = 2 * CHUNK_GRID_MARGIN + 1;
+            self.slots = vec![None; (self.cols * self.rows) as usize];
+            return;
+        }
+        if self.contains_coord(coord) {
+            return;
+        }
+        let old_max_x = self.min_x + self.cols - 1;
+        let old_max_y = self.min_y + self.rows - 1;
+        let new_min_x = self.min_x.min(coord.x) - CHUNK_GRID_MARGIN;
+        let new_min_y = self.min_y.min(coord.y) - CHUNK_GRID_MARGIN;
+        let new_max_x = old_max_x.max(coord.x) + CHUNK_GRID_MARGIN;
+        let new_max_y = old_max_y.max(coord.y) + CHUNK_GRID_MARGIN;
+        let new_cols = new_max_x - new_min_x + 1;
+        let new_rows = new_max_y - new_min_y + 1;
+        let mut new_slots: Vec<Option<Chunk>> = vec![None; (new_cols * new_rows) as usize];
+        for old_y in 0..self.rows {
+            for old_x in 0..self.cols {
+                let old_idx = (old_y * self.cols + old_x) as usize;
+                if let Some(chunk) = self.slots[old_idx].take() {
+                    let wx = self.min_x + old_x;
+                    let wy = self.min_y + old_y;
+                    let nx = wx - new_min_x;
+                    let ny = wy - new_min_y;
+                    new_slots[(ny * new_cols + nx) as usize] = Some(chunk);
+                }
+            }
+        }
+        self.min_x = new_min_x;
+        self.min_y = new_min_y;
+        self.cols = new_cols;
+        self.rows = new_rows;
+        self.slots = new_slots;
+    }
+
+    #[inline]
+    pub fn get(&self, coord: &ChunkCoord) -> Option<&Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        self.slots[self.index_of(*coord)].as_ref()
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, coord: &ChunkCoord) -> Option<&mut Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        let idx = self.index_of(*coord);
+        self.slots[idx].as_mut()
+    }
+
+    pub fn insert(&mut self, coord: ChunkCoord, chunk: Chunk) -> Option<Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        self.ensure_capacity(coord);
+        let idx = self.index_of(coord);
+        let old = self.slots[idx].replace(chunk);
+        if old.is_none() {
+            self.len += 1;
+        }
+        old
+    }
+
+    pub fn remove(&mut self, coord: &ChunkCoord) -> Option<Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        let idx = self.index_of(*coord);
+        let old = self.slots[idx].take();
+        if old.is_some() {
+            self.len -= 1;
+        }
+        old
+    }
+
+    /// The three `entry(coord).or_insert_with(..)` call sites' replacement.
+    pub fn get_or_insert_with(&mut self, coord: ChunkCoord, f: impl FnOnce() -> Chunk) -> &mut Chunk {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        self.ensure_capacity(coord);
+        let idx = self.index_of(coord);
+        if self.slots[idx].is_none() {
+            self.slots[idx] = Some(f());
+            self.len += 1;
+        }
+        self.slots[idx].as_mut().expect("just inserted")
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn contains_key(&self, coord: &ChunkCoord) -> bool {
+        self.get(coord).is_some()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Chunk> {
+        self.slots.iter().filter_map(Option::as_ref)
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Chunk> {
+        self.slots.iter_mut().filter_map(Option::as_mut)
+    }
+
+    /// Row-major -- the same order the sweep and every determinism-sensitive
+    /// pass already want, strictly stronger than the random order the
+    /// `HashMap` this replaces gave (and the frame-cost audit already found
+    /// nothing in `src/` depends on that randomness -- see `fxhash`'s module
+    /// doc).
+    pub fn iter(&self) -> impl Iterator<Item = (ChunkCoord, &Chunk)> {
+        let (min_x, min_y, cols) = (self.min_x, self.min_y, self.cols);
+        self.slots.iter().enumerate().filter_map(move |(i, slot)| {
+            slot.as_ref().map(|c| {
+                let ix = i as i32 % cols;
+                let iy = i as i32 / cols;
+                (ChunkCoord::new(min_x + ix, min_y + iy), c)
+            })
+        })
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (ChunkCoord, &mut Chunk)> {
+        let (min_x, min_y, cols) = (self.min_x, self.min_y, self.cols);
+        self.slots.iter_mut().enumerate().filter_map(move |(i, slot)| {
+            slot.as_mut().map(|c| {
+                let ix = i as i32 % cols;
+                let iy = i as i32 / cols;
+                (ChunkCoord::new(min_x + ix, min_y + iy), c)
+            })
+        })
+    }
+}
+
+impl Default for ChunkGrid {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]
@@ -1146,5 +1396,86 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         let mut chunk = Chunk::new(ChunkCoord::new(0, 0));
         chunk.end_sweep();
         assert!(chunk.sweep_region().is_none());
+    }
+
+    #[test]
+    fn chunk_grid_round_trips_insert_get_remove() {
+        let mut grid = ChunkGrid::new();
+        assert!(grid.is_empty());
+        let a = ChunkCoord::new(3, -2);
+        let b = ChunkCoord::new(-100, 40); // far enough away to force a grow
+        assert!(grid.insert(a, Chunk::new(a)).is_none());
+        assert!(grid.insert(b, Chunk::new(b)).is_none());
+        assert_eq!(grid.len(), 2);
+        assert!(grid.contains_key(&a));
+        assert_eq!(grid.get(&a).unwrap().coord, a);
+        assert_eq!(grid.get(&b).unwrap().coord, b);
+        assert!(grid.get(&ChunkCoord::new(0, 0)).is_none());
+
+        let replaced = grid.insert(a, Chunk::new(a));
+        assert!(replaced.is_some(), "re-inserting at an occupied slot must hand back the old chunk");
+        assert_eq!(grid.len(), 2, "a replace must not double-count");
+
+        let removed = grid.remove(&a);
+        assert!(removed.is_some());
+        assert_eq!(grid.len(), 1);
+        assert!(!grid.contains_key(&a));
+        assert!(grid.remove(&a).is_none(), "removing twice must not underflow len");
+    }
+
+    #[test]
+    fn chunk_grid_get_or_insert_with_only_calls_the_closure_once() {
+        let mut grid = ChunkGrid::new();
+        let coord = ChunkCoord::new(5, 5);
+        let mut calls = 0;
+        {
+            let chunk = grid.get_or_insert_with(coord, || {
+                calls += 1;
+                Chunk::new(coord)
+            });
+            chunk.coord = coord; // touch the &mut to exercise the return type
+        }
+        grid.get_or_insert_with(coord, || {
+            calls += 1;
+            Chunk::new(coord)
+        });
+        assert_eq!(calls, 1, "the second call found the slot already occupied");
+        assert_eq!(grid.len(), 1);
+    }
+
+    #[test]
+    fn chunk_grid_iterates_row_major_and_matches_len() {
+        let mut grid = ChunkGrid::new();
+        let coords = [(0, 0), (2, 0), (0, 2), (-3, 1), (1, -3)];
+        for &(x, y) in &coords {
+            grid.insert(ChunkCoord::new(x, y), Chunk::new(ChunkCoord::new(x, y)));
+        }
+        let seen: Vec<(i32, i32)> = grid.iter().map(|(c, _)| (c.x, c.y)).collect();
+        assert_eq!(seen.len(), coords.len());
+        assert_eq!(seen.len(), grid.len());
+        // Row-major: y ascending, x ascending within a row.
+        let mut sorted = seen.clone();
+        sorted.sort_unstable_by_key(|&(x, y)| (y, x));
+        assert_eq!(seen, sorted, "iter() must already be in row-major order");
+
+        for (_, chunk) in grid.iter_mut() {
+            chunk.wake();
+        }
+        assert_eq!(grid.values().count(), coords.len());
+        assert_eq!(grid.values_mut().count(), coords.len());
+    }
+
+    #[test]
+    fn chunk_grid_grows_without_disturbing_existing_entries() {
+        let mut grid = ChunkGrid::new();
+        let near = ChunkCoord::new(0, 0);
+        grid.insert(near, Chunk::new(near));
+        // Far enough to be outside the initial window and force ensure_capacity
+        // to reallocate and move every existing slot across.
+        let far = ChunkCoord::new(500, -500);
+        grid.insert(far, Chunk::new(far));
+        assert_eq!(grid.get(&near).unwrap().coord, near, "growth must preserve the entry that was already there");
+        assert_eq!(grid.get(&far).unwrap().coord, far);
+        assert_eq!(grid.len(), 2);
     }
 }

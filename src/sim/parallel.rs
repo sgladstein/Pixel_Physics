@@ -179,6 +179,18 @@ pub fn step(world: &mut World) {
     world.step_soil_water();
 }
 
+/// Chunks a pass must hold before it is worth handing to rayon; below it
+/// `run_pass` sweeps on the calling thread. See the comment at the dispatch
+/// in `run_pass` for the measurement. Read once per process, consulted once
+/// per pass. `PIXEL_PHYSICS_PAR_MIN_CHUNKS` overrides; `0` means always
+/// dispatch.
+fn par_min_chunks() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_PAR_MIN_CHUNKS").ok().and_then(|v| v.parse().ok()).unwrap_or(3)
+    })
+}
+
 /// Which pass a chunk is swept in, as an orderable key: chunk row first,
 /// then `cx` parity. Two chunks run **concurrently exactly when this
 /// matches**, which is the property every safety argument in this module is
@@ -239,14 +251,33 @@ fn run_pass(world: &mut World, coords: &[ChunkCoord], rightward: bool) {
     }
 
     let shared: &World = world;
-    let outcomes: Vec<ChunkOutcome> = owned
-        .into_par_iter()
-        .map(|(coord, chunk, field, plan)| {
-            let mut view = ChunkView::new(coord, chunk, field, shared);
-            update::sweep_planned(&mut view, &plan, rightward);
-            view.into_outcome()
-        })
-        .collect();
+    let sweep_one = |(coord, chunk, field, plan): (ChunkCoord, Chunk, FieldTile, SweepPlan)| {
+        let mut view = ChunkView::new(coord, chunk, field, shared);
+        update::sweep_planned(&mut view, &plan, rightward);
+        view.into_outcome()
+    };
+    // **A pass of one or two chunks runs on the calling thread.** The
+    // checkerboard hands rayon whatever a pass holds, and in a box where a
+    // handful of chunks are awake that is usually one chunk per pass: a
+    // dispatch, a worker wake-up and a join, to sweep a region a single
+    // thread finishes in less time than the hand-off costs. Measured in the
+    // evolution lab (`examples/lab_cost`, tree bed, 16 founders, 12,000
+    // frames, alternating 4,1,1,4 threads, 2026-09-06): the whole tick ran
+    // **4.88 / 4.52 ms on four rayon threads against 4.40 / 4.12 ms on
+    // one**, `ca_sweep` 2.55 / 2.44 against 2.41 / 2.32 -- the pool was a
+    // net cost. A `perf` profile of the same run put ~20% of all samples in
+    // the scheduler and rayon's spin-then-sleep, which is where that goes.
+    //
+    // Bit-identical by construction: the same closure over the same
+    // `owned` order, and `outcomes` is consumed in that order either way.
+    // `PIXEL_PHYSICS_PAR_MIN_CHUNKS=0` restores the unconditional dispatch
+    // for a paired A/B; the outdoor world, where a pass holds a chunk row,
+    // is above the threshold and unchanged.
+    let outcomes: Vec<ChunkOutcome> = if owned.len() < par_min_chunks() {
+        owned.into_iter().map(sweep_one).collect()
+    } else {
+        owned.into_par_iter().map(sweep_one).collect()
+    };
 
     // Serial again: reinsert first, then replay every queued write through
     // the ordinary safe `World` API. Replay order between different
