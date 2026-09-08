@@ -69,6 +69,27 @@ fn under_open_sky(world: &World, x: i32, y: i32) -> bool {
     true
 }
 
+/// The terrain surface in column `x`: the topmost cell that is ground
+/// rather than sky or living tissue. `None` if the column is all air.
+///
+/// **This is the census the organism walk could not do.** Walking
+/// `state.cells` asks "does a *live plant* hold root tissue up here", and
+/// the pale cream in the owner's sheet is partly tissue no live plant
+/// claims any more -- shed, orphaned, still standing, still rendered. A
+/// grid pass keyed on the *material* sees it; a membership pass cannot.
+fn surface_y(world: &World, x: i32) -> Option<i32> {
+    let b = world.bounds()?;
+    for y in b.min_y..=b.max_y {
+        let cell = world.get(x, y);
+        if cell.organism_id() == 0
+            && matches!(world.materials.kind(cell.material), MaterialKind::Solid | MaterialKind::Powder)
+        {
+            return Some(y);
+        }
+    }
+    None
+}
+
 fn main() {
     let seeds: u64 = arg("seeds").unwrap_or(6);
     let seed0: u64 = arg("seed0").unwrap_or(1);
@@ -79,18 +100,38 @@ fn main() {
     // is a knob nobody can tell is disconnected -- and this one is an
     // environment variable, which is the easiest kind to run without.
     let rule = !matches!(std::env::var("PIXEL_PHYSICS_ROOT_SUBSTRATE").as_deref(), Ok("off"));
+    let card = arg::<u64>("defaultseed").unwrap_or(0) == 1;
     println!(
-        "root_sky: seeds={seed0}..{} frames={frames} plants={plants} \
-         arm={}",
-        seed0 + seeds - 1,
+        "root_sky: {} frames={frames} plants={plants} arm={}",
+        if card {
+            "seed=CARD (PlantScene default -- the world review card 168b0f was rendered from)".to_string()
+        } else {
+            format!("seeds={seed0}..{}", seed0 + seeds - 1)
+        },
         if rule { "roots need substrate (shipped)" } else { "OFF -- pre-fix behaviour" }
     );
 
+    // **The owner's own sheet, reproducible.** Card 168b0f was
+    // `filmstrip scene=grove start=24000` with no `seed=`, and `PlantScene`
+    // documents `None` as "leaves `World::new`'s own seed alone, so every
+    // stored sheet keeps meaning exactly what it meant". A numbered sweep is
+    // therefore a *different world* from the one the complaint came from --
+    // which matters here, because the chain W6 describes needs rain, and
+    // rain is a pure function of `(seed, frame)`. `defaultseed=1` runs the
+    // card's world and nothing else.
+    let arms: Vec<Option<u64>> =
+        if card { vec![None] } else { (0..seeds).map(|s| Some(seed0 + s)).collect() };
+
     let (mut tot_roots, mut tot_sky, mut worst) = (0usize, 0usize, 0usize);
     let (mut tot_above, mut worst_rise_all) = (0usize, 0i32);
-    for s in 0..seeds {
-        let seed = seed0 + s;
-        let mut world = common::PlantScene { trees: plants, seed: Some(seed), ..Default::default() }.build();
+    let (mut tot_grid, mut tot_grid_above, mut tot_grid_orphan, mut worst_grid_rise) =
+        (0usize, 0usize, 0usize, 0i32);
+    let mut tot_by_type = [0usize; 7];
+    let mut tot_sod = 0usize;
+    let mut tot_grid_sky = 0usize;
+    for arm in arms {
+        let label = arm.map_or("card".to_string(), |s| s.to_string());
+        let mut world = common::PlantScene { trees: plants, seed: arm, ..Default::default() }.build();
         // The shipped driver, not a hand-rolled loop: weather, the field and
         // the plants all have to run or the rain this question is about
         // never falls.
@@ -149,13 +190,147 @@ fn main() {
                 }
             }
         }
+        // **The grid census, and the reason there is one.** Everything above
+        // walks `state.cells` -- it asks whether a *live plant* is holding
+        // root tissue up in the air. Measured on the owner's own sheet
+        // (card 168b0f, `scene=grove start=24000`), 16% of the root-coloured
+        // pixels sit ABOVE the soil line, as high as 80 cells up, while this
+        // probe's organism walk reported 14 cells across six seeds. Both
+        // numbers are arithmetically right; they count different things,
+        // and the membership walk cannot see tissue no live organism claims.
+        // So census the grid by MATERIAL, and say which half it is.
+        //
+        // Root tissue is `reinforces_powder` on a `Plant` -- `grassroot`
+        // carries the same flag and is a `Powder`, i.e. sod, not a root.
+        let (mut grid_roots, mut grid_above, mut grid_orphan, mut grid_worst) =
+            (0usize, 0usize, 0usize, 0i32);
+        // [RootTip, MatureBody, GrowingTip, Leaf, DormantBud, other]
+        // [RootTip, MatureBody, GrowingTip, Leaf, DormantBud, other-owned, UNOWNED]
+        let mut grid_by_type = [0usize; 7];
+        let mut grid_sod = 0usize;
+        let mut grid_sky = 0usize;
+        let mut grid_hits: Vec<(i32, i32, i32, bool)> = Vec::new();
+        // Resolved once per world, not per cell: `id_of` is a string hash.
+        let sod = world.materials.id_of("grassroot");
+        if let Some(b) = world.bounds() {
+            for x in b.min_x..=b.max_x {
+                let surf = surface_y(&world, x);
+                for y in b.min_y..=b.max_y {
+                    let cell = world.get(x, y);
+                    if !world.materials.get(cell.material).reinforces_powder
+                        || !matches!(world.materials.kind(cell.material), MaterialKind::Plant)
+                    {
+                        continue;
+                    }
+                    // **Which root material, and is this even a plant's
+                    // cell?** Two traps, both nearly published as a result.
+                    //
+                    // `grassroot` is also `kind: Plant` and also
+                    // `reinforces_powder` -- it is what soil *becomes* when
+                    // grass roots it, so those cells carry
+                    // `organism_id == 0`. On a cell no organism owns, `aux`
+                    // is **moisture**, not a packed cell type, so decoding it
+                    // manufactures cell types out of soil wetness. Split the
+                    // materials, and decode `aux` only where an organism
+                    // actually owns the cell.
+                    let owned = cell.organism_id() != 0;
+                    if Some(cell.material) == sod {
+                        grid_sod += 1;
+                        continue;
+                    }
+                    grid_roots += 1;
+                    let Some(surf) = surf else { continue };
+                    let rise = surf - y;
+                    if rise > 2 {
+                        grid_above += 1;
+                        grid_worst = grid_worst.max(rise);
+                        let live = cell.organism_id() != 0
+                            && world.organism(cell.organism_id()).is_some();
+                        if !live {
+                            grid_orphan += 1;
+                        }
+                        // **The discriminator.** Root *material* above the
+                        // soil line has two very different causes and they
+                        // are indistinguishable in a count:
+                        //
+                        // - a `RootTip`/`MatureBody` still doing root work,
+                        //   left standing because the SOIL went (erosion,
+                        //   a collapse, a dig) -- the root did not move;
+                        // - a `GrowingTip`/`Leaf`/`DormantBud`, i.e. SHOOT
+                        //   tissue wearing root material, which is the
+                        //   propagate-from-parent rule carrying rootwood up
+                        //   out of the ground. `tissue_appearance` only
+                        //   overrides material for organs (`Flower`,
+                        //   `Fruit`); every other type inherits, and its own
+                        //   doc says inheriting "is precisely how a flower
+                        //   ends up brown".
+                        //
+                        // The second is the owner's pale-cream plant. The
+                        // first is a different bug (see W4). Counting them
+                        // together is `CLAUDE.md`'s *ask what your number
+                        // counts*, so do not.
+                        match if owned { organism::cell_type(cell.aux()) } else { None } {
+                            Some(CellType::RootTip) => grid_by_type[0] += 1,
+                            Some(CellType::MatureBody) => grid_by_type[1] += 1,
+                            Some(CellType::GrowingTip) => grid_by_type[2] += 1,
+                            Some(CellType::Leaf) => grid_by_type[3] += 1,
+                            Some(CellType::DormantBud) => grid_by_type[4] += 1,
+                            None if !owned => grid_by_type[6] += 1,
+                            _ => grid_by_type[5] += 1,
+                        }
+                        // Open sky, or a void under a roof: a root standing
+                        // in a dug-out pocket is not "in the sky", and the
+                        // fix for it is not the same fix.
+                        if under_open_sky(&world, x, y) {
+                            grid_sky += 1;
+                        }
+                        grid_hits.push((rise, x, y, live));
+                    }
+                }
+            }
+        }
+        let gpct = if grid_roots > 0 { 100.0 * grid_above as f64 / grid_roots as f64 } else { 0.0 };
+        println!(
+            "           GRID: {grid_roots:>6} root-tissue cells, {grid_above:>5} above the soil line ({gpct:>5.1}%), \
+{grid_orphan} owned by no live plant, {grid_sky} under open sky, worst rise {grid_worst}"
+        );
+        println!(
+            "           of those, by type: RootTip {} | MatureBody {} (AMBIGUOUS -- shared by root and shoot) | \
+unambiguously SHOOT tissue in root material: tip {} + leaf {} + bud {} = {} | other-owned {} | \
+UNOWNED (no organism -- aux is not a cell type here) {}   [grassroot sod skipped: {}]",
+            grid_by_type[0],
+            grid_by_type[1],
+            grid_by_type[2],
+            grid_by_type[3],
+            grid_by_type[4],
+            grid_by_type[2] + grid_by_type[3] + grid_by_type[4],
+            grid_by_type[5],
+            grid_by_type[6],
+            grid_sod,
+        );
+        if !grid_hits.is_empty() {
+            grid_hits.sort_unstable_by_key(|a| std::cmp::Reverse(a.0));
+            println!(
+                "           highest (rise, x, y, live): {:?}",
+                &grid_hits[..grid_hits.len().min(6)]
+            );
+        }
+        for (t, n) in tot_by_type.iter_mut().zip(grid_by_type) {
+            *t += n;
+        }
+        tot_grid_sky += grid_sky;
+        tot_sod += grid_sod;
+        tot_grid += grid_roots;
+        tot_grid_above += grid_above;
+        tot_grid_orphan += grid_orphan;
+        worst_grid_rise = worst_grid_rise.max(grid_worst);
         let pct = if roots > 0 { 100.0 * sky as f64 / roots as f64 } else { 0.0 };
         println!(
-            "  seed {seed:>3}: {roots:>6} root cells, {sky:>5} under open sky ({pct:>5.1}%)  highest {highest:?}  \
+            "  seed {label:>4}: {roots:>6} root cells, {sky:>5} under open sky ({pct:>5.1}%)  highest {highest:?}  \
 | {above_collar:>4} inside the shoot, worst {worst_rise:>3} cells above the collar"
         );
         if !intruders.is_empty() {
-            intruders.sort_unstable_by(|a, b| b.0.cmp(&a.0));
+            intruders.sort_unstable_by_key(|a| std::cmp::Reverse(a.0));
             println!("           root tissue inside the shoot at (rise, x, y): {:?}", &intruders[..intruders.len().min(6)]);
         }
         tot_above += above_collar;
@@ -168,5 +343,24 @@ fn main() {
     println!(
         "\n  TOTAL {tot_roots} root cells, {tot_sky} under open sky ({pct:.2}%), worst single seed {worst}\n\
   TOTAL {tot_above} root cells inside the shoot (>2 above the collar), worst rise {worst_rise_all} cells"
+    );
+    let gpct = if tot_grid > 0 { 100.0 * tot_grid_above as f64 / tot_grid as f64 } else { 0.0 };
+    println!(
+        "  GRID  {tot_grid} root-tissue cells, {tot_grid_above} above the soil line ({gpct:.2}%), \
+{tot_grid_orphan} owned by no live plant, {tot_grid_sky} under open sky, worst rise {worst_grid_rise} cells"
+    );
+    println!(
+        "  GRID  by type: RootTip {} | MatureBody {} (AMBIGUOUS -- shared by root and shoot, so this is NOT \
+a count of root work) | unambiguously SHOOT tissue in root material {} (tip {} + leaf {} + bud {}) | \
+other-owned {} | UNOWNED {}   [grassroot sod skipped: {}]",
+        tot_by_type[0],
+        tot_by_type[1],
+        tot_by_type[2] + tot_by_type[3] + tot_by_type[4],
+        tot_by_type[2],
+        tot_by_type[3],
+        tot_by_type[4],
+        tot_by_type[5],
+        tot_by_type[6],
+        tot_sod,
     );
 }

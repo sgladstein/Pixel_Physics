@@ -144,8 +144,8 @@ point.
 | W3 | closed | 9497 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
 | W4 | **OPEN** | 9617 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9677 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | **OPEN** | 9728 | Free water outbids every soil, so roots climb out of the ground toward it |
-| W7 | closed | 9841 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| W6 | **OPEN** | 9728 | Root *material* stands above the soil line, up to 80 cells into the canopy |
+| W7 | closed | 9928 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 
 <!-- END GENERATED INDEX -->
 
@@ -9725,7 +9725,7 @@ which fits the owner's stated direction — *"the world starts with nothing, but
 the user can add plants, creatures, water, food, soil"* — better than a
 constant would.
 
-### W6. Free water outbids every soil, so roots climb out of the ground toward it — **RULE FIXED 2026-09-06 (a root may no longer take a cell with no ground against it); the end-to-end reproduction is STILL OPEN and a static scene cannot give it**
+### W6. Root *material* stands above the soil line, up to 80 cells into the canopy — **OPEN. Reproduced 2026-09-08 on the owner's own world; the two substrate rules are NOT the fix, and the cause is that plant material marks lineage rather than role**
 
 Reported by the owner 2026-09-06, by eye, on the roots-on/off review card:
 *"There is an issue in option a where the roots are growing into the
@@ -9837,6 +9837,93 @@ shapes, neither measured:
 `decay.rs` leaving new soil dry and roots therefore *avoiding* it. Both are
 `moisture_pull` steering roots somewhere a player reads as wrong; a fix to
 the steering should be checked against both.
+
+**REPRODUCED 2026-09-08, and the rule shipped on 2026-09-06 is not what fixes
+it.** The owner was asked which feature in their sheet they meant and answered
+**"the left image"** — the whole plant rendered pale cream rather than brown.
+Pale cream is `rootwood` (`168,146,112` … `200,180,144`); `wood` is
+`92,64,40`. So *"the roots are growing into the tree/sky"* means exactly what
+it says: root **material** standing above ground, in and through the crown.
+
+**Censused on the owner's own two sheets** (card `168b0f`, the stored PNGs,
+counting exact palette matches):
+
+| arm | root pixels | above the soil line | highest |
+|---|---|---|---|
+| roots **off** | 284 | 4 — **1.4%** | 1 cell up |
+| roots **on** (what landed) | 1,312 | 180 — **13.7%** | **80 cells up** |
+
+The root work grows 4.6x more root tissue, which is what it was for; the
+*fraction* standing above ground went up tenfold and the height from one cell
+to eighty. All of it in one plant, world x 48–111.
+
+**In-engine, paired on the card's world from one binary**
+(`examples/root_sky.rs defaultseed=1 frames=24000`, `PIXEL_PHYSICS_ROOT_SUBSTRATE`
+as the switch — `defaultseed=1` exists because a numbered sweep is a
+*different world* from the one the complaint came from, and the chain needs
+rain, which is a pure function of `(seed, frame)`):
+
+| | rules OFF | growth gate only | growth **and** thickening gates |
+|---|---|---|---|
+| root cells above the soil line | 791 (12.35%) | 697 (9.98%) | 785 (12.16%) |
+| worst rise | 79 | 80 | 85 |
+| `RootTip` | 1 | 0 | 3 |
+| `MatureBody` (ambiguous) | 592 | 500 | 532 |
+| **`DormantBud` in root material** | **198** | **197** | **250** |
+
+Read the first and third columns — they are one binary. **The substrate rules
+are a null on the standing count.** They are still correct locally and both
+are guarded; they simply do not govern this population.
+
+**What does: `DormantBud` cells made of root material.** A bud is placed only
+at a node, and **every shipped species gives its `RootTip` `plastochron: [0]`**
+(checked in all seven `assets/species/*.ron`), so a root can never reach a node
+and can never legitimately carry a bud. Two hundred of them are therefore
+**shoot machinery wearing root wood**, which can only have arrived by
+inheritance.
+
+`germinate`'s own comment states the design and the assumption in one breath:
+*"The companion root is `rootwood`, and that choice propagates for free: every
+cell `Grow` creates copies its parent's material, so the whole root system
+below ground comes out as rootwood while the shoot above stays wood, with no
+cell-type-to-material table anywhere."* **Material marks lineage, not role**,
+and the root/shoot split is held up only by where growth happens.
+`tissue_appearance` already overrides material for organs — its own doc says
+inheriting there *"is precisely how a flower ends up brown"* — and the same
+argument applies to every unambiguous tissue type. `Leaf` is already handled at
+its own placement site, which is the precedent.
+
+**It is not only cosmetic.** `update.rs::root_reinforced` keys on the
+*material*, so a rootwood cell standing above the soil line glues loose powder
+to itself in mid-air.
+
+**The fix shape, unbuilt and needing the owner's eye because it recolours
+every plant:** make material follow type for the types that are unambiguous —
+`RootTip` -> root material, `GrowingTip`/`Leaf`/`DormantBud` -> shoot or leaf
+material — and leave `MatureBody` inheriting, because it is *genuinely* shared
+by root and shoot and a retired root must stay rootwood. The relabel sites
+(`becomes:`) need it as well as the creation sites, since a bud arrives by
+relabel and keeps its material.
+
+**Two instrument corrections recorded so they are not repeated.** The census
+first filed `MatureBody` under "root work"; it is the one type shared by root
+and shoot, so that column answers a different question than its label — the
+report now prints it as AMBIGUOUS. And `grassroot` is also `kind: Plant` and
+also `reinforces_powder` (it is what soil *becomes* under grass), and its cells
+carry `organism_id == 0`, where `aux` is **moisture, not a packed cell type** —
+decoding it manufactures cell types out of soil wetness. Both are now split out
+and both came back **zero** on this world, so the bud counts above survive the
+correction; the check is recorded because it cleared a real result rather than
+because it found a fault.
+
+**Earlier readings that were not wrong but did not answer.** A six-seed
+`grove` sweep read 387 -> 377 cells under open sky, all at ground level, and
+14 -> 10 inside the shoot, and was reported as a null. It was: those seeds do
+not have the defect. The card's world does, at 697–791. **A numbered sweep is
+not a reproduction of a sighting made on the default seed** — and the two
+metrics in `root_sky` measure against different references (the plant's own
+collar, and the terrain surface in that column), so they are different
+questions rather than one blind and one sighted.
 
 ### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **FIXED 2026-09-06: tissue that cannot reach a drinking root is shed**
 

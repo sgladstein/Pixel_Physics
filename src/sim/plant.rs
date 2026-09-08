@@ -11084,9 +11084,44 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
         // there is nothing to truncate: this places one cell or none. The
         // gradedness lives in *how often* a stem can afford one.
         if (world.is_empty(nx, ny) || own_leaf) && world.carbon_at(x, y) >= wood_cost {
+            let cell = world.get(x, y);
+            // **Root tissue thickens into ground, not into sky** -- the same
+            // rule `growable` applies to root *growth*, applied to the other
+            // site that writes cells.
+            //
+            // W6 gated extension and stopped there, and the gap is exactly
+            // the shape `CLAUDE.md` warns about in *which object does this
+            // rule evaluate*: `growable` is asked before a tip *grows*, and
+            // `thicken` never asks it, because thickening lays a cell beside
+            // an existing one rather than advancing a frontier. So a settled
+            // root cell at the surface went on laying rootwood upward into
+            // open air with the growth gate fully on. Measured on `grove`
+            // seed 1, 24,000 frames, the shipped arm: **53 root-material
+            // cells above the soil line, every one a `MatureBody`** -- i.e.
+            // thickened, not grown -- **and every one under open sky**, up
+            // to 12 cells proud of the ground. The organism walk that
+            // preceded this census reported 0, because it asked which cells
+            // a live plant *registers* rather than what the grid holds.
+            //
+            // The discriminator is the **material**, not the cell type:
+            // `MatureBody` is shared by root and shoot, and root material is
+            // what `update.rs::root_reinforced` keys on, so a rootwood cell
+            // standing in the air also glues loose soil to itself.
+            // `reinforces_powder` is a `Vec` index on a `Cell` this site
+            // already holds -- `CLAUDE.md`'s *guard hot-path work at the
+            // call site that already has the data*, rather than a
+            // `id_of("rootwood")` string hash in the sweep.
+            //
+            // Shares `roots_need_substrate()` with the growth gate so the
+            // pair is one ablation and both arms come from one binary.
+            if roots_need_substrate()
+                && world.materials.get(cell.material).reinforces_powder
+                && !touches_substrate(world, nx, ny)
+            {
+                continue;
+            }
             write_carbon(world, x, y, world.carbon_at(x, y) - wood_cost);
             world.wood_cells_built += 1;
-            let cell = world.get(x, y);
             // **Banded here too, and this is the site that matters most for
             // bark colour**: secondary thickening lays far more wood than
             // extension does, so a trunk whose girth cells kept the old
@@ -16874,6 +16909,87 @@ is enough to point a tip at it"
         assert!(growable(&w, 100, 65, ROOT), "a root must still enter a cavity underground -- walls are ground");
         w.set(100, 64, Cell::EMPTY);
         assert!(growable(&w, 100, 64, ROOT), "a root must still cross a gap inside the bed");
+    }
+
+    /// **A root may not *thicken* into the sky either** — §W6's second site.
+    ///
+    /// The sibling of the test above, and the reason there are two: that one
+    /// gates `growable`, which is asked before a tip **grows**, and `thicken`
+    /// never asks it, because secondary thickening lays a cell *beside* an
+    /// existing one rather than advancing a frontier. Gating extension alone
+    /// left the defect fully alive — measured on `grove` seed 1, 24,000
+    /// frames, with the growth gate on: **53 root-material cells above the
+    /// soil line, every one a `MatureBody` and every one under open sky.**
+    ///
+    /// Three arms, matching the growth guard's shape, because a rule that
+    /// only refuses is half-tested: the refusal, the shoot that must be
+    /// untouched, and the underground cavity the rule must not over-reach
+    /// into.
+    #[test]
+    fn a_root_may_thicken_into_a_cavity_but_not_into_the_sky() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        assert!(
+            w.materials.get(rootwood).reinforces_powder && !w.materials.get(wood).reinforces_powder,
+            "this test's discriminator is `reinforces_powder`; if that ever stops separating root from shoot \
+material the rule under test is keying on the wrong bit and this guard must fail, not be updated"
+        );
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for y in 61..69 {
+            for x in 90..110 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+
+        // A lone cell has no `supply_direction`, so `cross_section_axis`
+        // falls back to horizontal -- thickening tries left and right. That
+        // is asserted rather than assumed by the shoot arm below, which uses
+        // the identical geometry and *must* place a cell.
+        let starved = |w: &World, id| w.get(99, 59).organism_id() == 0 && w.get(101, 59).organism_id() == id;
+
+        // **The refusal.** A root two cells clear of the bed, with nothing
+        // but air on either side of it.
+        let root_id = w.push_organism(tree).expect("an organism slot is free");
+        place(&mut w, (100, 59), rootwood, root_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(root_id as u64, 100, 59, 0);
+        thicken(&mut w, 100, 59, root_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert_eq!(
+            w.get(99, 59).organism_id(),
+            0,
+            "a root cell laid rootwood into open air -- W6's other site, and the one the growth gate cannot see"
+        );
+        assert_eq!(w.get(101, 59).organism_id(), 0, "...on the other side too");
+        let _ = starved;
+
+        // **A shoot is unaffected**, same geometry, same carbon: open air is
+        // where a stem thickens, and this arm is also what proves the axis is
+        // horizontal and the carbon sufficient, so a green refusal above
+        // cannot be the gate never firing at all.
+        let shoot_id = w.push_organism(tree).expect("a second organism slot is free");
+        place(&mut w, (100, 55), wood, shoot_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(shoot_id as u64, 100, 55, 0);
+        thicken(&mut w, 100, 55, shoot_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert!(
+            w.get(99, 55).organism_id() == shoot_id || w.get(101, 55).organism_id() == shoot_id,
+            "a shoot must still thicken into open air -- if this fails the refusal above proves nothing"
+        );
+
+        // **The over-reach guard**: a cavity inside the ground is not the
+        // sky, exactly as for growth. A root thickening into an ant gallery
+        // has walls against it and must still do it.
+        let cavity_id = w.push_organism(tree).expect("a third organism slot is free");
+        w.set(94, 65, Cell::EMPTY);
+        place(&mut w, (95, 65), rootwood, cavity_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(cavity_id as u64, 95, 65, 0);
+        thicken(&mut w, 95, 65, cavity_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert_eq!(
+            w.get(94, 65).organism_id(),
+            cavity_id,
+            "a root must still thicken into a cavity underground -- walls are ground, and a rule that stops \
+this costs more than the bug"
+        );
     }
 
     /// **A severed crown is shed; an intact plant loses nothing** — §W7.
