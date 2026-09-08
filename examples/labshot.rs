@@ -509,13 +509,22 @@ fn main() {
     }
 
     // One column, so a tall thin bed stacks readably.
+    //
+    // **Every dimension here is the TILE's, and three of them were the
+    // view's** -- so `crop=` panicked on the first row past the crop height,
+    // every time, for any crop smaller than the bed. Which is to say the
+    // whole feature: the tiles above are already cut to `cw x ch`, the sheet
+    // below is sized `tw x th * n`, and this loop walked them at `vw`/`vh`.
+    // A crop is what the review skill asks for before a card can show a
+    // two-cell animal at all, so the one thing this harness grew a crop for
+    // was the one thing it could not do.
     let (tw, th) = crop.map_or((vw, vh), |(_, _, w, h)| (w as u32, h as u32));
     let (sw, sh) = (tw, th * tiles.len() as u32);
     let mut sheet = vec![0u8; (sw * sh * 4) as usize];
     for (i, tile) in tiles.iter().enumerate() {
-        let y0 = i as u32 * vh;
-        for y in 0..vh {
-            let src = (y * vw * 4) as usize;
+        let y0 = i as u32 * th;
+        for y in 0..th {
+            let src = (y * tw * 4) as usize;
             let dst = ((y0 + y) * sw * 4) as usize;
             sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
         }

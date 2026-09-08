@@ -1377,6 +1377,75 @@ four, so the question is which dispatches above the thresholds still earn the
 pool); then the moisture pass, where what remains is per-cell arithmetic; then
 the pheromone `roundf`, which is cheap and is **not** behaviour-free.
 
+## Round twenty, 2026-09-08 — the verbs ship on by default
+
+*Owner's ruling: **ship new behaviours as default**. Everything the creature
+line built on 2026-09-06 was reach rather than behaviour -- nothing born
+swinging or listening -- which is `CLAUDE.md`'s second law failing quietly.
+README's "Creature groups status" is the shipped half.*
+
+**Two things came off their compatibility settings, and only one of them is
+visible.** `TRAIT_REACH_DEFAULT` 1 -> 8 is a **ceiling**, not a starting
+value: every animal is born at allele 0 and `trait_variance` moves a slot 0.15
+a birth against ~8,600-frame generations, so a bed at reach 8 and a bed at
+reach 1 are the same bed for a long time. Anyone comparing the two settings
+and finding nothing has found the truth, not a bug. The visible half is two
+authored weights on the ant.
+
+**The finding worth carrying: the alarm was read on the wrong cell, and the
+error was invisible in every test.** `BrainInput::Alarm` shipped reading the
+cell *ahead* of the animal, because the two trail planes do and it looked like
+a convention. Measured on the standard bed, three seeds: reading ahead gave
+**8, 38 and 28 attacks**; reading at the animal's own cell gave **296, 258 and
+266** — a factor of ten, and `eats` went *up* rather than down. The difference
+is facing. **The general shape**: a *route* is read ahead because where it
+lies relative to the head is its information; an *event* is read where you
+are, because being in one is not a fact about which way you are looking. Every
+guard passed at both readings, because a guard that asks "does the alarm fire"
+cannot ask "does anything hear it".
+
+**And the sign of `(Alarm, Move)` is the opposite of the obvious one.** Read
+here, a positive weight means "move faster while you are in a fight", which is
+*leaving* it. Measured against `-1.0`:
+
+| `(Alarm, Move)` | attacks | cells off a beetle | eats | ants eaten |
+|---|---|---|---|---|
+| unwired | — | — | 2086/2916/2397 | 10/2/0 |
+| +1.5 | 296/258/266 | 75/89/69 | 2276/2662/2204 | 9/5/0 |
+| **−1.0** | **372/478/361** | **104/142/79** | 1703/2390/1858 | **4/4/2** |
+
+Standing to fight takes ~40% more off a beetle, roughly halves what beetles
+take back, and costs 15–22% of foraging. **The populations are inside the
+bed's own spread**, so anyone reading this as a census will find nothing: the
+trade is in the ledger.
+
+**What it costs the outdoor game, isolated by control rather than argued.**
+Nothing bites anything in a one-colony ant scene, so both weights contribute
+exactly zero — and are still **billed**, because `synapse_fraction` charges
+per active synapse and `eval_brain` counts a synapse active on its *weight's*
+magnitude, not on what flows through it. `ascii`'s deposition gate moves
+**1.36x -> 1.34x** (pickups 332 -> 309); the same build with the two weights
+at `0.0` returns **1.36x on 237 drops from 2,962 laden ants, digit for
+digit**. So the whole drift is the tax on two connections that never fire.
+That is the price of "ship as default" on a shared species file, it is
+measurable, and it is what `synapse_fraction` exists to let selection prune.
+
+**Two harness repairs fell out of trying to photograph this.**
+
+- **`labshot`'s `crop=` had never worked.** The tiles are cut to the crop and
+  the sheet is sized from the crop, but the assembly loop walked them at the
+  *view's* dimensions — so it panicked on the first row past the crop height,
+  for every crop smaller than the bed. The one thing that argument was added
+  for (a two-cell animal is invisible in a full-frame tile) was the one thing
+  it could not do. Fixed; `zoom=` and `crop=` still do not compose, and
+  `look=` is the argument that works with zoom.
+- **`creature_arena` can weight-match its arms** (`padarm=on`). An arm wired
+  with four named weights paid more `synapse_fraction` than one wired with
+  two, every tick — so last night's flight race compared the wiring's *shape*
+  confounded with its *size*. Padding is inert-but-taxed weights into a hidden
+  unit whose outgoing row is silent, verified bit-identical through
+  `eval_brain` rather than assumed.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
