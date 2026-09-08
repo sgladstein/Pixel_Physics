@@ -1200,6 +1200,24 @@ Measured on the merged head: the two-colony bed at the shipped dial is
 (24,000 frames), and at 48,000 frames on the seed that breeds (84 births)
 no line has wired `Provision` — the block reads zero on every slot.
 
+**The first census at play length, 2026-09-07, overturns this round's own
+"next step".** Asked for next steps, this lane put the birth rate first,
+because at 24,000 frames the beds show 3–35 births. The owner's reply —
+think about how the game is actually played; a session is a few hundred
+thousand frames and a million is several sessions — sent the same beds
+through 300,000 and 1,000,000 frames, and the reading is different in
+kind: **every shipped bed starves its colony inside one session, on every
+seed, with births plentiful** (92–363 per colony, generation 6–19) and
+starvation the only cause of death. Filed as
+[`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md), with the table
+and the bar a fix has to clear. Three consequences for anyone reading this
+note: every creature result in rounds twelve to eighteen was taken at about
+one minute of play and is true at that length; the developmental channel
+cannot be *found* by a line that does not outlive a session, so §Z6 is
+upstream of the castes question, the kin drift and Gate 2 alike; and the
+census now costs six to eight minutes a bed on one core, so "read it at a
+session" is the cheap default from here on, not the expensive exception.
+
 **Environment, one line:** the two-colony `labstats` bed breeds on seed 2
 (32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
 a positive control over births goes to seed 2, and the arena's bed with teeth
@@ -1318,7 +1336,48 @@ rather than addressing; and `roundf` at 1.7% of samples, which is the
 pheromone blend's `.round()` as an out-of-line libm call — cheap, and **not**
 free of behaviour risk, so it needs the hash gate rather than an argument.
 
-## Round sixteen, 2026-09-08 — the verbs ship on by default
+## Round nineteen, 2026-09-07 — the plant passes, priced and mostly retired
+
+*Same branch, taking round eighteen's own next item. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§18.** One small pure change landed; the useful output is the two levers it
+retires with numbers, because both were the obvious next thing.*
+
+- **`step_organisms` is ~10% of the full-box frame and the three pure levers
+  in it are worth under 1% between them.** So §17.5's first item is closed.
+  Landed: `transport`'s density sweep walks a flat neighbour list instead of
+  unwrapping and recounting `[Option<usize>; 4]` forty-five times a tick —
+  **3-4% of that pass**, which is 3% of the frame, so the whole frame does not
+  move. Recorded at that size rather than rounded up.
+- **The counter that lied, and it is the sharpest instance of `CLAUDE.md`'s
+  own rule this lane has produced.** An exact fixed-point early-out on both
+  substep loops read **"33.9% of substeps skipped"** while the timing had
+  barely moved. Both numbers were right: substeps were counted **per
+  organism**, and a substep costs one pass over the organism's *cells*, so the
+  ones that converge early are the small cheap ones. Cell-weighted the same
+  run is **95.2% → 87.1% of the work still done**. Reverted; in
+  `dead-ends.md` with the size-distribution condition its rejection depends
+  on, and with the instruction to re-measure cell-weighted.
+- **§13.4's "~15% of the pass" for the nine cell-list prologues is measured at
+  5.8%**, by the instrument `prologue_every` was built to be: 266,477
+  collect-and-sorts over 7.04 M cells, 143.5 ms across 12,400 frames, **0.0116
+  ms a frame against `step_organisms`'s 0.198** — 0.6% of the frame, against a
+  restructure that is genuinely hard because the cell set changes mid-tick.
+  Left unbuilt.
+- **The baseline moved under this round and it was not this round.** #276
+  (canopy throughfall) landed between §17 and §18 and is a real water change:
+  new gate hashes, and the tree bed 1.29 → 1.65 ms with `sw seen` 21,778 →
+  23,446. **Rebuild the baseline binary after every merge**; a hash gate is
+  worthless against a stale one.
+
+**Next, in the order the profile now puts it** (§18.5): the **~21% in the
+kernel and rayon**, which is the largest block left by a wide margin and which
+§16.2 only half-addressed (it measured the tick 10% faster on one thread than
+four, so the question is which dispatches above the thresholds still earn the
+pool); then the moisture pass, where what remains is per-cell arithmetic; then
+the pheromone `roundf`, which is cheap and is **not** behaviour-free.
+
+## Round twenty, 2026-09-08 — the verbs ship on by default
 
 *Owner's ruling: **ship new behaviours as default**. Everything the creature
 line built on 2026-09-06 was reach rather than behaviour -- nothing born
