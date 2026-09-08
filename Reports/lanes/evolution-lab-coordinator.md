@@ -1446,6 +1446,89 @@ measurable, and it is what `synapse_fraction` exists to let selection prune.
   unit whose outgoing row is silent, verified bit-identical through
   `eval_brain` rather than assumed.
 
+## Round twenty-one, 2026-09-08 — §Z6 separated: the colony dies twice
+
+*Branch `claude/bed-starvation-ant-colony-49kk8f`, working
+[`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md) as asked: separate
+overgrazing from unreachable food, at 300,000 frames, report before fix.
+**The account is
+[`../colony-starvation-separated-2026-09-08.md`](../colony-starvation-separated-2026-09-08.md)**;
+§Z6 stays OPEN with its bar unchanged and now carries a dated separation
+block. Nothing was tuned. Only what a later session cannot reconstruct is
+here.*
+
+- **The answer is *both*, and they are stages rather than alternatives.** A
+  colony dies at frame 4,500 of not reaching food, and — if any of it
+  survives that — again at 100k–150k of having eaten the bed. §Z6 posed them
+  as a fork and the fork is the thing that was wrong: **a fix for either one
+  alone buys a later extinction, not a colony**, which is seed 3's curve
+  already (52 → 11 at 4,500, back up to 127 by 108k, bed to 445 cells, 0
+  animals from 199,740, frozen there for the last 100,000 frames).
+- **§Z6's own "the plants are not the casualty" is the line that fell**, and
+  it fell to a control nobody had run rather than to a new measurement: the
+  same bed at `colonies=0`. The stand is at **61–68% of the unfed bed at
+  frame 900, before a single ant has died**, and 4% by the end on seed 3.
+  Anyone quoting §Z6's plant numbers without that arm is quoting a bed that
+  has been grazed since frame 0 and reading it as the bed's own growth curve.
+- **Two of the three instruments §Z6 named cannot answer at any length, and
+  it is the scene rather than the counters.** `forage_probe` builds a
+  hand-made bank, `stamp_probe` runs outdoor terrain; only `labnest` runs the
+  shipped bed and it has no food census in it. That was worth an hour to find
+  out and is the reason `examples/labforage` exists. **Do not re-derive the
+  instruction "run them at 300,000 frames" as a plan** — see the next bullet.
+- **`forage_probe` at 300,000 frames is identical to its 24,000-frame run in
+  every column but `moves`** (29,329 → 29,452 over 276,000 further frames;
+  deliveries, trips, deepest and the whole excursion profile digit for
+  digit). The 6,000-frame arm differs at every row, so `frames=` is connected
+  and this is a finding: **there is no play length to run it at, because its
+  colony is dead by 24,000 too.** The general shape is worth keeping — *a
+  harness cannot be lengthened past the lifetime of the thing it measures*,
+  and identical output across a length sweep reads exactly like the
+  `include_str!` gotcha until the short arm rules it out.
+- **The one that nearly went into the report as a finding, and is the
+  session's own worked example of `CLAUDE.md`'s worst-recurring failure.**
+  68–84% of the surviving larder stands more than sixteen rows up a stem,
+  which reads as *this is why they cannot reach it* and is drafted prose
+  before it is checked. It is wrong twice: ants climb to **40/156/144 rows**
+  over a run, and the **unfed bed reads 80–86% aloft with nothing living in
+  it**. The height split is a picture of a herb. What caught it was the
+  *specificity* control — a bed with the mechanism absent — not a second
+  metric, and no amount of further censusing of the fed bed would have.
+- **§Z6 is not a regression from round twenty**, checked by building its own
+  parent `68515a81` in a worktree rather than by argument. The two alarm
+  weights cost roughly a third of the survivors at the founder crash (6 and
+  11 against 11 and 15) and **both arms are empty by 200,000 frames**. The
+  births go 5/469 at the head against 59/191 at the parent — opposite
+  directions on two seeds, i.e. the bed's own spread. Two seeds is not a
+  sweep and the arm is only good for the negative it was run for.
+- **The full box was the control for stage one all along.** 87% of its
+  founders are alive at frame 4,500 against 12% of the default box's, and its
+  larder within 48 columns of a nest reads 220 cells at frame 900 against the
+  default box's **0**. Same animal, same budget, different scene. Anyone
+  tempted to fix stage one in `ant.ron` should note the scene moves it just as
+  far.
+- **`labshot` had no `seed=`** — it could photograph one bed, seed 1, and
+  every *"show me the seed the finding is on"* had to be asked of a different
+  seed than the finding. Added, defaulted to `LabBox::default()`'s own 1 so
+  earlier sheets reproduce. Its **per-founder cell list** is what made the
+  doorstep visible plant by plant: at frame 900 the four founders within 84
+  columns of the nest are dead or halved and the four beyond 140 columns are
+  **digit for digit identical to the unfed control**.
+
+**Handed forward, in the order the evidence puts it, as *what is missing*
+rather than as a design** — the ruling on which economy to move is the
+owner's and §Z6 says so. (1) A forager cannot be aimed at food: no food sense
+past one cell anywhere in `brain.rs`, and nothing reads the trail already
+being laid. (2) The bed sows its food where the colony is not, and the colony
+eats the exception inside 900 frames. (3) The founders' real clock is 3,800
+frames, not `ant.ron`'s stated 12,000, because that number prices idle at
+0.10 and the measured burn is 0.316. Only (1) is a behaviour; (2) and (3)
+would move the census without moving the animal.
+
+**Owner card in the queue**, `20260908T193228573Z-aff4c6`: the fed bed at
+frame 150,000 against the same bed with the ants removed, counts in the
+context field.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

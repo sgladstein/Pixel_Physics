@@ -140,13 +140,23 @@ fn main() {
             // like a bug in the code.
             species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
             predators: arg("predators").unwrap_or(0),
+            // **The world seed, which this harness could not set** -- so the
+            // one bed it could photograph was seed 1, and every question of
+            // the form "show me the seed the finding is on" had to be asked
+            // of a different seed. Outcomes here are chaotic in the seed
+            // (`labstats` on the default box ends at 4%, 14% and 51% of the
+            // unfed stand on seeds 3, 2 and 1), so a contact sheet pinned to
+            // one of them is a sample from a wide distribution presented as
+            // the picture. Defaulted to `LabBox::default()`'s own 1, so every
+            // sheet taken before this is reproduced digit for digit.
+            seed: arg("seed").unwrap_or(LabBox::default().seed),
             compartments: arg("walls").unwrap_or(1),
             ..LabBox::default()
         },
     };
     println!(
-        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}{}",
-        spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators,
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} frames={:?}{}",
+        spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators, spec.seed,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
         stops,
