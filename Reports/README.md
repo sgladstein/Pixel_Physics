@@ -323,6 +323,27 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
+  — **built and measured, 2026-09-07.** The owner's *"water also pools on the
+  top of our plants; it should drip through"*, answered — and the rule
+  already existed. `update_powder` has `fall_through_organism` (litter, seed,
+  windfall) on the 2D-slice argument that *a branch one cell wide is not a
+  shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
+  so water landing on a crown simply sat. Measured before the fix,
+  `scene=canopyrain` under pinned rain: **89–96% of every liquid cell in the
+  world stood on living tissue**, mean 55–70 rows up and as high as 107 —
+  almost no rain reached the ground in a wood. What shipped is
+  `drip_through_organism`, the same tunnel at a **rate** rather than
+  instantly, because the ask was a drip and instant passage is the binary
+  outcome the ethos rules out. Rate sweep from one binary via `CANOPY_DRIP`,
+  monotonic: share on tissue 90–96% → 61–69% at the shipped period 8, mean
+  height 55–70 rows → 28–51. Cost is below the noise floor of three
+  alternating `ascii` runs. **§5 is the reusable part**: two metric traps,
+  counting liquid *cells* when the quantity is fill volume (128 cells below
+  from 5 placed above), and censusing a standing quantity under continuous
+  rain, where water in transit and water stuck read the same and the fix
+  looked inert while 532 drips were succeeding
+
 **Start here, not from the list below.** Plants are 42 of this directory's
 110 reports and about **269,000 tokens** — no session reads them, and the
 list is ordered by provenance (design / research / handoff), which is not
