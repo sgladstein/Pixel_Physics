@@ -145,8 +145,8 @@ point.
 | W4 | **OPEN** | 9618 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9678 | The lab's bed grows a water table on its stone floor, and it does not stop |
 | W6 | closed | 9729 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10089 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10195 | Every shipped bed starves its ant colony inside one play session |
+| W7 | closed | 10121 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10227 | Every shipped bed starves its ant colony inside one play session |
 
 <!-- END GENERATED INDEX -->
 
@@ -10044,12 +10044,44 @@ organism-owned cells more than 2 above the surface in their own column,
 So the above-ground stand is **19% smaller**, and the non-root part fell by
 3,051 cells as well. The repaint reading is wrong as stated.
 
-**What that 19% is, is not answerable on one world.** The fix changes
-`reinforces_powder` on the converted tissue, so soil cohesion changes and the
-two runs are different worlds within a frame or two of the first conversion —
-the case `CLAUDE.md` says a single scene cannot decide. A seed sweep is the
-instrument; the numbered seeds are a useful control inside it, because a seed
-with no role flip leaves the fix inert and its two arms identical.
+**What that 19% is, is not answerable on one world**, and the sweep says it is
+**divergence, not damage.** The fix changes `reinforces_powder` on the
+converted tissue, so soil cohesion changes and the arms are different worlds
+within a frame or two of the first conversion. Six numbered seeds, paired, one
+binary, all living tissue above the soil line:
+
+| seed | OFF | ON | delta |
+|---|---|---|---|
+| 1 | 18,071 | 18,071 | **0** |
+| 2 | 20,889 | 20,889 | **0** |
+| 3 | 22,776 | **26,880** | **+4,104 (+18%)** |
+| 4 | 27,314 | 27,314 | **0** |
+| 5 | 27,729 | 27,729 | **0** |
+| 6 | 22,462 | 22,462 | **0** |
+
+**Four of six are byte-identical**, which is the positive control this change
+most needed: a seed with no role flip leaves the fix inert, so it provably
+touches nothing outside the path it is for.
+
+**Where it fires, the sign flips.** Seed 3 is 18% *larger* with the fix; the
+card seed was 19% *smaller*. Two worlds, opposite directions, near-identical
+magnitude — so neither is a cost or a benefit, and **the -19% above must not be
+read as the fix shrinking the stand.** n=2 on firing seeds is small and the
+claim is correspondingly narrow: it is that the single-world figure is not
+evidence of a cost, not that the change is free.
+
+**Two details from that sweep that a skim would misread.**
+
+- **On seed 3 root material above the soil line goes UP with the fix**, 33 ->
+  73, which reads like the fix failing and is the same divergence: that arm
+  grew a *bigger* stand (root cells 5,585 -> 6,694), so there is more of
+  everything. Read the arms as two worlds, not as a before and after of one.
+- **Root material above the soil line is not itself the defect.** Seed 1
+  carries **175 such cells in both arms identically** — the fix never fired
+  there, so those 175 are ordinary root flare and whatever else puts root
+  tissue at the surface. The defect is specifically *shoot* tissue made of
+  root wood, which is why the census splits by cell type and why
+  `MatureBody` is reported as AMBIGUOUS rather than counted.
 
 
 
