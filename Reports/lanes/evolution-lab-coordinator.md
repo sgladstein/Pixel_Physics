@@ -1200,6 +1200,24 @@ Measured on the merged head: the two-colony bed at the shipped dial is
 (24,000 frames), and at 48,000 frames on the seed that breeds (84 births)
 no line has wired `Provision` — the block reads zero on every slot.
 
+**The first census at play length, 2026-09-07, overturns this round's own
+"next step".** Asked for next steps, this lane put the birth rate first,
+because at 24,000 frames the beds show 3–35 births. The owner's reply —
+think about how the game is actually played; a session is a few hundred
+thousand frames and a million is several sessions — sent the same beds
+through 300,000 and 1,000,000 frames, and the reading is different in
+kind: **every shipped bed starves its colony inside one session, on every
+seed, with births plentiful** (92–363 per colony, generation 6–19) and
+starvation the only cause of death. Filed as
+[`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md), with the table
+and the bar a fix has to clear. Three consequences for anyone reading this
+note: every creature result in rounds twelve to eighteen was taken at about
+one minute of play and is true at that length; the developmental channel
+cannot be *found* by a line that does not outlive a session, so §Z6 is
+upstream of the castes question, the kin drift and Gate 2 alike; and the
+census now costs six to eight minutes a bed on one core, so "read it at a
+session" is the cheap default from here on, not the expensive exception.
+
 **Environment, one line:** the two-colony `labstats` bed breeds on seed 2
 (32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
 a positive control over births goes to seed 2, and the arena's bed with teeth
