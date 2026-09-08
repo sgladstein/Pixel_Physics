@@ -144,9 +144,9 @@ point.
 | W3 | closed | 9498 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
 | W4 | **OPEN** | 9618 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9678 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | **OPEN** | 9729 | Root *material* stands above the soil line, up to 80 cells into the canopy |
-| W7 | closed | 9929 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10035 | Every shipped bed starves its ant colony inside one play session |
+| W6 | **OPEN** | 9729 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 9999 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10105 | Every shipped bed starves its ant colony inside one play session |
 
 <!-- END GENERATED INDEX -->
 
@@ -9726,7 +9726,7 @@ which fits the owner's stated direction — *"the world starts with nothing, but
 the user can add plants, creatures, water, food, soil"* — better than a
 constant would.
 
-### W6. Root *material* stands above the soil line, up to 80 cells into the canopy — **OPEN. Reproduced 2026-09-08 on the owner's own world; the two substrate rules are NOT the fix, and the cause is that plant material marks lineage rather than role**
+### W6. A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood — **OPEN. Origin traced 2026-09-08 to `FateOp::Retarget`; the two substrate rules are a null because the tissue in the sky is a legitimate shoot**
 
 Reported by the owner 2026-09-06, by eye, on the roots-on/off review card:
 *"There is an issue in option a where the roots are growing into the
@@ -9925,6 +9925,76 @@ not a reproduction of a sighting made on the default seed** — and the two
 metrics in `root_sky` measure against different references (the plant's own
 collar, and the terrain surface in that column), so they are different
 questions rather than one blind and one sighted.
+
+**THE ORIGIN, traced 2026-09-08 — and it is not a bug in the material rule,
+it is the genome doing something it is allowed to do.**
+
+`PIXEL_PHYSICS_ROOT_TRACE=1` (`plant.rs::trace_root_material`) prints every
+moment root material lands on an unambiguously *shoot* cell type. On the
+card's world, 5,000 frames, the transitions are:
+
+| transition | count | |
+|---|---|---|
+| **`relabel-after-grow: RootTip -> GrowingTip`** | **22** | **the source** |
+| `grow-child: GrowingTip -> GrowingTip` | 26 | downstream |
+| `relabel-after-grow: GrowingTip -> DormantBud` | 10 | downstream |
+| `grow-lateral: GrowingTip -> GrowingTip` | 2 | downstream |
+
+The first event is at **(102, 200), frame 3540** — on the soil line — and
+every later one climbs from it: y 199, 198, 197, 196, 195, 194, 193 by frame
+4154. So one cell converts, and an ordinary shoot grows up from it.
+
+**A `RootTip` cannot become a `GrowingTip` under any shipped asset.** Every
+species declares `(when: Grew, becomes: MatureBody, child: Some(RootTip),
+lateral: Some(RootTip))`, and `builtin_fate`'s frontier arm gives
+`(RootTip, Grew) -> MatureBody` as well. The only mechanism in the engine
+that can produce it is **`organism::FateOp::Retarget`** — 60% of fate
+mutations — which picks a random rule, a random slot (`becomes`, `child` or
+`lateral`) and a random `PLANT_CELL_TYPES` entry. A lineage retargeted its
+root's `Grew` rule from `MatureBody` to `GrowingTip`, so **its root tips turn
+into shoot tips.** That is a legitimate evolutionary move and a real plant
+behaviour (root-borne suckers); nothing about it is wrong.
+
+**What is wrong is only the material.** The new shoot keeps rootwood, because
+material propagates from the parent, and every descendant inherits it. The
+plant grows a genuine, entirely legal shoot eighty cells into the air and
+renders pale cream.
+
+**This explains all three things that did not fit.**
+
+- **Why both substrate rules are a null.** The tissue in the sky is *shoot*
+  tissue and shoots belong in the air. `growable` and `thicken` refuse *root*
+  growth with no ground against it; this was never root growth. The gates are
+  correct and simply do not apply — which is `CLAUDE.md`'s *a change that
+  moves nothing: suspect the condition you keyed on is degenerate*, in the
+  form where the condition is fine and the population is not the one it
+  describes.
+- **Why it is so seed-dependent.** It needs that mutation to arise and
+  survive. Six `grove` seeds had none; the card's default-seed world had one.
+- **Why `World::root_shoots_launched` read zero** while a session counting
+  above-ground clumps found seven (`examples/genome_reach.rs`'s own doc
+  records the puzzle). That counter fires on `cell_type == RootTip &&
+  lateral_type not in {RootTip, MatureBody}` — it watches the **`lateral`**
+  slot. This mutation hit the **`becomes`** slot, so the counter was blind by
+  construction. Another instance of *ask what your number counts*, and it
+  closes that entry's open question.
+
+**So the fix is settled, and for a stronger reason than the original one.**
+The genome may legally retarget any cell type to any other, so there is no
+version of lineage-propagated material that stays correct. **Material must
+follow the cell's role.** `Leaf` already does it at its own placement site,
+and `tissue_appearance` already does it for organs; extend it to `RootTip`
+(root material) and `GrowingTip`/`Leaf`/`DormantBud` (shoot or leaf), leave
+`MatureBody` inheriting because it is genuinely shared, and cover the
+**relabel** sites (`plant.rs` ~4325, ~4562) as well as the creation sites,
+since this conversion happens by relabel.
+
+**It is a behaviour change, not a recolour, and wants an ablation and a
+paired measurement rather than only a blind A/B.** `update.rs::root_reinforced`
+keys on the material, so shoot tissue that stops being rootwood also stops
+gluing loose powder to itself. The prediction to test: fixing the
+unambiguous types should drain the `MatureBody` population above the soil
+line as well, since those are retired members of the same rootwood shoot.
 
 ### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **FIXED 2026-09-06: tissue that cannot reach a drinking root is shed**
 

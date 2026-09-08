@@ -1441,6 +1441,52 @@ fn organ_shade(world: &World, organism_id: u16, material_id: material::MaterialI
 /// because the failure it prevents is silent: a site that forgets it makes a
 /// flower out of wood, which looks like ordinary stem and reads as "the
 /// mechanism did nothing".
+/// **Where does root material land on a cell that is not a root?** — the §W6
+/// origin trace. Off unless `PIXEL_PHYSICS_ROOT_TRACE=1`.
+///
+/// `examples/root_sky.rs` counts a **standing** population — 785 root-material
+/// cells above the soil line on the card's world, of which 250 are
+/// `DormantBud`. `CLAUDE.md`'s rule is that a standing artifact and the rate
+/// that creates it are different questions, and the census cannot tell which
+/// of the four sites that write a cell put root material on shoot tissue. It
+/// also cannot be reasoned out from the assets: every species declares
+/// `lateral: Some(RootTip)` on its root and `plastochron: [0]`, so on paper
+/// no root ever produces a non-root cell and no root ever reaches a node.
+/// Something does it anyway. This says which site, and where.
+///
+/// `MatureBody` is excluded deliberately — it is the one type genuinely
+/// shared by root and shoot, so a rootwood `MatureBody` is a *settled root*
+/// and not an anomaly. `GrowingTip`, `Leaf` and `DormantBud` are shoot-only.
+///
+/// **`thicken` is therefore not traced**, and that is a conclusion rather
+/// than an omission: it only ever writes `MatureBody`, so it can spread root
+/// material but cannot be the site that first puts it on shoot tissue. A
+/// trace call there would be dead code that reads like coverage.
+///
+/// Deliberately **not** a `World` field: `world.rs` is the second most
+/// collided file in this repo (103 landings) and this is scaffolding, not a
+/// shipped counter. The env read is a `OnceLock` bool checked before any
+/// material lookup, so the shipped path costs one relaxed load.
+fn trace_root_material(world: &World, x: i32, y: i32, from: Option<CellType>, ty: CellType, m: material::MaterialId, site: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    if !*ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_ROOT_TRACE").as_deref(), Ok("1"))) {
+        return;
+    }
+    if !matches!(ty, CellType::GrowingTip | CellType::Leaf | CellType::DormantBud) {
+        return;
+    }
+    if !world.materials.get(m).reinforces_powder || !matches!(world.materials.kind(m), MaterialKind::Plant) {
+        return;
+    }
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    if n < 200 {
+        eprintln!("root-trace {n:>3}: {site}: {from:?} -> {ty:?} in root material at ({x}, {y}), frame {}", world.frame);
+    }
+}
+
 fn tissue_appearance(
     world: &World,
     organism_id: u16,
@@ -4237,6 +4283,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // the fifth invisible label change wearing a sixth costume.
                 let (child_material, shade) =
                     tissue_appearance(world, organism_id, species_id, child_type, cell.material, Band::Bark, &mut rng);
+                trace_root_material(world, tx, ty, Some(cell_type), child_type, child_material, "grow-child");
                 // Canopy density deposited once, here, at creation --
                 // `organism::diffuse_resource`'s own doc explains why this
                 // lives at the moment of growth rather than a continuous
@@ -4280,6 +4327,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // tree test immediately started failing -- the call had been
                 // a silent no-op since this behavior shipped.
                 resource -= step_cost;
+                trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-after-grow");
                 world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                 write_carbon(world, x, y, resource);
                 // **Priming costs nothing and buys nothing yet.** The mark
@@ -4452,6 +4500,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // sterile plant.
                             let (branch_material, branch_shade) =
                                 tissue_appearance(world, organism_id, species_id, lateral_type, cell.material, Band::Bark, &mut rng);
+                            trace_root_material(world, bx, by, Some(cell_type), lateral_type, branch_material, "grow-lateral");
                             let branch_cell =
                                 Cell::new(branch_material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(lateral_type));
                             if lateral_type.is_organ() {
@@ -4515,6 +4564,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // No structural check here either -- see the
                             // primary child's identical case above.
                             resource -= branch_step_cost;
+                            trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-blocked");
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
