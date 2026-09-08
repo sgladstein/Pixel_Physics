@@ -269,6 +269,48 @@ equal to `edible`. Every counter that must be zero is zero while the census
 still reports the food, which is what says a null from the fed arm is about
 the colony.
 
+### The positive control: put food on the doorstep and the colony lives a session
+
+`labforage`'s `handout=N` is `windfall_probe`'s control unchanged — one
+windfall cell dropped at the colony's own column every N frames, nothing else
+altered. At `handout=200` on the default box, ants alive against the same
+harness's shipped arm:
+
+| frame | seed 1 shipped / handout | seed 2 | seed 3 |
+|---|---|---|---|
+| 4,500 | 6 / **14** | 8 / **15** | 11 / **17** |
+| 99,900 | 0 / 2 | 99 / 54 | 103 / 14 |
+| 199,800 | 0 / 0 | 0 / **49** | 0 / **52** |
+| 300,000 | 0 / 0 | 0 / **20** | 0 / **72** |
+| born over the run | 5 / 16 | 290 / **854** | 469 / **1,447** |
+
+**Two of three seeds hold a live colony through a whole session with food on
+the doorstep and none do without.** Nothing about the animal changed: same
+brain, same 200 J, same prices. It is the supply *at the nest* and only that.
+
+Three things it is not. It is **not a fix** — 907–1,260 handouts is a real
+subsidy (roughly 220–300 kJ absorbed) and there is nothing in the game that
+would place them. It is **not sufficient on every seed**: seed 1 still ends
+empty, so this does not clear §Z6's p90 bar. And it does **not** show the bed
+can carry a colony — seed 3's handout arm ends at 204 edible cells against
+the unfed bed's 1,934, so it converts an extinction into a boom-bust that has
+not finished. What it does show is that **the economy is solvent given
+delivery**, which is the half §Z6 could not separate: on seed 3 the fed
+colony harvests **2.4 MJ from the bed itself** against the shipped arm's
+0.74 MJ, so the handout's own energy is a fifth of the difference and the
+rest is a colony that stayed alive long enough to forage.
+
+### One harness caveat, stated rather than left to be discovered
+
+`labforage` drives `frame::step` directly where `labstats` goes through
+`Lab::advance`'s path (which also runs `regroup_by_scent` and the page's
+observers), so the two build the same bed *specification* and not the same
+run. Measured: they agree **digit for digit** on default seeds 1 and 3 (5/57
+and 469/521 born/died) and diverge on seed 2 (290/342 against 215/264) — the
+usual chaotic sensitivity, on one seed of three. Every `labforage` figure in
+this report is therefore read against `labforage`'s own arms (`colonies=0`,
+`handout=`, the full box), never across the two harnesses.
+
 ## The mechanism, and it is the species file
 
 The shipped ant's genome is twenty authored weights. **Not one reads a
@@ -389,8 +431,11 @@ columns" is the sum of the first two.
   bed goes 52 → 4 → 0. They are dead, not stuck — which settles the other
   half of the 2026-08-30 playtest report at play length.
 - **Not the two boxes disagreeing.** Both die the same way and for the same
-  reason; the full box's three colonies start with more standing crop and
-  take longer.
+  reason; the full box's three colonies start with more standing crop, skip
+  stage one, and take longer.
+- **Not the animal's economy being unpayable in principle.** With food on its
+  doorstep the same colony, same brain and same prices, lives a whole session
+  on two of three seeds and breeds 854 and 1,447 children.
 
 ## What a fix has to move, in the order the evidence puts it
 

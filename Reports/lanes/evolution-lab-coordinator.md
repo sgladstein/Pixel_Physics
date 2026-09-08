@@ -1515,6 +1515,28 @@ here.*
   columns of the nest are dead or halved and the four beyond 140 columns are
   **digit for digit identical to the unfed control**.
 
+- **The positive control landed and it is the strongest single result here.**
+  `handout=200` — one windfall cell at the colony's own column every 200
+  frames, nothing else touched — takes the default box from **0 of 3 seeds
+  with a live colony at 300,000 frames to 2 of 3** (20 and 72 animals), with
+  854 and 1,447 children against 290 and 469. Same brain, same 200 J, same
+  prices. **The animal's economy is solvent given delivery**, which is the
+  half §Z6 could not separate. Read the three caveats before quoting it: it
+  is a 907–1,260-cell subsidy nothing in the game would place, seed 1 still
+  ends empty so it does not clear the p90 bar, and seed 3's handout arm still
+  eats the bed to 204 edible cells against an unfed 1,934 — it converts an
+  extinction into an unfinished boom-bust. On seed 3 the fed colony harvests
+  **2.4 MJ from the bed itself** against the shipped arm's 0.74 MJ, so the
+  handout's own energy is a fifth of the difference and the rest is a colony
+  that lived long enough to forage.
+- **`labforage` and `labstats` build the same bed and not the same run**, and
+  it is worth knowing before someone chases the discrepancy: `labforage`
+  drives `frame::step` directly where `labstats` goes through `Lab`'s path
+  (`regroup_by_scent`, the page observers). They agree **digit for digit** on
+  default seeds 1 and 3 (5/57 and 469/521 born/died) and diverge on seed 2
+  (290/342 against 215/264). Every figure in the report is read within one
+  harness for that reason.
+
 **Handed forward, in the order the evidence puts it, as *what is missing*
 rather than as a design** — the ruling on which economy to move is the
 owner's and §Z6 says so. (1) A forager cannot be aimed at food: no food sense

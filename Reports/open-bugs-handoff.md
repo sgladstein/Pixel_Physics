@@ -10051,6 +10051,13 @@ and 5), every death starvation, both boxes failing the bar.
 - **Not a regression from round twenty.** Built at its own parent
   `68515a81`, the same beds still crash at 4,500 (11 and 15 survivors against
   6 and 11) and are still empty by 200,000 frames.
+- **The positive control says the economy is solvent given delivery.**
+  `labforage handout=200` — one windfall cell at the colony's column every
+  200 frames, nothing else changed — takes the default box from **0 of 3
+  seeds alive at 300,000 frames to 2 of 3** (20 and 72 animals; 854 and 1,447
+  born). It is not a fix and does not clear this bar: seed 1 still ends
+  empty, the subsidy is 907–1,260 cells nothing in the game would place, and
+  the bed is still eaten to 204 edible cells against an unfed 1,934.
 - **`forage_probe` at 300,000 frames is identical to 24,000 in every column
   but `moves`** (29,329 → 29,452), with a 6,000-frame control that differs at
   every row — so the knob is connected and its colony is simply dead by then
