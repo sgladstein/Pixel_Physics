@@ -44,6 +44,12 @@ it stumbles into is its own doorstep.
 `RAYON_NUM_THREADS=1`, release, `main` at `6d4728a4`. Ants alive at each
 stop, then the whole run's births, deaths and cause of death:
 
+*(Every figure here was measured at `6d4728a4`; `main` has since taken §W6's
+plant fix and the §Z6 ruler correction. Spot-checked on the merged head:
+`labforage founders=8 colonies=1 seed=1` reproduces frames 0–9,000 **digit
+for digit** — same ants, same edible cells, same distance bands — so the
+plant fix does not reach this bed.)*
+
 | bed | seed | 50k | 100k | 150k | 200k | 250k | 300k | born | died | cause |
 |---|---|---|---|---|---|---|---|---|---|---|
 | default (8 herb, 1 colony of 52) | 1 | 0 | 0 | 0 | 0 | 0 | **0** | 5 | 57 | 57 starved |

@@ -2129,6 +2129,23 @@ is **no food verb** although hand-placed food is the one intervention measured
 to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
+- [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
+  **record, 2026-09-08.** Rounds one to nineteen of the lab's coordinator note,
+  verbatim, moved out of `Reports/lanes/evolution-lab-coordinator.md` when that
+  note reached **93,248 B (~23,300 tokens)** against `scripts/lanecheck.py`'s
+  12,000 B cap — a cost every lab session paid before doing any work, because
+  `CLAUDE.md` routes all of them to it first. **It is a record, not a work
+  order**, and the detail behind each round was already promoted by its own
+  session to the report its row names. Its own value is the map: a per-round
+  table of what each settled and where the detail lives, and the three
+  concurrent lines the rounds are braided from — the lab as an instrument
+  (3, 4, 5, 7, 9, 10, 11), frame cost (2, 6, 8, 17, 18, 19), creatures
+  (12–16) — so a session reads the one round rather than the file. Three
+  standing caveats it states up front, each of which invalidates figures
+  written earlier in it: every creature result in rounds twelve to eighteen
+  was taken at about **one minute of play** (`open-bugs-handoff.md` §Z6),
+  Gate 2 discriminates only *past* the founding grant, and a phase share
+  transfers across neither machines nor beds.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;

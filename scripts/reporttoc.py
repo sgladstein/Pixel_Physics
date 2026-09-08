@@ -109,6 +109,13 @@ MANAGED = [
     # list and §4's recommendation are what a returning reader wants to
     # `sed` straight to.
     "creature-reproduction-economics.md",
+    # Added 2026-09-08 with the file itself. It is 19 `##` round sections over
+    # ~21,500 tokens and is read by *lookup* rather than end to end -- a lab
+    # session wants the one round its line owns -- so the priced table is the
+    # whole point of it rather than a formality. It is the only MANAGED report
+    # that is a record instead of a design, which is why it is also the only
+    # one whose sections are dated rounds.
+    "evolution-lab-rounds-archive.md",
 ]
 
 # Never eligible: they carry their own generated index already.
