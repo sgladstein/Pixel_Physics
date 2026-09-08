@@ -1446,13 +1446,89 @@ measurable, and it is what `synapse_fraction` exists to let selection prune.
   unit whose outgoing row is silent, verified bit-identical through
   `eval_brain` rather than assumed.
 
+## Round twenty-one, 2026-09-08 — the bed has teeth, and the larder was the wrong suspect
+
+*Started from "the colony starves, so nothing can be selected for" — round
+ten's open problem and the standing Gate 2 caveat. **Both halves of that
+sentence turned out to be wrong**, and the way they were wrong is the
+transferable part.*
+
+**Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
+against the shipped one — 24,000 frames, six seeds, run on the harness default
+bed **and** a fed one: the zeroed brain takes **0.0% of animals on 12 of 12
+seed-runs**, and the harness prints *the bed has teeth*. The caveat under
+"Deliberately not being built yet" is discharged above. It is a maximal-effect
+test and licenses only what it measures: the bed can turn a large fitness
+difference into a population difference. It cannot resolve a small one, and
+that — not the ecology — is why the flight races nulled.
+
+**And a single seed nearly shipped a false headline, in a session that had
+just written the rule down.** One run at `founders=8` read **52 ants → 1** at
+48,000 frames and 52 → 54 fed; that was drafted as "the harness bed goes
+extinct". Five seeds:
+
+| plants | alive at 48k | births | generations reached |
+|---|---|---|---|
+| 8 | 1, 4, **18**, 19, **87** | 651–1687, median 1519 | 4, 5, **5**, 7, 8 |
+| 48 | 48, 50, **54**, 64, 96 | 2063–2855, median **2570** | 3, 6, **7**, 7, 9 |
+
+The `alive=1` was the worst of five and one starved seed reached **87 — above
+two of the fed seeds**. What survives the sweep is **births**, where every fed
+seed beats every starved seed (5 of 5, ~1.7x), and standing population at ~3x
+the median. What does *not* survive is the generation-depth claim: the ranges
+overlap and one fed seed reached only 3.
+
+**Two effects were being confused, and separating them is the finding.**
+
+- **At a fixed horizon, food does raise generation depth.** The arena at
+  24,000 frames: median depth **2 starved against 4 fed**, and fed ≥ starved
+  on 6 of 6 seeds. Colony size 15 → 74 median in the same runs.
+- **Over a long enough horizon the food effect is swamped.** At 48,000 frames
+  both beds reach 4–9 generations and the two overlap. **The horizon dominates
+  depth; food dominates population.**
+
+So the practical rule for anyone measuring evolution here: **12,000 frames is
+about one generation** and is the horizon nearly every result on this line was
+read at, including the flight null and every armour number. Selection needs
+generations; if the question is evolutionary, 24,000 is a floor and 48,000 is
+where depth stops being the binding constraint.
+
+**What was NOT changed, deliberately.** `LabBox::default()` stocks 52 ants on
+8 plants and every harness but `labnest` (0) and `selection_arena` (16) rides
+it. It is tempting to raise, and the measurement does not support doing it:
+the default bed **passes Gate 2 as it stands**, so there is no correctness
+argument, and moving it would void comparability with every number in these
+notes for a benefit that is instrument convenience. `bin/lab.rs` opens at
+`founders: 0, colonies: 0` regardless — the player stocks the box — so this
+was never a statement about the shipped game. Round ten already wrote the
+rule this round re-learned from the other end: **an instrument's default
+scene is an input like any other.** Pass `founders=` explicitly and say what
+you passed.
+
 ## Deliberately not being built yet
 
-The score and the economy — the guide's Gate 5. **Gate 2, does selection have
-teeth in *this* bed, has still never been run**, and `selection_arena`'s whole
-finding is that a null there is a statement about the world rather than about
-the genome. Until it passes, every evolution result measured in this bed is
-unvalidated.
+The score and the economy — the guide's Gate 5.
+
+**Gate 2 has been run for creatures, and it passes.** This paragraph said for
+weeks that it *"has still never been run"* and that *"until it passes, every
+evolution result measured in this bed is unvalidated"* — that standing caveat
+is now discharged for the creature side. `creature_arena arm=lethal`, a zeroed
+brain against the shipped one, 24,000 frames, six seeds, on both the harness's
+default bed and a fed one: **the zeroed brain takes 0.0% of animals on 12 of
+12 seed-runs.** The harness prints its own verdict — *the bed has teeth.*
+
+**Read what that does and does not license.** It is a maximal-effect test: a
+brainless ant against a whole brain. Passing it says the bed can express a
+large fitness difference as a population difference, which is exactly the
+worry `selection_arena` raised for plants. It does **not** say the bed can
+resolve a *small* difference, and the arena's own noise floor (2.42–3.12x on
+the world seed alone) is the reason the flight races nulled. **Those nulls are
+a statistical-power problem, not an ecology problem**, and the remedy is
+horizon and seed count rather than food.
+
+**Gate 2 for plants — `selection_arena`'s own question — is still open.** It
+is a different harness asking about a different kingdom, and nothing here
+touches it.
 
 ## Environment notes that cost time here
 
