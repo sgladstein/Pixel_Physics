@@ -1467,6 +1467,94 @@ fn organ_shade(world: &World, organism_id: u16, material_id: material::MaterialI
 /// collided file in this repo (103 landings) and this is scaffolding, not a
 /// shipped counter. The env read is a `OnceLock` bool checked before any
 /// material lookup, so the shipped path costs one relaxed load.
+/// **Root or shoot?** — `None` where the answer is genuinely "either".
+///
+/// `MatureBody` is the deliberate `None`: it is what a settled root *and* a
+/// settled stem both retire into, which is exactly the agreement
+/// `builtin_fate`'s `Stale` arm calls the point rather than a coincidence. A
+/// cell arriving there keeps whatever it was made of. `Leaf`, `Flower` and
+/// `Fruit` are `None` for the opposite reason — they already take their
+/// material from the species at their own placement sites.
+fn tissue_role(t: CellType) -> Option<bool> {
+    match t {
+        CellType::RootTip => Some(true),
+        CellType::GrowingTip | CellType::DormantBud => Some(false),
+        _ => None,
+    }
+}
+
+/// **A cell that changes role changes tissue** — §W6's fix, at the one site
+/// where a role actually flips.
+///
+/// Material propagates from the parent: `germinate` seeds one `rootwood` cell
+/// and one `wood` cell and every cell `Grow` creates copies its parent's, so
+/// the root/shoot split stands up with no cell-type-to-material table
+/// anywhere. That is correct exactly as long as a root's descendants stay
+/// roots.
+///
+/// **They do not.** `organism::FateOp::Retarget` may rewrite any fate slot to
+/// any `PLANT_CELL_TYPES` entry, and a lineage that retargets its root's
+/// `Grew` rule from `MatureBody` to `GrowingTip` turns its root tips into
+/// *shoot* tips — a legitimate evolutionary move and a real plant behaviour
+/// (root-borne suckers). Traced on the owner's own world
+/// (`PIXEL_PHYSICS_ROOT_TRACE=1`, review card 168b0f): **22
+/// `RootTip -> GrowingTip` conversions**, the first at (102, 200) on the soil
+/// line, and an ordinary shoot growing 80 cells into the air out of it, made
+/// of rootwood the whole way. That is the owner's pale-cream plant, and it is
+/// why both substrate gates measured as a null — the tissue in the sky is a
+/// *shoot*, and shoots belong in the air.
+///
+/// **The swap belongs at the flip, not at every creation site.**
+/// `organ_material`'s lookup is `id_of(name)`, a string hash, and `Grow` is a
+/// hot path while a role change is rare — `CLAUDE.md`'s *guard hot-path work
+/// at the call site that already has the data*. Fixing the source fixes every
+/// descendant for free, because propagation from a correct parent is correct:
+/// the swapped `GrowingTip` retires to a `wood` `MatureBody`, whose bud is
+/// `wood`, whose flush is a `wood` tip.
+///
+/// **Not only cosmetic**, which is why it is behind an ablation rather than
+/// shipped quietly: `update::root_reinforced` keys on the *material*, so
+/// tissue that stops being rootwood also stops holding loose powder against
+/// falling.
+fn retissue_on_role_change(
+    world: &World,
+    organism_id: u16,
+    species_id: organism::SpeciesId,
+    cell: Cell,
+    from: CellType,
+    to: CellType,
+    rng: &mut Rng,
+) -> Cell {
+    if !plant_tissue_follows_role() {
+        return cell;
+    }
+    let (Some(was_root), Some(is_root)) = (tissue_role(from), tissue_role(to)) else {
+        return cell;
+    };
+    if was_root == is_root {
+        return cell;
+    }
+    let sp = world.species.get(species_id);
+    let name = if is_root { &sp.root_material } else { &sp.shoot_material };
+    // Falls back to the cell as it stands if the species names a material this
+    // world has not loaded — the same tolerance `organ_material` has for a
+    // stripped asset set.
+    let Some(m) = world.materials.id_of(name) else {
+        return cell;
+    };
+    let shade = banded_shade(world, organism_id, m, Band::Bark, rng);
+    Cell::new(m, shade).with_organism_id(cell.organism_id()).with_aux(cell.aux())
+}
+
+/// `PIXEL_PHYSICS_PLANT_TISSUE_ROLE=off` restores the pre-fix behaviour, so
+/// both arms of a comparison come from one binary — this line has twice been
+/// caught comparing across a rebuild.
+fn plant_tissue_follows_role() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_PLANT_TISSUE_ROLE").as_deref(), Ok("off")))
+}
+
 fn trace_root_material(world: &World, x: i32, y: i32, from: Option<CellType>, ty: CellType, m: material::MaterialId, site: &str) {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::OnceLock;
@@ -4328,6 +4416,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // a silent no-op since this behavior shipped.
                 resource -= step_cost;
                 trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-after-grow");
+                let cell = retissue_on_role_change(world, organism_id, species_id, cell, cell_type, self_type_after_grow, &mut rng);
                 world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                 write_carbon(world, x, y, resource);
                 // **Priming costs nothing and buys nothing yet.** The mark
@@ -4565,6 +4654,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // primary child's identical case above.
                             resource -= branch_step_cost;
                             trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-blocked");
+                            let cell = retissue_on_role_change(world, organism_id, species_id, cell, cell_type, self_type_after_grow, &mut rng);
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
@@ -16965,6 +17055,61 @@ is enough to point a tip at it"
         assert!(growable(&w, 100, 65, ROOT), "a root must still enter a cavity underground -- walls are ground");
         w.set(100, 64, Cell::EMPTY);
         assert!(growable(&w, 100, 64, ROOT), "a root must still cross a gap inside the bed");
+    }
+
+    /// **A cell that changes role changes tissue** — §W6's actual fix.
+    ///
+    /// The trace (`PIXEL_PHYSICS_ROOT_TRACE=1`) put the whole population on
+    /// one transition: **`RootTip -> GrowingTip`, 22 times**, first at
+    /// (102, 200) on the soil line, with an ordinary shoot growing 80 cells
+    /// into the air out of it in rootwood. Only `FateOp::Retarget` can
+    /// produce that transition — no shipped species declares it and
+    /// `builtin_fate` gives `MatureBody` — so this is the genome doing
+    /// something it is allowed to do, and the material has to keep up.
+    ///
+    /// Four arms, because a swap rule that only swaps is half-tested: the
+    /// conversion, the reverse conversion, the shared destination it must
+    /// leave alone, and the non-change it must not touch.
+    #[test]
+    fn a_cell_that_changes_role_changes_tissue() {
+        let mut w = test_world();
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let id = w.push_organism(tree).expect("an organism slot is free");
+        let mut rng = rng::stream(id as u64, 0, 0, 0);
+
+        let root_cell = Cell::new(rootwood, 0).with_organism_id(id);
+        let shoot_cell = Cell::new(wood, 0).with_organism_id(id);
+
+        // **The conversion the owner is looking at.** A root tip retargeted
+        // into a shoot tip must stop being made of root wood.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::GrowingTip, &mut rng);
+        assert_eq!(
+            out.material, wood,
+            "a root tip that became a SHOOT tip kept root material -- this is the cell that then grows 80 cells \
+into the sky as a pale-cream stem"
+        );
+
+        // The reverse is equally reachable: `Retarget` picks a slot and a
+        // type at random, so a shoot tip can become a root tip too.
+        let out = retissue_on_role_change(&w, id, tree, shoot_cell, CellType::GrowingTip, CellType::RootTip, &mut rng);
+        assert_eq!(out.material, rootwood, "a shoot tip that became a ROOT tip must become root tissue");
+
+        // **`MatureBody` is not a role.** Both a settled root and a settled
+        // stem retire into it, so a cell arriving there keeps what it was
+        // made of -- swapping here would repaint every root system on the
+        // frame its tips retire.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::MatureBody, &mut rng);
+        assert_eq!(out.material, rootwood, "settled root tissue must stay root tissue -- MatureBody is shared");
+
+        // A relabel that is not a role change touches nothing.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::RootTip, &mut rng);
+        assert_eq!(out.material, rootwood, "a root that stayed a root must not be repainted");
+
+        // The cell keeps its identity across the swap: only the tissue moves.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::GrowingTip, &mut rng);
+        assert_eq!(out.organism_id(), id, "the swap must not orphan the cell from its plant");
     }
 
     /// **A root may not *thicken* into the sky either** — §W6's second site.
