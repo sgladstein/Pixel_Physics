@@ -7452,6 +7452,28 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
         neighbours.push(row);
     }
 
+    // **The same adjacency again, flattened**, for the density sweep below.
+    // Cell `i`'s neighbours are `nbr[nbr_start[i]..nbr_start[i + 1]]`, in the
+    // same face order the `[Option<usize>; 4]` rows carry, so the sum it
+    // feeds is over the identical values in the identical order.
+    //
+    // Two things it removes from a loop that runs `DENSITY_SUBSTEPS` (45)
+    // times over every cell of the organism: the `Option` unwrapping, which
+    // `perf` put at 4.3% of `transport` on its own, and the *recount* of how
+    // many neighbours a cell has -- the topology is fixed for the whole tick
+    // (growth happens at tick boundaries), so counting it 45 times was 44
+    // counts of the same number. The carbon loop still wants the per-face
+    // form, because there `k` is the face and not just a slot.
+    let mut nbr_start: Vec<u32> = Vec::with_capacity(cells.len() + 1);
+    let mut nbr: Vec<u32> = Vec::with_capacity(cells.len() * 4);
+    for row in &neighbours {
+        nbr_start.push(nbr.len() as u32);
+        for slot in row.iter().flatten() {
+            nbr.push(*slot as u32);
+        }
+    }
+    nbr_start.push(nbr.len() as u32);
+
     let species_id = state.species;
     let flux_ref = flux_reference(world.species.get(species_id));
 
@@ -7485,11 +7507,12 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
     let mut next_density = density.clone();
     for _ in 0..DENSITY_SUBSTEPS {
         for i in 0..cells.len() {
-            let (mut density_sum, mut n) = (0.0f32, 0u32);
-            for slot in neighbours[i].iter().flatten() {
-                density_sum += density[*slot];
-                n += 1;
+            let (from, to) = (nbr_start[i] as usize, nbr_start[i + 1] as usize);
+            let mut density_sum = 0.0f32;
+            for &slot in &nbr[from..to] {
+                density_sum += density[slot as usize];
             }
+            let n = (to - from) as u32;
             // An isolated organism cell (every neighbour a wall) has
             // nothing to exchange with and nothing to do -- and in
             // particular does *not* decay here. Decay lives on
@@ -7498,11 +7521,12 @@ pub fn transport(world: &mut crate::sim::world::World, organism_id: u16) {
             // applied on the diffusion pass erased a fresh deposit before
             // any neighbour's much-less-frequent `Grow` check could read
             // it -- a real bug, found by live verification.
-            next_density[i] = if n == 0 {
+            let out = if n == 0 {
                 density[i]
             } else {
                 (density[i] + (density_sum / n as f32 - density[i]) * DIFFUSION_RATE).clamp(0.0, CANOPY_DENSITY_SCALE)
             };
+            next_density[i] = out;
         }
         std::mem::swap(&mut density, &mut next_density);
     }

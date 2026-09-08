@@ -1336,6 +1336,47 @@ rather than addressing; and `roundf` at 1.7% of samples, which is the
 pheromone blend's `.round()` as an out-of-line libm call — cheap, and **not**
 free of behaviour risk, so it needs the hash gate rather than an argument.
 
+## Round nineteen, 2026-09-07 — the plant passes, priced and mostly retired
+
+*Same branch, taking round eighteen's own next item. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§18.** One small pure change landed; the useful output is the two levers it
+retires with numbers, because both were the obvious next thing.*
+
+- **`step_organisms` is ~10% of the full-box frame and the three pure levers
+  in it are worth under 1% between them.** So §17.5's first item is closed.
+  Landed: `transport`'s density sweep walks a flat neighbour list instead of
+  unwrapping and recounting `[Option<usize>; 4]` forty-five times a tick —
+  **3-4% of that pass**, which is 3% of the frame, so the whole frame does not
+  move. Recorded at that size rather than rounded up.
+- **The counter that lied, and it is the sharpest instance of `CLAUDE.md`'s
+  own rule this lane has produced.** An exact fixed-point early-out on both
+  substep loops read **"33.9% of substeps skipped"** while the timing had
+  barely moved. Both numbers were right: substeps were counted **per
+  organism**, and a substep costs one pass over the organism's *cells*, so the
+  ones that converge early are the small cheap ones. Cell-weighted the same
+  run is **95.2% → 87.1% of the work still done**. Reverted; in
+  `dead-ends.md` with the size-distribution condition its rejection depends
+  on, and with the instruction to re-measure cell-weighted.
+- **§13.4's "~15% of the pass" for the nine cell-list prologues is measured at
+  5.8%**, by the instrument `prologue_every` was built to be: 266,477
+  collect-and-sorts over 7.04 M cells, 143.5 ms across 12,400 frames, **0.0116
+  ms a frame against `step_organisms`'s 0.198** — 0.6% of the frame, against a
+  restructure that is genuinely hard because the cell set changes mid-tick.
+  Left unbuilt.
+- **The baseline moved under this round and it was not this round.** #276
+  (canopy throughfall) landed between §17 and §18 and is a real water change:
+  new gate hashes, and the tree bed 1.29 → 1.65 ms with `sw seen` 21,778 →
+  23,446. **Rebuild the baseline binary after every merge**; a hash gate is
+  worthless against a stale one.
+
+**Next, in the order the profile now puts it** (§18.5): the **~21% in the
+kernel and rayon**, which is the largest block left by a wide margin and which
+§16.2 only half-addressed (it measured the tick 10% faster on one thread than
+four, so the question is which dispatches above the thresholds still earn the
+pool); then the moisture pass, where what remains is per-cell arithmetic; then
+the pheromone `roundf`, which is cheap and is **not** behaviour-free.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have
