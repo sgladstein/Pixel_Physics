@@ -1,0 +1,46 @@
+{
+  "id": "20260908T193228573Z-aff4c6",
+  "created": "2026-09-08T19:32:28Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/bed-starvation-ant-colony-49kk8f",
+    "commit": "6d4728a4",
+    "agent": null,
+    "session_id": "c4b2299d-ac45-59da-8f31-37969c3595d1",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The colony eats its bed to bare stems, then starves on it",
+  "question": "Same bed, same seed, frame 150,000 -- A has the shipped ant colony in it, B is the identical bed with the ants simply removed. Bug Z6 says every bed starves its colony; the open question was whether it OVERGRAZES or CANNOT REACH the food. Does A read to you as a bed that has been eaten, or as a bed that failed to grow?",
+  "context_md": "COUNTS (the numbers under the pictures). Default box, seed 3, RAYON_NUM_THREADS=1, 150,000 frames of a 300,000-frame run. A (with the colony): 469 animals born, 518 died, EVERY death starvation; colony peaked at 137 ants around frame 108,000; 5 plants, 445 plant cells, seed bank 0 -- and it is still 445 cells with zero ants alive at frame 300,000, so it never recovers. B (ants removed, nothing else changed): 99 plants, 10,883 plant cells, 211 seeds in the ground. Priced in food the ant's own gut would digest, at 300,000 frames: 90 edible cells fed against 1,934 unfed, i.e. 4%. The other half of the finding is that the founders starve FIRST, at frame 3,600-4,500, with 44,640 J standing in the bed against their whole 10,400 J endowment -- so the colony dies twice, of opposite things. Full write-up: Reports/colony-starvation-separated-2026-09-08.md",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "with the colony: 5 plants, 445 cells, 3 ants left",
+      "files": [
+        "20260908T193228573Z-aff4c6/000-graze_ants_s3.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "ants removed: 99 plants, 10,883 cells",
+      "files": [
+        "20260908T193228573Z-aff4c6/001-graze_none_s3.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
