@@ -1,0 +1,56 @@
+{
+  "id": "20260908T030841361Z-28c870",
+  "created": "2026-09-08T03:08:41Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-creatures-v57wnd",
+    "commit": "00219887",
+    "agent": null,
+    "session_id": "96cd37c0-2b33-5424-91c9-9d99cc69b473",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A colony that stops to fight, or one that keeps foraging",
+  "question": "Same bed, same seed, same three moments. In one, an ant that hears a fight on the ground it is standing on stops and bites what is there. In the other it does not, and carries on foraging past it. Amber is the ant colony, pale is the beetles. Does the fighting one read as a colony defending itself -- and is trading roughly a fifth of the colony's foraging for it a trade you want made by default?",
+  "context_md": "**This is the whole of the change**: two weights on a brain of six, `(Alarm, Move, -1.0)` and `(Alarm, Attack, 2.0)`. The arms differ in nothing else -- the control arm is the same build with those two weights set to zero, so the reach default, the scent rules and every other number are identical.\n\nThe alarm is read at the cell the animal is *standing on*, not the cell ahead of it. That was measured, not chosen: reading ahead made hearing a fight a function of which way you were facing and cost a factor of ten (8/38/28 attacks against 296/258/266). It also means the alarm has no direction, so ants do not come running from across the bed -- they fight where they already are.\n\n**The price is in the ledger, not the census.** Populations are inside the bed's own three-seed spread either way (25/37/28 fighting, 25/32/36 not). What moves is what the colony spends its day on.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "stops and fights",
+      "files": [
+        "20260908T030841361Z-28c870/000-ab_wired.png"
+      ],
+      "caption": "(Alarm, Move, -1.0) and (Alarm, Attack, 2.0)",
+      "meta": {
+        "attacks over 9,000 frames": "372 / 478 / 361",
+        "cells taken off beetles": "104 / 142 / 79",
+        "ants eaten by beetles": "4 / 4 / 2",
+        "mouthfuls eaten": "1703 / 2390 / 1858"
+      },
+      "focus": null
+    },
+    {
+      "label": "keeps foraging",
+      "files": [
+        "20260908T030841361Z-28c870/001-ab_unwired.png"
+      ],
+      "caption": "the same build, both weights at zero",
+      "meta": {
+        "attacks over 9,000 frames": "0 / 0 / 0",
+        "cells taken off beetles": "0 / 0 / 0",
+        "ants eaten by beetles": "10 / 2 / 0",
+        "mouthfuls eaten": "2086 / 2916 / 2397"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
