@@ -35,9 +35,13 @@ births plentiful: [`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md)
 carries the table and the bar a fix has to clear. **§Z6 is upstream of the
 castes question, the kin drift and Gate 2 alike** — a channel cannot be *found*
 by a line that does not outlive a session. Every creature result in archived
-rounds twelve to eighteen was taken at about one minute of play and is true at
-that length only. A session census costs six to eight minutes a bed on one
-core, so it is the cheap default from here on, not the expensive exception.
+rounds twelve to eighteen was taken at a few minutes of play at most and is
+true at that length only — **the owner's machine is the ruler, not this
+container's**: a full box runs at 1–4x there and one plant at 40x, so 24,000
+frames of the full box is two to seven minutes and 300,000 is a long session
+(the container's 6x is where "one minute" came from, and it is wrong for the
+owner). A session census costs six to eight minutes a bed on one core, so it
+is the cheap default from here on, not the expensive exception.
 
 **Deliberately not being built yet:** the score and the economy, the guide's
 Gate 5. And **Gate 2 — does selection have teeth in *this* bed — still has
