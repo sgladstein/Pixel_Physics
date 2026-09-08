@@ -105,4 +105,17 @@
         (72, 126, 218),
         (68, 121, 213),
     ],
+    // **Rain does not sit on a canopy — it drips through.** The same flag
+    // `litter` and `seed` carry, and the same 2D-slice reasoning: a branch
+    // one cell wide is not a shelf spanning the tree's whole depth, so water
+    // landing on it mostly goes past. Read by
+    // `update::drip_through_organism`, which unlike the powder path passes it
+    // at a *rate* rather than straight through, because water on foliage
+    // beads and drips.
+    //
+    // Measured before this was set, `scene=canopyrain` under pinned rain:
+    // **89-96% of every liquid cell in the world stood on living tissue**,
+    // mean 55-70 rows above the floor and as high as 107. Almost no rain
+    // reached the ground in a wood at all.
+    falls_through_organisms: true,
 )
