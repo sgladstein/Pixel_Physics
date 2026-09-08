@@ -78,83 +78,6 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-one, 2026-09-08 — the bed has teeth, and the page could not tell a stand from a colony
-
-*Started from round ten's open problem and the standing Gate 2 caveat. Gate 2
-passes — then the sweep meant to close the round turned out to be reading a
-**plant** counter, which is the more useful half.*
-
-**Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
-against the shipped one — 24,000 frames, six seeds, on the harness default bed
-**and** a fed one: the zeroed brain takes **0.0% of animals on 12 of 12
-seed-runs**, and the harness prints *the bed has teeth*. The standing caveat in
-"What binds on anything you do here" is discharged above. It licenses only what
-it measures — a *large* fitness difference becoming a population difference,
-not a small one, which is why the flight races nulled. **This result is
-untouched by everything below**: the arena filters on the ant species and maxes
-`state.generation` over ants only, so it never reads the counters that went
-wrong.
-
-**`labstats`' `EVER` and `BIRTHS` are not animal numbers, and this round
-published a table of them as if they were.** `World::deepest_generation` is
-written in exactly one place — `plant.rs:2734` — and `births_ever` is
-`organisms_born`, every organism ever allocated, a sprouted seed included. On
-the page they sit three lines under `ANIMALS BORN`, which *is* animals. **The
-control is one command**: the same bed at `colonies=0`, with no animal in it
-at all, reports `BIRTHS 311` against 220 with a colony — higher, because the
-ants graze the stand.
-
-The tell was there and was walked past: the first sweep rose monotonically
-199 → 987 across `founders` 8 → 64, and `founders` **is** the plant count — a
-tidy monotone result on a chaotic bed, which is the shape `CLAUDE.md` says to
-distrust.
-
-**Re-measured on the animal counters**, `RAYON_NUM_THREADS=1`, 48,000 frames,
-five seeds, on the merged head (`26e3251d`) — `ANIMALS BORN` for births and
-the animal half of `DEEPEST NOW` for depth:
-
-| plants | alive at 48k | animal births | animal depth (living) |
-|---|---|---|---|
-| 8 | 4, 11, **17**, 18, 31 | 4, 19, **25**, 29, 66 | 2, 4, **4**, 5, 5 |
-| 48 | 49, 50, **54**, 55, 86 | 83, 83, **101**, 102, 158 | 5, 5, **6**, 7, 12 |
-
-**Every column separates cleanly, 5 of 5**, and the effect is larger than the
-contaminated table said, not smaller: births **4.0x** by median where the
-plant column read 1.7x, standing population **3.2x**, and the worst fed seed
-beats the best starved seed on all three. **The claim that did not survive is
-this round's own headline** — *"the horizon dominates depth; food dominates
-population"*. That came from plant depth, which saturates near 3–9 in any bed;
-the animal depth does **not** overlap, and at 48,000 frames food is still
-raising it (median 4 → 6). Food raises depth and population both.
-
-What survives untouched is the single-seed lesson that prompted the sweep:
-`alive` spans **4 to 31** on one bed across five seeds, so any one run of it
-is a sample from a wide distribution. (The earlier figures 1, 4, 18, 19, 87
-were taken before `main`'s §W6 plant fix and do not reproduce on this head —
-another reason to name the head a table was measured on.)
-
-**Fixed, so the page cannot say it again.** `World::deepest_animal_generation`
-is written beside `creature_stats.births` in the `Origin::Bud` arm, and the row
-now reads `DEEPEST NOW p/a  EVER p/a` — both pairs plants/animals, the help
-string saying so and saying `BIRTHS` counts every organism.
-`a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one` pins it and
-was watched going red twice: write deleted, and write pointed back at
-`deepest_generation` — the original bug's exact shape.
-
-The table above is depth among the **living**, which drops when a deep line
-dies out, so it understates — the new counter is what a later round should read
-instead. And **12,000 frames is about one generation** on the starved bed,
-which is the horizon nearly every result on this line was read at, the flight
-null and every armour number included: if the question is evolutionary, 24,000
-is a floor.
-
-**`LabBox::default()`'s 8 plants were deliberately left alone** — it passes
-Gate 2 as it stands, so raising it buys instrument convenience at the price of
-comparability with every number in these notes, and `bin/lab.rs` opens at
-`founders: 0` anyway. Full reasoning in `dead-ends.md`. Round ten's rule is
-the one to carry: **an instrument's default scene is an input like any
-other** — pass `founders=` explicitly and say what you passed.
-
 ## Round twenty-one, 2026-09-08 - Z6 separated: the colony dies twice
 
 *PR #284; record in
@@ -171,6 +94,62 @@ ant has died. **The mechanism is one absence** -- no
 the trail is laid and never followed. Traps: `forage_probe` at 300,000
 frames is identical to its 24,000 run, and *aloft* is not *out of reach*:
 an unfed bed reads 80-86% aloft with nothing in it.
+
+## Round twenty-two, 2026-09-08 — Gate 2 passes, and the page could not tell a stand from a colony
+
+*Gate 2's answer, plus a retraction; full account in `dead-ends.md`.*
+
+**Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
+against the shipped one, 24,000 frames, six seeds, on the harness default bed
+**and** a fed one — puts it at **0.0% of animals on 12 of 12 seed-runs**. The
+caveat in "What binds" is discharged above. It licenses only a *large* fitness
+difference becoming a population difference, not a small one — which is why
+the flight races nulled.
+
+**`labstats`' `EVER` and `BIRTHS` are not animal numbers, and this round
+published them as if they were.** `EVER` is `World::deepest_generation`,
+written only by `plant.rs:2734`; `BIRTHS` is every organism ever allocated,
+sprouted seeds included. Both sit three lines under `ANIMALS BORN`, which
+*is* animals. **The control is one command**: the same bed at `colonies=0`,
+no animal in it, reports `BIRTHS 311` against 220 with a colony — *higher*,
+because the ants graze the stand. The tell was tidiness: 199 to 987 monotone
+across `founders` 8 to 64, and `founders` **is** the plant count.
+
+**Re-measured on the animal counters** (48,000 frames, five seeds, merged
+head): births median **25 to 101** (4.0x, where the plant column read 1.7x),
+alive **17 to 54**, animal depth **4 to 6** (ranges 2-5 against 5-12), every
+column separating 5 of 5. So the claim that dies is this round's own headline,
+*"the horizon dominates depth; food dominates population"* -- that was plant
+depth, which saturates in any bed. **Food raises depth and population both**,
+agreeing with round twenty-one from the other side.
+Gate 2 is untouched: `creature_arena` maxes generation over ants only.
+
+**Fixed so the page cannot say it again**: `World::deepest_animal_generation`,
+written beside `creature_stats.births`; the row reads `EVER p/a`, help string included. `a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one`
+was watched red twice — write deleted, then pointed back at the plant counter.
+Depth above is still among the **living** and so understates; read the new
+counter instead.
+
+**For §Z6's lane, one correction to round twenty-one.** *"No ant weight on a
+pheromone plane, so the trail is laid and never followed"* holds for the
+**direct** weights only: `ant.ron`'s `hidden_inputs` carry `(PheroAAlong, 0,
+6.0)`, `(PheroAAlong, 1, -6.0)`, `(PheroBAlong, 2, 6.0)`, `(PheroBAlong, 3,
+-6.0)` into units whose `hidden_outputs` drive `Move` at ±2.5, gated on
+`Carrying` — A when laden, B when empty. That is a trail-following circuit,
+wired end to end. **Your finding may survive in a stronger form**: B is
+emitted only by a *carrying* ant, so a colony that never reaches food never
+lays one, and the reader starves for want of a trail rather than a weight --
+a cold start, not a missing reader, wanting a different fix. **Not measured
+yet**; `labforage` is yours. The missing-sense half of your diagnosis is
+untouched: there is no `FoodNear`/`FoodBearing` past the cells a head touches.
+
+**12,000 frames is about one generation** on the starved bed — where nearly
+every result on this line was read, the flight null and every armour number
+included. If the question is evolutionary, 24,000 is a floor. And
+`LabBox::default()`'s 8 plants were **deliberately left alone**: it passes
+Gate 2 as it stands and `bin/lab.rs` opens at `founders: 0` anyway (reasoning
+in `dead-ends.md`), so round ten's rule stands — **an instrument's default
+scene is an input like any other.**
 
 ## The earlier rounds
 
