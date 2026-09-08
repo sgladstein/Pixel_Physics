@@ -1647,3 +1647,113 @@ the pheromone plane were a larger share. What is honestly left before the tick
 *is* the plants and the ants: the ~21% in the kernel and rayon (which §16.2
 already halved with the serial thresholds and which is now the largest block
 in the profile), and `step_organisms`'s 14%.
+
+## 18. The plant passes, measured and mostly retired — 2026-09-07
+
+*§17.5 put the plant passes first on the remaining list, on the strength of
+`ORGANISM_PASS` reading `step_organisms` at 55% of the `active_sites` phase.
+This section takes the three pure levers that were available in them, measures
+all three, and lands one. **The useful output is the two it retires**, because
+each was the obvious next thing and each is worth well under 1% of the frame.*
+
+**The baseline moved under this work and it is not this work's doing.** #276
+(rain dripping through a canopy) landed on `main` between §17 and here and it
+is a real water change, so the gate hashes are new — tree
+`0xc43a203cf333b481` / `0x655b1e3c95c9ce02`, herb `0x0213356c1d91a998` /
+`0xfd7afe15d6bb5ab6` — and the beds are dearer: the tree bed 1.29 → 1.65 ms,
+`sw seen` 21,778 → 23,446. Every figure below is paired against a baseline
+binary built from that `main` in the same session.
+
+### 18.1 What `transport` is actually made of
+
+`perf` on the full box, annotated by line inside `transport`: **34.4% of the
+pass sits on one statement**, the canopy-density blend at `organism.rs:7504`,
+with another 4.3% in the `Option` unwrapping that feeds it and ~11% in `f32`'s
+`clamp`/`max`. The reason is `DENSITY_SUBSTEPS = 45`: forty-five passes over
+every cell of the organism, every tick.
+
+`organism_upkeep` has no such peak. Its samples are spread across the sort
+(`tuple.rs` 6.1%) and hashbrown, with the `HashMap<i32, u32>` row tallies —
+the only two containers in the plant line that §16.2's FxHash pass did not
+reach — at 0.7%.
+
+### 18.2 Landed: a flat neighbour list for the density sweep
+
+The adjacency is resolved once per tick into `[Option<usize>; 4]` per cell and
+then unwrapped and *recounted* forty-five times. The topology cannot change
+inside the loop (growth happens at tick boundaries), so forty-four of those
+counts are of the same number. The same adjacency is now also built flat —
+cell `i`'s neighbours are `nbr[nbr_start[i]..nbr_start[i + 1]]`, same face
+order, so the sum is over identical values in identical order.
+
+Paired, alternating, `RAYON_NUM_THREADS=4`: `transport` **0.058 / 0.058 →
+0.055 / 0.056** on the full box and **0.074 / 0.075 → 0.071 / 0.071** on herb
+128 + colony. That is 3–4% of the pass. `transport` is 3% of the frame, so the
+whole-frame figure does not move outside its spread, and this is recorded as
+what it is rather than rounded up.
+
+### 18.3 Retired: an exact fixed-point early-out on both substep loops
+
+Both loops have an exact rest state — where a cell and its neighbours already
+agree, `d + (d − d) × RATE` is `d` in `f32`, not merely close — so a pass that
+writes back bitwise-identical values proves every later pass identical, and
+breaking out is bit-identical rather than a tolerance. Built, hash-gated, and
+then removed.
+
+**The counter is the whole story, and its first version was the wrong
+quantity.** Substeps per *organism* read **33.9% of asked** for density and
+48.2% for carbon, which reads as two thirds of the work skipped — while
+`transport`'s millisecond figure had barely moved. Both numbers are correct. A
+substep costs one pass over the organism's *cells*, so the organisms that
+converge early are overwhelmingly the small cheap ones: a two-cell seedling
+settles in three passes, a thousand-cell tree runs all forty-five. Weighted by
+cells the same run reads **95.2% → 87.1% of density work still done** and
+**97.5% of carbon**, and on the tree bed **98.9% / 99.6%**.
+
+So it skips 13% of density work and 2.5% of carbon on the bed where it does
+best, and pays a per-cell test on the 87–99% of substeps that still run. It is
+in `dead-ends.md` with the condition its rejection depends on: the arithmetic
+turns on the size distribution, so it comes back if `DENSITY_SUBSTEPS` rises
+or a bed's biomass moves into many small organisms — **re-measured with the
+cell-weighted ratio, never the per-organism one**.
+
+### 18.4 Retired: sharing the nine cell-list prologues
+
+`prologue_every`'s own doc asks for this number and §13.4 estimated it at "~15%
+of the pass" from arithmetic on sort sizes, saying in the same breath not to
+trust it. `ORGANISM_PROLOGUE` on the full box: **266,477 collect-and-sorts
+over 7.04 M cells cost 143.5 ms across 12,400 frames — 0.0116 ms a frame,
+against `step_organisms`'s 0.198.** That is **5.8% of the pass and 0.6% of the
+frame**, a third of the estimate. On the tree bed, 6.2% of the pass.
+
+The restructure it would need is not small — the cell set genuinely changes
+mid-tick, since bending moves cells, breaking removes them and a bud flush
+adds them — so the prize is smaller than the risk, and the estimate is now
+replaced by a measurement rather than argued with.
+
+### 18.5 What this does to the order of work
+
+**`step_organisms` is ~10% of the full-box frame** (0.198 ms of 1.95), and the
+three levers above are worth, between them, under 1% of it. So §17.5's first
+item is closed: the plant passes are not where the remaining time is, and the
+next session should not spend a round there on the strength of the phase
+share alone.
+
+What is left, from §17.5's own profile, in order:
+
+1. **The ~21% in the kernel and rayon** — the largest single block in the
+   profile and now the largest by a wide margin. §16.2 already took the easy
+   half with `PIXEL_PHYSICS_PAR_MIN_CHUNKS` / `PAR_MIN_TILES`; what remains is
+   the dispatches that are *above* those thresholds, and the honest first step
+   is to find out which ones and whether they earn the pool at lab scale
+   (§16.2 measured the tick 10% faster on one thread than four).
+2. **The moisture pass**, still the largest single sim function even under
+   `MOISTURE_MARKS=cells`. What is left of it is per-cell arithmetic rather
+   than addressing, so the next cut there is a different shape of change.
+3. **`roundf`** at 1.7–1.8% of samples, the pheromone blend's `.round()` as an
+   out-of-line libm call — cheap, and **not** free of behaviour risk (see
+   §17.5), so it needs the hash gate rather than an argument.
+
+And the ceiling stated plainly: the full box is ~1.95 ms on this box against
+§16's 2.72 on its own, the plant economy is 10% of it, and the rest is now
+mostly overhead that is not any one subsystem's.

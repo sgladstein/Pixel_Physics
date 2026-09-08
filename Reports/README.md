@@ -2343,7 +2343,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   flat profile**: `perf` puts `transport` + `organism_upkeep` at 2.9% of
   samples, which reads as "the plants are not the problem", but those are leaf
   frames — `step_organisms` whole is **0.24 ms of a 1.76 ms frame and 55% of
-  the `active_sites` phase**, and it is the next item.
+  the `active_sites` phase**, and it is the next item. **§18 (2026-09-07)
+  takes that item and mostly retires it.** `step_organisms` is ~10% of the
+  full-box frame and the three pure levers inside it are worth under 1%
+  between them: a flat neighbour list for `transport`'s density sweep lands at
+  3-4% of that pass, an **exact** fixed-point early-out on both substep loops
+  is reverted, and sharing the nine cell-list prologues is left unbuilt at a
+  measured 0.6% of the frame against §13.4's estimated 15%. Its transferable
+  finding is a counter that lied: the early-out read **"33.9% of substeps
+  skipped"** counted **per organism**, and a substep costs one pass over the
+  organism's *cells*, so the organisms that converge early are the small cheap
+  ones — cell-weighted the same run is **87-95% of the work still done**, which
+  is what the millisecond figure had been saying all along.
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
   **built, measured and STOPPED 2026-09-05; adversarially reviewed before
   being put forward (§8 records what the review changed, including two claims
