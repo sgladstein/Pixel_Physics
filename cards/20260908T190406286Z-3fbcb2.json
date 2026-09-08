@@ -1,0 +1,46 @@
+{
+  "id": "20260908T190406286Z-3fbcb2",
+  "created": "2026-09-08T19:04:06Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/plant-roots-transport-lj7nip",
+    "commit": "9a175f1d",
+    "agent": null,
+    "session_id": "fe8bc5b9-4346-539e-8191-8d1ce81b894d",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Root wood in the canopy: a plant that evolved root tips into shoot tips",
+  "question": "Which of these reads as a wood standing in ground? Look at the left of each — one has a pale, wispy plant among the brown trunks.",
+  "context_md": "COUNTS for these two runs, paired on one binary, scene=grove start=24000 daylight pinned, 24,000 frames:\n\n  root cells above the soil line   761 (11.89%)  ->  13 (0.22%)\n  worst height above ground         79 cells     ->   6 cells\n  shoot tissue made of root wood   251 cells     ->   0 cells\n\nWHAT YOU ASKED ABOUT. You picked the pale-cream plant as 'the roots growing into the tree/sky'. It is not a root climbing. One plant EVOLVED its root tips into shoot tips -- the genome may rewrite any fate rule, and this lineage rewrote its root's grow rule to produce a shoot tip -- and then grew a perfectly ordinary shoot 80 cells into the air. The only fault is that the shoot was still made of root wood, because material in this engine is inherited from the parent cell rather than set by what the cell IS. Now it follows the role.\n\nWHY THE TWO STANDS ARE NOT IDENTICAL. This is not only a repaint: soil cohesion is keyed on the material, so tissue that stops being root wood also stops holding loose soil against falling. The worlds diverge from that, and two runs that differ on one frame are different worlds by the next. Same seed, same frame, one constant apart -- but do not read tree-for-tree.\n\nThe remaining 13 cells sit at most 6 cells proud of the ground, which is a root flare.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "tissue follows ancestry (shipped today)",
+      "files": [
+        "20260908T190406286Z-3fbcb2/000-day_prefix_crop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "tissue follows role (this change)",
+      "files": [
+        "20260908T190406286Z-3fbcb2/001-day_fix_crop.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
