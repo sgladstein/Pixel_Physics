@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-06, late, when **a child could be made differently
+*Current as of: 2026-09-08, when **a colony started fighting back by
+default** -- an ant standing where something is being bitten stops and bites
+what is there, which is the first thing any animal here is born knowing about
+a fight. It costs the colony about a fifth of its foraging and takes roughly
+half again as much off a beetle. Before that, 2026-09-06, late, when **a child could be made differently
 from its parent's genes** -- a parent hands each child one number from
 whatever its brain senses, and heritable developmental weights turn that
 number into a body, so a line can find its own castes and nothing in the box
@@ -681,6 +685,25 @@ lingered would be a map of everywhere a fight has ever happened, which tells
 an animal nothing about now; one that fades this fast is news. Nothing that is
 born in the box yet knows what to do about it — whether to come running or to
 scatter is something a line would have to work out, and both are possible.
+
+**A colony now stops for a fight, and this is on by default.** An ant that
+is standing on ground where something is being bitten stops walking and bites
+whatever is there that is not family. Those are two things it is born
+knowing, and they are the first fighting instincts any animal here has ever
+had.
+
+What it buys and what it costs, both measured on the same bed: the colony
+takes about **half again as much off a beetle**, and roughly **halves what
+the beetles take back** -- and it spends about **a fifth less of its day
+finding food**. That trade is the point rather than a side effect. A colony
+that drops everything to defend itself eats less; one that ignores a nestmate
+being eaten eats more and loses more of them. Neither is free.
+
+**It only works where the animal already is.** The smell of a fight carries
+no direction, so ants do not come running from the far side of the box -- the
+ones that join in are the ones that were nearby anyway. Coming from a
+distance is what the two walking trails are for, and they are a separate
+sense.
 
 **And an animal can bite something it is not going to eat.** Until now every
 bite in the world was a mouthful: an ant could only ever fight by being

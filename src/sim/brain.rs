@@ -721,9 +721,16 @@ pub enum BrainInput {
     /// a negative weight onto `Turn` is flight, a positive one is facing
     /// it, and which pays is the bed's to decide.
     ThreatBearing = 23,
-    /// **How loud the alarm is on the ground ahead** -- the third pheromone
-    /// plane, written by an animal that is being bitten and forgotten within
-    /// about a second and a half of play (`pheromone::ALARM_RHO`).
+    /// **How loud the alarm is on the ground this animal is standing on** --
+    /// the third pheromone plane, written by an animal that is being bitten
+    /// and forgotten within about a second and a half of play
+    /// (`pheromone::ALARM_RHO`).
+    ///
+    /// **Read here rather than ahead, unlike every other pheromone input**,
+    /// and `creature::sense` carries the measurement that forced it: an
+    /// ahead-read made hearing a fight a function of which way you were
+    /// facing, and cost a factor of ten in how often a wired animal responded
+    /// at all.
     ///
     /// **One slot, not the front/lateral/along triple the trail planes get**,
     /// and the asymmetry is the design rather than an economy. A trail is a
