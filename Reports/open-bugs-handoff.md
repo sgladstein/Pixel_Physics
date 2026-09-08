@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**52 open, 101 bugs** (plus 20 landing-note items,
+**51 open, 101 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -144,9 +144,9 @@ point.
 | W3 | closed | 9498 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
 | W4 | **OPEN** | 9618 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9678 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | **OPEN** | 9729 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 9999 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10105 | Every shipped bed starves its ant colony inside one play session |
+| W6 | closed | 9729 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 10055 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10161 | Every shipped bed starves its ant colony inside one play session |
 
 <!-- END GENERATED INDEX -->
 
@@ -9726,7 +9726,7 @@ which fits the owner's stated direction — *"the world starts with nothing, but
 the user can add plants, creatures, water, food, soil"* — better than a
 constant would.
 
-### W6. A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood — **OPEN. Origin traced 2026-09-08 to `FateOp::Retarget`; the two substrate rules are a null because the tissue in the sky is a legitimate shoot**
+### W6. A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood — **FIXED 2026-09-08: a cell that changes role changes tissue. Root wood above the soil line 761 -> 13 cells, and shoot tissue in root material 251 -> 0. Awaiting the owner's eye on the recolour**
 
 Reported by the owner 2026-09-06, by eye, on the roots-on/off review card:
 *"There is an issue in option a where the roots are growing into the
@@ -9995,6 +9995,62 @@ keys on the material, so shoot tissue that stops being rootwood also stops
 gluing loose powder to itself. The prediction to test: fixing the
 unambiguous types should drain the `MatureBody` population above the soil
 line as well, since those are retired members of the same rootwood shoot.
+
+**FIXED 2026-09-08, and measured paired on the world the sighting came
+from.** `retissue_on_role_change` swaps a cell's material when its *role*
+flips: `RootTip` -> `GrowingTip` takes shoot material, the reverse takes root
+material, and `MatureBody` is left alone because it is genuinely shared.
+
+One binary, `PIXEL_PHYSICS_PLANT_TISSUE_ROLE` as the switch,
+`defaultseed=1 frames=24000`:
+
+| | OFF | ON |
+|---|---|---|
+| root cells above the soil line | 761 (11.89%) | **13 (0.22%)** |
+| worst rise | 79 cells | **6 cells** |
+| `DormantBud` in root material | 251 | **0** |
+| `MatureBody` above ground | 508 | **13** |
+| `RootTip` above ground | 2 | 0 |
+
+The 13 that remain are at most 6 cells proud of the ground: a root flare.
+
+**It does not work by deleting roots**, which is the thing to check when a
+count falls by 98%. Total root tissue falls 6,399 -> 5,819, but *below*
+ground it **rises**, 5,638 -> 5,806. The drop is entirely the rootwood shoot
+ceasing to be root tissue.
+
+**The prediction filed above, before the run, held**: fixing only the
+unambiguous types drained the AMBIGUOUS `MatureBody` population too
+(508 -> 13), because those were retired members of the same rootwood shoot.
+
+**Why the swap is at the flip and not at every creation site.**
+`organ_material`'s lookup is `id_of(name)`, a string hash, and `Grow` is a hot
+path while a role change is rare — `CLAUDE.md`'s *guard hot-path work at the
+call site that already has the data*. Fixing the source fixes every descendant
+for free: the swapped `GrowingTip` retires to a `wood` `MatureBody`, whose bud
+is `wood`, whose flush is a `wood` tip.
+
+**Behind an ablation because it is not only a repaint.**
+`update::root_reinforced` keys on the material, so tissue that stops being
+rootwood also stops holding loose powder against falling — the two stands
+visibly diverge, and two runs that differ on one frame are different worlds by
+the next.
+
+**Closed on the measurement; a blind A/B is with the owner (board `plants`)
+as a check rather than a gate.** The defect — shoot tissue made of root wood —
+is fixed, measured and guarded. What the card asks is whether the *recolour*
+reads right, which is a judgement about appearance and not an open bug; if the
+owner dislikes it the entry reopens with their reason, and the ablation makes
+that one environment variable rather than a revert.
+
+Guarded by `a_cell_that_changes_role_changes_tissue` — the conversion, the
+reverse conversion, the shared `MatureBody` destination it must leave alone,
+and the non-change it must not touch. Verified sensitive: red under
+`PIXEL_PHYSICS_PLANT_TISSUE_ROLE=off`.
+
+**The two substrate rules stay**, on their own terms: each closes a real hole
+at a site that writes cells, each is guarded, and both are a null against
+*this* population because the tissue in the sky was never a root.
 
 ### W7. A severed plant is still one economy: the roots' water feeds a crown they have no path to — **FIXED 2026-09-06: tissue that cannot reach a drinking root is shed**
 
