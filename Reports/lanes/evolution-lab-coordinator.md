@@ -45,12 +45,18 @@ owner). A session census costs six to eight minutes a bed on one core, so it
 is the cheap default from here on, not the expensive exception.
 
 **Deliberately not being built yet:** the score and the economy, the guide's
-Gate 5. And **Gate 2 — does selection have teeth in *this* bed — still has
-never been run as designed**; `selection_arena`'s whole finding is that a null
-there is a statement about the world rather than about the genome. Until it
-passes, every evolution result measured in this bed is unvalidated. (The
-2026-09-02 arena run in archived round two, item 3, is the closest thing to it
-and answers only *past the founding grant*.)
+Gate 5. **Gate 2 — does selection have teeth in *this* bed — passes for
+creatures**, and this paragraph carried the opposite claim for weeks:
+`creature_arena arm=lethal`, a zeroed brain against the shipped one, 24,000
+frames, six seeds, on the harness default bed **and** a fed one, puts the
+zeroed brain at **0.0% of animals on 12 of 12 seed-runs** — the harness prints
+its own verdict, *the bed has teeth*. It is a maximal-effect test and licenses
+only that: the bed turns a *large* fitness difference into a population
+difference. It cannot resolve a small one, and the arena's own 2.42–3.12x seed
+noise — not the ecology — is why the flight races nulled, so those nulls are a
+statistical-power problem. **Gate 2 for plants is untouched**, a different
+harness on a different kingdom, and `selection_arena`'s finding stands there:
+a null is a statement about the world rather than about the genome.
 
 **Re-derive file ownership from the open PR list, never from a table in a
 note.** Round one's ownership table was landed whole by PR #170 and every later
@@ -72,76 +78,6 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty, 2026-09-08 — the verbs ship on by default
-
-*Owner's ruling: **ship new behaviours as default**. Everything the creature
-line built on 2026-09-06 was reach rather than behaviour -- nothing born
-swinging or listening -- which is `CLAUDE.md`'s second law failing quietly.
-README's "Creature groups status" is the shipped half.*
-
-**Two things came off their compatibility settings, and only one of them is
-visible.** `TRAIT_REACH_DEFAULT` 1 -> 8 is a **ceiling**, not a starting
-value: every animal is born at allele 0 and `trait_variance` moves a slot 0.15
-a birth against ~8,600-frame generations, so a bed at reach 8 and a bed at
-reach 1 are the same bed for a long time. Anyone comparing the two settings
-and finding nothing has found the truth, not a bug. The visible half is two
-authored weights on the ant.
-
-**The finding worth carrying: the alarm was read on the wrong cell, and the
-error was invisible in every test.** `BrainInput::Alarm` shipped reading the
-cell *ahead* of the animal, because the two trail planes do and it looked like
-a convention. Measured on the standard bed, three seeds: reading ahead gave
-**8, 38 and 28 attacks**; reading at the animal's own cell gave **296, 258 and
-266** — a factor of ten, and `eats` went *up* rather than down. The difference
-is facing. **The general shape**: a *route* is read ahead because where it
-lies relative to the head is its information; an *event* is read where you
-are, because being in one is not a fact about which way you are looking. Every
-guard passed at both readings, because a guard that asks "does the alarm fire"
-cannot ask "does anything hear it".
-
-**And the sign of `(Alarm, Move)` is the opposite of the obvious one.** Read
-here, a positive weight means "move faster while you are in a fight", which is
-*leaving* it. Measured against `-1.0`:
-
-| `(Alarm, Move)` | attacks | cells off a beetle | eats | ants eaten |
-|---|---|---|---|---|
-| unwired | — | — | 2086/2916/2397 | 10/2/0 |
-| +1.5 | 296/258/266 | 75/89/69 | 2276/2662/2204 | 9/5/0 |
-| **−1.0** | **372/478/361** | **104/142/79** | 1703/2390/1858 | **4/4/2** |
-
-Standing to fight takes ~40% more off a beetle, roughly halves what beetles
-take back, and costs 15–22% of foraging. **The populations are inside the
-bed's own spread**, so anyone reading this as a census will find nothing: the
-trade is in the ledger.
-
-**What it costs the outdoor game, isolated by control rather than argued.**
-Nothing bites anything in a one-colony ant scene, so both weights contribute
-exactly zero — and are still **billed**, because `synapse_fraction` charges
-per active synapse and `eval_brain` counts a synapse active on its *weight's*
-magnitude, not on what flows through it. `ascii`'s deposition gate moves
-**1.36x -> 1.34x** (pickups 332 -> 309); the same build with the two weights
-at `0.0` returns **1.36x on 237 drops from 2,962 laden ants, digit for
-digit**. So the whole drift is the tax on two connections that never fire.
-That is the price of "ship as default" on a shared species file, it is
-measurable, and it is what `synapse_fraction` exists to let selection prune.
-
-**Two harness repairs fell out of trying to photograph this.**
-
-- **`labshot`'s `crop=` had never worked.** The tiles are cut to the crop and
-  the sheet is sized from the crop, but the assembly loop walked them at the
-  *view's* dimensions — so it panicked on the first row past the crop height,
-  for every crop smaller than the bed. The one thing that argument was added
-  for (a two-cell animal is invisible in a full-frame tile) was the one thing
-  it could not do. Fixed; `zoom=` and `crop=` still do not compose, and
-  `look=` is the argument that works with zoom.
-- **`creature_arena` can weight-match its arms** (`padarm=on`). An arm wired
-  with four named weights paid more `synapse_fraction` than one wired with
-  two, every tick — so last night's flight race compared the wiring's *shape*
-  confounded with its *size*. Padding is inert-but-taxed weights into a hidden
-  unit whose outgoing row is silent, verified bit-identical through
-  `eval_brain` rather than assumed.
-
-
 ## Round twenty-one, 2026-09-08 - Z6 separated: the colony dies twice
 
 *PR #284; record in
@@ -159,9 +95,65 @@ the trail is laid and never followed. Traps: `forage_probe` at 300,000
 frames is identical to its 24,000 run, and *aloft* is not *out of reach*:
 an unfed bed reads 80-86% aloft with nothing in it.
 
+## Round twenty-two, 2026-09-08 — Gate 2 passes, and the page could not tell a stand from a colony
+
+*Gate 2's answer, plus a retraction; full account in `dead-ends.md`.*
+
+**Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
+against the shipped one, 24,000 frames, six seeds, on the harness default bed
+**and** a fed one — puts it at **0.0% of animals on 12 of 12 seed-runs**. The
+caveat in "What binds" is discharged above. It licenses only a *large* fitness
+difference becoming a population difference, not a small one — which is why
+the flight races nulled.
+
+**`labstats`' `EVER` and `BIRTHS` are not animal numbers, and this round
+published them as if they were.** `EVER` is `World::deepest_generation`,
+written only by `plant.rs:2734`; `BIRTHS` is every organism ever allocated,
+sprouted seeds included. Both sit three lines under `ANIMALS BORN`, which
+*is* animals. **The control is one command**: the same bed at `colonies=0`,
+no animal in it, reports `BIRTHS 311` against 220 with a colony — *higher*,
+because the ants graze the stand. The tell was tidiness: 199 to 987 monotone
+across `founders` 8 to 64, and `founders` **is** the plant count.
+
+**Re-measured on the animal counters** (48,000 frames, five seeds, merged
+head): births median **25 to 101** (4.0x, where the plant column read 1.7x),
+alive **17 to 54**, animal depth **4 to 6** (ranges 2-5 against 5-12), every
+column separating 5 of 5. So the claim that dies is this round's own headline,
+*"the horizon dominates depth; food dominates population"* -- that was plant
+depth, which saturates in any bed. **Food raises depth and population both**,
+agreeing with round twenty-one from the other side.
+Gate 2 is untouched: `creature_arena` maxes generation over ants only.
+
+**Fixed so the page cannot say it again**: `World::deepest_animal_generation`,
+written beside `creature_stats.births`; the row reads `EVER p/a`, help string included. `a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one`
+was watched red twice — write deleted, then pointed back at the plant counter.
+Depth above is still among the **living** and so understates; read the new
+counter instead.
+
+**For §Z6's lane, one correction to round twenty-one.** *"No ant weight on a
+pheromone plane, so the trail is laid and never followed"* holds for the
+**direct** weights only: `ant.ron`'s `hidden_inputs` carry `(PheroAAlong, 0,
+6.0)`, `(PheroAAlong, 1, -6.0)`, `(PheroBAlong, 2, 6.0)`, `(PheroBAlong, 3,
+-6.0)` into units whose `hidden_outputs` drive `Move` at ±2.5, gated on
+`Carrying` — A when laden, B when empty. That is a trail-following circuit,
+wired end to end. **Your finding may survive in a stronger form**: B is
+emitted only by a *carrying* ant, so a colony that never reaches food never
+lays one, and the reader starves for want of a trail rather than a weight --
+a cold start, not a missing reader, wanting a different fix. **Not measured
+yet**; `labforage` is yours. The missing-sense half of your diagnosis is
+untouched: there is no `FoodNear`/`FoodBearing` past the cells a head touches.
+
+**12,000 frames is about one generation** on the starved bed — where nearly
+every result on this line was read, the flight null and every armour number
+included. If the question is evolutionary, 24,000 is a floor. And
+`LabBox::default()`'s 8 plants were **deliberately left alone**: it passes
+Gate 2 as it stands and `bin/lab.rs` opens at `founders: 0` anyway (reasoning
+in `dead-ends.md`), so round ten's rule stands — **an instrument's default
+scene is an input like any other.**
+
 ## The earlier rounds
 
-All nineteen are verbatim in
+All twenty are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
 which prices each one and maps it to its owning report. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
@@ -171,7 +163,7 @@ knowing which is yours is most of the saving:
 |---|---|---|
 | the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios | 3, 4, 5, 7, 9, 10, 11 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes | 12, 13, 14, 15, 16 | `creature-signature-and-castes-2026-09-06.md` |
+| creatures — groups, kin, armour, castes, verbs | 12, 13, 14, 15, 16, 20 | `creature-signature-and-castes-2026-09-06.md` |
 
 ## Environment notes that cost time here
 

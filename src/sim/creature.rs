@@ -1244,8 +1244,20 @@ fn place_creature(
             world.energy_ledger.granted += def.start_energy as f64;
             world.energy_ledger.stamped += stamp;
         }
-        Origin::Bud { parent, .. } => {
+        Origin::Bud { parent, generation, .. } => {
             world.creature_stats.births += 1;
+            // **Beside the birth counter, not beside the generation stamp.**
+            // The stamp below sits inside an `organism_mut` borrow, and the
+            // two numbers answering "how much has this box bred" must not be
+            // able to drift apart: a birth that did not raise the depth and a
+            // depth that rose without a birth are both bugs, and keeping the
+            // writes adjacent is what makes them one line to check.
+            //
+            // `World::deepest_generation` is the *plant* counter -- it is
+            // written only by `plant.rs` -- so without this the lab page's
+            // `EVER` was a stand's depth wearing a label that promised every
+            // line, and a colony's whole breeding history was invisible.
+            world.deepest_animal_generation = world.deepest_animal_generation.max(generation);
             // **On the parent, not on the child this call is building.** The
             // child's own `life` starts empty; `offspring` is a thing the
             // parent did. Its own lookup because nothing is borrowed here.
@@ -13646,6 +13658,41 @@ mod tests {
         run(&mut off, 60);
         assert_eq!(off.creature_stats.births, 0, "a species with reproduce_threshold 0 bred anyway");
         assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
+    }
+
+    /// **A colony's depth is not a stand's depth, and one counter cannot be
+    /// both.**
+    ///
+    /// `World::deepest_generation` is written by `plant.rs` and by nothing
+    /// else. It was rendered on the lab page as `EVER` under a help string
+    /// promising "the deepest ANY line has reached", and on 2026-09-08 a
+    /// session read a table of it as animal generations and published the
+    /// result -- the control that catches it is the same bed with no animals
+    /// in it at all, which reports the identical `EVER`.
+    ///
+    /// So this asserts the discrimination rather than the value: breeding
+    /// ants must move the animal counter, and must **not** move the plant
+    /// one. Delete the write in the `Origin::Bud` arm and the first assert
+    /// goes red; point it back at `deepest_generation` and the second does.
+    #[test]
+    fn a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one() {
+        let (mut fed, founders) = breeding_colony(12, 2000.0, 0.0);
+        assert_eq!(fed.deepest_animal_generation, 0, "{} founders are generation 0 before anything breeds", founders.len());
+        let plants_before = fed.deepest_generation;
+        run(&mut fed, 60);
+
+        assert!(fed.creature_stats.births > 0, "the scene bred nothing, so it discriminates nothing");
+        assert!(
+            fed.deepest_animal_generation > 0,
+            "{} ants were born and the animal depth counter never moved off 0",
+            fed.creature_stats.births
+        );
+        // The stand is the control: this scene has no plants in it, so a
+        // counter that moved here was being written by the wrong kingdom.
+        assert_eq!(
+            fed.deepest_generation, plants_before,
+            "an ant birth moved the PLANT depth counter -- the two are crossed"
+        );
     }
 
     /// **Heredity: the child's genome is the parent's, not the species'.**

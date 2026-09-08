@@ -2285,7 +2285,32 @@ pub struct World {
     ///
     /// Zero in a world where nothing has bred, which is the honest reading
     /// and not a bug: a founder is generation 0.
+    ///
+    /// **This counter is written by plant reproduction and by nothing else**,
+    /// which is why [`Self::deepest_animal_generation`] exists beside it. It
+    /// is not a naming quibble: the lab's stats page rendered this as `EVER`
+    /// against a help string promising "the deepest ANY line has reached",
+    /// and a session read a table of it as animal generations and published
+    /// the result. The control is one command -- the same bed at
+    /// `colonies=0`, no animals in it at all, reports the identical `EVER`.
     pub deepest_generation: u16,
+
+    /// The deepest generation any *animal* has reached, ever — the creature
+    /// half of [`Self::deepest_generation`], which only plants write.
+    ///
+    /// Kept as a second counter rather than folded into the first because
+    /// the two kingdoms breed at wildly different rates in the same box: a
+    /// stand reaches generation 3 in 12,000 frames where a colony reaches 1,
+    /// so a single max over both is the plant number with the animal number
+    /// invisible underneath it. **A readout that cannot be wrong about which
+    /// kingdom it is describing is the whole point** — see
+    /// `CLAUDE.md`'s "ask what your number counts when nothing is wrong".
+    ///
+    /// Written where a birth is counted (`creature.rs`'s `Origin::Bud` arm),
+    /// so the two move together and neither can drift from the other.
+    /// Accumulates and never drops, exactly like its plant sibling: zero
+    /// means nothing has bred, and a founder is generation 0.
+    pub deepest_animal_generation: u16,
 
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
@@ -3080,6 +3105,7 @@ impl World {
             plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
+            deepest_animal_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
