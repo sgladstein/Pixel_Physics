@@ -145,8 +145,8 @@ point.
 | W4 | **OPEN** | 9618 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
 | W5 | **OPEN** | 9678 | The lab's bed grows a water table on its stone floor, and it does not stop |
 | W6 | closed | 9729 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10055 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10161 | Every shipped bed starves its ant colony inside one play session |
+| W7 | closed | 10089 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10195 | Every shipped bed starves its ant colony inside one play session |
 
 <!-- END GENERATED INDEX -->
 
@@ -10016,8 +10016,42 @@ The 13 that remain are at most 6 cells proud of the ground: a root flare.
 
 **It does not work by deleting roots**, which is the thing to check when a
 count falls by 98%. Total root tissue falls 6,399 -> 5,819, but *below*
-ground it **rises**, 5,638 -> 5,806. The drop is entirely the rootwood shoot
-ceasing to be root tissue.
+ground it **rises**, 5,638 -> 5,806.
+
+**"The drop is entirely the rootwood shoot ceasing to be root tissue" was
+written here and is NOT supported — the owner caught it, 2026-09-08.** The
+question they asked is the one this section could not answer: *if the plant's
+behaviour was legitimate, what did the fix change?* Nothing about the
+behaviour. `retissue_on_role_change` changes `material` and `shade` and
+preserves `organism_id` and `aux`, so the genome still retargets the root's
+grow rule, the tip still converts, and the shoot still grows — `growable` keys
+on the behaviour attached to the cell **type**, not on the material. Only the
+tissue changes.
+
+Which means **"root material above the soil line: 761 -> 13" is consistent
+with two different worlds** — the shoot still standing there in wood, or the
+shoot never having grown. Both give that number, and the below-ground control
+above looks the wrong way to separate them. Measured properly (all
+organism-owned cells more than 2 above the surface in their own column,
+`root_sky`, same paired run):
+
+| | OFF | ON |
+|---|---|---|
+| **all living tissue above the soil line** | **19,555** | **15,756** |
+| of which root material | 761 | 13 |
+| everything else | 18,794 | 15,743 |
+
+So the above-ground stand is **19% smaller**, and the non-root part fell by
+3,051 cells as well. The repaint reading is wrong as stated.
+
+**What that 19% is, is not answerable on one world.** The fix changes
+`reinforces_powder` on the converted tissue, so soil cohesion changes and the
+two runs are different worlds within a frame or two of the first conversion —
+the case `CLAUDE.md` says a single scene cannot decide. A seed sweep is the
+instrument; the numbered seeds are a useful control inside it, because a seed
+with no role flip leaves the fix inert and its two arms identical.
+
+
 
 **The prediction filed above, before the run, held**: fixing only the
 unambiguous types drained the AMBIGUOUS `MatureBody` population too
