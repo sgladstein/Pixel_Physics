@@ -852,6 +852,35 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [colony-starvation-separated-2026-09-08.md](colony-starvation-separated-2026-09-08.md)
+  — **diagnosis, measured, 2026-09-08; nothing tuned, one instrument built.**
+  Closes the question `open-bugs-handoff.md` §Z6 left open — *overgrazing or
+  cannot reach?* — and the answer is **both, as two stages of one run, not as
+  alternatives**. A colony dies twice: 41–46 of 52 founders starve by frame
+  4,500 while the bed holds **four to six times their whole 10,400 J
+  endowment** in food their own gut would digest, and whatever survives that
+  eats the bed down to **4–14% of the same bed with the ants removed**, seed
+  bank at zero, and starves with it. **The line of §Z6 it overturns is "the
+  plants are not the casualty"**: paired against `colonies=0`, the stand is at
+  61–68% of the unfed control *before a single ant has died*. Three things a
+  later session should not re-derive. **The mechanism is one absence in the
+  species file** — there is no `FoodNear`/`FoodBearing` input in `brain.rs` at
+  all, only `FoodAdjacent`'s eight neighbours, and not one of the ant's twenty
+  authored weights reads a pheromone plane, so `(Carrying, EmitB, 2.5)` lays a
+  trail **no ant follows** and foraging is an undirected walk with a one-cell
+  mouth (`wiki/ants.md` promised the opposite and is corrected). **The full box
+  is the control for stage one and was already in the matrix**: 87% of its
+  founders are alive at frame 4,500 against 12% of the default box's, because
+  its food is planted beside its nests — same animal, same budget. And **the
+  obvious reach reading is wrong, refuted by the specificity control rather
+  than by a second metric**: 68–84% of the surviving larder is more than
+  sixteen rows up, which reads as *out of reach* until you notice ants climb
+  to 40/156/144 rows and an unfed bed reads 80–86% aloft with nothing living
+  in it. Also: §Z6 is **not** a regression from round twenty (its own parent
+  commit dies on both seeds too), and `forage_probe` at 300,000 frames is
+  **identical to 24,000 in every column but `moves`**, because its colony is
+  dead by then as well. Builds `examples/labforage`; gives `labshot` a `seed=`.
+
 - [creature-programme-plan-2026-09-05.md](creature-programme-plan-2026-09-05.md)
   — **plan, 2026-09-05; nothing built by it, and under review at the time of
   writing.** Where the creature line goes after a day whose three findings all

@@ -10243,3 +10243,45 @@ of seeds, on the default box and the full box, with the census run at
 `RAYON_NUM_THREADS=1` so the counters compare.** A session of the full box
 runs in six to eight minutes on one core now, so the bar is affordable in a
 nightly and in a lane's own gate.
+
+**Separated, 2026-09-08, and still OPEN — the bar is unchanged.** The
+question this section left open is answered in
+[`colony-starvation-separated-2026-09-08.md`](colony-starvation-separated-2026-09-08.md):
+**both, as two stages of one run rather than as alternatives.** Reproduced on
+`main` at `6d4728a4` — two of six 300,000-frame runs have any ant alive (3
+and 5), every death starvation, both boxes failing the bar.
+
+- **Frames 0–4,500 is a reach failure.** 41–46 of 52 founders starve while
+  the bed holds **44,640–63,120 J** of food their own gut would digest
+  against their whole **10,400 J** endowment. Ledger at frame 4,500, seed 1:
+  burned 10,642 J, harvested 1,482 J — they spend the endowment and replace
+  14% of it. The burn is 0.316 J/creature-tick, so the founders' clock is
+  3,800 frames and the crash lands on it on every seed.
+- **Frames 4,500–300,000 is overgrazing, and this is the line of the section
+  above that is wrong.** *"The plants are not the casualty"* does not survive
+  the paired `colonies=0` control on the same seed: the stand is at **61–68%
+  of the unfed bed before a single ant has died**, and ends at 51% / 14% /
+  **4%**. On default seed 3 it is frozen at 445 cells with a seed bank of
+  zero from frame 149,820 and no ant alive from 199,740 — it does not recover
+  after them, because nothing is left to recover from.
+- **The mechanism is one absence.** `brain.rs` has no `FoodNear`/`FoodBearing`
+  input at all — only `FoodAdjacent`'s eight neighbours — and none of the
+  ant's twenty authored weights reads a pheromone plane, so the trail
+  `(Carrying, EmitB, 2.5)` lays on every laden step is written and never
+  followed. Foraging is an undirected walk with a one-cell mouth.
+- **Not a regression from round twenty.** Built at its own parent
+  `68515a81`, the same beds still crash at 4,500 (11 and 15 survivors against
+  6 and 11) and are still empty by 200,000 frames.
+- **The positive control says the economy is solvent given delivery.**
+  `labforage handout=200` — one windfall cell at the colony's column every
+  200 frames, nothing else changed — takes the default box from **0 of 3
+  seeds alive at 300,000 frames to 2 of 3** (20 and 72 animals; 854 and 1,447
+  born). It is not a fix and does not clear this bar: seed 1 still ends
+  empty, the subsidy is 907–1,260 cells nothing in the game would place, and
+  the bed is still eaten to 204 edible cells against an unfed 1,934.
+- **`forage_probe` at 300,000 frames is identical to 24,000 in every column
+  but `moves`** (29,329 → 29,452), with a 6,000-frame control that differs at
+  every row — so the knob is connected and its colony is simply dead by then
+  too. Two of the three instruments this section named cannot answer at any
+  length, because their scene is not the shipped bed; `examples/labforage` is
+  the one that can.
