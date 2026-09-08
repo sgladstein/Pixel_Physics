@@ -200,6 +200,23 @@ fn stem_stiffness_override() -> Option<f32> {
     *OVERRIDE.get_or_init(|| std::env::var("STEM_STIFFNESS").ok().and_then(|v| v.parse().ok()))
 }
 
+/// Whether a root must keep ground against it to grow into an empty cell —
+/// §W6's rule. `PIXEL_PHYSICS_ROOT_SUBSTRATE=off` restores the behaviour
+/// where a `RootTip` could take any empty cell at all.
+///
+/// **An ablation rather than a dead switch, and it should have shipped with
+/// the rule.** §W6's remaining work is confirming the owner's actual
+/// sighting — roots in the sky over a rained-on grove — and that is a
+/// *paired* question: the same seed, the same frames, the rule on and off.
+/// `CLAUDE.md` is explicit that a switch is the only way to take both arms
+/// from one binary, and without one the comparison has to cross a rebuild,
+/// which is the confound this line has already been caught by twice today.
+fn roots_need_substrate() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOT_SUBSTRATE").as_deref(), Ok("off")))
+}
+
 /// **Does `(x, y)` touch ground in any of its eight neighbours?** Soil,
 /// sand, gravel or rock — anything that is not living tissue, air or water.
 ///
@@ -257,7 +274,7 @@ fn growable(world: &World, x: i32, y: i32, penetration_force: f32) -> bool {
         // **`penetration_force` is the root/shoot discriminator and that is
         // checked rather than assumed**: across all seven shipped species it
         // is `0.0` on every shoot behaviour and non-zero only on `RootTip`.
-        return penetration_force <= 0.0 || touches_substrate(world, x, y);
+        return penetration_force <= 0.0 || !roots_need_substrate() || touches_substrate(world, x, y);
     }
     if penetration_force <= 0.0 {
         return false;
@@ -1424,6 +1441,140 @@ fn organ_shade(world: &World, organism_id: u16, material_id: material::MaterialI
 /// because the failure it prevents is silent: a site that forgets it makes a
 /// flower out of wood, which looks like ordinary stem and reads as "the
 /// mechanism did nothing".
+/// **Where does root material land on a cell that is not a root?** — the §W6
+/// origin trace. Off unless `PIXEL_PHYSICS_ROOT_TRACE=1`.
+///
+/// `examples/root_sky.rs` counts a **standing** population — 785 root-material
+/// cells above the soil line on the card's world, of which 250 are
+/// `DormantBud`. `CLAUDE.md`'s rule is that a standing artifact and the rate
+/// that creates it are different questions, and the census cannot tell which
+/// of the four sites that write a cell put root material on shoot tissue. It
+/// also cannot be reasoned out from the assets: every species declares
+/// `lateral: Some(RootTip)` on its root and `plastochron: [0]`, so on paper
+/// no root ever produces a non-root cell and no root ever reaches a node.
+/// Something does it anyway. This says which site, and where.
+///
+/// `MatureBody` is excluded deliberately — it is the one type genuinely
+/// shared by root and shoot, so a rootwood `MatureBody` is a *settled root*
+/// and not an anomaly. `GrowingTip`, `Leaf` and `DormantBud` are shoot-only.
+///
+/// **`thicken` is therefore not traced**, and that is a conclusion rather
+/// than an omission: it only ever writes `MatureBody`, so it can spread root
+/// material but cannot be the site that first puts it on shoot tissue. A
+/// trace call there would be dead code that reads like coverage.
+///
+/// Deliberately **not** a `World` field: `world.rs` is the second most
+/// collided file in this repo (103 landings) and this is scaffolding, not a
+/// shipped counter. The env read is a `OnceLock` bool checked before any
+/// material lookup, so the shipped path costs one relaxed load.
+/// **Root or shoot?** — `None` where the answer is genuinely "either".
+///
+/// `MatureBody` is the deliberate `None`: it is what a settled root *and* a
+/// settled stem both retire into, which is exactly the agreement
+/// `builtin_fate`'s `Stale` arm calls the point rather than a coincidence. A
+/// cell arriving there keeps whatever it was made of. `Leaf`, `Flower` and
+/// `Fruit` are `None` for the opposite reason — they already take their
+/// material from the species at their own placement sites.
+fn tissue_role(t: CellType) -> Option<bool> {
+    match t {
+        CellType::RootTip => Some(true),
+        CellType::GrowingTip | CellType::DormantBud => Some(false),
+        _ => None,
+    }
+}
+
+/// **A cell that changes role changes tissue** — §W6's fix, at the one site
+/// where a role actually flips.
+///
+/// Material propagates from the parent: `germinate` seeds one `rootwood` cell
+/// and one `wood` cell and every cell `Grow` creates copies its parent's, so
+/// the root/shoot split stands up with no cell-type-to-material table
+/// anywhere. That is correct exactly as long as a root's descendants stay
+/// roots.
+///
+/// **They do not.** `organism::FateOp::Retarget` may rewrite any fate slot to
+/// any `PLANT_CELL_TYPES` entry, and a lineage that retargets its root's
+/// `Grew` rule from `MatureBody` to `GrowingTip` turns its root tips into
+/// *shoot* tips — a legitimate evolutionary move and a real plant behaviour
+/// (root-borne suckers). Traced on the owner's own world
+/// (`PIXEL_PHYSICS_ROOT_TRACE=1`, review card 168b0f): **22
+/// `RootTip -> GrowingTip` conversions**, the first at (102, 200) on the soil
+/// line, and an ordinary shoot growing 80 cells into the air out of it, made
+/// of rootwood the whole way. That is the owner's pale-cream plant, and it is
+/// why both substrate gates measured as a null — the tissue in the sky is a
+/// *shoot*, and shoots belong in the air.
+///
+/// **The swap belongs at the flip, not at every creation site.**
+/// `organ_material`'s lookup is `id_of(name)`, a string hash, and `Grow` is a
+/// hot path while a role change is rare — `CLAUDE.md`'s *guard hot-path work
+/// at the call site that already has the data*. Fixing the source fixes every
+/// descendant for free, because propagation from a correct parent is correct:
+/// the swapped `GrowingTip` retires to a `wood` `MatureBody`, whose bud is
+/// `wood`, whose flush is a `wood` tip.
+///
+/// **Not only cosmetic**, which is why it is behind an ablation rather than
+/// shipped quietly: `update::root_reinforced` keys on the *material*, so
+/// tissue that stops being rootwood also stops holding loose powder against
+/// falling.
+fn retissue_on_role_change(
+    world: &World,
+    organism_id: u16,
+    species_id: organism::SpeciesId,
+    cell: Cell,
+    from: CellType,
+    to: CellType,
+    rng: &mut Rng,
+) -> Cell {
+    if !plant_tissue_follows_role() {
+        return cell;
+    }
+    let (Some(was_root), Some(is_root)) = (tissue_role(from), tissue_role(to)) else {
+        return cell;
+    };
+    if was_root == is_root {
+        return cell;
+    }
+    let sp = world.species.get(species_id);
+    let name = if is_root { &sp.root_material } else { &sp.shoot_material };
+    // Falls back to the cell as it stands if the species names a material this
+    // world has not loaded — the same tolerance `organ_material` has for a
+    // stripped asset set.
+    let Some(m) = world.materials.id_of(name) else {
+        return cell;
+    };
+    let shade = banded_shade(world, organism_id, m, Band::Bark, rng);
+    Cell::new(m, shade).with_organism_id(cell.organism_id()).with_aux(cell.aux())
+}
+
+/// `PIXEL_PHYSICS_PLANT_TISSUE_ROLE=off` restores the pre-fix behaviour, so
+/// both arms of a comparison come from one binary — this line has twice been
+/// caught comparing across a rebuild.
+fn plant_tissue_follows_role() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_PLANT_TISSUE_ROLE").as_deref(), Ok("off")))
+}
+
+fn trace_root_material(world: &World, x: i32, y: i32, from: Option<CellType>, ty: CellType, m: material::MaterialId, site: &str) {
+    use std::sync::atomic::{AtomicUsize, Ordering};
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    if !*ON.get_or_init(|| matches!(std::env::var("PIXEL_PHYSICS_ROOT_TRACE").as_deref(), Ok("1"))) {
+        return;
+    }
+    if !matches!(ty, CellType::GrowingTip | CellType::Leaf | CellType::DormantBud) {
+        return;
+    }
+    if !world.materials.get(m).reinforces_powder || !matches!(world.materials.kind(m), MaterialKind::Plant) {
+        return;
+    }
+    static N: AtomicUsize = AtomicUsize::new(0);
+    let n = N.fetch_add(1, Ordering::Relaxed);
+    if n < 200 {
+        eprintln!("root-trace {n:>3}: {site}: {from:?} -> {ty:?} in root material at ({x}, {y}), frame {}", world.frame);
+    }
+}
+
 fn tissue_appearance(
     world: &World,
     organism_id: u16,
@@ -4220,6 +4371,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // the fifth invisible label change wearing a sixth costume.
                 let (child_material, shade) =
                     tissue_appearance(world, organism_id, species_id, child_type, cell.material, Band::Bark, &mut rng);
+                trace_root_material(world, tx, ty, Some(cell_type), child_type, child_material, "grow-child");
                 // Canopy density deposited once, here, at creation --
                 // `organism::diffuse_resource`'s own doc explains why this
                 // lives at the moment of growth rather than a continuous
@@ -4263,6 +4415,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // tree test immediately started failing -- the call had been
                 // a silent no-op since this behavior shipped.
                 resource -= step_cost;
+                trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-after-grow");
+                let cell = retissue_on_role_change(world, organism_id, species_id, cell, cell_type, self_type_after_grow, &mut rng);
                 world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                 write_carbon(world, x, y, resource);
                 // **Priming costs nothing and buys nothing yet.** The mark
@@ -4435,6 +4589,7 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // sterile plant.
                             let (branch_material, branch_shade) =
                                 tissue_appearance(world, organism_id, species_id, lateral_type, cell.material, Band::Bark, &mut rng);
+                            trace_root_material(world, bx, by, Some(cell_type), lateral_type, branch_material, "grow-lateral");
                             let branch_cell =
                                 Cell::new(branch_material, branch_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(lateral_type));
                             if lateral_type.is_organ() {
@@ -4498,6 +4653,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                             // No structural check here either -- see the
                             // primary child's identical case above.
                             resource -= branch_step_cost;
+                            trace_root_material(world, x, y, Some(cell_type), self_type_after_grow, cell.material, "relabel-blocked");
+                            let cell = retissue_on_role_change(world, organism_id, species_id, cell, cell_type, self_type_after_grow, &mut rng);
                             world.set(x, y, cell.with_aux(organism::pack_cell_type(self_type_after_grow)));
                             write_carbon(world, x, y, resource);
                             next.push(reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL)));
@@ -11073,9 +11230,44 @@ fn thicken(world: &mut World, x: i32, y: i32, organism_id: u16, pipe_ratio: f32,
         // there is nothing to truncate: this places one cell or none. The
         // gradedness lives in *how often* a stem can afford one.
         if (world.is_empty(nx, ny) || own_leaf) && world.carbon_at(x, y) >= wood_cost {
+            let cell = world.get(x, y);
+            // **Root tissue thickens into ground, not into sky** -- the same
+            // rule `growable` applies to root *growth*, applied to the other
+            // site that writes cells.
+            //
+            // W6 gated extension and stopped there, and the gap is exactly
+            // the shape `CLAUDE.md` warns about in *which object does this
+            // rule evaluate*: `growable` is asked before a tip *grows*, and
+            // `thicken` never asks it, because thickening lays a cell beside
+            // an existing one rather than advancing a frontier. So a settled
+            // root cell at the surface went on laying rootwood upward into
+            // open air with the growth gate fully on. Measured on `grove`
+            // seed 1, 24,000 frames, the shipped arm: **53 root-material
+            // cells above the soil line, every one a `MatureBody`** -- i.e.
+            // thickened, not grown -- **and every one under open sky**, up
+            // to 12 cells proud of the ground. The organism walk that
+            // preceded this census reported 0, because it asked which cells
+            // a live plant *registers* rather than what the grid holds.
+            //
+            // The discriminator is the **material**, not the cell type:
+            // `MatureBody` is shared by root and shoot, and root material is
+            // what `update.rs::root_reinforced` keys on, so a rootwood cell
+            // standing in the air also glues loose soil to itself.
+            // `reinforces_powder` is a `Vec` index on a `Cell` this site
+            // already holds -- `CLAUDE.md`'s *guard hot-path work at the
+            // call site that already has the data*, rather than a
+            // `id_of("rootwood")` string hash in the sweep.
+            //
+            // Shares `roots_need_substrate()` with the growth gate so the
+            // pair is one ablation and both arms come from one binary.
+            if roots_need_substrate()
+                && world.materials.get(cell.material).reinforces_powder
+                && !touches_substrate(world, nx, ny)
+            {
+                continue;
+            }
             write_carbon(world, x, y, world.carbon_at(x, y) - wood_cost);
             world.wood_cells_built += 1;
-            let cell = world.get(x, y);
             // **Banded here too, and this is the site that matters most for
             // bark colour**: secondary thickening lays far more wood than
             // extension does, so a trunk whose girth cells kept the old
@@ -16863,6 +17055,142 @@ is enough to point a tip at it"
         assert!(growable(&w, 100, 65, ROOT), "a root must still enter a cavity underground -- walls are ground");
         w.set(100, 64, Cell::EMPTY);
         assert!(growable(&w, 100, 64, ROOT), "a root must still cross a gap inside the bed");
+    }
+
+    /// **A cell that changes role changes tissue** — §W6's actual fix.
+    ///
+    /// The trace (`PIXEL_PHYSICS_ROOT_TRACE=1`) put the whole population on
+    /// one transition: **`RootTip -> GrowingTip`, 22 times**, first at
+    /// (102, 200) on the soil line, with an ordinary shoot growing 80 cells
+    /// into the air out of it in rootwood. Only `FateOp::Retarget` can
+    /// produce that transition — no shipped species declares it and
+    /// `builtin_fate` gives `MatureBody` — so this is the genome doing
+    /// something it is allowed to do, and the material has to keep up.
+    ///
+    /// Four arms, because a swap rule that only swaps is half-tested: the
+    /// conversion, the reverse conversion, the shared destination it must
+    /// leave alone, and the non-change it must not touch.
+    #[test]
+    fn a_cell_that_changes_role_changes_tissue() {
+        let mut w = test_world();
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        let id = w.push_organism(tree).expect("an organism slot is free");
+        let mut rng = rng::stream(id as u64, 0, 0, 0);
+
+        let root_cell = Cell::new(rootwood, 0).with_organism_id(id);
+        let shoot_cell = Cell::new(wood, 0).with_organism_id(id);
+
+        // **The conversion the owner is looking at.** A root tip retargeted
+        // into a shoot tip must stop being made of root wood.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::GrowingTip, &mut rng);
+        assert_eq!(
+            out.material, wood,
+            "a root tip that became a SHOOT tip kept root material -- this is the cell that then grows 80 cells \
+into the sky as a pale-cream stem"
+        );
+
+        // The reverse is equally reachable: `Retarget` picks a slot and a
+        // type at random, so a shoot tip can become a root tip too.
+        let out = retissue_on_role_change(&w, id, tree, shoot_cell, CellType::GrowingTip, CellType::RootTip, &mut rng);
+        assert_eq!(out.material, rootwood, "a shoot tip that became a ROOT tip must become root tissue");
+
+        // **`MatureBody` is not a role.** Both a settled root and a settled
+        // stem retire into it, so a cell arriving there keeps what it was
+        // made of -- swapping here would repaint every root system on the
+        // frame its tips retire.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::MatureBody, &mut rng);
+        assert_eq!(out.material, rootwood, "settled root tissue must stay root tissue -- MatureBody is shared");
+
+        // A relabel that is not a role change touches nothing.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::RootTip, &mut rng);
+        assert_eq!(out.material, rootwood, "a root that stayed a root must not be repainted");
+
+        // The cell keeps its identity across the swap: only the tissue moves.
+        let out = retissue_on_role_change(&w, id, tree, root_cell, CellType::RootTip, CellType::GrowingTip, &mut rng);
+        assert_eq!(out.organism_id(), id, "the swap must not orphan the cell from its plant");
+    }
+
+    /// **A root may not *thicken* into the sky either** — §W6's second site.
+    ///
+    /// The sibling of the test above, and the reason there are two: that one
+    /// gates `growable`, which is asked before a tip **grows**, and `thicken`
+    /// never asks it, because secondary thickening lays a cell *beside* an
+    /// existing one rather than advancing a frontier. Gating extension alone
+    /// left the defect fully alive — measured on `grove` seed 1, 24,000
+    /// frames, with the growth gate on: **53 root-material cells above the
+    /// soil line, every one a `MatureBody` and every one under open sky.**
+    ///
+    /// Three arms, matching the growth guard's shape, because a rule that
+    /// only refuses is half-tested: the refusal, the shoot that must be
+    /// untouched, and the underground cavity the rule must not over-reach
+    /// into.
+    #[test]
+    fn a_root_may_thicken_into_a_cavity_but_not_into_the_sky() {
+        let mut w = test_world();
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let rootwood = w.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        assert!(
+            w.materials.get(rootwood).reinforces_powder && !w.materials.get(wood).reinforces_powder,
+            "this test's discriminator is `reinforces_powder`; if that ever stops separating root from shoot \
+material the rule under test is keying on the wrong bit and this guard must fail, not be updated"
+        );
+        let tree = w.species.id_of("tree").expect("tree is a compiled-in species");
+        for y in 61..69 {
+            for x in 90..110 {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+
+        // A lone cell has no `supply_direction`, so `cross_section_axis`
+        // falls back to horizontal -- thickening tries left and right. That
+        // is asserted rather than assumed by the shoot arm below, which uses
+        // the identical geometry and *must* place a cell.
+        let starved = |w: &World, id| w.get(99, 59).organism_id() == 0 && w.get(101, 59).organism_id() == id;
+
+        // **The refusal.** A root two cells clear of the bed, with nothing
+        // but air on either side of it.
+        let root_id = w.push_organism(tree).expect("an organism slot is free");
+        place(&mut w, (100, 59), rootwood, root_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(root_id as u64, 100, 59, 0);
+        thicken(&mut w, 100, 59, root_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert_eq!(
+            w.get(99, 59).organism_id(),
+            0,
+            "a root cell laid rootwood into open air -- W6's other site, and the one the growth gate cannot see"
+        );
+        assert_eq!(w.get(101, 59).organism_id(), 0, "...on the other side too");
+        let _ = starved;
+
+        // **A shoot is unaffected**, same geometry, same carbon: open air is
+        // where a stem thickens, and this arm is also what proves the axis is
+        // horizontal and the carbon sufficient, so a green refusal above
+        // cannot be the gate never firing at all.
+        let shoot_id = w.push_organism(tree).expect("a second organism slot is free");
+        place(&mut w, (100, 55), wood, shoot_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(shoot_id as u64, 100, 55, 0);
+        thicken(&mut w, 100, 55, shoot_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert!(
+            w.get(99, 55).organism_id() == shoot_id || w.get(101, 55).organism_id() == shoot_id,
+            "a shoot must still thicken into open air -- if this fails the refusal above proves nothing"
+        );
+
+        // **The over-reach guard**: a cavity inside the ground is not the
+        // sky, exactly as for growth. A root thickening into an ant gallery
+        // has walls against it and must still do it.
+        let cavity_id = w.push_organism(tree).expect("a third organism slot is free");
+        w.set(94, 65, Cell::EMPTY);
+        place(&mut w, (95, 65), rootwood, cavity_id, CellType::MatureBody, (1000.0, 0.0));
+        let mut rng = rng::stream(cavity_id as u64, 95, 65, 0);
+        thicken(&mut w, 95, 65, cavity_id, 1.0, 1000.0, 1.0, &mut rng);
+        assert_eq!(
+            w.get(94, 65).organism_id(),
+            cavity_id,
+            "a root must still thicken into a cavity underground -- walls are ground, and a rule that stops \
+this costs more than the bug"
+        );
     }
 
     /// **A severed crown is shed; an intact plant loses nothing** — §W7.

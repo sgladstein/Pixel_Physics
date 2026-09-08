@@ -616,6 +616,21 @@ more of itself to load. On a mixed stand you can pick out which trees will
 survive a burial and which will shed limbs, by colour, before anything is
 piled on them.
 
+**New on 2026-09-08: pale root wood is underground tissue, and it stays
+underground.** Roots are a paler, sandier colour than bark, and that
+difference is how you tell, at a glance, where a plant ends and its root
+system begins. It used to be possible for a whole plant to come up pale — a
+stem, its branches and its leaves all in root colour, standing eighty cells
+into open sky — and it was not a trick of the light. Plants can *evolve* to
+send shoots up out of their roots, which real plants do too, and when one did,
+the new shoot was built out of the tissue it grew from rather than the tissue
+it had become. A cell that changes what it is now changes what it is made of,
+so a shoot growing from a root is bark from its first cell, and pale tissue
+above the soil line means a root flare and nothing more.
+
+It matters past appearance: root tissue holds loose soil against falling, and
+a plant made of the wrong stuff was gripping the air.
+
 A freshly seeded stand is mixed on both axes from the first frame, so this is
 visible immediately rather than only after generations. What selection then
 does to those proportions is the thing worth watching over a long run.
