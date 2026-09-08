@@ -1114,6 +1114,210 @@ species genome, none of which ever breeds. So "a genome append moves every
 seeded scene" is true only of scenes that reproduce, and the ones that do not
 are a free byte-identity check across an append.
 
+## Round sixteen, 2026-09-06 evening — a child can be made differently, and nothing names a caste
+
+*Same branch as round fourteen (`claude/evolution-lab-signature-castes-gfm0r2`),
+restarted from `main` after #267 and #271 landed. The owner's question was
+"how much of this caste design is hard-coding behaviour I don't want, versus
+making it possible in the engine?" — and the answer overturned §2 of the
+report: the authored soldier morph came out, and what went in is the general
+channel. Record:
+[`../creature-signature-and-castes-2026-09-06.md`](../creature-signature-and-castes-2026-09-06.md)
+§2c–§2g; shipped half in README's "Creature groups status", third block.*
+
+**Landed:** `BrainOutput::Provision` (read once at budding), `BrainInput::Made`,
+`OrganismState::made` (a phenotype: not inherited, not jarred, zero for every
+founder), a positional developmental block after the last brain block
+(`brain::TRAIT_SLOTS`, `dev_slot`, `Plastic(slot, weight)` in the jar's sparse
+form and in a species file as `plastic:`), `creature::expressed_traits` —
+genotype plus `plasticity × made × block` inside each allele bound — behind
+every phenotype reader, and `World::plasticity` on the GENOME page at zero.
+`mutation_rate` re-derived 3.18/706. `labstats` grew `plasticity= provision=
+dev=` and a `--- development ---` block; `creature_arena` grew `dev=` and
+`plasticity=`, so the race for the channel is one genome under two dials.
+
+**What the work overturned, which a later session cannot reconstruct:**
+
+- **A caste is not a thing the engine should know.** §2c's first draft had
+  `TRAIT_MORPH`, a soldier's armour and jaw authored in the species file, and
+  a "make a soldier" output. Every one of those is a decision about what a
+  caste *is*, made by us; the owner's ruling is that the engine makes castes
+  *possible* and a line finds them or does not. So there is one number handed
+  at birth, one heritable linear map from it to the body, and one dial. What
+  is still authored is the engine's limit, not a design: bodies vary only
+  along the fourteen trait axes that exist, development is one scalar handed
+  once, and the map is linear.
+- **The dial gates the expressing, not the handing, and that is the control
+  that proves the channel.** With `Bias → Provision` wired on every ant at
+  dial zero, 28 of 44 living children still carry `made = 0.5` and no body
+  moves (within-line armour spreads 0.08–0.32, the mutational floor); at dial
+  one the same wiring spreads one line 0.000 .. 0.647. A reader who only
+  measured the dial-up arm would not know which half of the channel moved.
+- **A provision keyed on a sense hands almost nothing; a line has to find the
+  bias term.** `Crowding → Provision = 2.0` made 1 child of 20 over 0.25,
+  because an ant that has just afforded a child is rarely in a crowd. The
+  sense-keyed castes the wiki describes are reachable, but they are a
+  two-weight wiring at minimum.
+- **The shipped bed is not byte-identical and cannot be** — a genome append
+  moves every birth's mutation draws — so the acceptance is a paired seed
+  sweep, and it reads as the same distribution on three seeds with the block
+  at zero on every slot.
+- **"Selected for" does not follow from "connected", and the arena says so
+  in one run.** The developmental race on the bed with teeth reads dial 1 at
+  a median 50.9% against dial 0 at 51.6% on the same genome, 3 seeds below
+  half in each — the harness's null. Two structural reasons, both the bed's:
+  the living at 24,000 frames are mostly founders (deepest generation 3–7
+  against 52 founders per arm), and a +0.40 plate at the shipped reach is
+  under the bite (the plate passes it only above reach 3). A session that
+  wants *found* runs the same command at `reach≥3` on a bed where children
+  are the majority; do not read this null as the mechanism being dead —
+  the positive controls say it is not.
+
+- **Two of round fifteen's guards were riding on births, and the rate
+  re-derivation is what showed it.** `the_jaw_allele_decides_what_an_animal_
+  can_cut` and `a_maximally_armoured_ant_is_graded_only_when_the_reach_
+  allows_it` give their animals 100,000 energy, so they breed inside the
+  budget, and which slots a child mutates moves with `mutation_rate`; the
+  637 → 706 re-derivation flipped both (0 digs at the top of the jaw axis;
+  one defender of six standing at the shipped reach) with jaw and plate
+  untouched. Bisected to the three `.ron` lines, confirmed by restoring
+  the old rate. Both now breed clones (`mutation_rate = 0.0` on the test's
+  own species copy), watched going red with their faults back. The general
+  form is `CLAUDE.md`'s shared-`Rng` gotcha one step out: a guard over a
+  mechanism must not be a function of what a child happened to draw, and
+  every append re-derives the rate, so any guard that lets its animals
+  breed is one append from flipping.
+
+**Owner decision, later the same evening: *"ship plasticity on."*** The
+dial landed at zero with a card asking 0 or 1; the answer came in chat.
+`creature::PLASTICITY_DEFAULT` is 1.0, `World` starts there, `Dials` loads a
+pre-key file at it (a named serde default, for `trait_reach`'s reason). It
+changes nothing until a line wires `Provision` — an unwired output is
+exactly 0 — so the shipped box is one in which a caste can be found and
+none has been; the one-comparison cost holds until then. Report §2h.
+Measured on the merged head: the two-colony bed at the shipped dial is
+**byte-identical** to the same binary at `plasticity=0` on three seeds
+(24,000 frames), and at 48,000 frames on the seed that breeds (84 births)
+no line has wired `Provision` — the block reads zero on every slot.
+
+**Environment, one line:** the two-colony `labstats` bed breeds on seed 2
+(32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
+a positive control over births goes to seed 2, and the arena's bed with teeth
+is round fifteen's `founders=48 predators=4`.
+
+## Round seventeen, 2026-09-06 — the tick, 2-5x, without changing a cell
+
+*Owner: "increase the performance so I can run at faster rates... I am
+looking for 2-10x", and then "the most important performance to fix is once
+the game is full of ants and plants and all the chunks are awake." Branch
+`claude/evolution-lab-perf-bn821i`. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§16**; the shipped behaviour is README's "Lab speed-dial status". Every
+commit is bit-identical — world hash and field hash, per commit, against a
+saved baseline binary — so there is no seed sweep, no re-derived constant and
+no owner verdict in it. Only what a later session cannot reconstruct is here.*
+
+- **The frame was not the plants' economy; it was what one awake chunk
+  buys.** A `perf` profile put ~24% in the soil-moisture pass reading the
+  world through a `HashMap` probe per cell, ~14% in SipHash over
+  `ChunkCoord` keys, ~20% in the kernel and rayon's spin-then-sleep for jobs
+  of one chunk or sixteen field cells, and ~10% in a field that solved
+  pressure, velocity and advection over every tile of a sealed box with no
+  wind in it. That is the owner's own curve — an empty box at 1024x, one
+  small plant at 20x, a full box under 1x — stated as a mechanism.
+- **Five pure changes, 2.2x on the full box and 4.6x on one small plant**
+  (§16.3): a fixed-seed hasher on every hot map, a dense `ChunkGrid` behind
+  `World::get`, inline `FieldTile` arrays, serial fallbacks below a size
+  threshold for the sweep and the field, and the momentum skip freed from its
+  never-met "no chunk awake" condition. Then `rebuild_blocked` rescanning
+  only written blocks (`Chunk::stale_blocks`, fed by *both* write channels
+  because `moisture_source` reads soil wetness): the field 0.52 → 0.19 ms on the full box, the whole tick 2.98 → 2.72 (`7d46b88a`). Base to here: **full box 6.6 → 2.7 ms (2.4x, dial 2.6x → 6.0x), 128 founders + colony 7.0 → 2.8 (2.5x), 16 trees 4.1 → 1.1 (3.7x, dial 4.0x → 15x), one small plant 2.8 → 0.5 (5.7x, dial 6x → 34x)**.
+- **Rayon is a net cost at lab scale, measured before it was assumed.** The
+  tick ran ~10% faster on one thread than on four, the field 20-25%. The
+  dispatch thresholds are env-overridable (`PIXEL_PHYSICS_PAR_MIN_CHUNKS`,
+  `PIXEL_PHYSICS_PAR_MIN_TILES`) so the outdoor world is untouched and the
+  A/B arm exists. The owner's "my CPU is only 40% active" was workers
+  spinning, not a serial phase waiting to be parallelised.
+- **The hash check is a script, and the field needs its own.** A field-only
+  change cannot move the grid for many frames, so `lab_cost` now prints
+  `field hash` beside `world hash`. Every commit on this branch was checked
+  with each new switch forced back to the old behaviour against the
+  defaults, on both beds.
+- **The positional-RNG report's step-2 gate is now run**, and the spans
+  fail it on the herb bed too: four different hashes from `rng` x `sweep`.
+  `dead-ends.md` already carries the finding from 2026-09-05; this only
+  reproduces it on a second bed.
+- **Instruments that lied by omission, fixed:** `FIELD_PASS` prints `blocks`
+  (the "did it fire" counter for the partial rescan) beside `solved` and
+  `momentum`; `momentum` reading 0 is what says the skip is taken.
+
+**Next, in the order the full-box profile puts it** (§16.4): the moisture
+pass (chunk-local reads, then fewer visits — which is a behaviour change and
+wants a switch), pheromones (an exact integer sliding window, ~3x on 0.43
+ms), the plant passes. The sweep spans stay off: they drop real work.
+
+## Round eighteen, 2026-09-07 — the moisture pass, and where the tick now is
+
+*Branch `claude/evolution-lab-tick-speed-ln4tdp`, working round seventeen's
+handed-forward list. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§17.** Two pure changes gated on `world hash` + `field hash` on both beds, one
+behaviour change behind a switch with a blind A/B in the owner's queue. Only
+what a later session cannot reconstruct is here.*
+
+- **The full box on this box is not the full box in §16's table, and that is
+  not a regression.** Same command, same `main`: 2.10 ms here against 2.72
+  there, with `pheromones` *larger* (0.57 vs 0.43) and `ca_sweep` smaller
+  (0.98 vs 1.52). So §16's per-phase shares do not transfer, and every figure
+  in §17 is paired against a baseline binary built and run in the same
+  session. **Do not carry a phase share across machines here.**
+- **The pheromone window and the moisture chunk-view are both in, both
+  bit-identical**: pheromones 2.6x on the phase, the moisture pass −0.23 to
+  −0.35 ms of `ca_sweep` on the tree and herb beds. **On the full box the
+  chunk-view is inside the run-to-run spread** — `ca_sweep` falls by 0.06
+  every pair and `active_sites` rises by 0.03 every pair, three pairs up and
+  three down on the whole frame. Its win scales with `sw seen`, and the
+  256-founder bed at frames 8,000-12,000 has crowded itself down to 6,982
+  visits a tick where the 128-founder bed at 3,000 has 30,662.
+- **Fewer visits is the item that actually moved the full box**, and it is a
+  behaviour change: `PIXEL_PHYSICS_MOISTURE_MARKS=cells`, **default off**,
+  a per-cell bitmap dilated by the 4-neighbourhood instead of the row hull.
+  Base to switch-on across the four beds: **1.30x, 1.40x, 1.33x, 1.21x**,
+  visits down 1.9x to 2.9x, `sw chgd` within 0.3% — a third of the visits
+  moving the same water. Standing biomass +6.5% / +1.0% / +0.5% / 0%. Blind
+  A/B `20260907T030350034Z-de4164` asks whether the bed looks any different;
+  **the default flip is the owner's and was deliberately not taken** — and
+  those biomass figures are four beds at **one seed each**, so the sweep
+  `CLAUDE.md` asks for over a model touching procedural content is owed
+  before it moves. What one seed does establish is the null it had to
+  exclude: the bed did not die.
+- **Two things a timing alone would have called wins.** `end_sweep` seeded
+  the new bitmap under `as_mut()` where `take_moist_plan` leaves it `None`
+  every tick, so the ordinary channel's contribution vanished from the second
+  tick on: `sw seen` **exactly 0 by frame 6**, the frame 3x faster, and the
+  world hash equal to `SOIL_WATER=off`'s. And the new plumbing cost the
+  *default* path +0.03 ms — a third of what the switch buys — from routing
+  the span walk through the bitmap's shape and from a `OnceLock` read inside
+  `mark_moist_dirty`, which is per write. Both measured out; the switch now
+  resolves once into a `Chunk` field.
+- **`ORGANISM_PASS` reframes the flat profile, and this is the reusable
+  finding.** `perf` puts `transport` + `organism_upkeep` at 2.9% of samples,
+  which reads as "the plants are not the problem". They are leaf frames:
+  `step_organisms` whole is **0.243 ms of a 1.76 ms frame, 14%**, charged to
+  `active_sites` — **the plants are 55% of that phase**. `upkeep` 0.075 and
+  `transport` 0.093 are two thirds of it. That is the next item.
+- **`labshot` takes `channel=`** now (`soil|celltype|resource`), because the
+  shipped material colours tint wet soil so faintly that a card about a
+  wetness profile is unreadable in them.
+
+**Next, in the order the profile puts it** (§17.5): the plant passes
+(`transport`, `organism_upkeep` — hoist `world.get`/`organism_cell` into
+per-pass arrays, §12's pattern; **not** binary search over the index maps,
+§12.4); the moisture pass again, where what is left is per-cell arithmetic
+rather than addressing; and `roundf` at 1.7% of samples, which is the
+pheromone blend's `.round()` as an out-of-line libm call — cheap, and **not**
+free of behaviour risk, so it needs the hash gate rather than an argument.
+
 ## Deliberately not being built yet
 
 The score and the economy — the guide's Gate 5. **Gate 2, does selection have

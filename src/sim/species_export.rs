@@ -150,6 +150,7 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
     creature.hidden_wiring = wiring.hidden;
     creature.hidden_outputs = wiring.outputs;
     creature.recurrence = wiring.recurrence;
+    creature.plastic = wiring.plastic;
 
     Ok(SpeciesDef {
         name: name.to_string(),

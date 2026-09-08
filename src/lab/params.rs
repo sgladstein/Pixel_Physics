@@ -886,6 +886,20 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
                 span(0.0, creature::TRAIT_REACH_MAX, 0.25),
                 "HOW FAR A LINEAGE MAY EVOLVE ON THE TWO ROWS THAT ARE READ AGAINST EACH OTHER -- ARMOUR AND DIG FORCE -- AS A MULTIPLE OF THE RANGE EVERY OTHER ROW HAS. AT 1, THE SHIPPED SETTING, THE BEST PLATE AN ANT CAN REACH IS HALF WHAT AN ANT'S BITE OPENS, SO ANT AGAINST ANT IS ONE BITE WHOEVER BITES FIRST -- NO GRADING AND NO BEING OVERWHELMED. WIND IT UP AND A LINEAGE CAN GROW A SHELL THAT TAKES SEVERAL BITES, AND ANOTHER CAN GROW THE JAW THAT ANSWERS IT: AT 8 A MAXIMALLY ARMOURED ANT TAKES FIVE OR SIX BITES FROM AN ORDINARY ONE. BOTH SIDES MOVE TOGETHER ON PURPOSE -- WIDENING ONLY THE SHELL WOULD DECIDE THE FIGHT INSTEAD OF OPENING IT. NEITHER IS FREE: A THICKER PLATE AND A HARDER JAW ARE BOTH BILLED EVERY TURN ON THE COSTS PAGE. ZERO IS THE OTHER USEFUL END -- IT PINS BOTH ROWS WHERE THEY START, SO THEY STOP DRIFTING WHILE EVERYTHING ELSE GOES ON MUTATING, WHICH IS THE CONTROL ARM. IT REACHES EVERY ANIMAL IN THE BOX, IT IS FELT ON THE NEXT TICK, AND IT LASTS THE SESSION.",
             ));
+            // **The one dial over the developmental block**
+            // (`brain::TRAIT_SLOTS`), beside the dial over the two heritable
+            // rows it shares this page with -- both govern how far a body
+            // may sit from its ancestral genome, one across generations and
+            // this one within a single birth.
+            out.push(float(
+                g,
+                Knob::Heredity { field: "plasticity" },
+                "genome",
+                "plasticity",
+                world.plasticity,
+                span(0.0, 2.0, 0.05),
+                "HOW FAR A NEWBORN'S BODY MAY DIFFER FROM ITS GENES ACCORDING TO THE STATE ITS PARENT WAS IN. EVERY ANIMAL CARRIES A HERITABLE SET OF DEVELOPMENTAL WEIGHTS, ONE PER BODY TRAIT, AND A PARENT'S BRAIN HANDS EACH CHILD ONE NUMBER AT BIRTH FROM WHATEVER IT SENSES; THE CHILD'S BODY IS ITS GENES SHIFTED BY THE TWO MULTIPLIED, TIMES THIS. IT SHIPS AT 1, SO A LINE MAY FIND THAT A CROWDED OR A THREATENED PARENT SHOULD MAKE A DIFFERENT CHILD: AN ARMOURED ONE, A SMALL-CROP ONE, ONE NOBODY DESIGNED. NOTHING HERE SAYS WHICH; THAT IS THE LINE'S TO FIND, AND A LINE THAT HAS FOUND NOTHING MAKES CHILDREN EXACTLY OF ITS GENES. AT 0 EVERY ANIMAL IS EXACTLY ITS GENES WHATEVER ITS LINE FINDS. THE ANIMAL PAGE SHOWS WHAT EACH ONE WAS MADE WITH.",
+            ));
         }
     }
 }
@@ -985,7 +999,7 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
 
 /// **The world-level dials the parameters page exposes that are not a
 /// material or species field** — the three [`Knob::Rule`] switches and the
-/// five [`Knob::Heredity`] numbers, all plain fields on [`World`] with no
+/// seven [`Knob::Heredity`] numbers, all plain fields on [`World`] with no
 /// asset file of their own. Everything else the page can save round-trips
 /// through `assets/materials` or `assets/species`; these had no file at all
 /// until this type, which was the larger half of "There is no save"
@@ -1000,6 +1014,12 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
 /// -- the shipped reach, not `f32::default()`. See the field.
 fn shipped_trait_reach() -> f32 {
     creature::TRAIT_REACH_DEFAULT
+}
+
+/// The value a `lab_dials.ron` written before `plasticity` existed loads at:
+/// the shipped dial, for `shipped_trait_reach`'s reason.
+fn shipped_plasticity() -> f32 {
+    creature::PLASTICITY_DEFAULT
 }
 
 /// As `shipped_trait_reach`, for the alarm scent's decay.
@@ -1020,6 +1040,14 @@ pub struct Dials {
     /// mutating again. The named default is `creature::TRAIT_REACH_DEFAULT`.
     #[serde(default = "shipped_trait_reach")]
     pub trait_reach: f32,
+    /// `World::plasticity`. **A named default, for `trait_reach`'s reason,
+    /// since the owner shipped it on (2026-09-06)**: the derive's 0.0 is the
+    /// clonal control, not the shipped bed, so a dials file saved before
+    /// this key existed would otherwise silently switch development off.
+    /// (Until that ruling this was a plain `#[serde(default)]`, and 0.0 was
+    /// the truth; the ruling is what moved it.)
+    #[serde(default = "shipped_plasticity")]
+    pub plasticity: f32,
     /// `Pheromones::alarm_rho`. Named default for `trait_reach`'s reason: a
     /// dials file written before this key existed would otherwise load 0.0,
     /// which is an alarm that never fades — the exact setting the row's own
@@ -1055,6 +1083,7 @@ impl Dials {
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
             trait_reach: world.trait_reach,
+            plasticity: world.plasticity,
             alarm_decay: world.pheromones.alarm_rho(),
             mutation_sigma: world.mutation_sigma,
             fate_mutation_chance: world.fate_mutation_chance,
@@ -1085,6 +1114,7 @@ impl Dials {
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
         world.trait_reach = self.trait_reach;
+        world.plasticity = self.plasticity;
         world.pheromones.set_alarm_rho(self.alarm_decay);
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
@@ -1278,6 +1308,16 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                     return false;
                 }
                 world.trait_reach = value;
+                return true;
+            }
+            // **Ahead of the rate guard, for `trait_reach`'s reason**: this
+            // row's span runs to 2.0, so the shared 0..=1 predicate would
+            // refuse the top half of its own range.
+            if *field == "plasticity" {
+                if !(0.0..=2.0).contains(&value) {
+                    return false;
+                }
+                world.plasticity = value;
                 return true;
             }
             if !crate::sim::plant::settable_rate(value) {
@@ -1678,6 +1718,16 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
             genome.push((name.to_uppercase(), format!("{:+.3}", state.traits[*slot]),
                 format!("THIS ANIMAL'S OWN {}, INHERITED WITH JITTER RATHER THAN THE SPECIES VALUE ON THE ANTS PAGE. COMPARE THE TWO AND YOU ARE LOOKING AT HOW FAR THIS LINEAGE HAS DRIFTED.", name.replace('_', " ").to_uppercase())));
         }
+        // **The one phenotype in a group otherwise all genotype.** It sits
+        // under `GENOME` rather than `STATE` anyway, because it is drawn
+        // once at birth and carried for life exactly as the trait rows
+        // above it are -- the difference is only that it was never in the
+        // genome to begin with. See `OrganismState::made`.
+        genome.push((
+            "MADE".into(),
+            format!("{:+.2}", state.made),
+            "THE NUMBER THIS ANIMAL'S PARENT HANDED IT AT BIRTH. ITS BODY IS ITS GENES SHIFTED BY THIS TIMES ITS DEVELOPMENTAL WEIGHTS TIMES THE PLASTICITY DIAL. 0 FOR A FOUNDER OR A RELEASED JAR.".into(),
+        ));
         // **`forage_max`, not `since_nest`, and the swap is the same one the
         // roster's `FAR` row made.** This row read `SINCE NEST` and told the
         // reader that *"a number that only ever climbs is an ant that is
@@ -1933,6 +1983,7 @@ mod tests {
         world.plant_bending = true;
         world.mutation_sigma = 0.25;
         world.developmental_key = organism::DevelopmentalKey::Plant { coarseness: 3 };
+        world.plasticity = 0.6;
         Dials::from_world(&world).save().expect("save");
 
         let loaded = Dials::load_saved().expect("a just-saved file parses back");
@@ -1941,6 +1992,7 @@ mod tests {
         assert_eq!(loaded.mutation_sigma, 0.25);
         // coarseness 3 -> n - 1 == 3 -> n == 4, `Self::from_world`'s own encoding.
         assert_eq!(loaded.developmental_key, 4);
+        assert_eq!(loaded.plasticity, 0.6);
 
         let mut fresh = bed().0;
         loaded.apply_to(&mut fresh);
@@ -1948,6 +2000,7 @@ mod tests {
         assert!(fresh.plant_bending);
         assert_eq!(fresh.mutation_sigma, 0.25);
         assert_eq!(fresh.developmental_key, organism::DevelopmentalKey::Plant { coarseness: 3 });
+        assert_eq!(fresh.plasticity, 0.6);
 
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(Dials::ASSET_PATH_ENV);

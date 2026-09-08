@@ -49,7 +49,6 @@ use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player;
-use std::collections::HashSet;
 use std::time::Instant;
 
 fn arg<T: std::str::FromStr>(name: &str) -> Option<T> {
@@ -105,13 +104,13 @@ fn main() {
             // A fresh `Renderer` has no block cache, so it must do the full
             // scan -- asserted, or it is not a control.
             let mut control = Renderer::new();
-            control.draw(&world, &particles, &HashSet::new(), &mut control_buf, (vw, vh), true);
+            control.draw(&world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut control_buf, (vw, vh), true);
             assert_eq!(control.sky_light_rebuilds().full, 1, "the control arm did not do a full scan");
             // The subject's own last draw was dirty-rect, so its buffer is
             // only guaranteed correct where something was repainted. Draw it
             // again forced-full off the same world -- the cache stays exactly
             // as the run left it, which is the state under test.
-            renderer.draw(&world, &particles, &HashSet::new(), &mut buf, (vw, vh), true);
+            renderer.draw(&world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (vw, vh), true);
             let grid_diff = renderer
                 .sky_light_grid_for_test()
                 .iter()

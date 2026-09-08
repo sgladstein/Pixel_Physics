@@ -1090,7 +1090,6 @@ fn cast_fan(world: &World, beetle_mat: MaterialId, radius: i32, rays: usize) -> 
 fn overlay(frames: usize, beetles: usize, occl: Occl, eye: i32, out: &str, crop: &str, zoom: i32) {
     use pixel_physics::render::Renderer;
     use pixel_physics::sim::particle::ParticleSystem;
-    use std::collections::HashSet;
 
     let mut world = build_scene(SEED_BASE, beetles);
     for _ in 0..frames {
@@ -1103,7 +1102,7 @@ fn overlay(frames: usize, beetles: usize, occl: Occl, eye: i32, out: &str, crop:
     let mut frame = vec![0u8; (w * h * 4) as usize];
     let mut r = Renderer::new();
     r.pinned_light = Some(pixel_physics::sky::frame_for_daylight(0.5));
-    r.draw(&world, &ParticleSystem::new(), &HashSet::new(), &mut frame, (w, h), true);
+    r.draw(&world, &ParticleSystem::new(), &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (w, h), true);
 
     let ant_mat = world.materials.id_of("ant").expect("ant");
     let beetle_mat = world.materials.id_of("beetle").expect("beetle");

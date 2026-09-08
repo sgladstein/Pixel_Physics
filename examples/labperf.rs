@@ -39,7 +39,7 @@
 //! cargo run --release --example labperf -- settle=8000 probe=200 map=1
 //! ```
 
-use std::collections::HashSet;
+use pixel_physics::sim::fxhash::ChunkSet;
 use std::time::Instant;
 
 use pixel_physics::lab::scene::LabBox;
@@ -196,10 +196,11 @@ fn region_estimates(
     h: i32,
     local: bool,
 ) -> (u64, u64) {
+    use pixel_physics::sim::fxhash::ChunkMap;
     use std::collections::HashMap;
     // Per chunk: the bounding box of its changed cells, and per row the
     // min/max x of them.
-    let mut boxes: HashMap<ChunkCoord, (i32, i32, i32, i32)> = HashMap::new();
+    let mut boxes: ChunkMap<(i32, i32, i32, i32)> = ChunkMap::default();
     let mut spans: HashMap<(ChunkCoord, i32), (i32, i32)> = HashMap::new();
     for &(x, y) in changed {
         let c = ChunkCoord::containing(x, y);
@@ -256,7 +257,7 @@ fn region_estimates(
 }
 
 /// Cells that differ, and the distinct chunks holding them.
-fn diff(before: &[Cell], world: &World, w: i32, h: i32, seen: &mut HashSet<ChunkCoord>) -> u64 {
+fn diff(before: &[Cell], world: &World, w: i32, h: i32, seen: &mut ChunkSet) -> u64 {
     seen.clear();
     let mut n = 0u64;
     for y in 0..h {
@@ -487,7 +488,7 @@ fn run(
     };
     let mut before = Vec::with_capacity((spec.width * spec.height) as usize);
     let mut frame_before = Vec::with_capacity((spec.width * spec.height) as usize);
-    let mut seen = HashSet::new();
+    let mut seen = ChunkSet::default();
 
     for f in 0..probe {
         // Read off the world *before* the step: this is exactly the set

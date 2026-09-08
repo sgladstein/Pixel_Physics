@@ -78,7 +78,7 @@ fn render(world: &World, frame: &mut [u8]) {
     let mut r = Renderer::new();
     r.pinned_light = Some(pixel_physics::sky::frame_for_daylight(DAYLIGHT));
     let particles = ParticleSystem::new();
-    r.draw(world, &particles, &HashSet::new(), frame, (WIDTH, HEIGHT), true);
+    r.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), frame, (WIDTH, HEIGHT), true);
 }
 
 fn plane(frame: &[u8]) -> Vec<f32> {

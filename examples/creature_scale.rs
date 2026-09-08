@@ -37,7 +37,6 @@
 //! rule -- a log that does not name its settings was written by a binary
 //! that never had them.
 
-use std::collections::HashSet;
 
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
@@ -157,7 +156,7 @@ fn render(world: &World, w: u32, h: u32) -> Vec<u8> {
     let mut r = Renderer::new();
     r.pinned_light = Some(pixel_physics::sky::frame_for_daylight(DAYLIGHT));
     let particles = ParticleSystem::new();
-    r.draw(world, &particles, &HashSet::new(), &mut frame, (w, h), true);
+    r.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (w, h), true);
     frame
 }
 

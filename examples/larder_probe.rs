@@ -592,7 +592,6 @@ fn turnover(frames: usize, every: usize) {
 fn render(frames: usize, every: usize) {
     use pixel_physics::render::Renderer;
     use pixel_physics::sim::particle::ParticleSystem;
-    use std::collections::HashSet;
 
     // Crop to the nest and the air above it, zoomed, because a 512x160
     // sheet puts the whole question in a strip 74 px wide and a pile of ten
@@ -624,7 +623,7 @@ fn render(frames: usize, every: usize) {
 
     for f in 0..=frames {
         if f % every == 0 {
-            renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (W as u32, H as u32), true);
+            renderer.draw(&world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (W as u32, H as u32), true);
             let mut tile = vec![0u8; (CROP_W * ZOOM * CROP_H * ZOOM * 4) as usize];
             for ty in 0..CROP_H * ZOOM {
                 for tx in 0..CROP_W * ZOOM {
@@ -689,7 +688,6 @@ fn render(frames: usize, every: usize) {
 fn pair(frames: usize) {
     use pixel_physics::render::Renderer;
     use pixel_physics::sim::particle::ParticleSystem;
-    use std::collections::HashSet;
 
     const ZOOM: i32 = 6;
     const CROP_W: i32 = 96;
@@ -720,7 +718,7 @@ fn pair(frames: usize) {
         renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
         let particles = ParticleSystem::new();
         let mut frame = vec![0u8; (W * H * 4) as usize];
-        renderer.draw(&world, &particles, &HashSet::new(), &mut frame, (W as u32, H as u32), true);
+        renderer.draw(&world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (W as u32, H as u32), true);
         let mut tile = vec![0u8; (CROP_W * ZOOM * CROP_H * ZOOM * 4) as usize];
         for ty in 0..CROP_H * ZOOM {
             for tx in 0..CROP_W * ZOOM {

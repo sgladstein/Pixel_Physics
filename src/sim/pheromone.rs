@@ -351,6 +351,10 @@ impl PheromonePlane {
         let mut processed = 0;
         // Phase 1: compute into `back`, from `front` only.
         let mut new_max = self.tile_max.clone();
+        // Column sums for one row of one tile, plus the column either side of
+        // it -- see the window below. On the stack and reused across every
+        // tile, so the pass allocates nothing.
+        let mut cols = [0u32; TILE + 2];
         for ty in 0..self.th {
             for tx in 0..self.tw {
                 if !self.tile_awake(tx, ty) {
@@ -360,25 +364,65 @@ impl PheromonePlane {
                 let mut tile_peak = 0u8;
                 let x0 = tx * TILE;
                 let y0 = ty * TILE;
-                for ly in y0..(y0 + TILE).min(self.h) {
-                    for lx in x0..(x0 + TILE).min(self.w) {
-                        let here = self.front[ly * self.w + lx] as f32;
-                        // 3x3 mean, missing neighbours reading 0 — the
-                        // world edge is a sink, matching `sample`.
-                        let mut sum = 0.0;
-                        for dy in -1i32..=1 {
-                            for dx in -1i32..=1 {
-                                let (nx, ny) = (lx as i32 + dx, ly as i32 + dy);
-                                if nx < 0 || ny < 0 || nx as usize >= self.w || ny as usize >= self.h {
-                                    continue;
-                                }
-                                sum += self.front[ny as usize * self.w + nx as usize] as f32;
-                            }
+                let x1 = (x0 + TILE).min(self.w);
+                let y1 = (y0 + TILE).min(self.h);
+                let span = x1 - x0;
+                for ly in y0..y1 {
+                    // **The 3x3 sum as a separable sliding window, and it is
+                    // exact rather than close.** The naive form read nine
+                    // cells per cell with a bounds test on each and summed
+                    // them in `f32`; this sums each column of three once for
+                    // the whole row and then slides a 3-wide window over
+                    // those partial sums, so a cell costs three loads and two
+                    // adds instead of nine of each.
+                    //
+                    // **Why it is bit-identical and not merely equivalent.**
+                    // Every value is a `u8` and at most nine of them are
+                    // added, so the largest partial sum is 2,295 -- far below
+                    // 2^24, where `f32` still represents every integer
+                    // exactly. The old `f32` running sum was therefore
+                    // already an exact integer at every step, and
+                    // `sum as f32` reproduces it. `mean`, the blend, the
+                    // round and the decay LUT are untouched. The gate this
+                    // was checked against is `lab_cost`'s `world hash` and
+                    // `field hash` on both beds.
+                    //
+                    // Missing neighbours read 0 -- the world edge is a sink,
+                    // matching `sample` -- which here means a column outside
+                    // the plane contributes a zero column sum and a row
+                    // outside it drops out of the column sum.
+                    let base = ly * self.w;
+                    let up = if ly > 0 { Some(base - self.w) } else { None };
+                    let down = if ly + 1 < self.h { Some(base + self.w) } else { None };
+                    for (i, slot) in cols.iter_mut().take(span + 2).enumerate() {
+                        // `i` runs over `lx - x0 + 1`, so `i == 0` is the
+                        // column left of the tile and `i == span + 1` the one
+                        // right of it.
+                        let Some(lx) = (x0 + i).checked_sub(1) else {
+                            *slot = 0;
+                            continue;
+                        };
+                        if lx >= self.w {
+                            *slot = 0;
+                            continue;
                         }
-                        let mean = sum / 9.0;
+                        let mut s = u32::from(self.front[base + lx]);
+                        if let Some(u) = up {
+                            s += u32::from(self.front[u + lx]);
+                        }
+                        if let Some(d) = down {
+                            s += u32::from(self.front[d + lx]);
+                        }
+                        *slot = s;
+                    }
+                    for lx in x0..x1 {
+                        let i = lx - x0 + 1;
+                        let sum = cols[i - 1] + cols[i] + cols[i + 1];
+                        let here = f32::from(self.front[base + lx]);
+                        let mean = sum as f32 / 9.0;
                         let blended = (here + (mean - here) * self.diffuse).round().clamp(0.0, 255.0) as u8;
                         let out = self.decay_lut[blended as usize];
-                        self.back[ly * self.w + lx] = out;
+                        self.back[base + lx] = out;
                         tile_peak = tile_peak.max(out);
                     }
                 }

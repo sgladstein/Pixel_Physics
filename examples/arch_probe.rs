@@ -251,7 +251,7 @@ fn shot(world: &World, path: &std::path::Path, band: (i32, i32), zoom: usize) {
     let mut renderer = pixel_physics::render::Renderer::new();
     let particles = pixel_physics::sim::particle::ParticleSystem::new();
     let mut buf = vec![0u8; w * h * 4];
-    renderer.draw(world, &particles, &std::collections::HashSet::new(), &mut buf, (w as u32, h as u32), true);
+    renderer.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (w as u32, h as u32), true);
 
     let (y0, y1) = (band.0.max(0) as usize, (band.1 as usize).min(h));
     let (cw, ch) = (w * zoom, (y1 - y0) * zoom);

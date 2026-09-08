@@ -31,7 +31,6 @@
 //! cargo run --release --example creature_candidate_render -- shape=forward_taper seed=7 out=/tmp/candidates
 //! ```
 
-use std::collections::HashSet;
 
 use pixel_physics::app::{HEIGHT, WIDTH};
 use pixel_physics::render::Renderer;
@@ -78,7 +77,7 @@ fn render(world: &World) -> Vec<u8> {
     let mut r = Renderer::new();
     r.pinned_light = Some(pixel_physics::sky::frame_for_daylight(DAYLIGHT));
     let particles = ParticleSystem::new();
-    r.draw(world, &particles, &HashSet::new(), &mut frame, (WIDTH, HEIGHT), true);
+    r.draw(world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut frame, (WIDTH, HEIGHT), true);
     frame
 }
 

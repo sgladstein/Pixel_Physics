@@ -1505,6 +1505,77 @@ fn build_scene(args: &Args) -> World {
         //
         //   cargo run --release --example filmstrip -- scene=hedge gif=1 \
         //     out=hedge.gif start=0 every=25 count=40 zoom=4 crop=60,120,110,50
+        // **Rain falling on a wood** — the reproduction for water pooling on
+        // top of plants, and the demonstration of it draining.
+        //
+        // Grown trees under pinned rain, with the ground below them. The
+        // question this scene exists to answer is a census rather than a
+        // picture: how much water is standing *on living tissue* rather than
+        // on the floor, and how far up it is. A crown holding a puddle and a
+        // crown shedding one look nearly identical in a still at play zoom;
+        // the number says which.
+        //
+        //   cargo run --release --example filmstrip -- scene=canopyrain \
+        //     start=400 every=400 count=6 cols=3 zoom=3
+        "canopyrain" => {
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let bed = HEIGHT - FLOOR_THICKNESS;
+            for x in 0..WIDTH {
+                for y in bed..HEIGHT {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+                // Field capacity, so seeds germinate at all -- see
+                // `scene=hedge`, which grew nothing on dry powder.
+                for y in (bed - 8)..bed {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(pixel_physics::sim::material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            let ground = bed - 9;
+            let planted = (0..9).filter(|i| w.plant_tree_species(120 + i * 30, ground, "tree")).count();
+            assert!(planted > 0, "test setup: no tree seed was accepted");
+            // Grow the canopy *before* it rains. A sapling has no crown to
+            // pool on, so raining on one measures nothing.
+            for _ in 0..14000 {
+                pixel_physics::sim::parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            // **Pinned, not waited for.** `weather::at` is a pure function of
+            // (seed, frame) and a world is mostly clear by design, so a scene
+            // that merely runs long enough to catch a front is a scene whose
+            // result depends on when you looked.
+            //
+            // **Then the sky clears, and that is the whole design of this
+            // scene.** Censusing water-on-tissue *while it rains* cannot
+            // answer the question: under continuous rain some water is always
+            // on the canopy, and a crown that sheds perfectly and one that
+            // holds everything both read as "most of the world's water is up
+            // there". The first run of this scene measured exactly that and
+            // said the fix barely worked, while the gate counters underneath
+            // showed 532 successful drips -- water in transit, counted as
+            // water stuck. `CLAUDE.md`'s "ask what your number counts when
+            // nothing is wrong", in the form where the number is right and
+            // the *state of the world* is what makes it unreadable.
+            //
+            // So: soak the canopy, then stop the rain. What is still up there
+            // afterwards is what is genuinely held, and a crown that drains
+            // goes to nothing while one that does not stays where it is.
+            w.set_weather_pin(pixel_physics::sim::weather::Pin::Rain);
+            // **`soak=0` keeps it raining**, which is the arm that answers
+            // the complaint as reported -- water pooling on plants *while*
+            // it rains. Any positive soak rains for that many frames and then
+            // clears, which is the drainage arm. The first version always
+            // cleared, so `soak=0` measured a nearly dry canopy and its
+            // totals of one to five cells were the tell.
+            if args.soak > 0 {
+                for _ in 0..args.soak {
+                    pixel_physics::sim::parallel::step(&mut w);
+                    w.step_active_sites();
+                    w.step_fields();
+                }
+                w.set_weather_pin(pixel_physics::sim::weather::Pin::Clear);
+            }
+        }
         "hedge" => {
             use pixel_physics::sim::creature::plant_creature_seed;
             let soil = w.materials.id_of("soil").expect("soil is compiled in");
@@ -2753,6 +2824,10 @@ struct Args {
     /// can see; a blind beetle on the identical world is the only thing
     /// that makes that a claim rather than an anecdote.
     blind: bool,
+    /// `scene=canopyrain`'s soak: how many frames of pinned rain fall before
+    /// the sky is pinned clear. The tiles then show the canopy draining, or
+    /// failing to.
+    soak: usize,
     /// `scene=hedge`'s diet allele. Defaults to the carnivore end so the
     /// hedge is scenery rather than lunch -- see that scene's own note.
     hedge_gut: f32,
@@ -3512,6 +3587,7 @@ fn parse() -> Args {
         zoom: 1,
         genome: String::from("authored"),
         blind: false,
+        soak: 1500,
         hedge_gut: 1.0,
         reach: pixel_physics::sim::creature::TRAIT_REACH_DEFAULT,
         impulse: HOP_IMPULSE_WEIGHT,
@@ -3644,6 +3720,7 @@ fn parse() -> Args {
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
             "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
+            "soak" => a.soak = v.parse::<usize>().expect("soak=<frames>"),
             "gut" => a.hedge_gut = v.parse::<f32>().expect("gut=<-1.0..1.0>"),
             "reach" => a.reach = v.parse::<f32>().expect("reach=<f32>"),
             "impulse" => a.impulse = v.parse().expect("impulse=WEIGHT"),
@@ -6092,7 +6169,7 @@ impl PanelSheet {
                     // moved, or a tile inherits pixels from whichever frame
                     // last touched them. The empty `touched` set is not a
                     // shortcut -- `force_full` makes it unread.
-                    self.renderer.draw(world, particles, &HashSet::new(), &mut self.frame, (WIDTH as u32, HEIGHT as u32), true);
+                    self.renderer.draw(world, particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut self.frame, (WIDTH as u32, HEIGHT as u32), true);
                     drawn = true;
                 }
                 let (tile_w, tile_h) = (self.w * self.zoom, self.h * self.zoom);
@@ -6431,7 +6508,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             fire_due_pokes(&mut world, &mut pending_pokes, step_no);
             fire_due_dries(&mut world, &mut pending_dries, step_no);
                 fire_due_ignitions(&mut world, &mut pending_ignitions, step_no);
-            let touched: HashSet<_> = world.take_touched_chunks();
+            let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut frame, (WIDTH as u32, HEIGHT as u32), true);
             if args.stress {
                 paint_stress(&world, &mut frame);
@@ -6663,7 +6740,7 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
         // `force_full`, not the dirty-rect path: this must draw the whole
         // world every time regardless of what moved, or a tile would inherit
         // pixels from whichever frame last touched them.
-        let touched: HashSet<_> = world.take_touched_chunks();
+        let touched = world.take_touched_chunks();
         // **Timed separately from the sim, because `worst frame` above is
         // `advance` only.** A render-side look option -- `GrainMode`,
         // `BubbleMode`, `GasMode` -- costs nothing that number can see, and
@@ -7346,6 +7423,48 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             .filter(|&(x, y)| world.get(x, y).organism_id() != 0)
             .count();
         println!("    living plant tissue: {living} cells");
+        // **Water standing on living tissue, and how far above the ground.**
+        //
+        // The reproduction census for "water pools on top of plants". A
+        // puddle held in a crown and a crown that sheds are the same
+        // photograph at play zoom, so the number is what says which -- and
+        // the *height* is the half that matters, because water resting on a
+        // low leaf is a wet plant while water forty rows up is a shelf that
+        // should not exist. Paired with the total so the fraction can be
+        // read: a wood in the rain has water everywhere, and only the share
+        // of it sitting on tissue is the defect.
+        let mut liquid_total = 0usize;
+        let mut on_tissue = 0usize;
+        let mut highest_above_floor = 0i32;
+        let mut sum_above = 0i64;
+        for x in 0..WIDTH {
+            // The floor under this column, so "above the ground" is measured
+            // against the terrain rather than against the world's bottom.
+            let floor = (0..HEIGHT)
+                .find(|&y| matches!(world.materials.kind(world.get(x, y).material), MaterialKind::Solid | MaterialKind::Powder))
+                .unwrap_or(HEIGHT);
+            for y in 0..HEIGHT {
+                if world.materials.kind(world.get(x, y).material) != MaterialKind::Liquid {
+                    continue;
+                }
+                liquid_total += 1;
+                // Resting *on* tissue: the cell beneath it is living plant.
+                // Not "adjacent to", which counts rain falling past a trunk.
+                if world.get(x, y + 1).organism_id() != 0 {
+                    on_tissue += 1;
+                    let above = floor - y;
+                    highest_above_floor = highest_above_floor.max(above);
+                    sum_above += above as i64;
+                }
+            }
+        }
+        if liquid_total > 0 {
+            let share = 100.0 * on_tissue as f32 / liquid_total as f32;
+            let mean_above = if on_tissue == 0 { 0.0 } else { sum_above as f32 / on_tissue as f32 };
+            println!(
+                "    water standing on tissue: {on_tissue} of {liquid_total} liquid cells ({share:.1}%), highest {highest_above_floor} rows above the floor, mean {mean_above:.1}"
+            );
+        }
         // **The felling census, printed beside the tile it describes.**
         // `living` above is one number for the whole world and cannot say
         // whether a severed crown is still attached, still standing while

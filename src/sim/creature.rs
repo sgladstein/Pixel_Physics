@@ -1062,6 +1062,9 @@ enum Origin {
         lineage: u32,
         /// The parent's, copied — a child is born into its parent's colony.
         colony: u32,
+        /// What the parent handed this child -- its `Provision` output at
+        /// the moment of budding. See `OrganismState::made`.
+        made: f32,
     },
     /// **A founder with a chosen genome** — one released from the specimen
     /// shelf (`sim::specimen`).
@@ -1183,12 +1186,16 @@ fn place_creature(
                 state.inherited = false;
                 state.generation = 0;
             }
-            Origin::Bud { genome, traits, generation, .. } => {
+            Origin::Bud { genome, traits, generation, made, .. } => {
                 // **The child's genome came from its parent**, already
                 // mutated by the caller. This is the whole of heredity: one
                 // assignment, and the reason S1-S5 were all inert until now.
                 state.genome = genome.clone();
                 state.traits = *traits;
+                // **The one thing about a child that is neither inherited
+                // nor drawn**: how it was provisioned. A founder and a
+                // released jar keep the allocator's zero.
+                state.made = *made;
                 state.inherited = true;
                 // **Read off the parent by the caller and passed in whole.**
                 // The failure this shape exists to avoid is a
@@ -1598,6 +1605,17 @@ pub const ARMS_RACE_SLOTS: [usize; 2] = [TRAIT_ARMOUR, TRAIT_DIG_FORCE];
 /// plain `clamp(-1, 1)` it was before the dial existed.
 pub const TRAIT_REACH_DEFAULT: f32 = 1.0;
 
+/// **The shipped plasticity: on.** Owner's ruling, 2026-09-06 evening,
+/// against the card that offered 0 or 1: *"ship plasticity on."* At 1 the
+/// developmental block counts at face value -- a child's expressed body is
+/// its genotype plus `made x block` -- so a line can find a caste in the
+/// shipped box. Nothing changes until one does: every founder and every
+/// child of a line that has not wired `Provision` is made of exactly 0 and
+/// `expressed_traits` returns its genotype in one comparison, whatever this
+/// reads. 0 is the clonal control (`plasticity_moves_the_expressed_body_
+/// and_not_the_genotype`), not the shipped bed.
+pub const PLASTICITY_DEFAULT: f32 = 1.0;
+
 /// **What the parameters page will wind the reach up to.** Not a bound in the
 /// arithmetic -- nothing breaks above it -- but the top of the dial, chosen
 /// so that the top of the *armour* range is a graded fight rather than a new
@@ -1743,7 +1761,46 @@ pub fn reproduce_fraction(t: f32) -> f32 {
 /// standing animals kept their founded copies, and three alleles returned
 /// byte-identical counters.
 fn traits_of(world: &World, organism: u16, def: &CreatureDef) -> [f32; CREATURE_TRAITS] {
-    world.organism(organism).map_or(def.traits, |st| st.traits)
+    world.organism(organism).map_or(def.traits, |st| expressed_traits(st, world.plasticity, world.trait_reach))
+}
+
+/// **The body this animal actually has**: its inherited trait vector,
+/// shifted on every slot by the developmental block times the number its
+/// parent handed it, times the box's `plasticity` dial, and held inside
+/// each slot's own bound.
+///
+/// **This is the one line that makes a caste possible, and it names no
+/// caste.** `state.traits` stays the genotype -- `try_bud` inherits and
+/// mutates *that* -- and what a lineage evolves is the block
+/// (`brain::TRAIT_SLOTS`, in the genome, mutated with the wiring) and the
+/// `Provision` wiring that decides what a parent hands a child. Which slots
+/// move, which way and on what signal is the lineage's to find;
+/// `Reports/creature-signature-and-castes-2026-09-06.md` §2c is the
+/// reasoning and §2d the measurement that tells "found" from "reachable".
+///
+/// **For an animal made of nothing this is one comparison and a copy,
+/// whatever the dial says** -- every founder, every released jar, and every
+/// child of a line that has not wired `Provision` (an unwired output is
+/// exactly `squash(0) = 0`) -- so the predicate the mouth, the eye and the
+/// kin sense call per neighbour per tick pays nothing for it until a line
+/// finds the channel. The dial ships at `PLASTICITY_DEFAULT` (1); 0 is the
+/// clonal control. The genome is `mem::take`n during the brain's own evaluation,
+/// and a reader that lands inside that window sees no block rather than a
+/// panic.
+pub fn expressed_traits(state: &organism::OrganismState, plasticity: f32, reach: f32) -> [f32; CREATURE_TRAITS] {
+    let mut t = state.traits;
+    if plasticity <= 0.0 || state.made == 0.0 {
+        return t;
+    }
+    let push = plasticity * state.made;
+    for (slot, v) in t.iter_mut().enumerate() {
+        let p = state.genome.get(brain::dev_slot(slot)).copied().unwrap_or(0.0);
+        if p != 0.0 {
+            let bound = allele_bound(slot, reach);
+            *v = (*v + push * p).clamp(-bound, bound);
+        }
+    }
+    t
 }
 
 fn ratio_factor(t: f32) -> f32 {
@@ -1800,7 +1857,7 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     if organism == 0 {
         return base;
     }
-    base * world.organism(organism).map_or(1.0, |st| armour_of(&st.traits, world.trait_reach))
+    base * world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach))
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -1897,7 +1954,7 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 /// individual that is scheduled on its own pace and charged on its species'
 /// would be metabolising at a rate nothing on screen explains.
 pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
-    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &st.traits))
+    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)))
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -1912,7 +1969,7 @@ pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -
 /// scheduling from here would in fact work today — returning the site
 /// keeps the birth path independent of that, and is the same shape
 /// `apply_creature_energy` already uses for the parent's own next tick.
-fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<ActiveSite> {
+fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) -> Option<ActiveSite> {
     let state = world.organism(organism)?;
     let parent_traits = state.traits;
     // **This animal's bar, on two counts now.** `TRAIT_REPRODUCE_AT` scales
@@ -1998,6 +2055,12 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef) -> Option<Active
                 generation: parent_generation.saturating_add(1),
                 lineage: parent_lineage,
                 colony: parent_colony,
+                // **What the parent hands this child**, from the tick's own
+                // brain evaluation -- the one channel by which a parent's
+                // state reaches a child's body. A parent that wires nothing
+                // onto `Provision` hands `squash(0) = 0`, and the child is
+                // made of exactly its genes.
+                made: provision.clamp(-1.0, 1.0),
             },
         ) {
             site = Some(s);
@@ -2395,7 +2458,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
     // field would report it as never having looked.
-    if world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits)) > 0 {
+    if world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach))) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         // **The hunted side's counter, beside the hunter's.** An image of
@@ -2808,7 +2871,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // which turns the whole mechanism into a way of converting a doomed
     // animal into a fresh one for free.
     if !sites.is_empty() {
-        if let Some(child) = try_bud(world, organism, def) {
+        if let Some(child) = try_bud(world, organism, def, outputs[brain::BrainOutput::Provision as usize]) {
             sites.push(child);
         }
     }
@@ -2851,7 +2914,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     if reach <= 0 {
         return (Sightings::default(), 0);
     }
@@ -2953,6 +3016,10 @@ fn sense(
 
     if let Some(state) = world.organism(organism) {
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
+        // **How this animal was made**, so behaviour can depend on it --
+        // `BrainInput::Made`. Zero for every founder and every animal that
+        // ships, so the slot reads a constant until a lineage provisions.
+        inputs[I::Made as usize] = state.made;
         // **Graded, and this is what replaced `hunger_fraction`.** As a
         // boolean this said only "holding something"; as crop fill it says
         // *how full*, which is the quantity the four hidden units in
@@ -2965,7 +3032,7 @@ fn sense(
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
         let crop_fill = state.crop.map_or(0.0, |c| {
-            let cap = crop_capacity_of(def, &state.traits);
+            let cap = crop_capacity_of(def, &expressed_traits(state, world.plasticity, world.trait_reach));
             if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 }
         });
         // **A mandible full of spoil is carrying something, and this sensor
@@ -3045,7 +3112,7 @@ fn sense(
     // distance normalisations below have to read the same number -- an eye
     // that casts to one reach and normalises against another reports a
     // nearness that does not mean what the brain thinks it means.
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &st.traits));
+    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
     let seen_all = if reach > 0 {
         sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
@@ -3482,7 +3549,7 @@ fn apply_colony_scent(traits: &mut [f32; CREATURE_TRAITS], seed: u64, colony: u3
 /// that goes further is `Reports/creature-groups-and-combat-design-2026-09-06.md`.
 fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
     world.organism(cell.organism_id()).is_some_and(|s| {
-        (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&s.traits), &gut.scent) <= gut.tolerance_sq
+        (gut.crosses_kinds || s.species == gut.species) && scent_distance_sq(&scent_of(&expressed_traits(s, world.plasticity, world.trait_reach)), &gut.scent) <= gut.tolerance_sq
     })
 }
 
@@ -8455,7 +8522,19 @@ mod tests {
             // decide and both arms report zero -- which is what the first
             // version of this test measured.
             let species = w.species.id_of("beetle").expect("beetle species");
-            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // **Children are clones here, and the reason is a measurement.**
+            // A beetle at 100,000 energy breeds inside 1,200 frames, and a
+            // child's mutations -- which slots, and so how many draws --
+            // depend on `mutation_rate`. Re-deriving that rate for the
+            // developmental block (0.0049922 -> 0.0045042, 2026-09-06)
+            // flipped this test from 1 dig to 0 at the top of the jaw axis
+            // with the jaw untouched: the arm was a function of what a child
+            // happened to inherit, not of the allele it is named for. At
+            // rate 0 the child is its parent, and no future re-derivation
+            // (every append re-derives it) can reach this guard.
+            def.mutation_rate = 0.0;
+            w.species.set_creature(species, def.clone());
             w.species.set_genome(
                 species,
                 brain::genome_from_wiring(
@@ -8874,6 +8953,19 @@ mod tests {
                 let mut w = test_world();
                 w.seed = 1234 + seed * 7919;
                 w.trait_reach = reach;
+                // **Clone children**, for the reason `the_jaw_allele_decides_
+                // what_an_animal_can_cut` gives: four ants at 100,000 energy
+                // breed inside the budget, and which slots a child mutates
+                // moves with `mutation_rate`, so the 2026-09-06 re-derivation
+                // (637 -> 706 live slots) left one defender of six standing
+                // at the shipped reach with the plate untouched. This guard
+                // is over a plate under a mouth, not over what a child drew.
+                {
+                    let ant = w.species.id_of("ant").expect("ant species");
+                    let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
+                    def.mutation_rate = 0.0;
+                    w.species.set_creature(ant, def);
+                }
                 // Ant against ant needs the two to be strangers; without
                 // this every ant is every other ant's nestmate and the scene
                 // holds no fight at all. Kin is a scent distance now, so the
@@ -11066,6 +11158,113 @@ mod tests {
     /// claimed its own would make every colony dissolve into singletons at
     /// the first generation -- which the graph would draw as a colony that
     /// never grows while the box fills with animals.
+    /// **A child is made of what its parent's brain hands it, and a founder
+    /// is made of nothing.** `BrainOutput::Provision` is the one channel by
+    /// which a parent's state reaches a child's body, and this is the guard
+    /// that the channel is connected end to end: a founder wired
+    /// `(Bias, Provision, +4)` buds children whose `made` reads
+    /// `squash(4) = 0.8`, the same wiring negated reads `-0.8`, and an
+    /// unwired founder -- every shipped animal -- buds children made of
+    /// exactly nothing. Three arms so it can fail in every direction; the
+    /// founders' own `made` is asserted zero in each, because a founder is
+    /// handed nothing by anyone.
+    ///
+    /// Put the fault back by dropping `made` from `Origin::Bud` (every
+    /// child then reads the allocator's zero) and the first two arms go red.
+    #[test]
+    fn a_child_is_made_of_what_its_parent_hands_it() {
+        let made_of = |provision_weight: Option<f32>| -> Vec<f32> {
+            let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+            if let Some(weight) = provision_weight {
+                let ant = w.species.id_of("ant").expect("ant");
+                let mut genome = w.species.get(ant).genome.clone();
+                genome[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Provision)] = weight;
+                // On the standing founders, not only the species: a founder
+                // copied the species genome at placement and would not see
+                // a later `set_genome`.
+                for &id in &founders {
+                    if let Some(st) = w.organism_mut(id) {
+                        st.genome = genome.clone();
+                    }
+                }
+            }
+            run(&mut w, 60);
+            assert!(w.creature_stats.births > 0, "nothing was born, so nothing was provisioned and this arm proves nothing");
+            for &id in &founders {
+                if let Some(st) = w.organism(id) {
+                    assert_eq!(st.made, 0.0, "a founder is handed nothing by anyone");
+                }
+            }
+            live_creature_ids(&w).into_iter().filter(|id| !founders.contains(id)).filter_map(|id| w.organism(id).map(|s| s.made)).collect()
+        };
+        let plus = made_of(Some(4.0));
+        assert!(!plus.is_empty() && plus.iter().all(|&m| m > 0.5), "a parent wired +4 onto Provision hands squash(4) = 0.8: {plus:?}");
+        let minus = made_of(Some(-4.0));
+        assert!(!minus.is_empty() && minus.iter().all(|&m| m < -0.5), "and -4 hands -0.8: {minus:?}");
+        let none = made_of(None);
+        assert!(!none.is_empty() && none.iter().all(|&m| m == 0.0), "an unwired parent -- every shipped animal -- hands exactly nothing: {none:?}");
+    }
+
+    /// **Plasticity moves the body an animal expresses and never the genes
+    /// it passes on.** One ant, `made = 1`, a developmental weight of `0.5`
+    /// on the armour slot: with the box's `plasticity` at zero (the clonal
+    /// control; it ships at 1) its expressed armour is its genotype's, and `armour_at` -- the
+    /// reader every bite goes through -- agrees; at `1.0` the expressed
+    /// slot is `0.5` higher and `armour_at` moves with it, while
+    /// `state.traits` reads exactly what it did. Both arms, so a dial that
+    /// did nothing and a dial that leaked into the genotype both fail.
+    #[test]
+    fn plasticity_moves_the_expressed_body_and_not_the_genotype() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(id, 0, "the ant must place");
+        let genotype = w.organism(id).expect("live").traits;
+        {
+            let st = w.organism_mut(id).expect("live");
+            st.made = 1.0;
+            st.genome[brain::dev_slot(TRAIT_ARMOUR)] = 0.5;
+        }
+        let cell = w.get(100, 100);
+        w.plasticity = 0.0;
+        let st = w.organism(id).expect("live");
+        assert_eq!(expressed_traits(st, w.plasticity, w.trait_reach), genotype, "at dial zero the expressed body is the genotype, whatever the block says");
+        let armour_off = armour_at(&w, cell);
+        w.plasticity = 1.0;
+        let st = w.organism(id).expect("live");
+        let expressed = expressed_traits(st, w.plasticity, w.trait_reach);
+        assert!((expressed[TRAIT_ARMOUR] - (genotype[TRAIT_ARMOUR] + 0.5)).abs() < 1e-6, "made 1 x weight 0.5 x dial 1 lifts the armour slot by 0.5: {} -> {}", genotype[TRAIT_ARMOUR], expressed[TRAIT_ARMOUR]);
+        for slot in 0..CREATURE_TRAITS {
+            if slot != TRAIT_ARMOUR {
+                assert_eq!(expressed[slot], genotype[slot], "a slot with no developmental weight does not move");
+            }
+        }
+        assert!(armour_at(&w, cell) > armour_off, "the bite's own reader sees the expressed plate, not the genotype's");
+        assert_eq!(w.organism(id).expect("live").traits, genotype, "the genotype is untouched -- it is what the children inherit");
+    }
+
+    /// **The brain reads how its animal was made.** `BrainInput::Made` is
+    /// the child's `made`, so behaviour can depend on provisioning; the slot
+    /// reads zero for a founder and exactly the value for a provisioned
+    /// animal.
+    #[test]
+    fn the_brain_reads_what_its_animal_was_made_with() {
+        let mut w = test_world();
+        for x in 90..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = spawn(&mut w, "ant", 100, 100);
+        let ant = w.species.id_of("ant").expect("ant");
+        let def = w.species.get(ant).creature.clone().expect("creature");
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::Made as usize], 0.0, "a founder was made of nothing");
+        w.organism_mut(id).expect("live").made = 0.7;
+        let (inputs, ..) = sense(&w, 100, 100, id, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::Made as usize], 0.7);
+    }
+
     #[test]
     fn a_child_is_born_into_its_parents_colony() {
         let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);

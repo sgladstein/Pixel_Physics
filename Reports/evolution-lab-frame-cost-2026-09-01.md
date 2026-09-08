@@ -1261,3 +1261,389 @@ the obvious suspect. At 512x320 the render costs **2.592 ms/frame**, taking
 the dial from `x sim` 7.7x to `x@60Hz` **6.5x** — about 16%. Real, secondary,
 and it scales with window size, which no measurement in this report has
 varied.
+
+
+---
+
+## 16. The tick, 2-5x, without changing a cell — 2026-09-06
+
+*Owner: "increase the performance so I can run at faster rates. I am not
+looking for 20% improvements; I am looking for 2-10x." Then, mid-session:
+"the most important performance to fix is once the game is full of ants and
+plants and all the chunks are awake." Branch
+`claude/evolution-lab-perf-bn821i`. Every change below is bit-identical —
+world hash **and** field hash unchanged on the tree and herb beds, checked
+per commit against a saved baseline binary — so nothing here is a behaviour
+change, a re-derived constant or an owner verdict. The dial on the beds the
+owner named moved 2.2x, 2.1x, 3.2x and 4.6x on this box.*
+
+### 16.1 The profile, and what it said the frame was made of
+
+`perf` on `lab_cost` (tree bed, 32k frames; herb bed 128 founders + colony,
+12k frames), flat, no call graph. The two beds agree:
+
+| where | share of samples | what it was |
+|---|---|---|
+| `World::step_soil_water` + its `World::get`s | ~24% | the moisture pass, at ~300 ns a soil cell, nearly all of it a `HashMap<ChunkCoord, Chunk>` probe per read |
+| `RandomState::hash_one` + `Sip13Rounds::write` | ~14% | SipHash over `ChunkCoord` and `(i32, i32)` keys — the chunk map, the field's tile map, `OrganismState::cells`, the per-pass index maps |
+| kernel scheduler + rayon spin/yield | ~20-28% | worker threads woken, joined and put back to sleep for jobs of one chunk or sixteen field cells; mostly worker CPU, not main-thread wall time, but ~10% of the wall tick (§16.2) |
+| `field::step` and its passes | ~8-11% | eight passes over ~33 tiles of sixteen cells, seven heap allocations per tile per frame |
+| plant passes | ~7% | `transport`, `frontier`, `organism_cell_mut` |
+| CA sweep proper | ~3-6% | `update_cell`, `ChunkView::get` |
+
+**§15.3 was wrong about the moisture pass, and this is the correction.** It
+read `FIELD_PASS`'s `moisture 0.006 ms` row as "the moisture pass" and
+retired §8's `ChunkView` item on it. That row is `apply_moisture_sources`,
+the *field's* moisture-source seeding. The soil-moisture pass §8 built —
+`World::step_soil_water`, which runs inside `parallel::step` and is charged
+to `ca_sweep` in every phase table — was the **largest single function in
+the profile** on both beds. A pass timer that shares a word with another
+pass will be read as it.
+
+**Not the plants' economy, and not biomass.** §13.3 was right that organism
+work is linear in cells; what the profile adds is that the *rest* of the
+frame is per-awake-chunk overhead — hashing, dispatch, allocation, and a
+moisture pass reading the world through a hash — which is exactly the shape
+the owner described: an empty box at 1024x, one small plant at 20x, a full
+box below 1x.
+
+### 16.2 What landed, in five commits
+
+Storage first, all mechanical, all verified by hash per commit
+(`a6c7c312`, `40647d8c`, `074f93d1`):
+
+1. **A fixed-seed FxHash** (`src/sim/fxhash.rs`) on every `ChunkCoord`- and
+   `(i32, i32)`-keyed map and set on a per-tick path. The audit in
+   `open-bugs-handoff.md` had already found every hash-container iteration
+   in `src/` order-safe and called this "a reasonable change for speed".
+2. **`ChunkGrid`** for `World::chunks`: a dense window of `Option<Chunk>`
+   slots, grown on demand, so `World::get` is two subtractions and an index.
+   Still chunk-granular and still sparse in the way M10 streaming needs — an
+   unloaded chunk is `None` — and `world.rs`'s invariant 1 is reworded, not
+   broken: what it forbids is a flat cell array.
+3. **`FieldTile` holds its arrays inline** — seven `Box<[T; 16]>` became
+   `[T; 16]`, which removes ~175 mallocs and frees a frame and satisfies the
+   condition `dead-ends.md`'s per-tile momentum entry set for a retry.
+
+Then the field and the sweep (`90f274e6`):
+
+4. **Serial below a size threshold.** `parallel::run_pass` sweeps inline
+   below `PIXEL_PHYSICS_PAR_MIN_CHUNKS` (3); every field dispatch runs
+   inline below `PIXEL_PHYSICS_PAR_MIN_TILES` (256). Measured first with
+   `RAYON_NUM_THREADS`, alternating 4,1,1,4 on the tree bed: the whole tick
+   **4.88 / 4.52 ms on four threads against 4.40 / 4.12 on one**, `field`
+   1.52 / 1.29 against 1.18 / 1.02. The pool was a net cost. The outdoor
+   world at 8192x2560 solves ~1,500 tiles a frame and is above both
+   thresholds, so nothing there changes.
+5. **The momentum skip no longer waits for the CA to sleep.** `field::step`
+   skipped pressure, velocity and advection only when every read tile was
+   `momentum_zero` *and* no chunk was awake anywhere. The second half was
+   the original criterion from before `momentum_zero` existed and was never
+   load-bearing: at exact zero the three passes are fixed points whatever
+   the CA does, and the one writer that can make a channel non-zero
+   (`add_pressure_impulse`) clears `momentum_zero` on the tiles it touches.
+   In the lab the old condition was never *met* — a growing plant or a
+   walking ant keeps some chunk awake every frame — so a sealed box with no
+   wind solved wind over every tile every frame. `FIELD_PASS` on the tree
+   bed: `momentum` **31-32 tiles/frame before, 0 after**.
+
+And the field's largest remaining pass (`7d46b88a`):
+
+6. **`rebuild_blocked` rescans only the blocks that were written.** With
+   the momentum passes gone, `blocked` — deriving five per-block arrays from
+   the 4,096 CA cells under every awake tile, every frame — was **56-70% of
+   the field**. `Chunk::stale_blocks` is one bit per 16x16 block, set by
+   `mark_dirty` *and* by `mark_moist_dirty` (the derived `moisture_source`
+   reads soil wetness, which moves only on the quiet channel), cleared when
+   the field takes it. A block nothing has written derives to exactly what
+   it derived to last time, so the tile inherits it. `FIELD_PASS` now prints
+   `blocks` beside `solved`: on the tree bed **27-41 blocks a frame against
+   ~190**, `blocked` 0.20-0.38 → 0.05-0.07 ms, the field 0.29-0.47 →
+   0.11-0.14 ms. Two early returns ride along: `step_velocity` and
+   `step_advection` built their ring snapshot even when handed an empty
+   solve set.
+
+### 16.3 Whole-frame, paired, on the beds the owner plays
+
+Base `a34ef900` against the tree with commits 1-5, alternating, two runs a
+side, `RAYON_NUM_THREADS=4`, whole-frame mean of the last tile, `plant_load=0`:
+
+| bed | base | after 1-5 | | dial |
+|---|---|---|---|---|
+| **full box** — herb, 256 founders, 3 colonies, 12k frames | 6.52 / 6.66 | **2.97 / 2.97** | **2.2x** | 2.6x → 5.6x |
+| herb, 128 founders, 1 colony, 12k frames | 7.20 / 6.76 | **3.20 / 3.48** | **2.1x** | 2.4x → 5.0x |
+| tree, 16 founders, 24k frames | 4.01 / 4.23 | **1.31 / 1.28** | **3.2x** | 4.0x → 12.9x |
+| one small herb, 6k frames | 2.86 / 2.72 | **0.61 / 0.60** | **4.6x** | 6.0x → 27.5x |
+
+Per phase on the full box: `ca_sweep` 3.18 → 1.46, `active_sites` 1.00 →
+0.55, `field` 1.90 → 0.52, `pheromones` 0.43 → 0.43. World hash identical
+across arms on every bed. The moisture pass is most of `ca_sweep`'s fall —
+it never changed a line, it stopped paying a hash per read.
+
+Then commit 6 against commits 1-5, same protocol, same beds:
+
+| bed | after 1-5 | after 6 | | dial | **base → 6** |
+|---|---|---|---|---|---|
+| **full box** | 2.98 / 3.11 | **2.72 / 2.76** | 1.1x | 5.6x → 6.0x | **2.4x** |
+| herb, 128 + colony | 3.49 / 3.29 | **2.79 / 2.84** | 1.2x | 5.0x → 6.0x | **2.5x** |
+| tree, 16 | 1.28 / 1.31 | **1.14 / 1.08** | 1.15x | 12.9x → 15.0x | **3.7x** |
+| one small herb | 0.60 / 0.59 | **0.50 / 0.48** | 1.2x | 28x → 34x | **5.7x** |
+
+The field alone: full box 0.52 / 0.55 → 0.19 / 0.20, herb 0.62 / 0.58 → 0.17
+/ 0.17, tree 0.28 / 0.29 → 0.07 / 0.07, one plant 0.22 / 0.22 → 0.10 / 0.10 —
+**2.2-4x on the phase**, and `ca_sweep`, `active_sites` and `pheromones` hold
+within run-to-run spread, which is what says it is the change and not the
+box. World hash *and* field hash identical across arms on every bed.
+
+**Where the full box's 2.72 ms now goes**: `ca_sweep` 1.52 (most of it the
+moisture pass), `active_sites` 0.58, `pheromones` 0.43, `field` 0.19.
+
+### 16.4 What is left, in the order the full-box profile puts it
+
+1. **The moisture pass**, still the largest single item on a full box. It
+   now reads the world through an index rather than a hash, and the next
+   step is the chunk-local view §8 named — or fewer visits. **Fewer visits is
+   a behaviour change**: the pass's per-row spans decide which cells see a
+   same-tick neighbour change, and a narrower set (a per-cell bitmap, a
+   4-neighbourhood instead of the row hull) delays some capillary exchange
+   by a tick. Measured cheap to try behind a switch; not a pure win.
+2. **Pheromones** at 0.43 ms on the full box, unchanged by anything here:
+   every 12 frames the whole plane's 3x3 sum in `f32`. An integer sliding
+   window is exact (`9 * 255 < 2^24`) and about 3x.
+3. **The sweep's own visits** on a full box — every awake chunk's region is
+   its dirty rect widened by the gas reach, 65 columns for a one-cell
+   change. The per-row spans are the known 1.19x on the phase and **they
+   are not behaviour-neutral**: the positional-RNG report's step-2 gate
+   (`rng` x `sweep`, 2x2, herb bed, 3,000 frames) gives four different
+   world hashes, which is what `dead-ends.md` already records from
+   2026-09-05.
+4. The plant passes, now ~19% of the full-box frame, never examined past
+   §12's hoists.
+
+**And the honest ceiling on this box**: 2.97 ms is 5.6x on a full box; 10x
+needs 1.67 ms and the four items above are worth perhaps 1.0-1.3 ms between
+them. Past that the tick is the plants and the ants doing what they do.
+
+## 17. The moisture pass and the pheromone plane — 2026-09-07
+
+*Branch `claude/evolution-lab-tick-speed-ln4tdp`, working §16.4's list in the
+order it puts it. Two pure changes and one behaviour change behind a switch.
+Measurements on a different box from §16's — its base numbers do not
+reproduce here (this box runs the same full box at **2.10 ms** where §16
+measured 2.72, with `pheromones` **larger** at 0.57 against 0.43 and
+`ca_sweep` smaller at 0.98 against 1.52), so every figure below is paired
+against a baseline binary measured in the same session on the same box, and
+nothing is compared against §16's table.*
+
+### 17.1 Pheromones: the 3x3 mean as an integer sliding window (pure)
+
+`PheromonePlane::step` read nine cells per cell with a bounds test on each and
+summed them in `f32`. It now sums each column of three once for the whole row
+and slides a 3-wide window over those partial sums: three loads and two adds a
+cell instead of nine of each.
+
+**Bit-identical rather than close**, and the argument is arithmetic rather than
+empirical: nine `u8`s sum to at most 2,295, far below 2^24, where `f32`
+represents every integer exactly. The old running sum was therefore already an
+exact integer at every step, and `sum as f32` reproduces it. `mean`, the blend,
+the round and the decay LUT are untouched.
+
+Measured on the herb bed (128 founders, one colony), `pheromones` **0.354 /
+0.357 → 0.134 / 0.135 ms**, and on the full box **0.567 / 0.574 → 0.223 /
+0.229** — a consistent **2.6x** on the phase.
+
+### 17.2 The moisture pass reads its own chunk (pure)
+
+§8 named it and §16.4 put it first. `World::step_soil_water` drove
+`update::update_soil_water` with `S = World`, so each soil cell's ~10 reads and
+writes — its own cell, four infiltration neighbours, two capillary faces, the
+cell below, and what `schedule_damp_soil` reads — resolved a chunk before
+touching a byte. `MoistureView` takes the chunk out of the map for the length
+of its own walk, serves every read inside it from the resident array, and
+reaches for the shared `World` only at the chunk's edge.
+
+**Four things had to be arranged for it to stay bit-identical, and each is a
+way a later edit could break it.** They are on the type's own doc comment; the
+two that were not obvious when the work started:
+
+- **Writes stay immediate in both directions.** Plans are walked lower chunk
+  rows first, so an infiltration write into the chunk *above* lands in a chunk
+  this pass has not reached yet and must be visible when it is walked. Only
+  bookkeeping defers.
+- **A remote write's cross-chunk dirty marks have to be replayed.**
+  `touch_neighbours` and `set_soil_moisture`'s edge rule both mark *resident*
+  neighbours, and this chunk is not resident while its own walk runs, so a mark
+  aimed at it is silently dropped. A lost mark is a chunk that does not get
+  swept. Both are re-run verbatim after `put_chunk`, which is exact because
+  both channels are span unions and bit sets and therefore idempotent.
+
+And deferring the `managed()` demotion turned out to be **required rather than
+convenient**: `demote_body_at` walks a liquid body's own cells, which can run
+back into this chunk, and while the chunk is out of the map those reads answer
+empty and the flag is never cleared.
+
+| bed | `ca_sweep` | whole frame |
+|---|---|---|
+| tree, 16 founders, 6k | 1.318 → 1.093 | 1.561 → 1.363 |
+| herb, 128 + colony, 3k | 2.118 → 1.770 | 2.626 → 2.337 |
+| herb, 256 + 3 colonies, 12k | 0.98 → 0.93 | within run-to-run spread |
+
+**The full box is the honest anomaly and it is worth stating rather than
+burying**: `ca_sweep` falls consistently there (−0.06, every pair) and
+`active_sites` rises consistently (+0.03), and the whole frame moves by less
+than the spread — six alternating pairs went three up and three down. This is
+`CLAUDE.md`'s *removing work is not the same as removing cost*: the moisture
+pass stops touching every soil cell through the chunk map and the phase after
+it pays cold misses it used to get for free. **The win scales with `sw seen`**,
+and that is the whole of it: the full box at frames 8,000–12,000 visits 6,982
+cells a tick where the herb bed at 3,000 visits 30,662, because the
+256-founder stand has already crowded itself down to 5,940 cells.
+
+### 17.3 Fewer visits — `PIXEL_PHYSICS_MOISTURE_MARKS=cells`, default off
+
+The pass walks the **row hull** of every mark, dilated by one row and one
+column. Two marks forty columns apart on one row put all forty cells between
+them in the set. The minimal correct set is each mark dilated by the
+**4-neighbourhood**: `update_soil_water` reads its own cell, the four it shares
+a face with and the one below, so a write at `p` can change the outcome only
+for `p` and its four neighbours.
+
+`MoistPlan::Cells` is that — one bit per cell (`[u128; 66]`, indexed local row
++ 1 and column + 1 so the outriggers carry a mark made one cell outside),
+**dilated when it is walked rather than when it is built**, so the stored set
+stays exactly the write positions and a later change to what
+`update_soil_water` reads only has to change one line.
+
+**Why it is not bit-identical, as the mechanism.** A cell diagonal to a mark is
+in the row hull and not in the 4-neighbourhood. It is normally quiet, but a
+capillary write made earlier in the *same* tick can change one of the cells it
+does read, and under the wide set it reacts in that tick. Under the narrow set
+it waits one. The water goes to the same place; some of it arrives a tick
+later.
+
+Paired, alternating, two runs a side, `RAYON_NUM_THREADS=4`, whole-frame mean
+of the last tile. Visits are `lab_cost`'s `sw seen`, per frame:
+
+| bed | visits | base | items 1+2 (default) | + marks=cells |
+|---|---|---|---|---|
+| **full box** — herb 256, 3 colonies, 12k | 6,982 → 3,635 | 2.092 / 2.113 | 1.760 / 1.815 | **1.625 / 1.608** |
+| herb 128 + colony, 12k | 21,286 → 8,850 | 2.701 / 2.648 | 2.295 / 2.330 | **1.905 / 1.909** |
+| tree 16, 24k | 10,211 → 3,502 | 1.086 / 1.073 | 1.013 / 1.032 | **0.817 / 0.807** |
+| one small herb, 6k | 2,157 → 1,161 | 0.236 / 0.235 | 0.222 / 0.221 | **0.191 / 0.196** |
+
+Base to the switch on: **1.30x, 1.40x, 1.33x, 1.21x**. Standing biomass under
+the narrow set is **+6.5%, +1.0%, +0.5% and 0%** on those four beds — the one
+small herb is bit-identical at 6,000 frames (`sw chgd` 462.8 both ways), which
+is the cleanest statement of what the change is: on a bed with one plant in it
+there is no diagonal cell whose neighbour moved this tick, so the two sets are
+the same set.
+
+**The counter beside the timing is `sw chgd`, and it is the one that matters.**
+A moisture pass that got cheap because it stopped transporting water and one
+that got cheap because it walks only the cells that need it are the same
+timing. On the tree bed at 6,000 frames the narrow set visits **21,778 → 7,046**
+and changes **2,603.5 → 2,608.9** — a third of the visits, the same water.
+
+Off by default; the flip is the owner's call. Blind A/B posted to the review
+queue as `20260907T030350034Z-de4164`, in the SOIL MOISTURE channel because the
+shipped material colours tint wet soil so faintly that the two beds are
+indistinguishable in them. `labshot` gained `channel=` for it.
+
+**And one thing that has *not* been done and is owed before the default moves.**
+The biomass figures above are **four beds at one seed each**, and `CLAUDE.md`'s
+own rule is that a change to a model over procedural content is judged on an
+order statistic over a seed sweep, because outcomes here are chaotic in the seed
+— §S2's anchor rule read 1.64x over six seeds and 1.08x over the next twelve.
++6.5% biomass on one seed of the full box is a sample from a wide distribution
+and is not evidence that the narrow set grows a better bed; what it *is*
+evidence of is that the bed did not die, which is the null this needed to
+exclude. Before the default flips, run the sweep.
+
+### 17.4 What the gates were, and the two nulls that were not
+
+Every pure change was checked with `lab_cost`'s `world hash` **and** `field
+hash` on both beds against a saved baseline binary: tree
+`0xfb2943dfc3fd47fc` / `0x18f0dec3d54013c0`, herb `0x5788c2751007bf6e` /
+`0xee71a7cdbd6c2e86`, plus `sw seen` / `sw soil` / `sw chgd` unchanged. The
+`cells` switch **off** reproduces all of them; **on**, both hashes move, which
+is the positive control that the switch does something.
+
+**The hash gate's own sensitivity was checked rather than assumed**:
+`PIXEL_PHYSICS_SOIL_WATER=off` on the same binary moves the tree bed to
+`0x66623ff2ffe094d3` / `0xc533322816de8e7c`, so the gate does respond to
+moisture-pass behaviour and a green is not the default state.
+
+Two things this caught that a timing alone would have read as a win:
+
+- **`end_sweep` seeded the bitmap under `as_mut()`**, and `take_moist_plan`
+  leaves the set `None` every tick, so the ordinary channel's whole
+  contribution was dropped from the second tick on. `sw seen` went to
+  **exactly 0 by frame 6** and the tree bed's hash came back as
+  `SOIL_WATER=off`'s — the pass had stopped. The frame was 3x faster.
+- **The `MoistPlan` plumbing cost the default path +0.03 ms a frame** — a
+  third of what the switch buys on the full box — paid by everyone who never
+  turns it on. Two causes, both measured out: routing the span walk through
+  the bitmap's shape (fixed by writing the two arms out), and reading the
+  switch's `OnceLock` inside `mark_moist_dirty`, which is per write (fixed by
+  resolving it once into a `Chunk` field).
+
+Two guards pin the dilation itself (`a_moisture_mark_dilates_to_its_four_
+neighbours_and_no_further`, `moisture_marks_cross_the_chunk_seam_inward_but_
+never_outward`) and both were watched going red against an 8-neighbourhood
+mutant. They are tight assertions on a deterministic function, which is what
+makes them worth having: the switch is process-global through a `OnceLock`, so
+no test binary can run both arms and the end-to-end comparison lives in
+`lab_cost`.
+
+### 17.5 Re-profiled, and the plant passes are the next item
+
+`perf`, full box, both arms, flat, no call graph. Shares of total samples
+(which include `lab_cost`'s own render, ~7%):
+
+| where | marks=rows | marks=cells |
+|---|---|---|
+| the moisture pass | **14.70%** | **8.73%** |
+| CA sweep (`update_cell` + `ChunkView::get`) | 14.1% | 15.7% |
+| kernel scheduler + rayon spin/yield | ~21% | ~22% |
+| `PheromonePlane::step` + `roundf` | 7.4% | 7.9% |
+| render (`ChunkRun::colour`, `Renderer::draw`, sky) | 6.4% | 7.0% |
+| `field::step` and its passes | 4.1% | 4.3% |
+| `transport` + `organism_upkeep` (leaf frames only) | 2.9% | 2.9% |
+
+The moisture pass is **still the largest single sim function** under the narrow
+set, and what is left of it is the per-cell work rather than the addressing:
+`Chunk::get_world` 2.5%, `Rect::contains` 1.0%, the material lookup 1.0%.
+
+**`ORGANISM_PASS=2000` is the number that reframes the last row.** The flat
+profile's 2.9% is only the leaf frames; the whole of `step_organisms` is
+**0.243 ms of the full box's 1.76 ms frame — 14%**, and it is charged to
+`active_sites` (0.437 ms), so **the plants are 55% of that phase**. The split,
+per frame at frame 12,000: `upkeep` 0.075, `transport` 0.093, `anchor` 0.025,
+`support` 0.017, `frontier` 0.008, `buds` 0.008, `roottips` 0.007. Under the
+narrow mark set the same pass is 0.218 ms on a *larger* stand.
+
+So §16.4's list now reads:
+
+1. **The plant passes** — `transport` and `organism_upkeep` are two thirds of
+   `step_organisms` and `step_organisms` is 14% of the frame. §12's working
+   pattern is hoisting `world.get` / `organism_cell` reads into per-pass
+   arrays; §12.4's failed one is replacing the index maps with binary search.
+2. **The moisture pass**, still the largest single function even at a third of
+   the visits. What is left is per-cell work, so the next cut is arithmetic,
+   not addressing.
+3. **`roundf` at 1.7–1.8%** is the pheromone blend's `.round()`, an
+   out-of-line libm call per cell (LLVM cannot lower round-half-away-from-zero
+   to `roundss`). `round_ties_even` would lower and is **not** the same
+   function; `(x + 0.5).floor()` differs from it on one representable f32
+   below 0.5. So this one is cheap and is **not** free of behaviour risk —
+   it needs the hash gate, not an argument.
+4. The sweep's own visits, unchanged: the per-row spans are still not
+   behaviour-neutral (`dead-ends.md`, 2026-09-05).
+
+**The ceiling, restated on this box.** The full box was 2.10 ms and is 1.61 ms
+with everything on — **1.30x**, against §16's estimate of 1.0–1.3 ms for the
+whole remaining list, which was measured on a box where the moisture pass and
+the pheromone plane were a larger share. What is honestly left before the tick
+*is* the plants and the ants: the ~21% in the kernel and rayon (which §16.2
+already halved with the serial thresholds and which is now the largest block
+in the profile), and `step_organisms`'s 14%.

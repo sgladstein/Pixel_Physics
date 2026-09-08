@@ -41,6 +41,16 @@ pub const CHUNK_AREA: usize = (CHUNK_SIZE * CHUNK_SIZE) as usize;
 ///   smaller than `MAX_REACH` would be safe for one.
 pub const MAX_REACH: i32 = 32;
 
+/// Side of the square blocks [`Chunk::stale_blocks`] tracks writes at. It
+/// is the field's own block -- `field::FIELD_SCALE` -- and `field.rs` pins
+/// the two together with a compile-time assertion, so this constant is a
+/// statement about the field's geometry made where the chunk can see it,
+/// not a second knob.
+pub const STALE_BLOCK: i32 = 16;
+/// Blocks per chunk side: `CHUNK_SIZE / STALE_BLOCK`, 4, so a chunk's
+/// sixteen blocks fit the `u16` mask exactly.
+pub const STALE_BLOCKS_PER_SIDE: i32 = CHUNK_SIZE / STALE_BLOCK;
+
 /// Address of a chunk in the chunk grid. Signed, because the world extends in
 /// every direction once streaming arrives in M10.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, PartialOrd, Ord)]
@@ -319,6 +329,38 @@ pub struct Chunk {
     /// and for the same reason: a write made during the pass must land in
     /// the *next* pass's set, not grow the one being walked.
     pending_moist_rows: [(i16, i16); SPAN_ROWS],
+    /// The same channel one cell at a time, under
+    /// [`moisture_marks_cells`]. `None` means nothing is marked, which is
+    /// also what says "skip this chunk"; the allocation is 1 KB and only
+    /// chunks the switch is on for ever make one.
+    pending_moist_cells: Option<Box<[u128; SPAN_ROWS]>>,
+    /// [`moisture_marks_cells`], resolved once at construction.
+    ///
+    /// **A field and not a call, because `mark_moist_dirty` is per write.**
+    /// Reading the `OnceLock` there instead measured a consistent +0.015 to
+    /// +0.03 ms a frame on the full box with the switch *off* -- a third of
+    /// what the switch buys when it is on, paid by everyone who never turns
+    /// it on. A `bool` already in the chunk's own cache line costs nothing.
+    moist_cells: bool,
+    /// **Which 16x16 blocks have had a cell written since the field last
+    /// rescanned this chunk**, one bit per block, row-major, `u16::MAX` on a
+    /// fresh or woken chunk. `field::rebuild_blocked` derives five per-block
+    /// arrays (`blocked`, `transmission`, `moisture_source`, `glow`, `beam`)
+    /// from the CA cells under a tile, and used to rescan all sixteen blocks
+    /// of every awake chunk every frame -- 4,096 cell reads a chunk, and on
+    /// the evolution lab's beds the largest single field pass (measured
+    /// 2026-09-06: `blocked` 0.20-0.38 ms of a 0.29-0.47 ms field). A block
+    /// whose cells have not changed since its last scan derives to exactly
+    /// what it derived to then, so the field rescans only the blocks marked
+    /// here and inherits the rest. **Both write channels set it**: ordinary
+    /// writes through `mark_dirty`, and the quiet soil-moisture writes
+    /// through `mark_moist_dirty`, because `moisture_source` reads soil
+    /// wetness -- a mask fed only by the sweep's channel would let a damp
+    /// block go stale under a sleeping tile. Cleared by `take_stale_blocks`,
+    /// which only the field calls. Travels with the chunk through
+    /// `take_chunk`/`put_chunk`, so a chunk out on a rayon worker keeps its
+    /// marks.
+    stale_blocks: u16,
     /// Whether this chunk currently holds any `Liquid`-kind cell.
     ///
     /// Tracked exactly like `reach` above and for the same reasons: grown
@@ -359,6 +401,97 @@ fn full_rows(coord: ChunkCoord) -> [(i16, i16); SPAN_ROWS] {
         *r = (b.min_x as i16, b.max_x as i16);
     }
     rows
+}
+
+/// **How the soil-moisture pass remembers what to look at** --
+/// `PIXEL_PHYSICS_MOISTURE_MARKS=cells` swaps the per-row spans for a per-cell
+/// bitmap. Default off, and it is a **behaviour change**, not a pure one.
+///
+/// The default set is the *row hull* of every mark, dilated by one row and one
+/// column ([`Chunk::take_moist_plan`]). Two marks 40 columns apart on one row
+/// put all 40 cells between them in the set, and every one of them is walked.
+/// The bitmap set is each mark dilated by the **4-neighbourhood**, which is
+/// exactly the cells whose outcome a write can change: `update_soil_water`
+/// reads its own cell, the four it shares a face with, and the one below, so a
+/// write at `p` reaches `p` and its four neighbours and nothing else.
+///
+/// **Why that is not bit-identical, stated as the mechanism rather than as a
+/// caveat.** A cell diagonally adjacent to a mark is in the row hull and not
+/// in the 4-neighbourhood. It is normally quiet -- nothing it reads has moved
+/// -- but a capillary write made *earlier in the same tick* can have changed
+/// one of the cells it does read, and under the wide set it is visited after
+/// that write and reacts to it in the same tick. Under the narrow set that
+/// write leaves its own mark and the cell reacts on the next tick instead. So
+/// the water goes to the same place; some of it arrives a tick later.
+///
+/// Off by default because that is an owner call, not a measurement:
+/// `Reports/evolution-lab-frame-cost-2026-09-01.md` §17 has the visit counts
+/// and the paired timings, and the blind A/B that asks whether a bed of wet
+/// soil looks any different.
+pub(crate) fn moisture_marks_cells() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_MOISTURE_MARKS").as_deref() == Ok("cells"))
+}
+
+/// Bits `1..=CHUNK_SIZE` of a [`MoistPlan::Cells`] row -- the chunk's own
+/// columns, with the two outrigger bits (a mark one column outside, either
+/// side) masked off after the dilation has used them.
+const MOIST_COLUMN_MASK: u128 = ((1u128 << CHUNK_SIZE) - 1) << 1;
+
+/// What one chunk's soil-moisture pass must walk, in whichever form
+/// [`moisture_marks_cells`] selected.
+///
+/// **`Rows` carries its `SweepPlan` by value, and clippy's
+/// `large_enum_variant` is allowed rather than obeyed.** Boxing it would put
+/// one allocation per awake chunk per tick on the *default* path, which is the
+/// path nobody opted into; the 280 bytes it saves per element are in a `Vec`
+/// of a few dozen entries. Routing the default walk through the other
+/// variant's shape has already been measured at +0.03 ms a frame on the full
+/// box (see `World::step_soil_water`), so this arm is deliberately the cheap
+/// one.
+#[allow(clippy::large_enum_variant)]
+pub enum MoistPlan {
+    /// Per-row spans -- the row hull of every mark, dilated by one row and one
+    /// column. The default, and what the engine has always done.
+    Rows(SweepPlan),
+    /// One bit per cell, indexed **local row + 1** and **local column + 1** so
+    /// the outriggers carry a mark made one cell outside the chunk, exactly as
+    /// `dirty_rows`'s indexing does. Dilated by the 4-neighbourhood when it is
+    /// walked, not when it is built, so the marks stay exactly the write
+    /// positions.
+    Cells(Box<[u128; SPAN_ROWS]>),
+}
+
+/// The cells of local row `ly` that a [`MoistPlan::Cells`] set asks for, as a
+/// bit per column with bit `lx + 1` set.
+///
+/// **The dilation happens here, not when the mark is made**, so the stored set
+/// stays exactly the write positions and a later change to what
+/// `update_soil_water` reads only has to change this line. The neighbourhood
+/// is the **4**-neighbourhood -- this row's marks, the row above's and the row
+/// below's, plus this row's shifted one column each way -- because that is
+/// exactly the set of cells whose outcome a write at one cell can change. A
+/// diagonal is deliberately absent; `moisture_marks_cells` has the case where
+/// that is visible.
+#[inline]
+pub fn moist_row_mask(marks: &[u128; SPAN_ROWS], ly: i32) -> u128 {
+    let i = (ly + 1) as usize;
+    let m = marks[i];
+    (m | marks[i - 1] | marks[i + 1] | (m << 1) | (m >> 1)) & MOIST_COLUMN_MASK
+}
+
+/// [`full_rows`]'s counterpart for the per-cell mark set: every cell of the
+/// chunk marked, and nothing outside it, for the same reason. `None` when the
+/// switch is off, so a chunk that will never use the set never allocates one.
+fn full_moist_cells() -> Option<Box<[u128; SPAN_ROWS]>> {
+    if !moisture_marks_cells() {
+        return None;
+    }
+    let mut rows = Box::new([0u128; SPAN_ROWS]);
+    for r in rows.iter_mut().skip(1).take(CHUNK_SIZE as usize) {
+        *r = MOIST_COLUMN_MASK;
+    }
+    Some(rows)
 }
 
 /// Whether the sweep uses the per-row spans or the old bounding box.
@@ -483,6 +616,9 @@ impl Chunk {
             // generated terrain arrives with whatever wetness worldgen gave
             // it and needs one pass to find its own equilibrium.
             pending_moist_rows: full_rows(coord),
+            pending_moist_cells: full_moist_cells(),
+            moist_cells: moisture_marks_cells(),
+            stale_blocks: u16::MAX,
             rng: Rng::new(seed_from_coord(coord)),
             nutrient_deficit: None,
             nutrient_recovered_at: 0,
@@ -620,6 +756,7 @@ impl Chunk {
             Some(r) => r.include(x, y),
             None => self.pending_dirty = Some(Rect::point(x, y)),
         }
+        self.stale_blocks |= self.block_bit(x, y);
         // The same mark, kept per row. A mark more than one row outside the
         // chunk cannot reach it — the box expands by exactly one row — so it
         // is dropped here rather than clamped, which is the whole of the
@@ -759,10 +896,42 @@ impl Chunk {
         // feed back on itself: `World::set_soil_moisture` is quiet on the
         // ordinary channel, so a moisture write never appears in
         // `pending_rows`.
-        for (moist, dirty) in self.pending_moist_rows.iter_mut().zip(self.pending_rows.iter()) {
-            if dirty.0 <= dirty.1 {
-                moist.0 = moist.0.min(dirty.0);
-                moist.1 = moist.1.max(dirty.1);
+        // `get_or_insert_with` and not `as_mut()`: `take_moist_plan` leaves
+        // the set `None` every tick, so `as_mut()` silently dropped the
+        // ordinary channel's whole contribution from the tick after the
+        // first. Caught by `sw seen` going to exactly 0 by frame 6 -- the
+        // moisture pass had stopped, which a timing alone reads as a 3x win.
+        if self.moist_cells && self.pending_rows.iter().any(|d| d.0 <= d.1) {
+            let spans = self.pending_rows;
+            let cells = self.pending_moist_cells.get_or_insert_with(|| Box::new([0u128; SPAN_ROWS]));
+            // The per-cell form of the same seeding. The ordinary channel is
+            // a span per row and cannot be narrowed here -- the marks that
+            // built it are gone -- so a sweep write contributes its row hull
+            // exactly as it does today. What changes is only that the hull
+            // stops at the columns it actually covers rather than being
+            // clamped inward to the chunk edge: a span lying wholly outside
+            // the chunk (`touch_neighbours` reaches `MAX_REACH`, this
+            // channel reaches one) can change nothing here and is dropped.
+            let base = self.coord.bounds().min_x;
+            for (row, dirty) in cells.iter_mut().zip(spans.iter()) {
+                if dirty.0 > dirty.1 {
+                    continue;
+                }
+                let lo = (i32::from(dirty.0) - base + 1).max(0);
+                let hi = (i32::from(dirty.1) - base + 1).min(SPAN_ROWS as i32 - 1);
+                if lo > hi {
+                    continue;
+                }
+                let width = (hi - lo + 1) as u32;
+                let mask = if width >= 128 { u128::MAX } else { ((1u128 << width) - 1) << lo };
+                *row |= mask;
+            }
+        } else if !self.moist_cells {
+            for (moist, dirty) in self.pending_moist_rows.iter_mut().zip(self.pending_rows.iter()) {
+                if dirty.0 <= dirty.1 {
+                    moist.0 = moist.0.min(dirty.0);
+                    moist.1 = moist.1.max(dirty.1);
+                }
             }
         }
         self.dirty = self.pending_dirty.take();
@@ -773,8 +942,24 @@ impl Chunk {
     /// [`Self::pending_moist_rows`].
     #[inline]
     pub fn mark_moist_dirty(&mut self, x: i32, y: i32) {
-        let ly = y - self.coord.bounds().min_y;
+        // See `stale_blocks`: soil wetness is one of the things the field
+        // derives from a block, and this is the only channel it moves on.
+        self.stale_blocks |= self.block_bit(x, y);
+        let b = self.coord.bounds();
+        let ly = y - b.min_y;
         if !(-1..=CHUNK_SIZE).contains(&ly) {
+            return;
+        }
+        if self.moist_cells {
+            // One cell, not a row span. A mark further than one column
+            // outside the chunk is dropped rather than clamped inward: the
+            // dilation reaches one cell, so it cannot change anything here.
+            let lx = x - b.min_x;
+            if !(-1..=CHUNK_SIZE).contains(&lx) {
+                return;
+            }
+            let rows = self.pending_moist_cells.get_or_insert_with(|| Box::new([0u128; SPAN_ROWS]));
+            rows[(ly + 1) as usize] |= 1u128 << (lx + 1);
             return;
         }
         let span = &mut self.pending_moist_rows[(ly + 1) as usize];
@@ -798,7 +983,10 @@ impl Chunk {
     /// made *during* the pass must land in the next pass's set rather than
     /// growing the one being walked, which is the same two-phase
     /// `parallel::step` applies to `chunks_to_sweep`.
-    pub fn take_moist_plan(&mut self) -> Option<SweepPlan> {
+    pub fn take_moist_plan(&mut self) -> Option<MoistPlan> {
+        if self.moist_cells {
+            return self.pending_moist_cells.take().map(MoistPlan::Cells);
+        }
         let marks = std::mem::replace(&mut self.pending_moist_rows, [NO_SPAN; SPAN_ROWS]);
         let chunk = self.coord.bounds();
         let mut rows = [NO_SPAN; SPAN_ROWS];
@@ -844,7 +1032,7 @@ impl Chunk {
                 *slot = rows[ly as usize];
             }
         }
-        Some(SweepPlan { bounds: Rect::new(min_x, min_y, max_x, max_y), rows: shifted })
+        Some(MoistPlan::Rows(SweepPlan { bounds: Rect::new(min_x, min_y, max_x, max_y), rows: shifted }))
     }
 
     /// Recompute `reach` from scratch by scanning every resident cell —
@@ -866,6 +1054,30 @@ impl Chunk {
         self.dirty = Some(self.coord.bounds());
         self.dirty_rows = full_rows(self.coord);
         self.pending_moist_rows = full_rows(self.coord);
+        self.pending_moist_cells = full_moist_cells();
+        self.stale_blocks = u16::MAX;
+    }
+
+    /// The bit in [`Self::stale_blocks`] for the block holding world cell
+    /// `(x, y)`, or `0` when the cell is not in this chunk -- `mark_dirty`
+    /// and `mark_moist_dirty` are both called on *neighbour* chunks with the
+    /// writer's own coordinates, and a write outside this chunk changes none
+    /// of its cells.
+    #[inline]
+    fn block_bit(&self, x: i32, y: i32) -> u16 {
+        let (ox, oy) = self.coord.origin();
+        let (lx, ly) = (x - ox, y - oy);
+        if !(0..CHUNK_SIZE).contains(&lx) || !(0..CHUNK_SIZE).contains(&ly) {
+            return 0;
+        }
+        1u16 << ((ly / STALE_BLOCK) * STALE_BLOCKS_PER_SIDE + lx / STALE_BLOCK)
+    }
+
+    /// Take the stale-block mask, leaving it clear: the field has rescanned
+    /// those blocks and everything written from here on is new.
+    #[inline]
+    pub fn take_stale_blocks(&mut self) -> u16 {
+        std::mem::take(&mut self.stale_blocks)
     }
 
     pub fn cells(&self) -> &[Cell] {
@@ -883,8 +1095,259 @@ fn seed_from_coord(coord: ChunkCoord) -> u64 {
     x.wrapping_mul(0x9E37_79B9_7F4A_7C15) ^ y.wrapping_mul(0xC2B2_AE3D_27D4_EB4F)
 }
 
+/// How far past the union of the current window and a new coordinate to pad
+/// the grid on each side when it grows. Small and arbitrary — its only job
+/// is to absorb a few chunks of drift before the next resize, not to size
+/// the world; picking it too small just means more (cheap, amortised)
+/// resizes, never incorrect behaviour.
+const CHUNK_GRID_MARGIN: i32 = 4;
+
+/// A sparse chunk store addressed by `ChunkCoord`: a dense window of
+/// `Option<Chunk>` slots, grown on demand. Still chunk-granular -- an
+/// unloaded chunk is `None`, which is what keeps M10 streaming possible --
+/// but a lookup is two subtractions and an index, not a hash and a probe.
+/// `World::chunks` is this rather than `fxhash::ChunkMap<Chunk>`; the field
+/// tiles stay a map (`src/sim/world.rs`'s own doc says why).
+#[derive(Clone)]
+pub struct ChunkGrid {
+    min_x: i32,
+    min_y: i32,
+    cols: i32,
+    rows: i32,
+    slots: Vec<Option<Chunk>>,
+    len: usize,
+}
+
+impl ChunkGrid {
+    pub fn new() -> Self {
+        Self { min_x: 0, min_y: 0, cols: 0, rows: 0, slots: Vec::new(), len: 0 }
+    }
+
+    #[inline]
+    fn contains_coord(&self, coord: ChunkCoord) -> bool {
+        !self.slots.is_empty()
+            && coord.x >= self.min_x
+            && coord.x < self.min_x + self.cols
+            && coord.y >= self.min_y
+            && coord.y < self.min_y + self.rows
+    }
+
+    #[inline]
+    fn index_of(&self, coord: ChunkCoord) -> usize {
+        ((coord.y - self.min_y) * self.cols + (coord.x - self.min_x)) as usize
+    }
+
+    /// Grow the window so `coord` is inside it, moving existing slots across
+    /// unchanged. A no-op if `coord` is already covered.
+    fn ensure_capacity(&mut self, coord: ChunkCoord) {
+        if self.slots.is_empty() {
+            self.min_x = coord.x - CHUNK_GRID_MARGIN;
+            self.min_y = coord.y - CHUNK_GRID_MARGIN;
+            self.cols = 2 * CHUNK_GRID_MARGIN + 1;
+            self.rows = 2 * CHUNK_GRID_MARGIN + 1;
+            self.slots = vec![None; (self.cols * self.rows) as usize];
+            return;
+        }
+        if self.contains_coord(coord) {
+            return;
+        }
+        let old_max_x = self.min_x + self.cols - 1;
+        let old_max_y = self.min_y + self.rows - 1;
+        let new_min_x = self.min_x.min(coord.x) - CHUNK_GRID_MARGIN;
+        let new_min_y = self.min_y.min(coord.y) - CHUNK_GRID_MARGIN;
+        let new_max_x = old_max_x.max(coord.x) + CHUNK_GRID_MARGIN;
+        let new_max_y = old_max_y.max(coord.y) + CHUNK_GRID_MARGIN;
+        let new_cols = new_max_x - new_min_x + 1;
+        let new_rows = new_max_y - new_min_y + 1;
+        let mut new_slots: Vec<Option<Chunk>> = vec![None; (new_cols * new_rows) as usize];
+        for old_y in 0..self.rows {
+            for old_x in 0..self.cols {
+                let old_idx = (old_y * self.cols + old_x) as usize;
+                if let Some(chunk) = self.slots[old_idx].take() {
+                    let wx = self.min_x + old_x;
+                    let wy = self.min_y + old_y;
+                    let nx = wx - new_min_x;
+                    let ny = wy - new_min_y;
+                    new_slots[(ny * new_cols + nx) as usize] = Some(chunk);
+                }
+            }
+        }
+        self.min_x = new_min_x;
+        self.min_y = new_min_y;
+        self.cols = new_cols;
+        self.rows = new_rows;
+        self.slots = new_slots;
+    }
+
+    #[inline]
+    pub fn get(&self, coord: &ChunkCoord) -> Option<&Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        self.slots[self.index_of(*coord)].as_ref()
+    }
+
+    #[inline]
+    pub fn get_mut(&mut self, coord: &ChunkCoord) -> Option<&mut Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        let idx = self.index_of(*coord);
+        self.slots[idx].as_mut()
+    }
+
+    pub fn insert(&mut self, coord: ChunkCoord, chunk: Chunk) -> Option<Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        self.ensure_capacity(coord);
+        let idx = self.index_of(coord);
+        let old = self.slots[idx].replace(chunk);
+        if old.is_none() {
+            self.len += 1;
+        }
+        old
+    }
+
+    pub fn remove(&mut self, coord: &ChunkCoord) -> Option<Chunk> {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        if !self.contains_coord(*coord) {
+            return None;
+        }
+        let idx = self.index_of(*coord);
+        let old = self.slots[idx].take();
+        if old.is_some() {
+            self.len -= 1;
+        }
+        old
+    }
+
+    /// The three `entry(coord).or_insert_with(..)` call sites' replacement.
+    pub fn get_or_insert_with(&mut self, coord: ChunkCoord, f: impl FnOnce() -> Chunk) -> &mut Chunk {
+        debug_assert_eq!(coord.slice, 0, "ChunkGrid is 2D only -- see ChunkCoord::slice's own doc");
+        self.ensure_capacity(coord);
+        let idx = self.index_of(coord);
+        if self.slots[idx].is_none() {
+            self.slots[idx] = Some(f());
+            self.len += 1;
+        }
+        self.slots[idx].as_mut().expect("just inserted")
+    }
+
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+
+    pub fn contains_key(&self, coord: &ChunkCoord) -> bool {
+        self.get(coord).is_some()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &Chunk> {
+        self.slots.iter().filter_map(Option::as_ref)
+    }
+
+    pub fn values_mut(&mut self) -> impl Iterator<Item = &mut Chunk> {
+        self.slots.iter_mut().filter_map(Option::as_mut)
+    }
+
+    /// Row-major -- the same order the sweep and every determinism-sensitive
+    /// pass already want, strictly stronger than the random order the
+    /// `HashMap` this replaces gave (and the frame-cost audit already found
+    /// nothing in `src/` depends on that randomness -- see `fxhash`'s module
+    /// doc).
+    pub fn iter(&self) -> impl Iterator<Item = (ChunkCoord, &Chunk)> {
+        let (min_x, min_y, cols) = (self.min_x, self.min_y, self.cols);
+        self.slots.iter().enumerate().filter_map(move |(i, slot)| {
+            slot.as_ref().map(|c| {
+                let ix = i as i32 % cols;
+                let iy = i as i32 / cols;
+                (ChunkCoord::new(min_x + ix, min_y + iy), c)
+            })
+        })
+    }
+
+    pub fn iter_mut(&mut self) -> impl Iterator<Item = (ChunkCoord, &mut Chunk)> {
+        let (min_x, min_y, cols) = (self.min_x, self.min_y, self.cols);
+        self.slots.iter_mut().enumerate().filter_map(move |(i, slot)| {
+            slot.as_mut().map(|c| {
+                let ix = i as i32 % cols;
+                let iy = i as i32 / cols;
+                (ChunkCoord::new(min_x + ix, min_y + iy), c)
+            })
+        })
+    }
+}
+
+impl Default for ChunkGrid {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// **The moisture mark set's dilation is the 4-neighbourhood, exactly.**
+    ///
+    /// A tight assertion on a deterministic function, which is what makes it
+    /// worth having: the switch it belongs to
+    /// ([`moisture_marks_cells`]) is process-global through a `OnceLock`, so
+    /// no test can run both arms in one binary and the end-to-end comparison
+    /// lives in `lab_cost` instead
+    /// (`Reports/evolution-lab-frame-cost-2026-09-01.md` §17). What can be
+    /// pinned here is the rule itself: a write reaches its own cell and the
+    /// four it shares a face with, and **not** the four diagonals -- which is
+    /// the whole of the behaviour difference, so a later edit that quietly
+    /// widened it back to the 8-neighbourhood would take the saving with it
+    /// and nothing else would notice.
+    #[test]
+    fn a_moisture_mark_dilates_to_its_four_neighbours_and_no_further() {
+        let mut marks = [0u128; SPAN_ROWS];
+        // Local cell (10, 20) -- bit 11 of row 21.
+        marks[21] = 1u128 << 11;
+        let set = |ly: i32| moist_row_mask(&marks, ly);
+
+        // Its own row: the cell and the two beside it.
+        assert_eq!(set(20), (1u128 << 10) | (1u128 << 11) | (1u128 << 12), "own row: the cell and its two side neighbours");
+        // The rows above and below: the cell's column only. A diagonal is not
+        // in the set -- this is the assertion the saving rests on.
+        assert_eq!(set(19), 1u128 << 11, "row above: the column only, no diagonals");
+        assert_eq!(set(21), 1u128 << 11, "row below: the column only, no diagonals");
+        // And nothing two rows out.
+        assert_eq!(set(18), 0, "two rows up is out of reach");
+        assert_eq!(set(22), 0, "two rows down is out of reach");
+    }
+
+    /// The outriggers carry a mark made one cell outside the chunk into the
+    /// chunk's own edge, and a mark's dilation never escapes the chunk.
+    ///
+    /// Both halves matter and they pull opposite ways: without the first, a
+    /// neighbour chunk's write would stop dead at the seam (the
+    /// chunk-boundary artifact this codebase keeps rediscovering); without
+    /// the second, the walk would hand `step_soil_water` a cell that is not
+    /// its chunk's to visit.
+    #[test]
+    fn moisture_marks_cross_the_chunk_seam_inward_but_never_outward() {
+        // A mark one column left of the chunk (bit 0) reaches column 0 only.
+        let mut marks = [0u128; SPAN_ROWS];
+        marks[21] = 1u128 << 0;
+        assert_eq!(moist_row_mask(&marks, 20), 1u128 << 1, "a mark just outside reaches the edge column and stops");
+
+        // A mark in the last column of the chunk (lx 63, bit 64) reaches
+        // bit 63 and bit 65 -- and bit 65 is outside, so it is masked off.
+        let mut marks = [0u128; SPAN_ROWS];
+        marks[21] = 1u128 << 64;
+        assert_eq!(moist_row_mask(&marks, 20), (1u128 << 63) | (1u128 << 64), "the dilation must not walk out of the chunk");
+
+        // A mark one row above the chunk reaches the chunk's first row.
+        let mut marks = [0u128; SPAN_ROWS];
+        marks[0] = 1u128 << 11;
+        assert_eq!(moist_row_mask(&marks, 0), 1u128 << 11, "a mark one row above reaches row 0");
+    }
+
     use super::*;
     use crate::sim::material;
 
@@ -1146,5 +1609,86 @@ no longer describing the shipped defaults and the sweep above should be re-read"
         let mut chunk = Chunk::new(ChunkCoord::new(0, 0));
         chunk.end_sweep();
         assert!(chunk.sweep_region().is_none());
+    }
+
+    #[test]
+    fn chunk_grid_round_trips_insert_get_remove() {
+        let mut grid = ChunkGrid::new();
+        assert!(grid.is_empty());
+        let a = ChunkCoord::new(3, -2);
+        let b = ChunkCoord::new(-100, 40); // far enough away to force a grow
+        assert!(grid.insert(a, Chunk::new(a)).is_none());
+        assert!(grid.insert(b, Chunk::new(b)).is_none());
+        assert_eq!(grid.len(), 2);
+        assert!(grid.contains_key(&a));
+        assert_eq!(grid.get(&a).unwrap().coord, a);
+        assert_eq!(grid.get(&b).unwrap().coord, b);
+        assert!(grid.get(&ChunkCoord::new(0, 0)).is_none());
+
+        let replaced = grid.insert(a, Chunk::new(a));
+        assert!(replaced.is_some(), "re-inserting at an occupied slot must hand back the old chunk");
+        assert_eq!(grid.len(), 2, "a replace must not double-count");
+
+        let removed = grid.remove(&a);
+        assert!(removed.is_some());
+        assert_eq!(grid.len(), 1);
+        assert!(!grid.contains_key(&a));
+        assert!(grid.remove(&a).is_none(), "removing twice must not underflow len");
+    }
+
+    #[test]
+    fn chunk_grid_get_or_insert_with_only_calls_the_closure_once() {
+        let mut grid = ChunkGrid::new();
+        let coord = ChunkCoord::new(5, 5);
+        let mut calls = 0;
+        {
+            let chunk = grid.get_or_insert_with(coord, || {
+                calls += 1;
+                Chunk::new(coord)
+            });
+            chunk.coord = coord; // touch the &mut to exercise the return type
+        }
+        grid.get_or_insert_with(coord, || {
+            calls += 1;
+            Chunk::new(coord)
+        });
+        assert_eq!(calls, 1, "the second call found the slot already occupied");
+        assert_eq!(grid.len(), 1);
+    }
+
+    #[test]
+    fn chunk_grid_iterates_row_major_and_matches_len() {
+        let mut grid = ChunkGrid::new();
+        let coords = [(0, 0), (2, 0), (0, 2), (-3, 1), (1, -3)];
+        for &(x, y) in &coords {
+            grid.insert(ChunkCoord::new(x, y), Chunk::new(ChunkCoord::new(x, y)));
+        }
+        let seen: Vec<(i32, i32)> = grid.iter().map(|(c, _)| (c.x, c.y)).collect();
+        assert_eq!(seen.len(), coords.len());
+        assert_eq!(seen.len(), grid.len());
+        // Row-major: y ascending, x ascending within a row.
+        let mut sorted = seen.clone();
+        sorted.sort_unstable_by_key(|&(x, y)| (y, x));
+        assert_eq!(seen, sorted, "iter() must already be in row-major order");
+
+        for (_, chunk) in grid.iter_mut() {
+            chunk.wake();
+        }
+        assert_eq!(grid.values().count(), coords.len());
+        assert_eq!(grid.values_mut().count(), coords.len());
+    }
+
+    #[test]
+    fn chunk_grid_grows_without_disturbing_existing_entries() {
+        let mut grid = ChunkGrid::new();
+        let near = ChunkCoord::new(0, 0);
+        grid.insert(near, Chunk::new(near));
+        // Far enough to be outside the initial window and force ensure_capacity
+        // to reallocate and move every existing slot across.
+        let far = ChunkCoord::new(500, -500);
+        grid.insert(far, Chunk::new(far));
+        assert_eq!(grid.get(&near).unwrap().coord, near, "growth must preserve the entry that was already there");
+        assert_eq!(grid.get(&far).unwrap().coord, far);
+        assert_eq!(grid.len(), 2);
     }
 }

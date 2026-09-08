@@ -314,7 +314,7 @@ fn render_mode(spec: &LabBox) {
     let (cells, orgs, seeds, ants) = census(&world);
     println!("  stand at frame {warm}: cells {cells} orgs {orgs} seeds {seeds} ants {ants}");
 
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     let mut renderer = Renderer::new();
     println!(
         "\n{:>8}  {:>12}  {:>11}  {:>9}  {:>8}  {:>8}",
@@ -499,7 +499,7 @@ fn shot_mode(spec: &LabBox) {
         "bend" => OrganismOverlay::Stress,
         _ => OrganismOverlay::Off,
     };
-    let touched = std::collections::HashSet::new();
+    let touched = pixel_physics::sim::fxhash::ChunkSet::default();
     renderer.draw(&world, &particles, &touched, &mut buf, (w, h), true);
     image::save_buffer(&out, &buf, w, h, image::ColorType::Rgba8).expect("writing the shot");
     println!("wrote {out} ({w}x{h}) at {}", geometry_line());

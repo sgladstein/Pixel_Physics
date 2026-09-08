@@ -3869,6 +3869,10 @@ fn schedule_solid_neighbours(world: &World, x: i32, y: i32) -> Vec<ActiveSite> {
 /// `HashMap<ChunkCoord, Chunk>` lookup *per read*, and each cell is read
 /// five times over before the search starts (issue #5's "~164k hashed
 /// `World::get` calls… index the chunk directly instead", in a new place).
+/// (`World::chunks` is a `ChunkGrid` now, so that per-read cost is an index
+/// rather than a hash and a probe -- the flat mirror below still wins,
+/// since it also removes the five-times-over re-reading, which the chunk
+/// store's own shape cannot.)
 /// So the world is mirrored into a flat `Vec<Cell>` filled by walking
 /// chunks directly, the whole search runs on array indices, and the world
 /// is touched again only to write results back.
@@ -3888,7 +3892,11 @@ pub fn compute_world_distances(world: &mut World) {
     // Both loops below used `World::get` per cell, which is a bounds check
     // plus a `HashMap<ChunkCoord, Chunk>` lookup *per read*, and each cell
     // is read five times over (itself plus four neighbours) before the
-    // search even starts. That was affordable while the world was one
+    // search even starts. (`World::chunks` is a `ChunkGrid` now -- an index
+    // instead of that hash and probe -- but the mirror below is still the
+    // right call: it also collapses the five-times-over re-reading, which
+    // is the bigger half and is unaffected by what the chunk store is.)
+    // That was affordable while the world was one
     // screen. Measured at 2048x640 -- the size the world shipped at then,
     // since grown to 8192x2560 and not re-measured there -- with the probe
     // splitting the two halves:

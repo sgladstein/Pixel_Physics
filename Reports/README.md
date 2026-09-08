@@ -323,6 +323,27 @@ by somebody about to try it on creatures.
 
 ## Plants and trees  ·  `engine`
 
+- [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
+  — **built and measured, 2026-09-07.** The owner's *"water also pools on the
+  top of our plants; it should drip through"*, answered — and the rule
+  already existed. `update_powder` has `fall_through_organism` (litter, seed,
+  windfall) on the 2D-slice argument that *a branch one cell wide is not a
+  shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
+  so water landing on a crown simply sat. Measured before the fix,
+  `scene=canopyrain` under pinned rain: **89–96% of every liquid cell in the
+  world stood on living tissue**, mean 55–70 rows up and as high as 107 —
+  almost no rain reached the ground in a wood. What shipped is
+  `drip_through_organism`, the same tunnel at a **rate** rather than
+  instantly, because the ask was a drip and instant passage is the binary
+  outcome the ethos rules out. Rate sweep from one binary via `CANOPY_DRIP`,
+  monotonic: share on tissue 90–96% → 61–69% at the shipped period 8, mean
+  height 55–70 rows → 28–51. Cost is below the noise floor of three
+  alternating `ascii` runs. **§5 is the reusable part**: two metric traps,
+  counting liquid *cells* when the quantity is fill volume (128 cells below
+  from 5 placed above), and censusing a standing quantity under continuous
+  rain, where water in transit and water stuck read the same and the fix
+  looked inert while 532 drips were succeeding
+
 **Start here, not from the list below.** Plants are 42 of this directory's
 110 reports and about **269,000 tokens** — no session reads them, and the
 list is ordered by provenance (design / research / handoff), which is not
@@ -977,7 +998,16 @@ drift that two of these documents still reflect.**
   genome, one line in `traits_of`, a `Made` input, priced by the existing
   levies — with the measurements that would show it selected for rather
   than reachable (the block's weights leaving zero under predators, body
-  spread inside one lineage).
+  spread inside one lineage). **Built and measured the same evening**
+  (§2f–§2g): the shipped bed is the same distribution with the block at
+  zero on every slot; on the one seed that breeds the channel is connected
+  (20 of 36 living made at 0.5, armour spread 0.000 .. 0.647 inside one
+  line against a mutational floor of 0.08–0.32) and the dial gates it (the
+  same wiring at zero hands the number to 28 of 44 and moves no body); and
+  `creature_arena` under two dials on the bed with teeth reads the
+  developmental arm as the null (median 50.9% against 51.6%), for two
+  reasons that are the bed's — *reachable, connected, gated; not yet
+  found*.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
@@ -2280,7 +2310,40 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the positional draw it names as the unlock costs +0.149 ms/tick, about the
   whole of what the spans save, and the premise it argues from is false --
   keyed positionally the two sweep arms still diverge, at frame 4,330
-  (`open-bugs-handoff.md` §E2).
+  (`open-bugs-handoff.md` §E2). **§16 (2026-09-06) is the round the owner's
+  "2-10x" brief produced, and it is bit-identical throughout** -- world hash
+  *and* field hash per commit against a saved baseline binary. A `perf`
+  profile put the frame in per-awake-chunk overhead rather than in any
+  economy: the soil-moisture pass reading the world through a `HashMap`
+  probe per cell, SipHash over every chunk key, rayon woken for jobs of one
+  chunk or sixteen field cells, and three field passes solving wind in a
+  sealed box with no wind. Six commits -- a fixed-seed hasher, a dense
+  `ChunkGrid` behind `World::get`, inline `FieldTile` arrays, serial
+  fallbacks below a size threshold, the momentum skip freed from a
+  never-met "no chunk awake" condition, and `rebuild_blocked` rescanning
+  only written blocks -- measure paired and alternating **full box (256 founders, 3 colonies) **6.6 → 2.7 ms**, 128 founders + colony 7.0 → 2.8, 16 trees 4.1 → 1.1, one small plant 2.8 → 0.5 -- dials 2.6x → 6.0x, 4.0x → 15x and 6x → 34x on the measuring box**.
+  It also corrects §15.3: the "0.006 ms moisture pass" was the field's
+  moisture-*source* seeding, not `step_soil_water`, which was the largest
+  single function in the profile. **§17 (2026-09-07) works §16.4's list.**
+  Two more pure changes on the same gate — the pheromone plane's 3x3 mean as
+  an **exact** integer sliding window (2.6x on the phase; nine `u8`s sum below
+  2^24, so the old `f32` running sum was already an exact integer), and the
+  moisture pass reading **its own chunk** instead of the chunk map. Then a
+  behaviour change behind `PIXEL_PHYSICS_MOISTURE_MARKS=cells`, **default
+  off**: a per-cell mark bitmap dilated by the 4-neighbourhood instead of the
+  per-row hull, **1.9x to 2.9x fewer visits moving the same water** (`sw chgd`
+  within 0.3%), base to switch-on **1.30x / 1.40x / 1.33x / 1.21x** on the four
+  beds. Three findings outlast the numbers. **§16's per-phase shares do not
+  transfer between machines** — the same command on the same commit is 2.10 ms
+  here against 2.72 there, with `pheromones` *larger* and `ca_sweep` smaller —
+  so a phase share is a fact about a box. **A new switch cost the path nobody
+  opted into +0.03 ms**, a third of what it buys, from a `OnceLock` read on a
+  per-write path and from routing the default walk through the new shape; both
+  measured out rather than argued about. And **`ORGANISM_PASS` reframes the
+  flat profile**: `perf` puts `transport` + `organism_upkeep` at 2.9% of
+  samples, which reads as "the plants are not the problem", but those are leaf
+  frames — `step_organisms` whole is **0.24 ms of a 1.76 ms frame and 55% of
+  the `active_sites` phase**, and it is the next item.
 - [sweep-positional-rng-2026-09-05.md](sweep-positional-rng-2026-09-05.md) —
   **built, measured and STOPPED 2026-09-05; adversarially reviewed before
   being put forward (§8 records what the review changed, including two claims

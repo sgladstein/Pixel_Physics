@@ -32,7 +32,6 @@ use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player::Player;
 use pixel_physics::sim::world::World;
 use pixel_physics::sim::Cell;
-use std::collections::HashSet;
 
 const WIDTHS: [i32; 5] = [1, 2, 3, 5, 8];
 /// Where the formation's left edge sits, relative to his own left edge. The
@@ -105,7 +104,7 @@ fn main() {
                 let mut r = Renderer::new();
                 r.tree_depth = d;
                 let mut buf = vec![0u8; (tw * th * 4) as usize];
-                r.draw(&world, &particles, &HashSet::new(), &mut buf, (tw, th), true);
+                r.draw(&world, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (tw, th), true);
                 buf
             };
             // The counter next to the picture: `Front` never occludes and
