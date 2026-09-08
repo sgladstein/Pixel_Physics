@@ -34,7 +34,8 @@ that length **every shipped bed starves its ant colony**, on every seed, with
 births plentiful: [`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md)
 carries the table and the bar a fix has to clear. **§Z6 is upstream of the
 castes question, the kin drift and Gate 2 alike** — a channel cannot be *found*
-by a line that does not outlive a session. Every creature result in archived
+by a line that does not outlive a session; **round twenty-one answers its open
+question.** Every creature result in archived
 rounds twelve to eighteen was taken at a few minutes of play at most and is
 true at that length only — **the owner's machine is the ruler, not this
 container's**: a full box runs at 1–4x there and one plant at 40x, so 24,000
@@ -140,6 +141,23 @@ measurable, and it is what `synapse_fraction` exists to let selection prune.
   unit whose outgoing row is silent, verified bit-identical through
   `eval_brain` rather than assumed.
 
+
+## Round twenty-one, 2026-09-08 - Z6 separated: the colony dies twice
+
+*PR #284; record in
+[`../colony-starvation-separated-2026-09-08.md`](../colony-starvation-separated-2026-09-08.md);
+Z6 stays OPEN, bar unchanged, nothing tuned.*
+
+**Stages, not alternatives**: 0-4,500 is *reach* (41-46 of 52 founders starve
+with 4-6x their endowment standing), then *grazing* (survivors eat the bed to
+4-14% of `colonies=0`), so **a fix for either alone buys a later extinction**.
+**Z6's "the plants are not the casualty" is wrong**: paired against
+`colonies=0` the stand is at 61-68% of the unfed bed at frame 900, before an
+ant has died. **The mechanism is one absence** -- no
+`FoodNear`/`FoodBearing` in `brain.rs`, no ant weight on a pheromone plane, so
+the trail is laid and never followed. Traps: `forage_probe` at 300,000
+frames is identical to its 24,000 run, and *aloft* is not *out of reach*:
+an unfed bed reads 80-86% aloft with nothing in it.
 
 ## The earlier rounds
 

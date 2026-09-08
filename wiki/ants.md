@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-08, when **a colony started fighting back by
+*Current as of: 2026-09-08, later, when it was measured that **no ant
+follows a trail** -- both smells are laid and neither is read, so a forager
+finds food only by bumping into it and every shipped bed starves its colony
+inside one play session; see "They leave smells behind" below. Earlier the
+same day, when **a colony started fighting back by
 default** -- an ant standing where something is being bitten stops and bites
 what is there, which is the first thing any animal here is born knowing about
 a fight. It costs the colony about a fifth of its foraging and takes roughly
@@ -236,8 +240,17 @@ glides, and the same creature curled up in a corner does not.
 says *home is this way*: strongest for an ant that has just been at the
 nest, fading the longer it has been away. So a colony paints its own map
 outward from home, and the map is strongest exactly where home is. An ant
-carrying food leaves a second, different scent — a food trail — which is
-what draws other ants toward something worth having.
+carrying food leaves a second, different scent — a food trail.
+
+**Nothing follows either of them yet, and that is not a small footnote.**
+Measured 2026-09-08: an ant born today is not born knowing to walk up a
+smell. The trails are laid, they fade, they strengthen where ants walk — and
+no ant is drawn along one. The page used to say the food trail "draws other
+ants toward something worth having"; it does not, and a colony without that
+finds food only by bumping into it, which is why a shipped bed starves inside
+one play session. A line *could* evolve to follow one, since the senses are
+there and the weights are heritable — but nothing starts out doing it, and a
+colony that dies in the first few thousand frames never gets the chance.
 
 **How long the fade lasts is no longer a fact about the species.** It used
 to be one number every ant of a kind was born with and none could change.
