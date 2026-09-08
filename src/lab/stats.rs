@@ -330,7 +330,16 @@ pub struct Census {
     /// records a mean over the living rising to 2.9 over 150,000 frames and
     /// then drifting back to 2.60, and prints its own axis as saturated. See
     /// `World::deepest_generation`.
+    ///
+    /// **Plants only.** `World::deepest_generation` is written by plant
+    /// reproduction and by nothing else, so this is a stand's depth and
+    /// `deepest_animal_ever` is a colony's. They were one field reading
+    /// `EVER` under a help string promising every line, and a session
+    /// published a table of plant depths as animal generations.
     pub deepest_ever: u16,
+    /// The deepest generation any animal has reached, ever — the creature
+    /// half of `deepest_ever`. See `World::deepest_animal_generation`.
+    pub deepest_animal_ever: u16,
     /// Organisms ever born, cumulative — the other half of the clock. Depth
     /// says how far a line got; this says how much breeding it took.
     pub births_ever: u64,
@@ -923,17 +932,23 @@ impl Stats {
         // caught immediately.
         rows.push(Row::text(
             format!(
-                "DEEPEST NOW {}/{}  EVER {}  BIRTHS {}",
-                census.plant_generation, census.animal_generation, census.deepest_ever, census.births_ever
+                "DEEPEST NOW {}/{}  EVER {}/{}  BIRTHS {}",
+                census.plant_generation,
+                census.animal_generation,
+                census.deepest_ever,
+                census.deepest_animal_ever,
+                census.births_ever
             ),
-            if census.deepest_ever > census.plant_generation.max(census.animal_generation) {
+            if census.deepest_ever > census.plant_generation
+                || census.deepest_animal_ever > census.animal_generation
+            {
                 AMBER
             } else if census.plant_generation > 0 || census.animal_generation > 0 {
                 GREEN
             } else {
                 DIM
             },
-            "NOW IS PLANTS/ANIMALS ALIVE RIGHT NOW; EVER IS THE DEEPEST ANY LINE HAS REACHED SINCE THE BOX WAS BUILT, AND IT NEVER DROPS. 0 MEANS NOTHING HAS BRED: EVERYTHING ALIVE IS SOMETHING YOU OR THE BOX PUT THERE. WHEN EVER READS HIGHER THAN NOW -- THE AMBER STATE -- THE BOX HAS ALREADY BRED THAT DEEP AND LOST THE LINE, WHICH IS THE COMMONEST WAY A RUN LOOKS STUCK WHEN IT IS ACTUALLY TURNING OVER. BIRTHS AGAINST EVER IS THE RATE: MANY BIRTHS AND FLAT DEPTH MEANS RECRUITS ARE DYING BEFORE THEY BREED.",
+            "BOTH PAIRS READ PLANTS/ANIMALS. NOW IS WHAT IS ALIVE RIGHT NOW; EVER IS THE DEEPEST THAT KINGDOM HAS REACHED SINCE THE BOX WAS BUILT, AND IT NEVER DROPS. 0 MEANS NOTHING HAS BRED: EVERYTHING ALIVE IS SOMETHING YOU OR THE BOX PUT THERE. WHEN EVER READS HIGHER THAN NOW -- THE AMBER STATE -- THE BOX HAS ALREADY BRED THAT DEEP AND LOST THE LINE, WHICH IS THE COMMONEST WAY A RUN LOOKS STUCK WHEN IT IS ACTUALLY TURNING OVER. A STAND AND A COLONY BREED AT VERY DIFFERENT RATES IN ONE BOX, SO EVER WAS A SINGLE FIGURE UNTIL 2026-09-08 AND IT WAS ALWAYS THE PLANTS: THE ANIMAL HALF IS THE ONE THE ARENA IS ABOUT. BIRTHS COUNTS EVERY ORGANISM EVER MADE, SPROUTED SEEDS INCLUDED, SO IT IS NOT THE ANIMALS BORN LINE ABOVE; READ IT AGAINST EVER AS A RATE -- MANY BIRTHS AND FLAT DEPTH MEANS RECRUITS ARE DYING BEFORE THEY BREED.",
         ));
         rows.push(Row {
             body: Body::Generations,
@@ -1158,6 +1173,7 @@ fn take_census(
         plant_generation: 0,
         animal_generation: 0,
         deepest_ever: world.deepest_generation,
+        deepest_animal_ever: world.deepest_animal_generation,
         births_ever: world.organism_turnover().0,
         generations: [0; GEN_BUCKETS],
         lineages: 0,

@@ -77,64 +77,82 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-one, 2026-09-08 — the bed has teeth, and the larder was the wrong suspect
+## Round twenty-one, 2026-09-08 — the bed has teeth, and the page could not tell a stand from a colony
 
-*Started from "the colony starves, so nothing can be selected for" — round
-ten's open problem and the standing Gate 2 caveat. **Both halves of that
-sentence turned out to be wrong**, and the way they were wrong is the
-transferable part.*
+*Started from round ten's open problem and the standing Gate 2 caveat. Gate 2
+passes — then the sweep meant to close the round turned out to be reading a
+**plant** counter, which is the more useful half.*
 
 **Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
-against the shipped one — 24,000 frames, six seeds, run on the harness default
-bed **and** a fed one: the zeroed brain takes **0.0% of animals on 12 of 12
+against the shipped one — 24,000 frames, six seeds, on the harness default bed
+**and** a fed one: the zeroed brain takes **0.0% of animals on 12 of 12
 seed-runs**, and the harness prints *the bed has teeth*. The standing caveat in
-"What binds on anything you do here" is discharged above. It is a maximal-effect
-test and licenses only what it measures: the bed can turn a large fitness
-difference into a population difference. It cannot resolve a small one, and
-that — not the ecology — is why the flight races nulled.
+"What binds on anything you do here" is discharged above. It licenses only what
+it measures — a *large* fitness difference becoming a population difference,
+not a small one, which is why the flight races nulled. **This result is
+untouched by everything below**: the arena filters on the ant species and maxes
+`state.generation` over ants only, so it never reads the counters that went
+wrong.
 
-**And a single seed nearly shipped a false headline, in a session that had
-just written the rule down.** One run at `founders=8` read **52 ants → 1** at
-48,000 frames and 52 → 54 fed; that was drafted as "the harness bed goes
-extinct". Five seeds:
+**`labstats`' `EVER` and `BIRTHS` are not animal numbers, and this round
+published a table of them as if they were.** `World::deepest_generation` is
+written in exactly one place — `plant.rs:2734` — and `births_ever` is
+`organisms_born`, every organism ever allocated, a sprouted seed included. On
+the page they sit three lines under `ANIMALS BORN`, which *is* animals. **The
+control is one command**: the same bed at `colonies=0`, with no animal in it
+at all, reports `BIRTHS 311` against 220 with a colony — higher, because the
+ants graze the stand.
 
-| plants | alive at 48k | births | generations reached |
+The tell was there and was walked past: the first sweep rose monotonically
+199 → 987 across `founders` 8 → 64, and `founders` **is** the plant count — a
+tidy monotone result on a chaotic bed, which is the shape `CLAUDE.md` says to
+distrust.
+
+**Re-measured on the animal counters**, `RAYON_NUM_THREADS=1`, 48,000 frames,
+five seeds, on the merged head (`26e3251d`) — `ANIMALS BORN` for births and
+the animal half of `DEEPEST NOW` for depth:
+
+| plants | alive at 48k | animal births | animal depth (living) |
 |---|---|---|---|
-| 8 | 1, 4, **18**, 19, **87** | 651–1687, median 1519 | 4, 5, **5**, 7, 8 |
-| 48 | 48, 50, **54**, 64, 96 | 2063–2855, median **2570** | 3, 6, **7**, 7, 9 |
+| 8 | 4, 11, **17**, 18, 31 | 4, 19, **25**, 29, 66 | 2, 4, **4**, 5, 5 |
+| 48 | 49, 50, **54**, 55, 86 | 83, 83, **101**, 102, 158 | 5, 5, **6**, 7, 12 |
 
-The `alive=1` was the worst of five and one starved seed reached **87 — above
-two of the fed seeds**. What survives the sweep is **births**, where every fed
-seed beats every starved seed (5 of 5, ~1.7x), and standing population at ~3x
-the median. What does *not* survive is the generation-depth claim: the ranges
-overlap and one fed seed reached only 3.
+**Every column separates cleanly, 5 of 5**, and the effect is larger than the
+contaminated table said, not smaller: births **4.0x** by median where the
+plant column read 1.7x, standing population **3.2x**, and the worst fed seed
+beats the best starved seed on all three. **The claim that did not survive is
+this round's own headline** — *"the horizon dominates depth; food dominates
+population"*. That came from plant depth, which saturates near 3–9 in any bed;
+the animal depth does **not** overlap, and at 48,000 frames food is still
+raising it (median 4 → 6). Food raises depth and population both.
 
-**Two effects were being confused, and separating them is the finding.**
+What survives untouched is the single-seed lesson that prompted the sweep:
+`alive` spans **4 to 31** on one bed across five seeds, so any one run of it
+is a sample from a wide distribution. (The earlier figures 1, 4, 18, 19, 87
+were taken before `main`'s §W6 plant fix and do not reproduce on this head —
+another reason to name the head a table was measured on.)
 
-- **At a fixed horizon, food does raise generation depth.** The arena at
-  24,000 frames: median depth **2 starved against 4 fed**, and fed ≥ starved
-  on 6 of 6 seeds. Colony size 15 → 74 median in the same runs.
-- **Over a long enough horizon the food effect is swamped.** At 48,000 frames
-  both beds reach 4–9 generations and the two overlap. **The horizon dominates
-  depth; food dominates population.**
+**Fixed, so the page cannot say it again.** `World::deepest_animal_generation`
+is written beside `creature_stats.births` in the `Origin::Bud` arm, and the row
+now reads `DEEPEST NOW p/a  EVER p/a` — both pairs plants/animals, the help
+string saying so and saying `BIRTHS` counts every organism.
+`a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one` pins it and
+was watched going red twice: write deleted, and write pointed back at
+`deepest_generation` — the original bug's exact shape.
 
-So the practical rule for anyone measuring evolution here: **12,000 frames is
-about one generation** and is the horizon nearly every result on this line was
-read at, including the flight null and every armour number. Selection needs
-generations; if the question is evolutionary, 24,000 is a floor and 48,000 is
-where depth stops being the binding constraint.
+The table above is depth among the **living**, which drops when a deep line
+dies out, so it understates — the new counter is what a later round should read
+instead. And **12,000 frames is about one generation** on the starved bed,
+which is the horizon nearly every result on this line was read at, the flight
+null and every armour number included: if the question is evolutionary, 24,000
+is a floor.
 
-**What was NOT changed, deliberately.** `LabBox::default()` stocks 52 ants on
-8 plants and every harness but `labnest` (0) and `selection_arena` (16) rides
-it. It is tempting to raise, and the measurement does not support doing it:
-the default bed **passes Gate 2 as it stands**, so there is no correctness
-argument, and moving it would void comparability with every number in these
-notes for a benefit that is instrument convenience. `bin/lab.rs` opens at
-`founders: 0, colonies: 0` regardless — the player stocks the box — so this
-was never a statement about the shipped game. Round ten already wrote the
-rule this round re-learned from the other end: **an instrument's default
-scene is an input like any other.** Pass `founders=` explicitly and say what
-you passed.
+**`LabBox::default()`'s 8 plants were deliberately left alone** — it passes
+Gate 2 as it stands, so raising it buys instrument convenience at the price of
+comparability with every number in these notes, and `bin/lab.rs` opens at
+`founders: 0` anyway. Full reasoning in `dead-ends.md`. Round ten's rule is
+the one to carry: **an instrument's default scene is an input like any
+other** — pass `founders=` explicitly and say what you passed.
 
 ## The earlier rounds
 
