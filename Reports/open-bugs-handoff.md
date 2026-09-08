@@ -9950,9 +9950,16 @@ repair, and the owner turned it off because living trees were falling over.
 **Filed 2026-09-07 by the signature-and-castes lane, from the first census
 taken at play length rather than harness length.** Every measurement the
 creature line has published — the kin drift, the arms race, the alarm, the
-developmental channel — was read at 24,000 frames, which on the full box at
-the dial's top is about one minute of play. The owner's framing (2026-09-07):
-a session is a few hundred thousand frames and a million is several sessions.
+developmental channel — was read at 24,000 frames. **How long that is in
+play depends on what is in the box, and the owner's machine is the ruler,
+not this container's** (owner, 2026-09-08): one plant runs at 40x, and a
+box full of plants and creatures at **1–4x**. At 60 Hz that puts 24,000
+frames of the full box at **two to seven minutes** of play, 300,000 at
+twenty minutes to an hour and a quarter, and a million at several
+sessions — which is the owner's own framing (2026-09-07): a session is a
+few hundred thousand frames. (The dev container's 6x on the full box, from
+the tick work, is where the earlier "about one minute" came from; it is
+not the owner's number.)
 Read at that length, the box does not survive a session with ants in it, on
 any bed the player opens, on any seed tried.
 
@@ -10013,7 +10020,8 @@ again.
 
 **Why it is filed here rather than fixed.** Every creature result in this
 register and in `Reports/lanes/evolution-lab-coordinator.md` rounds twelve
-to eighteen was taken at one minute of play and is true at that length. The
+to eighteen was taken at a few minutes of play at most and is true at that
+length. The
 question the player actually asks — *is the colony still there when I come
 back?* — has a measured answer of no, and the fix decides what a session of
 this game is. It is the owner's call which economy to move; this section

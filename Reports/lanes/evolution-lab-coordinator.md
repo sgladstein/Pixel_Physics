@@ -1211,8 +1211,11 @@ seed, with births plentiful** (92–363 per colony, generation 6–19) and
 starvation the only cause of death. Filed as
 [`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md), with the table
 and the bar a fix has to clear. Three consequences for anyone reading this
-note: every creature result in rounds twelve to eighteen was taken at about
-one minute of play and is true at that length; the developmental channel
+note: every creature result in rounds twelve to eighteen was taken at a few
+minutes of play at most and is true at that length (the owner's machine runs
+a full box at **1–4x**, one plant at 40x, so 24,000 frames is two to seven
+minutes there and 300,000 is a long session — the container's 6x is not the
+owner's number); the developmental channel
 cannot be *found* by a line that does not outlive a session, so §Z6 is
 upstream of the castes question, the kin drift and Gate 2 alike; and the
 census now costs six to eight minutes a bed on one core, so "read it at a
