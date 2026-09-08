@@ -1200,6 +1200,24 @@ Measured on the merged head: the two-colony bed at the shipped dial is
 (24,000 frames), and at 48,000 frames on the seed that breeds (84 births)
 no line has wired `Provision` — the block reads zero on every slot.
 
+**The first census at play length, 2026-09-07, overturns this round's own
+"next step".** Asked for next steps, this lane put the birth rate first,
+because at 24,000 frames the beds show 3–35 births. The owner's reply —
+think about how the game is actually played; a session is a few hundred
+thousand frames and a million is several sessions — sent the same beds
+through 300,000 and 1,000,000 frames, and the reading is different in
+kind: **every shipped bed starves its colony inside one session, on every
+seed, with births plentiful** (92–363 per colony, generation 6–19) and
+starvation the only cause of death. Filed as
+[`../open-bugs-handoff.md` §Z6](../open-bugs-handoff.md), with the table
+and the bar a fix has to clear. Three consequences for anyone reading this
+note: every creature result in rounds twelve to eighteen was taken at about
+one minute of play and is true at that length; the developmental channel
+cannot be *found* by a line that does not outlive a session, so §Z6 is
+upstream of the castes question, the kin drift and Gate 2 alike; and the
+census now costs six to eight minutes a bed on one core, so "read it at a
+session" is the cheap default from here on, not the expensive exception.
+
 **Environment, one line:** the two-colony `labstats` bed breeds on seed 2
 (32–35 births in 24,000 frames) and starves seeds 1 and 3 to single digits;
 a positive control over births goes to seed 2, and the arena's bed with teeth
@@ -1317,6 +1335,116 @@ per-pass arrays, §12's pattern; **not** binary search over the index maps,
 rather than addressing; and `roundf` at 1.7% of samples, which is the
 pheromone blend's `.round()` as an out-of-line libm call — cheap, and **not**
 free of behaviour risk, so it needs the hash gate rather than an argument.
+
+## Round nineteen, 2026-09-07 — the plant passes, priced and mostly retired
+
+*Same branch, taking round eighteen's own next item. **The account is
+[`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
+§18.** One small pure change landed; the useful output is the two levers it
+retires with numbers, because both were the obvious next thing.*
+
+- **`step_organisms` is ~10% of the full-box frame and the three pure levers
+  in it are worth under 1% between them.** So §17.5's first item is closed.
+  Landed: `transport`'s density sweep walks a flat neighbour list instead of
+  unwrapping and recounting `[Option<usize>; 4]` forty-five times a tick —
+  **3-4% of that pass**, which is 3% of the frame, so the whole frame does not
+  move. Recorded at that size rather than rounded up.
+- **The counter that lied, and it is the sharpest instance of `CLAUDE.md`'s
+  own rule this lane has produced.** An exact fixed-point early-out on both
+  substep loops read **"33.9% of substeps skipped"** while the timing had
+  barely moved. Both numbers were right: substeps were counted **per
+  organism**, and a substep costs one pass over the organism's *cells*, so the
+  ones that converge early are the small cheap ones. Cell-weighted the same
+  run is **95.2% → 87.1% of the work still done**. Reverted; in
+  `dead-ends.md` with the size-distribution condition its rejection depends
+  on, and with the instruction to re-measure cell-weighted.
+- **§13.4's "~15% of the pass" for the nine cell-list prologues is measured at
+  5.8%**, by the instrument `prologue_every` was built to be: 266,477
+  collect-and-sorts over 7.04 M cells, 143.5 ms across 12,400 frames, **0.0116
+  ms a frame against `step_organisms`'s 0.198** — 0.6% of the frame, against a
+  restructure that is genuinely hard because the cell set changes mid-tick.
+  Left unbuilt.
+- **The baseline moved under this round and it was not this round.** #276
+  (canopy throughfall) landed between §17 and §18 and is a real water change:
+  new gate hashes, and the tree bed 1.29 → 1.65 ms with `sw seen` 21,778 →
+  23,446. **Rebuild the baseline binary after every merge**; a hash gate is
+  worthless against a stale one.
+
+**Next, in the order the profile now puts it** (§18.5): the **~21% in the
+kernel and rayon**, which is the largest block left by a wide margin and which
+§16.2 only half-addressed (it measured the tick 10% faster on one thread than
+four, so the question is which dispatches above the thresholds still earn the
+pool); then the moisture pass, where what remains is per-cell arithmetic; then
+the pheromone `roundf`, which is cheap and is **not** behaviour-free.
+
+## Round twenty, 2026-09-08 — the verbs ship on by default
+
+*Owner's ruling: **ship new behaviours as default**. Everything the creature
+line built on 2026-09-06 was reach rather than behaviour -- nothing born
+swinging or listening -- which is `CLAUDE.md`'s second law failing quietly.
+README's "Creature groups status" is the shipped half.*
+
+**Two things came off their compatibility settings, and only one of them is
+visible.** `TRAIT_REACH_DEFAULT` 1 -> 8 is a **ceiling**, not a starting
+value: every animal is born at allele 0 and `trait_variance` moves a slot 0.15
+a birth against ~8,600-frame generations, so a bed at reach 8 and a bed at
+reach 1 are the same bed for a long time. Anyone comparing the two settings
+and finding nothing has found the truth, not a bug. The visible half is two
+authored weights on the ant.
+
+**The finding worth carrying: the alarm was read on the wrong cell, and the
+error was invisible in every test.** `BrainInput::Alarm` shipped reading the
+cell *ahead* of the animal, because the two trail planes do and it looked like
+a convention. Measured on the standard bed, three seeds: reading ahead gave
+**8, 38 and 28 attacks**; reading at the animal's own cell gave **296, 258 and
+266** — a factor of ten, and `eats` went *up* rather than down. The difference
+is facing. **The general shape**: a *route* is read ahead because where it
+lies relative to the head is its information; an *event* is read where you
+are, because being in one is not a fact about which way you are looking. Every
+guard passed at both readings, because a guard that asks "does the alarm fire"
+cannot ask "does anything hear it".
+
+**And the sign of `(Alarm, Move)` is the opposite of the obvious one.** Read
+here, a positive weight means "move faster while you are in a fight", which is
+*leaving* it. Measured against `-1.0`:
+
+| `(Alarm, Move)` | attacks | cells off a beetle | eats | ants eaten |
+|---|---|---|---|---|
+| unwired | — | — | 2086/2916/2397 | 10/2/0 |
+| +1.5 | 296/258/266 | 75/89/69 | 2276/2662/2204 | 9/5/0 |
+| **−1.0** | **372/478/361** | **104/142/79** | 1703/2390/1858 | **4/4/2** |
+
+Standing to fight takes ~40% more off a beetle, roughly halves what beetles
+take back, and costs 15–22% of foraging. **The populations are inside the
+bed's own spread**, so anyone reading this as a census will find nothing: the
+trade is in the ledger.
+
+**What it costs the outdoor game, isolated by control rather than argued.**
+Nothing bites anything in a one-colony ant scene, so both weights contribute
+exactly zero — and are still **billed**, because `synapse_fraction` charges
+per active synapse and `eval_brain` counts a synapse active on its *weight's*
+magnitude, not on what flows through it. `ascii`'s deposition gate moves
+**1.36x -> 1.34x** (pickups 332 -> 309); the same build with the two weights
+at `0.0` returns **1.36x on 237 drops from 2,962 laden ants, digit for
+digit**. So the whole drift is the tax on two connections that never fire.
+That is the price of "ship as default" on a shared species file, it is
+measurable, and it is what `synapse_fraction` exists to let selection prune.
+
+**Two harness repairs fell out of trying to photograph this.**
+
+- **`labshot`'s `crop=` had never worked.** The tiles are cut to the crop and
+  the sheet is sized from the crop, but the assembly loop walked them at the
+  *view's* dimensions — so it panicked on the first row past the crop height,
+  for every crop smaller than the bed. The one thing that argument was added
+  for (a two-cell animal is invisible in a full-frame tile) was the one thing
+  it could not do. Fixed; `zoom=` and `crop=` still do not compose, and
+  `look=` is the argument that works with zoom.
+- **`creature_arena` can weight-match its arms** (`padarm=on`). An arm wired
+  with four named weights paid more `synapse_fraction` than one wired with
+  two, every tick — so last night's flight race compared the wiring's *shape*
+  confounded with its *size*. Padding is inert-but-taxed weights into a hidden
+  unit whose outgoing row is silent, verified bit-identical through
+  `eval_brain` rather than assumed.
 
 ## Deliberately not being built yet
 

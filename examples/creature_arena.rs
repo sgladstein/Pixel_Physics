@@ -428,6 +428,141 @@ fn direction(shares: &[f64]) -> (usize, usize, usize) {
     (below, above, shares.len() - below - above)
 }
 
+/// `padarm=on` -- see `pad_arm_a_to_match`'s doc for the mechanism this
+/// switches on. Off by default: unlike the count print below, which is
+/// read-only, this changes the actual genome arm A races, so it has to be
+/// asked for.
+fn pad_arm_flag() -> bool {
+    arg::<String>("padarm").as_deref() == Some("on")
+}
+
+/// **The count `synapse_fraction` actually bills, read from the source of
+/// truth rather than re-derived.** `brain::eval_brain`'s second return
+/// value is the number of weights whose magnitude cleared `brain::W_EPS`
+/// that tick -- the exact quantity `creature.rs` multiplies by
+/// `synapse_fraction * start_energy` to get the per-tick tax -- so calling
+/// it directly can never drift from what an animal is actually charged
+/// the way a hand-written re-count of the four genome blocks could.
+///
+/// **Independent of `inputs` and `state`, which is what makes one dummy
+/// call sufficient.** Every term in `eval_brain`'s loop tests the WEIGHT's
+/// own magnitude against `W_EPS` -- never the value multiplied through it
+/// -- so the count it returns is a pure function of the genome alone.
+fn active_synapses(g: &[f32]) -> u32 {
+    brain::eval_brain(g, &[0.0; brain::BRAIN_INPUTS], &mut [0.0; brain::BRAIN_HIDDEN]).1
+}
+
+/// A hidden unit nothing downstream can act on: every one of its weights
+/// into every output sits below `W_EPS`. `eval_brain` still bills an
+/// input wired into a unit like this -- the ih weight is tested on its own
+/// magnitude, same as any other -- so such a unit is exactly where a
+/// weight can be active (billed) and inert (unreachable) at once, which is
+/// the pad this file needs.
+fn hidden_output_is_silent(g: &[f32], h: usize) -> bool {
+    brain::OUTPUTS.iter().all(|&o| g[brain::ho_slot(h, o)].abs() < brain::W_EPS)
+}
+
+/// Write inert weights into `g` until `active_synapses(g) == target`.
+///
+/// **Which hidden unit is free is read from `g`, never assumed.** `ant.ron`
+/// wires units 0-3 for its trail laterals and 4 as the nest odometer,
+/// which leaves 5-7 free today -- but `wire=`/`species=` can point this
+/// harness at any genome, a later species file could wire a sixth unit,
+/// and this function has no business knowing either. It asks
+/// `hidden_output_is_silent` instead, which reads the one fact that
+/// actually matters: whether anything downstream of a unit can act.
+///
+/// **Verified, not trusted**: `active_synapses` is called again after
+/// writing, through the exact `eval_brain` path `synapse_fraction` bills
+/// from, rather than assumed from how many slots this function touched. A
+/// shortfall panics naming the capacity actually available -- a genome
+/// that comes back still short is exactly the unbalanced race this
+/// mechanism exists to prevent, so it does not return one quietly.
+fn pad_with_inert_weights(g: &mut [f32], target: u32) {
+    let before = active_synapses(g);
+    assert!(before <= target, "pad_with_inert_weights asked to shrink {before} active synapses to {target}; it only ever adds");
+    let need = (target - before) as usize;
+    if need == 0 {
+        return;
+    }
+    let free_units: Vec<usize> = (0..brain::BRAIN_HIDDEN).filter(|&h| hidden_output_is_silent(g, h)).collect();
+    assert!(
+        !free_units.is_empty(),
+        "padarm=on: no hidden unit is free -- all {} already carry a live hidden->output weight, so any input wired into one now would reach an output and change behaviour rather than only cost. Refusing rather than padding a live unit.",
+        brain::BRAIN_HIDDEN
+    );
+    let mut slots = Vec::with_capacity(need);
+    'search: for &h in &free_units {
+        for &input in brain::INPUTS.iter() {
+            let slot = brain::ih_slot(input, h);
+            if g[slot].abs() < brain::W_EPS {
+                slots.push(slot);
+                if slots.len() == need {
+                    break 'search;
+                }
+            }
+        }
+    }
+    assert_eq!(
+        slots.len(),
+        need,
+        "padarm=on: only {} unused input slot(s) across free hidden unit(s) {free_units:?}, need {need} more to take {before} to {target}. Wire fewer edges, or free another hidden unit in the species genome.",
+        slots.len()
+    );
+    for slot in slots {
+        g[slot] = 1.0; // any magnitude >= W_EPS; the unit's silent output row makes the value irrelevant
+    }
+    let after = active_synapses(g);
+    assert_eq!(
+        after, target,
+        "padarm=on: wrote {need} slot(s) into hidden unit(s) {free_units:?} and active_synapses now reads {after}, not {target} -- eval_brain's W_EPS rule diverged from what this function assumed"
+    );
+}
+
+/// **Bring arm A's active-synapse count up to arm B's, with weights that
+/// cannot act.** The fix for the confound this file's module doc opens
+/// with: `synapse_fraction` bills every tick per active synapse
+/// regardless of what a weight reaches, so `arm=wire wire=In:Out:w,...`
+/// handing arm B named weights arm A never had also hands B that tax
+/// forever, on top of whatever the wiring itself is worth -- and a race
+/// decided by that measured wiring *size*, not wiring *shape*.
+///
+/// **Only ever pads arm A.** Arm B is the thing under study -- exactly the
+/// genome `wire=`/`ablate=`/`dev=` asked for -- and this function never
+/// touches it. Padding the control instead of the experiment is what
+/// keeps "arm B" meaning what the caller typed.
+///
+/// **Refuses rather than running an unbalanced race quietly** if arm A is
+/// already the heavier of the two: padding only adds, and this function
+/// will not reach for arm B to compensate. (`wire=` can zero an authored
+/// weight as easily as it can add one -- `wire=Bias:Move:0.0` deletes the
+/// ant's baseline restlessness gain -- so "B is always heavier" is a fact
+/// about the examples in this file's doc comment, not a guarantee.) It
+/// also refuses if `pad_with_inert_weights` cannot find the capacity, for
+/// the same reason: better to stop loudly than hand back a genome that is
+/// still short.
+fn pad_arm_a_to_match(arm_a: &mut [f32], arm_b: &[f32]) -> (u32, u32) {
+    let count_a = active_synapses(arm_a);
+    let count_b = active_synapses(arm_b);
+    assert!(
+        count_a <= count_b,
+        "padarm=on cannot equalise: arm A already carries {count_a} active synapses against arm B's {count_b}, and this flag only ever pads arm A upward -- it never rewires arm B to compensate. Check wire=/ablate= for an entry that zeroed an authored weight instead of adding one."
+    );
+    if count_a < count_b {
+        pad_with_inert_weights(arm_a, count_b);
+    }
+    (active_synapses(arm_a), count_b)
+}
+
+/// Both arms' active-synapse counts, padding arm A first if `pad_arm` is
+/// set. Shared by the run header (one representative read, for the count
+/// print every run gets) and `run_world` (one real read per seed x mirror
+/// pair, because `arm=random` draws a fresh arm B every seed and a count
+/// printed once in the header cannot speak for a genome it never saw).
+fn synapse_counts(arm_a: &mut [f32], arm_b: &[f32], pad_arm: bool) -> (u32, u32) {
+    if pad_arm { pad_arm_a_to_match(arm_a, arm_b) } else { (active_synapses(arm_a), active_synapses(arm_b)) }
+}
+
 /// One world, one mirror setting.
 fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64) -> Outcome {
     let mut w = spec.build();
@@ -493,6 +628,18 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
         assert!(moved > 0, "arm= matched no live slot, so both arms carry one genome. Two identical arms read as a clean 50/50, which is indistinguishable from the finding this harness exists to make");
     }
 
+    // **`padarm=on` closes the confound this file's module doc names**: a
+    // `wire=` spec that hands arm B weights arm A never had also hands it
+    // their metabolism tax, forever, so the race measures size as well as
+    // shape. Read fresh here rather than threaded in as a parameter,
+    // matching `plasticity`/`digcost`/... above -- and it has to be read
+    // per call rather than once in `main`, because `arm=random` draws a
+    // different arm B every seed and a count taken once cannot speak for a
+    // genome it never saw.
+    let mut arm_a = base.clone();
+    synapse_counts(&mut arm_a, &arm_b, pad_arm_flag());
+    let a_padded = arm_a != base;
+
     // **Founders in x order**, because that is what decides who neighbours
     // whom and where the nest patch is relative to each animal, and it is
     // what the mirror has to invert. `found_colony_of` hands back a count
@@ -520,6 +667,14 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
             assert!(w.set_organism_genome(id, arm_b.clone()), "the founder must be live when its arm is assigned");
             n_b += 1;
         } else {
+            // Left at the founding default (`base`, unmutated) unless
+            // `padarm=on` actually changed arm A -- so a run with the flag
+            // present but nothing to equalise never touches this founder
+            // at all, and cannot be told apart from one where the flag was
+            // never passed.
+            if a_padded {
+                assert!(w.set_organism_genome(id, arm_a.clone()), "the founder must be live when its arm is assigned");
+            }
             n_a += 1;
         }
         let lineage = w.organism(id).expect("founder is live").lineage;
@@ -593,8 +748,9 @@ fn main() {
 
     let dev = dev_rider();
     println!(
-        "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} ants={ants} founders={founders} predators={} plasticity={} dev={:?}",
+        "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} padarm={} ants={ants} founders={founders} predators={} plasticity={} dev={:?}",
         if mirror { "on" } else { "off" },
+        if pad_arm_flag() { "on" } else { "off" },
         arg::<i32>("predators").unwrap_or(0),
         arg::<f32>("plasticity").unwrap_or(pixel_physics::sim::creature::PLASTICITY_DEFAULT),
         dev.iter().map(|&(slot, w)| format!("{}:{w}", pixel_physics::lab::batch::trait_name(slot))).collect::<Vec<_>>(),
@@ -602,6 +758,44 @@ fn main() {
     if arm == Arm::Same && mirror && dev.is_empty() {
         println!("  NOTE: arm=same with mirror=on is an ALGEBRAIC IDENTITY -- one simulation with the labels swapped.");
         println!("        It must read exactly 50.0%, and that says only that the harness runs. Use mirror=off for the control that means something.");
+    }
+
+    // **The confound this file's module doc opens with, measured and
+    // printed every run -- not only when padarm=on.** `synapse_fraction`
+    // bills per active synapse per tick regardless of what a weight
+    // reaches (`brain::eval_brain`'s `W_EPS` rule), so a `wire=` spec that
+    // hands arm B weights arm A never had also hands it that tax forever.
+    // A harness that pads silently is one nobody can check.
+    //
+    // **Representative, not per-seed**: `arm=random` draws a fresh arm B
+    // every seed, so this reads the seed-1 pair off a throwaway species
+    // registry -- no world, no terrain; `SpeciesRegistry::builtin()` is
+    // exactly what `World::new` loads from, so this is the same genome
+    // every seed's `run_world` will actually race. `padarm=on`, if set,
+    // re-equalises for real inside `run_world`, once per seed x mirror
+    // pair -- this print is a preview, not the decision.
+    let pad_arm = pad_arm_flag();
+    let header_species = pixel_physics::sim::organism::SpeciesRegistry::builtin();
+    let header_species_id = header_species.id_of(&species).unwrap_or_else(|| panic!("unknown species={species}"));
+    let header_base = header_species.get(header_species_id).genome.clone();
+    let (header_arm_b, _) = arm.clone().apply(&header_base, 0x_A470_0000 ^ 1);
+    let mut header_arm_a = header_base.clone();
+    let (count_a, count_b) = synapse_counts(&mut header_arm_a, &header_arm_b, pad_arm);
+    let header_padded = header_arm_a != header_base;
+    println!(
+        "active synapses billed per tick (synapse_fraction x eval_brain's W_EPS={} rule): arm A {count_a}, arm B {count_b}{}",
+        brain::W_EPS,
+        if count_a == count_b {
+            if header_padded { "  -- arm A padded to match (padarm=on)".to_string() } else { "  -- already equal".to_string() }
+        } else {
+            format!(
+                "  -- DIFFER by {}: this race bills the arms unequally regardless of what either wiring does. Pass padarm=on to equalise.",
+                count_a.abs_diff(count_b)
+            )
+        }
+    );
+    if arm == Arm::Random {
+        println!("  (arm=random draws a fresh arm B per seed; the pair above is seed 1's, for a read on typical size -- padarm=on, if set, re-equalises fresh for every seed x mirror pair inside run_world, not from this preview)");
     }
 
     let mut share_animals: Vec<f64> = Vec::new();

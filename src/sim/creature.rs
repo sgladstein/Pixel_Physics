@@ -1601,9 +1601,26 @@ pub const ARMOUR_MIN: f32 = 0.1;
 /// lineages*, which is the distribution the first law asks for.
 pub const ARMS_RACE_SLOTS: [usize; 2] = [TRAIT_ARMOUR, TRAIT_DIG_FORCE];
 
-/// The shipped reach, and the value at which every resolver below is the
-/// plain `clamp(-1, 1)` it was before the dial existed.
-pub const TRAIT_REACH_DEFAULT: f32 = 1.0;
+/// **The shipped reach.** `1.0` is the plain `clamp(-1, 1)` every other trait
+/// slot uses, and it is what this landed at; it ships at
+/// [`TRAIT_REACH_MAX`] instead, on the owner's ruling of 2026-09-06 --
+/// *ship new behaviours as default*.
+///
+/// **Raising this changes nothing on day one, and that is the point to
+/// understand before reading a bed at either setting.** It is a ceiling on
+/// where a lineage may *get*, not a value anything starts at: every animal is
+/// born at allele 0, `trait_variance` moves a slot 0.15 a birth, and the
+/// generations here run ~8,600 frames. A colony at reach 8 and a colony at
+/// reach 1 are the same colony for a long time. What the raise removes is a
+/// wall that a lineage would otherwise hit, at a value that made ant-against-
+/// ant one bite whoever bit first -- see [`ARMS_RACE_SLOTS`] for why 1 was a
+/// ruling about who wins fights rather than a normalisation.
+///
+/// Kept as its own constant rather than inlined because two things read it:
+/// `World::default` and `lab::params::Dials`' named serde default, and a
+/// dials file written before this moved must load *the shipped value*, not
+/// the value it was written under.
+pub const TRAIT_REACH_DEFAULT: f32 = TRAIT_REACH_MAX;
 
 /// **The shipped plasticity: on.** Owner's ruling, 2026-09-06 evening,
 /// against the card that offered 0 or 1: *"ship plasticity on."* At 1 the
@@ -2978,16 +2995,34 @@ fn sense(
         inputs[slot as usize] = (ahead - here) / (ahead + here + 1.0);
     }
 
-    // **The alarm, read ahead of the animal on the same cell the trail
-    // planes are read from.** One slot and no lateral partner -- see
-    // `BrainInput::Alarm`: an alarm is an event, not a route, and the
-    // direction a hunter is in already has a sense of its own.
+    // **The alarm is read where the animal IS, not on the cell ahead of it**
+    // -- and this is the one input in `sense` that does not follow the trail
+    // planes' convention. It shipped reading ahead, like they do, and that
+    // was wrong by a factor of ten.
+    //
+    // **Measured 2026-09-06 on the standard bed** (`labstats founders=48
+    // predators=4`, 9,000 frames, three seeds, with the ant authored to
+    // fight): reading ahead gave **8, 38 and 28 attacks**; reading here gave
+    // **296, 258 and 266**, and `eats` went *up* rather than down. The
+    // difference is facing. A trail is a route, so where it lies relative to
+    // the head is the whole of its information and an ahead-read is right; an
+    // alarm is a place where something is happening, and an animal standing
+    // in one with its back turned was reading zero. Being in a fight is not a
+    // fact about which way you are looking.
+    //
+    // **What this costs, stated because it is a real loss and not a free
+    // win**: a here-read carries no direction at all, so recruitment *toward*
+    // a distant fight is not expressible with this slot -- the alarm makes an
+    // animal act where it stands rather than come running. That is a
+    // limitation of one slot, not of the plane, and `BrainInput::Alarm`'s own
+    // doc argues for the single slot. Ants recruit over distance on the trail
+    // planes, which do have a gradient.
     //
     // **Free until something is bitten.** `Pheromones::sample` on an alarm
     // plane that was never allocated is a null test, not a read, so a world
     // in which nothing has ever fought pays one branch per animal per tick
     // for this and touches no memory.
-    inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, fx, fy) as f32 / 255.0;
+    inputs[I::Alarm as usize] = world.pheromone_at(Channel::Alarm, x, y) as f32 / 255.0;
 
     let moisture_at = |px: i32, py: i32| world.field_at_bilinear(px as f32, py as f32).moisture / WORM_MOISTURE_SATURATION;
     inputs[I::MoistureFront as usize] = moisture_at(fx, fy);
@@ -8776,12 +8811,20 @@ mod tests {
     }
 
     /// **The two arms-race slots reach further when the dial says so, and at
-    /// the shipped setting nothing moves at all.**
+    /// a reach of 1 nothing moves at all.**
     ///
-    /// Two claims, and the second is the one that keeps the bed byte-identical:
-    /// every resolver at `TRAIT_REACH_DEFAULT` is the `clamp(-1.0, 1.0)` that
-    /// was written there before the dial existed, for every allele, including
-    /// alleles outside the axis that no birth can currently produce.
+    /// Two claims, and the second is the compatibility one: every resolver at
+    /// `reach = 1` is the `clamp(-1.0, 1.0)` that was written there before the
+    /// dial existed, for every allele, including alleles outside the axis that
+    /// no birth can currently produce.
+    ///
+    /// **It says `1.0` and not `TRAIT_REACH_DEFAULT`, and that is deliberate
+    /// since the default moved to the top of the dial.** What is being
+    /// guarded is that *a setting of 1* still means what it always meant --
+    /// so a bed pinned there, a saved dials file written under the old
+    /// default, and every measurement taken before 2026-09-06 all still line
+    /// up. Writing `TRAIT_REACH_DEFAULT` here would make this assertion
+    /// follow the default around and stop guarding anything.
     #[test]
     fn the_reach_widens_two_slots_and_leaves_the_shipped_bed_alone() {
         let w = test_world();
@@ -8801,15 +8844,15 @@ mod tests {
                 (1.0 / f.max(f32::EPSILON)).max(ARMOUR_MIN)
             };
             assert_eq!(
-                armour_of(&at(TRAIT_ARMOUR, t), TRAIT_REACH_DEFAULT),
+                armour_of(&at(TRAIT_ARMOUR, t), 1.0),
                 old_armour,
-                "the shipped reach must reproduce the old plate exactly at allele {t}, or every animal in every bed moved the day the dial landed"
+                "a reach of 1 must reproduce the old plate exactly at allele {t}, or a bed pinned there is not the bed every pre-2026-09-06 measurement was taken on"
             );
             let old_jaw = (ant.dig_force + t.clamp(-1.0, 1.0) * DIG_FORCE_SPAN).max(0.0);
             assert_eq!(
-                dig_force_of(&ant, &at(TRAIT_DIG_FORCE, t), TRAIT_REACH_DEFAULT),
+                dig_force_of(&ant, &at(TRAIT_DIG_FORCE, t), 1.0),
                 old_jaw,
-                "the shipped reach must reproduce the old jaw exactly at allele {t}"
+                "a reach of 1 must reproduce the old jaw exactly at allele {t}"
             );
         }
 
@@ -8843,6 +8886,17 @@ mod tests {
                 "slot {slot} is not read against another animal and must stay on the shared axis whatever the dial says"
             );
         }
+
+        // --- 3b. the shipped default is the top of the dial, deliberately ---
+        // Owner's ruling, 2026-09-06: *ship new behaviours as default*. Pinned
+        // so that a session lowering it back to 1 "for compatibility" has to
+        // read why: at 1 the best plate an ant lineage can reach is half what
+        // an ant's bite opens, so ant-against-ant is one bite at every point
+        // on the axis and no dial over it means anything.
+        assert_eq!(
+            TRAIT_REACH_DEFAULT, TRAIT_REACH_MAX,
+            "the shipped reach is the top of the dial on purpose; see TRAIT_REACH_DEFAULT before changing it"
+        );
 
         // --- 4. zero is the clonal control, not a broken setting ---
         assert_eq!(allele_bound(TRAIT_ARMOUR, 0.0), 0.0, "reach 0 pins the plate where the species authored it");
@@ -9020,23 +9074,29 @@ mod tests {
             (firsts[firsts.len() / 2], survived)
         };
 
-        let (shipped, shipped_alive) = median_breach(TRAIT_REACH_DEFAULT);
-        let (wide, wide_alive) = median_breach(TRAIT_REACH_MAX);
+        // **The narrow arm is the literal 1.0, not `TRAIT_REACH_DEFAULT`.**
+        // The default moved to the top of the dial on 2026-09-06 (*ship new
+        // behaviours as default*), and a guard written against the default
+        // would have quietly become two identical arms -- which reads as a
+        // clean 50/50 and is indistinguishable from the finding this test
+        // exists to make. What 1.0 means is fixed by arithmetic and does not
+        // follow the default around: `0.25 * 2 = 0.50` against a bite of 1.0.
+        let (narrow, narrow_alive) = median_breach(1.0);
+        let (wide, wide_alive) = median_breach(TRAIT_REACH_DEFAULT);
         assert!(
-            shipped < 100,
-            "at the shipped reach a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {shipped}"
+            narrow < 100,
+            "at a reach of 1 a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {narrow}"
         );
         assert_eq!(
-            shipped_alive, 0,
-            "every defender must die at the shipped reach -- that binary is the defect this dial exists to open, and if it has gone the bar below is measuring something else"
+            narrow_alive, 0,
+            "every defender must die at a reach of 1 -- that binary is the defect this dial exists to open, and if it has gone the bar below is measuring something else"
         );
         // 5x, against a measured 85x (18 against 1,540): headroom rather
         // than a bar on the value, and a ratio, so it does not care how fast
         // the machine ran.
         assert!(
-            wide >= shipped * 5,
-            "a plate the reach allows past the bite must hold far longer than one it does not: median frame {wide} at reach {} against {shipped} at {}, with {wide_alive} of 6 defenders surviving against {shipped_alive}",
-            TRAIT_REACH_MAX,
+            wide >= narrow * 5,
+            "a plate the reach allows past the bite must hold far longer than one it does not: median frame {wide} at the shipped reach of {} against {narrow} at 1, with {wide_alive} of 6 defenders surviving against {narrow_alive}",
             TRAIT_REACH_DEFAULT
         );
     }

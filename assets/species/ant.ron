@@ -1082,6 +1082,78 @@
             // Same slope, still fed separately -- see `Drop` above for the
             // sweep. A lineage can move one without the other.
             (SurfaceCurvature, DropSpoil, 0.169),
+
+            // -- the fight -------------------------------------------
+            // **A colony that comes when one of its own is bitten, and
+            // bites what it finds.** Owner's ruling, 2026-09-06: *ship new
+            // behaviours as default*. `BrainInput::Alarm` and
+            // `BrainOutput::Attack` landed the same day with nothing wired
+            // to either, which made them reach rather than behaviour -- and
+            // an animal that can only be changed by the world changing
+            // around it is a spectator of its own fight (`CLAUDE.md`'s
+            // second law).
+            //
+            // **Two weights, not four, and the third and fourth are what
+            // this is deliberately not doing.** `Persist` and `Tumble` are
+            // the other half of "commit to a heading", and the obvious
+            // shape is to add them here. They are left out because the one
+            // measurement this project has on them says the opposite of the
+            // obvious: a flight arm wired with `ThreatNear -> Persist +0.8`
+            // and `-> Tumble -0.6` came in *behind* the same arm without
+            // them (median share 47.9% against 52.4%, 1 seed of 6 above
+            // half against 4). That comparison is confounded -- the heavier
+            // arm also paid more `synapse_fraction`, every tick -- but the
+            // honest reading is that nothing here has earned two more
+            // weights yet. Add them when a weight-matched race says they
+            // pay.
+            //
+            // **The alarm is a front reading with no lateral partner**
+            // (`BrainInput::Alarm`), so this cannot steer toward a fight.
+            // What it does is move *faster* where the ground is loud, and
+            // that plus the tumble an ant already does on a failed move is
+            // run-and-tumble -- the way a bacterium climbs a gradient it
+            // cannot see the direction of. Recruitment here is a kinesis,
+            // not a taxis, and it is worth knowing which before reading a
+            // picture of it.
+            //
+            // **Negative: stand your ground, do not hurry.** The sign was
+            // measured rather than reasoned, and the reasoning would have got
+            // it backwards. `BrainInput::Alarm` is read at the cell the
+            // animal is *standing on*, so a positive weight here says "move
+            // faster while you are in a fight" -- which is leaving it. The
+            // negative says stop, and stopping beside the thing eating your
+            // nestmate is what lets the next weight do anything.
+            //
+            // Measured on the standard bed (`labstats founders=48
+            // predators=4`, 9,000 frames, three seeds), against the same
+            // wiring at `+1.5`:
+            //
+            //             attacks        cells off      eats      ants eaten
+            //   +1.5      296/258/266    75/89/69       2276/2662/2204   9/5/0
+            //   -1.0      372/478/361    104/142/79     1703/2390/1858   4/4/2
+            //   unwired   --             --             2086/2916/2397   10/2/0
+            //
+            // **It is a priced behaviour and the price is real**: standing to
+            // fight takes ~40% more off a beetle and roughly halves what the
+            // beetles take back, and it costs the colony 15-22% of its
+            // foraging. Populations are inside the bed's own spread on three
+            // seeds (25/37/28 against 25/32/36 unwired), so the trade is
+            // visible in the ledger and not in the census.
+            (Alarm, Move, -1.0),
+            // **The verb, gated on the alarm and on nothing else**, which is
+            // what keeps a colony from swinging at the air. `nearest_foe`
+            // returns `None` unless something living and non-kin is actually
+            // in reach, so an ant that hears a fight across the nest scans
+            // its own neighbours, finds family, and does nothing. What it
+            // costs when it fires is jaw work and no food -- see
+            // `BrainOutput::Attack`, and the ledger is where a colony that
+            // fights too much shows up.
+            //
+            // 2.0: at a fresh alarm the sum reaches ~1.9 and `squash` gives
+            // P(swing) ~= 0.65 a tick. High on purpose -- a mobbing is
+            // supposed to look like a mobbing -- and bounded by the fact
+            // that there is usually nothing there to hit.
+            (Alarm, Attack, 2.0),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
