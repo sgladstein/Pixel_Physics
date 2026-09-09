@@ -8523,6 +8523,55 @@ mod tests {
         assert_eq!(cell_type(15), None);
     }
 
+    /// **A terminal rule must be ordered above its general one, or the axis
+    /// never ends — and the failure is silent.** Lookup is first-match-wins
+    /// (`FateGenome::fate`'s own doc), so an unconditional rule listed
+    /// *before* a higher-`after_metamers` one for the same owner shadows it
+    /// completely: the unconditional rule matches every time, the
+    /// conditional one is never reached, and `grow_body` runs to `cap` on
+    /// every animal. Nothing about that reads as broken from the outside —
+    /// bodies are produced, they are the right shape at the cap, and no
+    /// counter goes red. `ant.ron`'s own `fates` table depends on getting
+    /// this ordering right for exactly this reason (its `Segment` owner
+    /// carries three rules, ordered highest threshold first).
+    ///
+    /// **Both orderings are checked in one test, which is this guard's own
+    /// positive control.** A guard that only ever asserts the correct
+    /// ordering produces a body under the cap could pass by coincidence —
+    /// swapping the two rules and confirming the assertion moves is the
+    /// "put the fault back and watch it go red" `CLAUDE.md` asks for,
+    /// folded into the test itself rather than left for someone else to
+    /// remember to do by hand.
+    #[test]
+    fn a_terminal_rule_ordered_below_its_general_one_never_ends_the_axis() {
+        const CAP: usize = 8;
+        let head_rule = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Never stops on its own: every step it fires, it asks for another.
+        let general = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Ends the axis from metamer 2 onward -- reached at step 3 of the
+        // walk (Head, then two `Segment` steps) if it is ever actually
+        // checked.
+        let terminal = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+
+        let correctly_ordered =
+            FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![terminal, general])]);
+        let misordered = FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![general, terminal])]);
+
+        let ordered_body = grow_body(correctly_ordered, CAP);
+        let misordered_body = grow_body(misordered, CAP);
+
+        assert!(
+            ordered_body.len() < CAP,
+            "the terminal rule listed above the general one must end the axis well short of the cap, got {} segments",
+            ordered_body.len()
+        );
+        assert_eq!(
+            misordered_body.len(),
+            CAP,
+            "the fault put back: swapping the two rules must shadow the terminal one and run the axis to the cap every time"
+        );
+    }
+
     // --- the generational allocator, both ends ------------------------------
     //
     // `encode_organism_id`/`decode_organism_id` are private to `world.rs`, so
