@@ -39,6 +39,23 @@ poke-only trigger — omit both `cron_expression` and `run_once_at`, then
 `fire_trigger` — rather than a timed one; `run_once_at` rejects a timestamp in
 the past and a long turn drifts you into that error.
 
+**Measured again 2026-09-09, and the pair has a condition the table does not
+state: it reaches a lane in the coordinator's own environment.** The 2026-08-24
+lanes were `create_session` children, which inherit the coordinator's
+environment. Two lanes the owner started from the phone lived in a different
+one, and a poke-only trigger bound to either with `persistent_session_id` and
+fired did not wake it: each fire **spawned a fresh session** with no sources
+(origin `force_run_trigger`, Sonnet, about $0.50, invisible to `list_sessions`
+and not archivable) that ran the message as its own prompt and went idle.
+Twice — once inheriting the coordinator's environment, which the owner saw as
+an error, and once with `environment_id` set to the lane's, which made no
+difference. `SendMessage` to the session id still fails and `ListAgents` still
+lists nothing, so there is no channel across environments. What works is the
+return path run backwards: commit the message to a file on a pushed branch
+(`lanes/coordinator-messages-2026-09-09.md` is the first) and have the owner
+hand each lane one line naming it. **So a lane the coordinator will need to
+reach is created by the coordinator**, or its messages go by file.
+
 **The lane cannot reach back, and here is why.** A trigger stamps its own
 `allowed_tools` onto the session it fires, and that list contains no `mcp__*`
 entries — the API says so out loud when you create one: *"this trigger stores
