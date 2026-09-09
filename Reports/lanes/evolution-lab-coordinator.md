@@ -6,8 +6,8 @@ grow lights where the shipped plants and ants live. Design of record:
 with [`../evolution-lab-feasibility-2026-08-30.md`](../evolution-lab-feasibility-2026-08-30.md)
 under it.*
 
-**Read this before picking the lab up.** Twenty rounds have been run here since
-2026-08-30. One to nineteen are history and moved on 2026-09-08 to
+**Read this before picking the lab up.** Twenty-five rounds have been run here
+since 2026-08-30. One to twenty-four are history and moved (2026-09-08, 2026-09-09) to
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md) —
 verbatim, with a priced contents table and a per-round map of which round belongs
 to which of the three concurrent lines. What stays here is what still binds.
@@ -42,7 +42,9 @@ container's**: a full box runs at 1–4x there and one plant at 40x, so 24,000
 frames of the full box is two to seven minutes and 300,000 is a long session
 (the container's 6x is where "one minute" came from, and it is wrong for the
 owner). A session census costs six to eight minutes a bed on one core, so it
-is the cheap default from here on, not the expensive exception.
+is the cheap default from here on, not the expensive exception. **And run it
+on the played bed** (`ants_at=`, round twenty-five): the frame-0 bed is the
+harness talking.
 
 **Deliberately not being built yet:** the score and the economy, the guide's
 Gate 5. **Gate 2 — does selection have teeth in *this* bed — passes for
@@ -78,56 +80,59 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-four, 2026-09-09 — consolidation: what the line is, and what is actually left
+## Round twenty-five, 2026-09-09 — the instrument turned toward the player, and two standing claims overturned
 
-*Owner's call: stop and bank it. No new mechanism. One pass over the
-documents so the next session starts from a current picture.*
+*The design of record from here is
+[`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md);
+this round is its pointer. Five lanes landed with it: line names and a
+chronicle bounded per lineage, the clock reacting to line events, a hand in
+the box (`I` scent, `J` alarm, `Q` fling, `U` lamp), the hunger sense wired
+at last with the dig drive gated on a crowded nest, the jump given a species,
+trophallaxis as a brain output with staggered founder reserves, and
+`chronicle`, the run log as text.*
 
-**The creature design report now opens with a state-of-the-line table** —
-every `§4` subsection against shipped / not built / rewritten — because it was
-written in one evening and closed piecemeal over four rounds, and no single
-place said what the line now *is*. Read that table before any section under it.
+**Owner's rulings, all the same day, all binding here:** trophallaxis is a
+brain output the genome can evolve, shipped on, never a rule; **rest is the
+absence of a reason to act, not the presence of a full stomach** — the ant
+must not become an animal that only acts when hungry, so the bias comes
+down and never off, and digging is conditioned on a crowded nest; a queen
+is built as three authored values over mechanisms that exist (a founding
+rule, a founder who rests because she is full, sterile workers through the
+caste channel), **never as a type the engine knows**, and the eusociality
+lane's first deliverable is the generation-clock measurement, not a
+feature; staggered founder reserves are approved; the marker overlay was
+rejected on sight; and **movement, not stills, is how animals are seen** —
+a visibility claim is judged on a moving sequence, never a contact sheet.
 
-**What is actually open**, in the order it matters:
+**Two claims this note carried are overturned by measurement.** *"Every
+shipped bed starves its ant colony"* was the frame-0 harness bed: founded
+at frame 6,000 on grown plants (`labshot`/`labforage ants_at=`), the same
+colony holds 31 through 30,000 frames where the frame-0 bed holds 4 — take
+every earlier §Z6 figure as the frame-0 bed, on eight herbs. And round
+twenty-four's *"the trail circuit is live end to end"* is true and the
+circuit is inert: the laden gate parks its unit at 30 on the squash curve,
+where the `±6` trail term moves the chance of a step by about ±0.003 — a
+laid trail moved a colony's near-target count by exactly zero, twice
+(§Z7). The cold-start hypothesis sits upstream of a reader that cannot
+read.
 
-1. **The generation clock, ~12,000 frames**, against an owner target of 60–70
-   generations. With §4f's geometry cap withdrawn and Gate 2 passed, this is
-   the only named limit left on evolution in this bed.
-2. **The colony cannot reliably reach its food** (round twenty-one), which is
-   the thing standing between the box and a colony that looks alive.
-3. **§4c `Regrow`** — injury is still a binary, and the owner is unconvinced.
-   It needs a case made by picture rather than by argument.
-4. A private trail plane per colony (§4d), never built.
+**Open, in order:** the trail-gate race (§Z7 carries the bar); the hunger
+and sharing wires on the *played* bed at six seeds or more with the
+composed Move row (`KinNeed` now exists) — on three seeds at 6,000 frames
+the sharing arm ended with half the survivors of the arm without, inside
+an eight-fold seed spread, and sharing undoes the stagger it shares down;
+the hopper's jump rate (a bias of 2.0 is a hop on two ticks in three, and
+it kills the animal in a session); then appearance and the eusociality
+measurement.
 
-**Four stale claims were carrying forward and are corrected.** README
-documented `World::colony_rivalry` as a live rule (retired a week ago by the
-scent signature); a "known limitation" said the heritable signature was
-"designed and not built" **directly above the paragraph describing it
-shipped** — the exact failure `CLAUDE.md` warns of, a limitation outliving its
-fix; the `Persist`/`Tumble` note called its race unfixably confounded when
-`padarm=on` now holds the synapse count equal; and Gate 2's pass was recorded
-in no README section at all.
-
-**And `wiki/ants.md` led with a claim about the shipped ant that is wrong.**
-"No ant follows a trail — both smells are laid and neither is read" was the
-page's freshness note. The trail-following circuit is in `ant.ron`'s **hidden
-layer**, not its direct weights, and `eval_brain` runs it: a laden ant walks
-up channel A, an empty one up channel B. Corrected there, in
-`colony-starvation-separated-2026-09-08.md` (as a scoped note leaving that
-lane's numbers and its first clause intact), and in `dead-ends.md`. **The
-starvation finding survives it** — what changes is the fix, since the reader
-already exists and the candidate is a cold start: channel B is only laid by an
-ant already carrying. Flagged, still not measured; `labforage` is the
-instrument.
-
-**The transferable bit**: a network with a hidden layer has two places a sense
-can be read, and an audit of the authored weight list sees one. Grep the
-*sense*, not the weight list, and check the evaluator runs the layer you found
-it in.
+**Environment, learned this round:** a sub-agent that "waits for a build
+notification" has ended its turn and will wait for ever — a message
+resumes it with its context intact; and six worktrees' `target/` filled
+the disk — delete a merged lane's `target/` the moment it lands.
 
 ## The earlier rounds
 
-All twenty-three are verbatim in
+All twenty-four are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
 which prices each one and maps it to its owning report. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
@@ -137,7 +142,7 @@ knowing which is yours is most of the saving:
 |---|---|---|
 | the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23 | `creature-signature-and-castes-2026-09-06.md` |
+| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23, 24 | `creature-signature-and-castes-2026-09-06.md` |
 
 ## Environment notes that cost time here
 

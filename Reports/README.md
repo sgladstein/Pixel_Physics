@@ -1818,6 +1818,22 @@ drift that two of these documents still reflect.**
   legibility, divergence and forage reach **with one decision**. §6 prices
   twelve changes; rows 1–4 are about a day between them and are the actual
   recommendation.
+- [evolution-lab-direction-2026-09-09.md](evolution-lab-direction-2026-09-09.md)
+  — **direction of record for the lab through phase one; five lanes landed
+  with it.** Answers the report above with a decision rather than a list:
+  the lab has everything a player needs and nothing a player is shown, so
+  the phase is turning the instrument toward the player — line names and a
+  chronicle bounded per lineage (the owner's thousand-ant constraint), the
+  clock reacting to line events, a hand in the box (scent, alarm, fling,
+  lamp), the hunger sense wired at last, the jump given a species — and then
+  the box alive (trophallaxis as a brain output, by ruling) and the box as a
+  rack. Carries the owner's rulings made the same day: rest is the absence of
+  a reason, not a full stomach; a queen is three authored values over
+  mechanisms that exist, never a type; movement, not stills, is how animals
+  are seen; and the marker overlay was rejected on sight. Its measured
+  corrections overturn two standing claims — the harness bed is not the
+  played bed (a colony founded on grown plants holds 31 where the frame-0
+  bed holds 4), and the trail circuit is wired and inert (§Z7).
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
