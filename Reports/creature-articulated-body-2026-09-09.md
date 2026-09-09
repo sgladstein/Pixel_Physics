@@ -467,6 +467,19 @@ properties of the code as it stands, not measurements of a body that walks.
   built after there is pressure that pays for a soldier.
 - **Crossover.** `FateGenome` is a flat, bounded, ordered array — the easiest
   thing in this engine to cross. Arc C2 already has the scissors on the shelf.
+- **The played bed's plant mix, ruled by the owner 2026-09-09: grass + herb +
+  shrub.** Recorded here because it is an owner ruling that would otherwise
+  live only in a message. It should be encoded once, as
+  `assets/lab_scenarios/played_bed.ron` — about **12 grass, 6 herb, 4 shrub**
+  over the 512 columns, with the colony founded on the **timeline near frame
+  6,000** rather than in `placements`, which is the difference between the bed
+  the owner plays and the eight-herb frame-0 default every headless figure
+  before 2026-09-09 was taken on. **Deliberately not written here.** Nothing
+  in this report or its build needs a played-bed run, the scenario belongs to
+  whichever lane does need one, and a scenario file authored by a lane that
+  never runs it is a file nobody has checked. Whoever writes it, both lanes
+  use it, and no played-bed figure should be quoted from the default bed
+  again.
 - **The species export writes the *species'* body, not the individual's**, and
   this is the seam that closes the other half of E5. `specimen::save`
   (`specimen.rs:445`) already stores `state.fates.to_table()`, so a **jar**
