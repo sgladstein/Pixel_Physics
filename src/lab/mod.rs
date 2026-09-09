@@ -2346,12 +2346,11 @@ impl Lab {
                     self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
                 }
             }
-            // A marker over every living animal, not just the pinned one --
-            // see `ui::draw_life_marks`'s own doc. Shipped on; this is how a
-            // player turns it off.
-            ui::Action::ToggleLifeMarks => {
-                let on = self.ui.toggle_life_marks();
-                self.ui.say(format!("LIFE MARKS {}", if on { "ON" } else { "OFF" }));
+            // Cycle the mark every living animal draws -- see
+            // `ui::LifeMarks`'s own doc for the cycle and why it ships `Off`.
+            ui::Action::CycleLifeMarks => {
+                let mode = self.ui.cycle_life_marks();
+                self.ui.say(format!("LIFE MARKS {}", mode.label()));
             }
         }
     }

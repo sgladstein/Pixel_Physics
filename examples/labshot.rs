@@ -93,13 +93,17 @@ fn main() {
     let stops: String = arg("frames").unwrap_or_else(|| "0,600,3000,9000".to_string());
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
-    // **`marks=1` -- the game's marker over every living animal
-    // (`ui::draw_life_marks`), the one piece of it this harness renders no
-    // UI to draw itself.** This harness has no `Ui`, so without this flag a
-    // sheet of the bed cannot show what the shipped default (on) actually
-    // looks like; with it, the same world at the same stop is one call
-    // apart from its own before picture.
-    let marks: bool = arg::<i32>("marks").unwrap_or(0) != 0;
+    // **`marks=off|halo|tick` -- the game's mark over every living animal
+    // (`ui::draw_life_marks`/`ui::LifeMarks`), the one piece of it this
+    // harness renders no `Ui` to draw itself.** Unknown values are ignored
+    // rather than rejected, matching `colour=`/`channel=` above. Off (the
+    // shipped default) needs no flag at all -- `draw_life_marks` is called
+    // unconditionally below and is itself a no-op under `Off`.
+    let marks: pixel_physics::lab::ui::LifeMarks = match arg::<String>("marks").as_deref() {
+        Some("halo") => pixel_physics::lab::ui::LifeMarks::Halo,
+        Some("tick") => pixel_physics::lab::ui::LifeMarks::Tick,
+        _ => pixel_physics::lab::ui::LifeMarks::Off,
+    };
 
     // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
     // paired comparison rather than one run against a remembered impression,
@@ -166,7 +170,7 @@ fn main() {
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators, spec.seed,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
-        marks as u8,
+        marks.label(),
         stops,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
@@ -333,9 +337,8 @@ fn main() {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
-            if marks {
-                pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
-            }
+            // A no-op under `Off`, which `draw_life_marks` itself checks.
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, marks);
             // **How many animals are actually holding something**, printed
             // beside the picture it is a census of. `CLAUDE.md`: an image
             // says *what* and *where* and only a count says *whether it
@@ -542,17 +545,20 @@ fn main() {
     // else here can isolate it.
     if arg::<i32>("bench").unwrap_or(0) != 0 {
         const REPS: usize = 500;
+        // Halo, not whatever `marks=` asked for: `Off` returns immediately
+        // and would report the wrong number as the pass's cost.
+        let bench_mode = pixel_physics::lab::ui::LifeMarks::Halo;
         let live_now = world.live_organism_ids().len();
         let mut buf = vec![0u8; (vw * vh * 4) as usize];
         // Warm-up: first calls pay a cold cache, and this is a mean-over-many
         // number, not a worst-frame one -- `CLAUDE.md`'s ratio check does not
         // apply to a microbenchmark of one added pass.
         for _ in 0..20 {
-            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, bench_mode);
         }
         let t = std::time::Instant::now();
         for _ in 0..REPS {
-            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, bench_mode);
         }
         let each_ms = t.elapsed().as_secs_f64() * 1000.0 / REPS as f64;
         println!(
