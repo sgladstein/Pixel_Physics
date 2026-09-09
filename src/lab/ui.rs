@@ -532,6 +532,12 @@ pub enum Action {
     /// `Ui::scenarios()`, resolved fresh at the moment the row is clicked --
     /// see `Lab::act`'s own note on why the index is not cached.
     ScenarioLoad(usize),
+    /// **Flip [`Tool::Scent`]'s armed plane** -- what a second press of its
+    /// key does instead of the disarm every other tool's second press would
+    /// give it. Bound in `bin/lab.rs`'s key handler, which routes the *first*
+    /// press of that key to `Action::Tool(Tool::Scent)` as usual and every
+    /// press after, while `SCENT` is already armed, here.
+    ToggleScentChannel,
 }
 
 /// **What a left-click on the world does.**
@@ -607,6 +613,72 @@ pub enum Tool {
     /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
     /// already set.
     Food,
+    /// **Drag to lay a pheromone trail by hand** — the owner's idea,
+    /// 2026-09-09: *"it might be fun if the user could manually lay down
+    /// pheromone trails."* Every mechanism this needs already existed
+    /// (`sim::pheromone`, laid every tick by a live ant); this is the first
+    /// thing that lets a *player* write into either plane.
+    ///
+    /// **Two channels, one tool, a second press switches between them** —
+    /// see `Ui::scent_channel`. The default is `Channel::B`, the food route
+    /// an *empty* ant follows outward (`ant.ron`'s hidden units 2/3, gated
+    /// on *not* carrying, read `PheroBAlong`); a second press of the key
+    /// arms `Channel::A`, the home scent a *laden* ant follows back (hidden
+    /// units 0/1, gated on carrying, read `PheroAAlong`). Laying the food
+    /// route by hand is the one a player reaches for first: it is what
+    /// recruits a colony to a patch you have already found, which is
+    /// exactly what a returning forager's own `EmitB` does for real.
+    ///
+    /// A brush like `Soil`/`Water`/`Food` — it paints along the drag rather
+    /// than once per click, because a trail is a *line*, not a point.
+    /// **Off the bar**, for `Food`'s own reason: measured full at seven.
+    Scent,
+    /// **Click to drop alarm scent at the cursor** — `sim::pheromone::
+    /// Channel::Alarm`, the plane a bitten animal calls out on
+    /// (`creature.rs`'s `cry_alarm`). One click, not a brush: a real alarm
+    /// is a single event at one cell, and painting a swath of it would be a
+    /// player-only quantity nothing in the engine ever produces.
+    ///
+    /// At `ALARM_DEPOSIT` — the exact strength a bite writes — so a
+    /// player-triggered alarm and a real one are the same signal a nearby
+    /// colony cannot tell apart, which is the point: this is a way to
+    /// *provoke* the recruit-or-flee response the plane exists to drive,
+    /// not a debug poke at a number nothing reads differently.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Alarm,
+    /// **Click an animal to launch it** — the ballistic hop the brain's own
+    /// impulse output already has (`creature::launch`), reached by a
+    /// player's click instead of a decision. One of `CLAUDE.md`'s two laws
+    /// in the most literal form it takes anywhere in this engine: *"there
+    /// must be a verb, and it must deliver something"* was written about
+    /// destruction and applies here unchanged — a creature could already
+    /// fling itself, and there was no way to fling one *at* anything.
+    ///
+    /// Refuses exactly where the brain's own launch refuses: nothing to
+    /// push off (already airborne). Direction is away from the side the
+    /// cursor is on, or straight up if the click landed exactly on the
+    /// animal's own head — see `Lab::fling_at`.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Fling,
+    /// **Click a grow-light fixture to pull it, click bare ceiling to place
+    /// one, drag from a fixture to a new column to move it** —
+    /// `scene::LabBox`'s `lamp_near`/`remove_lamp`/`place_lamp`/`move_lamp`,
+    /// which existed with zero production callers until this tool. The
+    /// parameters page already moves the whole rig by its `lamp_spacing`
+    /// knob; this is the hands-on version, one fixture at a time, for
+    /// *"adjust plant growth by moving lights"* the way a player would
+    /// actually try it — by hand, on the one lamp over the seedling that is
+    /// struggling.
+    ///
+    /// **A click and a drag are two different verbs on the same fixture**,
+    /// which is why this is not a brush: a click that lands back over the
+    /// lamp it started on is a *remove*, and one that lands somewhere else
+    /// is a *move* — see `Lab::press`'s grab and `Lab::lamp_at`'s release.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Lamp,
 }
 
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
@@ -650,6 +722,10 @@ impl Tool {
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
             Tool::Food => "FOOD",
+            Tool::Scent => "SCENT",
+            Tool::Alarm => "ALARM",
+            Tool::Fling => "FLING",
+            Tool::Lamp => "LAMP",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -682,6 +758,14 @@ impl Tool {
             // `K` off the run, for the reason `K` states: a tool with no bar
             // cell is not in the row the positional rule is about.
             Tool::Food => "E",
+            // `I J Q U` -- the four keys free when these tools were added
+            // (checked against this whole match and against `HELP`), off
+            // the run for the reason `K` and `E` already state: none of the
+            // four has a bar cell.
+            Tool::Scent => "I",
+            Tool::Alarm => "J",
+            Tool::Fling => "Q",
+            Tool::Lamp => "U",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -695,8 +779,17 @@ impl Tool {
     /// Whether this tool paints continuously while the button is held. The
     /// verbs are one-shot — a drag that founded a colony per pixel would empty
     /// the organism table in one gesture.
+    ///
+    /// **`Scent` joins this list and `Alarm`/`Fling`/`Lamp` deliberately do
+    /// not.** A trail is a line, the way soil and water are a heap along a
+    /// stroke — but an alarm call, a launch and a fixture are each one
+    /// object at one cell; painting a stroke of "launched" across whatever
+    /// the cursor crossed would fling the whole colony, and `Lamp`'s own
+    /// click-vs-drag distinction needs the press position remembered
+    /// (`Lab::press`), which `is_brush`'s continuous-paint model has no
+    /// slot for.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water | Tool::Food)
+        matches!(self, Tool::Soil | Tool::Water | Tool::Food | Tool::Scent)
     }
     fn note(self) -> &'static str {
         match self {
@@ -709,6 +802,10 @@ impl Tool {
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. TWO DIALS DECIDE WHAT ARRIVES: THE STOCK DIAL ON THE BAR IS HOW MANY, AND THE DRIFT DIAL ON THE SHELF IS HOW FAR EACH ONE HAS MOVED FROM THE JAR. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN, SO A COLONY IS A COLONY OF CLONES; AT 1 EACH IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, DRAWN SEPARATELY, SO A COLONY IS A COLONY OF SIBLINGS. OPEN THE SHELF WITH G TO PICK A JAR AND SET THAT DIAL.",
+            Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE FOOD ROUTE (CHANNEL B) -- WHAT AN EMPTY ANT FOLLOWS OUTWARD, SO A TRAIL FROM THE NEST TO A PATCH YOU FOUND RECRUITS THE COLONY TO IT. PRESS I AGAIN TO SWITCH TO HOME SCENT (CHANNEL A) -- WHAT A LADEN ANT FOLLOWS BACK. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
+            Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
+            Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
+            Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
         }
     }
 }
@@ -2084,6 +2181,13 @@ pub struct Ui {
     pub panel: Option<Panel>,
     /// What a left-click on the world does. See [`Tool`].
     tool: Tool,
+    /// **Which plane [`Tool::Scent`] lays**, toggled by a second press of
+    /// its key rather than armed and disarmed like every other tool -- see
+    /// `Action::ToggleScentChannel` and `Tool::Scent`'s own doc for why. Not
+    /// reset when a different tool is armed, so leaving `SCENT` and coming
+    /// back to it keeps whichever plane was last chosen rather than
+    /// surprising a player who only meant to check something else.
+    scent_channel: crate::sim::pheromone::Channel,
     /// Which plantable species the planting tool puts in — an **index into
     /// the world's own plantable list**, not a name, so a chip can never name
     /// a species that is not loaded. Wrapped at use rather than clamped, so
@@ -2610,6 +2714,24 @@ impl Ui {
     /// a chip beside it: picking herb is never a request to stop planting.
     pub fn arm_tool(&mut self, tool: Tool) {
         self.tool = tool;
+    }
+
+    /// Which plane [`Tool::Scent`] is currently laying.
+    pub fn scent_channel(&self) -> crate::sim::pheromone::Channel {
+        self.scent_channel
+    }
+
+    /// Flip [`Tool::Scent`]'s armed plane between the food route and the
+    /// home scent, and hand back the one it lands on so the caller can say
+    /// so. Never touches `Channel::Alarm` -- there is nothing to toggle to,
+    /// `Tool::Alarm` is its own tool.
+    pub fn toggle_scent_channel(&mut self) -> crate::sim::pheromone::Channel {
+        use crate::sim::pheromone::Channel;
+        self.scent_channel = match self.scent_channel {
+            Channel::B => Channel::A,
+            Channel::A | Channel::Alarm => Channel::B,
+        };
+        self.scent_channel
     }
 
     pub fn brush(&self) -> i32 {

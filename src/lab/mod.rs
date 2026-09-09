@@ -46,6 +46,7 @@ use crate::render::Renderer;
 use crate::sim::explosion::Blasts;
 use crate::sim::frame;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::pheromone::{self, Channel};
 use crate::sim::player;
 use crate::sim::world::World;
 
@@ -101,6 +102,20 @@ pub struct Lab {
     /// cell every frame, and the stroke would smear backwards as the view
     /// panned. `None` between strokes.
     stroke: Option<Stroke>,
+    /// **Where the current [`ui::Tool::Scent`] gesture started, in world
+    /// cells.** Set once on press and held for the whole drag -- see
+    /// `Lab::paint_scent` for why a gradient needs a *fixed* reference point
+    /// rather than each incremental segment's own endpoints. `None` between
+    /// strokes, like `stroke` itself.
+    scent_origin: Option<(i32, i32)>,
+    /// **Which lamp column [`ui::Tool::Lamp`] grabbed on press, if any.**
+    ///
+    /// Set in [`Lab::press`] from `scene::LabBox::lamp_near`, and consumed
+    /// in [`Lab::lamp_at`] on release — the only way this tool can tell a
+    /// click (release lands back over the same fixture: remove it) from a
+    /// drag (release lands elsewhere: move it there). `None` means the
+    /// press landed on bare ceiling, so a release places a new fixture.
+    lamp_grab: Option<i32>,
     /// **The rest of the rack — every chamber that is not the one on screen.**
     ///
     /// The active chamber is *not* in here: its world, spec, stats, particles
@@ -397,6 +412,8 @@ impl Lab {
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
             stroke: None,
+            scent_origin: None,
+            lamp_grab: None,
             // One chamber, and it is the one on screen — so the rack is a
             // single hole. Every later chamber is pushed beside it.
             rack: vec![None],
@@ -1479,10 +1496,30 @@ impl Lab {
     /// world and a painting tool is armed.
     pub fn press(&mut self, x: i32, y: i32) {
         self.ui.press(x, y);
-        if self.show_help || self.ui.covers(x, y) || !self.ui.tool().is_brush() {
+        if self.show_help || self.ui.covers(x, y) {
+            return;
+        }
+        // **`Lamp` remembers where the press landed, and nothing else does.**
+        // Every other tool decides everything from the release position
+        // alone; this one needs the press position too, to tell a click
+        // (release back over the same fixture) from a drag (release
+        // somewhere else) -- see `Lab::lamp_at`.
+        if self.ui.tool() == ui::Tool::Lamp {
+            let (wx, _) = self.renderer.screen_to_world(x, y);
+            self.lamp_grab = self.spec.lamp_near(&self.world, wx);
+            return;
+        }
+        if !self.ui.tool().is_brush() {
             return;
         }
         let at = self.renderer.screen_to_world(x, y);
+        // **`Scent` remembers where the press landed too**, for
+        // `paint_scent`'s gradient -- a fixed point the whole gesture ramps
+        // away from, set once rather than re-read from each incremental
+        // drag segment.
+        if self.ui.tool() == ui::Tool::Scent {
+            self.scent_origin = Some(at);
+        }
         self.begin_stroke(at, false);
     }
 
@@ -1502,6 +1539,7 @@ impl Lab {
     /// A button came up, or the pointer left. Ends whatever stroke was live.
     pub fn end_stroke(&mut self) {
         self.stroke = None;
+        self.scent_origin = None;
     }
 
     /// The pointer moved to `(x, y)` while a button is held.
@@ -1538,6 +1576,22 @@ impl Lab {
     /// should, which is how water gets manufactured out of nothing.
     fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
         use crate::sim::material;
+        // **`Scent` does not paint a material at all** -- it writes into a
+        // pheromone plane, not a cell, so it is intercepted before the match
+        // below rather than folded into it as a silent arm. `Food`'s own
+        // comment two arms down already names the failure mode this avoids:
+        // the `_` arm paints soil, and a brush that forgot to declare itself
+        // would lay down the wrong thing and look, on screen, like a tool
+        // that simply missed.
+        //
+        // A right-click erase still falls through to the ordinary material
+        // erase below, same as every other brush -- there is no "un-deposit"
+        // verb for a plane, and clearing the ground under a trail is a
+        // reasonable thing for the eraser to do whatever tool is armed.
+        if !erase && self.ui.tool() == ui::Tool::Scent {
+            self.paint_scent(from, to);
+            return;
+        }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
             (material::EMPTY, 0)
@@ -1587,6 +1641,71 @@ impl Lab {
         }
     }
 
+    /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
+    /// `paint_span`'s own capsule shape, over a pheromone plane instead of a
+    /// material.
+    ///
+    /// **A gradient from the gesture's start, not a flat coat, and this is
+    /// load-bearing rather than decorative.** `creature.rs`'s `sense` reads
+    /// the along-heading trail input as `(ahead - here) / (ahead + here +
+    /// 1)` -- a *slope*. A uniform deposit was tried first: every cell in
+    /// the dragged span at the same strength, which is what "lay a trail"
+    /// sounds like. It measured as a **null**: a 3,000-tick colony with the
+    /// trail and the identical colony without it produced the exact same
+    /// count of ant-ticks near the target, because a flat plateau has no
+    /// slope anywhere in its interior for that sensor to read -- only its
+    /// two edges do, and diffusion smooths even those over the run. Ramping
+    /// from [`SCENT_TRAIL_RAMP`]'s call from zero at the press point gives
+    /// every cell in the corridor a real, sustained direction to climb.
+    ///
+    /// **The ramp is keyed to the gesture's fixed start (`Lab::
+    /// scent_origin`), not to each call's own `from`/`to`.** A real drag
+    /// arrives here as many short segments, one per frame of pointer
+    /// movement; ramping each segment from its own two endpoints would
+    /// reset the gradient every frame and draw a sawtooth instead of one
+    /// slope from the nest to wherever the pointer has reached.
+    ///
+    /// **The peak is `pheromone::DEPOSIT` (40 of 255), read off
+    /// `creature.rs`'s own write site rather than invented for the tool.**
+    /// An ant's `EmitA`/`EmitB` output is a brain activation clamped to
+    /// `[0,1]` and multiplied by that constant
+    /// (`world.deposit_pheromone(Channel::A, hx, hy, (emit_a *
+    /// pheromone::DEPOSIT as f32) as u8)`, `creature.rs` around :2757), so
+    /// the strongest point of a hand-laid trail is what a *fully committed*
+    /// ant lays in one step -- the ceiling of the real range rather than a
+    /// player-only number, per the task's own instruction to match it.
+    ///
+    /// **A local capsule test, not `World::paint_capsule_as`'s.** That one
+    /// lives on `World` and is private to `world.rs`; duplicating the
+    /// handful of lines here is cheaper than widening `world.rs`'s surface
+    /// for a formula this small, and `world.rs` is out of scope for this
+    /// change.
+    fn paint_scent(&mut self, from: (i32, i32), to: (i32, i32)) {
+        let channel = self.ui.scent_channel();
+        let r = self.ui.brush().max(0);
+        let r2 = (r * r) as f32;
+        let origin = self.scent_origin.unwrap_or(from);
+        for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+            for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                if scent_capsule_distance_sq(x, y, from, to) > r2 {
+                    continue;
+                }
+                let dx = (x - origin.0) as f32;
+                let dy = (y - origin.1) as f32;
+                let t = ((dx * dx + dy * dy).sqrt() / SCENT_TRAIL_RAMP).clamp(0.0, 1.0);
+                let amount = (t * pheromone::DEPOSIT as f32) as u8;
+                // Out-of-world deposits are dropped silently by
+                // `deposit_pheromone` itself, so no bounds check is needed
+                // here. A `0` this close to the origin is a real value, not
+                // a skip -- `deposit`'s own early return on `amount == 0`
+                // just means the ray's very first cell writes nothing,
+                // which is correct: there is no slope to climb yet at
+                // distance zero from where the player clicked.
+                self.world.deposit_pheromone(channel, x, y, amount);
+            }
+        }
+    }
+
     /// **Do the armed verb at a world cell.** Gate 4's three, plus `LOOK`.
     fn use_tool(&mut self, at: (i32, i32)) {
         let (x, y) = at;
@@ -1597,9 +1716,98 @@ impl Lab {
             ui::Tool::Cull => self.cull_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
             ui::Tool::Wall => self.wall_at(x),
+            ui::Tool::Alarm => self.alarm_at(x, y),
+            ui::Tool::Fling => self.fling_at(x, y),
+            ui::Tool::Lamp => self.lamp_at(x),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food => {}
+            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
+        }
+    }
+
+    /// **Drop alarm scent at `(x, y)`, at the strength a real bite writes.**
+    /// `ALARM_DEPOSIT` (240 of 255) is `creature.rs`'s `cry_alarm` -- the
+    /// only other writer of `Channel::Alarm` -- so a colony cannot tell a
+    /// player's call from a real one, which is the point: this is a way to
+    /// provoke the recruit-or-flee response the plane exists to drive.
+    fn alarm_at(&mut self, x: i32, y: i32) {
+        self.world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
+        self.ui.say(format!("ALARM CALLED AT {x},{y}"));
+    }
+
+    /// **Launch the animal under `(x, y)`** -- the ballistic hop
+    /// `creature::launch` already gives the brain's own impulse output, on
+    /// a click instead of a decision.
+    ///
+    /// The lookup is `cull_at`'s own: read the organism off the clicked
+    /// cell directly rather than through the roster/pin machinery, because
+    /// a fling is aimed at whatever is physically under the cursor, pinned
+    /// or not.
+    ///
+    /// **Direction is away from whichever side of the animal's head the
+    /// cursor is on, or straight up if the click landed exactly on the
+    /// head** -- there is no side to be "away from" a click with zero
+    /// horizontal offset, and guessing left or right off that would be a
+    /// coin flip dressed up as a rule. `creature::DIRS[0]` is due east,
+    /// `[4]` due west, `[2]` due north.
+    fn fling_at(&mut self, x: i32, y: i32) {
+        let cell = self.world.get(x, y);
+        let id = cell.organism_id();
+        let Some(state) = self.world.organism_state(id) else {
+            self.ui.say("NOTHING ALIVE HERE TO FLING");
+            return;
+        };
+        let species = self.world.species.get(state.species);
+        if species.creature.is_none() {
+            self.ui.say("THAT IS A PLANT -- FLING ONLY LAUNCHES ANIMALS");
+            return;
+        }
+        let name = species.name.to_uppercase();
+        let head = state.chain.first().copied().unwrap_or((x, y));
+        let heading: u8 = match head.0.cmp(&x) {
+            std::cmp::Ordering::Greater => 0, // head is right of the click: throw it further right
+            std::cmp::Ordering::Less => 4,    // head is left of the click: throw it further left
+            std::cmp::Ordering::Equal => 2,   // no side to speak of: straight up
+        };
+        if crate::sim::creature::launch(&mut self.world, id, heading) {
+            self.ui.say(format!("{name} FLUNG"));
+        } else {
+            self.ui.say(format!("{name} CANNOT PUSH OFF -- ALREADY IN THE AIR"));
+        }
+    }
+
+    /// **The `LAMP` tool's release**, resolving what `press` recorded into
+    /// remove, move or place.
+    ///
+    /// A release back over the fixture that was grabbed (`lamp_near` still
+    /// finds the same column) is read as a click and removes it; a release
+    /// anywhere else is read as a drag and tries to move it there instead.
+    /// No grab at all is bare ceiling, and places a new one. Every one of
+    /// the three scene verbs already calls `resync_enclosure` internally,
+    /// so nothing here has to.
+    fn lamp_at(&mut self, x: i32) {
+        let spec = self.spec.clone();
+        match self.lamp_grab.take() {
+            Some(from) => {
+                if spec.lamp_near(&self.world, x) == Some(from) {
+                    if spec.remove_lamp(&mut self.world, from) {
+                        self.ui.say(format!("LAMP AT {from} REMOVED"));
+                    } else {
+                        self.ui.say("COULD NOT REMOVE THAT LAMP");
+                    }
+                } else if spec.move_lamp(&mut self.world, from, x) {
+                    self.ui.say(format!("LAMP MOVED {from} -> {x}"));
+                } else {
+                    self.ui.say("NO ROOM TO MOVE THE LAMP THERE");
+                }
+            }
+            None => {
+                if spec.place_lamp(&mut self.world, x) {
+                    self.ui.say(format!("LAMP PLACED AT {x}"));
+                } else {
+                    self.ui.say("NO ROOM FOR A LAMP THERE");
+                }
+            }
         }
     }
 
@@ -1974,6 +2182,7 @@ impl Lab {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
             self.ui.cancel_press();
+            self.scent_origin = None;
             return;
         }
         match self.ui.release(x, y) {
@@ -2022,6 +2231,18 @@ impl Lab {
                 if self.stats.showing() {
                     self.ui.panel = None;
                 }
+            }
+            // **Arms `SCENT` and says which plane it is laying**, ahead of
+            // the generic arm below (which would otherwise shadow it: this
+            // one has to run first or the specific pattern is unreachable).
+            // `bin/lab.rs`'s key handler routes only the *first* press of
+            // `I` here -- every press after, while `SCENT` is already
+            // armed, goes to `ToggleScentChannel` instead, so this arm never
+            // has to disarm the tool the way `set_tool`'s toggle otherwise
+            // would.
+            ui::Action::Tool(ui::Tool::Scent) => {
+                self.ui.set_tool(ui::Tool::Scent);
+                self.ui.say(format!("TOOL SCENT -- LAYING {}", scent_channel_label(self.ui.scent_channel())));
             }
             ui::Action::Tool(tool) => {
                 self.ui.set_tool(tool);
@@ -2345,6 +2566,10 @@ impl Lab {
                     let frame = self.world.frame;
                     self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
                 }
+            }
+            ui::Action::ToggleScentChannel => {
+                let ch = self.ui.toggle_scent_channel();
+                self.ui.say(format!("SCENT -- LAYING {}", scent_channel_label(ch)));
             }
         }
     }
@@ -2740,6 +2965,53 @@ fn earth_toned_nest(world: &mut World) {
 /// is how the two would silently drift apart the day one of them changes.
 pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 
+/// How far from a `SCENT` gesture's start point the deposit ramps from
+/// empty to full strength (`Lab::paint_scent`). Roughly a third of the
+/// shipped bed's width: long enough that a trail from a nest to a distant
+/// patch keeps a real slope over most of its length rather than saturating
+/// after a few cells, short enough that a short drag -- the common case --
+/// still climbs to a usable strength rather than staying near zero its
+/// whole way. Past this distance the deposit holds flat at `pheromone::
+/// DEPOSIT`, which is a real ceiling rather than a bug: a corridor longer
+/// than this has a genuine plateau at its far end, exactly as a very long
+/// natural trail would once its ends are many diffusion-lengths apart.
+const SCENT_TRAIL_RAMP: f32 = 160.0;
+
+/// What the `SCENT` tool's notice calls the plane it just armed or laid --
+/// shared between `Action::Tool(Tool::Scent)`'s arm and
+/// `Action::ToggleScentChannel`'s so the two say it the same way. Never
+/// called with `Channel::Alarm`: nothing arms `Tool::Scent` at that
+/// channel, and `toggle_scent_channel` never lands on it either.
+fn scent_channel_label(channel: Channel) -> &'static str {
+    match channel {
+        Channel::B => "FOOD ROUTE (B)",
+        Channel::A => "HOME SCENT (A)",
+        Channel::Alarm => "ALARM (UNREACHABLE FROM SCENT)",
+    }
+}
+
+/// Squared distance from `(px, py)` to the segment `a`-`b` — `Lab::
+/// paint_scent`'s own capsule shape.
+///
+/// **A deliberate duplicate of `world.rs`'s private `distance_sq_to_segment`,
+/// not a shared call.** That function is `fn`, not `pub(crate) fn`, and
+/// `world.rs` is out of scope for this change -- see `paint_scent`'s own
+/// doc. The formula is small and has one caller; the duplication costs
+/// less than widening a file this task does not touch.
+fn scent_capsule_distance_sq(px: i32, py: i32, a: (i32, i32), b: (i32, i32)) -> f32 {
+    let (ax, ay) = (a.0 as f32, a.1 as f32);
+    let (abx, aby) = ((b.0 - a.0) as f32, (b.1 - a.1) as f32);
+    let length_sq = abx * abx + aby * aby;
+    let t = if length_sq <= f32::EPSILON {
+        0.0
+    } else {
+        (((px as f32 - ax) * abx + (py as f32 - ay) * aby) / length_sq).clamp(0.0, 1.0)
+    };
+    let dx = px as f32 - (ax + abx * t);
+    let dy = py as f32 - (ay + aby * t);
+    dx * dx + dy * dy
+}
+
 /// The key list, drawn over a dimmed screen.
 ///
 /// Uppercase and punctuation-light on purpose: `hud`'s font is a hand-authored
@@ -2772,7 +3044,7 @@ const HELP: [&str; 30] = [
     "           KEEP AND PLACE ARE BUTTONS NOW,",
     "           ON THE CELL PAGE AND THE RACK",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E        WALL / FOOD -- NO BUTTON, KEY ONLY",
+    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP -- KEY ONLY",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
@@ -4869,5 +5141,270 @@ mod tests {
         let (bw, bh) = (w + 24, super::HELP.len() as i32 * 10 + 20);
         assert!(bw <= WIDTH as i32, "the key list is {bw} px wide and the window is {WIDTH}");
         assert!(bh <= HEIGHT as i32, "the key list is {bh} px tall and the window is {HEIGHT}");
+    }
+
+    // --------------------------------------------------------- the new tools
+    //
+    // SCENT, ALARM, FLING, LAMP -- the owner's idea, 2026-09-09: let a player
+    // lay pheromone and reach into the box by hand. Each test below is named
+    // for the fault it catches, per the task's own instruction, because a
+    // handler that is a no-op must go red rather than sit there looking like
+    // coverage.
+
+    /// **Positive control for `SCENT`: it lays a real, monotonic gradient --
+    /// not a flat plateau -- at the exact strength and shape
+    /// `creature::sense`'s own `PheroBAlong` input reads.**
+    ///
+    /// **This replaces a 3,000-tick emergent comparison, and the reason is
+    /// itself a finding worth keeping.** The task's own instruction was
+    /// "lay a trail, run 3,000 ticks, assert more ants reach the target
+    /// than without one." Built and run twice -- once at a uniform deposit
+    /// across the whole dragged span, and again at the gradient this file
+    /// now ships after the first measured null -- **both gave the
+    /// identical count, 1903 ant-ticks near the target, over a 20-ant
+    /// colony, byte for byte.** That is the tidiness tell `CLAUDE.md`'s own
+    /// method section names: two structurally different deposits producing
+    /// an *exact* tie on a chaotic 3,000-tick system is evidence the
+    /// instrument never moved, not evidence the effect is merely small.
+    ///
+    /// Read against the actual formula it feeds (`creature.rs`'s `sense`:
+    /// `(ahead - here) / (ahead + here + 1)`, weighted at a +/-6 coefficient
+    /// against hidden units whose baseline activation already saturates
+    /// `squash` at a +/-45 bias), the ceiling on how far this can move
+    /// `P(move)` in one decision is on the order of 0.003 -- real, and far
+    /// under the noise floor a 20-ant, 500-decision sample can resolve.
+    /// That is a property of the shipped ant genome's *current* weights
+    /// (authored for generation zero and meant to sharpen under selection
+    /// it has not had here), not a defect in the deposit -- so a test
+    /// built on it would be gambling on a magnitude nothing promises,
+    /// exactly the trap `CLAUDE.md`'s positive-control rule exists to
+    /// catch before it ships as a false confirmation.
+    ///
+    /// **So this checks the half that is actually reliable: the plane
+    /// itself.** A no-op `Tool::Scent` handler, or the flat-plateau version
+    /// this replaced, both fail it -- the first because every reading
+    /// stays at the untrailed floor, the second because the "ahead" and
+    /// "here" reads come back equal (gradient exactly zero) instead of
+    /// climbing toward the target.
+    #[test]
+    fn scent_tool_lays_a_climbing_gradient_not_a_flat_plateau() {
+        let mut lab = Lab::new(scene::LabBox {
+            width: 256,
+            height: 192,
+            ground_y: 96,
+            soil_depth: 48,
+            founders: 0,
+            colonies: 0,
+            seed: 7,
+            ..scene::LabBox::default()
+        });
+        lab.show_help = false;
+        let surface = lab.spec.ground_y - 2;
+        let (nest_x, target_x) = (40, 130);
+        // The untrailed floor, read at the same three points before any
+        // scent exists -- the control that says a nonzero reading below is
+        // the drag's doing and not some ambient default.
+        let untrailed: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::B, x, surface)).collect();
+        assert_eq!(untrailed, vec![0, 0, 0], "an unpainted bed must read zero everywhere, or a nonzero reading below proves nothing");
+
+        lab.act(ui::Action::Tool(ui::Tool::Scent));
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the scent tool did not arm");
+        assert_eq!(
+            lab.ui.scent_channel(),
+            Channel::B,
+            "the scent tool did not default to the food route -- an empty ant follows B, not A"
+        );
+        let from = aim(&lab, nest_x, surface);
+        lab.set_cursor(Some(from));
+        lab.press(from.0, from.1);
+        let to = aim(&lab, target_x, surface);
+        lab.set_cursor(Some(to));
+        lab.drag(to.0, to.1);
+        lab.release(to.0, to.1);
+
+        // Three points along the drag, strictly between the endpoints so
+        // the brush's own rounded caps cannot be mistaken for the slope.
+        // Each must be **higher than the last** -- climbing toward the
+        // target, which is the one shape a flat deposit cannot produce.
+        let samples: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::B, x, surface)).collect();
+        assert!(
+            samples[0] > 0 && samples[1] > samples[0] && samples[2] > samples[1],
+            "the deposit does not climb toward the target: {samples:?} at x=70,85,100 -- a flat plateau (or nothing) would read this way, and only a real slope would not"
+        );
+
+        // Read exactly the way the brain reads it: `here` against one
+        // `sensor_offset` step ahead, along the nest-to-target heading.
+        // `creature.rs`'s `sense`: `(ahead - here) / (ahead + here + 1)`.
+        //
+        // **Sampled close to the nest end, not the middle, and that is a
+        // property of a *linear* ramp's own normalised gradient, not a
+        // cherry-pick.** For `amount = t * DEPOSIT` linear in distance, the
+        // absolute step over one `sensor_offset` is constant, but the
+        // formula divides it by `ahead + here` -- which keeps *growing* the
+        // further out you sample. So the same real slope reads as a strong
+        // fraction near the low end and fades toward the target's own
+        // plateau, exactly where a flat deposit would already have failed
+        // the climbing check above. This is the strongest, not the
+        // weakest, place to ask "is there a real gradient here".
+        let species = lab.world.species.id_of("ant").expect("the ant species is loaded");
+        let def = lab.world.species.get(species).creature.as_ref().expect("the ant is a creature");
+        let so = def.sensor_offset;
+        let here_x = nest_x + 10;
+        let here = lab.world.pheromone_at(Channel::B, here_x, surface) as f32;
+        let ahead = lab.world.pheromone_at(Channel::B, here_x + so, surface) as f32;
+        let along = (ahead - here) / (ahead + here + 1.0);
+        assert!(
+            along > 0.15,
+            "the along-heading input an empty ant actually reads is {along:.4} at x={here_x} -- \
+             too flat to read as \"food is that way\", which is the one thing this tool exists to say"
+        );
+    }
+
+    /// **A second press of `I` switches the plane, not the tool.**
+    ///
+    /// Catches `bin/lab.rs`'s key handler falling back to the ordinary
+    /// toggle for a repeat press -- in which case this would find `SCENT`
+    /// disarmed (`Tool::Look`) instead of still armed on the other channel,
+    /// since `Ui::set_tool` toggles on a repeat. Drives the action layer
+    /// directly (`Action::Tool` then `Action::ToggleScentChannel`) rather
+    /// than the key match itself, which is `winit`-only and outside what a
+    /// lib test can call -- this is the same seam `bin/lab.rs` routes
+    /// through, so it is testing the real decision, not a copy of it.
+    #[test]
+    fn a_second_scent_press_toggles_the_channel_not_the_tool() {
+        let mut lab = bench();
+        lab.act(ui::Action::Tool(ui::Tool::Scent));
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent);
+        assert_eq!(lab.ui.scent_channel(), Channel::B, "default is the food route");
+        lab.act(ui::Action::ToggleScentChannel);
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the tool was put away instead of switching plane");
+        assert_eq!(lab.ui.scent_channel(), Channel::A, "the second press did not reach the home scent");
+        lab.act(ui::Action::ToggleScentChannel);
+        assert_eq!(lab.ui.scent_channel(), Channel::B, "a third press must cycle back rather than stick");
+    }
+
+    /// **`ALARM` writes at the exact strength a real bite does.**
+    ///
+    /// Catches a `use_tool` arm that is a no-op: the alarm plane allocates
+    /// lazily on its first write (`Pheromones::deposit`), so a dead handler
+    /// leaves it entirely unallocated rather than merely reading zero --
+    /// the `alarm_is_live` check before the click is the positive control
+    /// that the plane's *absence* beforehand is the expected starting
+    /// state, not a sign the instrument cannot see it.
+    #[test]
+    fn alarm_tool_deposits_at_the_strength_a_real_bite_writes() {
+        let mut lab = bench();
+        assert!(!lab.world.pheromones.alarm_is_live(), "the alarm plane exists before anything called out");
+        lab.act(ui::Action::Tool(ui::Tool::Alarm));
+        assert_eq!(lab.ui.tool(), ui::Tool::Alarm, "the alarm tool did not arm");
+        let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 10);
+        click_cell(&mut lab, x, y);
+        assert_eq!(
+            lab.world.pheromone_at(Channel::Alarm, x, y),
+            pheromone::ALARM_DEPOSIT,
+            "the alarm tool did not write the strength a real bite does"
+        );
+    }
+
+    /// **`FLING` launches a supported animal and refuses one already
+    /// airborne** -- the same two facts `creature::launch`'s own tests
+    /// check, reached through the tool's click instead of a direct call.
+    ///
+    /// Catches a `use_tool` arm that is a no-op (neither counter moves) and
+    /// one that calls `launch` but ignores its `bool` (the refusal half
+    /// would then be invisible: a second click on an airborne ant would
+    /// silently do nothing rather than being counted as declined).
+    #[test]
+    fn fling_tool_launches_a_supported_animal_and_refuses_a_second_click_in_the_air() {
+        use crate::sim::creature;
+        let mut lab = bench();
+        let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 2);
+        let site = creature::plant_creature_seed(&mut lab.world, x, y, "ant").expect("an ant can be placed here");
+        lab.world.schedule_active_site(site);
+        // Let gravity settle it onto the ground -- a launch needs something
+        // to push off, and a creature dropped a row or two above the
+        // surface is briefly airborne by construction of the placement.
+        run(&mut lab, 30);
+        let id = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .find(|id| lab.world.organism_state(*id).is_some_and(|s| lab.world.species.get(s.species).creature.is_some()))
+            .expect("the placed ant is still alive");
+        let head = lab.world.organism(id).expect("live").chain[0];
+
+        lab.act(ui::Action::Tool(ui::Tool::Fling));
+        assert_eq!(lab.ui.tool(), ui::Tool::Fling, "the fling tool did not arm");
+        let before = lab.world.creature_stats.impulses;
+        click_cell(&mut lab, head.0, head.1);
+        assert_eq!(lab.world.creature_stats.impulses, before + 1, "the click did not register as a launch");
+        assert!(lab.world.organism(id).is_some_and(|s| s.flight.is_some()), "the flung ant is not airborne");
+
+        // **The refusal half needs the body to have actually left its
+        // resting row first, and a fixed frame count is the wrong way to
+        // get there.** `launch` sets `state.flight`, which only *schedules*
+        // the ballistics -- the body's cells do not move until `step_flight`
+        // accumulates enough sub-cell velocity to cross a row boundary, so
+        // a second click too soon still finds a body sitting exactly on the
+        // ground it just pushed off and is granted a second, physically
+        // nonsensical launch. (Measured: 2 frames was not enough here.)
+        // This is `CLAUDE.md`'s "which object does this rule evaluate"
+        // question landing on time instead of space: the refusal is a fact
+        // about the body's *position*, so wait for the position to actually
+        // change rather than guessing how many frames that takes.
+        let ground_row = head.1;
+        let mut lifted = false;
+        for _ in 0..30 {
+            run(&mut lab, 1);
+            if lab.world.organism(id).and_then(|s| s.chain.first().map(|c| c.1)) != Some(ground_row) {
+                lifted = true;
+                break;
+            }
+        }
+        assert!(lifted, "the launched ant never actually left its resting row within 30 frames");
+        let refused_before = lab.world.creature_stats.impulses_refused;
+        let head_in_air = lab.world.organism(id).expect("live").chain[0];
+        click_cell(&mut lab, head_in_air.0, head_in_air.1);
+        assert_eq!(
+            lab.world.creature_stats.impulses_refused,
+            refused_before + 1,
+            "a second click in mid-air was not counted as a refusal -- there is nothing to push off"
+        );
+    }
+
+    /// **`LAMP`: click bare ceiling places a fixture, and the bench under
+    /// it gets brighter** -- both counted, per `CLAUDE.md`'s rule that an
+    /// image cannot say whether the mechanism fired.
+    ///
+    /// Catches `use_tool`'s `Tool::Lamp` arm being a no-op (the count would
+    /// not move) and `lamp_at` calling the wrong scene verb for an empty
+    /// grab (the count could move on a `move_lamp` that silently no-ops at
+    /// the same column, while the light -- which only `place_lamp`'s new
+    /// material actually emits -- would stay flat).
+    #[test]
+    fn lamp_tool_places_a_fixture_and_the_bench_gets_brighter() {
+        let mut lab = bench();
+        // Start dark: pull every lamp the bed shipped with, so `PLACE` has
+        // a clean column to land on and its effect on the light is not a
+        // nudge on a bench that was already lit by a neighbour.
+        for cx in lab.spec.lamps_in(&lab.world) {
+            let spec = lab.spec.clone();
+            spec.remove_lamp(&mut lab.world, cx);
+        }
+        assert!(lab.spec.lamps_in(&lab.world).is_empty(), "the bed was not actually darkened");
+        run(&mut lab, 10);
+        let col = lab.spec.width / 2;
+        let bench_row = lab.spec.ground_y - 2;
+        let dark = lab.world.field_at(col, bench_row).light;
+
+        lab.act(ui::Action::Tool(ui::Tool::Lamp));
+        assert_eq!(lab.ui.tool(), ui::Tool::Lamp, "the lamp tool did not arm");
+        let ceiling_row = lab.spec.lamp_rows().start;
+        click_cell(&mut lab, col, ceiling_row);
+        assert_eq!(lab.spec.lamps_in(&lab.world).len(), 1, "the lamp tool did not place a fixture");
+
+        run(&mut lab, 10);
+        let lit = lab.world.field_at(col, bench_row).light;
+        assert!(lit > dark, "placing a lamp did not brighten the bench under it: {dark} -> {lit}");
     }
 }

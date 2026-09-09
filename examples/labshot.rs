@@ -93,6 +93,14 @@ fn main() {
     let stops: String = arg("frames").unwrap_or_else(|| "0,600,3000,9000".to_string());
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
+    // **Found the colonies at frame `ants_at` instead of at frame 0.**
+    // Owner, 2026-09-09: the harness's own default -- every colony present
+    // from frame 0, on a bed with no growth in it yet -- is not how the
+    // game is played, where a bed is grown first and colonies come later.
+    // 0 (the default) keeps the old behaviour byte-for-byte: the founding
+    // below only takes the bare-bed detour when this is nonzero. Ignored
+    // under `scenario=`, whose own timeline decides colony placement.
+    let ants_at: u64 = arg("ants_at").unwrap_or(0);
 
     // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
     // paired comparison rather than one run against a remembered impression,
@@ -155,7 +163,7 @@ fn main() {
         },
     };
     println!(
-        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} frames={:?}{}",
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} frames={:?} ants_at={ants_at}{}",
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators, spec.seed,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
@@ -165,11 +173,21 @@ fn main() {
 
     let (mut world, placed, scenario_placed) = match &scenario {
         Some(s) => {
+            if ants_at > 0 {
+                println!("  ants_at={ants_at} ignored -- a scenario's own timeline decides colony placement");
+            }
             let (w, p, sp) = s.build();
             (w, p, Some(sp))
         }
         None => {
-            let (w, p) = spec.build_counted();
+            // **The bare bed** -- `labforage.rs`'s own pattern for the same
+            // reason: `build_counted` founds every colony it is asked for as
+            // part of building, so keeping the founders out until `ants_at`
+            // means asking it for none and founding by hand once the clock
+            // gets there. At the default `ants_at=0` this is `spec` itself,
+            // so nothing about the old behaviour moves.
+            let bare = if ants_at > 0 { LabBox { colonies: 0, ..spec.clone() } } else { spec.clone() };
+            let (w, p) = bare.build_counted();
             (w, p, None)
         }
     };
@@ -318,9 +336,26 @@ fn main() {
     println!("  {} organism(s) placed by the builder before the first tick", founders.len());
 
     let mut tiles: Vec<Vec<u8>> = Vec::new();
-    let last = *stops.last().expect("at least one stop");
+    // `.max(ants_at)`: a founding frame past the last requested stop must
+    // still be reached, or `ants_at` past the end of `frames=` would silently
+    // never fire -- the same "an unknown argument is silently ignored" shape
+    // `CLAUDE.md` names, just with a frame number standing in for the flag.
+    let last = stops.last().copied().unwrap_or(0).max(ants_at);
     let mut next = 0usize;
     for f in 0..=last {
+        // **Found the colonies here**, not before the loop -- see `ants_at`'s
+        // own doc above. Checked before the stop/draw block below so a stop
+        // that coincides with `ants_at` (the report's own `frames=0,6000,...
+        // ants_at=6000`) sees the just-founded colony rather than the empty
+        // bed it replaced.
+        if ants_at > 0 && f == ants_at {
+            let cols = spec.colony_columns();
+            let mut founded = 0usize;
+            for &x in &cols {
+                founded += world.found_colony_of(x, spec.ground_y - 2, &spec.colony_species, spec.colony_ants);
+            }
+            println!("  ants_at {ants_at}: founded {founded} ants at {cols:?}");
+        }
         if next < stops.len() && stops[next] == f {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();

@@ -79,6 +79,20 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
 }
 
+/// The gut bias off a live founder, never off the species table -- the run
+/// has to be measuring the gut it says it is. `0.0` (neutral) before any
+/// ant exists to read one off, which only happens between the bed being
+/// built and `ants_at` arriving when `ants_at > 0`.
+fn ant_gut_bias(world: &World) -> f32 {
+    world
+        .live_organism_ids()
+        .iter()
+        .filter_map(|id| world.organism(*id))
+        .find(|s| world.species.get(s.species).creature.is_some())
+        .map(|s| s.traits[TRAIT_GUT_BIAS])
+        .unwrap_or(0.0)
+}
+
 /// How far above the soil surface a cell still counts as **on the floor**.
 ///
 /// Same value and same reasoning as `windfall_probe`'s: an ant is a two-cell
@@ -207,6 +221,12 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample_every: u64 = arg("sample").unwrap_or(900);
     let handout: u64 = arg("handout").unwrap_or(0);
+    // **Found the colony at frame `ants_at` instead of at frame 0** --
+    // `labshot.rs`'s own knob and the same owner framing, 2026-09-09: a bed
+    // grown first and stocked later is how the game is actually played. 0
+    // (the default) keeps this file's existing behaviour byte-for-byte --
+    // founding happens before the loop, exactly as it always has.
+    let ants_at: u64 = arg("ants_at").unwrap_or(0);
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
@@ -224,33 +244,43 @@ fn main() {
     // Echo the parameters. A knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- `plant_probe`'s 3.5-hour lesson.
     println!(
-        "labforage: frames={frames} sample={sample_every} founders={} colonies={} walls={} soil={} seed={} handout={handout}",
+        "labforage: frames={frames} sample={sample_every} founders={} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}",
         spec.founders, spec.colonies, spec.compartments, spec.soil_depth, spec.seed
     );
 
     // Built bare and founded afterwards, for `windfall_probe`'s reason: a
     // species-level write after the founders are standing reaches nobody,
-    // because `place_creature` copies the traits at placement.
+    // because `place_creature` copies the traits at placement. At the
+    // default `ants_at=0` the founding happens right here, same as always;
+    // at `ants_at>0` it is deferred to that frame, in the loop below.
     let bare = LabBox { colonies: 0, ..spec.clone() };
     let (mut world, planted) = bare.build_counted();
     let nest_cols = spec.colony_columns();
     let mut ants_placed = 0usize;
-    for &x in &nest_cols {
-        ants_placed += world.found_colony(x, spec.ground_y - 2);
+    let mut gut = 0.0f32;
+    if ants_at == 0 {
+        for &x in &nest_cols {
+            ants_placed += world.found_colony(x, spec.ground_y - 2);
+        }
+        gut = ant_gut_bias(&world);
     }
-    // Read off a live founder, never off the species table: the run has to be
-    // measuring the gut it says it is.
-    let gut = world
-        .live_organism_ids()
-        .iter()
-        .filter_map(|id| world.organism(*id))
-        .find(|s| world.species.get(s.species).creature.is_some())
-        .map(|s| s.traits[TRAIT_GUT_BIAS])
-        .unwrap_or(0.0);
     println!(
-        "  bed: {} of {} founders planted, {ants_placed} ants in {} colony/colonies at {nest_cols:?}, founder gut_bias {gut}",
-        planted.planted, planted.asked, spec.colonies
+        "  bed: {} of {} founders planted, {}",
+        planted.planted,
+        planted.asked,
+        if ants_at == 0 {
+            format!("{ants_placed} ants in {} colony/colonies at {nest_cols:?}, founder gut_bias {gut}", spec.colonies)
+        } else {
+            format!("ants founded later at frame {ants_at}, {} colony/colonies staged at {nest_cols:?}", spec.colonies)
+        }
     );
+    if ants_at > frames {
+        // The same "an unknown argument is silently ignored" shape
+        // `CLAUDE.md` names, with a frame number standing in for the flag:
+        // a founding frame past the run's own length would otherwise never
+        // fire and the run would read as a colony that starved instantly.
+        println!("  WARNING: ants_at={ants_at} is past frames={frames} -- the colony is never founded");
+    }
     println!(
         "  bands: floor <= {FLOOR_BAND} rows above soil, low <= {LOW_BAND}, aloft above that | distance bands {DIST_BANDS:?}\n"
     );
@@ -271,6 +301,16 @@ fn main() {
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died"
     );
     for f in 0..=frames {
+        // **Founding, deferred to here when `ants_at > 0`.** Checked before
+        // `mark_visited`/`census` below so the frame it lands on already
+        // sees the colony rather than the empty bed it replaced.
+        if ants_at > 0 && f == ants_at {
+            for &x in &nest_cols {
+                ants_placed += world.found_colony(x, spec.ground_y - 2);
+            }
+            gut = ant_gut_bias(&world);
+            println!("  ants_at {ants_at}: founded {ants_placed} ants at {nest_cols:?}, founder gut_bias {gut}\n");
+        }
         mark_visited(&world, &mut visited, spec.width);
         if f % sample_every == 0 {
             let s = census(&world, &spec, gut, &visited, &nest_cols);

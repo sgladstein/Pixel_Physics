@@ -5734,7 +5734,14 @@ fn body_is_supported(world: &World, cells: &[(i32, i32)]) -> bool {
 /// the creature in the air. `false` if the body could not push off.
 ///
 /// The only thing in the engine that sets `OrganismState::flight`.
-fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
+///
+/// **`pub(crate)`, not private** — `lab::mod`'s `FLING` tool calls this
+/// directly rather than going through a brain decision, which is the whole
+/// point of a tool: a player-driven verb on the same ballistic jump the
+/// brain's own impulse output already uses, so a fling and a self-launch
+/// share every precondition (`body_is_supported`) and every physics
+/// (`body_drag`, `LAUNCH_WORK`) rather than a second copy of either.
+pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
     let Some(cells) = world.organism(organism).map(|s| s.chain.clone()) else {
         return false;
     };

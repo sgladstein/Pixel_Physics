@@ -4092,8 +4092,9 @@ impl App {
             // The same rule again, and this one was **missing entirely**
             // until the overlay it names was mistaken for a bug. `V` cycles
             // Off -> Pressure -> Temperature -> Light -> Moisture ->
-            // Pheromone A -> Pheromone B -> Off, and `FieldOverlay::Light`
-            // is a pale cream blended at up to 75% over every pixel
+            // Pheromone A -> Pheromone B -> Pheromone Alarm -> Off, and
+            // `FieldOverlay::Light` is a pale cream blended at up to 75%
+            // over every pixel
             // *including solid rock* -- so a player who pressed `V` four
             // times got "a pale light effect spreading through rock" with
             // nothing on screen to say why, or that it was a debug channel
