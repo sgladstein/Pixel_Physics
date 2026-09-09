@@ -773,14 +773,24 @@
             // 12,000 frames. The gradient gets its authority from the
             // hidden gain below instead, which only applies when there is
             // actually a gradient to read.
+            // **`Bias` stays 2.0, and `(Energy, Move, -1.75)` carries the
+            // whole reduction -- see `ant.ron` for the full account,
+            // including the arm that reduced `Bias` itself and drove births
+            // to zero in every seed because the food brake three lines down
+            // was never re-derived to match. This file inherits the fixed
+            // numbers, not the trap.** Owner's ruling: rest is the ABSENCE
+            // of a reason to act, so a fed ant (Energy=1) still wanders at
+            // `squash(0.25)=0.20` rather than stopping outright, while a
+            // starving one (Energy=0) is unchanged at `squash(2.0)=0.667`.
             (Bias, Move, 2.0),
+            (Energy, Move, -1.75),
             // Stop when there is food to deal with.
-            // -1.5, not -0.8: against the Bias of 2.0 this leaves P(move)
-            // at 0.33 beside food rather than 0.55, so an ant lingers long
-            // enough to actually pick something up instead of wandering
-            // off. Not lower -- at -2.0 and beyond it stops dead and cannot
-            // leave with its cargo.
-            (FoodAdjacent, Move, -1.5),
+            // **-1.16, re-derived from -1.5 for the `Energy` wire above --
+            // see `ant.ron`'s identical line for the arithmetic.** Keeps a
+            // hungry ant's (Energy~0.2) linger rate at food the same 0.33
+            // the old universal value gave every ant; a full one still
+            // clamps to 0 beside food regardless, same as `ant.ron`.
+            (FoodAdjacent, Move, -1.16),
             // **Negative feedback, and the colony ossifies without it**
             // (P-12): more evaporation does not substitute. A nonzero gain
             // here is load-bearing, and it is the first thing to check if
@@ -860,7 +870,22 @@
             // `Reports/dead-ends.md`, which carries the numbers, the two
             // instrument bugs the sweep exposed, and the conditions under
             // which it is worth retrying.
-            (Bias, Dig, 0.4),
+            //
+            // **0.15, down from 0.4 -- a residual, matching `ant.ron`'s own
+            // move away from an unconditional `Bias`.** `ant.ron` puts the
+            // rest of the drive behind a hidden-unit gate on `Crowding`
+            // gated `AtNest` -- "chambers get dug as the colony grows" --
+            // but this species has no `nest` field (difference #1 above),
+            // so `AtNest` reads a constant 0.0 for it and there is no
+            // equally clean stand-in: `KinNear` is a sight-range distance
+            // reading to the *nearest* kin, not the local density `Crowding`
+            // already is, so pairing them would not be the same mechanism
+            // wearing a different gate, it would be an unproven third one.
+            // Left as the plain residual rather than guessing at a gate this
+            // file's own "five differences and nothing else" rule was never
+            // written to cover -- **not applied**, and this paragraph is
+            // why, for the next session that reaches for it.
+            (Bias, Dig, 0.15),
             (FoodAdjacent, Dig, 0.8),
             // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --
             // an inverse coefficient no lineage could alter, so every animal

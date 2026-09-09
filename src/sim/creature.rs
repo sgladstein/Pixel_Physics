@@ -2645,18 +2645,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         * armour_of(&jaw_traits, world.trait_reach);
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
-    // paying to be somewhere rather than to do something -- and gated on the
-    // authored price so a species that has not opted in pays not even the
-    // roof test, which is three `World::get`s on every creature tick.
+    // paying to be somewhere rather than to do something.
     //
-    // Read at the head rather than over the whole body: a two-cell ant half
-    // in a doorway is either in or out, and the head is the cell every other
-    // sense in this function is read from.
-    let exposure = if def.exposure_cost_per_cell > 0.0 && !is_sheltered(world, x, y) {
-        def.exposure_cost_per_cell * body_cells
-    } else {
-        0.0
-    };
+    // **The roof test itself is no longer gated on the price.** It used to
+    // sit behind `def.exposure_cost_per_cell > 0.0` so a species with no
+    // authored price paid not even the three `World::get`s -- but that
+    // gate also hid `exposed_ticks` behind the same `&&`, so on every bed
+    // that has not priced exposure (all of them, today) the counter read
+    // exactly 0 of N ticks, a null wearing a measurement rather than a
+    // report of an unexposed colony. `labstats`'s `--- shelter ---` line
+    // is supposed to answer "is there any sheltering behaviour for a price
+    // to reward at all", and a counter that cannot move without a price
+    // first being authored cannot answer that question -- it can only
+    // agree with whatever the price already says. Read at the head rather
+    // than over the whole body: a two-cell ant half in a doorway is either
+    // in or out, and the head is the cell every other sense in this
+    // function is read from.
+    let unsheltered = !is_sheltered(world, x, y);
+    let exposure = if def.exposure_cost_per_cell > 0.0 && unsheltered { def.exposure_cost_per_cell * body_cells } else { 0.0 };
     let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + armour_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
@@ -2668,7 +2674,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
-    if exposure > 0.0 {
+    if unsheltered {
         world.creature_stats.exposed_ticks += 1;
     }
     world.energy_ledger.synapse_tax += synapse_tax as f64;
@@ -3126,6 +3132,16 @@ fn sense(
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
+        // **Renormalizing this against `reproduce_at_of` (a child's worth,
+        // ~1,040 J against a 200 J grant) was tried and measured, not
+        // shipped.** It fixed the wrong half: `labforage`, 3 seeds, alive@
+        // 4,500 came back at 10/10/13 -- barely above the unwired ant's
+        // 6/8/11 and nowhere near the shipped hunger wire's 46/46/47,
+        // because at `start_energy` an ant now reads only ~0.19 "full", so
+        // the hunger wire it was meant to serve almost never sees a full
+        // ant and the founding cliff returns close to where it started.
+        // Reverted; the shipped fix is in the weights themselves
+        // (`ant.ron`'s `Energy` wiring), not in what this input measures.
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
         // **How this animal was made**, so behaviour can depend on it --
         // `BrainInput::Made`. Zero for every founder and every animal that

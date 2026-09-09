@@ -6270,6 +6270,13 @@ const EMBEDDED: &[&str] = &[
     // §10 stage 3). Appended at the end so no existing species' position
     // moves.
     include_str!("../../assets/species/ancestor.ron"),
+    // **The second animal, and the first to author `BrainOutput::Impulse`**
+    // -- see `hopper.ron`'s own header. Appended at the end, same
+    // convention as everything above it. It cannot yet be placed: it needs
+    // a companion `assets/materials/hopper.ron`, which is out of the scope
+    // that added this line (`material.rs`'s own `include_str!` list is a
+    // different file this session does not own).
+    include_str!("../../assets/species/hopper.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
