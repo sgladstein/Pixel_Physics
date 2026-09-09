@@ -23,6 +23,7 @@
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`7` | jump straight to a preset |
 //! | `Z` `X` `C` `V` `B` `N` | the tools: look, plant, colony, cull, soil, water |
+//! | `K` `E` `I` `J` `Q` `U` | wall, food, scent, alarm, fling, lamp — no bar cell, key only |
 //! | `.` | which species the planting tool puts in |
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
@@ -511,6 +512,30 @@ impl Handler {
             // the help page; clippy caught the collision, which is the only
             // reason this is not a silent one.
             KeyCode::KeyK => self.lab.act(Action::Tool(Tool::Wall)),
+            // **Four more off-the-bar tools, `I J Q U`** -- the owner's idea
+            // (2026-09-09) for letting a player lay pheromone and reach into
+            // the box by hand rather than only watching it. `I J Q U` were
+            // checked free against this whole match; none of the obvious
+            // initials collide with a control that already exists.
+            //
+            // **`I`'s second press is the one exception to every other
+            // tool's plain toggle.** `Ui::set_tool` arms-or-disarms on a
+            // repeat press, which is right for every other key here -- but a
+            // player who has just picked the food route over home scent is
+            // not asking to put `SCENT` away, so the *second* press routes to
+            // `ToggleScentChannel` instead of re-arming the same tool. This
+            // is the one place that distinction is made; `Lab::act` treats
+            // `Action::Tool(Tool::Scent)` as an ordinary arm like any other.
+            KeyCode::KeyI => {
+                if self.lab.ui.tool() == Tool::Scent {
+                    self.lab.act(Action::ToggleScentChannel);
+                } else {
+                    self.lab.act(Action::Tool(Tool::Scent));
+                }
+            }
+            KeyCode::KeyJ => self.lab.act(Action::Tool(Tool::Alarm)),
+            KeyCode::KeyQ => self.lab.act(Action::Tool(Tool::Fling)),
+            KeyCode::KeyU => self.lab.act(Action::Tool(Tool::Lamp)),
             // **The same two keys the two cells under them carry**, which is
             // the whole point of the cells being shared: `[` and `]` are
             // printed on that pair whichever tool is armed, so the key has to
