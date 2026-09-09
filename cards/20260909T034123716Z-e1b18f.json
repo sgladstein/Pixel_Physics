@@ -1,0 +1,60 @@
+{
+  "id": "20260909T034123716Z-e1b18f",
+  "created": "2026-09-09T03:41:23Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/creature-movement-patterns-wjckvc",
+    "commit": "13318c7f",
+    "agent": null,
+    "session_id": "f8b8f890-3efb-59b6-a08e-10527e923476",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The jump the engine already has, in the actual world",
+  "question": "One of these colonies hops instead of walking. Does the hop read as a different animal, or as an ant with a bug? And is it worth putting on a species of its own?",
+  "context_md": "Same wetland seed, same colony, same 36 frames. The only difference is one wire from Bias to Impulse.\n\nThe hop verb shipped on 2026-08-29 and **no species file authors it**, so the only place it has ever been rendered is a hand-built shelf over a drop. This is the first time it has run on generated ground with trees, water and a founded colony.\n\nThe trade is already visible in the counters: the hopper reaches **twice as deep** on a forage trip (18 cells against 9) and dies **three times as often** (10 against 3). Nothing is tuned -- the walking arm is byte-identical to the shipped ant.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "walk (shipped ant)",
+      "files": [
+        "20260909T034123716Z-e1b18f/000-card_walk.gif"
+      ],
+      "caption": "ant.ron exactly, no Impulse wire",
+      "meta": {
+        "launches": 0,
+        "airborne frames": 0,
+        "deepest forage": 9,
+        "forage trips": 1,
+        "deaths": 3
+      },
+      "focus": null,
+      "gif_frames": 36
+    },
+    {
+      "label": "hop (Bias->Impulse 2.0)",
+      "files": [
+        "20260909T034123716Z-e1b18f/001-card_hop.gif"
+      ],
+      "caption": "the same ant, one wire added",
+      "meta": {
+        "launches": 178,
+        "airborne frames": 1537,
+        "deepest forage": 18,
+        "forage trips": 3,
+        "deaths": 10
+      },
+      "focus": null,
+      "gif_frames": 36
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
