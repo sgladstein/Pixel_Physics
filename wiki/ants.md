@@ -10,12 +10,21 @@ measurement of it in a bare box is a warning rather than a win (see "Feeding
 each other" below). **Founders no longer start with identical reserves**, so
 a colony thins instead of dying in one spasm. **You can put a hand in the
 box**: drag a scent trail, drop an alarm, fling an animal, move a grow
-light. And there is a second animal, a hopper, which jumps -- too often, for
-now. The overturned claim is the one this note opened with that morning:
-an ant *reads* its trail, but the gate that decides when to listen is set so
-hard that the trail moves its next step by about three chances in a
-thousand -- a drawn trail from nest to plant moved a colony by exactly
-nothing, twice. Wired, and for now inert; the fix is being raced. **And the
+light. And there is a second animal, a hopper, which now jumps about half as
+often as it did, and drops out of the air mid-jump far less. The overturned
+claim is the one this note opened with that morning: an ant *reads* its trail,
+but the gate that decides when to listen was set so hard that the trail moved
+its next step by about three chances in a thousand -- a drawn trail from nest
+to plant moved a colony by exactly nothing, twice. **Half of that is fixed and
+the other half turned out not to be worth fixing.** A laden ant now really does
+run home along the home scent, and a trail you draw by hand is followed --
+which is why the scent tool starts on the home scent instead of the food route.
+The food route is still deaf on purpose: making an *empty* ant follow it works
+exactly as designed and makes the colony worse, because the food scent is only
+laid by an ant that has already found something, so a colony that can read it
+crowds onto patches it has already eaten and stops looking anywhere else. Two
+colonies raced side by side in one box, the readers took a quarter of the
+animals against three quarters for the colony that keeps searching at random. **And the
 starving colony is the harness's colony**: dropped on seedlings at frame
 zero it collapses; founded on a grown bed, the way the game is actually
 played, it holds. Earlier the same day the note below was corrected: **an ant
@@ -264,16 +273,33 @@ nest, fading the longer it has been away. So a colony paints its own map
 outward from home, and the map is strongest exactly where home is. An ant
 carrying food leaves a second, different scent — a food trail.
 
-**An ant is born knowing to walk up a smell, and a colony still starves with
-food in the room. Both are true, and the second is not yet explained.**
+**A laden ant runs home up the home scent. An empty one ignores the food
+route, and that is now a decision rather than an oversight.**
 
-The page said on 2026-09-08 that nothing follows either trail. That is wrong,
-and the correction is worth stating plainly because it points somewhere else:
-the shipped ant *is* born following smells, and it does it the way a real ant
-does — an ant with its jaws full walks up the home scent, and an ant with
-empty jaws walks up the food scent. Which one it heeds is decided by whether
-it is carrying. That is the oldest instinct in the box and it was measured
-when it was written.
+This paragraph has been wrong twice in two days, in opposite directions, and
+the settled version is worth stating carefully. On 2026-09-08 the page said
+nothing follows either trail. On 2026-09-09, morning, that was corrected to
+"both are followed, the way a real ant does it". Both were wrong: the *wiring*
+for both was there, and on the home scent the volume was turned down so far
+that a hand-drawn trail moved a colony by nothing at all.
+
+The home scent's volume is turned up now, and it shows: draw a trail from a
+patch back to the nest and ants carrying food run it. That is why the scent
+tool starts on the home scent.
+
+The food route was left deaf **on purpose**, and this is the part that is a
+finding rather than a job not yet done. Turning it up works exactly as
+intended and the colony does worse for it. The food scent is only laid by an
+ant that has *already found* something, so a colony that can read it converges
+on the patch it is already eating and stops searching anywhere else — it eats
+out its own doorstep and never walks to the far end of the bed. Raced side by
+side in one box, six times, the colony that could read the food route took a
+quarter of the animals and the one that keeps searching at random took three
+quarters. A colony that returns home in a straight line and searches at random
+is what a real ant colony is; the trail that pays is the way *back*, not the
+way *out*. What would change it is food arranged in clumps worth advertising,
+or a food scent that fades fast enough to stop recruiting once its patch is
+gone — neither of which has been tried yet.
 
 What is true, and is the thing to fix, is the outcome: **a colony still
 starves inside one play session with far more food standing in its own bed
@@ -286,7 +312,8 @@ up. A map that only gets drawn by someone who has already arrived cannot tell
 the first ant where to go.
 
 Which of those is doing the damage has not been settled, and the trails
-themselves are not the suspect they were made to look.
+themselves are not the suspect they were made to look — measured 2026-09-09,
+a colony that can read the food trail starves *sooner*, not later.
 
 **How long the fade lasts is no longer a fact about the species.** It used
 to be one number every ant of a kind was born with and none could change.

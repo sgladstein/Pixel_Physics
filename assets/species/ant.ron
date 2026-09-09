@@ -1299,18 +1299,44 @@
             (Energy, Share, 2.5),
             (KinNeed, Share, 1.9),
             (Bias, Share, -2.5),
-            // **`(KinNeed, Move, +1.25)` deliberately not authored here** --
-            // it belongs on the composed `Move` row the instinct-rewrite lane
-            // is landing (`Reports/colony-economy-design-2026-09-09.md` §5b,
-            // §5c), and this append does not touch `Move`'s existing weights
-            // so that lane rebases onto a list with only these three extra
-            // lines at the bottom and nothing moved. Measured as arm K
-            // (2026-09-09, seeds 1-3, frames=6000, RAYON_NUM_THREADS=1) with
-            // the shipped exclusive Share still in place: alive 2/6/8 against
-            // shipped's 0/5/19, intake 1,254/1,824/2,964 against shipped's
-            // 570/2,622/4,560 -- mean intake *fell* (2,014 against 2,584).
-            // At +1.25 alone, turning a donor into a forager does not fix
-            // the harvest-halving; full numbers with the coordinator.
+            // **The demand wire: a hungry nestmate is somewhere to walk
+            // to.** `Reports/colony-economy-design-2026-09-09.md` §5b/§5c's
+            // composed `Move` row, landed 2026-09-09 after the played bed
+            // measured what sharing alone costs.
+            //
+            // **Sharing on its own buys survival with births, intake and
+            // range**, which is not a trade anyone chose -- it is what a
+            // colony of donors does when nothing tells a donor where the
+            // demand is. Played bed (`labforage ants_at=6000 frames=30000`),
+            // six seeds, means:
+            //
+            //                        surv  births  deaths  intake kJ  cols
+            //   sharing off          38.7    29.7    27.2       65.3   263
+            //   sharing on           43.7    19.3    11.8       58.2   257
+            //   sharing on + this    46.0    22.3    12.5       64.9   282
+            //
+            // Per seed, survivors: 44/48/55/62/28/39 against sharing-on's
+            // 42/44/50/56/26/44 and sharing-off's 35/50/41/44/22/40.
+            //
+            // So the wire keeps the low deaths sharing bought (12.5 against
+            // 27.2) and gives back the intake and the range it had spent
+            // (64.9 kJ against 65.3, 282 columns against 263 -- both at or
+            // past the unshared colony), with survivors highest of the
+            // three. **`KinNeed` is the only input that can open the `Share`
+            // gate from outside the donor's own belly** (see the exclusion
+            // note above), and this is the same fact on the `Move` row: it
+            // is the one sense that says *another animal needs something*,
+            // so it is the one that can turn a colony's walking toward its
+            // own hungry rather than at random.
+            //
+            // **An earlier reading of +1.25 said it made intake worse** and
+            // it was measuring a different bed: arm K, seeds 1-3, frames
+            // 6000, founding at frame 0 -- mean intake 2,014 against 2,584.
+            // At 6,000 frames the colony is still spending its founding
+            // grant, so what that arm measured was the endowment being
+            // walked off rather than a harvest. The played bed (founded at
+            // 6,000, run to 30,000) is where a foraging change can show.
+            (KinNeed, Move, 1.25),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
@@ -1381,12 +1407,128 @@
         // alone -- an ant that still moved 220 times and simply never
         // committed to a direction.
         //
-        // So the gate is written as `75*(fill - 0.6)`, which crosses zero at
-        // f* and still sits at -45 when empty and +30 when full. Both ends
-        // are at least as deep as the offsets this file was tuned with, the
-        // crossover is explicit, and it is carried in weights that mutate.
-        // Transition width is 12/75 = 0.16 of fill -- narrower than the
-        // -+18 version, which is the price of keeping the saturation.
+        // So the gate was written as `75*(fill - 0.6)`, which crosses zero at
+        // f* and sits at -45 when empty and **+30 when full**.
+        //
+        // ============================================================
+        // **AND +30 WHEN FULL WAS THE BUG. Fixed 2026-09-09 for units 0/1
+        // ONLY -- they now read -45 / +45.5. Units 2/3 keep the saturated
+        // weights on purpose, and the reason is measured rather than
+        // conservative.** `open-bugs-handoff.md` §Z7.
+        //
+        // **A gate deep enough to shut a symmetric pair is deep enough to
+        // flatten the signal it lets through, and the paragraph above walks
+        // straight into it by treating both ends of the gate as wanting the
+        // same depth.** The off end does. The **on** end wants the opposite:
+        // the pair's response is largest where the gate sums to *zero* -- the
+        // linear part of `squash` -- and falls away in both directions from
+        // there. Parked at +30 with an along weight of 6, unit 0 sits between
+        // `squash(24) = 0.960` and `squash(36) = 0.973`: slope 1/31^2, the
+        // pair's difference 0.0125a, `2.5 x` that is **0.031 on the Move sum
+        // against a `(Bias, Move, 2.0)` walk drive**. The ant was wired to
+        // its own trail and could not read it.
+        //
+        // **The regression has a date and two commits, both 2026-08-31, and
+        // neither was careless.** Before `e8314d16` this gate was
+        // `Bias -30, Carrying +30` with `Carrying` a boolean: laden, it
+        // summed to **exactly 0** -- which is the `carrying, A_along 0: both
+        // squash(0) = 0.000` line in the worked table above, and where
+        // `hidden_outputs`' `+-3.75` comes from. `e8314d16` made `Carrying`
+        // graded and rewrote the gate as `30*(fill - 0.6)`, moving the open
+        // state to +12; `656c5eea`, fourteen minutes later, scaled it to
+        // `75*(fill - 0.6)` and moved it to +30. Both steps were made for the
+        // *off* state, correctly, and nothing re-checked the on state -- the
+        // sentence this note replaced called "+30 when full" a virtue, on the
+        // grounds that "both ends are at least as deep as the offsets this
+        // file was tuned with". Depth at the open end is the defect.
+        //
+        // **And it was worse than one saturated end.** Because the response
+        // peaks at the crossover, the shipped ant followed a trail only in a
+        // narrow band of crop fill around f* -- half-width `6/75 = 0.08` --
+        // and was inert at *both* extremes, including at `Carrying = 0.0`,
+        // which is the exact input an **empty** ant following the food route
+        // has. Both pairs crossed at 0.6, so at that fill the ant climbed the
+        // home trail and the food trail at once.
+        //
+        // **The repair keeps both numbers this file measured and moves only
+        // the third.** The off depth stays at 45, where the shut pair's leak
+        // is the 0.004 the note below measured it at; the along weight stays
+        // at 6, which is where the `+-3.75` swing comes from. Only the open
+        // state moves, from +30 to **+0.5**, which makes the gate asymmetric:
+        // `-45 + 45.5*fill` rather than `75*(fill - 0.6)`. That is forced
+        // rather than chosen -- a single line through fill cannot be both
+        // deep at one end and near zero at the other *and* cross at 0.6, and
+        // the leak constraint fixes which end gets the depth. `+0.5` and not
+        // `0` because `eval_brain` skips any weight under `W_EPS = 0.01`:
+        // authoring 0.0 as unit 2's `Bias` would ship the gate already
+        // half-deleted, which is the fault §Z5 found on the odometer.
+        //
+        // **What it costs: f* moves from 0.6 to 45/45.5 = 0.99** for the
+        // homing pair. The satiety threshold is still carried in weights that
+        // mutate, which is what `e8314d16` was for; its shipped value is now
+        // "nearly full" rather than "three fifths full".
+        //
+        // **Measured through the real `eval_brain`** (`examples/trailfollow
+        // mode=arith`), `P(move)` for a fed ant against the along-heading
+        // reading, at the magnitudes a laid trail delivers (the `SCENT`
+        // test's own bar is `along > 0.15`; mean under the ants' feet in the
+        // colony runs is 0.05-0.12):
+        //
+        //   a =            0.05    0.10    0.20    0.35    0.50    1.00
+        //   -45/+30 (old)  0.201   0.202   0.204   0.207   0.210   0.220
+        //   -45/+0.5       0.486   0.641   0.740   0.782   0.799   0.819
+        //
+        // with the shut pair's leak **unchanged at +0.009** at `a = 1`,
+        // because the off depth did not move: 135x the signal at the same
+        // leak. §Z7's own candidate (a), `-4/+8` with along 4, is
+        // disqualified without a bed -- its shut pair leaks **+0.512**,
+        // exactly its own open-state signal at the same reading, so it is not
+        // a gate and it leaks toward "empty ants clustered on the nest".
+        //
+        // ------------------------------------------------------------
+        // **WHY UNITS 2/3 KEEP THE SATURATED GATE, WHICH IS THE HALF OF THIS
+        // THAT COST A DAY.** Fixing both pairs works exactly as designed and
+        // makes the animal decisively worse. `creature_arena arm=same
+        // mirror=on seeds=6 frames=24000`, arm B carrying the re-weight and
+        // nothing else -- the mirror cancels founding position exactly, and
+        // the position confound on its own is the `mirror=off` control's
+        // 41.2% median:
+        //
+        //   arm=lethal (every weight zeroed, negative control)  15.4%, 0 of 6
+        //   both pairs re-gated                                 25.0%, 0 of 6
+        //   food pair only (2/3, channel B)                     47.6%, 2 of 6
+        //   homing pair only (0/1, channel A)                   63.6%, 5 of 6
+        //
+        // **The two halves are not additive, and the mechanism is the whole
+        // finding.** A colony whose laden ants walk home on channel A and
+        // whose empty ants search at random is a central-place forager:
+        // directed return, undirected search. Give the empty ants channel B
+        // as well and the search stops being undirected -- **channel B is
+        // laid by ants that have already found food**, so a colony that can
+        // read it converges on patches it has already eaten. `labforage`
+        // shows exactly that: `unvisited` 57% -> 74% of the standing larder,
+        // the 16-48 distance band eaten out (284 cells standing -> 49) while
+        // the >128 band goes untouched (1,285 -> 1,514), and the highest ant
+        // head falling from 29 rows to 20. It is this file's own recorded
+        // failure -- "the colony still collapsed back onto the nest" --
+        // reached from the opposite direction.
+        //
+        // **A softer gate does not rescue it, so it is not the strength**: at
+        // an open state of +2.0, a quarter of the response, the herb bed
+        // reads 40.0 survivors against the full fix's 40.8 and the shipped
+        // ant's 45.8. **Nor is it only the herb bed** -- on a canopy larder
+        // the gap narrows, as recruitment theory predicts, and does not
+        // reverse. See §Z7 for both tables.
+        //
+        // **So do not "finish the job" on units 2/3 by moving these
+        // numbers.** The gate fix for that pair exists, is one line, is
+        // measured, and is a regression. What a food trail is *worth* is the
+        // open question, not what the ant can read: the levers are the
+        // larder's patchiness (`labforage plant=`, `creature_arena plant=`)
+        // and channel B's decay, since a trail that outlives its patch keeps
+        // recruiting to nothing (`labforage bdecay=`,
+        // `Pheromones::set_channel_rho`).
+        // ============================================================
         hidden_wiring: [
             // units 0,1 -- channel A along the heading, gated ON a full crop
             // **Unit 4 is the odometer**, and it is three weights: one in
@@ -1440,10 +1582,10 @@
             (AtNest,      4,   0.05),
 
             (Bias,        0, -45.0),
-            (Carrying,    0,  75.0),
+            (Carrying,    0,  45.5),
             (PheroAAlong, 0,   6.0),
             (Bias,        1, -45.0),
-            (Carrying,    1,  75.0),
+            (Carrying,    1,  45.5),
             (PheroAAlong, 1,  -6.0),
             // units 2,3 -- channel B along the heading, gated ON an empty one
             (Bias,        2,  45.0),
