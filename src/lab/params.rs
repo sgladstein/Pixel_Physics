@@ -378,18 +378,24 @@ fn read_only(group: Group, category: &str, name: &str, shown: String, note: &str
     }
 }
 
-/// The species the `COLONY` tool releases. Named rather than discovered,
-/// because `creature::found_colony` names it too — a panel that tuned a
-/// different ant from the one the button places would be a knob that reads
-/// correctly and reaches nothing.
-pub const COLONY_SPECIES: &str = "ant";
-
 /// **Every parameter the lab exposes, in page and row order.**
 ///
 /// `plant` is the species the bar's chip has armed, so the plant page follows
 /// the tool: the chip picks what you are about to put in the ground and this
 /// page is that plant's numbers. `None` — an asset set with no plantable
 /// species — leaves the page empty rather than guessing at one.
+///
+/// **The ANTS/GENOME/COSTS pages follow `spec.colony_species` the same way,
+/// since 2026-09-09.** They used to read a module constant fixed at "ant",
+/// which was live and correctly labelled for exactly as long as `Y`/the
+/// COLONY tool only ever released an ant — the moment `spec.colony_species`
+/// could be a beetle, a hopper or anything else `found_colony_of` takes a
+/// name for, the three pages went on describing the ant regardless of what
+/// the box's own tool was about to place: a knob that reads correctly and
+/// reaches nothing, which is exactly the failure the constant's own retired
+/// doc comment warned against for `found_colony` and did not itself avoid.
+/// `spec` was already threaded this far for `box_rows`; passing its own
+/// field on is the whole fix.
 ///
 /// Rebuilt fresh on every draw, like `App::tunables_list`: a few dozen entries
 /// off registries that are already in memory, against the alternative of a
@@ -409,9 +415,9 @@ pub fn registry(world: &World, spec: &LabBox, plant: Option<SpeciesId>) -> Vec<P
         let name = world.species.get(id).name.clone();
         plant_rows(world, &name, &mut out);
     }
-    ant_rows(world, &mut out);
-    genome_rows(world, &mut out);
-    cost_rows(world, &mut out);
+    ant_rows(world, &spec.colony_species, &mut out);
+    genome_rows(world, &spec.colony_species, &mut out);
+    cost_rows(world, &spec.colony_species, &mut out);
     box_rows(world, spec, &mut out);
     out
 }
@@ -714,9 +720,8 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
     })
 }
 
-fn ant_rows(world: &World, out: &mut Vec<Param>) {
+fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let g = Group::Ants;
-    let species = COLONY_SPECIES;
     let sp = species.to_string();
     let mut cr = |field: &'static str, s: Span, integral, note: &str| {
         let Some(value) = creature_value(world, species, field) else { return };
@@ -840,8 +845,7 @@ pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
 /// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
 /// priced fields took that page to 23 rows against a ceiling of 20 — the same
 /// split, for the same reason, that gave `Costs` and `Heredity` their pages.
-fn genome_rows(world: &World, out: &mut Vec<Param>) {
-    let species = COLONY_SPECIES;
+fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let sp = species.to_string();
     let g = Group::Genome;
     if let Some(id) = world.species.id_of(species) {
@@ -915,9 +919,8 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
 /// listing the prices in one place and noticing the list was short. That is
 /// the argument for a page per question rather than per struct: a gap in a
 /// mixed page looks like a page that happens to be long.
-fn cost_rows(world: &World, out: &mut Vec<Param>) {
+fn cost_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let g = Group::Costs;
-    let species = COLONY_SPECIES;
     let sp = species.to_string();
     let mut cr = |field: &'static str, s: Span, integral, note: &str| {
         let Some(value) = creature_value(world, species, field) else { return };
@@ -2331,6 +2334,92 @@ mod tests {
         assert!(refused.contains("not a field"), "gut_bias was not refused: {refused}");
         let dig = ants.iter().find(|p| p.tunable.name == "dig_force").expect("the ants page registers dig_force");
         assert!(save_check(dig).starts_with("would write"), "dig_force should be savable");
+    }
+
+    /// **The ANTS/GENOME/COSTS pages describe whichever species the box's
+    /// COLONY tool is actually about to place, not always "ant".** Before
+    /// 2026-09-09 the three page builders read a module constant fixed at
+    /// "ant", so arming the beetle in the chip and opening any of these
+    /// pages still showed the ant's own numbers under the beetle's chip --
+    /// a knob that reads correctly and reaches nothing the moment the armed
+    /// species is not the one the constant named.
+    #[test]
+    fn arming_the_beetle_makes_the_ant_pages_describe_the_beetle() {
+        let (world, mut spec) = bed();
+        spec.colony_species = "beetle".to_string();
+        let rows = registry(&world, &spec, None);
+        let ants: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Ants).collect();
+        assert!(!ants.is_empty(), "arming the beetle emptied the ANTS page entirely");
+        for p in &ants {
+            // **Most rows are categorised by species; a few (`scent_spread`,
+            // `kin_crosses_kinds`, the alarm decay) are deliberately filed
+            // under "colonies" instead, because what they name is a rule of
+            // the box rather than the animal's own number.** Those still
+            // carry the armed species inside `Knob::Creature`, which is the
+            // half this test is actually about, so the category check
+            // allows that one named exception rather than widening past the
+            // bug it exists to catch.
+            assert!(
+                p.tunable.category == "beetle" || p.tunable.category == "colonies",
+                "an ANTS row named {:?} while the beetle was armed",
+                p.tunable.category
+            );
+            if let Knob::Creature { species, .. } = &p.knob {
+                assert_eq!(species, "beetle", "a Knob::Creature saved against {species:?} while the beetle was armed");
+            }
+        }
+        let genome: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Genome).collect();
+        assert!(!genome.is_empty(), "arming the beetle emptied the GENOME page entirely");
+        for p in &genome {
+            // `arms_race_reach` and `plasticity` are `Knob::Heredity` --
+            // genuinely global dials, filed under "genome" rather than any
+            // species, for the same reason `ant_rows`' two exceptions are
+            // filed under "colonies".
+            assert!(
+                p.tunable.category == "beetle" || p.tunable.category == "genome",
+                "a GENOME row named {:?} while the beetle was armed",
+                p.tunable.category
+            );
+            if let Knob::Creature { species, .. } = &p.knob {
+                assert_eq!(species, "beetle", "a Knob::Creature saved against {species:?} while the beetle was armed");
+            }
+        }
+        let costs: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Costs).collect();
+        assert!(!costs.is_empty(), "arming the beetle emptied the COSTS page entirely");
+        for p in &costs {
+            assert_eq!(p.tunable.category, "beetle", "a COSTS row named {:?} while the beetle was armed", p.tunable.category);
+        }
+        // And the ant is still the default when nothing has armed a beetle --
+        // this is a follow, not a one-way flip.
+        let (world2, spec2) = bed();
+        let still_ant: Vec<Param> = registry(&world2, &spec2, None).into_iter().filter(|p| p.group == Group::Ants).collect();
+        assert!(
+            still_ant.iter().any(|p| p.tunable.category == "ant"),
+            "the default bed's own ANTS page no longer names the ant"
+        );
+        assert!(
+            still_ant.iter().all(|p| p.tunable.category == "ant" || p.tunable.category == "colonies"),
+            "the default bed's ANTS page named something other than the ant or the box's own rules"
+        );
+    }
+
+    /// **The hopper appears on the COLONY chip.** `crate::lab::ui::
+    /// stockable_species` walks the loaded species table for
+    /// `creature.is_some()`, sorted by name, and `hopper.ron` has a
+    /// `creature:` block -- so it is a chip entry the moment it is in
+    /// `EMBEDDED`, whether or not it can yet be placed (it cannot: it has
+    /// no companion material, which `src/lab/mod.rs`'s own
+    /// `the_stocking_chip_puts_the_animal_it_names_in_the_box` would catch
+    /// if it tried to click one down, and this test deliberately does not
+    /// go that far). Mirrors that test's own chip-reading path rather than
+    /// editing `src/lab/ui.rs` or `src/lab/mod.rs`, neither of which this
+    /// change touches.
+    #[test]
+    fn the_hopper_is_on_the_colony_chip() {
+        let (world, _spec) = bed();
+        let names: Vec<String> =
+            crate::lab::ui::stockable_species(&world).into_iter().map(|id| world.species.get(id).name.clone()).collect();
+        assert!(names.contains(&"hopper".to_string()), "the chip does not offer 'hopper': {names:?}");
     }
 
     /// **`occurrences` counts keys, not substrings.** `seed_cost` inside
