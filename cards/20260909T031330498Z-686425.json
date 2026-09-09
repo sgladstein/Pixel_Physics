@@ -1,0 +1,44 @@
+{
+  "id": "20260909T031330498Z-686425",
+  "created": "2026-09-09T03:13:30Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-game-improvements-j2kc91",
+    "commit": "13318c7f",
+    "agent": null,
+    "session_id": "0d2ba3a7-8e01-52ef-abe4-42aa2c512bd5",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab box at four stops - is this empty?",
+  "question": "Two things, and they may not both be problems. (1) About 60% of the box is black air that nothing ever occupies. (2) There are 52 animals in the top frame and 13 in the bottom one, and I could not find a single one by eye in any frame. Does either read as a problem to you, or is the box fine as it is?",
+  "context_md": "Default bed, `labshot frames=0,2400,12000,30000`, **native play resolution deliberately** - upscaling it would misrepresent a legibility question.\n\nStops top to bottom: **frame 0, 2,400, 12,000, 30,000**.\n\nWhat I already know and am not asking about:\n\n- The colony collapse is **bug Z6**, already filed and owned. 52 ants -> 4 by frame 12,000, every death starvation. Not asking about that here.\n- The plants and especially the **white root systems** read well to me. That is the best thing on screen.\n\nWhat I am unsure of, and why I am asking rather than building: the design guide measured an ant as *\"two dark cells at play zoom\"* and treated it as something a page of numbers could answer. I think it is worse than that - the kingdom the game is about is **0.016% of the frame** - but that is a judgement about what you want to look at, not a measurement, and I would rather not spend a detour on the wrong reading of it.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "default bed, four stops",
+      "files": [
+        "20260909T031330498Z-686425/000-box.png"
+      ],
+      "caption": "frame 0 / 2,400 / 12,000 / 30,000",
+      "meta": {
+        "animals alive at the last stop": 13,
+        "share of the frame those animals occupy": "0.016%",
+        "plants alive at the last stop": 206,
+        "animals alive at the first stop": 52,
+        "animal deaths over the run": 52,
+        "births over the run": 13
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
