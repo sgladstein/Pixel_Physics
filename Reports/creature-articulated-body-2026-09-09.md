@@ -122,6 +122,48 @@ already returns `None` for a bit pattern that does not decode, so the failure
 mode of a corrupt rule is *this rule does not exist*, which the loop reads as
 "stop".
 
+### 2a. Two bodies, written out, to show the encoding is sufficient
+
+These are worked examples rather than the shipped tables — §7 records what
+actually shipped — and their point is that a body with regions, a width and a
+terminal cap takes **four rules** out of sixteen, with no new field anywhere.
+
+**An ant: 5 segments, 7 cells.** Rules in genome order, first match wins:
+
+| # | owner | when | after | becomes | child | lateral |
+|---|---|---|---|---|---|---|
+| A | `Head` | `Grew` | — | `Head` | `Segment` | — |
+| B | `Segment` | `Grew` | 4 | `Segment` | — | — |
+| C | `Segment` | `Grew` | 3 | `Gut` | `Segment` | — |
+| D | `Segment` | `Grew` | — | `Segment` | `Segment` | `Leg` |
+
+Unfolds to `Head` · `Segment+Leg` · `Segment+Leg` · `Gut` · `Segment` — one
+head, three plain spine cells, two legs, one gut. B is the tail cap and has to
+be listed above C and D, which is the same ordering discipline the authored
+plant species already depend on.
+
+**A hopper: 6 segments, 7 cells, longer and thinner.**
+
+| # | owner | when | after | becomes | child | lateral |
+|---|---|---|---|---|---|---|
+| A | `Head` | `Grew` | — | `Head` | `Leg` | — |
+| B | `Leg` | `Grew` | — | `Leg` | `Segment` | `Leg` |
+| C | `Segment` | `Grew` | 5 | `Segment` | — | — |
+| D | `Segment` | `Grew` | — | `Segment` | `Segment` | — |
+
+Unfolds to `Head` · `Leg+Leg` · four plain segments — the same cell count as
+the ant in a visibly different animal: one wide place near the front and a
+long thin tail behind it, against the ant's two wide places in the middle.
+**They are not the same animal in two colours**, which is the owner's
+objection this whole line exists to answer, and the difference is four rows of
+data rather than a second body plan in Rust.
+
+What a mutation does to either is legible in the same table: `retarget` moves
+one cell type (a leg becomes a gut), `recondition` moves a region boundary
+along the `None, 2, 4, 8, 16, 32` ladder (the abdomen starts sooner) or
+retimes a rule, `insert` adds a region, `delete` removes one and the body
+gets simpler.
+
 ## 3. Roles: what a cell type is allowed to mean
 
 The four roles the direction names each map onto a resolver that already
@@ -256,7 +298,7 @@ creature economy that reads a cell count is a `*_per_cell` field:
 | `idle_cost_per_cell` | 0.05 | `idle = idle_cost_per_cell × live_body_cells` |
 | `move_cost_per_cell` | 0.125 | every move, and through it digging, emitting and the launch |
 | `exposure_cost_per_cell` | 0 | the shelter charge |
-| `body_energy` | 480 | the meat stamp **and** `birth_cost = grant + body_energy × cells` |
+| `body_energy` | 480 | the meat stamp **and** `birth_cost = grant + body_energy × cells` — **and pinned to `food_energy` in the matching material file** |
 
 Going 2 cells → 7 and dividing all four by 3.5:
 
@@ -275,6 +317,26 @@ single division rather than a negotiation, and it is the reason this change
 can be judged on appearance without also being a metabolic change nobody can
 read apart from it — `CLAUDE.md`'s shared-budget rule, satisfied rather than
 argued with.
+
+**One correction to that, and it is the reason this re-derivation was
+identified in 2026-08-30 and deliberately not done: `body_energy` is one
+number wearing two names.** `assets/materials/{ant,hopper,corpse}.ron` each
+carry `food_energy: 480.0`, matching the species files' `body_energy: 480.0`,
+and `EnergyLedger`'s identity is asserted closed against that equality. Cut
+one without the other and a predator eats a cell of flesh for more than the
+flesh cost to build — energy creation inside a ledger that is checked. So the
+re-derivation is **four species fields and their matching material
+`food_energy`, moved in one change**. `dead-ends.md` records this being seen
+and left alone because `assets/materials/**` was another lane's; the
+mechanism was never the obstacle and the ownership was. It is one lane's now.
+
+**And `start_energy` is deliberately not scaled.** The same register carries
+it as a separate identified-and-not-built entry: with the burn per cell and
+the tank flat, an `n`-cell animal's starvation horizon is `1/n` of a two-cell
+one. That is an argument for *not leaving the per-cell rates alone*, which is
+exactly what §5b does — divide the rates, hold the tank, and the horizon comes
+out unchanged. Scaling the tank as well would move it the other way and make
+two reallocations inseparable.
 
 The one quantity that genuinely moves is the last row, and it moves in the
 direction the ethos asks for: a bite off a seven-segment animal takes a
@@ -391,3 +453,14 @@ measured frame cost and the review card are recorded here.
   built after there is pressure that pays for a soldier.
 - **Crossover.** `FateGenome` is a flat, bounded, ordered array — the easiest
   thing in this engine to cross. Arc C2 already has the scissors on the shelf.
+- **The species export writes the *species'* body, not the individual's**, and
+  this is the seam that closes the other half of E5. `specimen::save`
+  (`specimen.rs:445`) already stores `state.fates.to_table()`, so a **jar**
+  carries an evolved shape; `species_export::individual_as_species`
+  (`species_export.rs:177`) takes `parent.fates()` — the registry's species
+  table — so a **`.ron` written from a live animal** carries the ancestral one.
+  The two disagree, and the export is the one the owner's *"evolve creatures
+  and add the good ones to the game"* workflow runs through. It is one field
+  threaded from `organism_as_species` through to that line. Deliberately not
+  done here: the body has to be heritable before exporting it means anything,
+  and it is now.
