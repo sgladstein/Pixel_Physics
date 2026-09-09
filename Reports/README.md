@@ -1784,6 +1784,24 @@ drift that two of these documents still reflect.**
   the discrepancy is **ungerminated seed** (419 of 467 at frame 30,000) with
   about three plants in the 2-9 cell bucket. Both halves settle — stand ~48,
   bank ~430.
+- [evolution-lab-what-is-missing-2026-09-09.md](evolution-lab-what-is-missing-2026-09-09.md)
+  — **design examination; proposals only, nothing decided and nothing built.**
+  Answers the owner's *"what is it missing, think outside the box"* by looking
+  at the shipped box rather than at the round history, and so answers the one
+  question the design guide's §9 refuses ("whether it is fun"). **The lab is a
+  finished instrument and an unstarted game**, and what is missing sits
+  *underneath* Gate 5 rather than being it: nobody in the box has a name, the
+  Running phase has no shape and never interrupts, **no mutation is ever
+  reported** in a game named for evolution, and the animals are **0.016% of
+  the frame** (13 animals × 2 cells of 163,840 at frame 30,000 — none locatable
+  by eye at any stop). §4 is the one to read past the list: the box has
+  **flowers no animal visits and fruit whose seeds nothing carries**, and
+  `grep -niE 'pollinat|nectar|mutualis|symbio'` over `src/sim/` returns zero —
+  one organism eating another is the entire ecology. §5 carries three bets, of
+  which the load-bearing one is that the 512-wide flat bed is fighting
+  legibility, divergence and forage reach **with one decision**. §6 prices
+  twelve changes; rows 1–4 are about a day between them and are the actual
+  recommendation.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
