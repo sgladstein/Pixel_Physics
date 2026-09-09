@@ -399,10 +399,10 @@ can reach are exactly the shapes the mobility measurement says can walk. A
 more expressive encoding would spend its extra expressiveness on animals that
 cannot move.
 
-**Two of the five `FateWhen` variants are meaningless to a body**, and this
+**Three of the five `FateWhen` variants are meaningless to a body**, and this
 has to be handled or it is a small silent waste. `Node`, `Flush` and `Ripe`
-are plant lifecycle events; a body unfold reads `Grew` and (for a terminal
-segment) `Stale`. `recondition_one` draws its `when` uniformly from all five,
+are plant lifecycle events; a body unfold reads the other two — `Grew`, and
+`Stale` for a terminal segment. `recondition_one` draws its `when` uniformly from all five,
 so about 4.5% of all fate mutations on a creature genome would produce a rule
 that can never fire. The fix is the same one-line shape as the cell-type draw
 set: select the draw set from the rule's **owner** type. Left unfixed it is
@@ -430,13 +430,27 @@ the owner's and it is on a moving sequence, not on a metric and not on a
 still — the condition the owner attached to the six-silhouette card on
 2026-09-03. §7 is where it goes.
 
-## 7. Status, and what was built alongside this
+## 7. Status: design only. Nothing here is built.
 
-**Built and shipped with this report:** the ant and the hopper as
-articulated bodies from a heritable growth program, as the defaults. The
-measured frame cost and the review card are recorded here.
+**This branch is documentation. No engine change, no species change, no
+measurement.** The heading said "built and shipped with this report" over an
+empty placeholder before the build existed, which is `CLAUDE.md`'s own gotcha
+— *a commit message is not evidence the change is in the file* — arriving as a
+report claiming a build that had not happened. Corrected on the coordinator's
+review rather than left to be discovered by whoever measured against it.
 
-<!-- BUILD RESULTS -->
+When the build lands on this branch, this section is written **from the
+measured results**, and it owes three things and no others:
+
+- the shipped cell count and shape of the ant and of the hopper;
+- the frame cost, from `ascii scene=foraging`'s `worst`/`mean` line, paired and
+  alternating against a binary built before the change on the same machine in
+  the same session, with the pinning test applied before any worst is quoted;
+- the review card id, its `meta` counts, and what the moving sequence showed.
+
+**Until then nothing in this report has been demonstrated in the engine.** It
+is a feasibility argument built by reading the source, and its numbers are
+properties of the code as it stands, not measurements of a body that walks.
 
 ## 8. What this deliberately leaves for later
 

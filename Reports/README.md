@@ -1183,7 +1183,8 @@ drift that two of these documents still reflect.**
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
 - [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
-  — **design + build, 2026-09-09.** Can a creature's body come out of a
+  — **design only, 2026-09-09. Nothing in it is built**; §7 says so and says
+  what it owes once something is. Can a creature's body come out of a
   genome instead of a species file? Yes, and the reason is that
   `World::push_organism` already seeds **every** organism, creature included,
   with a `FateGenome` from its species table — an ant has had a body genome
