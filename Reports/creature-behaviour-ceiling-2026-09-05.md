@@ -130,6 +130,14 @@ Three things in that block:
   The count is real; it is just expensive.
 - **1,171 births were denied for want of a free cell beside the parent,
   against 157 actually born.** 88% of affordable births fail on geometry.
+  **Withdrawn 2026-09-08 — this reading is wrong.** `births_denied_no_space`
+  is incremented every tick a parent tries and a denial does not charge it,
+  so a birth delayed by one tick lands in *both* columns and nothing here
+  failed. 1,171 / 157 is 7.5 retries per birth, i.e. a wait of about 45
+  frames. Re-measured with `births_denied_animals`, the wait is a median 21
+  ticks (~124 frames) for the quarter-to-half of parents that meet it at all,
+  against a ~12,000-frame generation. The ratio is real; the sentence after
+  it is not. See `dead-ends.md` and the design report's §4f.
   Placement is deterministic — `creature.rs`'s own test says *"who gets born
   is decided by energy, and nothing else... a bank against a threshold, then
   `DIRS` order for placement"* — so the filter that actually decides who
@@ -247,7 +255,9 @@ expose or to make possible rather than to tune:
    niche axis instead of a switch.
 4. **Beetles cannot breed** — one field. That is the difference between "no
    equilibrium is possible" and "an equilibrium might be found".
-5. **88% of births fail on adjacency.** Demography is currently geometry.
+5. **88% of births fail on adjacency. Demography is currently geometry.**
+   **Withdrawn 2026-09-08** — the counter counts retries, not lost children;
+   see the correction under the census above.
    Worth *exposing* (the number is already on the stats page) before deciding
    whether it should be changed.
 6. **Species parameters are still compiled in** via `include_str!` —

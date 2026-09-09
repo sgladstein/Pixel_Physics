@@ -2097,7 +2097,11 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
         }
     }
     let Some(site) = site else {
-        world.creature_stats.births_denied_no_space += 1;
+        // **Attempts and animals, in one call.** A denial does not charge the
+        // parent and this function runs every tick it survives, so the
+        // attempt count alone cannot separate one ant walled in from many
+        // ants each waiting a tick -- see `World::note_birth_denied`.
+        world.note_birth_denied(organism);
         return None;
     };
     // **Mutate after placement, on the child's own handle.** The stream is
@@ -13658,6 +13662,54 @@ mod tests {
         run(&mut off, 60);
         assert_eq!(off.creature_stats.births, 0, "a species with reproduce_threshold 0 bred anyway");
         assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
+    }
+
+    /// **One ant walled in for fifty ticks, and a thousand ants each waiting
+    /// one, produce the same attempt count — so the page carries both.**
+    ///
+    /// `try_bud` runs every tick an animal survives and a denial does not
+    /// charge the parent, so `births_denied_no_space` counts *retries*. Read
+    /// alone it licenses "88% of affordable births fail on geometry"
+    /// (`creature-behaviour-ceiling` §3, carried into three reports as a cap
+    /// on what this bed can evolve) when what it measures is the wait.
+    ///
+    /// This is the maximal case of the confound, so it is the tight one to
+    /// assert: a single parent, funded, with stone on every side, has
+    /// nowhere to put a child for the whole run. Attempts climb with the
+    /// clock; animals must stay at exactly one. Point `note_birth_denied`'s
+    /// bit test at nothing and this goes red immediately.
+    #[test]
+    fn a_walled_in_parent_is_many_attempts_and_one_animal() {
+        let (mut w, founders) = breeding_colony(1, 2000.0, 0.0);
+        assert_eq!(founders.len(), 1, "the scene did not place its one founder");
+        let parent = founders[0];
+
+        // Stone in every empty cell touching the body, so `DIRS` offers the
+        // birth no site at all. Collected first: `organism` borrows the
+        // world that `set` needs mutably.
+        let body: Vec<(i32, i32)> = w.organism(parent).expect("founder is alive").chain.to_vec();
+        for &(bx, by) in &body {
+            for (dx, dy) in DIRS {
+                let (nx, ny) = (bx + dx, by + dy);
+                if !body.contains(&(nx, ny)) && w.get(nx, ny).is_empty() {
+                    w.set(nx, ny, Cell::new(material::STONE, 0));
+                }
+            }
+        }
+
+        run(&mut w, 300);
+        let st = w.creature_stats;
+        assert!(
+            st.births_denied_no_space > 10,
+            "a funded parent with nowhere to put a child recorded only {} attempts over 300 frames -- the scene is not boxed in",
+            st.births_denied_no_space
+        );
+        assert_eq!(
+            st.births_denied_animals, 1,
+            "{} attempts came from one animal and the animal counter said {}",
+            st.births_denied_no_space, st.births_denied_animals
+        );
+        assert_eq!(st.births, 0, "a parent walled in on every side produced a child anyway");
     }
 
     /// **A colony's depth is not a stand's depth, and one counter cannot be

@@ -295,9 +295,10 @@ weight count held equal.
 
 **So "does flight pay" is answered no, in this bed, at this horizon, with the
 sense firing and predation at a third of deaths.** What is left is not on the
-prey's side at all: §4f's two open items — generations run ~8,600 frames and
-88% of affordable births fail on geometry — mean selection has very little to
-act on however good the behaviour is. That is Gate 2, and it is still unrun.
+prey's side at all: §4f's item — generations run ~8,600–12,000 frames — means
+selection has little to act on at the horizons this line has been measuring
+at. (Its *other* item, 88% of births failing on geometry, is **withdrawn**:
+see §4f. And Gate 2, called unrun here, has since been run and **passed**.)
 
 `PreyNear`/`PreyBearing` are what the *eater* sees. Nothing tells an animal
 that something which can eat *it* is near. So flight, hiding, retreat into a
@@ -455,13 +456,34 @@ Sufficient: armour, bite, pace, sight, gut and crop are heritable and priced,
 so an arms race is expressible on both sides. `98d6886b` measured it shifting
 rather than flipping.
 
-Not sufficient, and both are already on record: **generations are slow**
-(~8,600 frames each on the shipped bed, one generation in 27,000 on the
-played one — `creature-behaviour-ceiling` §3), and **88% of affordable births
-fail on geometry**, so who reproduces is decided by standing room. A fight
-that kills 40% of a colony is a bigger selective event than a hundred
-generations of drift, which is good; a colony that cannot refill the gap
-because nobody has a free cell beside them is not.
+Not sufficient: **generations are slow** — ~8,600 frames each on the shipped
+bed, one generation in 27,000 on the played one (`creature-behaviour-ceiling`
+§3), and re-measured 2026-09-08 at about **12,000 frames per generation** on
+the harness bed. That is the binding constraint, and it is the whole of it.
+
+**The second item, "88% of affordable births fail on geometry", is
+withdrawn — measured 2026-09-08 and it was a misread counter.**
+`births_denied_no_space` is incremented every tick a parent tries, and a
+denial does *not* charge the parent, so an ant that is refused on one tick
+and bears on the next appears in both columns. Nothing failed. Split by
+`births_denied_animals` (added the same day), a whole 48,000-frame run puts
+the wait at a **median 21 ticks — about 124 frames — for the quarter to half
+of parents that ever meet it**, against a ~12,000-frame generation. Six
+runs across two beds:
+
+| bed | born | attempts | animals | ticks each | §4f's ratio |
+|---|---|---|---|---|---|
+| 8 plants | 19, 25, 29 | 70, 109, 71 | 5, 4, 7 | 14, 27, 10 | 79%, 81%, 71% |
+| 48 plants | 102, 83, 101 | 1118, 236, 1569 | 28, 38, 34 | 40, 6, 46 | 92%, 74%, 94% |
+
+The ratio reproduces — 71–94%, bracketing the original 88% — and it is a
+count of *retries per birth*, not of children foregone. **So "who reproduces
+is decided by standing room" does not follow**: geometry delays about a third
+of parents by roughly one percent of a generation. Crowding does bite harder
+as the bed fills (the fed bed's attempts run an order of magnitude above the
+starved one's), which is the half of the original claim that survives, and it
+is a much weaker claim than demography. Gate 2 has since been **run and
+passed** for creatures — see `Reports/lanes/evolution-lab-coordinator.md`.
 
 ---
 
