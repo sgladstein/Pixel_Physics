@@ -194,6 +194,7 @@ TOPICS = {
         "Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost",
         "Hopper status — the jump has a species, and it hops itself to death",
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
+        "Trail status — the ant reads its way home, and the food trail is the larder's problem",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
