@@ -1,0 +1,35 @@
+// The hopper's body -- the first animal to carry `BrainOutput::Impulse`,
+// the ballistic jump the engine has had since 2026-08-29 and no species
+// authored until `assets/species/hopper.ron` (2026-09-09). This file exists
+// because `place_creature` resolves an animal's material by its species'
+// own name (`world.materials.id_of("hopper")`): without it the species
+// loads, sits on the COLONY chip, and places zero animals -- the wiring
+// audit's own pattern, one file short of hatching.
+//
+// Same physics as the ant (`ant.ron` above it in the list): a creature cell
+// the sweep never moves, flammable on the same terms, live flesh worth the
+// same to whatever eats it. What differs is the colour, on purpose: the
+// owner's standing ask is that a new creature "not look like a recolored
+// ant", and the body plan in the species file is the real answer -- but a
+// hopper that hops in ant-black is invisible in flight against the box's
+// dark air. Warm ochre, which nothing else in the bed wears: soil is a
+// dark brown, plants are green, ants are near-black.
+(
+    name: "hopper",
+    display: "Hopper",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (156, 104, 34),
+        (182, 128, 48),
+        (126, 82, 26),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+    food_energy: 480.0,
+    penetration_resistance: 0.25,
+    food_class: 1.0,
+)
