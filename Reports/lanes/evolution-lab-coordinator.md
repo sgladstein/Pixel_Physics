@@ -78,82 +78,58 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-one, 2026-09-08 - Z6 separated: the colony dies twice
+## Round twenty-three, 2026-09-09 — geometry was never the cap on breeding
 
-*PR #284; record in
-[`../colony-starvation-separated-2026-09-08.md`](../colony-starvation-separated-2026-09-08.md);
-Z6 stays OPEN, bar unchanged, nothing tuned.*
+*Second misread counter in two rounds, same shape, different file. The
+mechanism is worth more than the finding.*
 
-**Stages, not alternatives**: 0-4,500 is *reach* (41-46 of 52 founders starve
-with 4-6x their endowment standing), then *grazing* (survivors eat the bed to
-4-14% of `colonies=0`), so **a fix for either alone buys a later extinction**.
-**Z6's "the plants are not the casualty" is wrong**: paired against
-`colonies=0` the stand is at 61-68% of the unfed bed at frame 900, before an
-ant has died. **The mechanism is one absence** -- no
-`FoodNear`/`FoodBearing` in `brain.rs`, no ant weight on a pheromone plane, so
-the trail is laid and never followed. Traps: `forage_probe` at 300,000
-frames is identical to its 24,000 run, and *aloft* is not *out of reach*:
-an unfed bed reads 80-86% aloft with nothing in it.
+**§4f's "88% of affordable births fail on geometry" is withdrawn.**
+`births_denied_no_space` is incremented **every tick a parent tries**, and the
+denial branch does not charge the parent — so an ant refused on one tick and
+born on the next is counted in the denied column *and* the born column.
+Nothing failed. The original 1,171 against 157 is **7.5 retries per birth**,
+about 45 frames of waiting.
 
-## Round twenty-two, 2026-09-08 — Gate 2 passes, and the page could not tell a stand from a colony
+`births_denied_animals` (new; a 4,096-bit set on `World`, exact rather than
+inferred) gives the denominator. Six 48,000-frame runs, `RAYON_NUM_THREADS=1`:
 
-*Gate 2's answer, plus a retraction; full account in `dead-ends.md`.*
+| bed | born | attempts | animals | ticks each | the old ratio |
+|---|---|---|---|---|---|
+| 8 plants | 19, 25, 29 | 70, 109, 71 | 5, 4, 7 | 14, 27, 10 | 79%, 81%, 71% |
+| 48 plants | 102, 83, 101 | 1118, 236, 1569 | 28, 38, 34 | 40, 6, 46 | 92%, 74%, 94% |
 
-**Gate 2 passes for creatures.** `creature_arena arm=lethal` — a zeroed brain
-against the shipped one, 24,000 frames, six seeds, on the harness default bed
-**and** a fed one — puts it at **0.0% of animals on 12 of 12 seed-runs**. The
-caveat in "What binds" is discharged above. It licenses only a *large* fitness
-difference becoming a population difference, not a small one — which is why
-the flight races nulled.
+**The percentage reproduces — 71–94%, bracketing 88% — and it counts retries
+per birth.** Median wait **21 ticks, ~124 frames**, for the quarter to half of
+parents that ever meet it, against a ~12,000-frame generation: about **1% of a
+generation**. So *"who reproduces is decided by standing room"* and
+*"demography is currently geometry"* do not follow. What survives is that
+crowding bites harder as the bed fills — the fed bed's attempts run an order
+of magnitude above the starved bed's. **Generations remain the only cap named
+in §4f that stands.**
 
-**`labstats`' `EVER` and `BIRTHS` are not animal numbers, and this round
-published them as if they were.** `EVER` is `World::deepest_generation`,
-written only by `plant.rs:2734`; `BIRTHS` is every organism ever allocated,
-sprouted seeds included. Both sit three lines under `ANIMALS BORN`, which
-*is* animals. **The control is one command**: the same bed at `colonies=0`,
-no animal in it, reports `BIRTHS 311` against 220 with a colony — *higher*,
-because the ants graze the stand. The tell was tidiness: 199 to 987 monotone
-across `founders` 8 to 64, and `founders` **is** the plant count.
+**The page carries the pair now**, `NO ROOM n OVER m ANIMALS`, with the help
+string saying attempts-over-animals is a wait rather than a loss.
+`a_walled_in_parent_is_many_attempts_and_one_animal` pins the maximal case —
+one funded parent, stone on every side — and was watched going red with the
+bit test defeated: **44 attempts, animal counter 44 instead of 1.**
 
-**Re-measured on the animal counters** (48,000 frames, five seeds, merged
-head): births median **25 to 101** (4.0x, where the plant column read 1.7x),
-alive **17 to 54**, animal depth **4 to 6** (ranges 2-5 against 5-12), every
-column separating 5 of 5. So the claim that dies is this round's own headline,
-*"the horizon dominates depth; food dominates population"* -- that was plant
-depth, which saturates in any bed. **Food raises depth and population both**,
-agreeing with round twenty-one from the other side.
-Gate 2 is untouched: `creature_arena` maxes generation over ants only.
+**For anyone measuring anything here, this is the round's real output.** Two
+counters in two days were arithmetically correct and about a different
+question than the one asked. Both had a tell that was there to be read:
+`EVER`/`BIRTHS` had *tidiness* (a monotone 199 → 987 on a bed with 8x seed
+spread), and this one had a **failure branch that charges nothing** — read the
+branch before the ratio. And the fix for an ambiguous count is **a second
+count, not a better ratio**: one animal walled in for fifty ticks and fifty
+animals waiting one tick are the same total and opposite findings, and no
+normalisation of the first number alone separates them.
 
-**Fixed so the page cannot say it again**: `World::deepest_animal_generation`,
-written beside `creature_stats.births`; the row reads `EVER p/a`, help string included. `a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one`
-was watched red twice — write deleted, then pointed back at the plant counter.
-Depth above is still among the **living** and so understates; read the new
-counter instead.
-
-**For §Z6's lane, one correction to round twenty-one.** *"No ant weight on a
-pheromone plane, so the trail is laid and never followed"* holds for the
-**direct** weights only: `ant.ron`'s `hidden_inputs` carry `(PheroAAlong, 0,
-6.0)`, `(PheroAAlong, 1, -6.0)`, `(PheroBAlong, 2, 6.0)`, `(PheroBAlong, 3,
--6.0)` into units whose `hidden_outputs` drive `Move` at ±2.5, gated on
-`Carrying` — A when laden, B when empty. That is a trail-following circuit,
-wired end to end. **Your finding may survive in a stronger form**: B is
-emitted only by a *carrying* ant, so a colony that never reaches food never
-lays one, and the reader starves for want of a trail rather than a weight --
-a cold start, not a missing reader, wanting a different fix. **Not measured
-yet**; `labforage` is yours. The missing-sense half of your diagnosis is
-untouched: there is no `FoodNear`/`FoodBearing` past the cells a head touches.
-
-**12,000 frames is about one generation** on the starved bed — where nearly
-every result on this line was read, the flight null and every armour number
-included. If the question is evolutionary, 24,000 is a floor. And
-`LabBox::default()`'s 8 plants were **deliberately left alone**: it passes
-Gate 2 as it stands and `bin/lab.rs` opens at `founders: 0` anyway (reasoning
-in `dead-ends.md`), so round ten's rule stands — **an instrument's default
-scene is an input like any other.**
+*Re-test when body size becomes heritable* — `try_bud`'s own comment reserves
+this counter for exactly that, since a bigger body needs a bigger free patch
+and the wait would become a selection pressure for smallness.
 
 ## The earlier rounds
 
-All twenty are verbatim in
+All twenty-two are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
 which prices each one and maps it to its owning report. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
@@ -161,9 +137,9 @@ knowing which is yours is most of the saving:
 
 | line | rounds | design of record |
 |---|---|---|
-| the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios | 3, 4, 5, 7, 9, 10, 11 | `evolution-lab-gui-physics-2026-08-30.md` |
+| the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes, verbs | 12, 13, 14, 15, 16, 20 | `creature-signature-and-castes-2026-09-06.md` |
+| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22 | `creature-signature-and-castes-2026-09-06.md` |
 
 ## Environment notes that cost time here
 

@@ -884,9 +884,14 @@ impl Stats {
         // wanting the opposite fix.
         if world.creature_stats.births_denied_no_space > 0 || census.refused > 0 {
             rows.push(Row::text(
-                format!("REFUSED  NO ROOM {}  NO SLOT {}", world.creature_stats.births_denied_no_space, census.refused),
+                format!(
+                    "REFUSED  NO ROOM {} OVER {} ANIMALS  NO SLOT {}",
+                    world.creature_stats.births_denied_no_space,
+                    world.creature_stats.births_denied_animals,
+                    census.refused
+                ),
                 AMBER,
-                "SOMETHING COULD AFFORD A CHILD AND DID NOT GET ONE. NO ROOM MEANS THERE WAS NOWHERE BESIDE THE PARENT TO PUT A BODY. NO SLOT MEANS THE BOX IS FULL -- SEE THE LIVING THINGS GAUGE BELOW.",
+                "SOMETHING COULD AFFORD A CHILD AND DID NOT GET ONE. NO ROOM MEANS THERE WAS NOWHERE BESIDE THE PARENT TO PUT A BODY -- IT IS COUNTED EVERY TICK THE PARENT TRIES, AND TRYING AGAIN COSTS IT NOTHING, SO READ THE FIRST NUMBER AGAINST THE SECOND: ATTEMPTS OVER ANIMALS IS HOW MANY TICKS A PARENT TYPICALLY WAITS, NOT HOW MANY CHILDREN WERE LOST. A BIG FIRST NUMBER OVER A BIG SECOND IS A QUEUE; A BIG FIRST OVER A SMALL SECOND IS A FEW ANIMALS WALLED IN. NO SLOT MEANS THE BOX IS FULL -- SEE THE LIVING THINGS GAUGE BELOW.",
             ));
         }
         // **The margin, and why zero births can be the correct answer.**

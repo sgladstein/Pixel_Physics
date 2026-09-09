@@ -764,6 +764,20 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// How many *distinct animals* have ever had a birth refused for want of
+    /// room — the denominator [`Self::births_denied_no_space`] does not have.
+    ///
+    /// Read the two together. A denial does not charge the parent and
+    /// `try_bud` runs every tick, so attempts alone cannot tell one ant
+    /// walled in for a thousand ticks from a thousand ants each waiting a
+    /// tick, and those are opposite findings: the first is a bed that
+    /// forecloses reproduction, the second is a queue. Attempts divided by
+    /// animals is the mean wait in ticks; multiply by the species'
+    /// `tick_interval` for frames, and read that against a generation.
+    ///
+    /// A lower bound, because organism slots are recycled — see
+    /// `World::denied_seen`.
+    pub births_denied_animals: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -1523,6 +1537,27 @@ pub struct World {
     /// number only gets interesting in a long release run, which is exactly
     /// where a `#[cfg(test)]` counter cannot see.
     organisms_refused: u64,
+    /// Which organism slots have ever had a birth refused for want of a free
+    /// cell beside the parent — one bit per slot, so
+    /// `CreatureStats::births_denied_animals` can count *animals* rather than
+    /// attempts.
+    ///
+    /// **The pair exists because the raw denial count cannot answer the
+    /// question anyone asks of it.** `try_bud` runs every tick an animal
+    /// survives and a denial does not charge the parent, so one ant walled in
+    /// for a thousand ticks and a thousand ants each briefly boxed in produce
+    /// the identical `births_denied_no_space`. `creature-behaviour-ceiling`
+    /// §3 read 1,171 denials against 157 births as *"88% of affordable births
+    /// fail on geometry"*, and three reports carry that forward as a cap on
+    /// what this bed can evolve; the ratio is real and what it measures is
+    /// the *wait*, not a birth that never happened.
+    ///
+    /// 4,096 slots, so 64 words and no allocation. Slots are recycled, so a
+    /// slot reused by a second denied animal is counted once — this is a
+    /// **lower** bound on distinct animals, which is the conservative
+    /// direction for the "is it a few ants or all of them" question it
+    /// exists to settle.
+    denied_seen: [u64; 64],
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -3046,6 +3081,7 @@ impl World {
             run_log: RunLog::default(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
+            denied_seen: [0; 64],
             organism_generation_wraps: 0,
             next_lineage: 1,
             next_colony: 1,
@@ -4061,6 +4097,26 @@ impl World {
         // fire twice for one death, and the guards above are what stop the
         // second one).
         self.organisms_died += 1;
+    }
+
+    /// Mark this organism as having been refused a birth for want of room,
+    /// and say whether that is the first time.
+    ///
+    /// **The write is here rather than at the call site** so the bitset and
+    /// `CreatureStats::births_denied_animals` cannot disagree: they are one
+    /// statement, and a caller that set the bit without the count (or the
+    /// reverse) would produce a mean wait that is silently wrong rather than
+    /// obviously missing.
+    pub fn note_birth_denied(&mut self, organism: u16) {
+        let slot = (organism & ORGANISM_INDEX_MASK) as usize;
+        let (word, bit) = (slot / 64, slot % 64);
+        // `ORGANISM_INDEX_MASK` is 12 bits, so `word` is 0..64 by
+        // construction and this cannot index out of range.
+        if self.denied_seen[word] & (1 << bit) == 0 {
+            self.denied_seen[word] |= 1 << bit;
+            self.creature_stats.births_denied_animals += 1;
+        }
+        self.creature_stats.births_denied_no_space += 1;
     }
 
     /// Organisms ever allocated, and ever released — see
