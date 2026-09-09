@@ -335,9 +335,9 @@ fn main() {
     println!("  animals: born {} died {} alive {} | handouts placed {handed_out}", st.births, st.deaths, last.ants);
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
-         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0}",
+         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={}",
         spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
-        st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn
+        st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves
     );
 }
 

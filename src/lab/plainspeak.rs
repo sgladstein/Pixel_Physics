@@ -230,6 +230,12 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::Bias, O::Turn) => ("VEERS CONSTANTLY", "HOLDS ONE HEADING"),
         (I::Bias, O::Drop) => ("PUTS THINGS DOWN ANYWHERE", "NEVER LETS GO"),
         (I::Bias, O::Impulse) => ("JUMPS BY DEFAULT", "STAYS ON THE GROUND"),
+
+        // -- the colony's stomach.
+        (I::KinNeed, O::Share) => ("FEEDS HUNGRY NESTMATES", "IGNORES HUNGRY KIN"),
+        (I::Energy, O::Share) => ("SHARES WHEN WELL FED", "SHARES WHEN HUNGRY"),
+        (I::Bias, O::Share) => ("SHARES WITH ANYONE", "KEEPS FOOD TO ITSELF"),
+        (I::KinNeed, O::Move) => ("GOES OUT WHEN KIN HUNGER", "SITS WHILE KIN GO HUNGRY"),
         _ => return None,
     })
 }

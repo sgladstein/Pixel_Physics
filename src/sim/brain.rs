@@ -32,7 +32,7 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 26;
+pub const BRAIN_INPUTS: usize = 27;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -52,7 +52,7 @@ pub const BRAIN_INPUTS: usize = 26;
 /// values, so a sampled genome at a given seed is a different animal and
 /// every `creature_space` baseline taken before this is void.
 pub const BRAIN_HIDDEN: usize = 8;
-pub const BRAIN_OUTPUTS: usize = 14;
+pub const BRAIN_OUTPUTS: usize = 15;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -249,9 +249,11 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "ThreatBearing",
     "Alarm",
     "Made",
+    "KinNeed",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
-    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
+    "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share",
+];
 
 /// **The genome's shape, as a stored jar remembers it.**
 ///
@@ -759,6 +761,25 @@ pub enum BrainInput {
     /// onto `Move` against `KinNear`. Nothing says it must; nothing that
     /// ships reads it.
     Made = 25,
+    /// **The largest energy deficit among living kin touching this animal's
+    /// body**, `1 - energy / start_energy` clamped to `[0, 1]`, from the same
+    /// ring walk `FoodAdjacent` already makes. `0.0` when there is no
+    /// adjacent kin, and `0.0` when every adjacent kin is full -- the two
+    /// mean the same thing to the animal (nothing to give), which is why one
+    /// slot is honest here where `PreyNear` needed `PreyBearing` beside it.
+    ///
+    /// Normalised by the *donor's* `start_energy`, not the recipient's --
+    /// one field read, no species lookup. Exact while kin is same-species
+    /// (`CreatureDef::kin_crosses_kinds` off, every shipped species): a
+    /// cross-kind kin would be normalised against the wrong scale, and the
+    /// fix if that ever ships is a `world.species.get` lookup per kin
+    /// neighbour, at the cost of one lookup.
+    ///
+    /// **A colony-level signal, not an individual one**, which is what makes
+    /// it worth wiring onto `Move` as well as `Share` -- a full animal beside
+    /// hungry kin is the one anticipation a colony has that its own stomach
+    /// cannot supply (`BrainOutput::Share`).
+    KinNeed = 26,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -930,6 +951,25 @@ pub enum BrainOutput {
     /// (`World::plasticity`, shipping at 1) says -- nothing changes until a
     /// line wires this.
     Provision = 13,
+    /// **Hand a graded amount of this animal's own energy to the neediest
+    /// living kin touching its body** -- trophallaxis, and the cure the
+    /// colony-economy report names for every founder emptying the same
+    /// grant on the same schedule (`Reports/colony-economy-design-2026-09-09.md`
+    /// §4a). Owner's ruling: ships as a brain output the genome can evolve,
+    /// wired **on by default** in `ant.ron` -- a rule-based always-on
+    /// transfer was rejected as hardcoding the colony.
+    ///
+    /// **Downhill only, and only ever a fraction of the gap** --
+    /// `creature::SHARE_FRACTION` -- so the donor stays the richer of the
+    /// two and a share can never kill it. Live stock to live stock: the
+    /// energy ledger needs no new term, only the jaw price the transfer
+    /// costs to execute (`Did::shares`).
+    ///
+    /// Gated on the urge before the scan, exactly as `Attack` is:
+    /// `squash(0)` is exactly 0.0 for an unauthored row, so `&&`
+    /// short-circuits, no RNG draw is taken, and a species with no `Share`
+    /// weight is bit-identical to the tree before this slot existed.
+    Share = 14,
 }
 
 /// One authored connection, as a species file writes it:
@@ -1062,6 +1102,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::ThreatBearing,
     BrainInput::Alarm,
     BrainInput::Made,
+    BrainInput::KinNeed,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1079,6 +1120,7 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::DropSpoil,
     BrainOutput::Attack,
     BrainOutput::Provision,
+    BrainOutput::Share,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -1757,7 +1799,11 @@ mod tests {
         // + 8 hidden) and the developmental block (14, one per
         // `CREATURE_TRAITS` slot) in one change. Every species'
         // `mutation_rate` re-derived to `3.18 / 706 = 0.0045042`.
-        assert_eq!(live, 706, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 706 -> 763 with `KinNeed` (an input column, 22 slots: 14 outputs +
+        // 8 hidden) and `Share` (an output row, 35: 27 inputs + 8 hidden) in
+        // one change -- trophallaxis. Every species' `mutation_rate`
+        // re-derived to `3.18 / 763 = 0.0041678`.
+        assert_eq!(live, 763, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1842,7 +1888,16 @@ mod tests {
         // (+21 for the input column, +34 for the output row, +14 live trait
         // slots) and every species' `mutation_rate` is re-derived to
         // `3.18 / 706 = 0.0045042` in the same change.
-        assert_eq!(genome_manifest(), 2_611_525_623);
+        //
+        // **Moved again 2026-09-09 by `KinNeed` and `Share` together** --
+        // the trophallaxis sense and verb -- lawfully on both axes exactly as
+        // the appends above: inputs 26 -> 27 and outputs 14 -> 15 light up a
+        // column and a row of 64-wide reserves that already existed and were
+        // already zero, `GENOME_LEN` is still 12,416, and not one existing
+        // weight moves. `live_slots` 706 -> 763 and every species'
+        // `mutation_rate` is re-derived to `3.18 / 763 = 0.0041678` in the
+        // same change.
+        assert_eq!(genome_manifest(), 1_989_745_332);
     }
 
     #[test]

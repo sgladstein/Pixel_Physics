@@ -592,7 +592,12 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** when `KinNeed` (an input
+        // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
+        // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
+        // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
+        mutation_rate: 0.0041678,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -991,6 +996,21 @@
             // Same slope, still fed separately -- see `Drop` above for the
             // sweep. A lineage can move one without the other.
             (SurfaceCurvature, DropSpoil, 0.169),
+
+            // -- the colony's stomach --------------------------------------
+            // **Trophallaxis, on by default -- owner's ruling.** Same three
+            // weights and the same derivation as `ant.ron`'s: `s = 2.5*E +
+            // 1.9*N - 2.5` with the bias exactly cancelling the full-energy
+            // term, so `KinNeed` alone opens the verb and a lineage with no
+            // hungry nestmate in reach pays one float comparison and never
+            // walks the ring. See `ant.ron`'s own copy of this block for the
+            // worked table.
+            //
+            // `(KinNeed, Move, +1.25)` deliberately not authored here either
+            // -- see `ant.ron`'s note beside its own copy of this block.
+            (Energy, Share, 2.5),
+            (KinNeed, Share, 1.9),
+            (Bias, Share, -2.5),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
