@@ -1037,6 +1037,22 @@ drift that two of these documents still reflect.**
   developmental arm as the null (median 50.9% against 51.6%), for two
   reasons that are the bed's — *reachable, connected, gated; not yet
   found*.
+- [creature-movement-modes-2026-09-09.md](creature-movement-modes-2026-09-09.md)
+  — **diagnosis plus one instrument, 2026-09-09; nothing under `src/sim/` is
+  changed.** The owner's *"I have never seen any movement patterns different
+  than crawling"*, answered. **The jump has worked since 2026-08-29 and no
+  species file authors it**: 0 launches in `forage_probe` over 19,230 moves
+  and 0 on generated wetland, against **275** in the same scene with one
+  `Bias -> Impulse` wire — so the zeros are the world, not the counter. The
+  trade the design demanded is there without tuning (deepest forage 9 -> 18
+  cells, deaths 3 -> 10). New `examples/food_height.rs` settles the question
+  the ceiling report left open — whether there is food a walker cannot reach:
+  **95.8% of all food worth sits 5+ cells above ground on `wetland`, 87.6% on
+  `rolling`, 0% on `arid`** (which grows nothing, the honest negative
+  control), and `flower` — the richest food at 1440 — is **one cell across
+  two worlds at 30,000 frames**. Of the four gaits the question names, two are
+  free today, one (swim) is a live defect recorded at `creature.rs:2415`, and
+  only sustained flight is new work.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,

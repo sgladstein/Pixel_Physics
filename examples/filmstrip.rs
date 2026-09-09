@@ -1903,6 +1903,25 @@ fn build_scene(args: &Args) -> World {
                     pixel_physics::sim::brain::random_genome(pixel_physics::sim::brain::sweep_genome_seed(n))
                 }
             };
+            // **The hop, in the real world rather than on `scene=hop`'s
+            // shelf.** The verb shipped 2026-08-29 and no species file
+            // authors it, so the only place it has ever been seen is a
+            // hand-built shelf over a drop -- which shows the ballistics
+            // and cannot show whether a hopper *forages*. Appending the
+            // one wire here puts the same verb on generated wetland with
+            // trees, water and a founded colony, and `impulse=0` is
+            // `ant.ron` exactly: `squash(0.0)` is 0.0, the gate never
+            // opens, no RNG draw is taken, and the arm is byte-identical
+            // to the pre-verb engine. So the pair is a control, not an
+            // approximation of one.
+            let genome = if args.impulse != 0.0 {
+                let mut g = genome;
+                use pixel_physics::sim::brain::{io_slot, BrainInput as BI, BrainOutput as BO};
+                g[io_slot(BI::Bias, BO::Impulse)] = args.impulse;
+                g
+            } else {
+                genome
+            };
             w.species.set_genome(species, genome);
 
             // Let the trees put leaves out before the ants arrive; a
