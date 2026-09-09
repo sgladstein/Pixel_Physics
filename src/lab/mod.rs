@@ -2346,6 +2346,13 @@ impl Lab {
                     self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
                 }
             }
+            // A marker over every living animal, not just the pinned one --
+            // see `ui::draw_life_marks`'s own doc. Shipped on; this is how a
+            // player turns it off.
+            ui::Action::ToggleLifeMarks => {
+                let on = self.ui.toggle_life_marks();
+                self.ui.say(format!("LIFE MARKS {}", if on { "ON" } else { "OFF" }));
+            }
         }
     }
 
