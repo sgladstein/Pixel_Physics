@@ -1,9 +1,13 @@
 # Ants
 
-*Current as of: 2026-09-08, later, when it was measured that **no ant
-follows a trail** -- both smells are laid and neither is read, so a forager
-finds food only by bumping into it and every shipped bed starves its colony
-inside one play session; see "They leave smells behind" below. Earlier the
+*Current as of: 2026-09-09, when the note below it was corrected: **an ant
+does follow a trail** -- a laden one walks up the home scent and an empty one
+up the food scent, which is how it has always worked. What is true is that
+**every shipped bed starves its colony inside one play session** with food
+standing in it, and the reason is not the trails: an ant sees food only in the
+cells it touches, and the food trail is only laid by an ant already carrying,
+so nothing draws the first forager anywhere; see "They leave smells behind"
+below. Earlier the
 same day, when **a colony started fighting back by
 default** -- an ant standing where something is being bitten stops and bites
 what is there, which is the first thing any animal here is born knowing about
@@ -242,15 +246,29 @@ nest, fading the longer it has been away. So a colony paints its own map
 outward from home, and the map is strongest exactly where home is. An ant
 carrying food leaves a second, different scent — a food trail.
 
-**Nothing follows either of them yet, and that is not a small footnote.**
-Measured 2026-09-08: an ant born today is not born knowing to walk up a
-smell. The trails are laid, they fade, they strengthen where ants walk — and
-no ant is drawn along one. The page used to say the food trail "draws other
-ants toward something worth having"; it does not, and a colony without that
-finds food only by bumping into it, which is why a shipped bed starves inside
-one play session. A line *could* evolve to follow one, since the senses are
-there and the weights are heritable — but nothing starts out doing it, and a
-colony that dies in the first few thousand frames never gets the chance.
+**An ant is born knowing to walk up a smell, and a colony still starves with
+food in the room. Both are true, and the second is not yet explained.**
+
+The page said on 2026-09-08 that nothing follows either trail. That is wrong,
+and the correction is worth stating plainly because it points somewhere else:
+the shipped ant *is* born following smells, and it does it the way a real ant
+does — an ant with its jaws full walks up the home scent, and an ant with
+empty jaws walks up the food scent. Which one it heeds is decided by whether
+it is carrying. That is the oldest instinct in the box and it was measured
+when it was written.
+
+What is true, and is the thing to fix, is the outcome: **a colony still
+starves inside one play session with far more food standing in its own bed
+than it needs.** Two things are known about why. An ant sees food only in the
+cells it is actually touching — there is no smelling or seeing a meal across
+the room, so the *first* meal is always found by bumping into it. And the food
+trail is only laid by an ant that is already carrying something, so a colony
+that never stumbles on a first meal never writes a trail for anyone to walk
+up. A map that only gets drawn by someone who has already arrived cannot tell
+the first ant where to go.
+
+Which of those is doing the damage has not been settled, and the trails
+themselves are not the suspect they were made to look.
 
 **How long the fade lasts is no longer a fact about the species.** It used
 to be one number every ant of a kind was born with and none could change.

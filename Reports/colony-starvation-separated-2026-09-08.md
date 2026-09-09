@@ -39,6 +39,30 @@ so the trail `(Carrying, EmitB, 2.5)` lays on every laden step is written and
 never read. A forager can only eat what it stumbles into, and the first thing
 it stumbles into is its own doorstep.
 
+> **Correction, 2026-09-09, from the creature lane — the second clause is
+> wrong and the finding survives it.** "Not one of the twenty authored
+> weights reads a pheromone plane" holds for the **direct** input-to-output
+> weights only. `ant.ron`'s `hidden_inputs` carry `(PheroAAlong, 0, 6.0)`,
+> `(PheroAAlong, 1, -6.0)`, `(PheroBAlong, 2, 6.0)` and `(PheroBAlong, 3,
+> -6.0)` into four hidden units whose `hidden_outputs` drive `Move` at
+> ±2.5, gated on `Carrying` — channel A when laden, channel B when empty —
+> and `brain::eval_brain` evaluates the hidden layer before the outputs
+> read from it, so the circuit is live end to end. The trail **is**
+> followed; `ant.ron`'s own comment calls that ratio "the homing
+> mechanism".
+>
+> **What this changes is the fix, not the diagnosis.** Both stages, the
+> numbers, the `colonies=0` control and the first clause — no food sense
+> past the cells a head touches — are untouched, and the colony still
+> starves with the larder full. But the trail is not the thing to build; it
+> already exists. The candidate this points at instead, **flagged and not
+> measured**: channel B is emitted only by an ant that is *already
+> carrying*, so a colony that never reaches a first meal never lays a trail
+> for anyone to walk up. That is a **cold start**, not a missing reader, and
+> it wants a different repair — seeding the first forager, or the distance
+> food sense the first clause names. `labforage` is the instrument to settle
+> it with.
+
 ## The reproduction, on the current head
 
 `RAYON_NUM_THREADS=1`, release, `main` at `6d4728a4`. Ants alive at each

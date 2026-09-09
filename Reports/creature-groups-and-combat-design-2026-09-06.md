@@ -11,10 +11,33 @@ outside the box about how this could be played, decide whether the combat
 mechanics and the evolutionary mechanisms under them are sufficient.*
 
 *This report answers the questions from the code as it stood at PR #255,
-records what landed today against (1)–(3), and lays out the design for
+records what landed that day against (1)–(3), and lays out the design for
 inter-colony and inter-species dynamics. Status: **design of record for the
 creature line's group and combat work**; the shipped half is README's
 "Creature groups status".*
+
+**State of the line, 2026-09-09** — this report was written across one
+evening and its sections have been closed piecemeal since, so read this
+before any section below.
+
+| §  | what it asked for | state |
+|---|---|---|
+| 3 | kin as a heritable distance, not a bit | **shipped.** `scent_of` + `TRAIT_TOLERANCE`; `colony_rivalry` retired by it |
+| 4a | the prey cannot see the predator | **shipped** (`ThreatNear`/`ThreatBearing`) and the flight question **closed**: no wiring of it pays at this bed and horizon, and the null is statistical power, not ecology |
+| 4a′ | ant-vs-ant is binary, no lineage can evolve out of it | **shipped.** The arms-race reach, `World::trait_reach`, default 8 |
+| 4b | fighting is only eating — no verb | **shipped.** `BrainOutput::Attack`, wired in `ant.ron` and on by default |
+| 4c | injury is permanent — no middle | **not built.** `Regrow` is still the missing distribution; the owner is unconvinced and it needs a case made by picture, not argument |
+| 4d | scent has no owner — no map | **shipped in part.** The alarm plane and a per-colony scent landed; a private *trail* plane per colony did not |
+| 4e | nothing scored a fight | **shipped.** Per-group deaths and kills, killer named |
+| 4f | is the evolutionary machinery sufficient? | **rewritten below.** One of its two caps is withdrawn; generations are the only one left, and Gate 2 has since been **run and passed** |
+
+**What is actually open on this line**: §4c, a private trail plane per colony
+(§4d), and — the one that governs everything else — the generation clock at
+~12,000 frames against an owner target of 60–70 generations. Two neighbouring
+findings belong beside it: the colony cannot reliably *reach* its food
+(`Reports/colony-starvation-separated-2026-09-08.md`), and the trail circuit
+that would fix that is wired but cannot cold-start, because channel B is only
+laid by an ant already carrying.
 
 ---
 
@@ -23,9 +46,9 @@ creature line's group and combat work**; the shipped half is README's
 | question | answer at PR #255 | after today |
 |---|---|---|
 | are two clicks two colonies? | **No.** Nothing in the engine knew a click had happened. The ants were all one population with one label: their species | **Yes, as an identity.** Every colony-tool click, single placement and jar release founds one `OrganismState::colony`; children are born into their parent's. It is graphed and coloured. Whether it *means* anything is a dial |
-| do ant colonies ever attack each other? | **Never, and they could not.** Kin is `same SpeciesId`, so every ant is every other ant's nestmate | **Only with `colony rivalry` on** (ANTS page of the parameters panel, off by default). Then an ant of another colony is not kin, so it is prey to any gut that digests flesh — a hungry ant eats a stranger exactly as it eats a beetle. No aggression verb was added; §4 says why |
-| how do creatures know friend from foe? | One rule, `creature::is_living_kin`: living tissue of my own species is kin and nothing else is. Foe is not a concept at all; there is only *food I can digest* (`diet_yield` over the gut gene) and *not food* | Same rule, now `same species && (rivalry off \|\| same colony)`. Still one predicate, still one definition |
-| is an ant always an ant? | **Yes, by construction.** `state.species` is written once and never changes; a genome can drift as far as it likes and the animal is still kin to every ant and prey to every beetle. Speciation is impossible (`README.md` already records this for plants; it is equally true of animals) | Still yes. §3 is the design that makes it graded, and it is the next thing to build |
+| do ant colonies ever attack each other? | **Never, and they could not.** Kin is `same SpeciesId`, so every ant is every other ant's nestmate | **Yes, by default, as of 2026-09-06.** The "after today" answer here was *"only with `colony rivalry` on... no aggression verb was added"*; **both halves have since changed.** Rivalry is retired for the heritable scent of §3, which is on by default, and `BrainOutput::Attack` is the aggression verb — wired in `ant.ron` and shipped on |
+| how do creatures know friend from foe? | One rule, `creature::is_living_kin`: living tissue of my own species is kin and nothing else is. Foe is not a concept at all; there is only *food I can digest* (`diet_yield` over the gut gene) and *not food* | Same rule, still one predicate — but the body of it is now **scent within tolerance**, not the `same species && (rivalry off \|\| same colony)` this row first recorded. See §3, which shipped |
+| is an ant always an ant? | **Yes, by construction.** `state.species` is written once and never changes; a genome can drift as far as it likes and the animal is still kin to every ant and prey to every beetle. Speciation is impossible (`README.md` already records this for plants; it is equally true of animals) | **No longer.** This row read "still yes, §3 is the next thing to build"; §3 **is built**. `state.species` is still written once, but kinship is a distance, so a line that drifts far enough is a stranger to its own species. What is still missing is any event that *names* the split — a gradient, not a speciation |
 | could I see who was who? | Only with the overlay | Animals wear their colony's colour (or species', or their own — a three-way mode on the ANTS page), and the graph line under them is the same colour |
 
 **The owner's "fluctuating equilibrium" was real and was predator–prey, not

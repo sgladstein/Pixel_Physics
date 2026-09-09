@@ -78,58 +78,56 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-three, 2026-09-09 — geometry was never the cap on breeding
+## Round twenty-four, 2026-09-09 — consolidation: what the line is, and what is actually left
 
-*Second misread counter in two rounds, same shape, different file. The
-mechanism is worth more than the finding.*
+*Owner's call: stop and bank it. No new mechanism. One pass over the
+documents so the next session starts from a current picture.*
 
-**§4f's "88% of affordable births fail on geometry" is withdrawn.**
-`births_denied_no_space` is incremented **every tick a parent tries**, and the
-denial branch does not charge the parent — so an ant refused on one tick and
-born on the next is counted in the denied column *and* the born column.
-Nothing failed. The original 1,171 against 157 is **7.5 retries per birth**,
-about 45 frames of waiting.
+**The creature design report now opens with a state-of-the-line table** —
+every `§4` subsection against shipped / not built / rewritten — because it was
+written in one evening and closed piecemeal over four rounds, and no single
+place said what the line now *is*. Read that table before any section under it.
 
-`births_denied_animals` (new; a 4,096-bit set on `World`, exact rather than
-inferred) gives the denominator. Six 48,000-frame runs, `RAYON_NUM_THREADS=1`:
+**What is actually open**, in the order it matters:
 
-| bed | born | attempts | animals | ticks each | the old ratio |
-|---|---|---|---|---|---|
-| 8 plants | 19, 25, 29 | 70, 109, 71 | 5, 4, 7 | 14, 27, 10 | 79%, 81%, 71% |
-| 48 plants | 102, 83, 101 | 1118, 236, 1569 | 28, 38, 34 | 40, 6, 46 | 92%, 74%, 94% |
+1. **The generation clock, ~12,000 frames**, against an owner target of 60–70
+   generations. With §4f's geometry cap withdrawn and Gate 2 passed, this is
+   the only named limit left on evolution in this bed.
+2. **The colony cannot reliably reach its food** (round twenty-one), which is
+   the thing standing between the box and a colony that looks alive.
+3. **§4c `Regrow`** — injury is still a binary, and the owner is unconvinced.
+   It needs a case made by picture rather than by argument.
+4. A private trail plane per colony (§4d), never built.
 
-**The percentage reproduces — 71–94%, bracketing 88% — and it counts retries
-per birth.** Median wait **21 ticks, ~124 frames**, for the quarter to half of
-parents that ever meet it, against a ~12,000-frame generation: about **1% of a
-generation**. So *"who reproduces is decided by standing room"* and
-*"demography is currently geometry"* do not follow. What survives is that
-crowding bites harder as the bed fills — the fed bed's attempts run an order
-of magnitude above the starved bed's. **Generations remain the only cap named
-in §4f that stands.**
+**Four stale claims were carrying forward and are corrected.** README
+documented `World::colony_rivalry` as a live rule (retired a week ago by the
+scent signature); a "known limitation" said the heritable signature was
+"designed and not built" **directly above the paragraph describing it
+shipped** — the exact failure `CLAUDE.md` warns of, a limitation outliving its
+fix; the `Persist`/`Tumble` note called its race unfixably confounded when
+`padarm=on` now holds the synapse count equal; and Gate 2's pass was recorded
+in no README section at all.
 
-**The page carries the pair now**, `NO ROOM n OVER m ANIMALS`, with the help
-string saying attempts-over-animals is a wait rather than a loss.
-`a_walled_in_parent_is_many_attempts_and_one_animal` pins the maximal case —
-one funded parent, stone on every side — and was watched going red with the
-bit test defeated: **44 attempts, animal counter 44 instead of 1.**
+**And `wiki/ants.md` led with a claim about the shipped ant that is wrong.**
+"No ant follows a trail — both smells are laid and neither is read" was the
+page's freshness note. The trail-following circuit is in `ant.ron`'s **hidden
+layer**, not its direct weights, and `eval_brain` runs it: a laden ant walks
+up channel A, an empty one up channel B. Corrected there, in
+`colony-starvation-separated-2026-09-08.md` (as a scoped note leaving that
+lane's numbers and its first clause intact), and in `dead-ends.md`. **The
+starvation finding survives it** — what changes is the fix, since the reader
+already exists and the candidate is a cold start: channel B is only laid by an
+ant already carrying. Flagged, still not measured; `labforage` is the
+instrument.
 
-**For anyone measuring anything here, this is the round's real output.** Two
-counters in two days were arithmetically correct and about a different
-question than the one asked. Both had a tell that was there to be read:
-`EVER`/`BIRTHS` had *tidiness* (a monotone 199 → 987 on a bed with 8x seed
-spread), and this one had a **failure branch that charges nothing** — read the
-branch before the ratio. And the fix for an ambiguous count is **a second
-count, not a better ratio**: one animal walled in for fifty ticks and fifty
-animals waiting one tick are the same total and opposite findings, and no
-normalisation of the first number alone separates them.
-
-*Re-test when body size becomes heritable* — `try_bud`'s own comment reserves
-this counter for exactly that, since a bigger body needs a bigger free patch
-and the wait would become a selection pressure for smallness.
+**The transferable bit**: a network with a hidden layer has two places a sense
+can be read, and an audit of the authored weight list sees one. Grep the
+*sense*, not the weight list, and check the evaluator runs the layer you found
+it in.
 
 ## The earlier rounds
 
-All twenty-two are verbatim in
+All twenty-three are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
 which prices each one and maps it to its owning report. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
@@ -139,7 +137,7 @@ knowing which is yours is most of the saving:
 |---|---|---|
 | the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22 | `creature-signature-and-castes-2026-09-06.md` |
+| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23 | `creature-signature-and-castes-2026-09-06.md` |
 
 ## Environment notes that cost time here
 
