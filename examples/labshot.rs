@@ -93,6 +93,13 @@ fn main() {
     let stops: String = arg("frames").unwrap_or_else(|| "0,600,3000,9000".to_string());
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
+    // **`marks=1` -- the game's marker over every living animal
+    // (`ui::draw_life_marks`), the one piece of it this harness renders no
+    // UI to draw itself.** This harness has no `Ui`, so without this flag a
+    // sheet of the bed cannot show what the shipped default (on) actually
+    // looks like; with it, the same world at the same stop is one call
+    // apart from its own before picture.
+    let marks: bool = arg::<i32>("marks").unwrap_or(0) != 0;
 
     // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
     // paired comparison rather than one run against a remembered impression,
@@ -155,10 +162,11 @@ fn main() {
         },
     };
     println!(
-        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} frames={:?}{}",
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} marks={} frames={:?}{}",
         spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators, spec.seed,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
+        marks as u8,
         stops,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
@@ -325,6 +333,9 @@ fn main() {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+            if marks {
+                pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
+            }
             // **How many animals are actually holding something**, printed
             // beside the picture it is a census of. `CLAUDE.md`: an image
             // says *what* and *where* and only a count says *whether it
@@ -516,6 +527,37 @@ fn main() {
                 pixel_physics::lab::scenario::tick_timeline(s, &mut world, &spec);
             }
         }
+    }
+
+    // **`bench=1` -- the per-drawn-frame cost of `draw_life_marks`, paired
+    // inside this one run.** Neither `lab_cost` nor `labperf` can answer this
+    // (`Reports/instruments.md`): both time `Renderer::draw` on a bare
+    // `World`, never touching `Ui`, and this pass lives in `Ui::draw`. No
+    // existing instrument reaches it, so this measures it directly rather
+    // than guessing: `draw_life_marks` called repeatedly against the final
+    // world (the most animals any stop reached, so the worst case this run
+    // saw), timed with a warm-up discarded before the mean is taken. Only
+    // the pass itself is timed -- not `renderer.draw`, not the rest of
+    // `Ui::draw` -- because that is the number `CLAUDE.md` asks for and nothing
+    // else here can isolate it.
+    if arg::<i32>("bench").unwrap_or(0) != 0 {
+        const REPS: usize = 500;
+        let live_now = world.live_organism_ids().len();
+        let mut buf = vec![0u8; (vw * vh * 4) as usize];
+        // Warm-up: first calls pay a cold cache, and this is a mean-over-many
+        // number, not a worst-frame one -- `CLAUDE.md`'s ratio check does not
+        // apply to a microbenchmark of one added pass.
+        for _ in 0..20 {
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
+        }
+        let t = std::time::Instant::now();
+        for _ in 0..REPS {
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour);
+        }
+        let each_ms = t.elapsed().as_secs_f64() * 1000.0 / REPS as f64;
+        println!(
+            "bench: draw_life_marks {live_now} live organism(s) in the final world -- {each_ms:.4} ms/call, mean over {REPS} calls"
+        );
     }
 
     // One column, so a tall thin bed stacks readably.

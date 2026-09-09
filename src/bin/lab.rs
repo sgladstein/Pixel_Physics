@@ -536,6 +536,12 @@ impl Handler {
             // page (`ANIMALS WEAR`), so there was no bar cell to be
             // positional *about*. "H" for the hue every animal wears.
             KeyCode::KeyH => self.lab.act(Action::CycleCreatureColour),
+            // **`Y`, free and unclaimed.** Toggles the marker every living
+            // animal now draws (`ui::draw_life_marks`) -- shipped on, since
+            // an ant is two dark cells and the report this answers is that
+            // they cannot be found at all. Also a row on the ANTS page
+            // beside `ANIMALS WEAR`, the same pairing `H` has.
+            KeyCode::KeyY => self.lab.act(Action::ToggleLifeMarks),
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),

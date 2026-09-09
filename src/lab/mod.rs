@@ -2456,6 +2456,13 @@ impl Lab {
                 self.ui.set_reaction(self.time.react);
                 self.ui.say(format!("EVENTS: {}", self.time.react.label()));
             }
+            // A marker over every living animal, not just the pinned one --
+            // see `ui::draw_life_marks`'s own doc. Shipped on; this is how a
+            // player turns it off.
+            ui::Action::ToggleLifeMarks => {
+                let on = self.ui.toggle_life_marks();
+                self.ui.say(format!("LIFE MARKS {}", if on { "ON" } else { "OFF" }));
+            }
         }
     }
 
