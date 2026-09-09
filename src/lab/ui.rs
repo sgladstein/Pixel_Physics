@@ -633,14 +633,25 @@ pub enum Tool {
     /// thing that lets a *player* write into either plane.
     ///
     /// **Two channels, one tool, a second press switches between them** —
-    /// see `Ui::scent_channel`. The default is `Channel::B`, the food route
-    /// an *empty* ant follows outward (`ant.ron`'s hidden units 2/3, gated
-    /// on *not* carrying, read `PheroBAlong`); a second press of the key
-    /// arms `Channel::A`, the home scent a *laden* ant follows back (hidden
-    /// units 0/1, gated on carrying, read `PheroAAlong`). Laying the food
-    /// route by hand is the one a player reaches for first: it is what
-    /// recruits a colony to a patch you have already found, which is
-    /// exactly what a returning forager's own `EmitB` does for real.
+    /// see `Ui::scent_channel`. The default is `Channel::A`, the home scent
+    /// a *laden* ant follows back (`ant.ron`'s hidden units 0/1, gated on
+    /// carrying, read `PheroAAlong`); a second press of the key arms
+    /// `Channel::B`, the food route an *empty* ant would follow outward
+    /// (units 2/3, `PheroBAlong`).
+    ///
+    /// **The default was `B` until 2026-09-09, and it moved because a drawn
+    /// B trail does nothing.** `open-bugs-handoff.md` §Z7: units 2/3 sit
+    /// saturated at the exact input an empty ant has, so a hand-laid food
+    /// trail moved a colony's near-target ant-ticks by **zero**, twice, on
+    /// two independent harnesses — and re-weighting them so it *does* work
+    /// makes the animal decisively worse (25.0% of a mirrored race against
+    /// 63.6% for the homing repair alone), so it is not a one-line fix
+    /// waiting to happen. Units 0/1 *were* repaired, so a drawn A trail is
+    /// followed. Arming the plane that works is the difference between a
+    /// verb that delivers something and one that does not, which the ethos
+    /// treats as the difference between finished and unfinished. The food
+    /// route stays one keypress away and the help string says plainly that
+    /// no ant can read it yet.
     ///
     /// A brush like `Soil`/`Water`/`Food` — it paints along the drag rather
     /// than once per click, because a trail is a *line*, not a point.
@@ -815,7 +826,7 @@ impl Tool {
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. TWO DIALS DECIDE WHAT ARRIVES: THE STOCK DIAL ON THE BAR IS HOW MANY, AND THE DRIFT DIAL ON THE SHELF IS HOW FAR EACH ONE HAS MOVED FROM THE JAR. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN, SO A COLONY IS A COLONY OF CLONES; AT 1 EACH IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, DRAWN SEPARATELY, SO A COLONY IS A COLONY OF SIBLINGS. OPEN THE SHELF WITH G TO PICK A JAR AND SET THAT DIAL.",
-            Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE FOOD ROUTE (CHANNEL B) -- WHAT AN EMPTY ANT FOLLOWS OUTWARD, SO A TRAIL FROM THE NEST TO A PATCH YOU FOUND RECRUITS THE COLONY TO IT. PRESS I AGAIN TO SWITCH TO HOME SCENT (CHANNEL A) -- WHAT A LADEN ANT FOLLOWS BACK. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
+            Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE HOME SCENT (CHANNEL A) -- A ROAD HOME: ANTS CARRYING FOOD FOLLOW IT. DRAW IT FROM A PATCH BACK TO THE NEST AND LADEN FORAGERS WILL RUN IT. PRESS I AGAIN FOR THE FOOD ROUTE (CHANNEL B), WHICH NO ANT CAN READ YET. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
             Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
             Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
             Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
@@ -2982,15 +2993,20 @@ impl Ui {
         self.scent_channel
     }
 
-    /// Flip [`Tool::Scent`]'s armed plane between the food route and the
-    /// home scent, and hand back the one it lands on so the caller can say
-    /// so. Never touches `Channel::Alarm` -- there is nothing to toggle to,
+    /// Flip [`Tool::Scent`]'s armed plane between the home scent and the food
+    /// route, and hand back the one it lands on so the caller can say so.
+    /// Never touches `Channel::Alarm` -- there is nothing to toggle to,
     /// `Tool::Alarm` is its own tool.
+    ///
+    /// **`A -> B -> A`, so the first press off the default reaches the food
+    /// route.** The order was `B -> A` until 2026-09-09; it turned over with
+    /// the default (see [`Tool::Scent`]), so that the plane a player lands on
+    /// without asking is the one the shipped ant can actually read.
     pub fn toggle_scent_channel(&mut self) -> crate::sim::pheromone::Channel {
         use crate::sim::pheromone::Channel;
         self.scent_channel = match self.scent_channel {
-            Channel::B => Channel::A,
-            Channel::A | Channel::Alarm => Channel::B,
+            Channel::A => Channel::B,
+            Channel::B | Channel::Alarm => Channel::A,
         };
         self.scent_channel
     }
