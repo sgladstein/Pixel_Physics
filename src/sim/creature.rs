@@ -1233,6 +1233,17 @@ fn place_creature(
         state.forage_anchor = (x, y);
         state.forage_max = 0;
     }
+    // **This lineage's standing facts, seeded once, at the one moment its
+    // number is fresh.** A `Bud` copies its parent's `lineage` and never
+    // reaches here -- the entry already exists from when the founder itself
+    // was placed. Read after the block above closes, so it is the traits as
+    // actually placed (post colony-scent offset, `apply_colony_scent` above),
+    // not `def.traits` alone -- see `World::seed_line_stats`'s own doc for
+    // why a plant founder does not have the equivalent call.
+    if matches!(origin, Origin::Founder { .. } | Origin::Stock { .. }) {
+        let traits = world.organism(organism).map(|s| s.traits).unwrap_or([0.0; CREATURE_TRAITS]);
+        world.seed_line_stats(founder_lineage, traits);
+    }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
         Origin::Founder { .. } | Origin::Stock { .. } => {
@@ -1265,16 +1276,18 @@ fn place_creature(
                 p.life.offspring += 1;
             }
             // The log line, beside the counter. `id` is the newborn -- the
-            // event is about it, and `other` says who bore it.
+            // event is about it, and `other` says who bore it. `world.log`
+            // reads `lineage`/`generation` off the child's own state, which
+            // is already stamped (`state.lineage = founder_lineage` and
+            // `state.generation = *generation` above) by the time this runs.
             let born_frame = world.organism(organism).map_or(0, |s| s.born_frame);
-            world.run_log.push(crate::sim::world::LogEvent {
-                frame: world.frame,
-                id: organism,
-                born_frame,
-                species: species_id,
-                kind: crate::sim::world::LogKind::Born,
-                other: parent,
-            });
+            world.log(crate::sim::world::LogKind::Born, organism, born_frame, species_id, parent);
+            // **The line's population, one higher** -- beside the log push
+            // rather than folded into `World::log`, because a death needs
+            // the identical call with a `-1` and no live organism left to
+            // read `generation` off (`free_organism`), so the two call sites
+            // cannot share a signature that hides the delta.
+            world.note_line_population(founder_lineage, 1, organism, born_frame, species_id, generation);
             // **A birth creates no energy, and this is the S3b stamp seam
             // closing** (`Reports/creature-evolution-plan.md` §2.3, "One
             // seam left open"; `EnergyLedger::meat_lost`'s own doc points
@@ -2113,9 +2126,24 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
+    // **Captured out of the borrow below, for `born_with` and the line
+    // records — both need `&mut World` and cannot be called while `state`
+    // holds it.** Defaulted to the pre-mutation values so a stale-handle
+    // `None` (the child's slot vanished between placement and here, which
+    // cannot happen today but costs nothing to be honest about) reports
+    // "nothing changed" rather than a bogus mutation.
+    let mut synapses_moved = 0u32;
+    let mut child_traits = parent_traits;
+    let mut child_generation = parent_generation.saturating_add(1);
+    let mut child_born_frame = 0u64;
     if let Some(state) = world.organism_mut(child) {
         let mut genome = std::mem::take(&mut state.genome);
-        brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        // **The return was discarded here** -- how many synapse slots
+        // actually moved, `brain::mutate`'s own count. Captured now because
+        // `born_with` needs a fallback for the case a mutation changes the
+        // brain and not the body: a bud whose trait jitter rounds to zero on
+        // every slot still bred something different.
+        synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
@@ -2134,6 +2162,38 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
                 *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
             }
         }
+        child_traits = state.traits;
+        child_generation = state.generation;
+        child_born_frame = state.born_frame;
+    }
+    // **`born_with`: the strongest single change, not every one** -- see
+    // `OrganismState::born_with`'s own doc for the packing and the scale
+    // reason it is one field read on demand rather than a line in the run
+    // log. `pct` is a percentage of the trait's own `-1..=1` axis, never of
+    // the old value, which would be meaningless near zero.
+    let mut born_with = 0u16;
+    let mut strongest_pct = 0i32;
+    for (slot, (before, after)) in parent_traits.iter().zip(child_traits.iter()).enumerate() {
+        let pct = ((after - before) * 100.0).round() as i32;
+        if pct.abs() > strongest_pct.abs() {
+            strongest_pct = pct;
+            born_with = ((slot as u16) << 8) | (pct.clamp(-127, 127) as i8 as u8 as u16);
+        }
+    }
+    if strongest_pct == 0 && synapses_moved > 0 {
+        born_with = (14u16 << 8) | synapses_moved.min(255) as u16;
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.born_with = born_with;
+    }
+    // **The line's own history, checked after the mutation that could have
+    // moved it** -- see `World::note_line_generation`/`note_line_record`'s
+    // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
+    // that never founded a lineage), checked once here rather than inside
+    // each call so the intent reads at the call site.
+    if parent_lineage != 0 {
+        world.note_line_generation(parent_lineage, child_generation, child, child_born_frame, species_id);
+        world.note_line_record(parent_lineage, &child_traits, child, child_born_frame, species_id, child_generation);
     }
     Some(site)
 }
@@ -4625,7 +4685,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // thousand frames; the moment a forager starts paying its own
                 // way happens once and is the part worth a line.
                 if first {
-                    if let Some((born_frame, sp)) = world.organism(organism).map(|s| (s.born_frame, s.species)) {
+                    // **Left as a direct construction, not `world.log`** --
+                    // this site belongs to a different lane's file
+                    // ownership window; the two new fields are filled inline
+                    // because `LogEvent` now requires them to compile, and
+                    // that is the only change made here.
+                    if let Some((born_frame, sp, lineage, generation)) =
+                        world.organism(organism).map(|s| (s.born_frame, s.species, s.lineage, s.generation))
+                    {
                         world.run_log.push(crate::sim::world::LogEvent {
                             frame: world.frame,
                             id: organism,
@@ -4633,6 +4700,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                             species: sp,
                             kind: crate::sim::world::LogKind::FirstFeed,
                             other: 0,
+                            lineage,
+                            generation,
                         });
                     }
                 }
@@ -13662,6 +13731,52 @@ mod tests {
         run(&mut off, 60);
         assert_eq!(off.creature_stats.births, 0, "a species with reproduce_threshold 0 bred anyway");
         assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
+    }
+
+    /// **`try_bud`'s mutation is attributed to the child it moved, not
+    /// rolled and thrown away.** `OrganismState::born_with` is the
+    /// strongest single change a birth made; the positive half asks that a
+    /// birth with every mutation channel wide open actually sets it on at
+    /// least one descendant.
+    ///
+    /// **The negative half needs both channels zeroed, not just
+    /// `mutation_rate`.** `try_bud`'s trait jitter loop reads
+    /// `CreatureDef::trait_variance`/`scent_drift`, never `mutation_rate` --
+    /// so a control that only zeroed the rate would still see occasional
+    /// non-zero `born_with` from trait drift alone, and would not be
+    /// testing what it claims to. With both zeroed, every bred descendant
+    /// must read exactly `0`; without that arm a formatter that writes a
+    /// non-zero value unconditionally would pass the positive half for
+    /// free.
+    #[test]
+    fn a_bud_that_mutates_records_what_moved() {
+        let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+        run(&mut w, 200);
+        assert!(w.creature_stats.births > 0, "12 funded ants over 200 frames produced no births -- the rest of this test proves nothing");
+        let moved = w
+            .live_organism_ids()
+            .iter()
+            .any(|&id| !founders.contains(&id) && w.organism(id).is_some_and(|s| s.born_with != 0));
+        assert!(moved, "every bred descendant reports born_with == 0 with mutation_rate at 1.0 and the species' own trait variance in force");
+
+        let (mut w0, founders0) = breeding_colony(12, 2000.0, 0.0);
+        let ant0 = w0.species.id_of("ant").expect("ant species");
+        let mut def0 = w0.species.get(ant0).creature.clone().expect("ant is a creature");
+        def0.trait_variance = [0.0; organism::CREATURE_TRAITS];
+        def0.scent_drift = 0.0;
+        w0.species.set_creature(ant0, def0);
+        run(&mut w0, 200);
+        assert!(w0.creature_stats.births > 0, "the zero-mutation control did not breed either -- it controls for nothing");
+        for id in w0.live_organism_ids() {
+            if founders0.contains(&id) {
+                continue;
+            }
+            assert_eq!(
+                w0.organism(id).map(|s| s.born_with),
+                Some(0),
+                "born_with fired on organism {id} with every mutation channel at zero"
+            );
+        }
     }
 
     /// **One ant walled in for fifty ticks, and a thousand ants each waiting

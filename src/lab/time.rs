@@ -347,7 +347,10 @@ const REACTION_COOLDOWN: Duration = Duration::from_secs(4);
 /// [`default_react_on`]'s mask alongside `LineEnded`; until then this *is*
 /// what `is_line_event` will say.
 pub fn notable(kind: LogKind) -> bool {
-    matches!(kind, LogKind::LineEnded)
+    // The line-bounded set is `LogKind`'s own to define -- one predicate,
+    // read here and by the LOG page's LINES filter, so the clock and the
+    // chronicle can never disagree about what counts.
+    kind.is_line_event()
 }
 
 /// Bit `i` of [`TimeControl::react_on`] is the `LogKind` whose discriminant
@@ -367,9 +370,18 @@ fn log_kind_bit(kind: LogKind) -> u8 {
 /// another session*). Grows the same day `notable`'s own doc comment says
 /// to.
 fn default_react_on() -> u8 {
-    [LogKind::Born, LogKind::Died, LogKind::FirstFeed, LogKind::FirstSeed, LogKind::LineEnded]
-        .into_iter()
-        .filter(|&k| notable(k))
+    [
+        LogKind::Born,
+        LogKind::Died,
+        LogKind::FirstFeed,
+        LogKind::FirstSeed,
+        LogKind::LineEnded,
+        LogKind::GroupSplit,
+        LogKind::LineMilestone,
+        LogKind::LineRecord,
+    ]
+    .into_iter()
+    .filter(|&k| notable(k))
         .fold(0u8, |mask, k| mask | log_kind_bit(k))
 }
 

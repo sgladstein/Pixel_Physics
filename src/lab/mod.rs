@@ -33,6 +33,7 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod names;
 pub mod params;
 pub mod plainspeak;
 pub mod roster;
@@ -1336,10 +1337,10 @@ impl Lab {
             // difference across one tick is "did a line get pushed this
             // tick" with no need to hold a copy of the log or to wait for
             // lane A's `RunLog::total()`.
-            let before = self.world.run_log.len() as u64 + self.world.run_log.dropped();
+            let before = self.world.run_log.total();
             self.tick();
             ran += 1;
-            let after = self.world.run_log.len() as u64 + self.world.run_log.dropped();
+            let after = self.world.run_log.total();
             if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
                 // **Gated on the mask before anything heavier**, which is
                 // the scale answer: at 1,000+ ants an armed kind can still
@@ -1431,16 +1432,11 @@ impl Lab {
             self.renderer.set_camera(at.0 - span.0 / 2, at.1 - span.1 / 2, (WIDTH, HEIGHT), bounds);
         }
 
-        // merge: lane A's F1 gives every `LogKind` a real sentence and a
-        // name (`Ui::log_rows`'s own match, `ui.rs:3755`) -- `e.other` is 0
-        // for every `LineEnded` today, which is the standing "LINE 0 ENDED"
-        // bug that PR fixes as a side effect of adding `LogEvent::lineage`.
-        // This is placeholder prose so the reaction has *a* notice rather
-        // than none in the meantime.
-        let said = match event.kind {
-            crate::sim::world::LogKind::LineEnded => format!("LINE {} ENDED", event.other),
-            kind => format!("{} {}", kind.label(), event.id),
-        };
+        // The notice is the chronicle's own sentence for this event --
+        // `VERNAL-9 FED HERSELF FOR THE FIRST TIME`, `THE VERNAL LINE
+        // ENDED, 14 GENERATIONS` -- so the clock and the LOG page never
+        // describe one moment two ways.
+        let (said, _, _) = ui::format_log_line(&self.world, event);
         self.ui.say(said);
     }
 
@@ -1977,14 +1973,17 @@ impl Lab {
         let Some(row) = rows.get(n) else {
             return "THAT ROW HAS GONE".to_string();
         };
-        let species = self.world.species.get(row.species).name.to_uppercase();
         if self.ui.pin(row.who) {
             // **The cell page is pointed at it too**, which is what makes one
             // click do the whole job: the page, the marker and the numbers
             // are the ones that already existed, aimed by identity instead of
             // by wherever the player happened to click on the ground.
             self.ui.inspect_at(row.at, row.who.id);
-            format!("PINNED {species} AT {},{}", row.at.0, row.at.1)
+            // **Named, not just species-labelled** -- `PINNED VERNAL-9 AT
+            // 226,154` says which one, and a name is a free lookup off
+            // fields this row already carries.
+            let name = crate::lab::names::individual(self.world.seed, row.lineage, row.generation);
+            format!("PINNED {name} AT {},{}", row.at.0, row.at.1)
         } else {
             "LET GO".to_string()
         }
@@ -2461,6 +2460,10 @@ impl Lab {
             ui::Action::CycleLifeMarks => {
                 let mode = self.ui.cycle_life_marks();
                 self.ui.say(format!("LIFE MARKS {}", mode.label()));
+            }
+            ui::Action::CycleLogFilter => {
+                self.ui.cycle_log_filter();
+                self.ui.say(format!("LOG: SHOWING {}", self.ui.log_filter().label()));
             }
         }
     }
@@ -2979,6 +2982,68 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    /// **The chronicle stays bounded per lineage, not per birth.** A colony
+    /// click founds 52 lineages and this box runs at 1,000+ animals in a
+    /// player's session -- if the four line-level kinds
+    /// (`world::LogKind::is_line_event`) were not each bounded the way
+    /// their own docs promise, the run log would fill with as many of them
+    /// as there are births, which is exactly the failure `CLAUDE.md`'s
+    /// scale constraint rules out.
+    ///
+    /// **Put the fault back**: drop the `milestones_hit`/`record_steps`
+    /// first-reach guards inside `World::note_line_generation`/
+    /// `note_line_record` (fire on every crossing instead of only the
+    /// first) and this goes red -- `line_events / lineages_claimed` stops
+    /// being a small constant and starts tracking the birth count instead.
+    ///
+    /// Run at `RAYON_NUM_THREADS=2` when reporting this test's own numbers
+    /// (`CLAUDE.md`'s counter-under-contention rule) -- the assertion below
+    /// does not depend on thread count, but the birth/lineage counts this
+    /// test reports as evidence do move with it.
+    #[test]
+    fn line_events_are_bounded_per_lineage() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 8, ..rack_bed(7) });
+        run(&mut lab, 20_000);
+        let births = lab.world.creature_stats.births + lab.world.germinations;
+        assert!(births > 0, "nothing bred or germinated in 20,000 ticks -- the rest of this test proves nothing");
+        let lineages = lab.world.lineages_claimed();
+        assert!(lineages > 0, "no lineage was ever claimed -- the rest of this test proves nothing");
+        // Aged-out lines are still real events -- a cap that only looked at
+        // what survives the ring could hide an unbounded writer behind
+        // `RUN_LOG_CAP`'s own trimming.
+        let line_events = lab.world.run_log.recent().filter(|e| e.kind.is_line_event()).count() as u64 + lab.world.run_log.dropped();
+        // The theoretical per-lineage ceiling: 1 `LineEnded` + 12
+        // `LineMilestone` rungs (9 generation, 3 population) + 56
+        // `LineRecord` steps (14 traits x 4 steps) = 69. `GroupSplit` is not
+        // per-lineage at all -- it is bounded by how many groups this run
+        // ever minted, which cannot exceed a handful of splits in an
+        // 8-founder box -- so 50 of slack covers it without weakening the
+        // per-lineage bound this test is actually about.
+        let ceiling = lineages as u64 * 69 + 50;
+        // **The scale claim as a number, not a sentence** -- `--nocapture`
+        // prints this breakdown so a report can quote it directly rather
+        // than restating the assertion in prose.
+        let born = lab.world.creature_stats.births + lab.world.germinations;
+        let (_, died) = lab.world.organism_turnover();
+        use crate::sim::world::LogKind;
+        let line_ended = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineEnded).count();
+        let group_split = lab.world.run_log.recent().filter(|e| e.kind == LogKind::GroupSplit).count();
+        let milestone = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineMilestone).count();
+        let record = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineRecord).count();
+        eprintln!(
+            "line_events_are_bounded_per_lineage: {lineages} lineages, born {born}, died {died} \
+             (log dropped {}) -- line events: LineEnded {line_ended}, GroupSplit {group_split}, \
+             LineMilestone {milestone}, LineRecord {record}, total {line_events} ({:.1}/lineage)",
+            lab.world.run_log.dropped(),
+            line_events as f64 / lineages as f64
+        );
+        assert!(
+            line_events <= ceiling,
+            "{line_events} line events over {lineages} lineages ({:.1} per lineage) -- above the {ceiling} ceiling",
+            line_events as f64 / lineages as f64
+        );
     }
 
     /// **A copy carries what you planted, and the copies still differ.**

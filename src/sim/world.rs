@@ -143,6 +143,25 @@ pub struct LogEvent {
     pub kind: LogKind,
     /// The other party, where there is one: a birth's parent. `0` otherwise.
     pub other: u16,
+    /// **Which founding line this line of the log is about.** `0` for
+    /// anything not descended from a founder (a test fixture, mostly).
+    ///
+    /// **This is the fix for a standing bug: every `LINE ENDED` line in the
+    /// game read `LINE 0 ENDED`.** `other` is a `u16` and a lineage is a
+    /// `u32`, so the old code (`other: 0` at the `LineEnded` push, and
+    /// nothing narrower would fit anyway) could not have carried the real
+    /// number even if someone had wired it up. This field is the fix and the
+    /// diagnosis in one place, so a later reader does not have to re-derive
+    /// why the old field was the wrong shape.
+    pub lineage: u32,
+    /// **This individual's own depth**, `OrganismState::generation` at the
+    /// moment the line was pushed. Carried beside `lineage` because a
+    /// sentence about a line ("14 GENERATIONS", "REACHES GENERATION 20") and
+    /// a sentence about an individual ("BORN TO KESTREL-2", itself named from
+    /// `generation - 1`) both need it, and neither can be recovered later —
+    /// the organism the line was about may already be gone by the time
+    /// anything reads the log.
+    pub generation: u16,
 }
 
 /// What kind of thing happened.
@@ -167,6 +186,30 @@ pub enum LogKind {
     /// The last individual of a founding line died. The only entry that is
     /// about a *lineage* rather than an individual.
     LineEnded,
+    /// A drifted scent cluster was minted as a colony of its own —
+    /// `World::regroup_by_scent`'s own split. `other` is the freshly minted
+    /// colony label truncated to `u16` (colony labels are handed out one at
+    /// a time from a click count, not an index into anything with 65,536
+    /// entries, so this only loses information past a colony count nobody
+    /// has reached); `id`/`born_frame` name the lowest-lineage member of the
+    /// new group, the same rule `regroup_by_scent` uses to decide who keeps
+    /// the parent's name. Fires at most once per minted group.
+    GroupSplit,
+    /// **A lineage's own history, not an individual's.** Its deepest
+    /// generation first reached one of [`GENERATION_MILESTONES`], or its
+    /// living count first reached one of [`POPULATION_MILESTONES`] — see
+    /// [`decode_milestone`] for `other`'s encoding. At most once per rung per
+    /// lineage for the whole run, so this is bounded by the milestone tables'
+    /// own size and not by how many descendants pass a rung once it is set.
+    LineMilestone,
+    /// **One individual, the first of its line to drift this far.** A trait
+    /// crossed a fresh half-step away from the line's founder value on the
+    /// `-1..=1` axis. `other` is `(slot << 8) | step`, `step` counting
+    /// `0.5`-steps from the founder (1..=4, so at most four records per trait
+    /// per lineage for the whole run — the axis is two units wide end to
+    /// end). Animals only for now: plant traits have no name table for a
+    /// sentence to use.
+    LineRecord,
 }
 
 impl LogKind {
@@ -177,7 +220,45 @@ impl LogKind {
             LogKind::FirstFeed => "FIRST FED",
             LogKind::FirstSeed => "FIRST SEED",
             LogKind::LineEnded => "LINE ENDED",
+            LogKind::GroupSplit => "GROUP SPLIT",
+            LogKind::LineMilestone => "LINE MILESTONE",
+            LogKind::LineRecord => "LINE RECORD",
         }
+    }
+
+    /// **The chronicle, not the census.** These four are about a *lineage*
+    /// rather than an individual, and every one of them is bounded per
+    /// lineage (see each variant's own doc) rather than per birth — the
+    /// `LOG` page's `LINES` filter shows only these, so a 1,000-ant box still
+    /// has a readable history of what actually changed in it, not a scroll
+    /// of every hatch.
+    pub fn is_line_event(self) -> bool {
+        matches!(self, LogKind::LineEnded | LogKind::GroupSplit | LogKind::LineMilestone | LogKind::LineRecord)
+    }
+}
+
+/// **The generation rungs `LineMilestone` watches for**, first-reach only.
+/// Nine rows because a lineage that reaches 200 generations in this box is
+/// already a rare finding worth its own line, and the top of the table
+/// should read as an event rather than a wallpaper pattern.
+pub const GENERATION_MILESTONES: [u16; 9] = [5, 10, 20, 35, 50, 75, 100, 150, 200];
+
+/// **The population rungs `LineMilestone` watches for**, first-reach only.
+/// Three rows: ten is "this line is established", a hundred is "this line
+/// is a real presence", a thousand is a founder click's whole colony
+/// (52 lineages) each producing twenty descendants.
+pub const POPULATION_MILESTONES: [u32; 3] = [10, 100, 1000];
+
+/// **Decode a `LineMilestone` event's `other`.** Returns `(is_population,
+/// threshold)` — `false` for a generation rung, `true` for a population one
+/// — so a reader does not have to know the bit layout to print the number
+/// that was actually crossed.
+pub fn decode_milestone(other: u16) -> (bool, u32) {
+    let index = (other & 0x00FF) as usize;
+    if other & 0xFF00 != 0 {
+        (true, POPULATION_MILESTONES.get(index).copied().unwrap_or(0))
+    } else {
+        (false, GENERATION_MILESTONES.get(index).copied().unwrap_or(0) as u32)
     }
 }
 
@@ -373,11 +454,225 @@ impl RunLog {
         self.dropped
     }
 
+    /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
+    /// so a caller can tell "something happened this tick" from a
+    /// before/after difference without holding a copy of the log or walking
+    /// it every frame.
+    pub fn total(&self) -> u64 {
+        self.events.len() as u64 + self.dropped
+    }
+
     /// Start again. For a batch copy, which inherits its parent's log through
     /// `World`'s `Clone` and should not: a copy's history is its own run.
     pub fn clear(&mut self) {
         self.events.clear();
         self.dropped = 0;
+    }
+}
+
+/// **One founding line's standing facts** -- `World::line_stats`'s row.
+///
+/// Everything here is O(1) to update per birth or death: no walk over the
+/// organism table, so a colony click that founds 52 lineages and a run that
+/// grows one to 1,000 living cost the same per-event work.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LineStats {
+    /// The founder's own body traits, at the moment it was placed (creature
+    /// founders only -- `World::seed_line_stats`; left zeroed for a plant
+    /// lineage, which has no per-individual name table for `LineRecord` to
+    /// read against anyway).
+    pub founder_traits: [f32; organism::CREATURE_TRAITS],
+    /// The deepest `OrganismState::generation` any descendant has reached.
+    /// Animal lineages only -- see `World::note_line_generation`.
+    pub deepest_generation: u16,
+    /// How many descendants of this lineage (the founder included) are alive
+    /// right now. Incremented at both `Born` push sites, decremented in
+    /// `free_organism`; never below zero by construction (a lineage cannot
+    /// out-die itself).
+    pub living: u32,
+    /// **Which milestones have already fired**, one bit per rung across both
+    /// tables: bits `0..GENERATION_MILESTONES.len()` for the generation
+    /// table, the next `POPULATION_MILESTONES.len()` bits for the population
+    /// one. First-reach only -- the bit is what makes a rung fire once per
+    /// lineage rather than once per descendant that passes it.
+    pub milestones_hit: u16,
+    /// **How many `0.5`-steps away from `founder_traits` this lineage has
+    /// already put on the record**, per trait slot. `LineRecord` fires only
+    /// on a fresh step past the highest one already logged, so this is what
+    /// stops every later descendant re-announcing ground an earlier one
+    /// already broke.
+    pub record_steps: [u8; organism::CREATURE_TRAITS],
+}
+
+/// **The five fields every run-log line needs about *who* it is about**,
+/// bundled so `World::log_for` does not carry seven bare parameters on top
+/// of `kind` and `other` -- clippy's own arity limit forced the bundling,
+/// and the bundle reads better than the flat list did anyway.
+pub(crate) struct LogSubject {
+    pub id: u16,
+    pub born_frame: u64,
+    pub species: organism::SpeciesId,
+    pub lineage: u32,
+    pub generation: u16,
+}
+
+impl World {
+    /// **Seed a freshly claimed lineage's standing facts.** Called once, at
+    /// the one moment `OrganismState::lineage` is stamped for a *founder*
+    /// (`creature::place_creature`'s `Origin::Founder`/`Origin::Stock` arm --
+    /// a bred child copies its parent's lineage and never calls this). The
+    /// founder counts as the line's first living member, so `living` starts
+    /// at 1 rather than 0: a founder that is placed and never bred still has
+    /// a population of one, not nobody.
+    ///
+    /// **Plant founders never call this** -- their three placement sites are
+    /// outside this lane's file ownership -- so a plant lineage's
+    /// `founder_traits` stays zeroed (harmless: `LineRecord` never reads a
+    /// plant lineage, see its own doc) and its `living` count is seeded late,
+    /// by its first germination's `Born` push, rather than at planting. That
+    /// undercounts a plant lineage's population by exactly one member for as
+    /// long as its founder survives ungerminated-descendant-less, which is a
+    /// bounded, stated simplification rather than a silent one.
+    pub(crate) fn seed_line_stats(&mut self, lineage: u32, founder_traits: [f32; organism::CREATURE_TRAITS]) {
+        self.line_stats.insert(lineage, LineStats { founder_traits, living: 1, ..Default::default() });
+    }
+
+    /// **Push one log line, reading `lineage` and `generation` off the
+    /// organism itself.** Every push site but `free_organism` can use this:
+    /// the organism is still live when the line is about it, so asking it
+    /// directly is one lookup and cannot forget the field the way five
+    /// separate struct literals could. `free_organism` cannot -- by the time
+    /// it pushes, `slot.state` has already been set to `None` (its books are
+    /// closed before the slot returns to the free list) -- so it fills the
+    /// two fields itself and calls [`World::log_for`] instead.
+    pub(crate) fn log(&mut self, kind: LogKind, id: u16, born_frame: u64, species: organism::SpeciesId, other: u16) {
+        let (lineage, generation) = self.organism(id).map(|s| (s.lineage, s.generation)).unwrap_or((0, 0));
+        self.log_for(kind, other, LogSubject { id, born_frame, species, lineage, generation });
+    }
+
+    /// The same push, with `lineage`/`generation` supplied rather than read
+    /// off the organism -- see [`World::log`]'s doc for why `free_organism`
+    /// needs this instead.
+    fn log_for(&mut self, kind: LogKind, other: u16, who: LogSubject) {
+        self.run_log.push(LogEvent {
+            frame: self.frame,
+            id: who.id,
+            born_frame: who.born_frame,
+            species: who.species,
+            kind,
+            other,
+            lineage: who.lineage,
+            generation: who.generation,
+        });
+    }
+
+    /// **A lineage's living count changed by one birth or one death.**
+    /// Checks [`POPULATION_MILESTONES`] and pushes `LineMilestone` for any
+    /// rung newly crossed. `generation` is taken as a parameter rather than
+    /// read off the organism because the death-path caller (`free_organism`)
+    /// no longer has one to read.
+    pub(crate) fn note_line_population(
+        &mut self,
+        lineage: u32,
+        delta: i64,
+        id: u16,
+        born_frame: u64,
+        species: organism::SpeciesId,
+        generation: u16,
+    ) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<usize> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            stats.living = (stats.living as i64 + delta).max(0) as u32;
+            for (i, &threshold) in POPULATION_MILESTONES.iter().enumerate() {
+                let bit = 1u16 << (GENERATION_MILESTONES.len() + i);
+                if stats.living >= threshold && stats.milestones_hit & bit == 0 {
+                    stats.milestones_hit |= bit;
+                    crossed.push(i);
+                }
+            }
+        }
+        for i in crossed {
+            self.log_for(LogKind::LineMilestone, 0x0100 | i as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **A lineage's deepest generation may have advanced.** Animal birth
+    /// path only (`creature::try_bud`, after mutation) -- see
+    /// `LogKind::LineMilestone`'s own doc for why a plant lineage does not
+    /// call this. Checks [`GENERATION_MILESTONES`] and pushes `LineMilestone`
+    /// for any rung newly crossed.
+    pub(crate) fn note_line_generation(&mut self, lineage: u32, generation: u16, id: u16, born_frame: u64, species: organism::SpeciesId) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<usize> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            if generation > stats.deepest_generation {
+                stats.deepest_generation = generation;
+            }
+            for (i, &threshold) in GENERATION_MILESTONES.iter().enumerate() {
+                let bit = 1u16 << i;
+                if generation >= threshold && stats.milestones_hit & bit == 0 {
+                    stats.milestones_hit |= bit;
+                    crossed.push(i);
+                }
+            }
+        }
+        for i in crossed {
+            self.log_for(LogKind::LineMilestone, i as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **One individual's trait drifted a fresh half-step past its line's
+    /// founder value.** Animal birth path only, after mutation -- see
+    /// `LogKind::LineRecord`'s own doc. At most four records per trait per
+    /// lineage for the whole run: the `-1..=1` axis is two units wide, and a
+    /// half-step is the unit this checks in.
+    pub(crate) fn note_line_record(
+        &mut self,
+        lineage: u32,
+        traits: &[f32; organism::CREATURE_TRAITS],
+        id: u16,
+        born_frame: u64,
+        species: organism::SpeciesId,
+        generation: u16,
+    ) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<(usize, u8)> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            let rows = traits.iter().zip(stats.founder_traits.iter()).zip(stats.record_steps.iter_mut());
+            for (slot, ((&trait_value, &founder_value), record_step)) in rows.enumerate() {
+                let dist = (trait_value - founder_value).abs();
+                let steps = ((dist / 0.5).floor() as u8).min(4);
+                if steps > *record_step {
+                    for step in (*record_step + 1)..=steps {
+                        crossed.push((slot, step));
+                    }
+                    *record_step = steps;
+                }
+            }
+        }
+        for (slot, step) in crossed {
+            self.log_for(LogKind::LineRecord, ((slot as u16) << 8) | step as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **How many lineages have ever been claimed**, `next_lineage - 1`
+    /// (numbering starts at 1 so 0 stays "no lineage"). A test's own way to
+    /// size a per-lineage bound against a real run, without walking
+    /// `line_stats` -- a plant lineage's entry starts only at its first
+    /// germination, not at founding (`seed_line_stats`'s own doc), so
+    /// `line_stats.len()` would undercount.
+    pub fn lineages_claimed(&self) -> u32 {
+        self.next_lineage.saturating_sub(1)
     }
 }
 
@@ -1516,6 +1811,18 @@ pub struct World {
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
+    /// **Per-lineage standing facts**, keyed on `OrganismState::lineage` --
+    /// see [`LineStats`]. Read by `World::log`'s milestone/record checks at
+    /// every birth and death; O(1) per call, a `BTreeMap` rather than a
+    /// `Vec` because a lineage number is sparse and a founder click mints 52
+    /// of them at once with nothing in between to scan past.
+    ///
+    /// **Kept across a batch copy**, unlike `run_log` -- see `run_log.clear()`
+    /// at `batch.rs`'s copy path: "the counters are deliberately kept". A
+    /// milestone already crossed by the parent world stays crossed in the
+    /// copy, so a fifty-chamber fork does not re-announce the same rung
+    /// fifty times over.
+    pub(crate) line_stats: std::collections::BTreeMap<u32, LineStats>,
     /// **The dead, still listed.** See [`Graveyard`].
     ///
     /// Beside `deaths_by_cause` rather than instead of it: that is a count
@@ -3079,6 +3386,7 @@ impl World {
             deaths_by_cause: [0; organism::DEATH_CAUSES],
             group_deaths: Vec::new(),
             run_log: RunLog::default(),
+            line_stats: std::collections::BTreeMap::new(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
             denied_seen: [0; 64],
@@ -3811,6 +4119,10 @@ impl World {
             // for founders and copies the parent's for a bud.
             colony: 0,
             seeds_set: 0,
+            // Stamped by the caller once the child's mutation is known
+            // (`creature::try_bud`, `plant::bear_seed_at`); a founder or a
+            // released jar leaves this at its zero -- "nothing to report".
+            born_with: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
             senescent: false,
@@ -4066,14 +4378,11 @@ impl World {
         if creature {
             self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
         }
-        self.run_log.push(LogEvent {
-            frame: self.frame,
-            id: organism_id,
-            born_frame,
-            species,
-            kind: LogKind::Died,
-            other: cause.index() as u16,
-        });
+        self.log_for(
+            LogKind::Died,
+            cause.index() as u16,
+            LogSubject { id: organism_id, born_frame, species, lineage, generation },
+        );
         // **The lineage's own ending, which is the only line here about
         // something other than an individual.** A founding line going extinct
         // is the thing a selection experiment is watching for and the thing a
@@ -4083,15 +4392,21 @@ impl World {
         // The walk is O(live organisms) and runs only on a death -- tens of
         // organisms, hundreds of deaths in a long run.
         if lineage != 0 && !self.organisms.iter().any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage)) {
-            self.run_log.push(LogEvent {
-                frame: self.frame,
-                id: organism_id,
-                born_frame,
-                species,
-                kind: LogKind::LineEnded,
-                other: 0,
-            });
+            // **The fix for the standing `LINE 0 ENDED` bug.** `other` stayed
+            // a `u16` (too narrow for a lineage) and now carries nothing;
+            // the real number goes in `LogEvent::lineage`, which is why every
+            // reader of this kind switched to reading that field instead.
+            self.log_for(LogKind::LineEnded, 0, LogSubject { id: organism_id, born_frame, species, lineage, generation });
         }
+        // **The line's own population, one lower.** Beside the log pushes
+        // above rather than folded into them: a lineage can end (no lineage
+        // event) without ever having existed in `line_stats` (a test
+        // fixture that never called `claim_lineage`), and the population
+        // milestone table must not fire retroactively for that case --
+        // `note_line_population` returns early on `lineage == 0` but a
+        // never-seeded lineage still gets a real (if late-started) entry
+        // here, same as a plant founder's first germination.
+        self.note_line_population(lineage, -1, organism_id, born_frame, species, generation);
         // Counted here rather than at either call site: this is the one
         // function that decides a release really happened (both callers can
         // fire twice for one death, and the guards above are what stop the
@@ -4533,29 +4848,35 @@ impl World {
                     }
                 }
             }
-            // Clusters, each carrying its lowest lineage.
-            let mut clusters: Vec<(u32, Vec<u16>)> = Vec::new();
+            // Clusters, each carrying its lowest lineage and the id of the
+            // member that holds it -- `LogKind::GroupSplit`'s own identity,
+            // added beside the lineage tracking rather than as a second pass
+            // over `members`.
+            let mut clusters: Vec<(u32, u16, Vec<u16>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
                 let r = find(&mut parent, i);
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
                     None => {
-                        clusters.push((u32::MAX, Vec::new()));
+                        clusters.push((u32::MAX, 0, Vec::new()));
                         root_of.push((r, clusters.len() - 1));
                         clusters.len() - 1
                     }
                 };
-                clusters[at].0 = clusters[at].0.min(member.lineage);
-                clusters[at].1.push(member.id);
+                if member.lineage < clusters[at].0 {
+                    clusters[at].0 = member.lineage;
+                    clusters[at].1 = member.id;
+                }
+                clusters[at].2.push(member.id);
             }
             if clusters.len() < 2 {
                 continue;
             }
-            clusters.sort_by_key(|(lineage, ids)| (*lineage, ids[0]));
+            clusters.sort_by_key(|(lineage, low_id, _)| (*lineage, *low_id));
             // The first keeps the label; the rest, if big enough to be a
             // line, are minted as its children in that order.
-            for (_, ids) in clusters.iter().skip(1) {
+            for (_, low_id, ids) in clusters.iter().skip(1) {
                 if ids.len() < MIN_SPLIT_GROUP {
                     continue;
                 }
@@ -4568,6 +4889,12 @@ impl World {
                     }
                 }
                 minted += 1;
+                // **The mint itself, on the run log.** `id`/`born_frame` name
+                // the lowest-lineage member -- the same rule the label
+                // inheritance above uses -- so the line reads as "the group
+                // that kept ANIMAL n's family" rather than an arbitrary pick.
+                let born_frame = self.organism(*low_id).map_or(0, |s| s.born_frame);
+                self.log(LogKind::GroupSplit, *low_id, born_frame, species, child as u16);
             }
         }
         minted
@@ -7524,6 +7851,8 @@ mod tests {
             species: organism::SpeciesId(0),
             kind: LogKind::Born,
             other: 0,
+            lineage: 0,
+            generation: 0,
         };
 
         // Under the cap it drops nothing -- the specificity half, without
@@ -7567,6 +7896,8 @@ mod tests {
             species: organism::SpeciesId(0),
             kind,
             other: 0,
+            lineage: 0,
+            generation: 0,
         };
         log.push(line(10, 10, LogKind::Born));
         log.push(line(90, 10, LogKind::Died));
@@ -7577,6 +7908,30 @@ mod tests {
         assert_eq!(first, vec![90, 10], "the first tenant's timeline is wrong (newest first)");
         let second: Vec<u64> = log.about(9, 100).map(|e| e.frame).collect();
         assert_eq!(second, vec![100], "the slot's second tenant inherited the first one's life");
+    }
+
+    /// **The standing bug, made provable.** `LogKind::LineEnded` used to
+    /// push `other: 0` unconditionally -- `other` is a `u16` and a lineage a
+    /// `u32`, so it could not have carried the real number even if
+    /// something had tried to fill it in -- and every `LINE ENDED` line in
+    /// the game read `LINE 0 ENDED`. `LogEvent::lineage` is the fix; this is
+    /// red against the field it replaces and green against the one that
+    /// replaced it.
+    #[test]
+    fn a_line_ended_line_names_the_line_that_ended() {
+        let mut w = test_world();
+        let species = organism::SpeciesId(0);
+        let id = w.push_organism(species).expect("a fresh world has room for one organism");
+        if let Some(state) = w.organism_mut(id) {
+            state.lineage = 7;
+        }
+        w.free_organism(id);
+        let ended = w
+            .run_log
+            .recent()
+            .find(|e| e.kind == LogKind::LineEnded)
+            .expect("freeing the only member of lineage 7 did not end it");
+        assert_eq!(ended.lineage, 7, "the LINE ENDED line named lineage {} instead of 7", ended.lineage);
     }
 
     // --- meat_lost: the destruction seam ---------------------------------

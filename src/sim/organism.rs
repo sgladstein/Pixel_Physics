@@ -5190,6 +5190,42 @@ pub struct OrganismState {
     pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **The strongest single thing that changed between this individual and
+    /// its parent, packed rather than stored as a `String`** -- this field
+    /// lives on the hot organism table, cloned by every batch worker, so it
+    /// stays a `Copy` `u16` and the sentence is built on demand from it, the
+    /// same trade `LogEvent` makes.
+    ///
+    /// **Per-individual, never logged.** `CLAUDE.md`'s scale constraint: a
+    /// colony click founds 52 lineages and the box runs at 1,000+ animals, so
+    /// a line in the run log for every birth's mutation would drown the
+    /// chronicle the log exists to be. This is read on demand, on the CELL
+    /// page, for the one individual a player is actually looking at.
+    ///
+    /// High byte -- which channel changed:
+    /// - `0..=13` -- a `CREATURE_TRAITS` slot; low byte is the signed change
+    ///   as a percentage of that trait's `-1..=1` axis (e.g. `+12` is 12% of
+    ///   the axis, not 12% of the old value, which would be meaningless near
+    ///   zero), stored as an `i8`'s bit pattern.
+    /// - `14` -- no trait moved but synapses did; low byte is how many,
+    ///   saturating at 255 (`brain::mutate`'s own return, otherwise
+    ///   discarded).
+    /// - `20` -- a discrete allele jumped; low byte is the locus index
+    ///   (`DISCRETE_LOCI`).
+    /// - `21` -- the production rule mutated; low byte is the `FateOp`
+    ///   discriminant (`FateOp::ALL`'s index).
+    /// - `22` -- a parameter was overridden; low byte is unused (the
+    ///   specific override is already on `params.overrides()`, which the
+    ///   CELL page reads directly -- this only flags that one exists).
+    ///
+    /// `0` (the whole `u16`) means nothing worth reporting moved: a founder,
+    /// a released jar, or a birth whose mutation rolled and produced no
+    /// visible change. A plant's continuous jitter (every seed's
+    /// `genotype_draws`) never sets this -- see `plant::bear_seed_at`'s own
+    /// comment at the seam that decides it -- because it fires on every seed
+    /// and would make this field mean "this seed existed" rather than "this
+    /// seed's line moved".
+    pub born_with: u16,
     /// **What this individual has done in its life.**
     ///
     /// Every field is mirrored from a site that already increments the
