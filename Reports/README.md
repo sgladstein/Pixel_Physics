@@ -852,6 +852,33 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [colony-economy-design-2026-09-09.md](colony-economy-design-2026-09-09.md)
+  — **design of record for the creature line's energy economy, 2026-09-09.
+  Nothing built.** Asks the question §Z6's diagnosis leaves open — *where does
+  the energy actually go* — and the answer is that **foraging returns less
+  than it costs**: intake is **16% of burn**, and `burn = metabolized 4,604 +
+  moved 5,599 + synapse 593`, so **locomotion alone is 52% of the budget and
+  three times all the food the colony eats**. Rules out two explanations by
+  measurement: not vertical reach (ants climb to 22–23 rows; the 11-row figure
+  was a snapshot at the last sample) and **not distance — food dropped at the
+  nest buys 70% more meals and the colony still collapses 52 → 21**. The cliff
+  is the founding grant and the arithmetic predicts it: 200 J at 0.0524
+  J/frame is 3,817 frames, and the mass death lands between 3,500 and 4,000 —
+  every founder holds the same number so they empty together, a cohort rather
+  than a population. **1,434 ticks of uninterrupted feeding per child is 8,600
+  frames, which is exactly §4f's generation time**, so the generation clock
+  and the foraging economy are one problem. Four routes, priced: pricing
+  (**mostly no** — a step at 2.5x idle is defensible physiology), **food sharing
+  and rest** (both absent, both things real ants do), and three out-of-the-box
+  (castes, litter, a founding queen). **§4b is the one the owner asked for**:
+  `(Bias, Move, 2.0)` and `(Bias, Dig, 0.4)` are unconditional, so there is no
+  idle state at all — which is why an ant with nothing to do digs the world
+  out — and rest is the missing third of scouting-and-recruitment, whose other
+  two parts (the trail, castes) are already built. **§6 is a warning, not a
+  proposal**: `gut_bias: -1.0` is an owner-vetoed dead end (*"an omnivore
+  should be viable"*), and what is new is that **its price has moved** — the
+  2026-08-30 measurement put it at generation 2, today it reaches 19
+  — so the ruling stands on reasoning whose numbers are stale
 - [colony-starvation-separated-2026-09-08.md](colony-starvation-separated-2026-09-08.md)
   — **diagnosis, measured, 2026-09-08; nothing tuned, one instrument built.**
   Closes the question `open-bugs-handoff.md` §Z6 left open — *overgrazing or
@@ -866,9 +893,12 @@ drift that two of these documents still reflect.**
   later session should not re-derive. **The mechanism is one absence in the
   species file** — there is no `FoodNear`/`FoodBearing` input in `brain.rs` at
   all, only `FoodAdjacent`'s eight neighbours, and not one of the ant's twenty
-  authored weights reads a pheromone plane, so `(Carrying, EmitB, 2.5)` lays a
-  trail **no ant follows** and foraging is an undirected walk with a one-cell
-  mouth (`wiki/ants.md` promised the opposite and is corrected). **The full box
+  authored weights reads a pheromone plane. **That last clause was corrected
+  2026-09-09 and the report carries the note**: the *direct* weights do not,
+  but `ant.ron`'s `hidden_inputs` carry `PheroAAlong`/`PheroBAlong` into units
+  driving `Move`, gated on `Carrying`, so the trail **is** followed and the
+  candidate is a cold start — channel B is laid only by an ant already
+  carrying. The missing-*sense* half stands, and so does everything measured. **The full box
   is the control for stage one and was already in the matrix**: 87% of its
   founders are alive at frame 4,500 against 12% of the default box's, because
   its food is planted beside its nests — same animal, same budget. And **the
