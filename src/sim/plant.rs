@@ -2566,6 +2566,12 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     let mut fate_rolled = false;
     let mut fate_fired = false;
     let mut fate_applied = false;
+    // **Which discrete channel moved, if any -- `OrganismState::born_with`'s
+    // gate.** Both start `None`/unset and are filled only where the block
+    // below actually changes something, so "nothing discrete happened" is
+    // the honest default rather than a sentinel that has to be remembered.
+    let mut fate_op: Option<organism::FateOp> = None;
+    let mut jumped_locus: Option<usize> = None;
     if let Some(state) = world.organism_mut(child) {
         // Each trait drifts independently, so a genome is not a single
         // dial: two offspring of one parent can differ on branching and
@@ -2631,6 +2637,13 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
         // where `fates` and `params` each needed one.
         state.lineage_seed = parent_dev;
         organism::jump_alleles(&mut state.alleles, rng);
+        // **Which locus, not just how many** -- `jump_alleles` returns a
+        // count (a jump may redraw the allele it already had, so a landed
+        // draw is not always a change), and `born_with` wants to name the
+        // one that actually moved. `parent_alleles` is safe to compare
+        // against here: nothing between the assignment above and this call
+        // touches `state.alleles`.
+        jumped_locus = parent_alleles.iter().zip(state.alleles.iter()).position(|(a, b)| a != b);
         // **The appended slots, from their own keyed substream rather
         // than the shared `Rng`** -- and the substream is the whole
         // point, not an implementation detail.
@@ -2715,7 +2728,9 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
             // happen here — `push_organism` seeds every organism from its
             // species table. Folded in with a declined operator regardless,
             // so the counter means "the genome changed" whatever the route.
-            fate_applied = state.fates.mutate(&mut fate_rng).is_some_and(|m| m.applied);
+            let mutation = state.fates.mutate(&mut fate_rng);
+            fate_applied = mutation.is_some_and(|m| m.applied);
+            fate_op = mutation.map(|m| m.op);
         }
         // The provisioning: what the parent paid rides with the child and
         // becomes its first stake at germination -- see
@@ -2776,6 +2791,27 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
             }
         }
     }
+    // **`born_with`, gated on a discrete change only.** `genotype_draws`
+    // jitters on every single seed (`CLAUDE.md`'s own measurement: 3,099
+    // seeds against 279 germinations on the shipped bed), so if that
+    // channel could set this field it would mean "this seed existed" and
+    // not "this seed's line moved" -- see `OrganismState::born_with`'s doc.
+    // An allele that jumped wins over a fate mutation, which wins over a
+    // bare parameter override, matching the order the block above rolls
+    // them: the rarest, most legible channel is reported first.
+    let born_with: u16 = if let Some(locus) = jumped_locus {
+        (20u16 << 8) | locus as u16
+    } else if fate_applied {
+        let op_index = fate_op.and_then(|op| organism::FateOp::ALL.iter().position(|o| *o == op)).unwrap_or(0);
+        (21u16 << 8) | op_index as u16
+    } else if param_applied {
+        22u16 << 8
+    } else {
+        0
+    };
+    if let Some(state) = world.organism_mut(child) {
+        state.born_with = born_with;
+    }
     world.set(sx, sy, Cell::new(seed_material, shade).with_organism_id(child).with_aux(organism::pack_cell_type(CellType::Seed)));
     world.schedule_active_site(reschedule_organism(sx, sy, child, 0, 0, world.frame + SEED_TICK_INTERVAL));
     let mut first_seed = false;
@@ -2791,14 +2827,7 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
     // becomes a parent, which happens once.
     if first_seed {
         if let Some((born_frame, species)) = world.organism(parent_id).map(|s| (s.born_frame, s.species)) {
-            world.run_log.push(crate::sim::world::LogEvent {
-                frame: world.frame,
-                id: parent_id,
-                born_frame,
-                species,
-                kind: crate::sim::world::LogKind::FirstSeed,
-                other: child,
-            });
+            world.log(crate::sim::world::LogKind::FirstSeed, parent_id, born_frame, species, child);
         }
     }
     // Beside the parent's own tally rather than instead of it: `seeds_set`
@@ -10880,15 +10909,17 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // records, and why the AGE row says a dormant seed reads old. The line in
     // the log is about the plant arriving above ground, which is the event a
     // reader means.
-    if let Some((born_frame, species)) = world.organism(organism_id).map(|s| (s.born_frame, s.species)) {
-        world.run_log.push(crate::sim::world::LogEvent {
-            frame: world.frame,
-            id: organism_id,
-            born_frame,
-            species,
-            kind: crate::sim::world::LogKind::Born,
-            other: 0,
-        });
+    if let Some((born_frame, species, lineage, generation)) =
+        world.organism(organism_id).map(|s| (s.born_frame, s.species, s.lineage, s.generation))
+    {
+        world.log(crate::sim::world::LogKind::Born, organism_id, born_frame, species, 0);
+        // **The line's population, one higher.** Plant lineages get no
+        // `note_line_generation`/`note_line_record` call (see
+        // `LogKind::LineMilestone`/`LineRecord`'s own docs -- deepest
+        // generation and trait records are the animal birth path only), but
+        // the population count is common to both kingdoms: a stand of 1,000
+        // is as real a finding as a colony of 1,000.
+        world.note_line_population(lineage, 1, organism_id, born_frame, species, generation);
     }
     // No `schedule_structural_check_around` on either the new tip or the
     // root -- see the identical reasoning on `Behavior::Grow`'s own child

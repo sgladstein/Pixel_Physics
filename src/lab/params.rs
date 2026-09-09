@@ -1847,6 +1847,11 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
 /// -- an individual older than the log's window has a truncated story, and a
 /// truncated story must not read as an uneventful one.
 fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+    // **Short forms, dropping the subject** -- the page title already names
+    // this individual, so `Ui::log_rows`' full sentence ("KESTREL-3 BORN TO
+    // KESTREL-2") would repeat itself here. See `world::LogEvent`'s doc for
+    // why `lineage`/`generation` are enough to build these with no further
+    // lookup.
     let mut rows: Vec<SpecimenRow> = world
         .run_log
         .about(id, born_frame)
@@ -1854,16 +1859,36 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
             (
                 format!("F{}", e.frame),
                 match e.kind {
-                    world::LogKind::Born => "BORN".to_string(),
+                    world::LogKind::Born => {
+                        if e.generation == 0 {
+                            "GERMINATED".to_string()
+                        } else {
+                            format!("BORN TO {}", crate::lab::names::individual(world.seed, e.lineage, e.generation - 1))
+                        }
+                    }
                     world::LogKind::Died => organism::DEATH_CAUSE_LIST
                         .get(e.other as usize)
                         .map(|c| c.label().to_string())
                         .unwrap_or_else(|| "DIED".to_string()),
                     world::LogKind::FirstFeed => "FIRST FED".to_string(),
                     world::LogKind::FirstSeed => "FIRST SEED".to_string(),
-                    world::LogKind::LineEnded => format!("LINE {} ENDED", e.other),
+                    world::LogKind::LineEnded => format!("LINE ENDED, {} GEN", e.generation),
+                    world::LogKind::GroupSplit => {
+                        let count = world
+                            .live_creature_groups()
+                            .iter()
+                            .find(|g| g.species == e.species && g.colony == e.other as u32)
+                            .map(|g| g.alive)
+                            .unwrap_or(0);
+                        format!("SPLIT OFF, {count}")
+                    }
+                    world::LogKind::LineMilestone => {
+                        let (is_population, threshold) = world::decode_milestone(e.other);
+                        if is_population { format!("LINE NUMBERS {threshold}") } else { format!("LINE REACHES GEN {threshold}") }
+                    }
+                    world::LogKind::LineRecord => crate::lab::plainspeak::describe_record(e.other),
                 },
-                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S WHAT HAPPENED LIST IS THE SAME LOG WITH EVERYBODY IN IT.".to_string(),
+                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S LOG LIST IS THE SAME LOG WITH EVERYBODY IN IT, IN FULL SENTENCES.".to_string(),
             )
         })
         .collect();
@@ -1872,6 +1897,19 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
             "NO LINES".into(),
             "--".into(),
             "NOTHING THIS INDIVIDUAL DID HAS REACHED THE RUN LOG. EITHER IT HAS NOT YET DONE ANYTHING NOTABLE, OR IT IS OLD ENOUGH THAT ITS LINES HAVE AGED OUT OF THE LOG -- THE WHAT HAPPENED PAGE SAYS HOW MANY HAVE BEEN LOST FOR GOOD.".into(),
+        ));
+    }
+    // **`BORN WITH`, added here rather than in the STATE group** -- this
+    // function is this lane's only foothold in `params.rs`. `None` (a
+    // founder, a released jar, or a mutation that rolled and changed
+    // nothing visible) means no row at all, not a row that says "nothing":
+    // most individuals in a box will not have one, and a page that grew a
+    // permanent blank row for the common case would be noise.
+    if let Some(phrase) = world.organism(id).and_then(|s| crate::lab::plainspeak::describe_born_with(s.born_with)) {
+        rows.push((
+            "BORN WITH".into(),
+            phrase,
+            "THE STRONGEST SINGLE THING THAT CHANGED BETWEEN THIS INDIVIDUAL AND ITS PARENT. THE STRONGEST ONE ONLY -- EVERY OTHER MUTATION THAT BIRTH MADE IS REAL AND UNREPORTED, THE SAME WAY A HEADLINE NAMES ONE FACT OUT OF MANY.".into(),
         ));
     }
     rows
@@ -2550,5 +2588,50 @@ mod tests {
         assert_eq!(world.frame, before, "writing the spec must not touch the running world");
         assert!(needs_rebuild(&Knob::Bed { field: "soil_depth" }));
         assert!(!needs_rebuild(&Knob::Material { material: "soil", field: "density" }));
+    }
+
+    /// **`story`'s value column is the CELL page's, not the LOG page's** --
+    /// 26 characters (`plainspeak::PHRASE_COLUMNS`), not 42. `Ui::log_rows`
+    /// has its own width guard against its own 42-character budget; this is
+    /// the narrower sibling for the shortened forms `story` builds instead
+    /// of reusing them, so a sentence that fits the LOG page could still
+    /// widen the CELL page over the roster -- the exact trap
+    /// `plainspeak::every_phrase_fits_the_column`'s own doc names ("a
+    /// thirty-character phrase pushed the page to 250px").
+    #[test]
+    fn a_story_row_fits_the_specimen_columns_width() {
+        let mut world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let base = world::LogEvent {
+            frame: 30_000,
+            id: 7,
+            born_frame: 0,
+            species: SpeciesId(0),
+            kind: world::LogKind::Born,
+            other: 0,
+            lineage: 200,
+            generation: 200,
+        };
+        let events = [
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
+            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4, ..base },
+        ];
+        for e in events {
+            world.run_log.push(e);
+        }
+        let limit = crate::lab::plainspeak::PHRASE_COLUMNS;
+        for (label, value, _) in story(&world, base.id, base.born_frame) {
+            assert!(
+                value.chars().count() <= limit,
+                "{label:?}/{value:?} is {} characters against a {limit}-character column",
+                value.chars().count()
+            );
+        }
     }
 }

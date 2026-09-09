@@ -49,6 +49,7 @@ use crate::render;
 use crate::sim::organism::SpeciesId;
 use crate::sim::world::{self, World};
 
+use super::names;
 use super::params;
 use super::plainspeak;
 use super::roster;
@@ -532,6 +533,10 @@ pub enum Action {
     /// `Ui::scenarios()`, resolved fresh at the moment the row is clicked --
     /// see `Lab::act`'s own note on why the index is not cached.
     ScenarioLoad(usize),
+    /// Cycle the LOG page's filter: the chronicle (line-level events only),
+    /// everything, or just the pinned individual's own timeline. See
+    /// [`LogFilter`].
+    CycleLogFilter,
 }
 
 /// **What a left-click on the world does.**
@@ -2324,6 +2329,44 @@ pub struct Ui {
     /// the only reader and it treats `None` as `Off`, which is the enum's
     /// own "nothing has customised this yet" state.
     creature_colour: Option<render::CreatureColour>,
+    /// **What the LOG page shows right now.** See [`LogFilter`]; defaults to
+    /// `Lines` (the chronicle), which is `Ui`'s `#[derive(Default)]` picking
+    /// up `LogFilter`'s own `#[default]`.
+    log_filter: LogFilter,
+}
+
+/// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
+///
+/// `Lines` is the shipped default: the four line-level kinds
+/// (`LogKind::is_line_event`) are bounded per lineage rather than per birth,
+/// so this reads as a chronicle at any population -- 4 ants or 1,000 -- where
+/// `All` (the page's old behaviour, every kind) would be a wall of `BORN`
+/// and `DIED` the moment a colony gets large. `Pinned` narrows to the pinned
+/// individual's own timeline, the filter `RunLog::about` already gives the
+/// CELL page, read here for whoever wants it beside the box's whole history.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LogFilter {
+    #[default]
+    Lines,
+    All,
+    Pinned,
+}
+
+impl LogFilter {
+    fn next(self) -> Self {
+        match self {
+            LogFilter::Lines => LogFilter::All,
+            LogFilter::All => LogFilter::Pinned,
+            LogFilter::Pinned => LogFilter::Lines,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            LogFilter::Lines => "LINES",
+            LogFilter::All => "ALL",
+            LogFilter::Pinned => "PINNED",
+        }
+    }
 }
 
 /// Every species that can be planted, in a stable order.
@@ -2678,6 +2721,18 @@ impl Ui {
     /// not need a private-field workaround to ask.
     pub fn creature_colour(&self) -> render::CreatureColour {
         self.creature_colour.unwrap_or(render::CreatureColour::Off)
+    }
+
+    /// The LOG page's current filter. `pub` for the same reason
+    /// `creature_colour` is: a test should not need a private-field
+    /// workaround to ask what a dial reads.
+    pub fn log_filter(&self) -> LogFilter {
+        self.log_filter
+    }
+
+    /// `Action::CycleLogFilter`'s handler.
+    pub fn cycle_log_filter(&mut self) {
+        self.log_filter = self.log_filter.next();
     }
 
     /// Where the button for `action` was drawn last frame.
@@ -3724,15 +3779,27 @@ impl Ui {
         rows
     }
 
-    /// The run log as rows, newest first.
+    /// **The run log as sentences, newest first.**
+    ///
+    /// Every founder and every founding line has a name (`names::line_name`,
+    /// `names::individual`) drawn from `(the box's own seed, its lineage
+    /// number)`, so a line here reads as a thing that happened to somebody
+    /// -- `KESTREL-3 BORN TO KESTREL-2` -- rather than as a handle. See
+    /// [`format_log_line`], which builds the sentence a row draws.
     ///
     /// **Bounded twice, and both bounds are stated on the page.** The log
     /// itself drops its oldest lines past `world::RUN_LOG_CAP`, and this page
-    /// shows only the newest `LOG_ROWS` of what survives. Neither is allowed
-    /// to read as *nothing happened*: the last row says how many lines are
-    /// off the bottom and how many are gone for good. A trimmed history that
-    /// looks like a quiet one is the same failure as a zero body count read
-    /// as "chunks are working".
+    /// shows only the newest `LOG_ROWS` of what survives *the filter below*.
+    /// Neither is allowed to read as *nothing happened*: the last row says
+    /// how many lines are off the bottom and how many are gone for good. A
+    /// trimmed history that looks like a quiet one is the same failure as a
+    /// zero body count read as "chunks are working".
+    ///
+    /// **The filter, defaulting to `LINES`.** `LogKind::is_line_event` is
+    /// exactly the four kinds bounded per *lineage* rather than per birth --
+    /// a colony click founds 52 lineages and the box runs at 1,000+ animals,
+    /// so `ALL` (every `Born`/`Died` too) is unreadable at that scale while
+    /// the chronicle stays a few lines a minute regardless of population.
     fn log_rows(&self, world: &World) -> Vec<Row> {
         let mut rows = vec![Row::head(
             "BACK TO THE BOX",
@@ -3741,56 +3808,40 @@ impl Ui {
             Action::Panel(Panel::Box),
             "RETURN TO THE BOX PAGE.",
         )];
-        let shown: Vec<&world::LogEvent> = world.run_log.recent().take(LOG_ROWS).collect();
+        rows.push(Row::choice(
+            "SHOWING",
+            self.log_filter.label(),
+            Action::CycleLogFilter,
+            "LINES: ONLY WHAT HAPPENED TO A FOUNDING LINE AS A WHOLE -- BOUNDED PER LINE, SO THIS STAYS READABLE AT ANY POPULATION. ALL: EVERY BIRTH AND DEATH TOO. PINNED: ONLY THE PINNED INDIVIDUAL'S OWN TIMELINE. CLICK TO CYCLE.",
+        ));
+        let pinned = self.pinned();
+        let matches_filter = |e: &world::LogEvent| match self.log_filter {
+            LogFilter::Lines => e.kind.is_line_event(),
+            LogFilter::All => true,
+            LogFilter::Pinned => pinned.is_some_and(|p| p.id == e.id && p.born_frame == e.born_frame),
+        };
+        let all: Vec<&world::LogEvent> = world.run_log.recent().collect();
+        let shown: Vec<&world::LogEvent> = all.iter().filter(|e| matches_filter(e)).take(LOG_ROWS).copied().collect();
         if shown.is_empty() {
             rows.push(Row::value(
                 "NOTHING YET",
                 "--".to_string(),
                 FAINT,
-                "NO BIRTH, DEATH OR FIRST HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
+                "NOTHING MATCHING THIS FILTER HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
             ));
         }
         for e in shown.iter() {
-            let who = param_label(&world.species.get(e.species).name);
-            let (what, tint, note) = match e.kind {
-                world::LogKind::Born => (
-                    format!("{who} {} BORN", e.id),
-                    GOOD,
-                    format!(
-                        "A SEED GERMINATED, OR AN ANIMAL BUDDED FROM {}. THE NUMBER IS THE SLOT IT HOLDS, WHICH IS REUSED AFTER 16 TURNS -- THE ROSTER PINS BY SLOT AND BIRTH FRAME TOGETHER FOR THAT REASON.",
-                        if e.other == 0 { "NOTHING".to_string() } else { format!("PARENT {}", e.other) }
-                    ),
-                ),
-                world::LogKind::Died => (
-                    format!("{who} {} {}", e.id, cause_of(e.other)),
-                    POOR,
-                    "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED OR LOST IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
-                ),
-                world::LogKind::FirstFeed => (
-                    format!("{who} {} FIRST FED", e.id),
-                    VALUE,
-                    "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
-                ),
-                world::LogKind::FirstSeed => (
-                    format!("{who} {} FIRST SEED", e.id),
-                    VALUE,
-                    "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
-                ),
-                world::LogKind::LineEnded => (
-                    format!("LINE {} ENDED", e.other),
-                    POOR,
-                    "THE LAST LIVING MEMBER OF A LINEAGE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
-                ),
-            };
+            let (what, tint, note) = format_log_line(world, e);
             rows.push(Row::value(format!("F{}", e.frame), what, tint, note));
         }
-        let below = world.run_log.len().saturating_sub(shown.len());
+        let matched_total = all.iter().filter(|e| matches_filter(e)).count();
+        let below = matched_total.saturating_sub(shown.len());
         let dropped = world.run_log.dropped();
         rows.push(Row::value(
             "OLDER",
             if dropped == 0 { format!("{below} MORE") } else { format!("{below} MORE, {dropped} LOST") },
             FAINT,
-            "HOW MANY LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
+            "HOW MANY MATCHING LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE WHOLE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
         ));
         rows
     }
@@ -4809,6 +4860,119 @@ fn cause_of(index: u16) -> &'static str {
     match crate::sim::organism::DEATH_CAUSE_LIST.get(index as usize) {
         Some(c) => c.label(),
         None => "DIED",
+    }
+}
+
+/// **One run-log line, as a sentence.** Shared between `Ui::log_rows` (the
+/// BOX/LOG page, 42-character column) and `params::story` (the CELL page,
+/// narrower) so the two pages cannot describe the same event two different
+/// ways. Returns `(value text, tint, hover note)`.
+///
+/// **Every sentence names its subject with `names::individual`/
+/// `names::line_name`** -- a pure function of `(world.seed, lineage[,
+/// generation])`, so it costs no lookup beyond the fields already on
+/// `LogEvent` and cannot go stale even for a `LineEnded` or `Died` line
+/// whose organism is already gone.
+fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], String) {
+    match e.kind {
+        world::LogKind::Born => {
+            let child = names::individual(world.seed, e.lineage, e.generation);
+            // **Generation 0 is planted, not bred.** Every animal `Born`
+            // line is a bud (generation >= 1 by construction -- founders
+            // never push one), but a plant's germination pushes `Born`
+            // whether it was sown by a player or borne by a parent, and a
+            // sown seed's generation is 0. `individual(..., -1)` would
+            // otherwise name the child its own parent.
+            if e.generation == 0 {
+                (format!("{child} GERMINATED"), GOOD, "A PLANTED SEED CAME UP -- ITS LINE'S FIRST GENERATION, NOT BRED FROM ANYTHING IN THIS BOX.".to_string())
+            } else {
+                let parent = names::individual(world.seed, e.lineage, e.generation - 1);
+                (
+                    format!("{child} BORN TO {parent}"),
+                    GOOD,
+                    "A CREATURE BUDDED, OR A SEED GERMINATED FROM A BRED PARENT. THE NAME IS THE LINE PLUS THIS ONE'S OWN GENERATION -- SIBLINGS OF ONE COHORT SHARE IT, WHICH IS WHY AN EVENT ABOUT ONE OF THEM NAMES THE EVENT, NOT THE SLOT.".to_string(),
+                )
+            }
+        }
+        world::LogKind::Died => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} {}", cause_of(e.other)),
+                POOR,
+                "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
+            )
+        }
+        world::LogKind::FirstFeed => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} FED FOR THE FIRST TIME"),
+                VALUE,
+                "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
+            )
+        }
+        world::LogKind::FirstSeed => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} SET ITS FIRST SEED"),
+                VALUE,
+                "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
+            )
+        }
+        world::LogKind::LineEnded => {
+            let line = names::line_name(world.seed, e.lineage);
+            (
+                format!("THE {line} LINE ENDED, {} GENERATIONS", e.generation),
+                POOR,
+                "THE LAST LIVING MEMBER OF A FOUNDING LINE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
+            )
+        }
+        world::LogKind::GroupSplit => {
+            let child_colony = e.other as u32;
+            let new_label = world.group_label(e.species, child_colony);
+            let parent_label = world
+                .colony_parents
+                .iter()
+                .find(|(c, _)| *c == child_colony)
+                .map(|(_, p)| world.group_label(e.species, *p))
+                .unwrap_or_else(|| "?".to_string());
+            let count = world
+                .live_creature_groups()
+                .iter()
+                .find(|g| g.species == e.species && g.colony == child_colony)
+                .map(|g| g.alive)
+                .unwrap_or(0);
+            (
+                format!("{new_label} SPLIT FROM {parent_label}, {count}"),
+                VALUE,
+                format!("A FAMILY WHOSE SCENT HAD DRIFTED WAS GIVEN ITS OWN LABEL AND COLOUR, RATHER THAN STAYING COUNTED UNDER {parent_label}'S. {count} ANIMALS ARE IN IT NOW."),
+            )
+        }
+        world::LogKind::LineMilestone => {
+            let line = names::line_name(world.seed, e.lineage);
+            let (is_population, threshold) = world::decode_milestone(e.other);
+            if is_population {
+                (
+                    format!("{line} NUMBERS {threshold}"),
+                    GOOD,
+                    "THIS FOUNDING LINE'S LIVING COUNT FIRST REACHED THIS NUMBER. FIRST-REACH ONLY -- IT DOES NOT FIRE AGAIN EVERY TIME THE COUNT PASSES BACK OVER IT.".to_string(),
+                )
+            } else {
+                (
+                    format!("{line} REACHES GENERATION {threshold}"),
+                    GOOD,
+                    "A DESCENDANT OF THIS FOUNDING LINE FIRST REACHED THIS MANY GENERATIONS OF DEPTH. FIRST-REACH ONLY, LIKE THE POPULATION VERSION OF THIS LINE.".to_string(),
+                )
+            }
+        }
+        world::LogKind::LineRecord => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            let frag = plainspeak::describe_record(e.other);
+            (
+                format!("{who}: {frag}"),
+                VALUE,
+                "THE FIRST OF ITS LINE TO DRIFT THIS FAR FROM THE FOUNDER ON ONE TRAIT, IN EITHER DIRECTION. AT MOST FOUR OF THESE PER TRAIT PER LINE, EVER -- THE AXIS IS TWO UNITS WIDE END TO END.".to_string(),
+            )
+        }
     }
 }
 
@@ -7300,8 +7464,17 @@ mod tests {
             }
         }
 
+        // **Every stem the line-namer can draw**, checked directly rather
+        // than hoping a fixture happens to found enough lineages to reach
+        // one of the rarer ones -- a stem table is exactly the kind of
+        // string this trap has hit three times already (`[`/`]`, `_`/`<`/
+        // `>`, `;`/`'`, each shipped blank).
+        for stem in names::STEMS {
+            check(stem, "line-name stem");
+        }
+
         let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
-        for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
+        for panel in [Panel::Plants, Panel::Ants, Panel::Box, Panel::Log] {
             check(panel.title(), "page title");
             for row in ui.panel_rows(panel, &world, &spec, 60.0) {
                 match &row.body {
@@ -7329,6 +7502,59 @@ mod tests {
             check(&row.note, "inspector explanation");
         }
         assert!(checked > 200, "the sweep only reached {checked} strings");
+    }
+
+    /// **A LOG row must stay narrow enough that the CELL page still fits
+    /// beside it.** Measured in `lab-arch-map.md`: the LOG page must stay
+    /// under ~316 px so `widest_cell_page()` (183 px) plus the 6 px gap
+    /// between panels still lands inside `W`. Goes red the moment a
+    /// sentence grows past roughly 42 characters in the value column --
+    /// which is exactly the trap a translated or lengthened phrase would
+    /// fall into without this.
+    #[test]
+    fn a_log_line_fits_beside_the_cell_page() {
+        let mut world = world();
+        let base = world::LogEvent {
+            frame: 30_000,
+            id: 7,
+            born_frame: 0,
+            species: crate::sim::organism::SpeciesId(0),
+            kind: world::LogKind::Born,
+            other: 0,
+            lineage: 200, // near the top of `names::STEMS`' wrap-free range
+            generation: 200,
+        };
+        let events = [
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
+            world::LogEvent {
+                kind: world::LogKind::LineRecord,
+                other: ((crate::sim::organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4,
+                ..base
+            },
+        ];
+        for e in events {
+            world.run_log.push(e);
+        }
+        let mut ui = Ui::new();
+        ui.log_filter = LogFilter::All; // every kind must fit, not only the default filter's
+        let budget = W as i32 - widest_cell_page() - 6 - MARGIN * 2;
+        for row in ui.log_rows(&world) {
+            if let Body::Value { label, value, .. } = &row.body {
+                let width = row.width();
+                assert!(
+                    width <= budget,
+                    "{label:?}/{value:?} is {width} px against a {budget} px budget -- \
+                     the CELL page would no longer fit beside the LOG page"
+                );
+            }
+        }
     }
 
     /// A bar wider than the screen loses its last button off the right edge,

@@ -571,6 +571,85 @@ fn generic(input: BrainInput, output: BrainOutput) -> (String, String) {
     }
 }
 
+/// A `CREATURE_TRAITS` slot, as a short label for `describe_born_with`'s and
+/// `describe_record`'s sentences.
+///
+/// **A different vocabulary from `describe`'s own**, deliberately: that
+/// function turns a value into a verdict ("EATS FLESH"), which reads well
+/// once and cannot sit next to a percentage. This is the bare noun a change
+/// is *about* -- "GUT +12%" -- which is what a mutation record needs.
+fn trait_word(slot: usize) -> &'static str {
+    match slot {
+        organism::TRAIT_GUT_BIAS => "GUT",
+        organism::TRAIT_BIRTH_GRANT => "BIRTH GRANT",
+        organism::TRAIT_REPRODUCE_AT => "BREEDING AGE",
+        organism::TRAIT_SIGHT_RANGE => "SIGHT",
+        organism::TRAIT_PACE => "PACE",
+        organism::TRAIT_CURVATURE_RADIUS => "REACH",
+        organism::TRAIT_DIG_FORCE => "DIG STRENGTH",
+        organism::TRAIT_DIGEST_RATE => "DIGESTION",
+        organism::TRAIT_CROP_CAPACITY => "CROP SIZE",
+        organism::TRAIT_ARMOUR => "ARMOUR",
+        organism::TRAIT_SCENT_A | organism::TRAIT_SCENT_B | organism::TRAIT_SCENT_C => "SCENT",
+        organism::TRAIT_TOLERANCE => "TOLERANCE",
+        _ => "A TRAIT",
+    }
+}
+
+/// One of the six discrete plant loci, named -- see `organism::DISCRETE_LOCI`.
+fn locus_word(locus: usize) -> &'static str {
+    match locus {
+        organism::LOCUS_LEAF_ECONOMY => "LEAF ECONOMY",
+        organism::LOCUS_BRANCH_ANGLE => "BRANCH ANGLE",
+        organism::LOCUS_INTERNODE => "INTERNODE",
+        organism::LOCUS_SYMPODIAL => "SYMPODIAL",
+        organism::LOCUS_TROPISM => "TROPISM",
+        organism::LOCUS_WOOD_DENSITY => "WOOD DENSITY",
+        _ => "A LOCUS",
+    }
+}
+
+/// **`OrganismState::born_with`, as a short phrase for the CELL page's own
+/// `BORN WITH` row.** `None` when nothing worth reporting moved -- a
+/// founder, a released jar, or a birth whose roll produced no visible
+/// change -- which is `born_with`'s own zero state; see that field's doc
+/// for the encoding decoded here.
+///
+/// **Per-individual, on demand, never logged** -- this is the CELL page's
+/// own row, not a run-log line: `CLAUDE.md`'s scale constraint is that a
+/// colony click founds 52 lineages and the box runs at 1,000+ animals, so
+/// mutation detail lives here, read only for the one individual a player is
+/// actually looking at.
+pub fn describe_born_with(born_with: u16) -> Option<String> {
+    if born_with == 0 {
+        return None;
+    }
+    let channel = (born_with >> 8) as u8;
+    let low = (born_with & 0x00FF) as u8;
+    Some(match channel {
+        0..=13 => format!("{} {:+}%", trait_word(channel as usize), low as i8),
+        14 => format!("{low} SYNAPSES MOVED"),
+        20 => format!("{} JUMPED", locus_word(low as usize)),
+        21 => format!(
+            "{} MUTATED",
+            organism::FateOp::ALL.get(low as usize).map(|op| op.name().to_uppercase()).unwrap_or_else(|| "A RULE".to_string())
+        ),
+        22 => "A PARAMETER OVERRIDDEN".to_string(),
+        _ => "SOMETHING CHANGED".to_string(),
+    })
+}
+
+/// **A `LineRecord` event's `other`, as a short trait phrase.** No sign: the
+/// payload does not carry one (`LogKind::LineRecord`'s own doc -- `other` is
+/// `slot << 8 | step`, and re-deriving the direction would mean re-reading
+/// the individual's live traits, which may no longer exist by the time this
+/// is read). This names what drifted and how far, never which way.
+pub fn describe_record(other: u16) -> String {
+    let slot = (other >> 8) as usize;
+    let step = (other & 0x00FF) as u32;
+    format!("{} {}%", trait_word(slot), step * 50)
+}
+
 /// **Describe the individual `id` in `world`.**
 pub fn describe(world: &World, id: u16) -> Vec<Phrase> {
     let Some(state) = world.organism(id) else { return Vec::new() };
