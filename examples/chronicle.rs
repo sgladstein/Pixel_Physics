@@ -42,6 +42,7 @@ fn main() {
         founders: arg("founders").unwrap_or(LabBox::default().founders),
         colonies: arg("colonies").unwrap_or(LabBox::default().colonies),
         seed: arg("seed").unwrap_or(LabBox::default().seed),
+        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
         ..LabBox::default()
     };
     let mut world = spec.build();
@@ -49,8 +50,9 @@ fn main() {
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
     println!(
-        "chronicle: founders={} colonies={} seed={} frames={} showing={}",
+        "chronicle: founders={} of {} colonies={} seed={} frames={} showing={}",
         spec.founders,
+        spec.species,
         spec.colonies,
         spec.seed,
         frames,

@@ -236,6 +236,10 @@ fn main() {
         colonies: arg("colonies").unwrap_or(1),
         compartments: arg("walls").unwrap_or(1),
         seed: arg("seed").unwrap_or(1),
+        // `plant=<species>`: every figure this harness has produced was on
+        // the default eight herbs; the owner's played bed is whatever the
+        // PLANT chip offers, and a canopy is a different larder from a herb.
+        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
         ..LabBox::default()
     };
     if control == "selftest" {
@@ -244,8 +248,8 @@ fn main() {
     // Echo the parameters. A knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- `plant_probe`'s 3.5-hour lesson.
     println!(
-        "labforage: frames={frames} sample={sample_every} founders={} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}",
-        spec.founders, spec.colonies, spec.compartments, spec.soil_depth, spec.seed
+        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}",
+        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed
     );
 
     // Built bare and founded afterwards, for `windfall_probe`'s reason: a
