@@ -127,6 +127,14 @@ pub fn line_name(seed: u64, lineage: u32) -> String {
 /// needs to tell them apart names the event instead (`ui.rs`'s `Born`
 /// sentence says who bore whom by generation, never by slot).
 pub fn individual(seed: u64, lineage: u32, generation: u16) -> String {
+    // A founder is the only generation-0 member its line will ever have --
+    // `claim_lineage` is called once per founder and children copy the
+    // number -- so it simply *is* the line: `ASPEN FELLED`, not `ASPEN-0
+    // FELLED`, and `THE ASPEN LINE ENDED WITH ITS FOUNDER` names the same
+    // animal the same way.
+    if generation == 0 {
+        return line_name(seed, lineage);
+    }
     format!("{}-{}", line_name(seed, lineage), generation)
 }
 
