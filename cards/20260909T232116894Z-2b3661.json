@@ -1,0 +1,56 @@
+{
+  "id": "20260909T232116894Z-2b3661",
+  "created": "2026-09-09T23:21:16Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/evolution-lab-direction-2026-8ftvma",
+    "commit": "b41a9abf",
+    "agent": null,
+    "session_id": "7b7f30b8-3bad-5327-b315-8c4941c06530",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "You asked for a tree in the bed. One tree turns the lights out.",
+  "question": "Both beds run 120,000 frames, no ants, same box, same lamps. The herb bed stays lit and crowded. The single tree grows into 79 plants that shade the bench to under 1% of lamp light, and nothing low can live under it. Do you want the tree in the mixed bed anyway -- a dark forest floor the colony forages under -- or should the mix be herb, grass and shrub only, keeping the bench lit?",
+  "context_md": "You asked for **herb + grass + shrub + a tree**, and I am building that bed. Before I spend 18 measurement runs on it, this is what the tree does to it.\n\nEach panel is one bed at 6,000 / 30,000 / 60,000 / 120,000 frames, top to bottom.\n\nA tree is not a bigger herb here -- it is a canopy. One founder becomes 79 plants and 22,141 cells, more plant matter than the whole herb bed, but all of it above a bench that has gone dark. The herb bed holds 614 plants and stays at a quarter of full lamp light for the entire run.\n\n**What I am unsure of and want your eye on:** whether a dark forest floor is the bed you want the ants to live in. It is realistic, and it may be more interesting than a lit lawn. But the plants that feed them are the low ones, so the food supply is what the shade takes away.\n\nI can also give you the tree on a shorter run, or a bed where the tree is walled into one compartment and the rest stays lit -- say if either is what you meant.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "herb, grass, shrub -- no tree",
+      "files": [
+        "20260909T232116894Z-2b3661/000-herbonly.png"
+      ],
+      "caption": "24 herb founders, the bench stays lit for the whole run",
+      "meta": {
+        "light reaching the bench at 120k (1.0 = full lamp)": 0.24,
+        "plants alive at 120k": 614,
+        "plant cells at 120k": 13485,
+        "seeds set by 120k": 8912
+      },
+      "focus": null
+    },
+    {
+      "label": "with a tree in it",
+      "files": [
+        "20260909T232116894Z-2b3661/001-onetree.png"
+      ],
+      "caption": "one tree founder, and by 30,000 frames the bench is dark",
+      "meta": {
+        "light reaching the bench at 120k (1.0 = full lamp)": 0.008,
+        "plants alive at 120k": 79,
+        "plant cells at 120k": 22141,
+        "seeds set by 120k": 735
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
