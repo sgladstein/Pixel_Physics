@@ -9400,7 +9400,17 @@ mod tests {
         // `Attack` must never swing. Without this arm the test would be
         // green on a verb that fired for everybody, since both arms above
         // wire it.
-        let (unwired, unwired_cells, _, _) = fight_wired(true, false);
+        // **The shipped ant, beside a nestmate, with nothing authored on
+        // `Attack` but the alarm wire.** This arm read "strangers, unwired"
+        // until 2026-09-09 and asserted zero swings -- which held only because
+        // two full ants walked apart before either bit the other. The hunger
+        // wire made a full ant rest, so two strangers placed adjacent now
+        // stay adjacent: the stranger eats the non-kin ant beside it, the
+        // bite raises alarm, and `(Alarm, Attack, 2.0)` -- shipped since
+        // 8d26d46a -- fires exactly as designed. The claim that survives is
+        // "unprovoked, the shipped ant never swings", and a nestmate is the
+        // one neighbour it cannot be provoked by.
+        let (unwired, unwired_cells, _, _) = fight_wired(false, false);
         assert!(
             strangers > 0,
             "the wired verb never fired against a stranger, so nothing below is about attacking: {strangers} attacks"
@@ -9416,7 +9426,7 @@ mod tests {
         assert_eq!(
             (unwired, unwired_cells),
             (0, 0),
-            "the shipped ant carries no weight on Attack and must never swing: {unwired} attacks, {unwired_cells} cells -- if this fires, every animal in every bed started fighting the day the verb landed"
+            "the shipped ant must never swing unprovoked: beside a nestmate it made {unwired} attacks, {unwired_cells} cells -- if this fires, every colony in every bed started fighting itself"
         );
         assert!(spent > 0.0, "fighting must cost the jaw something: {spent} J spent over 400 frames");
         assert!(!fed, "an attack must not fill the crop -- if it feeds, it is the Feed path wearing a new name");
@@ -10368,6 +10378,14 @@ mod tests {
 
         let mut ant_world = w;
         let ant = spawn(&mut ant_world, "ant", 98, 100);
+        // Half a grant in the bank, so the ant is hungry enough to walk.
+        // This test is about geometry -- a chain fits where a 2x2 body does
+        // not -- and it assumed a walker; since the hunger wire (2026-09-09)
+        // a full ant rests on two ticks in three, and 2,000 frames of resting
+        // is not a test of the tunnel.
+        if let Some(st) = ant_world.organism_mut(ant) {
+            st.energy = 100.0;
+        }
         run(&mut ant_world, 2000);
         let ant_x = deepest(&ant_world, ant);
 
