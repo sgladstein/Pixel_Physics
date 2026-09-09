@@ -1,0 +1,55 @@
+{
+  "id": "20260909T193830388Z-0a8f39",
+  "created": "2026-09-09T19:38:30Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lucid-hamilton-dgfpnc",
+    "commit": "4e5ed100",
+    "agent": null,
+    "session_id": "15122d59-c1ae-5ed7-889f-b8505feba1b0",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Every animal wears a mark: the bed with and without life marks",
+  "question": "Can you find every animal at play zoom now, and is a 3x3 square in the colony colour the right marker, or should it be bigger, a ring, or off by default?",
+  "context_md": "Same seed, same default bed, three stops (frames 0, 2400, 12000, top to bottom). B adds a full-replace 3x3 mark over every living animal in the colour it already wears under ANIMALS WEAR. Shipped ON, key Y toggles, and a LIFE MARKS row sits on the ANTS page. Cost measured at 0.0013 ms per drawn frame at 59 animals; it never runs per simulated tick. A single-pixel mark was tried first and did not read against the soil.\n\nThis is the harness bed (52 ants dropped on 8 seedlings at frame 0), not a played bed; the 4 survivors at frame 12000 are that bed's starvation, not the marks.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A: as shipped",
+      "files": [
+        "20260909T193830388Z-0a8f39/000-before.png"
+      ],
+      "caption": "no marks",
+      "meta": {
+        "animals at frame 0": 52,
+        "animals at frame 2400": 52,
+        "animals at frame 12000": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "B: life marks on",
+      "files": [
+        "20260909T193830388Z-0a8f39/001-after.png"
+      ],
+      "caption": "3x3 mark per living animal, colony colour",
+      "meta": {
+        "animals at frame 0": 52,
+        "animals at frame 2400": 52,
+        "animals at frame 12000": 4,
+        "mark pixels at frame 0 (52 x 9)": 468
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
