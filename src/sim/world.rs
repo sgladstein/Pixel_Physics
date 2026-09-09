@@ -1161,6 +1161,19 @@ pub struct CreatureStats {
     /// only the pair can tell that from one that worked.
     pub crossings_completed: u64,
     pub crossings_abandoned: u64,
+    /// **Executed transfers** -- the "did it fire at all" counter for
+    /// trophallaxis. A share that was rolled and found nobody, and a share
+    /// that moved joules, are the same silence in every other readout.
+    pub shares: u64,
+    /// **Joules actually moved** -- the effect counter from the far side of
+    /// the call, and `CLAUDE.md` asks for it by name. `shares` can climb
+    /// with `shared_j` near zero if every gap is trivial, which is a colony
+    /// grooming itself rather than feeding itself, and only the pair
+    /// separates them.
+    pub shared_j: f64,
+    /// What the handling cost, booked into `metabolized`. `shared_j /
+    /// share_energy` is whether the verb is paying for itself.
+    pub share_energy: f64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -4027,6 +4040,7 @@ impl World {
             // place it is ever set to zero other than the bite that cashes
             // a whole cell in.
             gnawed: 0.0,
+            last_share_frame: 0,
             made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,

@@ -37,6 +37,11 @@
         // it gets a longer budget against a lighter idle cost. These are
         // the knobs a colony that starves too fast is tuned with.
         start_energy: 900.0,
+        // Kept level with `ant.ron`'s copy so a body-plan comparison stays a
+        // body-plan comparison rather than drifting into a behaviour one --
+        // see `creature-appearance-design.md`. See `ant.ron` for the number's
+        // own derivation.
+        founder_reserve_spread: 0.5,
         // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`). These
         // are `ant.ron`'s rates unchanged -- this is the same animal at a
         // different size, so it must pay the same rate per cell -- and at
@@ -726,6 +731,16 @@
             // supposed to look like a mobbing -- and bounded by the fact
             // that there is usually nothing there to hit.
             (Alarm, Attack, 2.0),
+
+            // -- the colony's stomach --------------------------------------
+            // **Trophallaxis, on by default -- owner's ruling.** Same three
+            // weights and derivation as `ant.ron`'s copy of this block; kept
+            // level so this appearance fork does not drift into a behaviour
+            // comparison. `(KinNeed, Move, +1.25)` deliberately not authored
+            // here -- see `ant.ron`'s note.
+            (Energy, Share, 2.5),
+            (KinNeed, Share, 1.9),
+            (Bias, Share, -2.5),
         ],
 
         // **The gate a single layer cannot express**, authored as weights

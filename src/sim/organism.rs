@@ -3599,6 +3599,20 @@ pub struct CreatureDef {
     /// file that never heard of it still loads.
     #[serde(default)]
     pub plastic: Vec<super::brain::Plastic>,
+    /// **How unequal a cohort's founding reserves are**, as a fraction of
+    /// `start_energy`: each founder's bank is drawn from
+    /// `start_energy * (1 +/- spread)`, paired across the cohort so the
+    /// TOTAL endowment is unchanged (`creature::founder_reserve`) — a
+    /// redistribution, not a subsidy. `0.0`, the default, is every founder
+    /// stamped identically, which is the shipped behaviour that produced
+    /// the disease it is meant to cure: 46 of 52 ants dying inside one
+    /// synchronised 500-frame window because every founder empties the
+    /// same grant on the same schedule
+    /// (`Reports/colony-economy-design-2026-09-09.md` §4a). Drawn from a
+    /// pure hash keyed on the founding position, never a shared `Rng`, so
+    /// the same seed places the same reserves.
+    #[serde(default)]
+    pub founder_reserve_spread: f32,
 }
 
 impl CreatureDef {
@@ -3717,6 +3731,7 @@ impl CreatureDef {
             hidden_outputs,
             recurrence,
             plastic,
+            founder_reserve_spread,
         } = self;
 
         let body_scaled = body.scaled(ki);
@@ -3808,6 +3823,9 @@ impl CreatureDef {
             traits: *traits,
             reproduce_threshold: *reproduce_threshold,
             mutation_rate: *mutation_rate,
+            // Dimensionless -- `mutation_rate`'s class exactly: a fraction
+            // *of* `start_energy`, which is itself passed through unchanged.
+            founder_reserve_spread: *founder_reserve_spread,
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
             eats_kin: *eats_kin,
@@ -4977,6 +4995,14 @@ pub struct OrganismState {
     /// regenerating animal would make swarming a race against a clock and
     /// give the result a threshold again, which is the shape this replaced.
     pub gnawed: f32,
+    /// **The frame this animal last gave or received a share of
+    /// trophallaxis** (`brain::BrainOutput::Share`), `0` for never. Written
+    /// on both parties at the moment of transfer. Nothing in the sim reads
+    /// it yet -- it exists for the on-screen flash another lane's marker
+    /// pass draws from it (`src/lab/ui.rs`), the same "build the field
+    /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
+    /// readout rule asks for.
+    pub last_share_frame: u64,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where

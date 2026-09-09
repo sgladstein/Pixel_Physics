@@ -623,6 +623,23 @@ fn main() {
         // chewing on something it will never get through -- which is what the
         // graded bite makes possible and the old binary could not express.
         println!("--- biting --- eats {} gnaws {} bites_refused {}", st.eats, st.gnaws, st.bites_refused);
+        // **Trophallaxis, beside biting because it is the same jaw.** `shares`
+        // is the "did it fire at all" counter and `shared_j` is the effect
+        // counter from the far side of the call -- `shares` can climb with
+        // `shared_j` near zero if every gap the verb found was trivial, which
+        // is a colony grooming itself rather than feeding itself, and only the
+        // pair separates them. At the shipped weights a synchronised cohort
+        // shares almost nothing (§5a of the design report): sharing fires when
+        // one ant's bank jumps relative to a hungry nestmate's, not on a flat
+        // colony-wide hunger.
+        println!(
+            "--- the colony's stomach --- shares {} | shared {:.0} J | handling {:.1} J ({:.1}% of burn) | J per share {:.1}",
+            st.shares,
+            st.shared_j,
+            st.share_energy,
+            share(st.share_energy),
+            if st.shares > 0 { st.shared_j / st.shares as f64 } else { 0.0 },
+        );
         // **The fight verb and the alarm scent, as counters beside the mouth's
         // own.** Both are opt-in -- nothing that ships carries a weight on
         // `BrainOutput::Attack`, and the alarm plane is not even allocated

@@ -71,6 +71,15 @@
         // alone. `reproduce_threshold` is the one that had to be
         // re-derived, and it is, below.
         start_energy: 200.0,
+        // **The staggered-founder half of the same fix.** Every founder used
+        // to be stamped with this exact number, so all 52 emptied it on the
+        // same schedule and 46 of 52 died inside one 500-frame window
+        // (`Reports/colony-economy-design-2026-09-09.md` §4a). At 0.5 each
+        // founder's bank is drawn from `200 * (0.5..1.5)`, paired across the
+        // cohort so the TOTAL grant is exactly unchanged -- a redistribution,
+        // not a subsidy (`creature::founder_reserve`). Owner's ruling:
+        // default to the recommended setting rather than off.
+        founder_reserve_spread: 0.5,
 
         // **Per body cell, since 2026-08-30, and this ant is the number
         // both rates were calibrated from.** They were flat per *animal*
@@ -661,7 +670,12 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** when `KinNeed` (an input
+        // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
+        // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
+        // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
+        mutation_rate: 0.0041678,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1256,6 +1270,47 @@
             // supposed to look like a mobbing -- and bounded by the fact
             // that there is usually nothing there to hit.
             (Alarm, Attack, 2.0),
+
+            // -- the colony's stomach --------------------------------------
+            // **Trophallaxis, on by default -- owner's ruling.** `s = 2.5*E +
+            // 1.9*N - 2.5`, where `E` is `Energy` (own bank / start_energy)
+            // and `N` is `KinNeed`. `c = a` exactly, and the equality is
+            // derived rather than a taste: with the bias cancelling the
+            // full-energy term, `KinNeed` is the ONLY input that can open the
+            // verb -- no hungry nestmate in reach means `s <= 0`, the urge
+            // gate is false, and the animal pays one float comparison and
+            // never walks the ring (`CLAUDE.md`'s "guard hot-path work at the
+            // call site", in the weights instead of in Rust).
+            //
+            // A full ant beside a starving sister: s=+1.90, P(share)=0.655.
+            // A starving ant beside a full sister: s=-0.35, P(share)=0.000 --
+            // an ant does not give away its last joules. A cohort that is
+            // uniformly hungry shares nothing, because `E` and `N` move
+            // together and `s` stays negative: sharing fires when one ant's
+            // `E` jumps relative to a hungry nestmate's, i.e. whoever eats
+            // redistributes. That is the mechanism the report asks for -- the
+            // cliff flattens because INCOME is pooled, not because a fixed
+            // stock is reshuffled.
+            //
+            // **The pair is calibrated against each other**: a mutation to
+            // `(Energy, Share)` alone breaks the exact cancellation and gives
+            // the lineage a standing share urge. That is evolution working,
+            // not a bug -- but do not "tidy" one of the two on its own.
+            (Energy, Share, 2.5),
+            (KinNeed, Share, 1.9),
+            (Bias, Share, -2.5),
+            // **`(KinNeed, Move, +1.25)` deliberately not authored here** --
+            // it belongs on the composed `Move` row the instinct-rewrite lane
+            // is landing (`Reports/colony-economy-design-2026-09-09.md` §5b,
+            // §5c), and this append does not touch `Move`'s existing weights
+            // so that lane rebases onto a list with only these three extra
+            // lines at the bottom and nothing moved. Measured as arm K
+            // (2026-09-09, seeds 1-3, frames=6000, RAYON_NUM_THREADS=1) with
+            // the shipped exclusive Share still in place: alive 2/6/8 against
+            // shipped's 0/5/19, intake 1,254/1,824/2,964 against shipped's
+            // 570/2,622/4,560 -- mean intake *fell* (2,014 against 2,584).
+            // At +1.25 alone, turning a donor into a forager does not fix
+            // the harvest-halving; full numbers with the coordinator.
         ],
 
         // **The gate a single layer cannot express**, authored as weights
