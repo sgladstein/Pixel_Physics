@@ -1047,6 +1047,8 @@ mod tests {
             species: crate::sim::organism::SpeciesId(0),
             kind: crate::sim::world::LogKind::Born,
             other: 0,
+            lineage: 0,
+            generation: 0,
         };
         let mut parent = bed().build();
         crate::lab::earth_toned_nest(&mut parent);

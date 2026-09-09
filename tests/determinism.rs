@@ -299,7 +299,12 @@ fn lab_hash(w: &World) -> u64 {
         }
     }
     let (born, died) = w.organism_turnover();
-    for v in [w.live_organism_count() as u64, w.live_creature_count() as u64, born, died, w.germinations] {
+    // `shares` is added beside the other organism counters for the reason
+    // they are here at all: a genotype or ordering difference that changes
+    // who a share's *recipient* is (a `HashMap` walk rather than the ring
+    // order `neediest_kin` actually uses) would move this count before it
+    // ever shows up in the grid.
+    for v in [w.live_organism_count() as u64, w.live_creature_count() as u64, born, died, w.germinations, w.creature_stats.shares] {
         h = fnv1a(h, v);
     }
     h

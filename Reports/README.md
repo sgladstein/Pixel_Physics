@@ -1818,6 +1818,33 @@ drift that two of these documents still reflect.**
   legibility, divergence and forage reach **with one decision**. §6 prices
   twelve changes; rows 1–4 are about a day between them and are the actual
   recommendation.
+- [evolution-lab-direction-2026-09-09.md](evolution-lab-direction-2026-09-09.md)
+  — **direction of record for the lab through phase one; five lanes landed
+  with it.** Answers the report above with a decision rather than a list:
+  the lab has everything a player needs and nothing a player is shown, so
+  the phase is turning the instrument toward the player — line names and a
+  chronicle bounded per lineage (the owner's thousand-ant constraint), the
+  clock reacting to line events, a hand in the box (scent, alarm, fling,
+  lamp), the hunger sense wired at last, the jump given a species — and then
+  the box alive (trophallaxis as a brain output, by ruling) and the box as a
+  rack. Carries the owner's rulings made the same day: rest is the absence of
+  a reason, not a full stomach; a queen is three authored values over
+  mechanisms that exist, never a type; movement, not stills, is how animals
+  are seen; and the marker overlay was rejected on sight. Its measured
+  corrections overturn two standing claims — the harness bed is not the
+  played bed (a colony founded on grown plants holds 31 where the frame-0
+  bed holds 4), and the trail circuit is wired and inert (§Z7).
+- [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
+  — **design of record for the `Share` verb and the `KinNeed` sense; built
+  the same day.** Energy rather than crop (a 480 J leaf in one lump is
+  another binary); one constant that is cap, floor and grading at once; the
+  price is one jaw closure; the default wiring derived from `squash` so a
+  full ant beside a starving sister shares on two ticks in three and a
+  starving ant never gives away its last joules. Found the shared-budget
+  trap in the hunger wire (`FoodAdjacent` was calibrated against the constant
+  bias) and states the composed Move row both lanes hit. Its first
+  measurement is in README's "Trophallaxis status", and it is a null with a
+  warning sign.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
@@ -2159,8 +2186,8 @@ staged against its gates: fourteen of its eighteen findings are about the
 animal, not the box. The four that *are* about the box are worth knowing here —
 the `COLONY` verb can only place the species literally named `"ant"` (which
 `dead-ends.md` names as the blocker for the grazer that clears Gate 0), there
-is **no food verb** although hand-placed food is the one intervention measured
-to separate generation 13 from generation 0, and the plant mutation rates the
+was **no food verb** (there is one now: `E`) although hand-placed food is the one
+intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —

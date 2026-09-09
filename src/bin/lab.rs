@@ -23,11 +23,13 @@
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`7` | jump straight to a preset |
 //! | `Z` `X` `C` `V` `B` `N` | the tools: look, plant, colony, cull, soil, water |
+//! | `K` `E` `I` `J` `Q` `U` | wall, food, scent, alarm, fling, lamp — no bar cell, key only |
 //! | `.` | which species the planting tool puts in |
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
+//! | `T` | what the clock does on a notable event: LINGER / STOP / OFF |
 //! | `Tab` | the stats page |
 //! | `WASD` | pan; `-` / `=` zoom |
 //! | left / right mouse | the armed tool / the eraser |
@@ -510,6 +512,30 @@ impl Handler {
             // the help page; clippy caught the collision, which is the only
             // reason this is not a silent one.
             KeyCode::KeyK => self.lab.act(Action::Tool(Tool::Wall)),
+            // **Four more off-the-bar tools, `I J Q U`** -- the owner's idea
+            // (2026-09-09) for letting a player lay pheromone and reach into
+            // the box by hand rather than only watching it. `I J Q U` were
+            // checked free against this whole match; none of the obvious
+            // initials collide with a control that already exists.
+            //
+            // **`I`'s second press is the one exception to every other
+            // tool's plain toggle.** `Ui::set_tool` arms-or-disarms on a
+            // repeat press, which is right for every other key here -- but a
+            // player who has just picked the food route over home scent is
+            // not asking to put `SCENT` away, so the *second* press routes to
+            // `ToggleScentChannel` instead of re-arming the same tool. This
+            // is the one place that distinction is made; `Lab::act` treats
+            // `Action::Tool(Tool::Scent)` as an ordinary arm like any other.
+            KeyCode::KeyI => {
+                if self.lab.ui.tool() == Tool::Scent {
+                    self.lab.act(Action::ToggleScentChannel);
+                } else {
+                    self.lab.act(Action::Tool(Tool::Scent));
+                }
+            }
+            KeyCode::KeyJ => self.lab.act(Action::Tool(Tool::Alarm)),
+            KeyCode::KeyQ => self.lab.act(Action::Tool(Tool::Fling)),
+            KeyCode::KeyU => self.lab.act(Action::Tool(Tool::Lamp)),
             // **The same two keys the two cells under them carry**, which is
             // the whole point of the cells being shared: `[` and `]` are
             // printed on that pair whichever tool is armed, so the key has to
@@ -535,6 +561,12 @@ impl Handler {
             // page (`ANIMALS WEAR`), so there was no bar cell to be
             // positional *about*. "H" for the hue every animal wears.
             KeyCode::KeyH => self.lab.act(Action::CycleCreatureColour),
+            // **`Y`, free and unclaimed.** Cycles which mark, if any, every
+            // living animal draws (`ui::LifeMarks`) -- off by default, since
+            // movement is what makes an animal legible in play and a mark is
+            // at most a pause-time aid. Also a row on the ANTS page beside
+            // `ANIMALS WEAR`, the same pairing `H` has.
+            KeyCode::KeyY => self.lab.act(Action::CycleLifeMarks),
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
@@ -557,6 +589,11 @@ impl Handler {
             KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
             KeyCode::Quote => self.lab.act(Action::Broods(1)),
             KeyCode::KeyF => self.lab.time.cycle_display_floor(),
+            // **`T` for what the clock does when a notable event fires** --
+            // Off/Linger/Stop, cycling in the order the BOX page's `EVENTS`
+            // row prints them. Free letters were `I J Q T U Y`; a sibling
+            // change (the life overlay) takes `Y`.
+            KeyCode::KeyT => self.lab.act(Action::CycleReaction),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
             // **`zoom_within`, not `adjust_zoom`.** The box is smaller than

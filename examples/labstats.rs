@@ -99,6 +99,14 @@ fn main() {
         "ants" => (0, arg("colonies").unwrap_or(1)),
         _ => (arg("founders").unwrap_or(8), arg("colonies").unwrap_or(1)),
     };
+    // **Which animal founds the colony -- a species name, not only `ant`.**
+    // Every arm above this line hard-codes `LabBox::default()`'s "ant"
+    // (`scene.rs`), so a species with no dedicated harness of its own (the
+    // hopper's `Impulse` wire, first) had no way into this bed at all short
+    // of editing the binary. `colonyspecies=` reads `LabBox::colony_species`
+    // straight through; an unknown name is `world.found_colony_of`'s own
+    // problem to report (it returns 0 placed) rather than this flag's.
+    let colony_species: String = arg("colonyspecies").unwrap_or_else(|| "ant".to_string());
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
@@ -111,10 +119,11 @@ fn main() {
         // of it at all. `LabBox::default()` is 0.
         predators: arg("predators").unwrap_or(0),
         seed,
+        colony_species: colony_species.clone(),
         ..LabBox::default()
     };
     println!(
-        "labstats: control={control} frames={frames} founders={founders} colonies={colonies} walls={} soil={} seed={seed} png={}",
+        "labstats: control={control} frames={frames} founders={founders} colonies={colonies} colonyspecies={colony_species} walls={} soil={} seed={seed} png={}",
         spec.compartments,
         spec.soil_depth,
         png.as_deref().unwrap_or("-")
@@ -557,6 +566,20 @@ fn main() {
             l.moved,
             l.synapse_tax
         );
+        // **The round trip, beside the verb prices rather than only in
+        // `labforage`.** `pickups` says food was taken; `deliveries` says it
+        // was actually carried home rather than dropped, eaten or lost en
+        // route -- the gap between the two is exactly the trap a Move-side
+        // hunger wire can spring (a laden ant that stops dead beside food
+        // and never leaves), and nothing above this line would show it: the
+        // burn split and the dig count both stayed unremarkable while an
+        // early arm of the hunger wiring drove births to zero. `nest_visits`
+        // reads 0 for a species that authors no `nest` (`adjacent_nest`'s own
+        // doc), so a run of zeros here is that species, not a broken colony.
+        println!(
+            "--- the round trip --- pickups {} deliveries {} nest_visits {}",
+            st.pickups, st.deliveries, st.nest_visits
+        );
         // **The four prices the "everything should be priced" ruling added,
         // itemised.** They all land inside `metabolized`, so without this
         // line the only way to see what any of them costs is to turn it off
@@ -600,6 +623,23 @@ fn main() {
         // chewing on something it will never get through -- which is what the
         // graded bite makes possible and the old binary could not express.
         println!("--- biting --- eats {} gnaws {} bites_refused {}", st.eats, st.gnaws, st.bites_refused);
+        // **Trophallaxis, beside biting because it is the same jaw.** `shares`
+        // is the "did it fire at all" counter and `shared_j` is the effect
+        // counter from the far side of the call -- `shares` can climb with
+        // `shared_j` near zero if every gap the verb found was trivial, which
+        // is a colony grooming itself rather than feeding itself, and only the
+        // pair separates them. At the shipped weights a synchronised cohort
+        // shares almost nothing (§5a of the design report): sharing fires when
+        // one ant's bank jumps relative to a hungry nestmate's, not on a flat
+        // colony-wide hunger.
+        println!(
+            "--- the colony's stomach --- shares {} | shared {:.0} J | handling {:.1} J ({:.1}% of burn) | J per share {:.1}",
+            st.shares,
+            st.shared_j,
+            st.share_energy,
+            share(st.share_energy),
+            if st.shares > 0 { st.shared_j / st.shares as f64 } else { 0.0 },
+        );
         // **The fight verb and the alarm scent, as counters beside the mouth's
         // own.** Both are opt-in -- nothing that ships carries a weight on
         // `BrainOutput::Attack`, and the alarm plane is not even allocated
@@ -638,6 +678,20 @@ fn main() {
         println!(
             "--- eyes --- sight casts {} | cells read {} | sightings {} | threat sightings {}",
             st.sight_casts, st.sight_cells_read, st.sightings, st.threat_sightings
+        );
+        // **The flight verb, mirroring `filmstrip.rs`'s `scene=hop` line
+        // (`examples/filmstrip.rs:6330`) so the lab harness can say whether
+        // a hop fired without reaching for the app.** `impulses` is zero for
+        // every species that has not authored `(*, Impulse, w)`, which is
+        // every shipped species but `hopper` -- a run of zeros here on the
+        // shipped bed is the expected reading, not a broken counter.
+        // `flight_frames`/`flight_moves` pair with it because a launch that
+        // produced no airborne frame is a call that fired and did nothing,
+        // the same shape `CLAUDE.md` asks every "did it fire" counter to
+        // answer beside an effect counter from the far side of the call.
+        println!(
+            "--- flight --- impulses {} (refused {}) | airborne frames {} | flight moves {}",
+            st.impulses, st.impulses_refused, st.flight_frames, st.flight_moves
         );
     }
 

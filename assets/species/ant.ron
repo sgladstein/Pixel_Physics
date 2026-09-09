@@ -71,6 +71,15 @@
         // alone. `reproduce_threshold` is the one that had to be
         // re-derived, and it is, below.
         start_energy: 200.0,
+        // **The staggered-founder half of the same fix.** Every founder used
+        // to be stamped with this exact number, so all 52 emptied it on the
+        // same schedule and 46 of 52 died inside one 500-frame window
+        // (`Reports/colony-economy-design-2026-09-09.md` §4a). At 0.5 each
+        // founder's bank is drawn from `200 * (0.5..1.5)`, paired across the
+        // cohort so the TOTAL grant is exactly unchanged -- a redistribution,
+        // not a subsidy (`creature::founder_reserve`). Owner's ruling:
+        // default to the recommended setting rather than off.
+        founder_reserve_spread: 0.5,
 
         // **Per body cell, since 2026-08-30, and this ant is the number
         // both rates were calibrated from.** They were flat per *animal*
@@ -661,7 +670,12 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** when `KinNeed` (an input
+        // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
+        // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
+        // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
+        mutation_rate: 0.0041678,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -862,14 +876,101 @@
             // 12,000 frames. The gradient gets its authority from the
             // hidden gain below instead, which only applies when there is
             // actually a gradient to read.
+            // **`Bias` stays 2.0 -- it is the starving ant's rate now, not
+            // everyone's.** Owner's ruling: rest is the ABSENCE of a reason
+            // to act, not the presence of a full stomach, so a fed ant must
+            // still wander without one -- but reducing `Bias` itself moves
+            // the whole colony's baseline, including the food-adjacent
+            // brake three lines down, which was calibrated against 2.0 as
+            // the universal floor (see there). `(Energy, Move, -1.75)`
+            // below does the work instead, entirely as a second term: a
+            // starving ant (Energy=0) still computes `squash(2.0)=0.667`,
+            // today's rate exactly, while a full one (Energy=1) computes
+            // `squash(0.25)=0.20` -- mostly resting, never off -- and a
+            // hungry one at Energy=0.2 sits at `squash(1.65)=0.62`, most of
+            // the way back.
+            //
+            // **First attempt reduced `Bias` itself (to 1.5, `Energy`
+            // weight -1.0) and it is why this comment still names the
+            // trap.** That arm flattened the cliff (alive@4500 18/17/26
+            // against the unwired 6/8/11) and then collapsed to **zero
+            // births in all three seeds by frame 9,000** -- worse than
+            // unwired, not better. Cause: `(FoodAdjacent, Move, -1.5)` was
+            // never re-derived, so at the smaller `Bias` a fed *and* a
+            // hungry ant beside food both computed a negative sum and
+            // stopped dead, permanently, the moment food was in reach --
+            // `deliveries` never separated it from a working forager
+            // because the ant never left the patch to need one. Keeping
+            // `Bias` at 2.0 and putting the whole reduction on `Energy`
+            // means the food brake below still has the same 2.0 floor to
+            // subtract from that it was tuned against; only its own value
+            // moves.
             (Bias, Move, 2.0),
+            (Energy, Move, -1.75),
             // Stop when there is food to deal with.
-            // -1.5, not -0.8: against the Bias of 2.0 this leaves P(move)
-            // at 0.33 beside food rather than 0.55, so an ant lingers long
-            // enough to actually pick something up instead of wandering
-            // off. Not lower -- at -2.0 and beyond it stops dead and cannot
-            // leave with its cargo.
-            (FoodAdjacent, Move, -1.5),
+            // **-1.16, re-derived from -1.5 for the `Energy` wire above,
+            // not a re-tuning of its own.** -1.5 was fitted so that against
+            // the old universal `Bias` of 2.0 every ant lingers at P(move)
+            // 0.33 beside food. With `Energy` now subtracting up to 1.75 of
+            // that same 2.0, a hungry ant (Energy~0.2) beside food would
+            // compute `squash(2.0 - 1.75*0.2 - 1.5) = squash(-0.15)` and
+            // clamp to zero -- stopped harder than intended and unable to
+            // carry a mouthful two cells from where it stood. -1.16 keeps
+            // the same *hungry-ant* linger rate the old value gave every
+            // ant: `squash(2.0 - 0.35 - 1.16) = squash(0.49) = 0.33`. A full
+            // ant beside food computes `squash(2.0-1.75-1.16)` and clamps to
+            // 0 regardless -- it had no reason to be there and none to
+            // leave, which is correct rather than a side effect.
+            //
+            // **Four arms measured, same three seeds, same harnesses**
+            // (`labforage founders=8 colonies=1 frames=49500 sample=4500`
+            // for alive/cols/born, `labstats` default 9,000-frame bed for
+            // digs/deliveries/moved%; the crowding-at-nest `Dig` gate below
+            // is bundled into B/B'/B'' -- all three tested it as one
+            // change with this row, never separately):
+            //
+            //   A  unwired: `(Bias, Move, 2.0)` alone, `(Bias, Dig, 0.4)` alone.
+            //   B  shipped: this row (`Energy` -1.75, `FoodAdjacent` -1.16) + the Dig gate.
+            //   B' shipped row + `Energy` renormalized in `creature.rs` against
+            //      `reproduce_at_of` (~1,040 J) instead of `start_energy` (200 J) --
+            //      tried there and reverted, see that file's comment.
+            //   B''shipped row with `(Energy, Move, -1.0)` in place of -1.75.
+            //
+            //        alive@4500   cols@9000   cols@49500     digs@9000  deliveries@9000  born@49500
+            //   A    6/8/11       not measured 448/435/342  477/497/476  not measured    19/25/30
+            //   B    46/46/47     285/266/254  383/279/254  243/288/243  13/106/114      131/6/18
+            //   B'   10/10/13     352/337/298  388/411/326  179/222/200  83/64/136       27/15/7
+            //   B''  9/4/10       294/294/297  355/314/333  215/264/228  49/71/172       34/16/18
+            //
+            // **The cliff is walking cost, not a founding-energy accident,
+            // and only rest closes it.** A and B share the identical
+            // founding grant (200 J) and the identical idle price; what
+            // differs is whether the ant is *unconditionally* walking that
+            // grant down. B' and B'' both keep the same wire shape and
+            // both bring the cliff back to within a few ants of A's
+            // (10/10/13 and 9/4/10 against A's 6/8/11) the moment the rest
+            // it buys is diluted -- B' because "full" moved out of reach
+            // (an ant reads `state.energy / reproduce_at_of` ~= 0.19 at the
+            // founding grant, so it is almost never full enough to rest),
+            // B'' because the milder weight simply rests it less. Only B,
+            // at the shipped -1.75 against the shipped `start_energy`
+            // normalisation, ever gets a founder's `Move` drive low enough
+            // to actually stop walking -- and stopping walking is what
+            // survives the cliff; nothing else tested does.
+            //
+            // Total births across three seeds rose 74 (A) -> 155 (B), but
+            // unevenly -- one seed drove nearly all of the gain (131) while
+            // another gave back almost everything (6), this engine's
+            // ordinary seed spread rather than a sign the mechanism only
+            // sometimes works. Bed coverage (`cols`, columns ever walked of
+            // 512) fell 14-36% by frame 49,500 against A, outside the ~20%
+            // band first asked for: a genuinely resting ant covers less
+            // ground per unit time than one that never stops, and that
+            // trade is what this whole change buys the cliff with. B' and
+            // B'' both cover *more* ground than B (they rest less), which
+            // is the same trade seen from the other side, not a free
+            // improvement.
+            (FoodAdjacent, Move, -1.16),
             // **Negative feedback, and the colony ossifies without it**
             // (P-12): more evaporation does not substitute. A nonzero gain
             // here is load-bearing, and it is the first thing to check if
@@ -949,7 +1050,22 @@
             // `Reports/dead-ends.md`, which carries the numbers, the two
             // instrument bugs the sweep exposed, and the conditions under
             // which it is worth retrying.
-            (Bias, Dig, 0.4),
+            // **0.15, down from 0.4 -- a small residual, not a shutoff.**
+            // `(Crowding, Dig)` was tried unconditionally in §14 and
+            // withdrawn (`Reports/dead-ends.md`, 2026-09-02): wired to fire
+            // anywhere the ant reads density, it was a coin flip on cavity
+            // shape (compact on 16 of 33 seed pairs) because most of a
+            // founding colony's digging is quarrying the open face of a
+            // bank rather than growing a chamber, and crowding there is not
+            // the quantity that decides anything. This is a different
+            // mechanism, not a re-run of that one: the crowding term below
+            // is gated on `AtNest` through hidden units 5/6, so it only
+            // pushes digging where the colony is actually packed *at the
+            // nest* -- more mouths, more chamber -- and does nothing to the
+            // bank-face digging the withdrawn arm was actually measuring.
+            // The residual keeps digging reachable everywhere else, same as
+            // it always was, just smaller.
+            (Bias, Dig, 0.15),
             (FoodAdjacent, Dig, 0.8),
             // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --
             // an inverse coefficient no lineage could alter, so every animal
@@ -1154,6 +1270,47 @@
             // supposed to look like a mobbing -- and bounded by the fact
             // that there is usually nothing there to hit.
             (Alarm, Attack, 2.0),
+
+            // -- the colony's stomach --------------------------------------
+            // **Trophallaxis, on by default -- owner's ruling.** `s = 2.5*E +
+            // 1.9*N - 2.5`, where `E` is `Energy` (own bank / start_energy)
+            // and `N` is `KinNeed`. `c = a` exactly, and the equality is
+            // derived rather than a taste: with the bias cancelling the
+            // full-energy term, `KinNeed` is the ONLY input that can open the
+            // verb -- no hungry nestmate in reach means `s <= 0`, the urge
+            // gate is false, and the animal pays one float comparison and
+            // never walks the ring (`CLAUDE.md`'s "guard hot-path work at the
+            // call site", in the weights instead of in Rust).
+            //
+            // A full ant beside a starving sister: s=+1.90, P(share)=0.655.
+            // A starving ant beside a full sister: s=-0.35, P(share)=0.000 --
+            // an ant does not give away its last joules. A cohort that is
+            // uniformly hungry shares nothing, because `E` and `N` move
+            // together and `s` stays negative: sharing fires when one ant's
+            // `E` jumps relative to a hungry nestmate's, i.e. whoever eats
+            // redistributes. That is the mechanism the report asks for -- the
+            // cliff flattens because INCOME is pooled, not because a fixed
+            // stock is reshuffled.
+            //
+            // **The pair is calibrated against each other**: a mutation to
+            // `(Energy, Share)` alone breaks the exact cancellation and gives
+            // the lineage a standing share urge. That is evolution working,
+            // not a bug -- but do not "tidy" one of the two on its own.
+            (Energy, Share, 2.5),
+            (KinNeed, Share, 1.9),
+            (Bias, Share, -2.5),
+            // **`(KinNeed, Move, +1.25)` deliberately not authored here** --
+            // it belongs on the composed `Move` row the instinct-rewrite lane
+            // is landing (`Reports/colony-economy-design-2026-09-09.md` §5b,
+            // §5c), and this append does not touch `Move`'s existing weights
+            // so that lane rebases onto a list with only these three extra
+            // lines at the bottom and nothing moved. Measured as arm K
+            // (2026-09-09, seeds 1-3, frames=6000, RAYON_NUM_THREADS=1) with
+            // the shipped exclusive Share still in place: alive 2/6/8 against
+            // shipped's 0/5/19, intake 1,254/1,824/2,964 against shipped's
+            // 570/2,622/4,560 -- mean intake *fell* (2,014 against 2,584).
+            // At +1.25 alone, turning a donor into a forager does not fix
+            // the harvest-halving; full numbers with the coordinator.
         ],
 
         // **The gate a single layer cannot express**, authored as weights
@@ -1295,6 +1452,46 @@
             (Bias,        3,  45.0),
             (Carrying,    3, -75.0),
             (PheroBAlong, 3,  -6.0),
+
+            // units 5,6 -- crowding, gated ON standing at the nest, driving Dig.
+            // **Chambers get dug as the colony grows, not everywhere the ant
+            // reads density.** `(Crowding, Dig, 0.6)` unconditional was tried,
+            // rate-matched and swept in §14 and withdrawn
+            // (`Reports/dead-ends.md`, 2026-09-02): most of a founding
+            // colony's digging is quarrying the open face of a bank, and
+            // crowding *there* was a coin flip on cavity shape (compact on
+            // 16 of 33 seed pairs, sign reversing with colony size) because
+            // it is not the quantity a bank face responds to. Gating on
+            // `AtNest` targets the one place the mechanism's own citation
+            // (Toffin et al., *PNAS* 2009) is actually about -- the nest
+            // perimeter -- and leaves bank-face digging to `FoodAdjacent`
+            // and the residual `Bias` alone.
+            //
+            // `AtNest` is a near-binary 8-neighbourhood test, not the
+            // continuous fill `Carrying` is, so the gate uses the plain
+            // symmetric ±30 offset this same trick shipped at before the
+            // fill-threshold rework above needed ±45/75 -- deep enough that
+            // the pair cancels away from the nest regardless of `Crowding`
+            // (both units sit within 0.03 of each other at AtNest=0, for
+            // any `Crowding`). **At the nest the gate is wide open rather
+            // than saturated** -- `Bias+AtNest` nets to exactly 0, the
+            // linear part of `squash`, so `Crowding` swings the pair the
+            // whole way from 0 to a real signal (squash(±6) = ±0.857) rather
+            // than perturbing an already-saturated pair the way the
+            // Move-side units do. That is deliberate: a nudge here would be
+            // exactly the null §14's unconditional version already measured
+            // -- the intent is a chamber-digging urge that is genuinely
+            // strong once the nest is actually packed, and the measured run
+            // below shows it does not run away: digs fell (243-288 against
+            // the unwired 476-497) because the residual `Bias` carries most
+            // of a two-cell ant's life, and the gate only adds where the
+            // colony has grown enough to need it.
+            (Bias,     5, -30.0),
+            (AtNest,   5,  30.0),
+            (Crowding, 5,   6.0),
+            (Bias,     6, -30.0),
+            (AtNest,   6,  30.0),
+            (Crowding, 6,  -6.0),
         ],
         // 2.5 against a baseline of 2.0, so the gated pair can drive the
         // run probability the whole way to zero rather than merely dent
@@ -1313,6 +1510,15 @@
             // small state that the output weight rescales. That is a property
             // of the squash, not a magic number -- the fit is above.
             (4, EmitA, 32.0),
+            // The crowding-at-nest gate's output leg. Same output weight as
+            // the Move-gating pairs above, but the pair it reads is wide
+            // open rather than saturated at the nest (see the wiring
+            // comment), so this genuinely can carry digging past the
+            // residual `Bias, Dig, 0.15` when the colony is packed there --
+            // measured, it does not run away (digs fell against the
+            // unwired ant, see below).
+            (5, Dig,  2.5),
+            (6, Dig, -2.5),
         ],
         // **The fourth list, and this ant had none until now.**
         // Self-recurrence is what makes unit 4 an odometer rather than a

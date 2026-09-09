@@ -159,9 +159,15 @@ pub const ALARM_DEPOSIT: u8 = 240;
 /// Which plane. **Meaning-free by construction for the two trail planes** —
 /// see the module doc. `Alarm` is the exception and says so in its own name:
 /// it carries one meaning, written by one event.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Channel {
     A = 0,
+    /// **The default**, so a `Channel` reached for without an opinion (the
+    /// lab's `Ui` derives `Default` and needed one for its `SCENT` tool's
+    /// armed channel) lands on the food route rather than an arbitrary pick
+    /// — the trail a player is most likely to want to lay first, since it
+    /// is the one that recruits a colony to a patch already found.
+    #[default]
     B = 1,
     /// **Emitted by an animal that is being bitten**, decaying fast, read as
     /// `BrainInput::Alarm`. The one signal that lets a colony act *as* a

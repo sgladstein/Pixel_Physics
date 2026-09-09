@@ -64,6 +64,8 @@
 
 use std::time::Duration;
 
+use crate::sim::world::LogKind;
+
 /// Which phase the lab is in.
 ///
 /// **`Paused` was `Tending`, and it used to run at 1x.** Owner ruling,
@@ -90,6 +92,44 @@ pub enum Phase {
     /// The experiment. The world runs at the speed the dial asks for — `1X`
     /// included, which is real time.
     Running,
+}
+
+/// **Which automatic reaction a notable event gets** -- the box's answer to
+/// "look at this", added so the player is not the only thing in the loop
+/// that ever calls itself back.
+///
+/// **Off/Linger/Stop, not a bool.** `CLAUDE.md`'s ethos law applies to the
+/// dial exactly as it does to destruction: an outcome is a distribution,
+/// not a binary. The naive question is "does the clock react to a notable
+/// event"; this file's answer is "how much" -- `Linger` is the graded
+/// middle the law asks for, a dip and a recovery rather than an on/off
+/// switch, and `Stop` is the strong end for a player who wants to actually
+/// look rather than glance.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum Reaction {
+    /// No automatic reaction. The event still reaches `World::run_log`
+    /// exactly as it always did -- this only decides whether the clock and
+    /// the camera notice on their own.
+    Off,
+    /// The dial drops to `1X` for [`LINGER_HOLD`] of wall clock, camera on
+    /// the subject, then climbs back to what was requested. The shipped
+    /// default -- owner: *"default to your recommended settings, not
+    /// off."*
+    #[default]
+    Linger,
+    /// A full stop -- [`Phase::Paused`] -- until the player resumes by
+    /// hand. The stronger setting.
+    Stop,
+}
+
+impl Reaction {
+    pub fn label(self) -> &'static str {
+        match self {
+            Reaction::Off => "OFF",
+            Reaction::Linger => "LINGER",
+            Reaction::Stop => "STOP",
+        }
+    }
 }
 
 /// What one displayed frame is allowed to do.
@@ -188,6 +228,27 @@ pub struct TimeControl {
     /// `plan`, ticks from `record`.
     window_real: Duration,
     window_ticks: u64,
+
+    // ---- the box's own "look at this", added on top of the dial above.
+    /// Which automatic reaction a notable event gets. See [`Reaction`].
+    pub react: Reaction,
+    /// Bitmask over `LogKind`'s discriminant (`1 << kind as u8`), naming
+    /// which kinds count as notable for this box. Starts as exactly
+    /// [`notable`]'s own set ([`default_react_on`]), computed once at
+    /// construction rather than read live so a harness or a player can arm
+    /// or disarm one kind at a time without re-deriving the whole mask.
+    pub react_on: u8,
+    /// Real time left before a LINGER climbs back to `restore_requested`.
+    /// `None` when no linger is in force -- distinct from `Duration::ZERO`,
+    /// which `plan` would otherwise read as "restore this frame" on every
+    /// idle frame once the debt happened to land there.
+    linger_remaining: Option<Duration>,
+    /// The speed a LINGER is holding `requested` down from, and the value
+    /// `plan` restores it to once `linger_remaining` runs out.
+    restore_requested: u32,
+    /// Real time left before another automatic reaction is allowed to
+    /// fire. See [`REACTION_COOLDOWN`].
+    cooldown_remaining: Duration,
 }
 
 /// The simulation's own rate. One tick is 1/60th of a simulated second, on
@@ -251,6 +312,79 @@ const RATE_WINDOW: Duration = Duration::from_millis(500);
 /// identical.
 pub const MOTION_TICKS_PER_FRAME: u32 = 12;
 
+/// How long a LINGER holds the dial at `1X` -- wall clock, camera on the
+/// subject -- before climbing back to what was requested. ~3 seconds: long
+/// enough to register what fired, short enough that a colony's hundredth
+/// death does not cost the player a nap.
+const LINGER_HOLD: Duration = Duration::from_secs(3);
+
+/// **The wall-clock gap the box enforces between two automatic reactions,
+/// and the scale answer as much as [`notable`] is.** At the 1,000+ ants the
+/// owner asked this to work at, a founding line can end every few frames;
+/// without a cooldown every one of those would drop the dial to `1X`
+/// back-to-back, and a box asked to run at 256x would in practice never
+/// leave `1X`. An event that fires inside this window still reaches
+/// `World::run_log` exactly as it always did -- the cooldown only skips the
+/// clock and the camera, never the record.
+const REACTION_COOLDOWN: Duration = Duration::from_secs(4);
+
+/// Which `LogKind`s the clock is allowed to notice **by default**, before a
+/// player touches [`TimeControl::react_on`].
+///
+/// **Line-bounded events only, and that is the other half of the scale
+/// answer.** At 1,000+ ants, `Born`/`Died`/`FirstFeed` fire every few
+/// frames -- reacting to ordinary turnover at that rate would make the
+/// dial unusable at exactly the scale this box exists to run at.
+/// `LineEnded` is the one event today that is about a *lineage* running out
+/// rather than one individual's ordinary churn, which is the thing worth
+/// interrupting the dial for.
+///
+/// **Only `LineEnded` exists in this match today.** A companion PR
+/// (`Reports/lanes/evolution-lab-coordinator.md`) adds three more
+/// line-bounded `LogKind` variants -- `GroupSplit`, `LineMilestone`,
+/// `LineRecord` -- as `LogKind::is_line_event()`. At that merge this
+/// function's body becomes `kind.is_line_event()` and the three fold into
+/// [`default_react_on`]'s mask alongside `LineEnded`; until then this *is*
+/// what `is_line_event` will say.
+pub fn notable(kind: LogKind) -> bool {
+    // The line-bounded set is `LogKind`'s own to define -- one predicate,
+    // read here and by the LOG page's LINES filter, so the clock and the
+    // chronicle can never disagree about what counts.
+    kind.is_line_event()
+}
+
+/// Bit `i` of [`TimeControl::react_on`] is the `LogKind` whose discriminant
+/// is `i`, in declaration order -- computed from `kind as u8` rather than
+/// hand-assigned, so a `LogKind` that grows or reorders cannot silently
+/// misalign the bit and the kind it is supposed to name.
+fn log_kind_bit(kind: LogKind) -> u8 {
+    1u8 << (kind as u8)
+}
+
+/// [`TimeControl::react_on`]'s starting value: [`notable`] applied to every
+/// `LogKind` that exists today.
+///
+/// **Written out by hand rather than folded over an `ALL` constant** --
+/// `LogKind` has none, and adding one is `world.rs`, which this feature's
+/// file split gives to a different lane (`CLAUDE.md`, *working alongside
+/// another session*). Grows the same day `notable`'s own doc comment says
+/// to.
+fn default_react_on() -> u8 {
+    [
+        LogKind::Born,
+        LogKind::Died,
+        LogKind::FirstFeed,
+        LogKind::FirstSeed,
+        LogKind::LineEnded,
+        LogKind::GroupSplit,
+        LogKind::LineMilestone,
+        LogKind::LineRecord,
+    ]
+    .into_iter()
+    .filter(|&k| notable(k))
+        .fold(0u8, |mask, k| mask | log_kind_bit(k))
+}
+
 impl Default for TimeControl {
     fn default() -> Self {
         Self::new()
@@ -276,6 +410,11 @@ impl TimeControl {
             shown_ticks: 0,
             window_real: Duration::ZERO,
             window_ticks: 0,
+            react: Reaction::default(),
+            react_on: default_react_on(),
+            linger_remaining: None,
+            restore_requested: 1,
+            cooldown_remaining: Duration::ZERO,
         }
     }
 
@@ -320,6 +459,30 @@ impl TimeControl {
     /// world.
     pub fn plan(&mut self, elapsed: Duration) -> Plan {
         let elapsed = elapsed.min(MAX_ELAPSED);
+
+        // **Reaction bookkeeping is wall clock, unconditionally** -- the
+        // linger's hold and the cooldown between reactions must not stretch
+        // or shrink with the dial, or a LINGER at 1024x would hold the
+        // player for what feels like a wildly different wait than the same
+        // LINGER at 1x. Both are plain elapsed-time countdowns, decremented
+        // here for the same reason `display_accum` is: `plan` is the one
+        // place every pass reports how much real time just went by.
+        self.cooldown_remaining = self.cooldown_remaining.saturating_sub(elapsed);
+        if let Some(remaining) = self.linger_remaining {
+            let left = remaining.saturating_sub(elapsed);
+            if left.is_zero() {
+                // **Climb back to what was requested before the LINGER.**
+                // `apply_auto_rate` re-derives the display rate for that
+                // speed and resets the pacing state, exactly as a player
+                // moving the dial by hand does -- a LINGER is a speed
+                // change like any other, just one the box made itself.
+                self.requested = self.restore_requested;
+                self.linger_remaining = None;
+                self.apply_auto_rate();
+            } else {
+                self.linger_remaining = Some(left);
+            }
+        }
 
         // The render's cost, sampled off the pass that actually paid it. Two
         // conditions, and both were found by asking what the number says when
@@ -636,6 +799,19 @@ pub fn auto_display_hz(requested: u32) -> u32 {
 }
 
 impl TimeControl {
+    /// Stop the clock directly, bypassing the ladder.
+    ///
+    /// `set_preset` (below) forces every stop into `Running`, so neither a
+    /// hard player stop nor `Reaction::Stop` can reach `Phase::Paused`
+    /// through it. Shares `toggle_phase`'s whole body but one direction,
+    /// which is why it sits beside it rather than reusing it: `toggle_phase`
+    /// reads the current phase to decide which way to flip, and a caller
+    /// asking to stop does not want that read.
+    pub fn pause(&mut self) {
+        self.phase = Phase::Paused;
+        self.reset_pacing();
+    }
+
     pub fn toggle_phase(&mut self) {
         self.phase = match self.phase {
             Phase::Paused => Phase::Running,
@@ -681,6 +857,67 @@ impl TimeControl {
     pub fn cycle_display_floor(&mut self) {
         let i = DISPLAY_RATES.iter().position(|r| *r == self.display_floor).unwrap_or(0);
         self.set_display_floor(DISPLAY_RATES[(i + 1) % DISPLAY_RATES.len()]);
+    }
+
+    /// Step Off -> Linger -> Stop -> Off. The shipped order, matching the
+    /// BOX page's "EVENTS: LINGER / STOP / OFF" row so the direction a click
+    /// or the `T` key moves in is the order printed there.
+    ///
+    /// **Does not touch a linger already in flight.** `plan` restores it on
+    /// its own schedule regardless of what `react` has since become, so
+    /// switching away from `Linger` mid-hold cannot strand the dial at `1X`
+    /// -- the in-flight linger simply finishes on its own terms.
+    pub fn cycle_reaction(&mut self) {
+        self.react = match self.react {
+            Reaction::Linger => Reaction::Stop,
+            Reaction::Stop => Reaction::Off,
+            Reaction::Off => Reaction::Linger,
+        };
+    }
+
+    /// Whether `kind` is one of the bits armed in [`TimeControl::react_on`].
+    pub fn reacts_to(&self, kind: LogKind) -> bool {
+        self.react_on & log_kind_bit(kind) != 0
+    }
+
+    /// Whether an automatic reaction may fire right now. `false` for
+    /// [`REACTION_COOLDOWN`] after the last one fired -- see that constant's
+    /// own doc for why this exists at all.
+    pub fn can_react(&self) -> bool {
+        self.cooldown_remaining.is_zero()
+    }
+
+    /// **Apply whichever of Off/Linger/Stop is armed, and start the
+    /// cooldown.**
+    ///
+    /// Callers (`Lab::advance`) check [`TimeControl::reacts_to`] and
+    /// [`TimeControl::can_react`] first; this does neither. Keeping the gate
+    /// and the action apart is what makes both halves testable alone -- a
+    /// test can drive `react` directly with no `LogEvent` and no mask to
+    /// hand, and a test of the gate does not have to watch a phase change to
+    /// know it decided right.
+    pub fn react(&mut self) {
+        self.cooldown_remaining = REACTION_COOLDOWN;
+        match self.react {
+            Reaction::Off => {}
+            Reaction::Linger => {
+                // Only bank the pre-LINGER speed if one is not banked
+                // already: a second notable event arriving while the dial
+                // is already held at `1X` must not overwrite the speed to
+                // climb back to with `1` itself. The cooldown above already
+                // keeps a second `react()` from landing inside one linger in
+                // the shipped path, but this stays defensive against a
+                // caller that ever skips the gate -- the alternative is a
+                // dial silently stuck at `1X` for good.
+                if self.linger_remaining.is_none() {
+                    self.restore_requested = self.requested;
+                }
+                self.requested = 1;
+                self.linger_remaining = Some(LINGER_HOLD);
+                self.apply_auto_rate();
+            }
+            Reaction::Stop => self.pause(),
+        }
     }
 
     /// The lowest displayed frame rate the dial may fall to.
@@ -1257,5 +1494,149 @@ mod tests {
         assert_eq!(sim_per_second(64.0), "1M 4S");
         assert_eq!(sim_per_second(3600.0), "1H 0M");
         assert_eq!(sim_per_second(0.4), "0.4S");
+    }
+
+    // ------------------------------------------------- the box's own "look at this"
+
+    /// **Owner: "default to your recommended settings, not off."** Put the
+    /// fault back: shipping `Reaction::Off` as the default would pass every
+    /// other test in this file and fail only this one.
+    #[test]
+    fn the_default_reaction_is_linger_not_off() {
+        assert_eq!(TimeControl::new().react, Reaction::Linger);
+        assert_eq!(Reaction::default(), Reaction::Linger);
+    }
+
+    /// **The mask starts exactly where `notable` says it should.** Put the
+    /// fault back: a `default_react_on` returning `0` (nothing armed) or
+    /// `u8::MAX` (everything armed) would each pass a sweep of the shipped
+    /// bed's event mix without this -- both are wrong in opposite
+    /// directions and neither shows up unless every kind is checked.
+    #[test]
+    fn the_default_mask_matches_notable() {
+        let t = TimeControl::new();
+        assert!(t.reacts_to(LogKind::LineEnded), "LineEnded is the one kind notable() names");
+        for other in [LogKind::Born, LogKind::Died, LogKind::FirstFeed, LogKind::FirstSeed] {
+            assert!(!t.reacts_to(other), "{other:?} should not be armed by default");
+        }
+    }
+
+    #[test]
+    fn cycle_reaction_steps_linger_stop_off_and_back() {
+        let mut t = TimeControl::new();
+        assert_eq!(t.react, Reaction::Linger, "the default the ladder starts from");
+        t.cycle_reaction();
+        assert_eq!(t.react, Reaction::Stop);
+        t.cycle_reaction();
+        assert_eq!(t.react, Reaction::Off);
+        t.cycle_reaction();
+        assert_eq!(t.react, Reaction::Linger, "the cycle did not come back around");
+    }
+
+    /// **The linger, and the recovery.** Put the fault back on either side:
+    /// a `react()` that left the dial alone would pass the second
+    /// assertion here and fail the first; a `plan()` that restored
+    /// `requested` on every call rather than after `LINGER_HOLD` would pass
+    /// the first and fail the second.
+    ///
+    /// No sleep anywhere -- `plan` takes elapsed time as an argument, the
+    /// same fake-clock discipline every other test in this file already
+    /// uses, so the hold is proven with `Duration` arithmetic alone.
+    #[test]
+    fn a_linger_restores_the_requested_speed() {
+        let mut t = TimeControl::new();
+        t.set_preset(4); // 64x
+        assert_eq!(t.requested, 64);
+        t.react = Reaction::Linger;
+
+        t.react();
+        assert_eq!(t.requested, 1, "a LINGER did not drop the dial to 1x");
+
+        // Short of the hold: still parked at 1x. One call is comfortably
+        // inside it regardless of `MAX_ELAPSED`'s clamp (below), since even
+        // an unclamped 500 ms is a sixth of the 3 s hold.
+        t.plan(Duration::from_millis(500));
+        assert_eq!(t.requested, 1, "the linger climbed back before its hold elapsed");
+
+        // Past the hold: back to the speed the event interrupted.
+        //
+        // **Many small `plan` calls, not one big one** -- `plan` clamps
+        // `elapsed` to `MAX_ELAPSED` (250 ms) before it touches anything,
+        // the real frame loop's own defence against a stalled frame lurching
+        // the simulation, and it clamps the linger countdown along with
+        // everything else. A single `t.plan(LINGER_HOLD)` therefore only
+        // ever counts down 250 ms of it -- caught by this test itself on its
+        // first run, which is the guard doing its job before it ever reached
+        // a reviewer. Summing many sub-`MAX_ELAPSED` calls is the faithful
+        // way to simulate wall clock here, the same discipline `Machine`
+        // above uses for the rest of this file's tests.
+        for _ in 0..20 {
+            t.plan(Duration::from_millis(200));
+        }
+        assert_eq!(t.requested, 64, "the linger never climbed back to the pre-event speed");
+    }
+
+    /// **A second event inside the cooldown does not react.** This is the
+    /// scale claim from the owner's brief, as a test: at 1,000+ ants a
+    /// `LineEnded` (once the mask grows to cover it) can arrive every few
+    /// frames, and without this a box asked for 256x would spend all of it
+    /// pinned to 1x. Put the fault back: a `can_react` that always returned
+    /// `true` would pass every other test in this file and fail only this
+    /// one.
+    ///
+    /// `react()` itself is not asked to enforce the gate -- see its own doc
+    /// -- so this tests `can_react` directly, which is what `Lab::advance`
+    /// actually checks before ever calling `react()` a second time.
+    #[test]
+    fn the_cooldown_swallows_a_second_event() {
+        let mut t = TimeControl::new();
+        t.set_preset(4); // 64x
+        t.react = Reaction::Linger;
+
+        assert!(t.can_react(), "a fresh box starts out of cooldown");
+        t.react();
+        assert!(!t.can_react(), "reacting did not start the cooldown");
+
+        t.plan(Duration::from_secs(1)); // clamped to `MAX_ELAPSED`, see below
+        assert!(!t.can_react(), "the cooldown expired early");
+
+        // Many small calls rather than one `t.plan(REACTION_COOLDOWN)` --
+        // `plan` clamps `elapsed` to `MAX_ELAPSED` (250 ms) before touching
+        // anything, so a single big call only ever counts down a quarter of
+        // a second of it. See `a_linger_restores_the_requested_speed`'s own
+        // note; this test hit the identical fault on its first run.
+        for _ in 0..25 {
+            t.plan(Duration::from_millis(200));
+        }
+        assert!(t.can_react(), "the cooldown never expired");
+    }
+
+    #[test]
+    fn a_stop_reaction_pauses_the_box() {
+        let mut t = TimeControl::new();
+        t.set_preset(3);
+        t.react = Reaction::Stop;
+        assert_eq!(t.phase, Phase::Running);
+        t.react();
+        assert_eq!(t.phase, Phase::Paused, "STOP did not stop the clock");
+    }
+
+    /// **The sensitivity half of `an_off_reaction_touches_nothing_but_the_
+    /// cooldown` below is this test's whole point**: OFF must not be a
+    /// no-op at the call site, or a mask/cooldown bug that always lands on
+    /// OFF would look identical to the feature working. `Lab::advance` is
+    /// what actually keeps OFF from calling `react()` at all in the shipped
+    /// path -- this only proves `react()` itself is inert if it is ever
+    /// reached with OFF armed.
+    #[test]
+    fn an_off_reaction_touches_nothing_but_the_cooldown() {
+        let mut t = TimeControl::new();
+        t.set_preset(4);
+        t.react = Reaction::Off;
+        let (requested_before, phase_before) = (t.requested, t.phase);
+        t.react();
+        assert_eq!(t.requested, requested_before, "OFF touched the dial");
+        assert_eq!(t.phase, phase_before, "OFF touched the phase");
+        assert!(!t.can_react(), "even OFF starts the cooldown, so flipping to LINGER mid-event cannot fire twice");
     }
 }

@@ -188,7 +188,16 @@
         // measured what a beetle lineage should drift at, and two unexplained
         // rates would be worse than one shared one. A number to re-derive
         // when a beetle line is actually being bred, not before.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** alongside `ant.ron` and
+        // `ancestor.ron` when `KinNeed`/`Share` took `live_slots` 706 -> 763
+        // for trophallaxis (`3.18 / 763`) -- the mutable surface moved for
+        // every species sharing the brain scaffold, whether or not this one
+        // wires the new slots. `beetle.ron` gets no `Share` weight: a
+        // solitary predator sharing with its own kind is a decision this
+        // change has no evidence for, and an unwired row is `squash(0) = 0`
+        // at the cost of one comparison.
+        mutation_rate: 0.0041678,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see

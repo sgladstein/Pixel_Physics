@@ -3599,6 +3599,20 @@ pub struct CreatureDef {
     /// file that never heard of it still loads.
     #[serde(default)]
     pub plastic: Vec<super::brain::Plastic>,
+    /// **How unequal a cohort's founding reserves are**, as a fraction of
+    /// `start_energy`: each founder's bank is drawn from
+    /// `start_energy * (1 +/- spread)`, paired across the cohort so the
+    /// TOTAL endowment is unchanged (`creature::founder_reserve`) — a
+    /// redistribution, not a subsidy. `0.0`, the default, is every founder
+    /// stamped identically, which is the shipped behaviour that produced
+    /// the disease it is meant to cure: 46 of 52 ants dying inside one
+    /// synchronised 500-frame window because every founder empties the
+    /// same grant on the same schedule
+    /// (`Reports/colony-economy-design-2026-09-09.md` §4a). Drawn from a
+    /// pure hash keyed on the founding position, never a shared `Rng`, so
+    /// the same seed places the same reserves.
+    #[serde(default)]
+    pub founder_reserve_spread: f32,
 }
 
 impl CreatureDef {
@@ -3717,6 +3731,7 @@ impl CreatureDef {
             hidden_outputs,
             recurrence,
             plastic,
+            founder_reserve_spread,
         } = self;
 
         let body_scaled = body.scaled(ki);
@@ -3808,6 +3823,9 @@ impl CreatureDef {
             traits: *traits,
             reproduce_threshold: *reproduce_threshold,
             mutation_rate: *mutation_rate,
+            // Dimensionless -- `mutation_rate`'s class exactly: a fraction
+            // *of* `start_energy`, which is itself passed through unchanged.
+            founder_reserve_spread: *founder_reserve_spread,
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
             eats_kin: *eats_kin,
@@ -4977,6 +4995,14 @@ pub struct OrganismState {
     /// regenerating animal would make swarming a race against a clock and
     /// give the result a threshold again, which is the shape this replaced.
     pub gnawed: f32,
+    /// **The frame this animal last gave or received a share of
+    /// trophallaxis** (`brain::BrainOutput::Share`), `0` for never. Written
+    /// on both parties at the moment of transfer. Nothing in the sim reads
+    /// it yet -- it exists for the on-screen flash another lane's marker
+    /// pass draws from it (`src/lab/ui.rs`), the same "build the field
+    /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
+    /// readout rule asks for.
+    pub last_share_frame: u64,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -5190,6 +5216,42 @@ pub struct OrganismState {
     pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **The strongest single thing that changed between this individual and
+    /// its parent, packed rather than stored as a `String`** -- this field
+    /// lives on the hot organism table, cloned by every batch worker, so it
+    /// stays a `Copy` `u16` and the sentence is built on demand from it, the
+    /// same trade `LogEvent` makes.
+    ///
+    /// **Per-individual, never logged.** `CLAUDE.md`'s scale constraint: a
+    /// colony click founds 52 lineages and the box runs at 1,000+ animals, so
+    /// a line in the run log for every birth's mutation would drown the
+    /// chronicle the log exists to be. This is read on demand, on the CELL
+    /// page, for the one individual a player is actually looking at.
+    ///
+    /// High byte -- which channel changed:
+    /// - `0..=13` -- a `CREATURE_TRAITS` slot; low byte is the signed change
+    ///   as a percentage of that trait's `-1..=1` axis (e.g. `+12` is 12% of
+    ///   the axis, not 12% of the old value, which would be meaningless near
+    ///   zero), stored as an `i8`'s bit pattern.
+    /// - `14` -- no trait moved but synapses did; low byte is how many,
+    ///   saturating at 255 (`brain::mutate`'s own return, otherwise
+    ///   discarded).
+    /// - `20` -- a discrete allele jumped; low byte is the locus index
+    ///   (`DISCRETE_LOCI`).
+    /// - `21` -- the production rule mutated; low byte is the `FateOp`
+    ///   discriminant (`FateOp::ALL`'s index).
+    /// - `22` -- a parameter was overridden; low byte is unused (the
+    ///   specific override is already on `params.overrides()`, which the
+    ///   CELL page reads directly -- this only flags that one exists).
+    ///
+    /// `0` (the whole `u16`) means nothing worth reporting moved: a founder,
+    /// a released jar, or a birth whose mutation rolled and produced no
+    /// visible change. A plant's continuous jitter (every seed's
+    /// `genotype_draws`) never sets this -- see `plant::bear_seed_at`'s own
+    /// comment at the seam that decides it -- because it fires on every seed
+    /// and would make this field mean "this seed existed" rather than "this
+    /// seed's line moved".
+    pub born_with: u16,
     /// **What this individual has done in its life.**
     ///
     /// Every field is mirrored from a site that already increments the
@@ -6234,6 +6296,13 @@ const EMBEDDED: &[&str] = &[
     // §10 stage 3). Appended at the end so no existing species' position
     // moves.
     include_str!("../../assets/species/ancestor.ron"),
+    // **The second animal, and the first to author `BrainOutput::Impulse`**
+    // -- see `hopper.ron`'s own header. Appended at the end, same
+    // convention as everything above it. It cannot yet be placed: it needs
+    // a companion `assets/materials/hopper.ron`, which is out of the scope
+    // that added this line (`material.rs`'s own `include_str!` list is a
+    // different file this session does not own).
+    include_str!("../../assets/species/hopper.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

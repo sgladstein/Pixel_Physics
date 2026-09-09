@@ -3834,10 +3834,13 @@ fn parse() -> Args {
                 "pressure" => a.field_overlay = FieldOverlay::Pressure,
                 "pheromone_a" => a.field_overlay = FieldOverlay::PheromoneA,
                 "pheromone_b" => a.field_overlay = FieldOverlay::PheromoneB,
+                // The `J` (`ALARM`) tool's own plane -- see
+                // `render::FieldOverlay::Alarm`.
+                "pheromone_alarm" => a.field_overlay = FieldOverlay::Alarm,
                 "stress" => a.stress = true,
                 "exposure" => a.exposure = true,
                 other => panic!(
-                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, stress, exposure"
+                    "unknown channel {other:?}; known: off, celltype, resource, canopy, vein, soil, foodvalue, light, moisture, temperature, pressure, pheromone_a, pheromone_b, pheromone_alarm, stress, exposure"
                 ),
             },
             "wind" => {

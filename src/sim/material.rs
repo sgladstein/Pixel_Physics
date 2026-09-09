@@ -2441,6 +2441,7 @@ const EMBEDDED: &[&str] = &[
     // **Appended at the end so no existing material's position moves.**
     // The lab ancestor's flesh -- see `assets/materials/ancestor.ron`.
     include_str!("../../assets/materials/ancestor.ron"),
+    include_str!("../../assets/materials/hopper.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.

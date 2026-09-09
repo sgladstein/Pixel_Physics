@@ -1008,6 +1008,16 @@ pub enum FieldOverlay {
     /// (see `apply_field_overlay`).
     PheromoneA,
     PheromoneB,
+    /// **The third plane, `sim::pheromone::Channel::Alarm`, and it had no
+    /// overlay until the `J` tool needed one.** A player who drops alarm
+    /// scent by hand has no other way to see where it landed or how far it
+    /// has spread — the lab's `O`/`V` overlay cycle already answers that for
+    /// A and B, so this closes the one plane it left blind. Drawn by the
+    /// same full-replace rule as the other two (see `apply_field_overlay`);
+    /// `sample` reads a flat zero for a world nothing has ever bitten,
+    /// without allocating the plane, so cycling to this overlay costs
+    /// nothing on a bed with no fight in it.
+    Alarm,
 }
 
 impl FieldOverlay {
@@ -1019,7 +1029,8 @@ impl FieldOverlay {
             FieldOverlay::Light => FieldOverlay::Moisture,
             FieldOverlay::Moisture => FieldOverlay::PheromoneA,
             FieldOverlay::PheromoneA => FieldOverlay::PheromoneB,
-            FieldOverlay::PheromoneB => FieldOverlay::Off,
+            FieldOverlay::PheromoneB => FieldOverlay::Alarm,
+            FieldOverlay::Alarm => FieldOverlay::Off,
         }
     }
 
@@ -1032,6 +1043,7 @@ impl FieldOverlay {
             FieldOverlay::Moisture => "AIR HUMIDITY",
             FieldOverlay::PheromoneA => "PHEROMONE A",
             FieldOverlay::PheromoneB => "PHEROMONE B",
+            FieldOverlay::Alarm => "PHEROMONE ALARM",
         }
     }
 }
@@ -1742,6 +1754,15 @@ fn carry_cue() -> CarryCue {
 /// one-cell-wide line.
 const SCALAR_RAMP_PHERO_A: [f32; 3] = [255.0, 80.0, 220.0];
 const SCALAR_RAMP_PHERO_B: [f32; 3] = [80.0, 240.0, 255.0];
+/// The alarm plane's own hue — a third colour distinct from both trails
+/// above, since a fight and a food route can be live in the same frame and
+/// the overlay has to say which is which. Strong red: alarm is the one
+/// plane whose zero really does mean "quiet" (`CLAUDE.md`'s "an outcome is
+/// a distribution" does not apply here the way it does to a trail; a fight
+/// is legibly an event), so the ordinary floor is used rather than the
+/// lifted one `SCALAR_RAMP_ALARM_FLOOR` reserves for `OrganismOverlay`'s
+/// unrelated starvation ramp.
+const SCALAR_RAMP_PHERO_ALARM: [f32; 3] = [255.0, 50.0, 50.0];
 /// The two halves of the signed temperature ramp — warmer than ambient and
 /// cooler than ambient. Two hues rather than one ramp through black, so the
 /// *sign* is readable at a glance on a contact sheet: a world that has gone
@@ -6305,6 +6326,7 @@ impl Renderer {
         let pheromone_channel = match self.field_overlay {
             FieldOverlay::PheromoneA => Some((crate::sim::pheromone::Channel::A, SCALAR_RAMP_PHERO_A)),
             FieldOverlay::PheromoneB => Some((crate::sim::pheromone::Channel::B, SCALAR_RAMP_PHERO_B)),
+            FieldOverlay::Alarm => Some((crate::sim::pheromone::Channel::Alarm, SCALAR_RAMP_PHERO_ALARM)),
             _ => None,
         };
         if let Some((channel, full)) = pheromone_channel {
@@ -6370,7 +6392,7 @@ impl Renderer {
                 ([60.0, 140.0, 255.0], t)
             }
             // Handled by the full-replace branch above, which returns.
-            FieldOverlay::PheromoneA | FieldOverlay::PheromoneB => return base,
+            FieldOverlay::PheromoneA | FieldOverlay::PheromoneB | FieldOverlay::Alarm => return base,
         };
         const MAX_BLEND: f32 = 0.75;
         let blend = magnitude.clamp(0.0, 1.0) * MAX_BLEND;
@@ -8079,7 +8101,7 @@ mod tests {
         let mut r = Renderer::new();
         assert_eq!(r.field_overlay, FieldOverlay::Off);
         let mut seen = vec![r.field_overlay];
-        for _ in 0..6 {
+        for _ in 0..7 {
             r.cycle_field_overlay();
             seen.push(r.field_overlay);
         }
@@ -8092,7 +8114,8 @@ mod tests {
                 FieldOverlay::Light,
                 FieldOverlay::Moisture,
                 FieldOverlay::PheromoneA,
-                FieldOverlay::PheromoneB
+                FieldOverlay::PheromoneB,
+                FieldOverlay::Alarm
             ]
         );
         r.cycle_field_overlay();
@@ -8133,6 +8156,51 @@ mod tests {
         };
         assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
         assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), r.cell_colour_at(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
+    }
+
+    /// **The `J` (`ALARM`) tool's overlay, checked the same way `PheromoneA`/
+    /// `PheromoneB` are above.** Catches two different ways the alarm plane
+    /// could ship inert: forgetting to add `FieldOverlay::Alarm` to the
+    /// early-return `pheromone_channel` match (in which case this falls
+    /// through to the ordinary blend tail's `return base` arm and the strong
+    /// deposit below would draw identically to a plain wall of stone), and
+    /// forgetting to allocate the plane at all (in which case `sample` would
+    /// read a flat zero everywhere and the "must differ from off" assertion
+    /// would fail).
+    #[test]
+    fn the_alarm_overlay_is_reachable_and_replaces_rather_than_blends() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(10, 10, Cell::new(material::STONE, 0));
+        let coal = world.materials.id_of("coal").unwrap_or(material::SAND);
+        world.set(20, 20, Cell::new(coal, 0));
+        // `ALARM_DEPOSIT` (240 of 255) -- the strength a bitten ant actually
+        // emits (`creature.rs`'s `cry_alarm`), not an arbitrary test value.
+        world.deposit_pheromone(crate::sim::pheromone::Channel::Alarm, 10, 10, crate::sim::pheromone::ALARM_DEPOSIT);
+        world.deposit_pheromone(crate::sim::pheromone::Channel::Alarm, 20, 20, crate::sim::pheromone::ALARM_DEPOSIT);
+
+        let mut r = Renderer::new();
+        r.field_overlay = FieldOverlay::Alarm;
+        assert_eq!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            r.cell_colour_at(&world, 20, 20, (0, 0)),
+            "equal alarm over different materials must draw identically -- a blend would leak the material colour through"
+        );
+
+        let off_pixel = {
+            let mut plain = Renderer::new();
+            plain.field_overlay = FieldOverlay::Off;
+            plain.cell_colour_at(&world, 10, 10, (0, 0))
+        };
+        assert_ne!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            off_pixel,
+            "a strong alarm reading must not draw the same as the overlay being off -- the tool would look like it did nothing"
+        );
+        assert_ne!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            r.cell_colour_at(&world, 40, 40, (0, 0)),
+            "a cell nothing has bitten must read differently from one that was"
+        );
     }
 
     #[test]

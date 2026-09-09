@@ -130,6 +130,15 @@ const RNG_SLOT_BIRTH: u64 = 3;
 /// station of one founding gesture and every jar released into that label
 /// shares the offset, and a rebuilt box at the same seed reproduces it.
 const RNG_SLOT_COLONY_SCENT: u64 = 4;
+/// The founder-reserve stream: one draw per founding-position pair, keyed on
+/// the world seed and the founding x rather than the colony label
+/// (`founder_reserve`), because the label is not resolved until the first
+/// station of a founding is placed and this draw has to be ready before
+/// that. A **pure hash** -- `rng::stream` carries no mutable state across
+/// calls -- so drawing founder 7's reserve cannot shift founder 8's move
+/// roll or anything else reading `RNG_SLOT_MOVE` later on the same frame,
+/// the shared-`Rng` gotcha `RNG_SLOT_BIRTH`'s own doc names.
+const RNG_SLOT_FOUNDER_RESERVE: u64 = 5;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -1233,6 +1242,17 @@ fn place_creature(
         state.forage_anchor = (x, y);
         state.forage_max = 0;
     }
+    // **This lineage's standing facts, seeded once, at the one moment its
+    // number is fresh.** A `Bud` copies its parent's `lineage` and never
+    // reaches here -- the entry already exists from when the founder itself
+    // was placed. Read after the block above closes, so it is the traits as
+    // actually placed (post colony-scent offset, `apply_colony_scent` above),
+    // not `def.traits` alone -- see `World::seed_line_stats`'s own doc for
+    // why a plant founder does not have the equivalent call.
+    if matches!(origin, Origin::Founder { .. } | Origin::Stock { .. }) {
+        let traits = world.organism(organism).map(|s| s.traits).unwrap_or([0.0; CREATURE_TRAITS]);
+        world.seed_line_stats(founder_lineage, traits);
+    }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
         Origin::Founder { .. } | Origin::Stock { .. } => {
@@ -1265,16 +1285,18 @@ fn place_creature(
                 p.life.offspring += 1;
             }
             // The log line, beside the counter. `id` is the newborn -- the
-            // event is about it, and `other` says who bore it.
+            // event is about it, and `other` says who bore it. `world.log`
+            // reads `lineage`/`generation` off the child's own state, which
+            // is already stamped (`state.lineage = founder_lineage` and
+            // `state.generation = *generation` above) by the time this runs.
             let born_frame = world.organism(organism).map_or(0, |s| s.born_frame);
-            world.run_log.push(crate::sim::world::LogEvent {
-                frame: world.frame,
-                id: organism,
-                born_frame,
-                species: species_id,
-                kind: crate::sim::world::LogKind::Born,
-                other: parent,
-            });
+            world.log(crate::sim::world::LogKind::Born, organism, born_frame, species_id, parent);
+            // **The line's population, one higher** -- beside the log push
+            // rather than folded into `World::log`, because a death needs
+            // the identical call with a `-1` and no live organism left to
+            // read `generation` off (`free_organism`), so the two call sites
+            // cannot share a signature that hides the delta.
+            world.note_line_population(founder_lineage, 1, organism, born_frame, species_id, generation);
             // **A birth creates no energy, and this is the S3b stamp seam
             // closing** (`Reports/creature-evolution-plan.md` §2.3, "One
             // seam left open"; `EnergyLedger::meat_lost`'s own doc points
@@ -2113,9 +2135,24 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
+    // **Captured out of the borrow below, for `born_with` and the line
+    // records — both need `&mut World` and cannot be called while `state`
+    // holds it.** Defaulted to the pre-mutation values so a stale-handle
+    // `None` (the child's slot vanished between placement and here, which
+    // cannot happen today but costs nothing to be honest about) reports
+    // "nothing changed" rather than a bogus mutation.
+    let mut synapses_moved = 0u32;
+    let mut child_traits = parent_traits;
+    let mut child_generation = parent_generation.saturating_add(1);
+    let mut child_born_frame = 0u64;
     if let Some(state) = world.organism_mut(child) {
         let mut genome = std::mem::take(&mut state.genome);
-        brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        // **The return was discarded here** -- how many synapse slots
+        // actually moved, `brain::mutate`'s own count. Captured now because
+        // `born_with` needs a fallback for the case a mutation changes the
+        // brain and not the body: a bud whose trait jitter rounds to zero on
+        // every slot still bred something different.
+        synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
@@ -2134,6 +2171,38 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
                 *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
             }
         }
+        child_traits = state.traits;
+        child_generation = state.generation;
+        child_born_frame = state.born_frame;
+    }
+    // **`born_with`: the strongest single change, not every one** -- see
+    // `OrganismState::born_with`'s own doc for the packing and the scale
+    // reason it is one field read on demand rather than a line in the run
+    // log. `pct` is a percentage of the trait's own `-1..=1` axis, never of
+    // the old value, which would be meaningless near zero.
+    let mut born_with = 0u16;
+    let mut strongest_pct = 0i32;
+    for (slot, (before, after)) in parent_traits.iter().zip(child_traits.iter()).enumerate() {
+        let pct = ((after - before) * 100.0).round() as i32;
+        if pct.abs() > strongest_pct.abs() {
+            strongest_pct = pct;
+            born_with = ((slot as u16) << 8) | (pct.clamp(-127, 127) as i8 as u8 as u16);
+        }
+    }
+    if strongest_pct == 0 && synapses_moved > 0 {
+        born_with = (14u16 << 8) | synapses_moved.min(255) as u16;
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.born_with = born_with;
+    }
+    // **The line's own history, checked after the mutation that could have
+    // moved it** -- see `World::note_line_generation`/`note_line_record`'s
+    // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
+    // that never founded a lineage), checked once here rather than inside
+    // each call so the intent reads at the call site.
+    if parent_lineage != 0 {
+        world.note_line_generation(parent_lineage, child_generation, child, child_born_frame, species_id);
+        world.note_line_record(parent_lineage, &child_traits, child, child_born_frame, species_id, child_generation);
     }
     Some(site)
 }
@@ -2244,15 +2313,46 @@ impl World {
             self.paint_nest_patch(x, y);
         }
         let mut placed = 0;
+        // **Staggered founder reserves** — every founder used to be stamped
+        // with the identical `def.start_energy`, so a synchronised cohort
+        // starved in the same 500-frame window together
+        // (`Reports/colony-economy-design-2026-09-09.md` §4a). Read once,
+        // before the loop, because `def` and the seed are needed for every
+        // station and the colony label is not resolved until the first one
+        // is placed.
+        let def = self.species.get(species_id).creature.clone();
+        let spread = def.as_ref().map_or(0.0, |d| d.founder_reserve_spread);
+        let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
+        let seed = self.seed;
+        let stations = self.colony_stations(x, y, species_id, ants);
+        let total = stations.len() as i32;
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
         let mut colony: Option<u32> = None;
-        for (cx, cy) in self.colony_stations(x, y, species_id, ants) {
+        for (i, (cx, cy)) in stations.into_iter().enumerate() {
             let before = self.get(cx, cy).organism_id();
             if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
+                }
+                // **Overridden after placement, before scheduling**, so
+                // nothing has ticked yet and no ledger bookkeeping runs
+                // between the grant and the correction. `place_creature`
+                // already booked `energy_ledger.granted += start_energy` for
+                // this founder; `founder_reserve`'s pairing conserves the
+                // COHORT's total exactly, so the aggregate identity
+                // (`expected_live_total() == sum(live energies)`) still
+                // holds even though this one individual's bank now
+                // disagrees with what was granted for it -- this is a
+                // redistribution, not a subsidy.
+                if spread > 0.0 {
+                    if let ActiveKind::Creature { organism } = site.kind {
+                        let factor = founder_reserve(seed, x, i as i32, total, spread);
+                        if let Some(state) = self.organism_mut(organism) {
+                            state.energy = start_energy * factor;
+                        }
+                    }
                 }
                 self.schedule_active_site(site);
             }
@@ -2585,18 +2685,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         * armour_of(&jaw_traits, world.trait_reach);
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
-    // paying to be somewhere rather than to do something -- and gated on the
-    // authored price so a species that has not opted in pays not even the
-    // roof test, which is three `World::get`s on every creature tick.
+    // paying to be somewhere rather than to do something.
     //
-    // Read at the head rather than over the whole body: a two-cell ant half
-    // in a doorway is either in or out, and the head is the cell every other
-    // sense in this function is read from.
-    let exposure = if def.exposure_cost_per_cell > 0.0 && !is_sheltered(world, x, y) {
-        def.exposure_cost_per_cell * body_cells
-    } else {
-        0.0
-    };
+    // **The roof test itself is no longer gated on the price.** It used to
+    // sit behind `def.exposure_cost_per_cell > 0.0` so a species with no
+    // authored price paid not even the three `World::get`s -- but that
+    // gate also hid `exposed_ticks` behind the same `&&`, so on every bed
+    // that has not priced exposure (all of them, today) the counter read
+    // exactly 0 of N ticks, a null wearing a measurement rather than a
+    // report of an unexposed colony. `labstats`'s `--- shelter ---` line
+    // is supposed to answer "is there any sheltering behaviour for a price
+    // to reward at all", and a counter that cannot move without a price
+    // first being authored cannot answer that question -- it can only
+    // agree with whatever the price already says. Read at the head rather
+    // than over the whole body: a two-cell ant half in a doorway is either
+    // in or out, and the head is the cell every other sense in this
+    // function is read from.
+    let unsheltered = !is_sheltered(world, x, y);
+    let exposure = if def.exposure_cost_per_cell > 0.0 && unsheltered { def.exposure_cost_per_cell * body_cells } else { 0.0 };
     let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + armour_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
@@ -2608,7 +2714,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
-    if exposure > 0.0 {
+    if unsheltered {
         world.creature_stats.exposed_ticks += 1;
     }
     world.energy_ledger.synapse_tax += synapse_tax as f64;
@@ -2625,7 +2731,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **Gnawing comes back as work for the caller to charge, exactly as
     // `dug` does.** `act` decides what an animal did; `creature_tick` owns
     // the ledger. One place where work becomes energy.
-    let Did { dug, gnaws } = act(world, x, y, organism, def, &outputs, &mut draw);
+    let Did { dug, gnaws, shares } = act(world, x, y, organism, def, &outputs, &mut draw);
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
     // beetle that had just been made *tougher* -- two cells off it, none off
@@ -2644,6 +2750,19 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         spent += jaw;
         world.energy_ledger.metabolized += jaw as f64;
         world.creature_stats.gnaw_energy += jaw as f64;
+    }
+    // **Trophallaxis is mandible-to-mandible, priced through the same
+    // apparatus gnawing already uses** — `Did::gnaws`' own doc argues "what
+    // keeps one apparatus at one price", and the fight branch routes through
+    // it for the same stated reason. No new species field and no new ledger
+    // account: the joules book to `metabolized`, which is already a sink in
+    // `EnergyLedger::expected_live_total`. `share_energy` is a plain counter
+    // so `labstats` can attribute it separately from the digging bill.
+    if shares > 0 && def.dig_cost_in_moves > 0.0 {
+        let work = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * shares as f32;
+        spent += work;
+        world.energy_ledger.metabolized += work as f64;
+        world.creature_stats.share_energy += work as f64;
     }
     if dug > 0 && def.dig_cost_in_moves > 0.0 {
         let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * dug as f32;
@@ -3062,10 +3181,27 @@ fn sense(
     // food it cannot digest and the gene would be nutritional bookkeeping
     // rather than a behaviour -- which is the whole difference S5 exists to
     // make. A meat gut stops *seeing* leaves.
-    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, organism, (x, y), gut_of(world, organism, def)).is_some() { 1.0 } else { 0.0 };
+    // **`adjacent_food_counted` directly, not the `adjacent_food` wrapper**,
+    // since 2026-09-09: the ring walk it makes for `FoodAdjacent` is the same
+    // walk `BrainInput::KinNeed` needs, and the kin-need reduction inside it
+    // is free on a branch this call was already taking. `.best.is_some()` is
+    // the wrapper's own definition, unchanged.
+    let mouth_scan = adjacent_food_counted(world, organism, (x, y), gut_of(world, organism, def), def.start_energy);
+    inputs[I::FoodAdjacent as usize] = if mouth_scan.best.is_some() { 1.0 } else { 0.0 };
+    inputs[I::KinNeed as usize] = mouth_scan.kin_need.map_or(0.0, |k| k.deficit);
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
+        // **Renormalizing this against `reproduce_at_of` (a child's worth,
+        // ~1,040 J against a 200 J grant) was tried and measured, not
+        // shipped.** It fixed the wrong half: `labforage`, 3 seeds, alive@
+        // 4,500 came back at 10/10/13 -- barely above the unwired ant's
+        // 6/8/11 and nowhere near the shipped hunger wire's 46/46/47,
+        // because at `start_energy` an ant now reads only ~0.19 "full", so
+        // the hunger wire it was meant to serve almost never sees a full
+        // ant and the founding cliff returns close to where it started.
+        // Reverted; the shipped fix is in the weights themselves
+        // (`ant.ron`'s `Energy` wiring), not in what this input measures.
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
         // **How this animal was made**, so behaviour can depend on it --
         // `BrainInput::Made`. Zero for every founder and every animal that
@@ -3345,6 +3481,23 @@ pub fn diet_quality(world: &World, material: material::MaterialId, gut_bias: f32
 /// than presented as measured.
 pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
 
+/// **Trophallaxis's one constant, and it is doing three jobs at once** —
+/// derived rather than chosen, per `brain::BrainOutput::Share`.
+///
+/// - **The cap.** `0.25 < 0.5`, so after every share
+///   `donor - recipient = 0.5 * gap > 0`: the donor is still the richer of
+///   the two, no oscillation is possible, and no separate ceiling constant
+///   is needed.
+/// - **The floor.** `donor_after >= 0.75 * donor_before > 0` for any live
+///   recipient (a live organism has `energy > 0`, `apply_creature_energy`
+///   kills at `<= 0`). A share can never kill the donor, with no authored
+///   floor to tune.
+/// - **The grading.** A full ant beside an empty one hands over a quarter
+///   of the gap between them; two ants a few joules apart exchange almost
+///   nothing. The outcome is a distribution, not a switch (the house
+///   ethos's first law).
+pub const SHARE_FRACTION: f32 = 0.25;
+
 /// A creature's diet, resolved **once** at a site that already holds the
 /// organism rather than per neighbour cell.
 ///
@@ -3437,6 +3590,46 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
         }
     }
     None
+}
+
+/// **The nearest kin worth feeding** — `Share`'s target rule, and the verb's
+/// own targeted walk rather than a reuse of the food ranking, exactly as
+/// `nearest_foe` is `Attack`'s own walk rather than `Attack` scoring the food
+/// ranking's candidates.
+///
+/// Paid **only on ticks the verb actually fires** -- the `Attack`/
+/// `nearest_foe` pattern exactly -- because `sense`'s scan already found the
+/// answer for `BrainInput::KinNeed` on every tick and `act` would otherwise
+/// be walking the ring twice for the one tick it needs the target. The two
+/// walks share one predicate, [`kin_deficit`], so the eye and the mouth
+/// cannot disagree about who is needy.
+fn neediest_kin(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> Option<NeedyKin> {
+    let fallback = [head];
+    let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let mut best: Option<NeedyKin> = None;
+    for (i, &(bx, by)) in body.iter().enumerate() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (bx + dx, by + dy);
+            // Same earlier-cells skip as `nearest_foe` and the food scan, for
+            // the same reason.
+            if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
+                continue;
+            }
+            let cell = world.get(nx, ny);
+            let owner = cell.organism_id();
+            // Somebody else's, never mine -- see `adjacent_food_counted`'s
+            // own comment on this exact test.
+            if owner == 0 || owner == organism || !is_living_kin(world, cell, gut) {
+                continue;
+            }
+            if let Some(deficit) = kin_deficit(world, owner, start_energy) {
+                if best.is_none_or(|b| deficit > b.deficit) {
+                    best = Some(NeedyKin { deficit, id: owner, x: nx, y: ny });
+                }
+            }
+        }
+    }
+    best
 }
 
 /// **An animal being bitten calls out**, on the alarm plane, at the cell that
@@ -3548,6 +3741,46 @@ fn apply_colony_scent(traits: &mut [f32; CREATURE_TRAITS], seed: u64, colony: u3
     let off = colony_scent_offset(seed, colony, spread);
     for (i, slot) in SCENT_SLOTS.iter().enumerate() {
         traits[*slot] = (traits[*slot] + off[i]).clamp(-1.0, 1.0);
+    }
+}
+
+/// **One founder's starting-bank multiplier**, so a cohort founded together
+/// arrives with unequal reserves instead of the identical grant that emptied
+/// on the same schedule (`Reports/colony-economy-design-2026-09-09.md` §4a).
+/// Multiply `start_energy` by the result — `CreatureDef::founder_reserve_spread`.
+///
+/// **Paired so the cohort's TOTAL is exactly unchanged: this is a
+/// redistribution, not a subsidy.** Founder `index` and its mirror
+/// `total - 1 - index` get `1 + d` and `1 - d` for the same draw `d`, so
+/// every pair sums to exactly `2.0` and the whole cohort sums to `total`
+/// (`* start_energy` gives back the un-staggered grant). The one middle
+/// founder of an odd cohort has no partner to cancel against and draws
+/// nothing, for the same reason.
+///
+/// **A PURE hash, never a draw from a shared `Rng`.** `rng::stream` carries
+/// no mutable state across calls, so drawing founder 7's reserve cannot
+/// shift founder 8's move roll or anything else drawing from `RNG_SLOT_MOVE`
+/// later on the same frame — the shared-`Rng` hazard `RNG_SLOT_BIRTH`'s own
+/// doc names, and this file's method section requires be checked before a
+/// draw is added to a hot path. Keyed on the founding **x**, not the colony
+/// label: the label is not resolved until the first station of a founding is
+/// placed, and this draw has to be ready before that. Same seed, same x,
+/// same reserves, every time.
+fn founder_reserve(seed: u64, x: i32, index: i32, total: i32, spread: f32) -> f32 {
+    if spread <= 0.0 || total <= 0 {
+        return 1.0;
+    }
+    let mirror = total - 1 - index;
+    if index == mirror {
+        return 1.0;
+    }
+    let pair = index.min(mirror);
+    let mut draw = rng::stream(seed, x as i64 as u64, pair as u64, RNG_SLOT_FOUNDER_RESERVE);
+    let d = (draw.unit_f32() * 2.0 - 1.0) * spread;
+    if index < mirror {
+        1.0 + d
+    } else {
+        1.0 - d
     }
 }
 
@@ -3665,8 +3898,17 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
     provisions_in_reach(world, x, y, gut).map(|(w, _, _)| w).sum()
 }
 
+/// **Test-only since `sense`'s `FoodAdjacent` fill switched to
+/// `adjacent_food_counted` directly** (2026-09-09, for the `KinNeed` scan it
+/// makes on the same walk). Kept, and marked accordingly rather than left to
+/// warn, because it is still the shortest way for a test to ask "is there
+/// food here" without caring about the kin-need side of the scan.
+#[cfg(test)]
 fn adjacent_food(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
-    adjacent_food_counted(world, organism, head, gut).best
+    // `start_energy` only scales `kin_need`, which this wrapper discards --
+    // every caller here wants `.best` alone, so the value passed through is
+    // never read.
+    adjacent_food_counted(world, organism, head, gut, 0.0).best
 }
 
 /// `adjacent_food`, plus **how many mouthfuls this gut wanted and this
@@ -3696,11 +3938,58 @@ struct FoodScan {
     best: Option<Mouthful>,
     refused: u64,
     damage: f32,
+    /// The neediest living nestmate this scan touched -- `BrainInput::KinNeed`
+    /// and `BrainOutput::Share`'s recipient, found in the pass the mouth was
+    /// making anyway. A sense is not an event: this books nothing, and
+    /// cannot, because the scan holds only `&World`.
+    kin_need: Option<NeedyKin>,
 }
 
-fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> FoodScan {
+/// The neediest living nestmate a scan touched: how badly it needs feeding
+/// and where it is. See [`kin_deficit`].
+#[derive(Clone, Copy)]
+struct NeedyKin {
+    deficit: f32,
+    id: u16,
+    /// Where the neediest kin was found. Unread today — kept for whatever
+    /// consumer wants the position rather than only the identity (a probe,
+    /// or a future pair-drawing marker), which is the `CLAUDE.md` channel
+    /// rule's "written and never read" case: dead weight, not a bug, unlike
+    /// a reader with no writer.
+    #[allow(dead_code)]
+    x: i32,
+    #[allow(dead_code)]
+    y: i32,
+}
+
+/// **The one definition of "how badly does this kin need feeding"**, so the
+/// mouth's scan (`adjacent_food_counted`) and the verb's own targeted walk
+/// (`neediest_kin`) cannot disagree about who is needy -- the standing
+/// failure `CLAUDE.md`'s eye/mouth rule exists to close.
+///
+/// `1 - energy / start_energy`, clamped to `[0, 1]`, where `start_energy` is
+/// the *donor's* — see `brain::BrainInput::KinNeed` for why that scale is
+/// exact while kin is same-species.
+///
+/// **Extension point for later, not built here**: a breeder close to its
+/// own species' breeding bar with a thin bank should be able to read as
+/// needier than a worker sitting on the same joule count, so that sharing
+/// can concentrate on a queen rather than spreading flat across the colony.
+/// That is a separate term, or a weighting by the kin's fertility -- not a
+/// change to this deficit, which stays a plain energy fraction until the
+/// eusociality lane adds one. Redefining it against the breeding bar now
+/// would make every ant read as needy long before it starves, and the
+/// sharing this ships would fire on nearly every tick instead of the graded
+/// handful `ant.ron`'s weights are tuned against.
+#[inline]
+fn kin_deficit(world: &World, owner: u16, start_energy: f32) -> Option<f32> {
+    world.organism(owner).map(|st| (1.0 - st.energy / start_energy.max(1.0)).clamp(0.0, 1.0))
+}
+
+fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> FoodScan {
     let mut best: Option<Mouthful> = None;
     let mut refused = 0u64;
+    let mut kin_need: Option<NeedyKin> = None;
     // Ranked separately from what is returned, so the returned `gain` keeps
     // meaning what it always meant.
     let mut best_rank = f32::NEG_INFINITY;
@@ -3783,8 +4072,35 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
         if i > 0 && !attached {
             continue;
         }
-        if !gut.eats_kin && is_living_kin(world, cell, gut) {
-            continue;
+        // **The `eats_kin` skip is unchanged from before this append**: any
+        // living kin, including this animal's OWN body, is excluded from
+        // being scored as food when `eats_kin` is off. Narrowing that to
+        // `owner != organism` would be a real regression -- "an ant must
+        // not see its own tail as food" -- caught immediately by the
+        // existing guards of that name when tried.
+        if is_living_kin(world, cell, gut) {
+            // **`KinNeed` is `owner != organism` on top, never instead of,
+            // the line above.** `is_living_kin` is true of this animal's OWN
+            // body cells -- same species, identical scent -- and the head's
+            // 8-neighbourhood always contains the next link of its own
+            // chain. Without this an ant reads its own hunger as `KinNeed`
+            // and shares with itself, which conserves energy perfectly and
+            // would pass every conservation guard ever written.
+            if owner != organism {
+                if let Some(deficit) = kin_deficit(world, owner, start_energy) {
+                    // Strictly greater, so ties go to the EARLIER ring
+                    // position -- the same rule `best`'s own selection above
+                    // uses, so the choice is a function of the neighbourhood
+                    // and not of the iteration order (`CLAUDE.md`'s
+                    // tie-order entry).
+                    if kin_need.is_none_or(|k| deficit > k.deficit) {
+                        kin_need = Some(NeedyKin { deficit, id: owner, x: nx, y: ny });
+                    }
+                }
+            }
+            if !gut.eats_kin {
+                continue;
+            }
         }
         let gain = diet_yield(world, cell, gut.bias);
         if gain <= EAT_YIELD_THRESHOLD {
@@ -3864,7 +4180,7 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
             best_damage = damage;
         }
     }
-    FoodScan { best, refused, damage: best_damage }
+    FoodScan { best, refused, damage: best_damage, kin_need }
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -4323,6 +4639,10 @@ struct Did {
     /// cell, armour 8 costs 96 J for the same 50, and somewhere between them
     /// gnawing stops being worth doing.
     gnaws: u32,
+    /// **Executed transfers of `BrainOutput::Share`** — mandible-to-mandible,
+    /// so it is billed through the same jaw apparatus `gnaws` already prices
+    /// rather than a second account. See `SHARE_FRACTION`.
+    shares: u32,
 }
 
 fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
@@ -4414,6 +4734,77 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         }
     }
 
+    // --- share, the colony's stomach -------------------------------------
+    //
+    // **Trophallaxis, and it does not `return`** -- the reason `Feed`,
+    // `DropSpoil` and `Attack` each record when they were split out: giving
+    // food away is not a meal, and forcing a tick to choose between them
+    // re-creates exactly the confusion those splits ended. An animal that
+    // shares still eats, drops and digs on the same tick.
+    //
+    // **Gated on the urge before the scan, exactly as `Attack` is, and that
+    // gate is the whole cost of this verb for every species that does not
+    // use it.** `squash(0)` is exactly 0.0 for an unauthored row, so `&&`
+    // short-circuits, NO RNG DRAW IS TAKEN, and a beetle is bit-identical to
+    // the tree before this slot existed. `trophallaxis_enabled` is the
+    // env-switch half of the same guard, read once and pinned before the
+    // urge is even computed.
+    // **The tick's arbitration, answered rather than assumed (2026-09-09):
+    // firing this branch does not preclude `Move`/`Feed`/`Pickup` on the
+    // same tick.** This branch never `return`s, the ingest block below runs
+    // in the same call regardless of what happened here, and `creature_tick`
+    // rolls `Move` unconditionally once `act` returns -- there is no "trap"
+    // of that shape. The one real coupling is RNG order: the urge-gate draw
+    // two lines down is taken from the same sequential stream `Move`,
+    // `Impulse`, `Tumble` and the ingest `choose_weighted` read later this
+    // tick, so wiring `Share` shifts every later roll whether or not a kin
+    // is even found -- exactly the shape `Attack`'s own urge-gate already
+    // has, above, not something new here.
+    //
+    // Measured against that finding anyway, because a chaotic seed-1
+    // collapse (alive 0, intake 570 against the ablated arm's 15/3,534 J at
+    // frame 6000) asked to be checked rather than argued: an independent-
+    // stream, non-exclusive roll and a 30-tick per-donor cooldown were each
+    // built and run seeds 1-3 at frames=6000, `RAYON_NUM_THREADS=1`. Neither
+    // moved the mean: intake 2,584 J shipped against 2,432 (independent
+    // stream) and 2,584 (cooldown) -- inside the seed-to-seed spread (570 to
+    // 4,560 on three seeds of the shipped arm alone), and the seed-1 rescue
+    // each showed (alive 6 and 4 against 0) reversed on seed 3 (16 and 15
+    // against shipped's own-best 19). **Three seeds agreeing with each
+    // other is not three seeds agreeing with a hypothesis** -- kept as
+    // today's shape rather than adopting either, and rebuilding either
+    // variant is cheap if a larger sweep someday disagrees. Full per-seed
+    // table with the coordinator.
+    let share_urge = if trophallaxis_enabled() { outputs[O::Share as usize].clamp(0.0, 1.0) } else { 0.0 };
+    if share_urge > 0.0 && draw.unit_f32() < share_urge {
+        let gut = gut_of(world, organism, def);
+        if let Some(kin) = neediest_kin(world, organism, (x, y), gut, def.start_energy) {
+            let mine = world.organism(organism).map_or(0.0, |s| s.energy);
+            let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
+            // **Downhill only. When to give is the ant's; which way it runs
+            // is the gradient's** -- the same division the spoil drop
+            // already makes ("when to let go is the ant's, where it can lie
+            // is the ground's"). Without it a pair can pump energy back and
+            // forth and pay the jaw price both ways, which is an allele
+            // evolution finds in an afternoon.
+            if theirs < mine {
+                let amount = SHARE_FRACTION * (mine - theirs);
+                let frame = world.frame;
+                if let Some(s) = world.organism_mut(organism) {
+                    s.energy -= amount;
+                    s.last_share_frame = frame;
+                }
+                if let Some(s) = world.organism_mut(kin.id) {
+                    s.energy += amount;
+                    s.last_share_frame = frame;
+                }
+                did.shares += 1; // billed by `creature_tick`
+                world.creature_stats.shares += 1;
+                world.creature_stats.shared_j += amount as f64;
+            }
+        }
+    }
+
     // --- ingest ---------------------------------------------------------
     //
     // **Nothing here decides between eating and carrying, because there is
@@ -4462,7 +4853,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // therefore blind to plant matter *as a load* until the meat digests
         // down, which is a trade (foragers work in runs on one resource)
         // rather than a rule about preference.
-        let FoodScan { best: offered, refused, damage: bite_damage } = adjacent_food_counted(world, organism, (x, y), gut);
+        let FoodScan { best: offered, refused, damage: bite_damage, .. } = adjacent_food_counted(world, organism, (x, y), gut, def.start_energy);
         world.creature_stats.bites_refused += refused;
         // **The gnawing step, and it lives here rather than in the scan
         // because a sense is not an event.** `adjacent_food_counted` is
@@ -4625,7 +5016,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // thousand frames; the moment a forager starts paying its own
                 // way happens once and is the part worth a line.
                 if first {
-                    if let Some((born_frame, sp)) = world.organism(organism).map(|s| (s.born_frame, s.species)) {
+                    // **Left as a direct construction, not `world.log`** --
+                    // this site belongs to a different lane's file
+                    // ownership window; the two new fields are filled inline
+                    // because `LogEvent` now requires them to compile, and
+                    // that is the only change made here.
+                    if let Some((born_frame, sp, lineage, generation)) =
+                        world.organism(organism).map(|s| (s.born_frame, s.species, s.lineage, s.generation))
+                    {
                         world.run_log.push(crate::sim::world::LogEvent {
                             frame: world.frame,
                             id: organism,
@@ -4633,6 +5031,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                             species: sp,
                             kind: crate::sim::world::LogKind::FirstFeed,
                             other: 0,
+                            lineage,
+                            generation,
                         });
                     }
                 }
@@ -5033,6 +5433,23 @@ fn curvature_flattened() -> bool {
 fn spoil_kept() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() != Ok("destroy"))
+}
+
+/// The ablation switch for trophallaxis, on by default.
+///
+/// `PIXEL_PHYSICS_TROPHALLAXIS=off` pins `share_urge` at 0.0, which is
+/// exactly what a species authoring no `Share` weight reads -- so the
+/// ablated arm is the world as it was, with the weights still in the genome
+/// and simply multiplied by nothing.
+///
+/// **An env switch rather than two builds, matching `spoil_kept` and
+/// `curvature_sense_enabled` and for the reason `CLAUDE.md` gives them**:
+/// two arms compared *inside one run* are immune to the stale-binary
+/// failure and to a counter downstream of `parallel.rs`'s checkerboard
+/// being only load-independent at fixed parallelism.
+fn trophallaxis_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_TROPHALLAXIS").as_deref() != Ok("off"))
 }
 
 /// **Line the hole just dug** — turn the loose ground around it into the
@@ -5734,7 +6151,14 @@ fn body_is_supported(world: &World, cells: &[(i32, i32)]) -> bool {
 /// the creature in the air. `false` if the body could not push off.
 ///
 /// The only thing in the engine that sets `OrganismState::flight`.
-fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
+///
+/// **`pub(crate)`, not private** — `lab::mod`'s `FLING` tool calls this
+/// directly rather than going through a brain decision, which is the whole
+/// point of a tool: a player-driven verb on the same ballistic jump the
+/// brain's own impulse output already uses, so a fling and a self-launch
+/// share every precondition (`body_is_supported`) and every physics
+/// (`body_drag`, `LAUNCH_WORK`) rather than a second copy of either.
+pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
     let Some(cells) = world.organism(organism).map(|s| s.chain.clone()) else {
         return false;
     };
@@ -9030,11 +9454,38 @@ mod tests {
                 // (637 -> 706 live slots) left one defender of six standing
                 // at the shipped reach with the plate untouched. This guard
                 // is over a plate under a mouth, not over what a child drew.
+                //
+                // **The trap reopened 2026-09-09 through a second door, and
+                // the fix is narrower than it first looked.** Trophallaxis
+                // ships wired on `ant.ron` by default; a richly-funded parent
+                // buds a child holding only a fraction of the grant, the
+                // newborn beside its parent is exactly the shape
+                // `(KinNeed, Share)` fires on, and the extra draw a share
+                // takes, in a fight this chaotic, moved the same seed the
+                // mutation-rate fix was written for (measured: one defender
+                // of six survived past the budget). The first fix tried was
+                // `reproduce_threshold = f32::MAX` -- stop children arriving
+                // at all -- and it made things WORSE (two of six survived):
+                // removing breeding's own draws is itself a perturbation of
+                // this scene's RNG sequence, just a different one, and this
+                // test is sensitive to any such shift on six seeds alone.
+                // **Zeroing the three `Share` weights in the genome directly**
+                // is what actually restores the pre-trophallaxis draw
+                // sequence with children still arriving normally: `share_
+                // urge` is `squash(0) = 0` unconditionally regardless of how
+                // needy a newborn reads, the `> 0.0` guard short-circuits
+                // every tick, and not one extra draw is taken by any animal
+                // in this scene -- checked back to zero of six.
                 {
                     let ant = w.species.id_of("ant").expect("ant species");
                     let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
                     def.mutation_rate = 0.0;
                     w.species.set_creature(ant, def);
+                    let mut g = w.species.get(ant).genome.clone();
+                    g[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Share)] = 0.0;
+                    g[brain::io_slot(brain::BrainInput::Energy, brain::BrainOutput::Share)] = 0.0;
+                    g[brain::io_slot(brain::BrainInput::KinNeed, brain::BrainOutput::Share)] = 0.0;
+                    w.species.set_genome(ant, g);
                 }
                 // Ant against ant needs the two to be strangers; without
                 // this every ant is every other ant's nestmate and the scene
@@ -9308,7 +9759,17 @@ mod tests {
         // `Attack` must never swing. Without this arm the test would be
         // green on a verb that fired for everybody, since both arms above
         // wire it.
-        let (unwired, unwired_cells, _, _) = fight_wired(true, false);
+        // **The shipped ant, beside a nestmate, with nothing authored on
+        // `Attack` but the alarm wire.** This arm read "strangers, unwired"
+        // until 2026-09-09 and asserted zero swings -- which held only because
+        // two full ants walked apart before either bit the other. The hunger
+        // wire made a full ant rest, so two strangers placed adjacent now
+        // stay adjacent: the stranger eats the non-kin ant beside it, the
+        // bite raises alarm, and `(Alarm, Attack, 2.0)` -- shipped since
+        // 8d26d46a -- fires exactly as designed. The claim that survives is
+        // "unprovoked, the shipped ant never swings", and a nestmate is the
+        // one neighbour it cannot be provoked by.
+        let (unwired, unwired_cells, _, _) = fight_wired(false, false);
         assert!(
             strangers > 0,
             "the wired verb never fired against a stranger, so nothing below is about attacking: {strangers} attacks"
@@ -9324,10 +9785,292 @@ mod tests {
         assert_eq!(
             (unwired, unwired_cells),
             (0, 0),
-            "the shipped ant carries no weight on Attack and must never swing: {unwired} attacks, {unwired_cells} cells -- if this fires, every animal in every bed started fighting the day the verb landed"
+            "the shipped ant must never swing unprovoked: beside a nestmate it made {unwired} attacks, {unwired_cells} cells -- if this fires, every colony in every bed started fighting itself"
         );
         assert!(spent > 0.0, "fighting must cost the jaw something: {spent} J spent over 400 frames");
         assert!(!fed, "an attack must not fill the crop -- if it feeds, it is the Feed path wearing a new name");
+    }
+
+    // --- trophallaxis --------------------------------------------------
+
+    fn def_of(w: &World, species_name: &str) -> CreatureDef {
+        let species = w.species.id_of(species_name).expect(species_name);
+        w.species.get(species).creature.as_ref().expect("creature").clone()
+    }
+
+    /// Wires `Share` at a weight big enough that `squash` saturates and the
+    /// urge clamps to 1.0, on the named species of `w`. **Must be called
+    /// before that species is spawned**: `place_creature` copies the
+    /// species' genome into `state.genome` at the moment of placement
+    /// (`windfall_probe`'s own reason, in `labforage.rs`'s doc, for building
+    /// bare and founding after), so wiring an already-standing animal
+    /// reaches nobody. Mirrors `attacking_costs_the_jaw_and_yields_no_food`'s
+    /// own pattern for `Attack`.
+    fn wire_share(w: &mut World, species_name: &str) {
+        let species = w.species.id_of(species_name).expect(species_name);
+        let base = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Share, 4.0)],
+                &base.hidden_wiring,
+                &base.hidden_outputs,
+                &base.recurrence,
+            ),
+        );
+    }
+
+    /// One `act` call, forced to roll: `Share` is the only output set, at
+    /// 1.0, so `share_urge > 0.0 && draw.unit_f32() < share_urge` is true
+    /// unless `unit_f32` can return exactly 1.0 (it cannot, by the same
+    /// convention `Impulse`'s and `Attack`'s own gates rely on). Bypasses
+    /// `eval_brain` entirely, so unlike `run()` it does not need the
+    /// species genome wired at all -- every test below that calls this
+    /// reads `def_of` rather than `wire_share`.
+    fn act_share(w: &mut World, organism: u16, def: &CreatureDef) -> Did {
+        let (x, y) = w.organism(organism).expect("live").chain[0];
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Share as usize] = 1.0;
+        let mut draw = rng::stream(w.seed, organism as u64, w.frame, RNG_SLOT_MOVE);
+        act(w, x, y, organism, def, &outputs, &mut draw)
+    }
+
+    /// A stone floor, and two animals of `species` standing on it four
+    /// cells apart -- the `Chain(2)` spacing `attacking_costs_the_jaw_...`
+    /// uses, so their bodies are mutually adjacent. Returns their handles.
+    fn share_pair(w: &mut World, species: &str, ax: i32, bx: i32, y: i32) -> (u16, u16) {
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in (ax - 4)..(bx + 4) {
+            w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
+        }
+        (spawn(w, species, ax, y), spawn(w, species, bx, y))
+    }
+
+    /// **A share moves energy and the pair keeps its total.**
+    ///
+    /// Catches a transfer that mints or destroys joules -- crediting the
+    /// recipient without debiting the donor, or booking to a harvest
+    /// account instead of a plain subtract/add. Put the fault back by
+    /// crediting `amount * 1.1` and this goes red on the first assertion.
+    #[test]
+    fn a_share_moves_energy_and_the_pair_keeps_its_total() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 200.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 40.0;
+        }
+        let before_sum = w.organism(donor).unwrap().energy + w.organism(recipient).unwrap().energy;
+        let live = |w: &World| w.organism(donor).unwrap().energy as f64 + w.organism(recipient).unwrap().energy as f64;
+        let before_gap = w.energy_ledger.expected_live_total() - live(&w);
+
+        let did = act_share(&mut w, donor, &def);
+
+        assert_eq!(did.shares, 1, "the verb never fired against a hungry, willing kin");
+        let donor_after = w.organism(donor).unwrap().energy;
+        let recipient_after = w.organism(recipient).unwrap().energy;
+        assert_eq!(donor_after + recipient_after, before_sum, "a share must not mint or destroy joules: {before_sum} -> {donor_after} + {recipient_after}");
+        let after_gap = w.energy_ledger.expected_live_total() - live(&w);
+        assert_eq!(after_gap, before_gap, "the live identity must not move for a live-to-live transfer: gap {before_gap} -> {after_gap}");
+        assert!(w.creature_stats.shares >= 1 && w.creature_stats.shared_j > 0.0, "the far-side counters must move too: shares {} shared_j {}", w.creature_stats.shares, w.creature_stats.shared_j);
+    }
+
+    /// **Energy only flows uphill, never.** A symmetric or uphill transfer
+    /// is what `theirs < mine` exists to forbid. Recipient richer than the
+    /// donor, maximal `Share` weight: `shares` must stay 0 and neither
+    /// energy may move. Put the fault back by deleting the `theirs < mine`
+    /// test and this goes red.
+    #[test]
+    fn energy_only_flows_uphill_never() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 20.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 200.0;
+        }
+        let did = act_share(&mut w, donor, &def);
+        assert_eq!(did.shares, 0, "a poorer donor beside a richer kin must never share");
+        assert_eq!(w.organism(donor).unwrap().energy, 20.0, "the donor's bank must be untouched");
+        assert_eq!(w.organism(recipient).unwrap().energy, 200.0, "the recipient's bank must be untouched");
+    }
+
+    /// **A share leaves the donor the richer of the two.** `SHARE_FRACTION`
+    /// is derived so this is true after every executed share, with no
+    /// separate ceiling constant. Put the fault back by setting
+    /// `SHARE_FRACTION = 0.75` and this goes red -- checked by hand rather
+    /// than swept, since the constant is not a parameter this suite can
+    /// vary at runtime.
+    #[test]
+    fn a_share_leaves_the_donor_the_richer_of_the_two() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 200.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 1.0;
+        }
+        let did = act_share(&mut w, donor, &def);
+        assert_eq!(did.shares, 1, "test setup: nothing shared, so the ordering below proves nothing");
+        let donor_after = w.organism(donor).unwrap().energy;
+        let recipient_after = w.organism(recipient).unwrap().energy;
+        assert!(
+            donor_after > recipient_after,
+            "the donor must stay the richer of the two after one share: donor {donor_after} recipient {recipient_after}"
+        );
+        assert!(donor_after > 0.0, "a share must never be able to kill the donor: {donor_after} J left");
+    }
+
+    /// **An animal cannot share with itself.** The one fault conservation
+    /// cannot see: without `owner != organism`, `is_living_kin` reads an
+    /// ant's own second body cell as family and it "shares" with itself,
+    /// which balances perfectly and would pass every conservation guard
+    /// above. A lone, starving ant with the verb maximally wired must read
+    /// zero `KinNeed`, find no needy kin, and never roll. Put the fault
+    /// back by dropping the `owner != organism` test.
+    #[test]
+    fn an_animal_cannot_share_with_itself() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 119);
+        if let Some(st) = w.organism_mut(ant) {
+            st.energy = 1.0; // as hungry as a live animal can be
+        }
+        let def = def_of(&w, "ant");
+        let (x, y) = w.organism(ant).unwrap().chain[0];
+        let gut = gut_of(&w, ant, &def);
+        assert!(
+            neediest_kin(&w, ant, (x, y), gut, def.start_energy).is_none(),
+            "a lone ant's own body must never read as kin needing feeding, however hungry it is"
+        );
+        let (inputs, ..) = sense(&w, x, y, ant, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::KinNeed as usize], 0.0, "a lone ant must read zero kin need, not its own hunger");
+        let did = act_share(&mut w, ant, &def);
+        assert_eq!(did.shares, 0, "an ant must not be able to share with its own body");
+    }
+
+    /// **Nothing is shared across species — and the positive control that
+    /// says the first arm's zero is the kin test working, not an empty
+    /// scene.** Two arms: an ant beside a beetle must never share (species
+    /// gate, `kin_crosses_kinds` off by default); the identical scene with
+    /// the beetle replaced by an ant must. Put the fault back per
+    /// `is_living_kin`'s own gotcha note: make it return `true`
+    /// unconditionally and the first arm goes red.
+    #[test]
+    fn nothing_is_shared_across_species() {
+        let run_arm = |neighbour_species: &str| -> u64 {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 96..108 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let donor = spawn(&mut w, "ant", 100, 119);
+            let neighbour = spawn(&mut w, neighbour_species, 102, 119);
+            assert_ne!(neighbour, 0, "the {neighbour_species} was not placed; the scene does not contain the situation this test is about");
+            let def = def_of(&w, "ant");
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 200.0;
+            }
+            if let Some(st) = w.organism_mut(neighbour) {
+                st.energy = 1.0;
+            }
+            act_share(&mut w, donor, &def).shares as u64
+        };
+        let across_species = run_arm("beetle");
+        assert_eq!(across_species, 0, "an ant must not share with a beetle beside it, however hungry it is");
+        let same_species = run_arm("ant");
+        assert!(
+            same_species > 0,
+            "the positive control: the identical scene with an ant in place of the beetle must share, or the zero above is an empty scene rather than the kin test"
+        );
+    }
+
+    /// **A share across a chunk seam is the same under both drivers.** Two
+    /// ants astride `x = 63/64` (`chunk::CHUNK_SIZE`), on a stone floor in
+    /// still air, so the material sweep has nothing to move. Run once with
+    /// `update::step` (serial) and once with `parallel::step` (the
+    /// checkerboard `App::update` actually runs), each paired with
+    /// `step_active_sites`: `shares` and `shared_j` must agree, because the
+    /// transfer is a direct write to `OrganismState`, never a queued
+    /// `World::set`, and so cannot see the chunk grid at all. Put the fault
+    /// back by routing the transfer through a queued `World::set` and this
+    /// goes red.
+    #[test]
+    fn a_share_across_a_chunk_seam_is_the_same_under_both_drivers() {
+        use crate::sim::chunk::CHUNK_SIZE;
+        fn scene(driver: fn(&mut World)) -> (u64, f64) {
+            let mut w = test_world();
+            wire_share(&mut w, "ant");
+            let (donor, recipient) = share_pair(&mut w, "ant", CHUNK_SIZE - 1, CHUNK_SIZE + 1, 119);
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 200.0;
+            }
+            if let Some(st) = w.organism_mut(recipient) {
+                st.energy = 20.0;
+            }
+            for _ in 0..60 {
+                driver(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+            }
+            (w.creature_stats.shares, w.creature_stats.shared_j)
+        }
+        let serial = scene(update::step);
+        let parallel = scene(crate::sim::parallel::step);
+        assert!(serial.0 > 0, "test setup: nothing shared at all under the serial driver, so the equality below proves nothing");
+        assert_eq!(serial, parallel, "a share must not depend on which CA driver swept the frame: serial {serial:?} parallel {parallel:?}");
+    }
+
+    /// **The `share_urge > 0.0` short-circuit, specificity and sensitivity
+    /// in one scene.** `beetle.ron` authors no `Share` weight (§5d), so
+    /// `squash(0)` is exactly 0.0 and the gate must be false: no roll, no
+    /// walk, no draw, and if that guard were ever deleted the RNG stream
+    /// would shift for every tick of every animal in the world -- ant and
+    /// beetle alike -- which is the "silently change every existing
+    /// behaviour" this exists to prevent. The sensitivity twin is the same
+    /// scene, species swapped for the wired `ant`: it must fire, or the
+    /// beetle's zero above is a dead scene rather than a working gate.
+    ///
+    /// **The env switch itself is verified at the process level, not here.**
+    /// `PIXEL_PHYSICS_TROPHALLAXIS` is read once through a `OnceLock`
+    /// (`trophallaxis_enabled`, matching `spoil_kept`/`curvature_sense_
+    /// enabled` beside it): a single test process can only ever observe one
+    /// value of that static, and toggling the env var mid-run races every
+    /// other test that may already have read it. `curvature_sense_enabled`
+    /// and `spoil_kept` are unit-tested the same way -- not at all -- and
+    /// verified instead by running the built binary twice, once per arm,
+    /// which is what §9's `labforage` run does for this switch.
+    #[test]
+    fn an_unwired_species_is_unaffected_by_the_ablation() {
+        let shares_for = |species: &str| -> u64 {
+            let mut w = test_world();
+            if species == "ant" {
+                wire_share(&mut w, "ant");
+            }
+            let (donor, recipient) = share_pair(&mut w, species, 100, 102, 119);
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 900.0;
+            }
+            if let Some(st) = w.organism_mut(recipient) {
+                st.energy = 20.0;
+            }
+            run(&mut w, 200);
+            w.creature_stats.shares
+        };
+        let beetle_shares = shares_for("beetle");
+        assert_eq!(beetle_shares, 0, "beetle.ron authors no Share weight -- squash(0) = 0, and it must never roll the verb");
+        let ant_shares = shares_for("ant");
+        assert!(
+            ant_shares > 0,
+            "the sensitivity twin: the identical scene, species swapped for the wired ant, must fire -- or the beetle's zero above proves nothing"
+        );
     }
 
     /// **The four fields the prices unlocked are heritable, each on the shape
@@ -10276,6 +11019,14 @@ mod tests {
 
         let mut ant_world = w;
         let ant = spawn(&mut ant_world, "ant", 98, 100);
+        // Half a grant in the bank, so the ant is hungry enough to walk.
+        // This test is about geometry -- a chain fits where a 2x2 body does
+        // not -- and it assumed a walker; since the hunger wire (2026-09-09)
+        // a full ant rests on two ticks in three, and 2,000 frames of resting
+        // is not a test of the tunnel.
+        if let Some(st) = ant_world.organism_mut(ant) {
+            st.energy = 100.0;
+        }
         run(&mut ant_world, 2000);
         let ant_x = deepest(&ant_world, ant);
 
@@ -11726,7 +12477,7 @@ mod tests {
             w.set(hx + 1, hy, Cell::new(flesh, 0));
             let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
             let gut = gut_of(&w, beetle, &def);
-            let FoodScan { best, refused, damage } = adjacent_food_counted(&w, beetle, (hx, hy), gut);
+            let FoodScan { best, refused, damage, .. } = adjacent_food_counted(&w, beetle, (hx, hy), gut, def.start_energy);
             (best.is_some(), refused, damage, w.materials.get(flesh).penetration_resistance, def.bite_force())
         };
 
@@ -13664,6 +14415,52 @@ mod tests {
         assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
     }
 
+    /// **`try_bud`'s mutation is attributed to the child it moved, not
+    /// rolled and thrown away.** `OrganismState::born_with` is the
+    /// strongest single change a birth made; the positive half asks that a
+    /// birth with every mutation channel wide open actually sets it on at
+    /// least one descendant.
+    ///
+    /// **The negative half needs both channels zeroed, not just
+    /// `mutation_rate`.** `try_bud`'s trait jitter loop reads
+    /// `CreatureDef::trait_variance`/`scent_drift`, never `mutation_rate` --
+    /// so a control that only zeroed the rate would still see occasional
+    /// non-zero `born_with` from trait drift alone, and would not be
+    /// testing what it claims to. With both zeroed, every bred descendant
+    /// must read exactly `0`; without that arm a formatter that writes a
+    /// non-zero value unconditionally would pass the positive half for
+    /// free.
+    #[test]
+    fn a_bud_that_mutates_records_what_moved() {
+        let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+        run(&mut w, 200);
+        assert!(w.creature_stats.births > 0, "12 funded ants over 200 frames produced no births -- the rest of this test proves nothing");
+        let moved = w
+            .live_organism_ids()
+            .iter()
+            .any(|&id| !founders.contains(&id) && w.organism(id).is_some_and(|s| s.born_with != 0));
+        assert!(moved, "every bred descendant reports born_with == 0 with mutation_rate at 1.0 and the species' own trait variance in force");
+
+        let (mut w0, founders0) = breeding_colony(12, 2000.0, 0.0);
+        let ant0 = w0.species.id_of("ant").expect("ant species");
+        let mut def0 = w0.species.get(ant0).creature.clone().expect("ant is a creature");
+        def0.trait_variance = [0.0; organism::CREATURE_TRAITS];
+        def0.scent_drift = 0.0;
+        w0.species.set_creature(ant0, def0);
+        run(&mut w0, 200);
+        assert!(w0.creature_stats.births > 0, "the zero-mutation control did not breed either -- it controls for nothing");
+        for id in w0.live_organism_ids() {
+            if founders0.contains(&id) {
+                continue;
+            }
+            assert_eq!(
+                w0.organism(id).map(|s| s.born_with),
+                Some(0),
+                "born_with fired on organism {id} with every mutation channel at zero"
+            );
+        }
+    }
+
     /// **One ant walled in for fifty ticks, and a thousand ants each waiting
     /// one, produce the same attempt count — so the page carries both.**
     ///
@@ -13869,7 +14666,21 @@ mod tests {
         // this is a lower bound on what it spent and an assertion that the
         // birth cost is *in* it.
         assert!(paid >= cost, "parent paid {paid:.2} for a birth costing {cost:.2}");
-        assert!(paid < cost + def.start_energy, "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism");
+        // **`shared_j` folded in since trophallaxis, and it is not slack --
+        // it is the new, legitimate channel.** A parent that has just bred
+        // is sitting on a surplus beside a newborn sitting on half a grant
+        // (`birth_grant`'s neutral fraction), which is exactly the shape
+        // `ant.ron`'s shipped `Share` weights fire on: measured, a single
+        // funded ant bred once in 60 frames paid 1,266.51 J against a
+        // 1,040.00 J birth cost -- 26.51 J the parent then handed its own
+        // hungry child, not a bug in the birth accounting. Without this
+        // term the assertion would be testing a world with no trophallaxis
+        // in it, which this one no longer is.
+        assert!(
+            paid < cost + def.start_energy + w.creature_stats.shared_j as f32,
+            "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism and {:.2} J shared with kin",
+            w.creature_stats.shared_j
+        );
     }
 
     /// **The threshold can never sit below the cost.**
