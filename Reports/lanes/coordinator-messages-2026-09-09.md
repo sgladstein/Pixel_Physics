@@ -1,13 +1,12 @@
-# Coordinator messages, 2026-09-09 — the two the poke could not deliver
+# Coordinator messages, 2026-09-09 — the review and the plant mix, on record
 
 *Written by the lab's direction session (`session_01HqEBjY3oEpgggS6exbPRbG`).
-Both lanes below were started by the owner from the phone, in a different
-environment from the coordinator, and the trigger pair in
-[`../session-programs.md`](../session-programs.md) does not cross that line:
-two fires spawned throwaway sessions instead of waking either lane. So the
-message goes the way the return path already does — by file. Each lane reads
-its own section and acts; the return path is unchanged (push commits, I read
-the branch).*
+A first delivery put these messages in `fire_trigger`'s `text` rather than
+the trigger's `prompt` and spawned throwaway sessions instead of waking
+either lane; they were then delivered the recorded way
+([`../session-programs.md`](../session-programs.md)) and this file is the
+second copy and the record. Each lane reads its own section; the return path
+is unchanged (push commits, I read the branch).*
 
 ## → creature-appearance (`claude/creature-evolution-engine-67lhjp`)
 
