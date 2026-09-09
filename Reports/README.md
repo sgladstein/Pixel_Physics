@@ -1182,6 +1182,26 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  — **design + build, 2026-09-09.** Can a creature's body come out of a
+  genome instead of a species file? Yes, and the reason is that
+  `World::push_organism` already seeds **every** organism, creature included,
+  with a `FateGenome` from its species table — an ant has had a body genome
+  since the plant line landed one and it has been empty. So the heritable
+  body costs **zero new bytes of per-organism state**; `CellType` has 6 of 16
+  slots free in both places it is stored; and the whole economy re-derives on
+  **one factor over four `*_per_cell` fields**, because the birth stamp and
+  the meat value are the same product `body_energy × cells` — every
+  whole-animal quantity is invariant and only the per-bite value moves, which
+  grades the bite. The one new piece of code is a third arm in
+  `body_after_step`: the spine follows the chain rule that already ships and a
+  segment's lateral cell sits directly above it, so the body **bends** and a
+  footprint ≥3 wide is unrepresentable rather than discouraged. Reads roles
+  (head/leg/gut/armour) as a **fraction** of the live body, never a count,
+  which is what keeps size priced. Records the honest limits: it is not
+  growth, a body is an axis rather than a tree, and **palette is untouched**,
+  so `creature-appearance-design.md` §7 is half closed and not closed.
+  Carries the owner's 2026-09-03 verdict on the six-silhouette card.
 - [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
   — **measurement only, no body plan built.** Three pre-checks for
   `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
@@ -1203,8 +1223,14 @@ drift that two of these documents still reflect.**
   median, not the ~15% a legibility-threshold-crossing would predict) —
   `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
   than being a small-size artifact. A blind gallery card of six candidate
-  silhouettes is posted and unanswered as of this report
-  (`20260902T194120383Z-3860b1`).
+  silhouettes (`20260902T194120383Z-3860b1`) was **answered by the owner on
+  2026-09-03: *"decent starts, depends on how they look in action"*** -- a
+  positive verdict on the silhouettes and a refusal to settle the question on
+  stills, which is that report's own §3 correction arriving from the owner
+  rather than from review. Legibility is judged on a moving sequence from
+  here on, and
+  [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  is what carries it.
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks
