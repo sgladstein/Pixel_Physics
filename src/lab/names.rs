@@ -238,13 +238,17 @@ mod tests {
 
     /// `individual` is `line_name` plus a plain generation suffix -- no
     /// separate draw, so it cannot disagree with `line_name` about which
-    /// line a lineage belongs to.
+    /// line a lineage belongs to -- and the founder, the one generation-0
+    /// member a line ever has, is the bare line name. The fault this
+    /// catches: a suffix on the founder (`ASPEN-0`), which is what the
+    /// chronicle printed first, or a bred individual losing its generation.
     #[test]
     fn individual_names_carry_the_lines_own_name() {
         let seed = 42;
         for lineage in 1..=10u32 {
             let line = line_name(seed, lineage);
-            for generation in [0u16, 1, 14, 200] {
+            assert_eq!(individual(seed, lineage, 0), line);
+            for generation in [1u16, 14, 200] {
                 assert_eq!(individual(seed, lineage, generation), format!("{line}-{generation}"));
             }
         }
