@@ -4102,6 +4102,11 @@ impl World {
             // prefer.
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
+            // Set for real by `creature::place_creature` for a `Segmented`
+            // body; a plant never reads it and every other creature body
+            // plan leaves it empty by design -- see `OrganismState::
+            // segment_groups`'s own doc.
+            segment_groups: Vec::new(),
             heading: 0,
             // Nothing is born in the air. Only `creature::launch` sets this.
             flight: None,

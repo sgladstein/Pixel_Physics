@@ -63,7 +63,7 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
@@ -139,6 +139,32 @@ const RNG_SLOT_COLONY_SCENT: u64 = 4;
 /// roll or anything else reading `RNG_SLOT_MOVE` later on the same frame,
 /// the shared-`Rng` gotcha `RNG_SLOT_BIRTH`'s own doc names.
 const RNG_SLOT_FOUNDER_RESERVE: u64 = 5;
+/// The body-fate stream: mutation of a bud's inherited `FateGenome`, the
+/// production rule its body is grown from.
+///
+/// **Keyed on the *parent's* handle and the frame, not the child's.** Every
+/// other birth-time mutation (`RNG_SLOT_BIRTH`'s brain and traits) runs on
+/// the child's own handle, after `place_creature` has returned one — but a
+/// bud's body is stamped *inside* `place_creature`, before the child's
+/// handle exists to key anything on, so this has to be drawn on the parent
+/// beforehand instead and passed in through `Origin::Bud`. A **separate**
+/// constant rather than reusing `RNG_SLOT_BIRTH` on the parent's handle:
+/// `try_bud` already draws the parent's `gut_of`/`reachable_provision` on
+/// ordinary streams over the same tick, and a shared slot keyed on the same
+/// (handle, frame) pair as anything else that animal draws that frame would
+/// alias with it. A brand new slot constant draws from a stream nothing
+/// else has ever read at that key, so it cannot shift a single existing
+/// draw anywhere in the tree -- the same reasoning `RNG_SLOT_FOUNDER_
+/// RESERVE`'s own doc gives for why a pure hash keyed differently cannot
+/// collide.
+const RNG_SLOT_BODY_FATE: u64 = 6;
+
+/// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
+/// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
+/// under it, and the cap exists only to bound a mutated genome that never
+/// returns `child: None` (an `insert_one` draw can produce exactly that
+/// rule shape) -- see `grow_body`'s own doc.
+const SEGMENTED_BODY_CAP: usize = 8;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -625,7 +651,7 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     if state.chain.is_empty() {
         return true;
     }
-    let (chain, owned) = (state.chain.clone(), state.cells.clone());
+    let (chain, owned, old_groups) = (state.chain.clone(), state.cells.clone(), state.segment_groups.clone());
     let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
     if surviving.is_empty() || surviving.first() != chain.first() {
         // Vital cell gone (or nothing left at all): the rest is meat. The
@@ -753,8 +779,36 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     // at all -- meat where it stands, and mid-air "where it stands" is
     // down. A dig is untouched: `crop` and `spoil` belong to the animal,
     // not to the cells, and the survivor keeps both.
+    // **`segment_groups` truncates alongside `chain`, cell for cell.**
+    // Empty for a `Chain` or `Rigid` body (`old_groups` is already empty,
+    // so the loop below runs zero times and leaves it empty), which is why
+    // this needs no `is_rigid()`/`Segmented` branch of its own. For a
+    // `Segmented` body, walk the *old* chain by its *old* groups and keep
+    // however many of a segment's own cells (0, 1 or 2) are still in
+    // `attached`, dropping the entry only when neither is — the shape a
+    // predator that takes exactly one lateral, or exactly one whole
+    // segment, has to leave behind. `attached` preserves `chain`'s own walk
+    // order (a filtered `surviving`, itself a filtered `chain`), so one
+    // linear pass suffices; no assumption that only a trailing suffix can
+    // ever be lost is needed or made.
+    let attached_set: std::collections::HashSet<(i32, i32)> = attached.iter().copied().collect();
+    let mut new_groups = Vec::with_capacity(old_groups.len());
+    let mut idx = 0usize;
+    for &g in &old_groups {
+        let mut kept = 0u8;
+        for k in 0..g {
+            if chain.get(idx + k as usize).is_some_and(|p| attached_set.contains(p)) {
+                kept += 1;
+            }
+        }
+        idx += g as usize;
+        if kept > 0 {
+            new_groups.push(kept);
+        }
+    }
     if let Some(state) = world.organism_mut(organism) {
         state.chain = attached;
+        state.segment_groups = new_groups;
     }
     world.creature_stats.injuries += 1;
     // A severing that took every cell but the vital one still leaves a live
@@ -1074,6 +1128,13 @@ enum Origin {
         /// What the parent handed this child -- its `Provision` output at
         /// the moment of budding. See `OrganismState::made`.
         made: f32,
+        /// **The parent's production rule, already mutated** -- `try_bud`
+        /// draws on the parent's own handle (`RNG_SLOT_BODY_FATE`) before
+        /// this is built, because the child's body is grown from this
+        /// field inside `place_creature`, before a child handle exists to
+        /// mutate on. See that constant's own doc for why this cannot wait
+        /// until after placement the way the brain genome and traits do.
+        fates: organism::FateGenome,
     },
     /// **A founder with a chosen genome** — one released from the specimen
     /// shelf (`sim::specimen`).
@@ -1109,13 +1170,51 @@ fn place_creature(
     def: &CreatureDef,
     origin: Origin,
 ) -> Option<ActiveSite> {
-    let positions: Vec<(i32, i32)> = def.body.offsets(false).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
+    // **Which production rule this body unfolds from, read before anything
+    // is allocated.** A bud carries its parent's already-mutated copy in
+    // through `Origin::Bud` -- `try_bud` mutates it on the *parent's* own
+    // handle before calling this, because the body is stamped inside this
+    // function and a bud's own handle does not exist yet to mutate on (see
+    // `try_bud`'s own comment for why that has to happen there and not,
+    // say, where the brain's genome is mutated). A founder or a released
+    // jar has no parent to inherit from, so it reads the species' table
+    // fresh -- the same read `World::push_organism` makes a few lines down
+    // for the organism's own `state.fates`, duplicated here on purpose:
+    // the body has to be sized and placed *before* that call can hand back
+    // a state to read the seeded copy off, and the placement-then-allocate
+    // order (the emptiness check right below) is not something this change
+    // gets to disturb.
+    let body_fates = match &origin {
+        Origin::Bud { fates, .. } => *fates,
+        Origin::Founder { .. } | Origin::Stock { .. } => organism::FateGenome::from_table(world.species.get(species_id).fate_table()),
+    };
+    // **Grown, not authored, whenever the species carries a production
+    // rule** -- `def.body` stays the fallback for every species with no
+    // `fates` table (`beetle`, `worm` and the appearance forks today), so
+    // they are byte-identical to before this existed.
+    // `body` borrows `grown` rather than owning it so the non-Segmented
+    // path costs no clone of `def.body`.
+    let grown;
+    let body: &BodyPlan = if body_fates.is_empty() {
+        &def.body
+    } else {
+        grown = BodyPlan::Segmented(organism::grow_body(body_fates, SEGMENTED_BODY_CAP));
+        &grown
+    };
+    let positions: Vec<(i32, i32)> = body.offsets(false).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
     if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
         return None;
     }
     // Taken before `positions` is moved into the organism's chain, because
     // the structural grant is per body cell.
     let body_cells = positions.len();
+    // Walked out in the same order as `positions`, so the loop below can
+    // zip them index for index -- see `BodyPlan::cell_types`'s own doc.
+    let cell_types = body.cell_types();
+    // The per-segment sizing an injury has to preserve; empty for a `Chain`
+    // or `Rigid` body, which never reads it -- see `OrganismState::
+    // segment_groups`.
+    let segment_groups = body.segment_groups();
 
     // At the slot ceiling nothing hatches -- see `plant_worm_seed` above,
     // and `World::push_organism` for why refusal beats a corrupted id.
@@ -1130,7 +1229,12 @@ fn place_creature(
         .iter()
         .fold((i32::MAX, i32::MIN), |(lo, hi), &(_, py)| ((lo).min(py - y), (hi).max(py - y)));
     for (i, &(px, py)) in positions.iter().enumerate() {
-        let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
+        // **A real per-cell type for a `Segmented` body, the old binary
+        // split for everything else.** `cell_types` always has one entry
+        // per `positions` entry -- both are walked off the same `body` in
+        // the same order -- so the fallback below is defence, never a path
+        // taken.
+        let cell_type = cell_types.get(i).copied().unwrap_or(CellType::Segment);
         let shade = match def.shade_rule {
             // Unchanged, and deliberately still drawing even though the
             // value could be computed: this is the shipped path and it must
@@ -1175,6 +1279,16 @@ fn place_creature(
     if let Some(state) = world.organism_mut(organism) {
         state.energy = endowment;
         state.chain = positions;
+        // **Overwrites whatever `push_organism` seeded** (the species'
+        // fresh table) **with the value this call actually grew the body
+        // from.** A no-op write for `Founder`/`Stock` -- `body_fates` above
+        // is that same fresh read -- and the one that matters for `Bud`,
+        // whose parent's mutated copy must reach the child's own genome or
+        // heredity ends at the body and the child's own children grow from
+        // the species table again. Mirrors `plant::bear_seed_at`'s
+        // `state.fates = parent_fates`.
+        state.fates = body_fates;
+        state.segment_groups = segment_groups;
         state.heading = 0; // east
         state.lineage = founder_lineage;
         state.colony = colony;
@@ -1431,6 +1545,110 @@ fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_ma
 /// `idle_cost_per_cell`'s doc has why.
 fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
+}
+
+/// **The shipped ant's own composition — one `Head`, two `Leg`, one `Gut`,
+/// zero `Armour`, out of seven cells total.** See `ant.ron`'s `fates`
+/// comment for the worked unfold that produces exactly this shape.
+///
+/// Every baseline below is the same fixed point: the value `composition_
+/// mix` must return `1.0` at, so the shipped ant's own resolvers are
+/// unmoved by a mechanism authored after its numbers were already tuned.
+/// They are engine constants rather than read off a species at runtime
+/// because that invariant needs *some* concrete animal to hold for, and
+/// the ant is the one this build's spec names as the one whose numbers
+/// must hold.
+const BASELINE_HEAD_FRAC: f32 = 1.0 / 7.0;
+const BASELINE_LEG_FRAC: f32 = 2.0 / 7.0;
+const BASELINE_GUT_FRAC: f32 = 1.0 / 7.0;
+/// Zero, not a fraction of seven: the shipped ant carries no `Armour` cell
+/// at all. `composition_mix`'s own doc says why an additive baseline
+/// (rather than a ratio to it) is what makes zero a value this can start
+/// from rather than a division by it.
+const BASELINE_ARMOUR_FRAC: f32 = 0.0;
+
+/// **The multiplier every role resolver in this module reads — a fraction
+/// of the live body, never a raw count.**
+///
+/// **Coordinator correction, 2026-09-09, folded in before this file's own
+/// build was called done.** The wiring this was first drafted from read
+/// `f(role_cells)`; the corrected rule is `f(role_cells / live_cells)`.
+/// The reason is `CLAUDE.md`'s "fixing a bug often exposes a constant that
+/// was compensating for it," read from the other end: a raw count makes
+/// every role strictly better as the body grows more cells of *any* kind,
+/// which is an unpriced lever, and an unpriced lever ratchets to its
+/// ceiling and expresses nothing regardless of what it is attached to —
+/// this file's own `phototropism_dir` story, on a different axis. A
+/// fraction is scale-free: a bigger body buys a finer *split* of one fixed
+/// budget, never a free multiplier on every axis at once, so what a
+/// lineage evolves under this mechanism is how it spends a body, not how
+/// big one is. Every cell still pays `idle_cost_per_cell` and `move_cost_
+/// per_cell` regardless of its role, so size stays priced exactly where it
+/// always was.
+///
+/// **Additive around the baseline, not a ratio to it.** `frac / baseline`
+/// is undefined at `baseline == 0`, which is exactly the case `Armour`
+/// needs — neither shipped species carries one. `1.0 + GAIN * (frac -
+/// baseline)` is defined everywhere in `[0, 1]` and is exactly `1.0` when
+/// `frac == baseline`, whatever `baseline` is: the property every call
+/// site depends on to leave the shipped ant's own numbers where they are.
+///
+/// Clamped to the same `[0.5, 2.0]` range `armour_of`'s own trait axis
+/// already uses at `reach == 1` — not a new scale, the established one.
+fn composition_mix(frac: f32, baseline: f32) -> f32 {
+    const GAIN: f32 = 1.0;
+    (1.0 + GAIN * (frac - baseline)).clamp(0.5, 2.0)
+}
+
+/// **How this animal's live body currently splits across the four roled
+/// cell types**, as a fraction of its own live cells — see `composition_
+/// mix`'s own doc for why a fraction and never a count. All four share one
+/// denominator, `state.chain.len()`, the same "live, not authored"
+/// quantity `live_body_cells` already prices, so an animal that has lost
+/// cells to injury reports a smaller share of whatever it lost.
+///
+/// **Not alive — no organism, or a chain that has not been stamped yet —
+/// reads at every baseline at once** (`NEUTRAL`), which makes `composition_
+/// mix` a no-op in exactly the case every other `*_of` resolver already
+/// falls back to the species' own authored number for (`traits_of`'s own
+/// doc): there is no body to read a composition off, so nothing here
+/// should move a number that has nowhere real to read it from.
+///
+/// One pass over the chain for all four fractions, rather than four passes
+/// each asking their own question — the chain is at most sixteen cells
+/// (`BodyPlan::Segmented`'s own cap, doubled for laterals), so this is not
+/// a hot-path concern, but there is no reason to walk it four times over.
+#[derive(Clone, Copy, Debug)]
+struct BodyMix {
+    head: f32,
+    leg: f32,
+    gut: f32,
+    armour: f32,
+}
+
+impl BodyMix {
+    const NEUTRAL: BodyMix = BodyMix { head: BASELINE_HEAD_FRAC, leg: BASELINE_LEG_FRAC, gut: BASELINE_GUT_FRAC, armour: BASELINE_ARMOUR_FRAC };
+}
+
+fn body_mix(world: &World, organism: u16) -> BodyMix {
+    let Some(state) = world.organism(organism) else {
+        return BodyMix::NEUTRAL;
+    };
+    if state.chain.is_empty() {
+        return BodyMix::NEUTRAL;
+    }
+    let (mut head, mut leg, mut gut, mut armour) = (0u32, 0u32, 0u32, 0u32);
+    for &(x, y) in &state.chain {
+        match organism::cell_type(world.get(x, y).aux()) {
+            Some(CellType::Head) => head += 1,
+            Some(CellType::Leg) => leg += 1,
+            Some(CellType::Gut) => gut += 1,
+            Some(CellType::Armour) => armour += 1,
+            _ => {}
+        }
+    }
+    let n = state.chain.len() as f32;
+    BodyMix { head: head as f32 / n, leg: leg as f32 / n, gut: gut as f32 / n, armour: armour as f32 / n }
 }
 
 /// **The mass this animal is hauling, in body-cell equivalents**, so a step
@@ -1754,6 +1972,23 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
     shifted.round().clamp(0.0, SIGHT_MAX) as i32
 }
 
+/// `sight_range_of` for an animal that is alive in the world, falling back
+/// to 0 (an unplaced animal has no body to read `Head` composition off,
+/// and every caller of the bare resolver already falls back to 0 the same
+/// way) if it is not, and then the `Head` composition axis on top of the
+/// trait one.
+///
+/// A free function rather than three copies of the same `map_or`, so a
+/// mix folded in here reaches every reader — the cast gate, the cast
+/// itself, and the brain's own normalisation — instead of only whichever
+/// call site happened to be edited.
+pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
+    let Some(st) = world.organism(organism) else { return 0 };
+    let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
+    let mix = composition_mix(body_mix(world, organism).head, BASELINE_HEAD_FRAC);
+    (base as f32 * mix).round().max(0.0) as i32
+}
+
 pub fn reproduce_fraction(t: f32) -> f32 {
     (1.0 + t).clamp(0.0, 2.0)
 }
@@ -1908,7 +2143,17 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     if organism == 0 {
         return base;
     }
-    base * world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach))
+    let plate = world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach));
+    // **The composition axis, on top of the trait axis rather than folded
+    // into `armour_of` itself.** `armour_of` is also read at the *cost*
+    // site, `creature_tick`'s own `armour_tax`, which prices the heritable
+    // `TRAIT_ARMOUR` allele as a flat per-tick charge unrelated to body
+    // size; composition's own price is the opportunity cost of the cell
+    // (`composition_mix`'s own doc), not a second tax, so it must not
+    // reach that call site. Only the *defensive* reading — how tough this
+    // specific struck cell actually is — belongs here.
+    let mix = composition_mix(body_mix(world, organism).armour, BASELINE_ARMOUR_FRAC);
+    base * plate * mix
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -1991,6 +2236,28 @@ pub fn crop_capacity_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f
     (def.crop_capacity / ratio_factor(traits[TRAIT_CROP_CAPACITY]).max(f32::EPSILON)).max(CROP_MIN)
 }
 
+/// `crop_capacity_of` for an animal alive in the world (`traits_of` is the
+/// shared alive-or-species-default reader every other resolver here uses),
+/// and then the `Gut` composition axis on top of the trait one.
+///
+/// **The "no crop at all" floor is checked again, before the mix.** A
+/// species that authors no crop reads exactly `0.0` from `crop_capacity_of`
+/// and must keep reading exactly `0.0` here — multiplying zero by a mix is
+/// still zero, but re-applying `CROP_MIN` unconditionally afterward would
+/// turn "this species has no crop" into "this species has a very small
+/// one," which is a different animal. Only a species that *has* a crop gets
+/// re-floored after the mix, for the reason `crop_capacity_of`'s own doc
+/// gives: a mix below 1.0 can push an already-`CROP_MIN`-floored value back
+/// under it.
+pub fn organism_crop_capacity(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    let base = crop_capacity_of(def, &traits_of(world, organism, def));
+    if base <= 0.0 {
+        return 0.0;
+    }
+    let mix = composition_mix(body_mix(world, organism).gut, BASELINE_GUT_FRAC);
+    (base * mix).max(CROP_MIN)
+}
+
 pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u64 {
     // `ratio_factor` un-inverted: a quick animal is a *shorter* interval, so
     // the factor multiplies here where `digest_rate_of` divides by it.
@@ -1998,14 +2265,26 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 }
 
 /// `tick_interval_of` for an animal that is alive in the world, falling back
-/// to the species' authored interval if it is not.
+/// to the species' authored interval if it is not, **and then the `Leg`
+/// composition axis on top of the trait one.**
 ///
 /// A free function rather than four copies of the same `map_or`, because the
 /// scheduler reads this in three places and the flight path in two: an
 /// individual that is scheduled on its own pace and charged on its species'
-/// would be metabolising at a rate nothing on screen explains.
+/// would be metabolising at a rate nothing on screen explains. Folding the
+/// composition mix in here rather than at each caller keeps that guarantee:
+/// every one of those call sites gets the composition-aware number for free,
+/// with nothing to forget at a fifth or sixth site later.
+///
+/// **Divides, where `tick_interval_of` itself multiplies its own trait
+/// factor.** More `Leg` cells is a *shorter* interval (faster), so a
+/// mix above 1.0 has to shrink the number it is applied to — the same
+/// inversion `tick_interval_of`'s own doc explains for `TRAIT_PACE` against
+/// `ratio_factor`, on the composition axis instead of the trait one.
 pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
-    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)))
+    let base = world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let mix = composition_mix(body_mix(world, organism).leg, BASELINE_LEG_FRAC);
+    ((base as f32 / mix).round() as u64).max(1)
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -2074,7 +2353,22 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     let parent_generation = state.generation;
     let parent_lineage = state.lineage;
     let parent_colony = state.colony;
+    let parent_fates = state.fates;
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
+
+    // **The child's body-growth genome, inherited and mutated here, on the
+    // parent's handle.** `place_creature` stamps the body *inside* itself,
+    // before a child handle exists, so unlike the brain genome and traits
+    // below (which mutate after placement, on the child's own handle,
+    // keyed on `RNG_SLOT_BIRTH`) this cannot wait: there is nothing to key
+    // it on yet if it waited. `RNG_SLOT_BODY_FATE`'s own doc has the full
+    // reasoning for why the parent's handle plus the frame is a safe key
+    // that cannot alias an existing draw. Mirrors `plant::bear_seed_at`'s
+    // `state.fates.mutate(&mut fate_rng)`, on a genome copied out rather
+    // than borrowed because `world` is about to be reborrowed mutably by
+    // `place_creature` inside the loop below.
+    let mut child_fates = parent_fates;
+    child_fates.mutate(&mut rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_BODY_FATE));
 
     // Where the child goes: the first of the eight neighbours of the
     // parent's head at which the whole body fits. `DIRS` order, which is
@@ -2112,6 +2406,7 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
                 // onto `Provision` hands `squash(0) = 0`, and the child is
                 // made of exactly its genes.
                 made: provision.clamp(-1.0, 1.0),
+                fates: child_fates,
             },
         ) {
             site = Some(s);
@@ -2591,7 +2886,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
     // field would report it as never having looked.
-    if world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach))) > 0 {
+    if organism_sight_range(world, organism, def) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         // **The hunted side's counter, beside the hunter's.** An image of
@@ -3066,7 +3361,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let reach = organism_sight_range(world, organism, def);
     if reach <= 0 {
         return (Sightings::default(), 0);
     }
@@ -3219,7 +3514,7 @@ fn sense(
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
         let crop_fill = state.crop.map_or(0.0, |c| {
-            let cap = crop_capacity_of(def, &expressed_traits(state, world.plasticity, world.trait_reach));
+            let cap = organism_crop_capacity(world, organism, def);
             if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 }
         });
         // **A mandible full of spoil is carrying something, and this sensor
@@ -3299,7 +3594,7 @@ fn sense(
     // distance normalisations below have to read the same number -- an eye
     // that casts to one reach and normalises against another reports a
     // nearness that does not mean what the brain thinks it means.
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let reach = organism_sight_range(world, organism, def);
     let seen_all = if reach > 0 {
         sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
@@ -4823,7 +5118,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // asserted -- and it is falsifiable, which the gates never were: if
     // delivered load does not fall with distance, this model is wrong.
     let gut = gut_of(world, organism, def);
-    let cap = crop_capacity_of(def, &traits_of(world, organism, def));
+    let cap = organism_crop_capacity(world, organism, def);
 
     // **Which verb an animal reaches for when both are open is a weighted
     // roll, not the order these branches happen to be written in.**
@@ -5542,7 +5837,7 @@ fn step_chain(
     def: &CreatureDef,
     draw: &mut rng::Rng,
 ) -> bool {
-    let Some(chain) = world.organism(organism).map(|s| s.chain.clone()) else {
+    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
         return false;
     };
     let Some(&(hx, hy)) = chain.first() else {
@@ -5616,7 +5911,7 @@ fn step_chain(
         // here or it overlaps the world. This is also, with no other code,
         // the reason a wide predator cannot follow a narrow ant into its
         // tunnel.
-        let landing = body_after_step(def, &chain, (tx, ty), heading, d);
+        let landing = body_after_step(def, &chain, &groups, (tx, ty), heading, d);
         // **Soft living tissue is not a wall.** See
         // `landing_is_placeable_through_tissue` and `is_partable`: a
         // grid cell cannot hold the air inside a bush, so foliage draws
@@ -5680,7 +5975,7 @@ fn step_chain(
         // up; `trunk_crossing` returns `None` immediately unless the very
         // next cell is woody tissue.
         if crossing_enabled() {
-            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, heading) {
+            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, &groups, heading) {
                 let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
                 if let Some(state) = world.organism_mut(organism) {
                     state.crossing = Some(organism::Crossing { to, heading, due, thickness });
@@ -5707,7 +6002,7 @@ fn step_chain(
                     continue;
                 }
                 let (dx, dy) = DIRS[d as usize];
-                let landing = body_after_step(def, &chain, (hx + dx, hy + dy), heading, d);
+                let landing = body_after_step(def, &chain, &groups, (hx + dx, hy + dy), heading, d);
                 // **Any living tissue, not only the soft kind** -- this is the
                 // attribution ("what was in the way"), and answering it with
                 // the same force gate the remedy uses would make a trunk
@@ -5765,7 +6060,7 @@ fn step_chain(
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
 
-    let next = body_after_step(def, &chain, (tx, ty), heading, new_heading);
+    let next = body_after_step(def, &chain, &groups, (tx, ty), heading, new_heading);
     relocate_chain(world, organism, &chain, &next);
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
@@ -6213,11 +6508,12 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
         return Vec::new();
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
     let interval = organism_tick_interval(world, organism, def);
     if world.frame < crossing.due {
         return vec![ActiveSite { x: chain.first().map_or(0, |c| c.0), y: chain.first().map_or(0, |c| c.1), kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(interval) }];
     }
-    let landing = body_after_step(def, &chain, crossing.to, crossing.heading, crossing.heading);
+    let landing = body_after_step(def, &chain, &groups, crossing.to, crossing.heading, crossing.heading);
     let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
         && body_has_foothold(world, def, &landing, crossing.to, None);
     if emerged {
@@ -6461,13 +6757,14 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
         return;
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
     let viable: Vec<u8> = (0..8u8)
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
             let (tx, ty) = (hx + dx, hy + dy);
             // Body-aware, like the candidate scan: a wide creature must not
             // re-orient into a heading its shape cannot occupy.
-            let landing = body_after_step(def, &chain, (tx, ty), d, d);
+            let landing = body_after_step(def, &chain, &groups, (tx, ty), d, d);
             // **The same predicate the walk uses.** These had drifted apart:
             // a body could step into tissue on its ordinary move and then
             // refuse to *re-orient* into it when blocked, so the two halves
@@ -6570,7 +6867,7 @@ const MAX_TRUNK_CROSSING: i32 = 48;
 /// bush is air with leaves in it and a body genuinely fits between them.
 /// Wood is walked *around*, which is a different fact about the world and
 /// gets a different mechanism.
-fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], heading: u8) -> Option<((i32, i32), u16)> {
+fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], heading: u8) -> Option<((i32, i32), u16)> {
     let &(hx, hy) = chain.first()?;
     let (dx, dy) = DIRS[heading as usize];
     let mut thickness = 0i32;
@@ -6588,7 +6885,7 @@ fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], headin
             continue; // still inside the trunk
         }
         // First non-wood cell: this is where it would come out, if it fits.
-        let landing = body_after_step(def, chain, (tx, ty), heading, heading);
+        let landing = body_after_step(def, chain, groups, (tx, ty), heading, heading);
         if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled()) {
             return None;
         }
@@ -6673,14 +6970,85 @@ fn landing_is_placeable_all_tissue(world: &World, chain: &[(i32, i32)], landing:
     })
 }
 
+/// The `Chain`-follow rule, alone: the new position list is the new head
+/// followed by the old list's own first `m-1` cells, so the body flows
+/// into the trail the head just left.
+///
+/// Shared by `body_after_step`'s own plain-`Chain` arm and by
+/// `segmented_body_after_step`'s defensive fallback, which needs the
+/// identical rule on the rare path where its grouping does not account for
+/// the whole chain.
+fn chain_follow(chain: &[(i32, i32)], head: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut next = Vec::with_capacity(chain.len());
+    next.push(head);
+    next.extend(chain.iter().take(chain.len().saturating_sub(1)).copied());
+    next
+}
+
+/// **The `Segmented` movement rule — the one genuinely new piece of code
+/// this body plan needed.** The spine follows exactly the way a `Chain`
+/// does (`chain_follow`, walked over the spine cells alone); each
+/// segment's lateral, if it has one, is *re-derived* from its own spine's
+/// new position rather than carried over from the old lateral's position.
+/// "One cell directly above, in world space, with no facing dependence" is
+/// the whole rule for a lateral, so there is nothing about its old
+/// position worth keeping.
+///
+/// This is what makes the body bend: each segment inherits the position
+/// the segment ahead of it just vacated, exactly as a one-wide `Chain`
+/// does, and a lateral is never more than one cell from its own spine, so
+/// the body is never more than two cells wide anywhere along its length.
+///
+/// `groups` is `OrganismState::segment_groups`, walked in lock-step with
+/// `chain` — see that field's own doc for why it has to be read from the
+/// individual rather than re-derived from `def.body`'s authored shape (an
+/// injury can leave a spine cell without the lateral it was grown with,
+/// which the authored body has no way to represent).
+fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i32)) -> Vec<(i32, i32)> {
+    if groups.iter().map(|&g| g as usize).sum::<usize>() != chain.len() {
+        // Defensive only. `place_creature` always writes a `groups` that
+        // sums to `chain.len()`, and severing truncates the two together
+        // (see that call site), so this should never fire; if it somehow
+        // does, falling back to the plain follow rule is a body that stops
+        // bending rather than one that silently drops or invents a cell.
+        return chain_follow(chain, head);
+    }
+    // Pull out the spine alone: group `g`'s first cell, in `groups` order.
+    let mut old_spines = Vec::with_capacity(groups.len());
+    let mut idx = 0usize;
+    for &g in groups {
+        if let Some(&spine) = chain.get(idx) {
+            old_spines.push(spine);
+        }
+        idx += g as usize;
+    }
+    let new_spines = chain_follow(&old_spines, head);
+    // Reassemble in walk order, re-deriving each lateral from its own
+    // segment's *new* spine position.
+    let mut out = Vec::with_capacity(chain.len());
+    for (&(sx, sy), &g) in new_spines.iter().zip(groups) {
+        out.push((sx, sy));
+        if g == 2 {
+            out.push((sx, sy - 1));
+        }
+    }
+    out
+}
+
 /// Where this creature's cells end up if its head steps to `head`.
 ///
-/// The two body plans differ **only here**, which is the whole reason
+/// The three body plans differ **only here**, which is the whole reason
 /// `BodyPlan` is worth having: a chain's body follows into the cells the
-/// head vacated, a rigid body's translates with it. Everything downstream —
-/// passability, footing, the relocation itself — is written once against
-/// the resulting position list.
-fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), from: u8, to: u8) -> Vec<(i32, i32)> {
+/// head vacated, a rigid body's translates with it, and a segmented body's
+/// spine follows the way a chain's does while each lateral is re-derived
+/// from its own spine. Everything downstream — passability, footing, the
+/// relocation itself — is written once against the resulting position
+/// list.
+///
+/// `groups` is `OrganismState::segment_groups` — empty for a `Chain` or
+/// `Rigid` body, which ignore it entirely; only the `Segmented` arm reads
+/// it, through `segmented_body_after_step`.
+fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], head: (i32, i32), from: u8, to: u8) -> Vec<(i32, i32)> {
     if def.body.is_rigid() {
         // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
         // between east-ish and west-ish re-lays the template; turning
@@ -6726,11 +7094,10 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
                 (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
             })
             .collect()
+    } else if matches!(def.body, BodyPlan::Segmented(_)) {
+        segmented_body_after_step(chain, groups, head)
     } else {
-        let mut next = Vec::with_capacity(chain.len());
-        next.push(head);
-        next.extend(chain.iter().take(chain.len().saturating_sub(1)).copied());
-        next
+        chain_follow(chain, head)
     }
 }
 
@@ -11094,12 +11461,12 @@ mod tests {
         // Into the middle cell, which does **not** vacate: follow-the-leader
         // puts (11,10) at index 0 and again at index 2, and before this rule
         // `relocate_chain` wrote it twice with the Segment last.
-        let into_body = body_after_step(&def, &chain, (11, 10), 2, 2);
+        let into_body = body_after_step(&def, &chain, &[], (11, 10), 2, 2);
         assert_eq!(into_body, vec![(11, 10), (10, 10), (11, 10)], "the duplicate this rule exists to refuse");
         assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false), "a body must not arrive with two cells in one place");
 
         // Into the tail, which does vacate: the same three cells, no repeat.
-        let into_tail = body_after_step(&def, &chain, (11, 11), 2, 2);
+        let into_tail = body_after_step(&def, &chain, &[], (11, 11), 2, 2);
         assert_eq!(into_tail, vec![(11, 11), (10, 10), (11, 10)]);
         assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false), "following your own tail is legal and must stay legal");
     }
@@ -11560,21 +11927,86 @@ mod tests {
 
         // Intact: the authored template, and the path that always worked.
         let intact = vec![(100, 100), (99, 100), (100, 99), (99, 99)];
-        let stepped = body_after_step(&def, &intact, (101, 100), 0, 0);
+        let stepped = body_after_step(&def, &intact, &[], (101, 100), 0, 0);
         assert_eq!(stepped.len(), intact.len(), "an intact body must still lay its whole template");
 
         // Bitten down to two cells, head first. Every one of these must come
         // out the far side, and nothing else with them.
         let injured = vec![(100, 100), (99, 99)];
-        let moved = body_after_step(&def, &injured, (101, 100), 0, 0);
+        let moved = body_after_step(&def, &injured, &[], (101, 100), 0, 0);
         assert_eq!(moved.len(), injured.len(), "length in must equal length out, or relocate_chain loses or invents a cell");
         assert_eq!(moved, vec![(101, 100), (100, 99)], "and the surviving shape travels with it, offset for offset");
 
         // Turning to face west mirrors the shape, exactly as an intact body's
         // template is mirrored rather than rotated.
-        let mirrored = body_after_step(&def, &injured, (99, 100), 0, 4);
+        let mirrored = body_after_step(&def, &injured, &[], (99, 100), 0, 4);
         assert_eq!(mirrored.len(), injured.len(), "a facing flip must not change how many cells there are");
         assert_eq!(mirrored, vec![(99, 100), (100, 99)], "x offsets mirror, y offsets do not -- facing is a mirror, never a rotation");
+    }
+
+    /// **The one genuinely new movement rule this build adds**, tested
+    /// directly against a hand-built chain rather than through a live
+    /// world: the spine follows exactly the way `Chain` does, and each
+    /// lateral is re-derived from its own spine's *new* position — never
+    /// carried over from where the old lateral used to be.
+    ///
+    /// Three segments, groups `[1, 2, 1]`: a bare head, a 2-wide middle
+    /// segment, a bare tail. Stepping the head from `(5, 5)` to `(6, 5)`
+    /// must shift every spine cell down the chain by one (exactly
+    /// `chain_follow`'s own rule, restricted to the three spine cells) and
+    /// place the middle segment's lateral one cell above wherever its own
+    /// spine ends up, not above where the lateral itself used to be.
+    #[test]
+    fn a_segmented_body_bends_by_re_deriving_each_lateral() {
+        let groups = [1u8, 2, 1];
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let next = segmented_body_after_step(&chain, &groups, (6, 5));
+        assert_eq!(
+            next,
+            vec![(6, 5), (5, 5), (5, 4), (4, 5)],
+            "the spine must follow like a Chain and each lateral must sit directly above its own spine's new position"
+        );
+    }
+
+    /// The defensive fallback: a `groups` that does not sum to `chain.len()`
+    /// (empty, or otherwise wrong) must degrade to the ordinary follow
+    /// rule rather than panic, drop a cell, or invent one. This should
+    /// never fire on a real animal — `place_creature` and `reconcile_chain`
+    /// both keep the two in lock-step — but the algorithm indexes `chain`
+    /// by `groups`, and a defensive path that has never been exercised is
+    /// exactly the kind of code this project's own method section warns
+    /// reads as correct until it is asked to run.
+    #[test]
+    fn a_segmented_body_with_a_mismatched_grouping_falls_back_to_the_plain_follow_rule() {
+        let chain = [(5, 5), (4, 5), (3, 5)];
+        let next = segmented_body_after_step(&chain, &[], (6, 5));
+        assert_eq!(next, chain_follow(&chain, (6, 5)), "an empty or mismatched grouping must degrade to the ordinary follow rule");
+    }
+
+    /// **The species file and its own genome must agree on what the animal
+    /// looks like** — `ant.ron`'s own comment states this as the reason
+    /// `body:` and `fates:` are both authored rather than one derived from
+    /// the other at load time. Grows each shipped articulated species'
+    /// `fates` table with the same `grow_body` a founder is placed from and
+    /// checks the result against the literal `body:` list, so a hand
+    /// arithmetic error in either table (an `after_metamers` threshold one
+    /// off, a `child` pointed at the wrong type) is caught here rather than
+    /// by a silhouette nobody was looking at.
+    #[test]
+    fn a_species_body_matches_its_own_fates_unfold() {
+        let w = test_world();
+        for name in ["ant", "hopper"] {
+            let id = w.species.id_of(name).expect(name);
+            let species = w.species.get(id);
+            let def = species.creature.as_ref().expect("creature");
+            let genome = organism::FateGenome::from_table(species.fate_table());
+            assert!(!genome.is_empty(), "{name} must author a fates table for this test to mean anything");
+            let grown = organism::grow_body(genome, SEGMENTED_BODY_CAP);
+            let BodyPlan::Segmented(authored) = &def.body else {
+                panic!("{name}'s body must be Segmented to compare against its own fates unfold");
+            };
+            assert_eq!(&grown, authored, "{name}'s authored body must be exactly what its own fates table grows -- the species file and its genome must agree on what this animal looks like");
+        }
     }
 
     /// Set one species' gut for the duration of a test.
