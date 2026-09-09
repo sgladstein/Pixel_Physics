@@ -1,6 +1,24 @@
 # Ants
 
-*Current as of: 2026-09-09, when the note below it was corrected: **an ant
+*Current as of: 2026-09-09, evening, when four things changed at once and
+one of the morning's own claims was overturned. **An ant can feel hunger
+now**: a well-fed ant mostly rests and a hungry one walks, and the colony
+digs when its nest is crowded rather than tunnelling the world out of
+boredom. **An ant can feed a hungry nestmate** by passing energy mouth to
+mouth, which real ants call the social stomach; it ships on, and the first
+measurement of it in a bare box is a warning rather than a win (see "Feeding
+each other" below). **Founders no longer start with identical reserves**, so
+a colony thins instead of dying in one spasm. **You can put a hand in the
+box**: drag a scent trail, drop an alarm, fling an animal, move a grow
+light. And there is a second animal, a hopper, which jumps -- too often, for
+now. The overturned claim is the one this note opened with that morning:
+an ant *reads* its trail, but the gate that decides when to listen is set so
+hard that the trail moves its next step by about three chances in a
+thousand -- a drawn trail from nest to plant moved a colony by exactly
+nothing, twice. Wired, and for now inert; the fix is being raced. **And the
+starving colony is the harness's colony**: dropped on seedlings at frame
+zero it collapses; founded on a grown bed, the way the game is actually
+played, it holds. Earlier the same day the note below was corrected: **an ant
 does follow a trail** -- a laden one walks up the home scent and an empty one
 up the food scent, which is how it has always worked. What is true is that
 **every shipped bed starves its colony inside one play session** with food
@@ -1115,3 +1133,30 @@ happily, thirty rows and more, so it is not that the food is out of their
 reach; there is simply almost none of it.
 
 Colonies still have no queens and no eggs.
+
+## Feeding each other, and resting
+
+An ant that has eaten well and is standing beside a hungry nestmate will
+pass some of its energy across, mouth to mouth. It gives only when it is
+the richer of the two, never its last reserves, and each pass costs it a
+little, so it is worth doing only when the gap is real. Nothing about this
+is a rule: it is a behaviour the ant's brain can strengthen, weaken or lose
+across generations like any other. The colony's founders also start with
+different reserves now, some fat and some lean, so the moment when the
+founding stock runs out is spread across many frames instead of landing on
+every ant in the same few hundred.
+
+What the first measurement says, plainly: in a bare box with the colony
+dropped on seedlings, a colony that shares ended with fewer survivors than
+one that did not on two runs of three, and sharing flattened the founders'
+spread of reserves back into sameness -- because sharing flows from rich to
+poor, and a spread of reserves is exactly a rich-and-poor. The bed and the
+horizon it was measured on are the harness's, not a played bed's, and the
+runs are too few to sign the result. It is on the page so nobody reads
+"ants share food" as "the colony is saved."
+
+An ant that is full mostly stands still now. It still wanders sometimes, it
+still answers an alarm, it still follows a smell, and as it empties it walks
+more, so the box is quieter when it is fed and busier when it is not.
+Digging follows the nest rather than the clock: a crowded nest gets dug out,
+an empty one is left alone.
