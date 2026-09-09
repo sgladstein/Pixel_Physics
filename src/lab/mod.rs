@@ -1322,8 +1322,47 @@ impl Lab {
         let started = std::time::Instant::now();
         let mut ran = 0u32;
         while ran < plan.ticks {
+            // **Checked inside the loop, not after it.** At 1024x one
+            // displayed frame is up to 1,024 ticks, so a check placed after
+            // this loop would compile, pass a test that only ever runs a
+            // handful of ticks, and land an auto-reaction up to a thousand
+            // frames late in the real box --
+            // `the_reaction_is_checked_inside_the_tick_loop` is what catches
+            // that placement; a version with the check moved after the loop
+            // is red under it.
+            //
+            // `RunLog::len() + RunLog::dropped()` is monotonic within one
+            // run (`push` bumps `dropped` whenever it trims), so a plain
+            // difference across one tick is "did a line get pushed this
+            // tick" with no need to hold a copy of the log or to wait for
+            // lane A's `RunLog::total()`.
+            let before = self.world.run_log.len() as u64 + self.world.run_log.dropped();
             self.tick();
             ran += 1;
+            let after = self.world.run_log.len() as u64 + self.world.run_log.dropped();
+            if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
+                // **Gated on the mask before anything heavier**, which is
+                // the scale answer: at 1,000+ ants an armed kind can still
+                // arrive every few frames, and `notable()`'s line-bounded
+                // set plus this cooldown are the only two things standing
+                // between that and a dial that can never leave 1x. Newest
+                // first, so `grew` covers exactly this tick's new lines;
+                // walking them front-to-back finds the most recent one this
+                // box is actually armed to notice.
+                let grew = (after - before) as usize;
+                let mut hit = None;
+                for e in self.world.run_log.recent().take(grew) {
+                    if self.time.reacts_to(e.kind) {
+                        hit = Some(*e);
+                        break;
+                    }
+                }
+                if let Some(event) = hit {
+                    self.take_camera_to(&event);
+                    self.time.react();
+                    break;
+                }
+            }
             if started.elapsed() >= plan.budget {
                 break;
             }
@@ -1342,6 +1381,67 @@ impl Lab {
         // there. A frame that drew nothing still advances them, because they
         // no longer depend on this function being reached at all.
         advance
+    }
+
+    /// **Point the interface at whatever a notable event just happened to.**
+    ///
+    /// Called once, from `advance`'s tick loop, at the moment a reaction is
+    /// decided -- never from `draw`, so it cannot fire twice for one event
+    /// and cannot race `follow_pin`, which takes over the *smooth* chase
+    /// from here on (every drawn frame, for as long as FOLLOW stays on).
+    ///
+    /// `LineEnded` has no live individual to point at -- `free_organism` has
+    /// already dropped the slot by the time the event exists -- so a
+    /// subject that does not resolve falls back to the graveyard, exactly
+    /// what `Grave::at` was kept for.
+    fn take_camera_to(&mut self, event: &crate::sim::world::LogEvent) {
+        let who = roster::Individual { id: event.id, born_frame: event.born_frame };
+        let at = if let Some(state) = who.resolve(&self.world) {
+            roster::anchor_of(state)
+        } else {
+            self.world.graveyard.about(event.id, event.born_frame).map(|g| g.at)
+        };
+
+        // **Re-point the pin regardless of whether a position resolved.**
+        // `release_pin` first because `Ui::pin` toggles -- pinning the
+        // individual already pinned would let it go, which is exactly
+        // backwards for an *automatic* reaction. A pin that cannot resolve
+        // is `follow_pin`'s own "THIS ONE HAS DIED" case, handled there
+        // rather than here.
+        self.ui.release_pin();
+        self.ui.pin(who);
+
+        if let Some(at) = at {
+            self.ui.inspect_at(at, who.id);
+            // **A hard jump, not the dead-zone follow `follow_pin` uses on
+            // every drawn frame afterwards.** `Renderer::follow` cannot move
+            // the camera at all at the default zoom -- the whole 512-wide
+            // box is already on screen, and `set_camera`'s own clamp
+            // collapses a world smaller than the viewport -- so at zoom > 1
+            // the player would get the notice and the pin and watch nothing
+            // move. This puts the subject in frame the instant the event
+            // fires; `follow_pin`'s dead-zone follow keeps it there once
+            // FOLLOW is on, which the next line turns on if it was not
+            // already.
+            if !self.ui.following() {
+                self.ui.toggle_following();
+            }
+            let bounds = self.world.bounds();
+            let span = self.renderer.visible_span((WIDTH, HEIGHT));
+            self.renderer.set_camera(at.0 - span.0 / 2, at.1 - span.1 / 2, (WIDTH, HEIGHT), bounds);
+        }
+
+        // merge: lane A's F1 gives every `LogKind` a real sentence and a
+        // name (`Ui::log_rows`'s own match, `ui.rs:3755`) -- `e.other` is 0
+        // for every `LineEnded` today, which is the standing "LINE 0 ENDED"
+        // bug that PR fixes as a side effect of adding `LogEvent::lineage`.
+        // This is placeholder prose so the reaction has *a* notice rather
+        // than none in the meantime.
+        let said = match event.kind {
+            crate::sim::world::LogKind::LineEnded => format!("LINE {} ENDED", event.other),
+            kind => format!("{} {}", kind.label(), event.id),
+        };
+        self.ui.say(said);
     }
 
     /// Draw the world, then whatever the lab is showing over it.
@@ -2345,6 +2445,16 @@ impl Lab {
                     let frame = self.world.frame;
                     self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
                 }
+            }
+            // The box's own "look at this": which of Off/Linger/Stop a
+            // notable event gets. Mirrored into `Ui` in the same action that
+            // changes it, `CycleCreatureColour`'s reason -- the BOX page
+            // reads the mirror, never `self.time` directly, because `Ui`
+            // does not hold it.
+            ui::Action::CycleReaction => {
+                self.time.cycle_reaction();
+                self.ui.set_reaction(self.time.react);
+                self.ui.say(format!("EVENTS: {}", self.time.react.label()));
             }
         }
     }
@@ -4869,5 +4979,118 @@ mod tests {
         let (bw, bh) = (w + 24, super::HELP.len() as i32 * 10 + 20);
         assert!(bw <= WIDTH as i32, "the key list is {bw} px wide and the window is {WIDTH}");
         assert!(bh <= HEIGHT as i32, "the key list is {bh} px tall and the window is {HEIGHT}");
+    }
+
+    // --------------------------------------- the box's own "look at this"
+
+    /// Call `advance` in real-time chunks -- `16` ms, the same chunk every
+    /// other `advance` test in this file already uses -- until `done(&lab)`
+    /// is true, or give up after [`MAX_ADVANCE_CALLS`] calls.
+    ///
+    /// **Real wall-clock elapsed time is `advance`'s own unit; there is no
+    /// way to ask it for "N ticks" directly**, because how many ticks one
+    /// call buys is exactly the two-phase loop's own decision. `CLAUDE.md`'s
+    /// wall-clock warning is about *gating pass/fail on a duration*; this
+    /// loop's pass/fail is `done`, a property of the simulated world, and
+    /// the fixed chunk size only decides how fast a slower machine gets
+    /// there.
+    const MAX_ADVANCE_CALLS: u32 = 4_000;
+
+    fn run_advance_until(lab: &mut Lab, done: impl Fn(&Lab) -> bool) -> Option<u64> {
+        for _ in 0..MAX_ADVANCE_CALLS {
+            lab.advance(std::time::Duration::from_millis(16));
+            if done(lab) {
+                return Some(lab.world.frame);
+            }
+        }
+        None
+    }
+
+    /// **The default arm reacts; `Off` does not.** `CLAUDE.md`: put the
+    /// fault back and watch it go red -- without the `Off` half, a build
+    /// that reacts to *every* `LogKind` regardless of `react_on` would pass
+    /// this test exactly as well as the real gate does, because nothing
+    /// here would tell the two apart.
+    ///
+    /// **The shipped bed, not a hand-tuned one.** `LabBox::default()` is
+    /// already `colonies: 1, founders: 8` -- it starves its founders before
+    /// any forage line is established, so a `LineEnded` is not manufactured
+    /// for this test. It is the box's own ordinary opening, run through the
+    /// real `advance()` loop at `1024x` rather than through plain `tick()`,
+    /// so the mechanism under test is the one the player's box actually
+    /// calls -- not a shortcut that only looks like it.
+    #[test]
+    fn a_notable_event_reacts_when_armed() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1); // 1024x, and Running
+        assert_eq!(lab.time.react, time::Reaction::Linger, "the shipped default");
+        let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1).expect(
+            "no LineEnded fired inside the call budget -- see this test's doc comment \
+             for the expected horizon; a change to founder starvation may have moved it",
+        );
+        assert!(stopped_at > 0, "the reaction fired before the box had run at all");
+
+        // The sensitivity half, on a fresh box seeded identically: `Off`
+        // must run straight through the same starvation with the dial
+        // untouched.
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1);
+        lab.time.react = time::Reaction::Off;
+        let requested_before = lab.time.requested;
+        let reached = run_advance_until(&mut lab, |lab| lab.world.frame > stopped_at + 2_000);
+        assert!(reached.is_some(), "did not reach the target frame within the call budget");
+        assert_eq!(
+            lab.time.requested, requested_before,
+            "Reaction::Off still touched the dial -- the mask/gate in `advance` is not gating"
+        );
+    }
+
+    /// **The check has to live inside the tick loop, not after it.** At
+    /// 1024x one displayed frame is up to 1,024 ticks, so a version of
+    /// `advance` that moved the before/after check to just after the
+    /// `while` -- which compiles, and which the test above cannot tell
+    /// apart from the real thing, since it only checks *that* a reaction
+    /// happened -- would still pass it while landing up to a thousand
+    /// frames late here.
+    #[test]
+    fn the_reaction_is_checked_inside_the_tick_loop() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1); // 1024x
+        let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1)
+            .expect("no LineEnded fired inside the call budget");
+        let event_frame = lab
+            .world
+            .run_log
+            .recent()
+            .find(|e| e.kind == crate::sim::world::LogKind::LineEnded)
+            .map(|e| e.frame)
+            .expect("the reaction fired with no LineEnded in the log");
+        assert!(
+            stopped_at.abs_diff(event_frame) <= 5,
+            "stopped at frame {stopped_at}, {} ticks after the event at frame {event_frame} \
+             -- at 1024x that is what a check placed after the loop looks like",
+            stopped_at.saturating_sub(event_frame)
+        );
+    }
+
+    /// **The reaction pins the subject, and a death resolves through the
+    /// graveyard** -- `Lab::take_camera_to`'s own fallback, since
+    /// `free_organism` has already dropped the individual's slot by the
+    /// time a `LineEnded` (or a `Died`) exists to react to.
+    #[test]
+    fn an_auto_reaction_pins_the_subject() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1);
+        run_advance_until(&mut lab, |lab| lab.time.requested == 1)
+            .expect("no LineEnded fired inside the call budget");
+        let who = lab.ui.pinned().expect("the reaction did not pin anyone");
+        assert!(
+            who.resolve(&lab.world).is_none(),
+            "a LineEnded's subject resolved live -- it should already be gone"
+        );
+        assert!(
+            lab.world.graveyard.about(who.id, who.born_frame).is_some(),
+            "the pinned individual has no grave -- the page could not resolve it either"
+        );
     }
 }

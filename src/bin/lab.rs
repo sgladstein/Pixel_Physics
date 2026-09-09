@@ -28,6 +28,7 @@
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
+//! | `T` | what the clock does on a notable event: LINGER / STOP / OFF |
 //! | `Tab` | the stats page |
 //! | `WASD` | pan; `-` / `=` zoom |
 //! | left / right mouse | the armed tool / the eraser |
@@ -557,6 +558,11 @@ impl Handler {
             KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
             KeyCode::Quote => self.lab.act(Action::Broods(1)),
             KeyCode::KeyF => self.lab.time.cycle_display_floor(),
+            // **`T` for what the clock does when a notable event fires** --
+            // Off/Linger/Stop, cycling in the order the BOX page's `EVENTS`
+            // row prints them. Free letters were `I J Q T U Y`; a sibling
+            // change (the life overlay) takes `Y`.
+            KeyCode::KeyT => self.lab.act(Action::CycleReaction),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
             // **`zoom_within`, not `adjust_zoom`.** The box is smaller than

@@ -532,6 +532,10 @@ pub enum Action {
     /// `Ui::scenarios()`, resolved fresh at the moment the row is clicked --
     /// see `Lab::act`'s own note on why the index is not cached.
     ScenarioLoad(usize),
+    /// Step which automatic reaction a notable event gets --
+    /// Off/Linger/Stop. See `time::Reaction` for what each does and why it
+    /// is three settings rather than a bool.
+    CycleReaction,
 }
 
 /// **What a left-click on the world does.**
@@ -2324,6 +2328,17 @@ pub struct Ui {
     /// the only reader and it treats `None` as `Off`, which is the enum's
     /// own "nothing has customised this yet" state.
     creature_colour: Option<render::CreatureColour>,
+    /// **Mirrors `TimeControl::react`**, the same shape as `creature_colour`
+    /// just above and for the same reason: `Ui` does not hold `TimeControl`,
+    /// and the BOX page's `EVENTS` row needs to show which of Off/Linger/Stop
+    /// is armed. `Lab::act`'s `CycleReaction` handler is the one writer.
+    ///
+    /// **No `Option` wrapper needed, unlike `creature_colour`.**
+    /// `time::Reaction` derives `Default` (`Linger`), which is also
+    /// `TimeControl`'s own starting value, so there is no window where the
+    /// mirror could disagree with the thing it mirrors before the first
+    /// write -- both start at the same value for the same reason.
+    reaction: super::time::Reaction,
 }
 
 /// Every species that can be planted, in a stable order.
@@ -2678,6 +2693,18 @@ impl Ui {
     /// not need a private-field workaround to ask.
     pub fn creature_colour(&self) -> render::CreatureColour {
         self.creature_colour.unwrap_or(render::CreatureColour::Off)
+    }
+
+    /// **Told by `Lab::act`'s `CycleReaction` handler** whenever the
+    /// setting moves, mirroring `set_creature_colour`'s own reason: the BOX
+    /// page reads this rather than reaching for a `TimeControl` it does not
+    /// have.
+    pub fn set_reaction(&mut self, r: super::time::Reaction) {
+        self.reaction = r;
+    }
+
+    pub fn reaction(&self) -> super::time::Reaction {
+        self.reaction
     }
 
     /// Where the button for `action` was drawn last frame.
@@ -3676,6 +3703,16 @@ impl Ui {
                     format!("{fps:.0} FPS"),
                     if fps >= 30.0 { GOOD } else { FAIR },
                     "DRAWN FRAMES PER SECOND. THIS IS THE WINDOW, NOT THE SIMULATION -- THE SPEED READOUT ON THE BAR IS THE SIMULATION.",
+                ),
+                // **The box's own "look at this", right above the log it
+                // reacts to.** A `Row::choice` for `ANIMALS WEAR`'s reason:
+                // the bar is full, measured twice (`CLAUDE.md`), and a page
+                // row already proves it can carry a click for free.
+                Row::choice(
+                    "EVENTS",
+                    self.reaction().label(),
+                    Action::CycleReaction,
+                    "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS. CLICK TO CYCLE. LINGER DROPS TO 1X FOR A FEW SECONDS WITH THE CAMERA ON IT, THEN CLIMBS BACK -- STOP HOLDS THE BOX THERE UNTIL YOU RESUME -- OFF STILL LOGS THE LINE BUT NEVER TOUCHES THE CLOCK. A COOLDOWN KEEPS ONE COLONY'S WORTH OF DEATHS FROM BEING ONE LONG STUTTER.",
                 ),
                 // The way in to the log, on the same mechanism as the two
                 // rosters: a `Body::Head` already carries a hit target, and
