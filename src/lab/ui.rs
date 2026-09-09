@@ -536,10 +536,10 @@ pub enum Action {
     /// Off/Linger/Stop. See `time::Reaction` for what each does and why it
     /// is three settings rather than a bool.
     CycleReaction,
-    /// Toggle whether every living animal draws a legible marker on the
-    /// bed. See `Ui::show_life_marks`'s own doc for why the shipped default
-    /// is on rather than off.
-    ToggleLifeMarks,
+    /// Cycle which mark, if any, every living animal draws on the bed. See
+    /// `LifeMarks`'s own doc for the cycle and why the shipped default is
+    /// `Off`.
+    CycleLifeMarks,
 }
 
 /// **What a left-click on the world does.**
@@ -1812,119 +1812,191 @@ impl Watch {
 
 // ------------------------------------------------------------- life marks
 
-/// **Every living animal's position and group, read straight off the
-/// world.**
+/// **Which mark, if any, every living animal draws.** A runtime selector
+/// rather than a single choice -- `CLAUDE.md`'s "for does this look right,
+/// ship a selector" rule -- because the first shipped shape (a solid 3x3
+/// blob at the anchor cell) was reviewed and rejected outright: it hid the
+/// two-cell body and the colour it already wears, which is the opposite of
+/// what the mark exists for. `Off`/`Halo`/`Tick` replaced it; no blob mode
+/// survived the review.
 ///
-/// Measured on the shipped bed at frame 30,000: 13 animals of 2 cells each
-/// are 26 cells of 163,840 -- 0.016% of the picture -- and nobody could find
-/// one by eye. The animal is the subject of this game and it was absent
-/// from it. This is the census `draw_life_marks` paints a marker over.
+/// **Default `Off`.** Reversed from this feature's first ruling (default
+/// on) by a second owner verdict: movement is what makes an animal legible
+/// in play, so a mark is at most a pause-time aid, not a standing HUD.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LifeMarks {
+    #[default]
+    Off,
+    /// A one-cell-thick ring one world cell outside the body's own bounding
+    /// box -- never a body pixel, at any zoom.
+    Halo,
+    /// One world cell, in the colony's colour, directly above the body's
+    /// topmost row. Nothing on the body.
+    Tick,
+}
+
+impl LifeMarks {
+    pub fn next(self) -> Self {
+        match self {
+            LifeMarks::Off => LifeMarks::Halo,
+            LifeMarks::Halo => LifeMarks::Tick,
+            LifeMarks::Tick => LifeMarks::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LifeMarks::Off => "OFF",
+            LifeMarks::Halo => "HALO",
+            LifeMarks::Tick => "TICK",
+        }
+    }
+}
+
+/// **Every living animal's body extent (every cell it owns, not one anchor)
+/// and group**, read straight off the world -- fresh, on drawn frames only.
 ///
-/// **Deliberately not a `Watch`-shaped sampled ring, and that is a decision
-/// worth stating rather than leaving to be re-derived.** Two designs were
-/// weighed:
+/// **Not a `Watch`-shaped sampled ring.** Sampling on an interval
+/// (`WATCH_EVERY` simulated frames) pays a `live_organism_ids()` walk that
+/// often between two *pictures* at the top of the speed ladder (1024x) --
+/// exactly the per-tick cost `CLAUDE.md`'s "guard hot-path work" rule warns
+/// against, for something only ever seen at the display rate. Reading fresh
+/// only on **drawn** frames (`Advance::draw`, ~10-30/s regardless of the
+/// speed dial) pays that walk far less often, which is why there is no
+/// per-box state on `Chamber` and nothing that can bleed across a chamber
+/// switch either.
 ///
-/// 1. Sample on an interval the way [`Watch`] does (`WATCH_EVERY` simulated
-///    frames), feeding a per-box ring parked on `Chamber` the way `watch` is.
-/// 2. Read the world's own live list fresh, only on frames that are actually
-///    **drawn**.
-///
-/// (1) pays a `live_organism_ids()` walk every `WATCH_EVERY` *simulated*
-/// frames -- at the top of the speed ladder (1024x) that is dozens of walks
-/// between two pictures, which is exactly the per-tick cost `CLAUDE.md`'s
-/// "guard hot-path work at the call site" rule warns against paying for
-/// something only ever *seen* at the display rate. (2) pays the identical
-/// walk only on drawn frames -- `Advance::draw`, ~10-30 times a second
-/// regardless of the speed dial (`Ui::is_dirty`'s own doc). (2) is strictly
-/// cheaper and is what this is, which is also why there is no `Trails`
-/// struct and nothing added to `Chamber`: there is no ring to park, so there
-/// is nothing that can bleed across a chamber switch either.
-///
-/// **What a later trail would cost.** A short per-animal trail needs
-/// position *history between draws*, which reading fresh at draw time does
-/// not keep -- so it is not "grow this function", it is "add a
-/// `Watch`-shaped sampled ring beside it, parked on `Chamber` the way
-/// `watch` is, feeding a second pass gated on the same
-/// [`Ui::show_life_marks`] toggle". Nothing here blocks that; it is simply
-/// not built, because the owner asked for the marker twice and chose the
-/// coloured arm, not the trail -- the existing single-subject trail
-/// (`Watch`, above) was tried and read as "they look pretty much the same".
-fn life_mark_dots(world: &World) -> impl Iterator<Item = ((i32, i32), SpeciesId, u32)> + '_ {
+/// The whole-body extent, not the anchor, because both marks below are
+/// defined relative to the body's bounding box rather than one of its
+/// cells.
+fn life_mark_dots(world: &World) -> impl Iterator<Item = ((i32, i32, i32, i32), SpeciesId, u32)> + '_ {
     world.live_organism_ids().into_iter().filter_map(move |id| {
         let state = world.organism(id)?;
         world.species.get(state.species).creature.as_ref()?;
-        let at = roster::anchor_of(state)?;
-        Some((at, state.species, state.colony))
+        let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &(x, y) in state.cells.keys() {
+            b.0 = b.0.min(x);
+            b.1 = b.1.min(y);
+            b.2 = b.2.max(x);
+            b.3 = b.3.max(y);
+        }
+        (b.0 <= b.2).then_some((b, state.species, state.colony))
     })
 }
 
-/// **Paint one flat blob over every living animal.**
+/// **Mark every living animal, in the shape `marks` names.**
 ///
 /// `pub` rather than `pub(crate)` -- `examples/labshot.rs` renders the world
-/// through the same `Renderer` without a `Ui` at all, and this is the one
-/// piece of the feature that does not need one, so the headless harness
-/// calls it directly rather than needing a second copy of the loop.
+/// through the same `Renderer` with no `Ui` at all, and calls this directly.
 ///
-/// **A full replace on a fixed colour, never a blend.** `Reports/dead-
-/// ends.md` (lines 1251, 1285) records a magnitude-scaled blend reading as
-/// blank and nearly sending a fix at working code; this always overwrites.
-///
-/// **The colour is the one the animal already wears**
-/// (`render::group_colour`), so the marker on the bed and the ANTS page's
-/// population graph agree on what a "group" is -- both read the identical
-/// function. Under `CreatureColour::Off` that function returns `None` (the
-/// animal wears only its own material colour, which is exactly the
-/// invisibility this exists to fix), so the mark falls back to the same
-/// fixed bright constant the pin's own marker uses rather than going blank.
-///
-/// **A single pixel at zoom 1 (play zoom) did not read against the bed's
-/// own terrain** -- tried first, against a picture of the shipped bed, and
-/// indistinguishable from the sand and soil around it. A filled 3x3 square
-/// is the smallest shape that survived that look (see the commit this
-/// shipped in for the before/after). Fixed in screen pixels rather than
-/// scaled by zoom, because legibility at zoom 1 is the whole ask and a
-/// bigger blob at higher zoom is not a complaint anyone made.
+/// **Full replace, never a blend** (`Reports/dead-ends.md` 1251, 1285), in
+/// the colour the animal already wears (`render::group_colour`), so the
+/// mark and the ANTS page's population graph agree on what a "group" is --
+/// falling back to the pin's own bright constant under `CreatureColour::
+/// Off`, where that function returns `None` rather than going blank.
 ///
 /// **Defers to an active `OrganismOverlay`, and this is not a special case
-/// invented for the mark -- it is the rule `render.rs`'s own `cell_colour`
-/// already applies between these same two dials: `apply_organism_overlay`
-/// is called *after* `group_colour` and replaces it outright
-/// (`render.rs:5813` and the `group_colour` call two lines above it). A
-/// debug channel a player switched on to read a cell's own state is not
-/// something a population dot should paint over -- and on a two-cell animal
-/// there is no cell of the body left for a test (or a player) to read the
-/// channel from underneath a 3x3 blob covering both. Caught by
-/// `the_founding_lines_overlay_colours_the_heaviest_and_greys_the_tail`
-/// and its two neighbours going red the first time this was wired
-/// unconditionally: `[255, 196, 40]` (this feature's amber colony dot)
-/// where the test wanted `[255, 90, 90]` (`LINEAGE_COLOURS[0]`).
+/// invented for the mark -- it is the precedence `render.rs`'s own
+/// `cell_colour` already gives these two dials: `apply_organism_overlay` is
+/// called after `group_colour` and replaces it outright (`render.rs:5813`).
+/// Without this, the first (blob) shape painted over three lineage-overlay
+/// pixel tests' own reads; caught the moment it shipped unconditionally.
 pub fn draw_life_marks(
     frame: &mut [u8],
     world: &World,
     renderer: &crate::render::Renderer,
-    mode: render::CreatureColour,
+    colour_mode: render::CreatureColour,
+    marks: LifeMarks,
 ) {
-    if renderer.organism_overlay != render::OrganismOverlay::Off {
+    if marks == LifeMarks::Off || renderer.organism_overlay != render::OrganismOverlay::Off {
         return;
     }
-    for (at, species, colony) in life_mark_dots(world) {
-        let colour = match render::group_colour(mode, species, colony) {
+    for (body, species, colony) in life_mark_dots(world) {
+        let colour = match render::group_colour(colour_mode, species, colony) {
             Some(rgb) => [rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255],
             None => MARKER,
         };
-        let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(at.0, at.1, at.0, at.1);
-        let (cx, cy) = ((x0 + x1) / 2, (y0 + y1) / 2);
-        // Clip against the bar exactly as the pinned trail does -- the mark
-        // is a fact about the bed, not the chrome painted over the bottom of
-        // it.
-        if cy >= bar_top() {
+        match marks {
+            LifeMarks::Off => {}
+            LifeMarks::Halo => draw_halo(frame, world, renderer, body, colour),
+            LifeMarks::Tick => draw_tick(frame, world, renderer, body, colour),
+        }
+    }
+}
+
+/// Fill one row of a mark, clipped to the frame's left/right (via `put`),
+/// to the bar along the bottom, and -- pixel by pixel -- to whatever cell
+/// the *world* actually holds there.
+///
+/// **The occupancy check is against the world, not against the one body
+/// this mark belongs to.** A ring or tick sized only to dodge its own
+/// animal is provably wrong the moment two animals stand adjacent, which a
+/// nest guarantees constantly: caught by
+/// `a_life_mark_never_touches_a_body_pixel` going red on exactly that case
+/// (one ant's halo landing on its neighbour). Mapping each candidate pixel
+/// back to a world cell (`screen_to_world`) and skipping any with an
+/// `organism_id` makes "never a body pixel" true of *every* body, not only
+/// the one the mark is for -- and it is cheap, because a mark's own pixel
+/// count is bounded by its shape (a perimeter or a single cell), never by
+/// the population.
+fn fill_mark_row(
+    frame: &mut [u8],
+    world: &World,
+    renderer: &crate::render::Renderer,
+    y: i32,
+    (x0, x1): (i32, i32),
+    cap: i32,
+    colour: [u8; 4],
+) {
+    if y < 0 || y > cap {
+        return;
+    }
+    for x in x0..=x1 {
+        let (wx, wy) = renderer.screen_to_world(x, y);
+        if world.get(wx, wy).organism_id() != 0 {
             continue;
         }
-        for dy in -1..=1 {
-            for dx in -1..=1 {
-                render::put(frame, W, H, cx + dx, cy + dy, colour);
-            }
-        }
+        render::put(frame, W, H, x, y, colour);
+    }
+}
+
+/// **A one-cell ring around `body` (world-cell bounds), one cell out on
+/// every side.**
+///
+/// The rect itself is the screen-space set difference between the body's
+/// own footprint and that same footprint expanded by one world cell each
+/// way, both mapped through the identical `world_rect_to_screen` so the
+/// ring scales with zoom exactly as the body does -- but the rect alone is
+/// only "never *this* body's pixel"; `fill_mark_row`'s per-pixel world
+/// check is what makes it "never *any* body's pixel", which is the shape a
+/// crowded nest actually needs.
+fn draw_halo(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, max_y): (i32, i32, i32, i32), colour: [u8; 4]) {
+    let (ox0, oy0, ox1, oy1, _) = renderer.world_rect_to_screen(min_x - 1, min_y - 1, max_x + 1, max_y + 1);
+    let (ix0, iy0, ix1, iy1, _) = renderer.world_rect_to_screen(min_x, min_y, max_x, max_y);
+    let cap = bar_top() - 1;
+    for y in oy0..iy0 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+    }
+    for y in (iy1 + 1)..=oy1 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+    }
+    for y in iy0..=iy1 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ix0 - 1), cap, colour);
+        fill_mark_row(frame, world, renderer, y, (ix1 + 1, ox1), cap, colour);
+    }
+}
+
+/// **One world cell, scaled, one cell above `body`'s topmost row**, centred
+/// on its width. Never lands on the body it names -- it is the row above
+/// its minimum `y` -- but can still land on a *different*, taller neighbour
+/// standing there, which `fill_mark_row`'s world check catches the same way
+/// `draw_halo`'s does.
+fn draw_tick(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, _): (i32, i32, i32, i32), colour: [u8; 4]) {
+    let cx = (min_x + max_x) / 2;
+    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(cx, min_y - 1, cx, min_y - 1);
+    let cap = bar_top() - 1;
+    for y in y0..=y1 {
+        fill_mark_row(frame, world, renderer, y, (x0, x1), cap, colour);
     }
 }
 
@@ -2266,19 +2338,15 @@ pub struct Ui {
     /// The pinned individual's trail and per-individual series.
     /// Per-box, and swapped with the chamber like `history`.
     pub(crate) watch: Watch,
-    /// **Whether every living animal draws a legible marker.** See
-    /// `draw_life_marks`'s own doc for the shape of the mark and why it is
-    /// read fresh from the world rather than sampled onto a ring.
+    /// **Which mark, if any, every living animal draws.** See `LifeMarks`'s
+    /// own doc for the cycle, the shapes, and the review verdict behind
+    /// `Off`'s default.
     ///
-    /// **Default on**, which reverses this file's usual "default to current
-    /// behaviour" rule -- deliberately, because the report this answers is
-    /// that the current behaviour is 13 animals of 2 cells each in 163,840
-    /// (0.016%), unfindable by eye. There is nothing here to default *to*
-    /// that is not the bug. Not per-box: it names a mode of the interface,
-    /// like `creature_colour`, not a fact about one bed's contents, and it
-    /// costs nothing to leave shared -- the draw pass holds no state that
-    /// could bleed across a chamber switch (see `draw_life_marks`'s doc).
-    show_life_marks: bool,
+    /// Not per-box: it names a mode of the interface, like
+    /// `creature_colour`, not a fact about one bed's contents, and it costs
+    /// nothing to leave shared -- the draw pass holds no state that could
+    /// bleed across a chamber switch (see `draw_life_marks`'s doc).
+    life_marks: LifeMarks,
     /// **The other individual**, for `Panel::Compare`.
     ///
     /// Deliberately not a second pin: only one individual is marked in the
@@ -2557,11 +2625,6 @@ impl Ui {
             // shipped in the tree is on the SCENARIOS page from the box's
             // first frame, not only after the first `RELOAD`.
             scenarios: super::scenario::Scenario::list(),
-            // **On.** `Default::default()`'s `false` is the one bool this
-            // struct cannot inherit from its derive -- see the field's own
-            // doc for why "default to current behaviour" does not apply
-            // here.
-            show_life_marks: true,
             ..Self::default()
         }
     }
@@ -2811,18 +2874,19 @@ impl Ui {
         true
     }
 
-    /// Whether every living animal is currently marked. `pub` for the same
+    /// Which mark every living animal currently draws. `pub` for the same
     /// reason `tool()`/`stock()` are -- a test or the ANTS page row should
     /// not need a private-field workaround to ask.
-    pub fn life_marks_shown(&self) -> bool {
-        self.show_life_marks
+    pub fn life_marks(&self) -> LifeMarks {
+        self.life_marks
     }
 
-    /// Flip [`Ui::life_marks_shown`]. Returns the new state, so the caller's
-    /// notice can say what just happened without a second read.
-    pub fn toggle_life_marks(&mut self) -> bool {
-        self.show_life_marks = !self.show_life_marks;
-        self.show_life_marks
+    /// Advance [`Ui::life_marks`] to its next stop. Returns the new mode,
+    /// so the caller's notice can say what just happened without a second
+    /// read.
+    pub fn cycle_life_marks(&mut self) -> LifeMarks {
+        self.life_marks = self.life_marks.next();
+        self.life_marks
     }
 
     pub fn observe(&mut self, world: &World) {
@@ -3779,16 +3843,18 @@ impl Ui {
                         Action::CycleCreatureColour,
                         "WHAT COLOUR EVERY ANIMAL WEARS IN THE BOX, AND WHAT THE CHART AND LEGEND BELOW GROUP AND COLOUR BY. CLICK TO CYCLE: OWN COLOUR, BY SPECIES, BY COLONY. THE CHART GROUPS BY COLONY ONLY IN THAT LAST MODE -- OTHERWISE IT SUMS EVERY COLONY OF A SPECIES INTO ONE LINE.",
                     ),
-                    // **The toggle for the marker, beside the toggle for the
-                    // colour it uses.** An ant is two dark cells at play
-                    // zoom and you find it only because it moves -- this is
-                    // the fix for the animal that has stopped, or the one
-                    // among a thousand you cannot track by eye at all.
+                    // **The selector for the marker, beside the selector for
+                    // the colour it uses.** Movement is what makes an animal
+                    // legible in play, so this is a pause-time aid rather
+                    // than a standing HUD -- off by default, and a click
+                    // cycles OFF, HALO (a ring one cell outside the body) and
+                    // TICK (one cell above the head), never covering the
+                    // body or the colour it wears.
                     Row::choice(
                         "LIFE MARKS",
-                        if self.show_life_marks { "ON" } else { "OFF" },
-                        Action::ToggleLifeMarks,
-                        "A SMALL MARKER OVER EVERY LIVING ANIMAL, IN THE COLOUR IT WEARS ABOVE. ON BY DEFAULT: AT PLAY ZOOM AN ANT IS TWO DARK CELLS OUT OF OVER A HUNDRED THOUSAND AND IS OTHERWISE UNFINDABLE. CLICK TO HIDE IT.",
+                        self.life_marks.label(),
+                        Action::CycleLifeMarks,
+                        "A MARK NEAR EVERY LIVING ANIMAL, IN THE COLOUR IT WEARS ABOVE, WITHOUT COVERING ITS BODY. OFF BY DEFAULT. CLICK TO CYCLE: OFF, HALO (A RING JUST OUTSIDE THE BODY), TICK (ONE CELL ABOVE THE HEAD).",
                     ),
                     // **Replaces the single TREND spark.** One line per
                     // group on one shared axis, so two groups fighting can be
@@ -6493,17 +6559,15 @@ impl Ui {
         // graveyard row cannot tell you, and it stays on screen while it is
         // pinned. That is the whole reason the trail is kept on the ring
         // rather than recomputed from the world every frame.
-        // **Every living animal, marked.** Drawn *before* the pinned trail
-        // and the pin's own marker below, so a bed of a thousand population
-        // dots still lets "which one is pinned" read as the one thing
+        // **Every living animal, marked** (unless `LifeMarks::Off`, which
+        // `draw_life_marks` itself checks). Drawn *before* the pinned trail
+        // and the pin's own marker below, so a bed of a thousand marked
+        // animals still lets "which one is pinned" read as the one thing
         // sitting on top of it -- the same ordering the trail already uses
         // against the reticle, one layer further out. See
-        // `draw_life_marks`'s own doc for the shape of the mark, the colour
-        // rule, and why this reads the world fresh rather than sampling a
-        // ring.
-        if self.show_life_marks {
-            draw_life_marks(frame, world, renderer, self.creature_colour());
-        }
+        // `draw_life_marks`'s own doc for the shapes, the colour rule, and
+        // why this reads the world fresh rather than sampling a ring.
+        draw_life_marks(frame, world, renderer, self.creature_colour(), self.life_marks);
 
         if self.pinned.is_some() {
             let n = self.watch.len();
@@ -8588,15 +8652,15 @@ mod tests {
         assert!(lab.ui.watch.about(a.id), "the ring stopped answering for a dead individual it still holds");
     }
 
-    /// **Every living animal gets a marker, not only the pinned one.**
+    /// **Halo covers every living animal, not only the pinned one.**
     ///
-    /// Red for an overlay that draws nothing at all (a toggle wired to
+    /// Red for a shape that draws nothing at all (the cycle wired to
     /// nothing, or a colour lookup that always misses), and red just as
     /// surely for one that only draws the individual `Watch`/the pin already
     /// marks -- this bed never pins anybody, so a count that only cleared
     /// because of the pin's own bright reticle would not clear here.
     #[test]
-    fn the_life_marks_cover_every_living_animal() {
+    fn the_halo_covers_every_living_animal() {
         let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
             colonies: 1,
             founders: 2,
@@ -8623,6 +8687,9 @@ mod tests {
         assert!(live.len() >= 2, "test setup: the bed has no colony to mark: {} animals", live.len());
         assert!(lab.ui.pinned().is_none(), "test setup: something is pinned, which would confound the count");
 
+        assert_eq!(lab.ui.life_marks(), LifeMarks::Off, "test setup: marks are not off by default");
+        assert_eq!(lab.ui.cycle_life_marks(), LifeMarks::Halo, "test setup: the cycle's first stop past Off is not Halo");
+
         // Every colour a live animal is actually wearing, computed the
         // identical way `draw_life_marks` computes it -- not a guessed
         // constant, which would pass even if the mode the box actually
@@ -8641,50 +8708,89 @@ mod tests {
         let hits = buf.chunks_exact(4).filter(|px| colours.contains(&[px[0], px[1], px[2], px[3]])).count();
         assert!(
             hits >= live.len(),
-            "only {hits} marker pixels drawn for {} live animals -- the overlay drew nothing, or drew fewer marks than there are animals",
+            "only {hits} halo pixels drawn for {} live animals -- the shape drew nothing, or drew fewer marks than there are animals",
             live.len()
         );
     }
 
-    /// **The specificity half of the guard above: with the toggle off, two
-    /// draws of the same frame are byte-identical, and the toggle is what
-    /// actually caused the difference from the on state.**
+    /// **Neither shipped mark may ever change a body pixel -- the exact
+    /// fault the owner caught in the shape this replaced (a solid blob that
+    /// hid the body and the colour it wears), and a stricter one than a
+    /// per-animal bounding box would catch.**
     ///
-    /// Goes red two different ways: if turning the toggle off still leaves
-    /// two consecutive draws disagreeing, something besides the toggle is
-    /// perturbing the frame (a stray per-frame sample this feature should
-    /// not be taking -- exactly the per-tick walk `CLAUDE.md`'s hot-path
-    /// rule warns against); and if the on/off frames do not differ at all,
-    /// the toggle is wired to nothing and the marks in the test above came
-    /// from somewhere else.
+    /// "Body pixel" here means what the world actually says: any screen
+    /// pixel whose cell carries an `organism_id`, checked the same way
+    /// `fill_mark_row` checks it (`screen_to_world` then `organism_id`) --
+    /// **not** a per-animal bounding box. A box was tried first and is
+    /// wrong the moment a two-cell body is diagonal rather than square: the
+    /// box then covers an empty gap cell that is not body at all, and
+    /// flagging *that* as a violation is a false positive that would have
+    /// masked this test ever going green honestly. Scanning the whole world
+    /// area by real occupancy is also what makes this catch the fault the
+    /// owner's own review found: a ring sized only to dodge *its own*
+    /// animal still lands on a *neighbour's* body the instant two stand
+    /// adjacent, which a nest guarantees constantly -- this test caught
+    /// exactly that case red before `fill_mark_row` gained the world check,
+    /// and would catch a regression that removed it again.
+    ///
+    /// Also covers the toggle's specificity and sensitivity: two off draws
+    /// must be byte-identical, and each on draw must differ from off
+    /// *somewhere*, or the cycle is wired to nothing and the body-pixel
+    /// check would pass vacuously.
     #[test]
-    fn the_marks_off_state_changes_nothing() {
+    fn a_life_mark_never_touches_a_body_pixel() {
         let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
             colonies: 1,
             founders: 2,
             ..crate::lab::scene::LabBox::default()
         });
-        // See the previous test's note: the key-list overlay is on by
-        // default outside the real binary and would otherwise cover both
-        // draws identically, hiding a broken toggle behind an unrelated
-        // full-screen match.
         lab.show_help = false;
         for _ in 0..400 {
             lab.tick_for_harness();
         }
-        assert!(lab.ui.life_marks_shown(), "test setup: marks are not on by default");
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "test setup: {} animals, need a colony to check", live.len());
+        assert!(lab.ui.pinned().is_none(), "test setup: something is pinned, which would confound the diff");
 
-        let mut on = vec![0u8; (W * H * 4) as usize];
-        lab.draw(&mut on, 60.0);
+        assert_eq!(lab.ui.life_marks(), LifeMarks::Off, "test setup: marks are not off by default");
+        let mut off = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut off, 60.0);
+        let mut off_again = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut off_again, 60.0);
+        assert_eq!(off, off_again, "two draws with marks off produced different frames");
 
-        assert!(!lab.ui.toggle_life_marks(), "toggle did not flip to off");
-        let mut off_a = vec![0u8; (W * H * 4) as usize];
-        let mut off_b = vec![0u8; (W * H * 4) as usize];
-        lab.draw(&mut off_a, 60.0);
-        lab.draw(&mut off_b, 60.0);
-
-        assert_eq!(off_a, off_b, "two draws with the toggle off produced different frames");
-        assert_ne!(&on, &off_a, "turning the toggle off changed nothing on screen -- it is not gating the pass");
+        let cap = bar_top() - 1;
+        for mode in [LifeMarks::Halo, LifeMarks::Tick] {
+            while lab.ui.life_marks() != mode {
+                lab.ui.cycle_life_marks();
+            }
+            let mut on = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut on, 60.0);
+            assert_ne!(on, off, "{mode:?}: turning marks on changed nothing on screen -- the cycle is not gating the pass");
+            let mut body_pixels_checked = 0usize;
+            for y in 0..=cap {
+                for x in 0..W as i32 {
+                    let (wx, wy) = lab.renderer.screen_to_world(x, y);
+                    if lab.world.get(wx, wy).organism_id() == 0 {
+                        continue;
+                    }
+                    body_pixels_checked += 1;
+                    let o = ((y * W as i32 + x) * 4) as usize;
+                    assert_eq!(
+                        &on[o..o + 4],
+                        &off[o..o + 4],
+                        "{mode:?} changed a body pixel at ({x},{y}) -- a mark painted over an animal"
+                    );
+                }
+            }
+            assert!(body_pixels_checked > 0, "test setup: no organism-owned pixel was on screen to check for {mode:?}");
+        }
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried
