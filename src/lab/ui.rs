@@ -5141,7 +5141,7 @@ fn cause_of(index: u16) -> &'static str {
 /// generation])`, so it costs no lookup beyond the fields already on
 /// `LogEvent` and cannot go stale even for a `LineEnded` or `Died` line
 /// whose organism is already gone.
-pub(crate) fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], String) {
+pub fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], String) {
     match e.kind {
         world::LogKind::Born => {
             let child = names::individual(world.seed, e.lineage, e.generation);
@@ -5188,8 +5188,17 @@ pub(crate) fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u
         }
         world::LogKind::LineEnded => {
             let line = names::line_name(world.seed, e.lineage);
+            // `generation` is the last member's, so 0 means the founder itself
+            // was the last -- a line that never bred. On the harness bed that
+            // is 47 of 52 ant founders inside 4,500 frames, and "0
+            // GENERATIONS" read as a bug the first time the chronicle printed.
+            let ended = match e.generation {
+                0 => format!("THE {line} LINE ENDED WITH ITS FOUNDER"),
+                1 => format!("THE {line} LINE ENDED, 1 GENERATION"),
+                g => format!("THE {line} LINE ENDED, {g} GENERATIONS"),
+            };
             (
-                format!("THE {line} LINE ENDED, {} GENERATIONS", e.generation),
+                ended,
                 POOR,
                 "THE LAST LIVING MEMBER OF A FOUNDING LINE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
             )
