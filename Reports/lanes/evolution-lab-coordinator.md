@@ -276,7 +276,7 @@ round runs):
   rain off — the lid's own condensation — and was pulled for that reason.
   Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
   Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
-- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed), #301 (the pip) — merged in that order 04:12–06:36, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
+- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed), #301 (the pip), #302 (the thicket bed and `windfall_bitten`) — merged in that order 04:12–07:55, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
 - **The eusociality lane, un-poked, kept going and found a shipped bug**
   (four commits on PR #295, CI running): an organism id is
   `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
@@ -331,6 +331,45 @@ round runs):
   provisioning, which clears and credits in one block) and the drop site
   where a carried load becomes a whole cell again (`:5137`) — A1 was told to
   hook both clears.
+
+- **M2 → PR #302, merged.** The played bed with four scramblers against
+  the played bed, one binary, three seeds × 120,000: **fruit on the floor
+  9.6x** (118 dropped a run against 12), **real bites 5 → 32 across the
+  sweep** (a `windfall_bitten` counter that counts only fruit — its first
+  form counted every bare-seed bite, 384 against 0 spills, and was caught
+  by asking what it counts when nothing is wrong), spills 2 → 8, **and not
+  one of the eight surviving pips grew into a plant on either bed.** So
+  the thicket moves fruit to the mouth and the seedling half of the loop
+  has never yet been seen live: the event is still rare (13 bites in
+  360,000 frames on the thicket bed, of ~355 fruit dropped — a fallen
+  fruit lasts a few hundred frames and the colony rarely finds one), and
+  the ownerless counter spiked to **19** on one scrambler seed (0–1
+  everywhere else): a *fourth* ownership path, likely the scrambler's
+  heavier structural churn, not covered by #300. Colony intake trended up
+  on the thicket bed inside a spread wider than the gap. Card `…c8709b`
+  asks whether the thicket belongs in the default bed.
+- **T → PR #303 (open, not landable yet).** The tuck rule built to §7f:
+  ant **43.9% → 1.9%** blocked on flat and **96.8% → 22.1%** on rolling
+  (chain 2.5% / 12.4%), hopper 74.6% → 6.8% and 91.9% → 15.4% — the hopper
+  beats its own laterals-off arm on both presets, the ant lands on the
+  chain on flat and 4.4x better on rolling with a residual tuck cost;
+  `ascii`'s forage guard **0 → 32 round trips**; the moving card `…0180fc`
+  is up. Three things stop it landing, and **lane K** (Sonnet, running,
+  pushing to the same branch) has them in order: **founding is still 4 of
+  52** (placement refuses a site unless the whole authored footprint is
+  empty — the spine-only rule must apply at placement too; an owner
+  dropping a colony today gets four ants); the §9 guard is still red (one
+  articulated ant opens the plate at frame 101 — length or width, to be
+  diagnosed with the switch, then re-scene or fix the accounting); and
+  `ascii` now reaches the chamber scene and fails `roofed > 0` under
+  width-2 bodies (6 ants dig 96 cells, no roofed void, 5 die; the bare
+  spine passes with roofed 14) — fix if accounting, write if geometry.
+- **L (legends) hung at 04:13 with 861 uncommitted lines** (transcript
+  stopped mid tool-call, no process alive); the coordinator committed its
+  worktree as an unverified WIP (`a59e118f` on `claude/lab-legends-r26`),
+  killed it, and **lane L2** (Sonnet, running) finishes from there — merge
+  `main` first, since seven landings moved `ui.rs`, `mod.rs` and
+  `world.rs` under it.
 
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
