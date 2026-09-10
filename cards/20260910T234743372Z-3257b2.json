@@ -1,0 +1,54 @@
+{
+  "id": "20260910T234743372Z-3257b2",
+  "created": "2026-09-10T23:47:43Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8b6b3906d251d74b",
+    "branch": "claude/lab-shrubs-flower-r27",
+    "commit": "a6a55250",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8b6b3906d251d74b"
+  },
+  "title": "Does the played bed still read as flowering",
+  "question": "Top half of each image is frame 40,000, bottom half is frame 120,000, same seed. Does the bed still read as in flower at both stops, and do the shrub's magenta/violet flowers read as a shrub's rather than the herb's yellow/orange?",
+  "context_md": "Both images are `scenario=played_bed seed=1`, cropped to the same herb/shrub/herb group near the left of the bed. One arm ships `rebloom_after` on herb/scrambler/shrub (4000/3000/16000 frames); the control forces it to 0 on all three (today's determinate-once behaviour) and is otherwise byte-identical. Standing counts below are `labshot`'s own whole-bed census, not the crop alone.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (rebloom_after set)",
+      "files": [
+        "20260910T234743372Z-3257b2/000-shipped.png"
+      ],
+      "caption": "top: frame 40,000. bottom: frame 120,000.",
+      "meta": {
+        "standing flowers 40k -> 120k": "13 -> 15",
+        "standing fruit 40k -> 120k": "22 -> 22",
+        "plants 40k -> 120k": "882 -> 259"
+      },
+      "focus": null
+    },
+    {
+      "label": "control (rebloom_after: 0)",
+      "files": [
+        "20260910T234743372Z-3257b2/001-off.png"
+      ],
+      "caption": "top: frame 40,000. bottom: frame 120,000.",
+      "meta": {
+        "standing flowers 40k -> 120k": "19 -> 6",
+        "standing fruit 40k -> 120k": "13 -> 11",
+        "plants 40k -> 120k": "789 -> 728"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
