@@ -228,11 +228,31 @@ gut that cannot take nectar — and **`flower_visits = 0` over a full session
 on the played bed**: no ant reaches a flower 22 rows up a stem, dead-ends
 line 1636 holding under the new mechanism, five unit tests including the
 positive control prove the zero is the world's, and closing it is the
-flitter's job). Lanes running: A2 (the seed rides home), **S** (shrubs
-flower and axes re-bloom, cut from the nectar branch: the coordinator's
-recommendation on the flowering question, which the owner did not
-overrule; the tree stays and does not flower yet), **F** and **G** on the
-bodies.
+flitter's job), **#313** (the seed rides home: a bite's surviving pip
+rides in the crop under its own organism id and is set down at the first
+drop, median carry 175 frames against a 14,000-frame half-life; over
+120,000 frames on three seeds, 6 carried and 4 delivered on the one seed
+that bit fruit at all, and **no pip has yet become a plant** in any arm —
+the form is in, the rate is the thicket's and the rot clock's). **The
+bloom sense (P1, PR #314) is built and it moved the hopper, not the
+outcome**: two brain inputs on the rays the eye already casts, no ant
+wired to them per the owner's ruling; the hopper saw a flower 27 and 56
+times on two of three seeds and climbed to 21 rows where the unwired
+control reached 6, and **the flower stands at 22** — `flower_visits` 0
+on every run, so the hopper wiring is not shipped and is in dead-ends
+with its re-test condition. A ground animal with eyes is still not a
+pollinator; the flitter is the only planned creature that can reach a
+flower. **Founding along the surface (G, PR #315, stacked on the mobility
+branch)**: each segment tries flat-with-foothold, then up, then down,
+then the old straight lay; viable sites 5→9 on the colony scene and
+11/13/13→13/15/14 on the played bed, never fewer — but the *two-cell*
+control founds only 18–29 of 52 on the same bed, so most of the remaining
+gap is the bed's litter and the span-scaled spacing, not spine shape.
+Card `…7f9bac` asks whether the founded bodies lie flat. Lanes running:
+**S** (shrubs flower and axes re-bloom, cut from the nectar branch: the
+coordinator's recommendation on the flowering question, which the owner
+did not overrule; the tree stays and does not flower yet) and **F** (the
+flip on by default with foraging re-derived).
 
 **The owner's verdicts, 2026-09-10 (synced 15:31 UTC), and what each sets
 in motion:** the thicket goes in the default played bed (*"Sure"*) and so
