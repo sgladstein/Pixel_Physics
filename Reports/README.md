@@ -1202,9 +1202,10 @@ drift that two of these documents still reflect.**
   waisted 36-cell "insect") still moves nothing measurable on `ink` (~0.5%
   median, not the ~15% a legibility-threshold-crossing would predict) —
   `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
-  than being a small-size artifact. A blind gallery card of six candidate
-  silhouettes is posted and unanswered as of this report
-  (`20260902T194120383Z-3860b1`).
+  than being a small-size artifact. The blind gallery card of six candidate
+  silhouettes (`20260902T194120383Z-3860b1`) was answered on 2026-09-03:
+  *"These are decent starts, depends on how they look in action"* — the bar
+  moved to motion.
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks

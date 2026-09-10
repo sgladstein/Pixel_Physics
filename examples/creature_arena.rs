@@ -16,6 +16,10 @@
 //! # the developmental race: arm B's children are made at +1 and armour moves 0.8 per unit of it;
 //! # plasticity=0 is the null (same genome, dial off), predators= is the pressure
 //! cargo run --release --example creature_arena -- arm=wire wire=Bias:Provision:1.0 dev=armour:0.8 plasticity=1 predators=8 frames=24000
+//! # a re-weighted hidden unit: `wire=` reaches the input->output block only, and `ant.ron`
+//! # wires its whole trail circuit through hidden units (see `hidden_rider`)
+//! cargo run --release --example creature_arena -- arm=same mirror=on seeds=6 frames=24000 \
+//!     hidden=$(cargo run --release --example trailfollow -- gate=b2 spec)
 //! ```
 //!
 //! # Why an instrument comes before the mechanism
@@ -176,6 +180,37 @@ fn dev_rider() -> Vec<(usize, f32)> {
                 .unwrap_or_else(|| panic!("dev trait {name:?} is not one of the CREATURE_TRAITS rows"));
             let w: f32 = w.parse().unwrap_or_else(|_| panic!("dev weight {w:?} does not parse"));
             (slot, w)
+        })
+        .collect()
+}
+
+/// **`hidden=<Input>:<unit>:<weight>[,...]` -- input-to-hidden weights SET on
+/// arm B**, on top of whatever `arm=` did to the rest of its brain.
+///
+/// **`wire=` cannot express this, and that is not a gap in the parser.**
+/// `Arm::Wire` writes `brain::io_slot`, the direct input-to-output block;
+/// `ant.ron` wires its whole trail-following circuit through *hidden* units
+/// instead, so every question about that circuit is a question about weights
+/// `wire=` has no slot for. `Arm::AblateInput`'s own doc already records the
+/// consequence in the other direction — an ablation that missed the hidden
+/// half *"reports 'changed nothing' about an input the species wires entirely
+/// through hidden units, which is exactly how `ant.ron` wires its pheromone
+/// senses"*. This is the same fact from the constructive side.
+///
+/// A rider rather than an `Arm` rung, matching `dev=`: the gate races against
+/// the shipped genome with `arm=same`, so the pair differs in the twelve
+/// numbers under test and in nothing else.
+fn hidden_rider() -> Vec<(brain::BrainInput, usize, f32)> {
+    let Some(spec) = arg_str("hidden") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "hidden entry {entry:?} wants Input:unit:weight, e.g. hidden=PheroBAlong:2:6.0");
+            let input = input_by_name(bits[0]).unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let unit: usize = bits[1].parse().unwrap_or_else(|_| panic!("hidden unit {:?} does not parse", bits[1]));
+            assert!(unit < brain::BRAIN_HIDDEN, "hidden unit {unit} is past BRAIN_HIDDEN ({})", brain::BRAIN_HIDDEN);
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("hidden weight {:?} does not parse", bits[2]));
+            (input, unit, w)
         })
         .collect()
 }
@@ -624,7 +659,15 @@ fn run_world(spec: &LabBox, frames: u64, arm: &Arm, mirror: bool, arm_seed: u64)
             moved += 1;
         }
     }
-    if *arm != Arm::Same || !dev.is_empty() {
+    let hidden = hidden_rider();
+    for &(input, unit, w) in &hidden {
+        let i = brain::ih_slot(input, unit);
+        if arm_b[i] != w {
+            arm_b[i] = w;
+            moved += 1;
+        }
+    }
+    if *arm != Arm::Same || !dev.is_empty() || !hidden.is_empty() {
         assert!(moved > 0, "arm= matched no live slot, so both arms carry one genome. Two identical arms read as a clean 50/50, which is indistinguishable from the finding this harness exists to make");
     }
 
@@ -747,15 +790,17 @@ fn main() {
     let founders: usize = arg("founders").unwrap_or(LabBox::default().founders);
 
     let dev = dev_rider();
+    let hidden = hidden_rider();
     println!(
-        "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} padarm={} ants={ants} founders={founders} predators={} plasticity={} dev={:?}",
+        "creature_arena: species={species} arm={arm_name} seeds={seeds} frames={frames} mirror={} padarm={} ants={ants} founders={founders} predators={} plasticity={} dev={:?} hidden={:?}",
         if mirror { "on" } else { "off" },
         if pad_arm_flag() { "on" } else { "off" },
         arg::<i32>("predators").unwrap_or(0),
         arg::<f32>("plasticity").unwrap_or(pixel_physics::sim::creature::PLASTICITY_DEFAULT),
         dev.iter().map(|&(slot, w)| format!("{}:{w}", pixel_physics::lab::batch::trait_name(slot))).collect::<Vec<_>>(),
+        hidden.iter().map(|&(i, u, w)| format!("{}:{u}:{w}", brain::INPUT_NAMES[i as usize])).collect::<Vec<_>>(),
     );
-    if arm == Arm::Same && mirror && dev.is_empty() {
+    if arm == Arm::Same && mirror && dev.is_empty() && hidden.is_empty() {
         println!("  NOTE: arm=same with mirror=on is an ALGEBRAIC IDENTITY -- one simulation with the labels swapped.");
         println!("        It must read exactly 50.0%, and that says only that the harness runs. Use mirror=off for the control that means something.");
     }
@@ -818,6 +863,19 @@ fn main() {
             founders,
             colony_ants: ants,
             colony_species: species.clone(),
+            // **`plant=<species>` -- which larder the two arms compete for.**
+            // `LabBox::default()` is `herb`, and every race this harness has
+            // ever run was on eight herbs spread evenly over 512 columns,
+            // which is the least patchy larder the bed can hold. That is not
+            // a neutral choice for any question about **recruitment**: a
+            // trail pays when food is clumped and worth telling a nestmate
+            // about, and on an even larder a colony that converges on a
+            // patch converges on one it has already eaten. Measured 2026-09-09
+            // (`open-bugs-handoff.md` §Z7): a working trail-following gate
+            // loses 6 of 6 mirrored seeds on the herb bed. Whether that is a
+            // statement about the gate or about the herbs is exactly what
+            // this knob exists to ask, and it could not be asked before.
+            species: arg_str("plant").unwrap_or_else(|| LabBox::default().species),
             predators: arg("predators").unwrap_or(0),
             seed,
             ..LabBox::default()

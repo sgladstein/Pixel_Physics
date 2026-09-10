@@ -65,12 +65,14 @@
 
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
+use pixel_physics::sim::brain;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::organism::TRAIT_GUT_BIAS;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::pheromone::Channel;
 use pixel_physics::sim::player;
 use pixel_physics::sim::world::World;
 
@@ -78,6 +80,27 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
         .skip(1)
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
+}
+
+/// `hidden=<Input>:<unit>:<weight>[,...]` -- see the call site, which is
+/// where the reason it must run before founding lives.
+fn hidden_rider() -> Vec<(brain::BrainInput, usize, f32)> {
+    let Some(spec) = arg::<String>("hidden") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "hidden entry {entry:?} wants Input:unit:weight, e.g. hidden=PheroBAlong:2:6.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let unit: usize = bits[1].parse().unwrap_or_else(|_| panic!("hidden unit {:?} does not parse", bits[1]));
+            assert!(unit < brain::BRAIN_HIDDEN, "hidden unit {unit} is past BRAIN_HIDDEN ({})", brain::BRAIN_HIDDEN);
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("hidden weight {:?} does not parse", bits[2]));
+            (input, unit, w)
+        })
+        .collect()
 }
 
 /// The gut bias off a live founder, never off the species table -- the run
@@ -351,6 +374,51 @@ fn main() {
             bare.build_counted()
         }
     };
+    // **`hidden=<Input>:<unit>:<weight>[,...]` -- input-to-hidden weights set
+    // on the colony species before a single ant is placed**, so a brain
+    // change can be raced on the *played* bed without editing a `.ron` and
+    // rebuilding between arms (the `include_str!` trap, which has produced
+    // three bit-identical "sweeps" in this repo).
+    //
+    // **Before founding, and that is the whole reason it sits here rather
+    // than beside the other knobs**: `place_creature` copies the genome at
+    // placement, so the same write after the founders are standing reaches
+    // nobody -- the identical trap the comment above this block records for
+    // traits. `creature_arena` carries the same rider with the same syntax
+    // and `trailfollow.rs` prints the string, so the three harnesses race
+    // one set of numbers rather than three transcriptions of it.
+    // **`bdecay=` / `adecay=` -- how fast a trail plane forgets**, against
+    // `pheromone::DECAY_RHO`'s shipped 0.03 for both. The arm §Z7 needs:
+    // once the ant can read channel B, the colony converges on patches it has
+    // already eaten, and a trail that outlives its patch is that failure
+    // exactly. Faster decay is the lever a real colony uses against it.
+    for (key, channel) in [("adecay", Channel::A), ("bdecay", Channel::B)] {
+        if let Some(rho) = arg::<f32>(key) {
+            world.pheromones.set_channel_rho(channel, rho);
+            println!("  {key}= {rho} (shipped {})", pixel_physics::sim::pheromone::DECAY_RHO);
+        }
+    }
+    let hidden = hidden_rider();
+    if !hidden.is_empty() {
+        let sid = world.species.id_of(&spec.colony_species).expect("the colony species is compiled in");
+        let mut genome = world.species.get(sid).genome.clone();
+        let mut moved = 0;
+        for &(input, unit, w) in &hidden {
+            let i = brain::ih_slot(input, unit);
+            if genome[i] != w {
+                genome[i] = w;
+                moved += 1;
+            }
+        }
+        assert!(moved > 0, "hidden= matched no slot the species did not already carry; this arm is the control wearing a label");
+        world.species.set_genome(sid, genome);
+        println!(
+            "  hidden= set {moved} of {} input->hidden weights on {}: {}",
+            hidden.len(),
+            spec.colony_species,
+            hidden.iter().map(|&(i, u, w)| format!("{}:{u}:{w}", brain::INPUT_NAMES[i as usize])).collect::<Vec<_>>().join(",")
+        );
+    }
     // **Where the nests are, which the distance bands are measured from.**
     // A scenario sets `colonies: 0` and founds on its timeline instead, so
     // `colony_columns()` is empty for one and the whole `d<16 / d<48 /
@@ -511,12 +579,22 @@ fn main() {
         st.eats, st.pickups, l.harvested_plant, l.harvested_corpse, burn
     );
     println!("  animals: born {} died {} alive {} | handouts placed {handed_out}", st.births, st.deaths, last.ants);
+    // **`deliveries` is the round trip, and it is the number a trail is
+    // *for*.** `cols` says how far the colony ranged and `eats` says what it
+    // put in its own mouth; only this says a laden ant got back to the nest,
+    // which is what central-place foraging means and what the homing half of
+    // the pheromone circuit exists to produce. It counts only for a species
+    // that authors a `nest` -- `creature.rs`'s `adjacent_nest` returns
+    // `false` for ever without one, so a run on `ancestor` reads 0 here by
+    // construction rather than by failure.
+    println!("  round trips: deliveries {} nest visits {}", st.deliveries, st.nest_visits);
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
-         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} \
+         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={}",
         spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
+        st.deliveries, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation
     );

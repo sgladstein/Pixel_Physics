@@ -5467,12 +5467,25 @@ mod tests {
     /// `squash` at a +/-45 bias), the ceiling on how far this can move
     /// `P(move)` in one decision is on the order of 0.003 -- real, and far
     /// under the noise floor a 20-ant, 500-decision sample can resolve.
-    /// That is a property of the shipped ant genome's *current* weights
-    /// (authored for generation zero and meant to sharpen under selection
-    /// it has not had here), not a defect in the deposit -- so a test
-    /// built on it would be gambling on a magnitude nothing promises,
-    /// exactly the trap `CLAUDE.md`'s positive-control rule exists to
-    /// catch before it ships as a false confirmation.
+    ///
+    /// **That reading was right and it was filed as `open-bugs-handoff.md`
+    /// §Z7, and half of it is now fixed** (2026-09-09). Hidden units 0/1 --
+    /// the **home scent**, channel A, what a laden ant follows -- were
+    /// re-gated from `-45/+30` to `-45/+45.5`, which moves `P(move)` by 0.54
+    /// at the gradient this very test asserts rather than by 0.004. Units
+    /// 2/3, the food route, deliberately keep the saturated gate: repairing
+    /// them works and makes the animal decisively worse (25.0% of a mirrored
+    /// arena against 63.6% for the homing repair alone), because a colony
+    /// that can read channel B converges on patches it has already eaten.
+    ///
+    /// **So this test now drags channel A**, which is also what `Tool::Scent`
+    /// arms by default since the same change -- a player's first trail should
+    /// be on the plane something can read.
+    ///
+    /// The bed half of §Z7's own bar lives in `examples/trailfollow`, which
+    /// runs the colony count this test declines to: 13,985 near-target
+    /// ant-ticks with a laid trail against 0 without, 3 of 3 seeds, where the
+    /// shipped gate read 595 = 595 exactly.
     ///
     /// **So this checks the half that is actually reliable: the plane
     /// itself.** A no-op `Tool::Scent` handler, or the flat-plateau version
@@ -5498,15 +5511,15 @@ mod tests {
         // The untrailed floor, read at the same three points before any
         // scent exists -- the control that says a nonzero reading below is
         // the drag's doing and not some ambient default.
-        let untrailed: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::B, x, surface)).collect();
+        let untrailed: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
         assert_eq!(untrailed, vec![0, 0, 0], "an unpainted bed must read zero everywhere, or a nonzero reading below proves nothing");
 
         lab.act(ui::Action::Tool(ui::Tool::Scent));
         assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the scent tool did not arm");
         assert_eq!(
             lab.ui.scent_channel(),
-            Channel::B,
-            "the scent tool did not default to the food route -- an empty ant follows B, not A"
+            Channel::A,
+            "the scent tool did not default to the home scent -- a laden ant follows A, and A is the only plane the shipped ant can read (open-bugs-handoff.md Z7)"
         );
         let from = aim(&lab, nest_x, surface);
         lab.set_cursor(Some(from));
@@ -5520,7 +5533,7 @@ mod tests {
         // the brush's own rounded caps cannot be mistaken for the slope.
         // Each must be **higher than the last** -- climbing toward the
         // target, which is the one shape a flat deposit cannot produce.
-        let samples: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::B, x, surface)).collect();
+        let samples: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
         assert!(
             samples[0] > 0 && samples[1] > samples[0] && samples[2] > samples[1],
             "the deposit does not climb toward the target: {samples:?} at x=70,85,100 -- a flat plateau (or nothing) would read this way, and only a real slope would not"
@@ -5544,13 +5557,13 @@ mod tests {
         let def = lab.world.species.get(species).creature.as_ref().expect("the ant is a creature");
         let so = def.sensor_offset;
         let here_x = nest_x + 10;
-        let here = lab.world.pheromone_at(Channel::B, here_x, surface) as f32;
-        let ahead = lab.world.pheromone_at(Channel::B, here_x + so, surface) as f32;
+        let here = lab.world.pheromone_at(Channel::A, here_x, surface) as f32;
+        let ahead = lab.world.pheromone_at(Channel::A, here_x + so, surface) as f32;
         let along = (ahead - here) / (ahead + here + 1.0);
         assert!(
             along > 0.15,
-            "the along-heading input an empty ant actually reads is {along:.4} at x={here_x} -- \
-             too flat to read as \"food is that way\", which is the one thing this tool exists to say"
+            "the along-heading input a laden ant actually reads is {along:.4} at x={here_x} -- \
+             too flat to read as \"home is that way\", which is the one thing this tool exists to say"
         );
     }
 
@@ -5569,12 +5582,12 @@ mod tests {
         let mut lab = bench();
         lab.act(ui::Action::Tool(ui::Tool::Scent));
         assert_eq!(lab.ui.tool(), ui::Tool::Scent);
-        assert_eq!(lab.ui.scent_channel(), Channel::B, "default is the food route");
+        assert_eq!(lab.ui.scent_channel(), Channel::A, "default is the home scent");
         lab.act(ui::Action::ToggleScentChannel);
         assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the tool was put away instead of switching plane");
-        assert_eq!(lab.ui.scent_channel(), Channel::A, "the second press did not reach the home scent");
+        assert_eq!(lab.ui.scent_channel(), Channel::B, "the second press did not reach the food route");
         lab.act(ui::Action::ToggleScentChannel);
-        assert_eq!(lab.ui.scent_channel(), Channel::B, "a third press must cycle back rather than stick");
+        assert_eq!(lab.ui.scent_channel(), Channel::A, "a third press must cycle back rather than stick");
     }
 
     /// **`ALARM` writes at the exact strength a real bite does.**

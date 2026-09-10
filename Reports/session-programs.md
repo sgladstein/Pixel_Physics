@@ -39,6 +39,21 @@ poke-only trigger — omit both `cron_expression` and `run_once_at`, then
 `fire_trigger` — rather than a timed one; `run_once_at` rejects a timestamp in
 the past and a long turn drifts you into that error.
 
+**Measured again 2026-09-09: the message goes in the trigger's `prompt`,
+and `fire_trigger` is called bare.** Every recorded poke that worked
+(2026-09-06, four of them, one across environments) carried the whole
+message as the trigger's prompt and fired with no arguments. A coordinator
+that put a one-line preamble in the prompt and the message in
+`fire_trigger`'s `text` got, twice, a **fresh** session with no sources
+(origin `force_run_trigger`, Sonnet, about $0.50, invisible to
+`list_sessions` and not archivable) that ran the message as its own prompt
+and went idle — while the lane sat "awaiting coordinator message". The tell
+is in the fire's response: `session_id` reads `cse_<the lane's id>` when it
+landed and a new id when it spawned. Environments are not the condition —
+the recorded 09:21 poke crossed one, and so did the corrected one here.
+`SendMessage` to a session id still fails and `ListAgents` still lists
+nothing.
+
 **The lane cannot reach back, and here is why.** A trigger stamps its own
 `allowed_tools` onto the session it fires, and that list contains no `mcp__*`
 entries — the API says so out loud when you create one: *"this trigger stores

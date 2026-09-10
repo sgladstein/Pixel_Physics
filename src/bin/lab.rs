@@ -526,6 +526,14 @@ impl Handler {
             // `ToggleScentChannel` instead of re-arming the same tool. This
             // is the one place that distinction is made; `Lab::act` treats
             // `Action::Tool(Tool::Scent)` as an ordinary arm like any other.
+            //
+            // The first press arms **channel A, the home scent** (2026-09-09;
+            // it was channel B until then). A drawn A trail is followed by
+            // laden ants; a drawn B trail is read by nothing, because the
+            // shipped ant's units 2/3 are saturated and repairing them costs
+            // more than it pays -- `open-bugs-handoff.md` §Z7. The second
+            // press still reaches B, and the tool's help string says what it
+            // is worth rather than hiding it.
             KeyCode::KeyI => {
                 if self.lab.ui.tool() == Tool::Scent {
                     self.lab.act(Action::ToggleScentChannel);

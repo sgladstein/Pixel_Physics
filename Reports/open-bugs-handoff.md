@@ -10287,7 +10287,7 @@ and 5), every death starvation, both boxes failing the bar.
   length, because their scene is not the shipped bed; `examples/labforage` is
   the one that can.
 
-### Z7. The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0.003 per step — **OPEN**
+### Z7. The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0.003 per step — **HOMING HALF FIXED 2026-09-09 (units 0/1, channel A); the food half is deliberately STILL OPEN — the repair works and costs 25.0% of a mirrored race**
 
 *Filed 2026-09-09 from the creature-tools lane's positive control. Reproduction is arithmetic on the shipped species file plus one measured null; nothing tuned.*
 
@@ -10302,3 +10302,138 @@ and 5), every death starvation, both boxes failing the bar.
 **What is not decided here.** The fix is a creature-line measurement, not a coordinator's guess: smaller gate magnitudes keep the unit on the slope but leak the along signal when not carrying (`-4 + 8·Carrying ± 4a` is on the slope both ways); a multiplicative gate is a brain-architecture change under the positional law. Race it in `creature_arena` at 24,000 frames or more, and read the tools lane's trail test (`scent_tool_lays_a_climbing_gradient_not_a_flat_plateau`) plus a colony-level "ants near the target with a laid trail" count as the positive control — that count is the one that read 1,903 = 1,903.
 
 **Bar.** A laid channel-B trail from the nest to a plant moves the near-target ant-tick count by more than the seed spread over three seeds, on the shipped ant, at 3,000 ticks.
+
+**Measured out 2026-09-09 by the creature line, and the arithmetic held while
+the ruling reversed.** The gate is exactly as §Z7 describes and re-weighting it
+does exactly what §Z7 predicts. What §Z7 did not ask, and what decides it, is
+what the fixed circuit *costs* out of the same `Move` sum — and the two halves
+of the circuit answer that in opposite directions.
+
+**Candidates and their arithmetic**, run through the real `eval_brain` rather
+than by hand (`examples/trailfollow mode=arith`). A candidate is three numbers:
+how deep the shut unit sits (`off`), where the open one sits (`on`), and the
+along weight. `P(move)` for a fed ant, against the along-heading reading, at
+the magnitudes a laid trail actually delivers — the `SCENT` test's own bar is
+`along > 0.15`, and the mean under the ants' feet in the colony runs below is
+0.05–0.12:
+
+| gate | a=0.05 | a=0.10 | a=0.20 | a=0.50 | shut pair's leak at a=1 |
+|---|---|---|---|---|---|
+| shipped `-45 / +30`, along 6 | 0.201 | 0.202 | 0.204 | 0.210 | +0.009 |
+| §Z7's (a) `-4 / +4`, along 4 | 0.225 | 0.248 | 0.293 | 0.421 | **+0.512** |
+| §Z7's (b) `-20 / +4`, along 4 | 0.225 | 0.248 | 0.293 | 0.421 | +0.029 |
+| **`-45 / +0.5`, along 6** | 0.486 | 0.641 | **0.740** | 0.799 | +0.009 |
+| `-45 / +2.0`, along 6 | 0.295 | 0.374 | 0.511 | 0.782 | +0.009 |
+
+**§Z7's own candidate (a) is disqualified without a bed**, and this is the
+cheapest result in the file: its shut pair leaks **+0.512**, which is *exactly*
+its open pair's signal at the same reading. Signal-to-leak 1:1 — it is not a
+gate at all, and it leaks in the direction `ant.ron` has already measured as
+"empty ants clustered on the nest immediately". Candidate (b) is a real gate
+and delivers a quarter of what keeping the shipped along weight gives, because
+the open-state offset enters as `1/(1+P)^2`.
+
+**The fault has a date, two commits and a cause, all 2026-08-31.** Before
+`e8314d16` the gate was `Bias -30, Carrying +30` with `Carrying` a *boolean*:
+laden, it summed to **exactly 0** — the linear part of `squash`, which is the
+`carrying, A_along 0: both squash(0) = 0.000` line in `ant.ron`'s own worked
+table and where `hidden_outputs`' `±3.75` comes from. `e8314d16` made
+`Carrying` graded crop fill and rewrote the gate as `30*(fill - 0.6)` to make
+the satiety threshold a gene, moving the open state to **+12**; `656c5eea`,
+fourteen minutes later, scaled it to `75*(fill - 0.6)` and moved it to **+30**.
+Both steps were made for the *off* state and are correct about it. Nothing
+re-checked the on state, and the comment that landed with the second step
+called "+30 when full" a virtue — *"Both ends are at least as deep as the
+offsets this file was tuned with"*. **Depth at the open end is the defect.** So
+this is a regression with a date, not an original miswiring.
+
+**And it is worse than one saturated end.** The pair's response peaks where the
+gate sums to zero and falls away in *both* directions, so the shipped ant
+follows a trail only in a narrow band of crop fill around `f*` — half-width
+`6/75 = 0.08` — and is inert at both extremes, **including at `Carrying = 0.0`,
+which is the exact input an empty ant following the food route has**. That is
+the input the tools lane's null was taken at. Both pairs cross at 0.6, so at
+that fill the ant climbs the home trail and the food trail at once.
+
+**The null reproduced, on an independent harness** (`examples/trailfollow`, a
+standing channel-B ramp nest-to-target re-laid every 60 frames, 20 ants, 3,000
+ticks, ant-ticks within 10 cells of the target, three seeds): on seed 1, **595
+with the trail against 595 without, exactly** — the same tidy tie as the tools
+lane's 1,903 = 1,903, from a differently shaped deposit. Pooled over three
+seeds the shipped ant reads **7 with the trail against 336 without, 1 of 3
+seeds up**. Re-gated at `-45 / +0.5` it reads **13,985 against 0, 3 of 3 seeds
+up**. §Z7's bar is cleared and then some.
+
+**And the bed punishes the animal that clears it.** `creature_arena arm=same
+mirror=on seeds=6 frames=24000`, arm B carrying the re-weighted gate and
+nothing else — the mirror cancels founding position exactly:
+
+| arm B | median share | seeds above 50% |
+|---|---|---|
+| `arm=same mirror=off` (the position confound alone, the control) | 41.2% | 1 of 6 |
+| `arm=lethal` — every weight zeroed (the negative control) | 15.4% | 0 of 6 |
+| both pairs re-gated | **25.0%** | **0 of 6** |
+| food pair only (units 2/3, channel B, what an *empty* ant reads) | 47.6% | 2 of 6 |
+| **homing pair only (units 0/1, channel A, what a *laden* ant reads)** | **63.6%** | **5 of 6** |
+
+**The two halves are not additive, and the mechanism is the point.** A colony
+whose laden ants walk home on channel A and whose empty ants search at random
+is a central-place forager: directed return, undirected search. Give the empty
+ants channel B as well and the search stops being undirected — channel B is
+laid by ants that have *already found* food, so a colony that can read it
+converges on patches it has already eaten. The played bed shows exactly that:
+`unvisited` rises from 57% to 74% of the standing larder, the 16–48 distance
+band is eaten out (284 cells standing → 49) while the >128 band goes untouched
+(1,285 → 1,514), and the highest ant head falls from 29 rows to 20. It is
+`ant.ron`'s own recorded failure — "the colony still collapsed back onto the
+nest" — reached from the opposite direction.
+
+**A softer gate does not rescue it, so it is not the strength.** At an open
+state of `+2.0` instead of `+0.5` — a quarter of the response — the herb bed
+reads survivors 40.0 against the full fix's 40.8 and the shipped ant's 45.8.
+
+**Nor is it only the herb bed.** `labforage ants_at=6000 frames=30000`, three
+seeds, both pairs re-gated against shipped, on a canopy larder instead of eight
+evenly spread herbs:
+
+| bed | shipped alive | re-gated alive | shipped intake | re-gated intake |
+|---|---|---|---|---|
+| herb (6 seeds) | 45.8 | 40.8 | 69.0k | 58.5k |
+| tree (3 seeds) | 47.0 | 44.3 | 67.7k | 66.0k |
+| conifer (3 seeds) | 31.3 | 31.3 | 50.9k | 51.1k |
+
+The gap does narrow on a clumped larder, which is what recruitment theory
+predicts, but it does not reverse.
+
+**What was landed, and one thing beside it.** The homing pair only —
+`(Bias 0, -45.0), (Carrying 0, 45.5), (PheroAAlong 0, 6.0)` and its mirror —
+in `ant.ron`, `ancestor.ron`, `hopper.ron` and the five appearance forks. The
+food pair (units 2/3) keeps its shipped saturated weights.
+
+**And `Tool::Scent` now arms channel A by default**, where it armed B. A
+player's first drag should land on the plane something can read — that is the
+ethos half of §Z7, and it is now true rather than aspirational: a drawn home
+scent is followed by laden ants. The food route is still one press of `I`
+away and the tool's help string says plainly that no ant can read it yet,
+so nothing is hidden.
+
+**What is still open, and it is what §Z7 is named for.** The channel-B half is
+still inert, so a food route laid by hand still delivers nothing to anybody.
+The measurement says that is **not** a gate problem
+any more: the gate fix for that pair exists, is one line, is measured, and
+makes the animal worse in every bed tried. **The thing to fix is what a food
+trail is worth, not what the ant can read**, and the levers are the larder's
+patchiness and channel B's decay — a trail that outlives its patch keeps
+recruiting to nothing. `examples/labforage`'s `bdecay=` and `adecay=` and
+`Pheromones::set_channel_rho` exist now so that can be swept without a rebuild.
+**One point of that sweep is spent**: at `bdecay=0.15`, five times the shipped
+0.03, with the food pair re-gated so it can read, seed 1 reads **30 survivors
+and 45.1k intake against the same seed's 33 / 49.6k at the shipped decay and
+43 / 62.4k for the shipped ant** — one seed, so it settles nothing, but the
+first setting anyone would reach for does not rescue it and points the wrong
+way. If the lever works it is somewhere else on the dial, or it is the larder.
+
+**Instruments.** `examples/trailfollow` (both halves of this, re-runnable),
+`creature_arena`'s new `hidden=` and `plant=` riders, `labforage`'s `hidden=`,
+`bdecay=`/`adecay=` and its `deliveries`/`nest_visits` columns.
+
