@@ -2322,6 +2322,32 @@ pub struct World {
     /// reachable, not that the odds are wrong.
     pub windfall_bitten_ownerless: u64,
 
+    /// **A bite reached an owned, *real* fallen-fruit seed and the survival
+    /// roll was about to be drawn** -- counted in `plant::seed_survives_bite`
+    /// immediately after the cell is confirmed as the species' fruiting
+    /// material and *before* `rng.chance(seed_gut_survival)` runs, so the
+    /// increment never depends on which way the roll goes. This is the true
+    /// denominator the ecology round (M2, `Reports/lanes/evolution-lab-
+    /// ecology-measure-2.md`) needed and did not have: without it, "how many
+    /// times did an ant bite a fallen fruit" could only be *estimated* as
+    /// `seeds_spilled / seed_gut_survival`, which is silent about species
+    /// with `seed_gut_survival: 0.0` (the roll never fires, so the estimate
+    /// reads zero divided by zero) and rounds every other species' true bite
+    /// count to a multiple of `1 / seed_gut_survival`.
+    ///
+    /// **Excludes a species with no fruit, and that exclusion is load-
+    /// bearing, not cosmetic.** `windfall_material` defaults to the literal
+    /// string `"seed"` for a species that authors none
+    /// (`organism::default_windfall_material`), so without the guard at the
+    /// call site every ordinary bare-seed bite on such a species reaches the
+    /// same line -- caught on `played_bed` seed 1, where the naive count
+    /// read **384** bites in one 120,000-frame run against `seeds_spilled=0`,
+    /// because grass and shrub's bare seed litter vastly outnumbers herb and
+    /// scrambler's fruit. This field counts bites on real fruit only. Add
+    /// `windfall_bitten_ownerless` to this for the *total* bite count on any
+    /// real fruit's windfall material, owned or not.
+    pub windfall_bitten: u64,
+
     /// **The x-coordinate of every germination whose seed cell wore a
     /// windfall material rather than plain `seed`** — the far-side
     /// discriminator for the fruit → animal → nest → seedling loop the
@@ -3628,6 +3654,7 @@ impl World {
             pips_rotted: 0,
             pips_eaten: 0,
             windfall_bitten_ownerless: 0,
+            windfall_bitten: 0,
             windfall_germination_x: Vec::new(),
             decayed_damp: 0,
             decayed_dry: 0,
