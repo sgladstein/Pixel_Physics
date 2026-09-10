@@ -2628,6 +2628,26 @@ pub struct SpeciesDef {
     /// back to the parent cell's own material, exactly as the three above do.
     #[serde(default = "default_flower_material")]
     pub flower_material: String,
+    /// **The odds a windfall's own seed survives an ant's bite**, in
+    /// `0..=1`, rolled once per bite by `plant::seed_survives_bite`. `0.0`
+    /// (the default) is today's behaviour exactly: every bite destroys the
+    /// seed. A plant trait rather than an animal one -- it is the seed coat
+    /// that survives a gut, not the mouth that spares it.
+    ///
+    /// **Why `PARAM_REACH`'s 1.0-corpus fallback does not bite here, unlike
+    /// `seed_launch` (`Reports/dead-ends.md` line 1708).** That entry is
+    /// about a parameter no species authors landing in `ParamGenome`, whose
+    /// evolvable range then clamps to `PARAM_REACH * 1.0 = 4` regardless of
+    /// what the parameter actually needs -- `seed_launch`'s useful range
+    /// (cells) sails past 4 and the corpus was empty, so the channel was
+    /// heritable and useless on day one. This field is not addressed
+    /// through `ParamGenome` at all yet, so no clamp of any width applies
+    /// to it today -- but the moment it is, a probability's whole range,
+    /// `[0, 1]`, sits **inside** `[-4, 4]` with room either side, so the
+    /// same fallback that starved `seed_launch` would not starve this. Say
+    /// so here rather than let the next session re-derive it from scratch.
+    #[serde(default)]
+    pub seed_gut_survival: f32,
     #[serde(default = "default_fruit_material")]
     pub fruit_material: String,
     /// **What a ripe fruit becomes on the way down** — the powder that
@@ -3956,6 +3976,8 @@ pub struct Species {
     pub flower_material: String,
     pub fruit_material: String,
     pub windfall_material: String,
+    /// See `SpeciesDef::seed_gut_survival`.
+    pub seed_gut_survival: f32,
     pub flower_bands: PaletteBands,
     pub fruit_bands: PaletteBands,
     /// See `SpeciesDef::seed_half_life`.
@@ -4155,6 +4177,7 @@ impl From<SpeciesDef> for Species {
             flower_material: def.flower_material,
             fruit_material: def.fruit_material,
             windfall_material: def.windfall_material,
+            seed_gut_survival: def.seed_gut_survival,
             flower_bands: def.flower_bands,
             fruit_bands: def.fruit_bands,
             seed_half_life: def.seed_half_life,

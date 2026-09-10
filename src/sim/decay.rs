@@ -148,6 +148,16 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     } else {
         world.decayed_dry += 1;
     }
+    // **The other of `pips_rotted`'s two exits** -- a spilled seed that
+    // rotted through its own material's `decays_into` rather than losing
+    // the species' shared viability race in `plant.rs`'s `organism_tick`.
+    // `seed.ron` carries no `decays_into` at all, so this route exists for
+    // `pip` (and `windfall`) and not for a bare seed -- see
+    // `pip.ron`'s own "faster rot than seed" note and `World::
+    // seeds_spilled` for how the four exits are meant to sum.
+    if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
+        world.pips_rotted += 1;
+    }
 
     // `base_shades`, not `palette.len()`: soil ships three region families
     // now (`worldgen::passes::palette_family`), and ash that decayed into a

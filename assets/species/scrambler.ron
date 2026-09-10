@@ -56,6 +56,13 @@
     // Red and crimson: bands 0-1 of `fruit`, the loudest it has.
     fruit_bands: (first: 0, count: 2),
     windfall_material: "windfall",
+    // See `herb.ron`'s own comment for the full account: 60% of bitten
+    // seeds survive as a `pip`, a plant trait rolled once per bite and
+    // clamped to [0, 1]. Not on `ParamGenome` yet, so `PARAM_REACH`'s
+    // 1.0-corpus fallback (`Reports/dead-ends.md` line 1708) does not apply
+    // today -- and when it is wired in, a probability's `[0, 1]` range sits
+    // inside `[-4, 4]` with room to spare, unlike `seed_launch`.
+    seed_gut_survival: 0.6,
     stomatal_reserve: 0.15,
     seed_half_life: 16000.0,
     remains_half_life: 600.0,

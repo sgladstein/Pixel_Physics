@@ -2218,6 +2218,57 @@ pub struct World {
     /// an overcount and by how much.
     pub germinations_in_place: u64,
 
+    /// **A bite met a windfall's own seed and the survival roll passed** --
+    /// the *it fired* half of `plant::seed_survives_bite`
+    /// (`Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6). The
+    /// bitten cell converted to `pip` in place instead of being cleared,
+    /// and the child organism is not reconciled away.
+    ///
+    /// **The three exits below sum to this**, plus whatever is still
+    /// standing as a `pip` when counted: a pip either germinates
+    /// (`plants_from_pip`), rots away (`pips_rotted`), or is eaten on a
+    /// later bite (`pips_eaten`). A residual would be a fourth exit nobody
+    /// knew about.
+    pub seeds_spilled: u64,
+
+    /// **A `pip` germinated into a plant** -- the *it worked* half of
+    /// `seeds_spilled`, counted in `plant::germinate` off the cell's
+    /// material before it is overwritten to the shoot material. The
+    /// headline number for "the colony that gardens survives": every one
+    /// of these is a seed that rode a mouth and grew anyway.
+    pub plants_from_pip: u64,
+
+    /// **A standing `pip` disappeared without germinating or being eaten**
+    /// -- counted at both of its two real exits, since a `pip` shares the
+    /// species' `seed_half_life` hazard every `CellType::Seed` does
+    /// (`organism_tick`'s seed-decay block, shed to litter) and *also*
+    /// carries its own `decays_into` (`decay.rs`, rotted to soil), unlike a
+    /// bare `seed`, which has neither route disabled and the other absent.
+    /// See `seeds_spilled` for how the four exits are meant to sum.
+    pub pips_rotted: u64,
+
+    /// **A standing `pip` met a second bite.** Not a windfall, so
+    /// `seed_survives_bite` does not roll again -- this is ordinary
+    /// predation on an already-spilled seed, counted where the bite site
+    /// asks the plant side and gets `false` back, and then clears the cell
+    /// exactly as it does for any other food. See `seeds_spilled`.
+    pub pips_eaten: u64,
+
+    /// **A bite met a `windfall` cell with `organism_id == 0`** -- no
+    /// organism to ask which species' `seed_gut_survival` applies, so
+    /// `seed_survives_bite` could not roll and returned `false` without
+    /// touching `seeds_spilled` at all. Not this mechanism's own fault: a
+    /// live upstream bug leaves many `windfall` cells on the played bed
+    /// already ownerless the first time anything observes them
+    /// (coordinator finding, 2026-09-10, measure lane PR #297,
+    /// `Reports/lanes/evolution-lab-ecology-measure.md` "What surprised
+    /// me"; repro `WF_DEBUG=1 windfall_probe scenario=played_bed seed=1
+    /// frames=1300 sample=10 fate=1`). **Read this before retuning
+    /// `seed_gut_survival` or `reproductive_allocation` against a low
+    /// `seeds_spilled`** -- a high reading here says the larder was never
+    /// reachable, not that the odds are wrong.
+    pub windfall_bitten_ownerless: u64,
+
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
     ///
@@ -3457,6 +3508,11 @@ impl World {
             fruit_dropped: 0,
             seeds_borne: 0,
             germinations_in_place: 0,
+            seeds_spilled: 0,
+            plants_from_pip: 0,
+            pips_rotted: 0,
+            pips_eaten: 0,
+            windfall_bitten_ownerless: 0,
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
