@@ -1,0 +1,54 @@
+{
+  "id": "20260910T195606010Z-89a8ca",
+  "created": "2026-09-10T19:56:06Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9d59130125983bb2",
+    "branch": "claude/lab-history-summary-r27",
+    "commit": "fef35310",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9d59130125983bb2"
+  },
+  "title": "HISTORY: a summary per colony",
+  "question": "Does the summary read, and what is missing from a summary row?",
+  "context_md": "HISTORY's default is now a summary, one row per colony/founding line that has lost anyone or ended, newest activity first -- the owner's verdict on the page (2026-09-10): \"A summary per colony could be interesting as the default: x starved, x killed by y, etc. Then you expand into the individuals?\"\n\n- **A** is the default SUMMARY: NAME / KINGDOM / ALIVE / ENDED / CAUSES, causes text capped at 3 entries + a fold (`+N MORE`) so a long death list cannot run a row off the panel.\n- **B** is what clicking a colony's row opens: that colony's own ended founding lines, one row each -- the exact row shape PR #304 shipped, filtered to one colony instead of the whole run. BACK returns to the summary, not the LOG page.\n\nShipped bed, ~6,000 frames (default `LabBox`, `frames=6000`).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- SUMMARY (default)",
+      "files": [
+        "20260910T195606010Z-89a8ca/000-history-page--history-(summary).png"
+      ],
+      "caption": "One row per colony or founding line that has lost anyone or ended",
+      "meta": {
+        "colonies with a death": 1,
+        "plant lines ended": 3,
+        "animal deaths booked": 45
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- COLONY (expanded)",
+      "files": [
+        "20260910T195606010Z-89a8ca/001-history-page--history-(colony).png"
+      ],
+      "caption": "ANT 1 expanded: its own ended founding lines, PR #304's row shape",
+      "meta": {
+        "colony": "ANT 1",
+        "founding lines ended": 44,
+        "alive now": 17
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
