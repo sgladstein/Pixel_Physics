@@ -70,6 +70,7 @@ use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
+use pixel_physics::sim::material::MaterialId;
 use pixel_physics::sim::organism::TRAIT_GUT_BIAS;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::Channel;
@@ -180,6 +181,19 @@ struct Sample {
     /// manufacturing dead ends and its generation count is answering a
     /// different question from the one asked.
     bgen: u16,
+    /// **Live plant organisms** -- `world.live_organism_ids()` filtered to
+    /// species with no `creature` component, the plant-side twin of `ants`.
+    /// M2's brief (`Reports/lanes/evolution-lab-ecology-measure-2.md`) asks
+    /// "does the thicket grow at all", and a stand that never establishes
+    /// answers that before any fruit or bite count does.
+    plants: usize,
+    /// **Standing `windfall` cells, raw** -- counted off `cell.material`
+    /// *before* the `diet_yield`/`EAT_YIELD_THRESHOLD` gate `edible` is
+    /// filtered through, so this is a physical count of fallen fruit on the
+    /// ground regardless of whether the founders' own gut would eat it. The
+    /// loop that fills `edible` already visits every cell; this rides along
+    /// rather than re-sweeping the grid.
+    windfall: usize,
 }
 
 /// **What is standing here that this gut would eat, and where.**
@@ -194,7 +208,7 @@ struct Sample {
 /// `windfall_probe`'s: loose litter, corpses, fallen leaves and spoil are not
 /// organism-owned and are exactly the food a walking ant meets. The sweep is
 /// 512x320 per sample and the default interval is 900 frames.
-fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &[i32]) -> Sample {
+fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &[i32], windfall_id: Option<MaterialId>) -> Sample {
     let mut s = Sample {
         ant_high: i32::MIN,
         gen: world.deepest_animal_generation,
@@ -211,6 +225,8 @@ fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &
             if let Some(&(_, hy)) = state.chain.first() {
                 s.ant_high = s.ant_high.max(spec.ground_y - hy);
             }
+        } else {
+            s.plants += 1;
         }
     }
     if s.ant_high == i32::MIN {
@@ -219,6 +235,9 @@ fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &
     for y in 0..spec.height {
         for x in 0..spec.width {
             let cell = world.get(x, y);
+            if windfall_id.is_some_and(|wid| cell.material == wid) {
+                s.windfall += 1;
+            }
             let yielded = diet_yield(world, cell, gut);
             if yielded <= EAT_YIELD_THRESHOLD {
                 continue;
@@ -483,10 +502,10 @@ fn main() {
     let mut peak_edible = 0usize;
 
     println!(
-        "{:>7} {:>5} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4}",
-        "frame", "ants", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
+        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8}",
+        "frame", "ants", "plnts", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
-        "brdr", "gen", "bgen"
+        "brdr", "gen", "bgen", "fvis", "necJ"
     );
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
@@ -518,7 +537,7 @@ fn main() {
         }
         mark_visited(&world, &mut visited, spec.width);
         if f % sample_every == 0 {
-            let s = census(&world, &spec, gut, &visited, &nest_cols);
+            let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id);
             peak_edible = peak_edible.max(s.edible);
             if first.is_none() {
                 first = Some(s);
@@ -528,11 +547,22 @@ fn main() {
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4}",
-                s.ants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
+                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} | wfall={}",
+                s.ants, s.plants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
                 s.ant_high, st.eats, st.births, st.deaths,
-                s.breeders, s.gen, s.bgen
+                s.breeders, s.gen, s.bgen,
+                // **B1' (nectar, in two currencies)** --
+                // `Reports/evolution-lab-pollinator-design-2026-09-10.md`
+                // §3.1. `fvis` is the sensitivity counter (every reach of an
+                // owned flower, paid or not); `necJ` is the cumulative
+                // joules actually paid, the effect half -- their pairing is
+                // the positive control the design's own brief names: at
+                // `nectar_refill: 0.0`, `necJ` must stay flat at 0 across
+                // the whole run while `fvis` keeps climbing. Divide `necJ`
+                // by `f / 1000.0` for "joules paid per 1,000 frames" at any
+                // sampled frame.
+                world.flower_visits, world.nectar_paid, s.windfall
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {
@@ -574,6 +604,15 @@ fn main() {
         if last.edible > 0 { 100.0 * last.unvisited as f64 / last.edible as f64 } else { 0.0 }
     );
     println!("    ...by height          floor {} low {} aloft {}", last.floor, last.low, last.aloft);
+    // **M2's own two questions, both live counts rather than cumulative.**
+    // `plants` is the stand itself (did the thicket establish); `windfall`
+    // is standing fallen fruit on the ground right now, unfiltered by
+    // whether the founders' gut would eat it -- the physical quantity a
+    // bite needs present, not the diet-priced `edible` figure above.
+    println!(
+        "  standing now: plants {} | windfall (fallen fruit) {} cells, cumulative fruit_dropped {}",
+        last.plants, last.windfall, world.fruit_dropped
+    );
     println!(
         "\n  what the colony took: eats {} pickups {} | harvested plant {:.0} J corpse {:.0} J against burn {:.0} J",
         st.eats, st.pickups, l.harvested_plant, l.harvested_corpse, burn
@@ -589,15 +628,22 @@ fn main() {
     // construction rather than by failure.
     println!("  round trips: deliveries {} nest visits {}", st.deliveries, st.nest_visits);
     println!(
-        "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
+        "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
-         regime={} breeders={} gen={} bgen={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
-         windfall_bitten_ownerless={} lookup={} visits={}",
-        spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
+         regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
+         windfall_bitten_ownerless={} lookup={} visits={} flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={}",
+        spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
+        // **M2's own counter** -- every bite that reached an owned windfall
+        // cell and was about to roll for survival, counted *before* the
+        // roll in `plant::seed_survives_bite`. The true bite rate, rather
+        // than an estimate backed out of `seeds_spilled / seed_gut_survival`
+        // (which is silent at `seed_gut_survival: 0.0`). See
+        // `World::windfall_bitten`.
+        world.windfall_bitten,
         // **A1's counters, both halves** -- "it fired" (`seeds_spilled`) and
         // the three exits that sum to it (`plants_from_pip`, `pips_rotted`,
         // `pips_eaten`), plus whatever is still standing as a `pip`.
@@ -622,7 +668,22 @@ fn main() {
         // `born` moves, the index changed behaviour and is wrong -- a
         // whole-run equivalence check that no unit test can match.
         if std::env::var("PIXEL_PHYSICS_BREEDER_INDEX").as_deref() == Ok("scan") { "scan" } else { "index" },
-        st.breeder_scan_visits
+        st.breeder_scan_visits,
+        // **B1' (nectar, in two currencies)**
+        // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1,
+        // Brief B1'). `flower_visits` is the sensitivity counter, `nectar_
+        // paid` the effect (raw joules the plant side handed out, not the
+        // gut-filtered credit an animal actually banked -- see `World::
+        // nectar_paid`'s own doc for why the two differ). `nectar_j_per_
+        // 1000f` is the design's own "joules paid per 1,000 frames" read at
+        // this run's own length; re-read it from the per-sample table
+        // above for the frame-40,000 figure the brief asks for on a longer
+        // run. `organs_built` is B1's own guard: nectar must not starve
+        // fruit, so this must not fall against a `nectar_yield: 0` ablation
+        // of the same seed.
+        world.flower_visits, world.nectar_paid,
+        if frames > 0 { world.nectar_paid / (frames as f64 / 1000.0) } else { 0.0 },
+        world.organs_built
     );
 }
 
@@ -646,9 +707,10 @@ fn selftest(spec: LabBox) {
     let visited_none = vec![false; spec.width as usize];
     let mut visited_all = vec![true; spec.width as usize];
 
-    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols);
+    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid));
     println!("labforage selftest: empty bed reads edible {} (must be 0)", base.edible);
     assert_eq!(base.edible, 0, "an unplanted bed is not food; the census is counting something it should not");
+    assert_eq!(base.windfall, 0, "an unplanted bed has no fallen fruit either; the raw windfall count is counting something it should not");
 
     // One cell on the floor beside the nest, one 40 rows up and 200 columns
     // away. The two differ in every band the run's finding turns on.
@@ -658,11 +720,11 @@ fn selftest(spec: LabBox) {
     world.set(near.0, near.1, Cell::new(wid, 0));
     world.set(far.0, far.1, Cell::new(wid, 0));
 
-    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols);
+    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid));
     println!(
         "  planted 2 cells (one at the nest on the floor, one {} columns out and 40 rows up): \
-         edible {} floor {} low {} aloft {} unvisited {} by_dist {:?} worth {:.0} J",
-        far.0 - nest, s.edible, s.floor, s.low, s.aloft, s.unvisited, s.by_dist, s.worth
+         edible {} floor {} low {} aloft {} unvisited {} by_dist {:?} worth {:.0} J windfall {}",
+        far.0 - nest, s.edible, s.floor, s.low, s.aloft, s.unvisited, s.by_dist, s.worth, s.windfall
     );
     assert_eq!(s.edible, 2, "the census must see both planted cells");
     assert_eq!(s.floor, 1, "the floor band must see the cell on the floor and only it");
@@ -671,20 +733,22 @@ fn selftest(spec: LabBox) {
     assert!(s.by_dist[0] >= 1, "the near band must see the cell 2 columns from the nest");
     assert!(s.by_dist[2] >= 1 || s.by_dist[3] >= 1, "the far cell must land in a far distance band, not the near one");
     assert!(s.worth > 0.0, "food priced at zero is not food; diet_yield is not reaching the census");
+    assert_eq!(s.windfall, 2, "the raw windfall count must see both planted cells regardless of the gut -- it is a material census, not a diet_yield one");
 
     // ...and the mask has to be able to go the other way, or `unvisited`
     // would be a constant wearing a measurement's clothes.
     visited_all[..].fill(true);
-    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols);
+    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols, Some(wid));
     println!("  same bed with every column marked visited: unvisited {} (must be 0)", s2.unvisited);
     assert_eq!(s2.unvisited, 0, "the visited mask does not reach the census");
     assert_eq!(s2.edible, 2, "the mask must not change what is counted as food");
 
     // A gut that cannot digest plants must stop seeing them -- the predicate
     // is the mouth's, so this is the check that the census asks the mouth.
-    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols);
+    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols, Some(wid));
     println!("  same bed read at a pure-flesh gut (bias +1.0): edible {} (must be 0)", s3.edible);
     assert_eq!(s3.edible, 0, "a carnivore's census must not count plants; the gut is not reaching diet_yield");
+    assert_eq!(s3.windfall, 2, "the raw windfall count must NOT depend on the gut -- unlike edible, it is a material census");
 
     println!("labforage selftest: PASS -- every band moves for a case whose answer is known");
 }

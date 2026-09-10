@@ -317,12 +317,32 @@ def _sync_loop(root: Path, interval: float, stop: threading.Event) -> None:
     `sync_now` never throws -- and the page surfaces them, because a transport
     that silently stopped looks exactly like nobody having posted anything.
     """
-    while not stop.is_set():
+    # Wait first: `serve` has already run one sync in the foreground, and told
+    # the owner how it went, before this thread exists.
+    while not stop.wait(interval):
         try:
             rl.sync_now(root)
         except Exception:
             pass  # sync_now records its own failure; the loop must not die
-        stop.wait(interval)
+
+
+def _print_sync_result(res: dict) -> None:
+    """One sync, reported the way the owner reads it: worked, or what to do.
+
+    Before this, `serve` printed "syncing with origin/review-queue every 60s"
+    and started the timer, and the first the owner heard of a transport that
+    could not push was git asking the terminal for a username -- repeatedly,
+    since a timer does not stop. Now the first sync runs in the foreground and
+    its result is the banner.
+    """
+    if res.get("ok"):
+        print("synced: %d file(s) in, %d out"
+              % (len(res.get("pulled") or []), len(res.get("pushed") or [])))
+        return
+    print("SYNC FAILED: %s" % (res.get("skipped") or res.get("error")))
+    for line in (res.get("hint") or "").splitlines():
+        print("  " + line)
+    print("  serving what is on this disk; retrying on the timer, and the page shows the state")
 
 
 def serve(root: Path, port: int, open_browser: bool = False,
@@ -351,10 +371,6 @@ def serve(root: Path, port: int, open_browser: bool = False,
     httpd.daemon_threads = True
 
     stop = threading.Event()
-    if sync_interval > 0 and not rl.sync_disabled():
-        threading.Thread(target=_sync_loop, args=(root, sync_interval, stop),
-                         daemon=True).start()
-
     url = "http://127.0.0.1:%d/" % port
     print("review queue: %s" % root)
     if rl.sync_disabled():
@@ -366,7 +382,11 @@ def serve(root: Path, port: int, open_browser: bool = False,
         print("NOT syncing: no git remote 'origin' here. Cards posted from a cloud "
               "session will not appear. Start this from inside the repo checkout.")
     else:
-        print("syncing with origin/%s every %ds" % (rl.SYNC_BRANCH, int(sync_interval)))
+        print("syncing with origin/%s every %ds ..." % (rl.SYNC_BRANCH, int(sync_interval)),
+              flush=True)
+        _print_sync_result(rl.sync_now(root))
+        threading.Thread(target=_sync_loop, args=(root, sync_interval, stop),
+                         daemon=True).start()
     print("open %s" % url)
     if lan:
         _print_lan_banner(port, token)

@@ -64,7 +64,7 @@
 (
     name: "played_bed",
     title: "THE PLAYED BED",
-    question: "The mix the owner plants -- grass, herb and shrub grown for 6,000 frames, then a colony lands on it.",
+    question: "The mix the owner plants -- grass, herb, shrub, a fruiting thicket and one tree, grown for 6,000 frames, then a colony lands on it.",
     bed: (
         width: 512,
         height: 320,
@@ -96,6 +96,23 @@
         Plant(species: "grass", x: 410),
         Plant(species: "herb",  x: 435),
         Plant(species: "grass", x: 465),
+        // 2026-09-10, owner's rulings on two cards: the low fruiting thicket
+        // goes in ("Sure" -- fruit on the floor 9.6x, ant bites of a fallen
+        // fruit 5 -> 32 across a three-seed sweep, PR #302), and so does a
+        // tree ("Both are fine. I think a mix is best" -- one tree shades
+        // the bench under it to under 1% of lamp light, and the owner took
+        // that trade). Four scramblers spread across the bed, the tree at
+        // the far right so the shaded floor is one end, not the middle.
+        // NOT in columns 180-330: that open ground is where the colony
+        // founds at frame 6,000, and the measurement bed's scramblers at
+        // 215 and 300 (played_bed_scrambler.ron) seated 2 ants of 52
+        // there against 31 on the bare gap -- caught by looking before
+        // committing (labshot frames=6000,30000).
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 118),
+        Plant(species: "scrambler", x: 395),
+        Plant(species: "scrambler", x: 490),
+        Plant(species: "tree",      x: 455),
     ],
     timeline: [
         // **Clear the nest site one frame before the colony lands.**

@@ -592,6 +592,13 @@ impl Handler {
             // and the bar has no room for a fifth page button — the strip's
             // `ALL` is the mouse route.
             KeyCode::F4 => self.lab.act(Action::Panel(Panel::Chambers)),
+            // HISTORY: every founding line that has ended. Next in the same
+            // `F1..F4` run rather than a mnemonic letter -- every letter is
+            // already bound (`H` included, to `CycleCreatureColour`), and
+            // this page has no bar chip either (the bar was measured full
+            // twice over before it existed), so `F5` is its only route in
+            // besides the LOG page's own `HISTORY` row.
+            KeyCode::F5 => self.lab.act(Action::Panel(Panel::History)),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
@@ -725,5 +732,17 @@ impl ApplicationHandler for Handler {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    /// **The one place every way this binary quits actually quits from.**
+    /// `event_loop.exit()` is called from `Escape`, from `CloseRequested`,
+    /// from a resize the surface refuses, and from `fail` -- four call sites
+    /// that would each need their own chronicle write, and the fifth nobody
+    /// would remember to add. `winit` runs this once, after the loop has
+    /// decided to stop, regardless of which of them asked -- so the box's
+    /// history is saved exactly once on the way out, wherever "out" came
+    /// from.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.lab.write_chronicle();
     }
 }

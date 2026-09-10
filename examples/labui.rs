@@ -559,6 +559,82 @@ fn main() {
         lab.set_cursor(None);
         tiles.push(("LINEAGE: ONE LINE".into(), shot(&mut lab)));
 
+        // **HISTORY: the default SUMMARY, one row per colony or founding
+        // line that has lost anyone or ended.** A player reaches it through
+        // the LOG page's own row (the bar has had no free chip since before
+        // this page existed) or `F5`; both go through the identical
+        // `Action::Panel`, so this drives that directly rather than chaining
+        // two `open_list` hops through a row this file does not own (the BOX
+        // page's rows are another lane's -- `CLAUDE.md`'s file-ownership
+        // table). The colony count and the deaths they cover go beside the
+        // picture rather than only in it: `CLAUDE.md`'s own rule that a
+        // table of rows says what and where, and only the number says
+        // whether anything has actually happened by this point in the run.
+        //
+        // **The CELL page is closed first.** It floats independent of
+        // `Ui::panel` (it is not one of the pages `Action::Panel` is
+        // exclusive over) and the earlier SPECIMEN blocks above leave it
+        // open -- coincidental state from a different question, not a
+        // deliberate test of HISTORY drawn under it, and the widest row this
+        // page can draw (a colony's own `CAUSES` text) runs exactly into
+        // that corner if left there. `inspect` toggles, so calling it again
+        // on the cell it is already open on is how this file closes it
+        // elsewhere too.
+        if let Some(at) = lab.ui.inspecting() {
+            lab.ui.inspect(&lab.world, at);
+        }
+        lab.ui.release_pin();
+        lab.ui.close_panel();
+        lab.act(Action::Panel(Panel::Log));
+        lab.act(Action::Panel(Panel::History));
+        // No pointer for the summary shot either -- a stale hover note from
+        // wherever the SPECIMEN blocks above last clicked would sit over a
+        // row of this page the same way the CELL panel did. And the last
+        // verb's own notice (`Ui::say`) fades on wall-clock time, which this
+        // whole script outruns easily, so the SPECIMEN blocks' own "PINNED
+        // ..." banner is still on screen unless overwritten here too.
+        lab.set_cursor(None);
+        lab.ui.say(String::new());
+        let summary = pixel_physics::lab::ui::history_summary(&lab.world);
+        let colonies = summary.iter().filter(|r| r.creature).count();
+        let plant_lines = summary.len() - colonies;
+        let deaths: u64 = lab.world.group_deaths.iter().map(|d| d.by_cause.iter().sum::<u64>()).sum();
+        fired.push(format!(
+            "HISTORY SUMMARY: {colonies} colonies and {plant_lines} plant lines have lost anyone or ended, {deaths} animal deaths booked across them"
+        ));
+        tiles.push(("PAGE: HISTORY (SUMMARY)".into(), shot(&mut lab)));
+
+        // **Expand one colony row** -- the second half of the owner's ask
+        // (2026-09-10): *"Then you expand into the individuals?"* Clicking
+        // the heaviest colony's own row (`HistorySummaryRow::colony`,
+        // `Action::HistoryOpen`'s target) opens its DETAIL, the founding-
+        // line-per-row page PR #304 shipped, filtered to this one colony.
+        if let Some(row) = summary.iter().filter(|r| r.colony.is_some()).max_by_key(|r| r.ended.len()) {
+            let colony = row.colony.expect("filtered to colony rows above");
+            let at = centre(&lab, Action::HistoryOpen(colony));
+            click(&mut lab, at);
+            fired.push(format!(
+                "HISTORY DETAIL: opened {:?}, {} of its own founding lines have ended",
+                row.name,
+                row.ended.len()
+            ));
+            tiles.push(("PAGE: HISTORY (COLONY)".into(), shot(&mut lab)));
+            // BACK returns to the SUMMARY, not to the LOG page -- proven
+            // rather than assumed: `Ui::history_open` is private, so the
+            // panel staying open (rather than falling back to the LOG page)
+            // is the only outside evidence the latch actually flipped.
+            let back = centre(&lab, Action::HistoryBack);
+            click(&mut lab, back);
+            fired.push(format!(
+                "HISTORY BACK: panel is now {:?} -- HistoryBack must land on Panel::History, not close it",
+                lab.ui.panel
+            ));
+        } else {
+            fired.push("HISTORY DETAIL: no colony row to expand on this bed".to_string());
+        }
+        tiles.push(("PAGE: HISTORY (BACK)".into(), shot(&mut lab)));
+        lab.ui.close_panel();
+
         // **What the channel costs, as a counter rather than a clock.** The
         // overlay is documented as repainting only on the frames the ranking
         // moves, against the animated grain's measured ~10 ms every frame --

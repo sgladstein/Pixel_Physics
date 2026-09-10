@@ -25,6 +25,7 @@ import os
 import random
 import shutil
 import subprocess
+import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
@@ -449,12 +450,104 @@ def sync_disabled() -> bool:
 
 
 def _git(args, cwd, check=True, timeout=120):
+    """Run git for the transport. It must never talk to the keyboard.
+
+    Sync runs on a timer inside `serve`, and `post` runs it as a side effect.
+    Neither is a place git may stop and ask a question -- but git does not ask
+    on stdin, it opens /dev/tty directly, so `capture_output` did nothing to
+    stop it. Measured 2026-09-10 on the owner's Mac: a clone whose git had no
+    stored GitHub credential turned `serve` into an endless
+    `Username for 'https://github.com':` prompt, four per sync (one per retry
+    of the loop below) and a fresh set every sixty seconds. The owner typed an
+    account password, which GitHub has refused for git since 2021, and the
+    verdicts they had already given stayed on their disk for weeks.
+
+    Two belts: `GIT_TERMINAL_PROMPT=0` makes git fail with "terminal prompts
+    disabled" instead of asking, and a new session detaches the child from the
+    controlling terminal so `ssh` cannot ask for a passphrase either. A GUI
+    askpass (`GIT_ASKPASS`, Git Credential Manager) is still honoured, because
+    that is a credential *helper*, not a prompt on the owner's terminal.
+    """
+    env = dict(os.environ)
+    env["GIT_TERMINAL_PROMPT"] = "0"
     proc = subprocess.run(["git", *args], cwd=str(cwd), capture_output=True,
-                          text=True, timeout=timeout)
+                          text=True, timeout=timeout, env=env,
+                          stdin=subprocess.DEVNULL, start_new_session=True)
     if check and proc.returncode != 0:
         raise SyncError("git %s failed: %s" % (" ".join(args),
                                                (proc.stderr or proc.stdout).strip()[:300]))
     return proc
+
+
+# What git says when the remote wants a login this process cannot supply. The
+# retry loop in `sync_now` exists for a push race, and a missing credential
+# does not clear between attempts, so these stop it on the first one.
+_AUTH_MARKERS = (
+    "terminal prompts disabled",   # GIT_TERMINAL_PROMPT=0 refused a prompt
+    "could not read username",     # no tty to prompt on
+    "could not read password",
+    "authentication failed",       # a helper answered and GitHub said no
+    "invalid username or",         # ...GitHub's wording for the same
+    "permission denied",           # ssh with no usable key
+    "returned error: 403",         # a token without write access
+)
+
+
+def looks_like_auth_failure(text: str) -> bool:
+    lower = (text or "").lower()
+    return any(marker in lower for marker in _AUTH_MARKERS)
+
+
+def credential_hint(url: str, cwd=None) -> str:
+    """What to do about a remote that wants a login. Printed, never guessed at.
+
+    Everything a person needs to fix this in one go is on the machine that
+    failed and nowhere else: which `git` is on PATH (a conda one has no
+    `osxkeychain` helper, so the standard macOS advice fails silently), which
+    helpers are configured, whether `gh` is installed. So gather it here rather
+    than sending the owner to look it up, and say the one thing that is not
+    guessable: GitHub does not accept an account password for git, it wants a
+    personal access token.
+    """
+    git = shutil.which("git") or "git"
+    helpers = []
+    exec_path = ""
+    try:
+        helpers = _git(["config", "--get-all", "credential.helper"],
+                       cwd or Path.cwd(), check=False).stdout.split()
+        exec_path = _git(["--exec-path"], cwd or Path.cwd(), check=False).stdout.strip()
+    except (OSError, subprocess.SubprocessError):
+        pass
+    lines = ["git cannot log in to %s from a background sync, and it must not ask "
+             "the terminal to." % url,
+             "git: %s; credential.helper: %s; gh: %s"
+             % (git, ", ".join(helpers) or "none",
+                shutil.which("gh") or "not installed")]
+    if url.startswith("http"):
+        lines.append("Fix it once, from any terminal, then start serve again:")
+        lines.append("  gh auth login && gh auth setup-git      "
+                     "(GitHub CLI; works with any git binary)")
+        if sys.platform == "darwin":
+            has_keychain = bool(exec_path) and (Path(exec_path) / "git-credential-osxkeychain").exists()
+            if has_keychain:
+                lines.append("  or: git config --global credential.helper osxkeychain")
+            else:
+                lines.append("  or: this git has no osxkeychain helper (conda's does not); use "
+                             "Apple's /usr/bin/git, or: git config --global credential.helper store")
+        elif sys.platform == "win32":
+            lines.append("  or: git config --global credential.helper manager")
+        else:
+            lines.append("  or: git config --global credential.helper store")
+        lines.append("  then push once from the clone -- `git push origin HEAD` -- giving a "
+                     "personal access token as the password. GitHub refuses account "
+                     "passwords for git; the token needs the repo scope.")
+        lines.append("  or switch the clone to SSH: git remote set-url origin "
+                     "git@github.com:<owner>/<repo>.git")
+    else:
+        lines.append("Fix it once: ssh-add the key GitHub knows about, then check "
+                     "`ssh -T git@github.com` answers without asking anything.")
+    lines.append("Check with: python3 scripts/review.py sync")
+    return "\n".join(lines)
 
 
 def remote_url(cwd=None):
@@ -485,7 +578,10 @@ def _record_sync(root: Path, ok: bool, detail: dict) -> None:
         state["last_error"] = None
     else:
         state["last_error"] = detail.get("error")
-    state.update({k: v for k, v in detail.items() if k != "error"})
+    # Set, not merged in: a hint from the last failure must not outlive the
+    # failure, or the page keeps telling the owner to fix a login that works.
+    state["hint"] = detail.get("hint")
+    state.update({k: v for k, v in detail.items() if k not in ("error", "hint")})
     write_json_atomic(root / "sync-state.json", state)
 
 
@@ -663,8 +759,17 @@ def sync_now(root: Path, cwd=None, attempts: int = 4) -> dict:
             last_error = (proc.stderr or proc.stdout).strip()[:300]
         except (SyncError, OSError, subprocess.SubprocessError) as exc:
             last_error = str(exc)[:300]
+        # The loop is for the push race above. A remote that wants a login
+        # will want it on every attempt, and on the owner's Mac each attempt
+        # was one more Username: prompt -- so stop at the first.
+        if looks_like_auth_failure(last_error):
+            break
 
     result = {"ok": False, "error": last_error or "sync failed", "pulled": [], "pushed": []}
+    if looks_like_auth_failure(last_error):
+        result["error"] = ("no stored login for %s -- verdicts and cards from this machine "
+                           "are staying local (%s)" % (url, last_error))
+        result["hint"] = credential_hint(url, cwd)
     _record_sync(root, False, dict(result))
     return result
 
