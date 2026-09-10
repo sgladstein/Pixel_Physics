@@ -236,17 +236,23 @@ recycled once animals start dying. And it is the same class as the
 *range* and left the *encoding* wrong, both from reconstructing an id by
 hand instead of asking the allocator.
 
-**Confirmed by re-running the two seeds that leaked**, played bed, 120,000
-frames:
+**Confirmed by re-running all six seeds**, played bed, 120,000 frames.
+Every one now reports exactly one living breeder, which is what a
+colony-wide rule permits:
 
-| seed | before | after |
-|---|---|---|
-| 2 | breeders **2** | breeders **1**, born 16, alive 26 |
-| 4 | breeders **2** | breeders **1**, born 18, alive 33 |
+| seed | breeders before | breeders after | born | alive | gen | bgen |
+|---|---|---|---|---|---|---|
+| 1 | 1 | **1** | 9 | 25 | 1 | 0 |
+| 2 | **2** | **1** | 16 | 26 | 1 | 0 |
+| 3 | 1 | **1** | 13 | 29 | 1 | 0 |
+| 4 | **2** | **1** | 18 | 33 | 2 | 1 |
+| 5 | 1 | **1** | 22 | 35 | 1 | 0 |
+| 6 | 1 | **1** | 21 | 37 | 2 | 1 |
 
-**The headline is unchanged.** `gen` and `bgen` are identical on both seeds
-before and after, so the thirteen-fold collapse stands — and it is now a
-tight figure rather than the lower bound this report had to settle for.
+**The headline is unchanged.** The median generation is still 1 and the
+median breeder chain still 0, so the thirteen-fold collapse stands — and it
+is now a tight figure rather than the lower bound this report had to settle
+for.
 
 **What found it was the instrument, not the reading**, and the general form
 is worth keeping. The old path and its replacement were run as two arms of
