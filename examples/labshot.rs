@@ -126,12 +126,28 @@ fn main() {
     // and `labbatch` follow for it.
     let scenario_name: Option<String> = arg("scenario");
     let scenario: Option<Scenario> = scenario_name.as_deref().map(|n| {
-        Scenario::load(n).unwrap_or_else(|e| {
+        let mut sc = Scenario::load(n).unwrap_or_else(|e| {
             eprintln!("scenario {n}: {e}");
             std::process::exit(1);
-        })
+        });
+        // **`seed=` overrides the scenario's own bed seed, and it has to
+        // happen HERE, on the scenario, not on `spec` below.** `labforage.
+        // rs` carries the identical three lines and the identical comment,
+        // for the identical reason: `Scenario::build` reads `self.bed`, so
+        // a seed applied only to `spec` reaches nothing at all -- the world
+        // is built at the file's pinned seed every time
+        // (`Reports/evolution-lab-ecology-design-2026-09-10.md` §8.1).
+        // Caught by seeds 1, 2 and 3 on `played_bed` returning
+        // digit-identical output -- `CLAUDE.md`'s own tell for a knob that
+        // was never connected.
+        if let Some(sd) = arg::<u64>("seed") {
+            sc.bed.seed = sd;
+        }
+        sc
     });
     let spec = match &scenario {
+        // The scenario's own bed -- **except the seed, which `seed=`
+        // still overrides**, above.
         Some(s) => s.bed.clone(),
         None => LabBox {
             width: arg("width").unwrap_or(512),

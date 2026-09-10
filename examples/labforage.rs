@@ -591,12 +591,24 @@ fn main() {
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
-         regime={} breeders={} gen={} bgen={} lookup={} visits={}",
+         regime={} breeders={} gen={} bgen={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
+         windfall_bitten_ownerless={} lookup={} visits={}",
         spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
         last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
+        // **A1's counters, both halves** -- "it fired" (`seeds_spilled`) and
+        // the three exits that sum to it (`plants_from_pip`, `pips_rotted`,
+        // `pips_eaten`), plus whatever is still standing as a `pip`.
+        // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6.
+        world.seeds_spilled, world.plants_from_pip, world.pips_rotted, world.pips_eaten,
+        // **The measure lane's finding, 2026-09-10** -- a bite met a
+        // `windfall` with no organism owning it, so nothing above could
+        // roll. High against a low `seeds_spilled`: read this before
+        // retuning `seed_gut_survival`. See `World::
+        // windfall_bitten_ownerless`.
+        world.windfall_bitten_ownerless,
         // **`visits` is the whole point of the breeder-index change, and
         // `lookup` says which arm produced it.** Organisms the breeding rule
         // had to look at over the run: the full-slot scan walks every
