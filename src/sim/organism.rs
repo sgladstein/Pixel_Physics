@@ -5148,6 +5148,29 @@ pub struct OrganismState {
     /// and a stand that looks lush while every plant reads generation 0 is
     /// a stand where nothing has bred.
     pub generation: u16,
+    /// **How many buds this individual has itself produced, successfully**
+    /// -- incremented in `try_bud` the moment a child is actually placed,
+    /// not merely attempted.
+    ///
+    /// Exists so a **breeder** can be read off a fact rather than defined
+    /// in terms of itself: `breeding_regime()`'s `queen`/`graded` arms
+    /// suppress every *other* animal in a colony once one member has
+    /// `children > 0`, and "breeder" has to mean something that does not
+    /// already depend on the suppression it feeds. **`children > 0` is the
+    /// whole rule, deliberately not also "or founder"** -- see
+    /// `breeding_regime`'s own doc for why counting a colony's generation-0
+    /// founders as breeders would make the `queen` regime suppress almost
+    /// nothing. At founding this field is `0` on every member, so the
+    /// first one to bud is the first fact the rest of the colony reads.
+    ///
+    /// **Deliberately a field of its own, not a read of `life.offspring`**,
+    /// which mirrors it under every regime today. That counter is
+    /// `place_creature`'s stat bookkeeping for `CreatureStats`; this one
+    /// belongs to the breeding-regime mechanism and is written at the one
+    /// call site that decides whether suppression applies, so the fact the
+    /// mechanism reads can never drift from a mirror kept for a different
+    /// reason.
+    pub children: u16,
     /// **Which founding individual this one descends from.**
     ///
     /// Copied unchanged from parent to child at every birth, so a whole
