@@ -107,11 +107,38 @@
     // Petals fall. Same floor as everything else a plant sheds.
     breaks_into: "litter",
     severs_into: "litter",
-    // **Nectar: the richest thing a plant offers a walking animal.** 3x a
-    // leaf, which is the whole reason a real animal crosses a meadow rather
-    // than eating the nearest hedge. `ant.ron`'s `food:` list is the other
-    // half of this and without it the value is inert -- the same trap
-    // `litter.ron` records having shipped once already.
+    // **What biting the whole flower off is worth -- destroying it, not
+    // visiting it.** 3x a leaf, which is the richest single mouthful this
+    // engine's material table offers a walking animal, and it is *this*
+    // value `examples/creature_probe.rs`'s printed reachability ceiling is
+    // built on (`Reports/dead-ends.md` line 1635 -- read before trusting
+    // that ceiling: fruiting species are barely sown and a flower stands
+    // 22-40 rows up a stem, so the ceiling is a bound the world rarely lets
+    // anything actually reach).
+    //
+    // **Stays 1,440 rather than falling, per the owner's 2026-09-10
+    // ruling that animals carry pollen and need a flower that survives a
+    // visit** (`Reports/evolution-lab-pollinator-design-2026-09-10.md`
+    // §3.1-§3.2, correcting `evolution-lab-ecology-design-2026-09-10.md`
+    // §3.2's original mechanism -- read the correction before trusting the
+    // superseded one). The comment this replaces called this field
+    // "nectar"; it never was -- nectar is now a real, separate thing: a
+    // per-cell pool (`OrganismCell::nectar`) refilled by the species'
+    // `nectar_refill` and paid out as `nectar_yield` joules
+    // (`plant::nectar_offer`) an animal sips while the flower keeps
+    // standing, charged to the plant's reproductive pocket in its own
+    // currency (`plant::NECTAR_COST`, budget units -- not joules; the two
+    // do not convert). This field is the *other* path: a gut that cannot
+    // take nectar, or a flower whose pool is not yet full, or whose plant
+    // cannot afford even that small a charge, still bites the cell off
+    // whole for the full 1,440 and ends it, same as every material here
+    // has always worked. Two prices for two verbs, not one value doing
+    // both jobs.
+    //
+    // (The paragraph this replaces also named `ant.ron`'s `food:` list as
+    // "the other half of this" -- that list is gone, replaced by `Gut`'s
+    // `diet_yield`/`food_class` match, `creature.rs:66`'s own comment on
+    // the change records why.)
     food_energy: 1440.0,
     // In MPa like every other value of this field. Live soft tissue: a
     // lamina punctures at almost nothing.

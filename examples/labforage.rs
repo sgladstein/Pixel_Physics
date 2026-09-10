@@ -502,10 +502,10 @@ fn main() {
     let mut peak_edible = 0usize;
 
     println!(
-        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4}",
+        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8}",
         "frame", "ants", "plnts", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
-        "brdr", "gen", "bgen"
+        "brdr", "gen", "bgen", "fvis", "necJ"
     );
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
@@ -547,11 +547,22 @@ fn main() {
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | wfall={}",
+                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} | wfall={}",
                 s.ants, s.plants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
                 s.ant_high, st.eats, st.births, st.deaths,
-                s.breeders, s.gen, s.bgen, s.windfall
+                s.breeders, s.gen, s.bgen,
+                // **B1' (nectar, in two currencies)** --
+                // `Reports/evolution-lab-pollinator-design-2026-09-10.md`
+                // §3.1. `fvis` is the sensitivity counter (every reach of an
+                // owned flower, paid or not); `necJ` is the cumulative
+                // joules actually paid, the effect half -- their pairing is
+                // the positive control the design's own brief names: at
+                // `nectar_refill: 0.0`, `necJ` must stay flat at 0 across
+                // the whole run while `fvis` keeps climbing. Divide `necJ`
+                // by `f / 1000.0` for "joules paid per 1,000 frames" at any
+                // sampled frame.
+                world.flower_visits, world.nectar_paid, s.windfall
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {
@@ -620,7 +631,7 @@ fn main() {
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
-         windfall_bitten_ownerless={} lookup={} visits={}",
+         windfall_bitten_ownerless={} lookup={} visits={} flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -657,7 +668,22 @@ fn main() {
         // `born` moves, the index changed behaviour and is wrong -- a
         // whole-run equivalence check that no unit test can match.
         if std::env::var("PIXEL_PHYSICS_BREEDER_INDEX").as_deref() == Ok("scan") { "scan" } else { "index" },
-        st.breeder_scan_visits
+        st.breeder_scan_visits,
+        // **B1' (nectar, in two currencies)**
+        // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1,
+        // Brief B1'). `flower_visits` is the sensitivity counter, `nectar_
+        // paid` the effect (raw joules the plant side handed out, not the
+        // gut-filtered credit an animal actually banked -- see `World::
+        // nectar_paid`'s own doc for why the two differ). `nectar_j_per_
+        // 1000f` is the design's own "joules paid per 1,000 frames" read at
+        // this run's own length; re-read it from the per-sample table
+        // above for the frame-40,000 figure the brief asks for on a longer
+        // run. `organs_built` is B1's own guard: nectar must not starve
+        // fruit, so this must not fall against a `nectar_yield: 0` ablation
+        // of the same seed.
+        world.flower_visits, world.nectar_paid,
+        if frames > 0 { world.nectar_paid / (frames as f64 / 1000.0) } else { 0.0 },
+        world.organs_built
     );
 }
 

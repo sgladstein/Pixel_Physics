@@ -2184,6 +2184,108 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     true
 }
 
+/// **What a flower pays out of the two currencies it holds, in budget
+/// units — a thirtieth of a fruit.**
+///
+/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1: the
+/// ecology design's original brief charged `nectar_yield` (joules) straight
+/// against `reproductive_budget` (plant carbon, capped at
+/// `REPRODUCTIVE_BUDGET_CAP == 4.0`), a units error that would have
+/// bankrupted a plant's whole season on a single visit. `Ripen(cost: 0.3)`
+/// is the going rate for a fruit; `0.01` lets a flower pay **thirty**
+/// visits before it has spent that same amount, so the competition the
+/// ecology design wanted — a plant that feeds animals sets fewer seeds —
+/// survives at this ratio rather than reading as extinction. And a small
+/// charge is payable where a large one is not: `organ_ripening_blocked` is
+/// the largest counter in the box precisely because the budget accrues as
+/// a flow and `Ripen`'s 0.3 lump often is not there yet.
+pub(crate) const NECTAR_COST: f32 = 0.01;
+
+/// **The plant-side half of "an animal feeds at a flower and the flower
+/// survives," in the currency an animal can actually spend.** The one
+/// caller is the bite site in `creature.rs`'s swallow block, which tries
+/// this before the unconditional clear/`seed_survives_bite` pair — a
+/// flower that pays nectar never reaches that pair at all, exactly the
+/// shape `seed_survives_bite`'s own doc records for the hook it sits
+/// beside.
+///
+/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2, and
+/// the owner's ruling that started this: animals carry pollen, which needs
+/// a flower that survives being fed at. **Two currencies, not one**: the
+/// plant pays `NECTAR_COST` (0.01) out of `OrganismState::
+/// reproductive_budget` — plant carbon — and the animal is offered
+/// `nectar_yield` (joules) in return. Nothing here converts between them;
+/// the caller is the one place both units meet, and it prices the joules
+/// through `diet_quality` exactly as every other mouthful is, which this
+/// function deliberately does not do (it has no gut to filter against).
+///
+/// If the cell is an organism-owned `CellType::Flower` whose own standing
+/// nectar (`OrganismCell::nectar`, refilled by `Behavior::Ripen`) has
+/// reached full (`>= 1.0`) and its owner's pocket can cover `NECTAR_COST`,
+/// this charges the pocket, empties the cell's nectar back to 0, and
+/// returns the species' `nectar_yield` in joules. **On anything else — not
+/// a flower, not owned, not full, or the plant too poor for even 0.01 —
+/// it returns `0.0` and the caller falls through to today's behaviour: the
+/// flower is bitten off whole, exactly as before this function existed.**
+/// That fallthrough is deliberate (the design's §2.2): a dry flower is not
+/// a refusal, it is the ordinary bite, same as any other food cell.
+///
+/// **`flower_visits` counts every call that reaches an owned flower cell,
+/// paid or not — the sensitivity half.** A run with `nectar_refill: 0.0`
+/// must still move it while `nectar_paid` (the joule sum, the effect half)
+/// stays exactly zero; that pairing is the positive control the design's
+/// own brief asks for; without it a "the flower is never reached" bug and
+/// a "the flower is never full" bug would read identically.
+///
+/// **In place, no organism id change, same as `seed_survives_bite`.** This
+/// never calls `world.set` — nothing about the cell's identity, material or
+/// `aux` changes, only the sidecar's `nectar` pool and the owning
+/// organism's `reproductive_budget`, so there is no `reindex_organism_cell`
+/// seam to reason about.
+pub fn nectar_offer(world: &mut World, x: i32, y: i32) -> f32 {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 {
+        return 0.0;
+    }
+    if organism::cell_type(cell.aux()) != Some(CellType::Flower) {
+        return 0.0;
+    }
+    // Every reach of an owned flower counts, whether or not it pays --
+    // see this function's own doc on why the pairing with `nectar_paid`
+    // is load-bearing rather than a nicety.
+    world.flower_visits += 1;
+    let pool = world.organism_cell(x, y).map_or(0.0, |c| c.nectar);
+    if pool < 1.0 {
+        return 0.0; // not yet refilled -- graded by the clock, not a refusal
+    }
+    let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
+    if budget < NECTAR_COST {
+        return 0.0; // too poor even for the thirtieth-of-a-fruit charge
+    }
+    let Some(species) = world.organism(organism_id).map(|s| s.species) else {
+        return 0.0;
+    };
+    let yield_j = world.species.get(species).nectar_yield;
+    if yield_j <= 0.0 {
+        // A species with no nectar to offer at all: free, no draw, no
+        // write, the same "costs nothing, perturbs no stream" property
+        // `seed_survives_bite`'s doc records for `seed_gut_survival: 0.0`.
+        // Reached only if `nectar_refill` is non-zero but `nectar_yield`
+        // is not authored, which no shipped species does -- kept as a
+        // guard against a half-authored future one rather than dead code.
+        return 0.0;
+    }
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.reproductive_budget -= NECTAR_COST;
+    }
+    if let Some(slot) = world.organism_cell_mut(x, y) {
+        slot.nectar = 0.0;
+    }
+    world.nectar_paid += yield_j as f64;
+    yield_j
+}
+
 /// One band index inside a declared `PaletteBands` range, or 0 where the
 /// species declares none — which is the first band of whatever palette the
 /// material has, i.e. the pre-band look.
@@ -5243,6 +5345,24 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // **An organ's clock**, and the whole flower -> fruit ->
             // windfall sequence. See `Behavior::Ripen`.
             Behavior::Ripen { rate, cost } => {
+                // **Nectar refills on this same tick, only for a `Flower`,
+                // and deliberately does not touch `ripeness` below** --
+                // `OrganismCell::nectar`'s own doc has the full account of
+                // why the two clocks must stay separate. Riding this
+                // dispatch rather than adding a new `Behavior` variant costs
+                // nothing extra: a `Flower` cell is already scheduled here
+                // every organism tick for as long as it stays a flower, so
+                // this is the one place that sees it that often for free
+                // (`CLAUDE.md`'s "put the storage where the write already
+                // is").
+                if cell_type == CellType::Flower {
+                    let refill = world.organism(organism_id).map_or(0.0, |s| world.species.get(s.species).nectar_refill);
+                    if refill > 0.0 {
+                        if let Some(slot) = world.organism_cell_mut(x, y) {
+                            slot.nectar = (slot.nectar + refill).min(1.0);
+                        }
+                    }
+                }
                 let ripeness = world.organism_cell(x, y).map_or(0.0, |c| c.ripeness) + rate;
                 // **Ripening is paid from the reproductive budget, not from
                 // the organ's own carbon, and the split is principled rather
@@ -21891,5 +22011,138 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             w.plants_from_pip + w.pips_rotted + w.pips_eaten > 0,
             "the identity must not be checked on a run where nothing moved"
         );
+    }
+
+    // --- B1': nectar, in two currencies -------------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    // Brief B1'. The creature-side hook and the joules-actually-credited
+    // identity are in `creature.rs`'s own test module, beside
+    // `EAT_YIELD_THRESHOLD`.
+
+    #[test]
+    fn a_full_flower_pays_nectar_and_stays_standing() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), flower, id, CellType::Flower, (0.0, 0.0));
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP;
+        }
+        if let Some(slot) = w.organism_cell_mut(x, y) {
+            slot.nectar = 1.0; // full
+        }
+
+        let paid = nectar_offer(&mut w, x, y);
+        assert_eq!(paid, yield_j, "a full pool on a funded plant must pay exactly the species' nectar_yield");
+
+        let cell = w.get(x, y);
+        assert_eq!(cell.material, flower, "the cell must still be wearing the flower material -- nothing clears it");
+        assert_eq!(cell.organism_id(), id, "the organism must still own the cell");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Flower), "still a Flower, not relabeled to anything else");
+
+        let budget = w.organism(id).expect("the plant must still be standing").reproductive_budget;
+        assert_eq!(budget, REPRODUCTIVE_BUDGET_CAP - NECTAR_COST, "the pocket must be debited exactly NECTAR_COST (0.01), the budget-side currency -- not the joule figure");
+
+        assert_eq!(w.organism_cell(x, y).expect("the sidecar must exist").nectar, 0.0, "a paid visit must drain the cell's own pool back to 0");
+        assert_eq!(w.flower_visits, 1, "the sensitivity counter must move on a reach that pays");
+        assert_eq!(w.nectar_paid, yield_j as f64, "the effect counter must record exactly the joules paid out");
+    }
+
+    #[test]
+    fn a_dry_flower_pays_nothing_and_is_untouched() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), flower, id, CellType::Flower, (0.0, 0.0));
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP; // plenty of budget
+        }
+        // `place` leaves a fresh sidecar, so `nectar` starts at 0 -- dry,
+        // the "not yet refilled" arm rather than the "too poor" one below.
+        assert_eq!(w.organism_cell(x, y).expect("test setup").nectar, 0.0, "test setup: a fresh flower's pool must start empty");
+
+        let paid = nectar_offer(&mut w, x, y);
+        assert_eq!(paid, 0.0, "a pool below 1.0 must not pay, however rich the plant is");
+
+        let cell = w.get(x, y);
+        assert_eq!(cell.material, flower, "nectar_offer itself must not clear the cell -- that is the caller's job, exactly as seed_survives_bite's doc records");
+        assert_eq!(cell.organism_id(), id, "still owned, still standing, for the caller to clear as it does today");
+        assert_eq!(
+            w.organism(id).expect("live").reproductive_budget,
+            REPRODUCTIVE_BUDGET_CAP,
+            "a dry flower must not touch the pocket at all"
+        );
+        assert_eq!(w.flower_visits, 1, "the reach still happened and must still be counted -- this is the sensitivity half of the positive control");
+        assert_eq!(w.nectar_paid, 0.0, "nothing paid, so the joule sum must not move");
+    }
+
+    #[test]
+    fn a_full_flower_on_a_poor_plant_pays_nothing() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), flower, id, CellType::Flower, (0.0, 0.0));
+        if let Some(slot) = w.organism_cell_mut(x, y) {
+            slot.nectar = 1.0; // full
+        }
+        // Left at the default: `push_organism` starts a fresh organism with
+        // an empty reproductive pocket, below even NECTAR_COST (0.01).
+        assert_eq!(w.organism(id).expect("test setup").reproductive_budget, 0.0, "test setup: a fresh organism's pocket must start empty");
+
+        assert_eq!(nectar_offer(&mut w, x, y), 0.0, "a pocket that cannot cover NECTAR_COST must not pay even a full flower");
+        assert_eq!(w.organism_cell(x, y).expect("live").nectar, 1.0, "a refused payout must not drain the pool -- there was nothing to pay for");
+        assert_eq!(w.flower_visits, 1, "the reach still happened");
+        assert_eq!(w.nectar_paid, 0.0, "nothing paid");
+    }
+
+    /// **The positive control the design's own brief names**, at the unit
+    /// level: `nectar_paid` must read exactly zero across every reach when
+    /// the pool can never refill, while `flower_visits` still moves --
+    /// proving the zero is the refill rate rather than a probe that never
+    /// reached the flower at all. The system-level arm (the same setting
+    /// swept through a real `labforage` run) is measurement, not a unit
+    /// test, and is reported separately.
+    #[test]
+    fn zero_refill_takes_nectar_paid_to_zero_while_flower_visits_still_moves() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).nectar_refill = 0.0;
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), flower, id, CellType::Flower, (0.0, 0.0));
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP;
+        }
+
+        // Exercise the real per-tick dispatch, not just `nectar_offer`'s own
+        // pool check: `Behavior::Ripen`'s refill line must itself stay
+        // silent at `nectar_refill: 0.0`, not merely happen to agree with a
+        // pool that was never touched.
+        for tick in 0..25 {
+            w.frame += ORGANISM_TICK_INTERVAL;
+            organism_tick(&mut w, x, y, id, 0, 0);
+            assert_eq!(
+                w.organism_cell(x, y).expect("live").nectar,
+                0.0,
+                "the pool must stay at 0 through every tick at nectar_refill: 0.0 -- got a nonzero reading at tick {tick}"
+            );
+            assert_eq!(nectar_offer(&mut w, x, y), 0.0, "a pool that can never refill must never pay");
+        }
+
+        assert_eq!(w.nectar_paid, 0.0, "the effect counter must read exactly zero at nectar_refill: 0.0");
+        assert_eq!(w.flower_visits, 25, "the sensitivity counter must still have moved on every reach -- a zero nectar_paid must not read as a blind probe");
     }
 }
