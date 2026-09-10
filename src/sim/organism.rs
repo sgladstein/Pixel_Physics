@@ -5179,21 +5179,40 @@ pub struct OrganismState {
     pub made: f32,
     pub chain: Vec<(i32, i32)>,
     /// **How `chain` groups into spine segments, for a `BodyPlan::Segmented`
-    /// body only.** Each entry is 1 (a spine cell with no lateral) or 2 (a
-    /// spine cell followed by its lateral) and the entries sum to
-    /// `chain.len()`, in the same walk order `chain` itself is in
+    /// body only.** Each entry is 1 (a spine cell with no lateral *right
+    /// now*) or 2 (a spine cell followed by its lateral) and the entries
+    /// sum to `chain.len()`, in the same walk order `chain` itself is in
     /// (`[spine0, lat0?, spine1, lat1?, ...]`). `creature::place_creature`
-    /// writes it once at placement, `creature::body_after_step` reads it to
-    /// find each lateral's own spine cell without re-growing the body every
-    /// step, and severing truncates it alongside `chain` so the grouping
-    /// survives an animal losing cells.
+    /// seeds it at placement, and **it is rewritten with `chain` on every
+    /// step, not just at birth** — `creature::segmented_body_after_step`
+    /// returns the landing and this grouping together as one value, and
+    /// the caller that commits the move writes both back together. That is
+    /// the lateral tuck rule (`Reports/creature-articulated-body-2026-09-09
+    /// .md` §7f): a widened segment whose lateral has nowhere placeable to
+    /// go this step is not placed, and this field's own entry for it drops
+    /// to 1 until a side clears and it re-emerges. **This is the *live*
+    /// width, describing `chain` as it stands this instant — never whether
+    /// a segment is *allowed* a lateral at all**, which is a different,
+    /// stabler question `creature::segment_authored` answers by re-growing
+    /// the individual's own body from its `FateGenome`; reading this field
+    /// for that question would make a tucked segment permanently tucked,
+    /// because the very code path meant to test whether room has opened up
+    /// would see "1" and skip the test.
+    ///
+    /// Severing (`creature::reconcile_chain`) truncates it alongside
+    /// `chain` on genuine, permanent loss — a segment entirely bitten off
+    /// drops from both lists together — which is a different event from a
+    /// tuck: severing is a separate call, never fused with a step, so the
+    /// two never race, and a bite can only ever remove a cell that is
+    /// currently present (a tucked lateral has no cell there to hit).
     ///
     /// **Empty for a `Chain` or `Rigid` body** — every one of their cells is
     /// its own segment of size 1, which is `chain.len()` copies of `1u8`,
     /// and materialising that for every plant and worm in the world would
-    /// be a `Vec` nobody reads. `creature::segment_len_of` is the one
-    /// reader and it returns 1 when this is empty, so an empty vector and a
-    /// vector of all-1s are the same fact to every caller.
+    /// be a `Vec` nobody reads. `creature::relocate_chain` treats an empty
+    /// `segment_groups` on both the old and new side as exactly that: the
+    /// flat, positional correspondence it always used, unaffected by any of
+    /// the above.
     pub segment_groups: Vec<u8>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.

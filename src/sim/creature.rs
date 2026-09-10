@@ -5923,12 +5923,20 @@ fn step_chain(
     def: &CreatureDef,
     draw: &mut rng::Rng,
 ) -> bool {
-    let Some((chain, groups)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone())) else {
+    let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
         return false;
     };
     let Some(&(hx, hy)) = chain.first() else {
         return false;
     };
+    // **Once per tick, not once per candidate.** `segment_authored`
+    // re-grows this individual's own body from its `FateGenome` -- pure,
+    // bounded by `SEGMENTED_BODY_CAP` -- and every candidate direction
+    // below, plus the committed move, reads the same result rather than
+    // re-growing it up to seven times a tick.
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
 
     // --- support: a whole-chain rule (P-25) -----------------------------
     // **Which object does this rule evaluate? The piece.** Asked and
@@ -5952,7 +5960,10 @@ fn step_chain(
         // fall refused because a leaf is in the way is the frozen-on-water
         // failure `colony_ant_site` records, wearing foliage.
         if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled()) {
-            relocate_chain(world, organism, &chain, &fallen);
+            // A fall is a pure translation -- every cell shifts by the same
+            // (0, 1), so grouping cannot change and `&groups` on both sides
+            // is exact, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &chain, groups: &groups }, BodySide { cells: &fallen, groups: &groups });
             world.creature_stats.falls += 1;
             return true;
         }
@@ -5997,7 +6008,7 @@ fn step_chain(
         // here or it overlaps the world. This is also, with no other code,
         // the reason a wide predator cannot follow a narrow ant into its
         // tunnel.
-        let landing = body_after_step(def, &chain, &groups, (tx, ty), heading, d);
+        let (landing, _) = body_after_step(world, def, body, (tx, ty), heading, d, push);
         // **Soft living tissue is not a wall.** See
         // `landing_is_placeable_through_tissue` and `is_partable`: a
         // grid cell cannot hold the air inside a bush, so foliage draws
@@ -6061,7 +6072,7 @@ fn step_chain(
         // up; `trunk_crossing` returns `None` immediately unless the very
         // next cell is woody tissue.
         if crossing_enabled() {
-            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, &groups, heading) {
+            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, &groups, &authored_widths, heading, push) {
                 let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
                 if let Some(state) = world.organism_mut(organism) {
                     state.crossing = Some(organism::Crossing { to, heading, due, thickness });
@@ -6088,7 +6099,7 @@ fn step_chain(
                     continue;
                 }
                 let (dx, dy) = DIRS[d as usize];
-                let landing = body_after_step(def, &chain, &groups, (hx + dx, hy + dy), heading, d);
+                let (landing, _) = body_after_step(world, def, body, (hx + dx, hy + dy), heading, d, push);
                 // **Any living tissue, not only the soft kind** -- this is the
                 // attribution ("what was in the way"), and answering it with
                 // the same force gate the remedy uses would make a trunk
@@ -6146,11 +6157,16 @@ fn step_chain(
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
 
-    let next = body_after_step(def, &chain, &groups, (tx, ty), heading, new_heading);
-    relocate_chain(world, organism, &chain, &next);
+    let (next, next_groups) = body_after_step(world, def, body, (tx, ty), heading, new_heading, push);
+    relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
+        // **`segment_groups` becomes the live widths, rewritten with
+        // `chain` on every step** (§7f(2)) -- a no-op write for `Chain`/
+        // `Rigid`, which pass `groups.to_vec()` straight through
+        // `body_after_step` unchanged.
+        state.segment_groups = next_groups;
     }
     world.creature_stats.moves += 1;
 
@@ -6595,15 +6611,26 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
     let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
+    let fates = world.organism(organism).map(|s| s.fates).unwrap_or_default();
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let push = parting_enabled();
     let interval = organism_tick_interval(world, organism, def);
     if world.frame < crossing.due {
         return vec![ActiveSite { x: chain.first().map_or(0, |c| c.0), y: chain.first().map_or(0, |c| c.1), kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(interval) }];
     }
-    let landing = body_after_step(def, &chain, &groups, crossing.to, crossing.heading, crossing.heading);
-    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
-        && body_has_foothold(world, def, &landing, crossing.to, None);
+    let (landing, landing_groups) = body_after_step(
+        world,
+        def,
+        BodyShape { chain: &chain, groups: &groups, authored: &authored_widths },
+        crossing.to,
+        crossing.heading,
+        crossing.heading,
+        push,
+    );
+    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, push) && body_has_foothold(world, def, &landing, crossing.to, None);
     if emerged {
-        relocate_chain(world, organism, &chain, &landing);
+        relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &landing, groups: &landing_groups });
         world.creature_stats.crossings_completed += 1;
     } else {
         world.creature_stats.crossings_abandoned += 1;
@@ -6614,6 +6641,7 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
         if emerged {
             state.heading = crossing.heading;
             state.life.moves += 1;
+            state.segment_groups = landing_groups;
         }
     }
     world.creature_stats.moves += u64::from(emerged);
@@ -6686,7 +6714,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             break;
         }
         if let Some(to) = translated_if_free(world, &cells, sx, sy) {
-            relocate_chain(world, organism, &cells, &to);
+            // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
             cells = to;
             flight.fx -= sx as f32;
             flight.fy -= sy as f32;
@@ -6698,7 +6729,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         // slide along it, not stop dead in the air.
         if sy != 0 {
             if let Some(to) = translated_if_free(world, &cells, 0, sy) {
-                relocate_chain(world, organism, &cells, &to);
+                // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
                 cells = to;
                 flight.fy -= sy as f32;
                 moves += 1;
@@ -6711,7 +6745,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         }
         if sx != 0 {
             if let Some(to) = translated_if_free(world, &cells, sx, 0) {
-                relocate_chain(world, organism, &cells, &to);
+                // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
                 cells = to;
                 flight.fx -= sx as f32;
                 moves += 1;
@@ -6844,18 +6881,21 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
     let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
+    let fates = world.organism(organism).map(|s| s.fates).unwrap_or_default();
+    let authored_widths = segment_authored_widths(def, fates);
+    let push = parting_enabled();
     let viable: Vec<u8> = (0..8u8)
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
             let (tx, ty) = (hx + dx, hy + dy);
             // Body-aware, like the candidate scan: a wide creature must not
             // re-orient into a heading its shape cannot occupy.
-            let landing = body_after_step(def, &chain, &groups, (tx, ty), d, d);
+            let (landing, _) = body_after_step(world, def, BodyShape { chain: &chain, groups: &groups, authored: &authored_widths }, (tx, ty), d, d, push);
             // **The same predicate the walk uses.** These had drifted apart:
             // a body could step into tissue on its ordinary move and then
             // refuse to *re-orient* into it when blocked, so the two halves
             // of one animal disagreed about what a wall was.
-            landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
+            landing_is_placeable_through_tissue(world, &chain, &landing, push)
                 && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
@@ -6953,7 +6993,7 @@ const MAX_TRUNK_CROSSING: i32 = 48;
 /// bush is air with leaves in it and a body genuinely fits between them.
 /// Wood is walked *around*, which is a different fact about the world and
 /// gets a different mechanism.
-fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], heading: u8) -> Option<((i32, i32), u16)> {
+fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], heading: u8, push: bool) -> Option<((i32, i32), u16)> {
     let &(hx, hy) = chain.first()?;
     let (dx, dy) = DIRS[heading as usize];
     let mut thickness = 0i32;
@@ -6971,7 +7011,10 @@ fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups
             continue; // still inside the trunk
         }
         // First non-wood cell: this is where it would come out, if it fits.
-        let landing = body_after_step(def, chain, groups, (tx, ty), heading, heading);
+        // Only a feasibility check -- `step_crossing` recomputes the real
+        // landing (and its live widths) once the crossing is actually due,
+        // so the second half of the pair is discarded here.
+        let (landing, _) = body_after_step(world, def, BodyShape { chain, groups, authored }, (tx, ty), heading, heading, push);
         if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled()) {
             return None;
         }
@@ -7071,33 +7114,93 @@ fn chain_follow(chain: &[(i32, i32)], head: (i32, i32)) -> Vec<(i32, i32)> {
     next
 }
 
+/// **A body's shape going into a step**, bundled so `body_after_step` and
+/// `segmented_body_after_step` stay under Clippy's argument-count lint
+/// without losing any of the three slices it takes to describe a
+/// `Segmented` body: its current cells, how they currently group into
+/// segments (`OrganismState::segment_groups` — the *live* widths), and the
+/// stable reference for which segments may attempt a lateral at all
+/// (`segment_authored`'s widths — see `segmented_body_after_step`'s own
+/// doc for why conflating the two is the bug). `groups` and `authored` are
+/// both `&[]` for a `Chain` or `Rigid` body, which ignore this struct's
+/// last two fields entirely.
+#[derive(Clone, Copy)]
+struct BodyShape<'a> {
+    chain: &'a [(i32, i32)],
+    groups: &'a [u8],
+    authored: &'a [u8],
+}
+
 /// **The `Segmented` movement rule — the one genuinely new piece of code
 /// this body plan needed.** The spine follows exactly the way a `Chain`
 /// does (`chain_follow`, walked over the spine cells alone); each
 /// segment's lateral, if it has one, is *re-derived* from its own spine's
 /// new position rather than carried over from the old lateral's position.
 /// "One cell directly above, in world space, with no facing dependence" is
-/// the whole rule for a lateral, so there is nothing about its old
-/// position worth keeping.
+/// the whole rule for a lateral's *preferred* side, so there is nothing
+/// about its old position worth keeping.
 ///
 /// This is what makes the body bend: each segment inherits the position
 /// the segment ahead of it just vacated, exactly as a one-wide `Chain`
 /// does, and a lateral is never more than one cell from its own spine, so
 /// the body is never more than two cells wide anywhere along its length.
 ///
-/// `groups` is `OrganismState::segment_groups`, walked in lock-step with
-/// `chain` — see that field's own doc for why it has to be read from the
-/// individual rather than re-derived from `def.body`'s authored shape (an
-/// injury can leave a spine cell without the lateral it was grown with,
-/// which the authored body has no way to represent).
-fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i32)) -> Vec<(i32, i32)> {
+/// **The lateral tuck rule (`Reports/creature-articulated-body-2026-09-09.md`
+/// §7f): a lateral may never block a move the bare spine could make.**
+/// §7e's ablation proved the laterals were the whole of the articulated
+/// bodies' walking cost — 43.9%/96.8% blocked on flat/rolling against a
+/// laterals-off 2.0%/14.8%, at or below a plain six-cell chain's
+/// 2.5%/12.4% — because the old rule folded a lateral's own collision into
+/// the *step's* placeability, so a lateral with nowhere to go refused the
+/// whole body's move. **Placeability of the step is decided on the spine
+/// alone, by the same predicate a plain `Chain` uses — this function's own
+/// spine landing is computed exactly as it always was, unconditionally, and
+/// is what the caller's `landing_is_placeable_through_tissue` check
+/// (immediately after every call to this, or to `body_after_step`) still
+/// tests.** A lateral is bookkeeping under that invariant, never a veto on
+/// it: each widened segment's lateral takes its authored side if that cell
+/// is placeable, else the other side, else it **tucks** — simply not
+/// pushed into the landing this step, so the segment reads as one cell
+/// wide — and nothing a lateral does can make the spine's own check fail,
+/// because a lateral that cannot go anywhere is not in the landing at all.
+///
+/// **Tucking is re-evaluated fresh every step and remembers nothing.** A
+/// segment that tucked last tick is offered its lateral again this tick
+/// exactly as any other widened segment is, so it re-emerges the instant a
+/// side is free — automatic, no timer, no flag. That is the ethos' first
+/// law (an outcome is a distribution, not a binary) applied to a body: an
+/// animal squeezing through a gap narrows, passes, and fills back out,
+/// which is why tucking is the design rather than a fallback.
+///
+/// `groups` is `OrganismState::segment_groups` — **the live widths**,
+/// describing how `chain` (the body's position list *before* this step)
+/// currently decomposes into segments; it is walked here only to pull the
+/// old spine out from underneath whatever laterals happen to be expressed
+/// right now. `authored` is a *different*, stabler reference — this
+/// individual's own grown shape (`segment_authored`), unaffected by
+/// tucking — and is what decides whether segment `i` should *attempt* a
+/// lateral at all this step. Conflating the two was the bug a first draft
+/// of this rule would have kept: reading "attempt a lateral" off the live
+/// `groups` means a tucked segment (width 1 this tick) would never be
+/// offered its lateral again, because the very code path that is supposed
+/// to test whether room has opened up would see "1" and skip the test.
+///
+/// Returns the landing **and the live widths together, as one value** —
+/// `OrganismState::segment_groups`'s replacement for next step — because a
+/// grouping computed separately from the landing it describes is exactly
+/// how the two come to disagree (§7f(2)).
+fn segmented_body_after_step(world: &World, body: BodyShape, head: (i32, i32), push: bool) -> (Vec<(i32, i32)>, Vec<u8>) {
+    let BodyShape { chain, groups, authored } = body;
     if groups.iter().map(|&g| g as usize).sum::<usize>() != chain.len() {
         // Defensive only. `place_creature` always writes a `groups` that
         // sums to `chain.len()`, and severing truncates the two together
         // (see that call site), so this should never fire; if it somehow
         // does, falling back to the plain follow rule is a body that stops
         // bending rather than one that silently drops or invents a cell.
-        return chain_follow(chain, head);
+        // The grouping is unchanged along with it -- there is no widened
+        // segment to have tucked or emerged when the walk degenerated to a
+        // flat follow in the first place.
+        return (chain_follow(chain, head), groups.to_vec());
     }
     // Pull out the spine alone: group `g`'s first cell, in `groups` order.
     let mut old_spines = Vec::with_capacity(groups.len());
@@ -7108,21 +7211,38 @@ fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i3
         }
         idx += g as usize;
     }
+    // **Unconditional, exactly as before the tuck rule.** This is the whole
+    // invariant §7f(1) asks for: nothing a lateral does below can change
+    // where the spine lands.
     let new_spines = chain_follow(&old_spines, head);
-    // Reassemble in walk order, re-deriving each lateral from its own
-    // segment's *new* spine position.
+    // Reassemble in walk order. Whether segment `i` gets to *try* a lateral
+    // comes from `authored`, never from `groups` -- see this function's own
+    // doc for why reading the live width here would make a tucked segment
+    // permanently tucked.
     let mut out: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
-    for (i, (&(sx, sy), &g)) in new_spines.iter().zip(groups).enumerate() {
+    let mut new_groups: Vec<u8> = Vec::with_capacity(groups.len());
+    for (i, &(sx, sy)) in new_spines.iter().enumerate() {
         out.push((sx, sy));
-        if g == 2 {
-            out.push(lateral_for(&new_spines, i, (sx, sy)));
+        let widened = authored.get(i).copied().unwrap_or(1) == 2;
+        if widened {
+            match lateral_for(world, chain, &out, &new_spines, i, (sx, sy), push) {
+                Some(cell) => {
+                    out.push(cell);
+                    new_groups.push(2);
+                }
+                None => new_groups.push(1), // tucked -- not placed this step
+            }
+        } else {
+            new_groups.push(1);
         }
     }
-    out
+    (out, new_groups)
 }
 
-/// **Where segment `i`'s lateral cell sits: perpendicular to its own spine
-/// direction, on the first side that is not already spine.**
+/// **Where segment `i`'s lateral cell would sit if the world lets it stand
+/// there: perpendicular to its own spine direction, on the first side that
+/// is not already spine and is placeable.** `None` when neither side is —
+/// the tuck.
 ///
 /// **This was `(sx, sy - 1)` — always world-space "up" — and that body could
 /// not walk.** Measured on `creature_scale mode=walk`, one seed, same scene,
@@ -7149,6 +7269,13 @@ fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i3
 /// ahead — and the second side handles a spine that bends back on itself,
 /// where the first perpendicular can land on the segment *behind*.
 ///
+/// **§7f went further: perpendicular narrows the deadlock, it does not close
+/// it, and a lateral with nowhere legal to go must not be a veto either.**
+/// Both perpendiculars can still be world-blocked (rock, another body) or
+/// spine-blocked (the body coiled tight); this is where that gets decided,
+/// and a `None` here costs the segment its lateral for one step, never the
+/// whole body its move.
+///
 /// **Deterministic, and it reduces to the old rule where the old rule
 /// worked**: for a body lying horizontally the preferred perpendicular is
 /// `(0, -1)`, so a straight animal is laid out exactly as before and
@@ -7156,7 +7283,15 @@ fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i3
 /// Preference is up first, then left, so the choice is a function of the
 /// body's own shape and never of iteration order (`CLAUDE.md`'s tie-order
 /// rule).
-fn lateral_for(spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32)) -> (i32, i32) {
+///
+/// `chain` is the whole body's *old* position set — the vacate licence a
+/// plain step already has (a body may step into cells it is leaving this
+/// tick) — and `placed` is this step's landing built so far (the spine, and
+/// any earlier segment's already-committed lateral), so two segments'
+/// laterals can never be asked to share a cell. `spines` is the *whole* new
+/// spine, not just the cells placed so far, because a lateral must not land
+/// on a spine cell that belongs to a segment later in walk order either.
+fn lateral_for(world: &World, chain: &[(i32, i32)], placed: &[(i32, i32)], spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32), push: bool) -> Option<(i32, i32)> {
     // The direction of the segment ahead; for the head, the one behind,
     // reversed, so a lead segment's lateral sits the same side as the rest.
     let (dx, dy) = if i > 0 {
@@ -7173,16 +7308,22 @@ fn lateral_for(spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32)) -> (i32, i
     candidates.sort_by_key(|&(px, py)| (py, px));
     for (px, py) in candidates {
         let cell = (sx + px, sy + py);
-        if !spines.contains(&cell) {
-            return cell;
+        if spines.contains(&cell) || placed.contains(&cell) {
+            continue;
+        }
+        // The exact predicate `landing_is_placeable_through_tissue` checks
+        // per cell -- empty, this body's own (vacating) cell, or partable
+        // tissue with `push` -- so a lateral accepted here is guaranteed to
+        // pass that check when the caller re-runs it over the whole landing.
+        if world.is_empty(cell.0, cell.1) || chain.contains(&cell) || (push && is_partable(world, world.get(cell.0, cell.1))) {
+            return Some(cell);
         }
     }
-    // Both perpendiculars are spine: a body coiled tight enough that there is
-    // no free side. Return the preferred one anyway and let
-    // `landing_is_placeable` refuse the step, which is the honest outcome —
-    // inventing a third position would put a cell somewhere the shape does
-    // not say it is.
-    (sx + candidates[0].0, sy + candidates[0].1)
+    // Neither side is placeable: tuck. Reported as "not this step" rather
+    // than as a third invented position -- the shape does not say where
+    // else this cell could be, and a body coiled tight enough to lose both
+    // sides is exactly the case width 2 was never meant to cover.
+    None
 }
 
 /// Where this creature's cells end up if its head steps to `head`.
@@ -7195,10 +7336,28 @@ fn lateral_for(spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32)) -> (i32, i
 /// relocation itself — is written once against the resulting position
 /// list.
 ///
-/// `groups` is `OrganismState::segment_groups` — empty for a `Chain` or
-/// `Rigid` body, which ignore it entirely; only the `Segmented` arm reads
-/// it, through `segmented_body_after_step`.
-fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], head: (i32, i32), from: u8, to: u8) -> Vec<(i32, i32)> {
+/// `body.groups` is `OrganismState::segment_groups` — empty for a `Chain`
+/// or `Rigid` body, which ignore it entirely; only the `Segmented` arm reads
+/// it, through `segmented_body_after_step`. `body.authored` is that
+/// function's stable reference for which segments may attempt a lateral at
+/// all — see its own doc — and is likewise ignored outside the `Segmented`
+/// arm. Bundled into `BodyShape` rather than three parameters, see that
+/// struct's own doc.
+///
+/// **Needs `&World` and `push` for exactly one reason: `Segmented`'s
+/// lateral tuck rule (§7f) has to test placeability of each candidate side
+/// as it decides where a lateral goes, not just of the finished landing.**
+/// Neither `Chain` nor `Rigid` reads either parameter — a plain follow or a
+/// rigid translation never needed the world to compute a candidate, only to
+/// be checked against afterward, which the caller still does.
+///
+/// **Returns the landing and the live widths together, as one value** —
+/// `groups.to_vec()` unchanged for `Chain`/`Rigid`, and the freshly
+/// computed live widths for `Segmented`. A caller that only wants cells
+/// takes them off the returned pair; the one that is about to commit the
+/// move writes the widths back to `OrganismState::segment_groups`.
+fn body_after_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), from: u8, to: u8, push: bool) -> (Vec<(i32, i32)>, Vec<u8>) {
+    let BodyShape { chain, groups, .. } = body;
     if def.body.is_rigid() {
         // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
         // between east-ish and west-ish re-lays the template; turning
@@ -7206,7 +7365,7 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], head:
         let west = (3..=5).contains(&to);
         let full = def.body.offsets(west);
         if chain.len() == full.len() {
-            return full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect();
+            return (full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect(), groups.to_vec());
         }
         // **An injured rigid body re-lays the cells it still has, not the
         // ones it was born with**, and until 2026-09-02 nothing could reach
@@ -7237,18 +7396,71 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], head:
         // is an injury in both body plans instead of a corrupt chain in one.
         let (hx, hy) = chain.first().copied().unwrap_or(head);
         let flipped = west != (3..=5).contains(&from);
-        chain
-            .iter()
-            .map(|&(cx, cy)| {
-                let (dx, dy) = (cx - hx, cy - hy);
-                (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
-            })
-            .collect()
+        (
+            chain
+                .iter()
+                .map(|&(cx, cy)| {
+                    let (dx, dy) = (cx - hx, cy - hy);
+                    (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
+                })
+                .collect(),
+            groups.to_vec(),
+        )
     } else if matches!(def.body, BodyPlan::Segmented(_)) {
-        segmented_body_after_step(chain, groups, head)
+        segmented_body_after_step(world, body, head, push)
     } else {
-        chain_follow(chain, head)
+        (chain_follow(chain, head), groups.to_vec())
     }
+}
+
+/// **This individual's own grown body shape — the stable reference
+/// `segmented_body_after_step` uses to decide whether a segment should
+/// *attempt* a lateral this step (§7f(1)), and `relocate_chain` uses for a
+/// re-emerging lateral's `CellType` (§7f "Cell type: kept").** Empty for a
+/// `Chain` or `Rigid` body, or for a `Segmented` species with no `fates`
+/// table (none shipped; `def.body`'s literal shape covers it if one ever
+/// exists).
+///
+/// **Re-derives from the individual's own `FateGenome` on every call,
+/// rather than reading a field kept on `OrganismState`.** `organism::
+/// grow_body` is pure and bounded by `SEGMENTED_BODY_CAP` — a handful of
+/// iterations — so this costs one small `Vec` per creature *tick*, called
+/// once at the top of `step_chain`/`tumble`/`step_crossing` and reused for
+/// every candidate direction those evaluate, not re-grown per candidate.
+///
+/// **Known gap, left open rather than solved here**: this is the shape the
+/// genome *grows*, not what the animal has left after an injury, so a
+/// lateral bitten off a segment that is not currently tucked can regrow the
+/// next time its cell is free — the same kind of approximation `body_after_
+/// step`'s `Rigid` arm already makes for an injured body (see that
+/// function's own comment, "an injured rigid body re-lays the cells it
+/// still has"). A real fix wants a persisted per-segment capacity that
+/// severing also writes down, distinct from the live `segment_groups` a
+/// tuck fluctuates; that belongs with the rest of the body-injury staging
+/// (§12b/§13 of the design report), not with the movement fix this function
+/// is for. Checked, not inherited: a bitten lateral's `OrganismCell`
+/// sidecar is reset to default on every ordinary step regardless (`World::
+/// set`'s `reindex_organism_cell` seam gives every relocated cell a fresh
+/// one, tuck or not), so there is no scalar this gap could smuggle back —
+/// only the cell's existence, which severing already accounts for via
+/// `meat_lost`/`stamp_as_corpse` at the moment it is actually bitten off,
+/// not at the moment it might regrow.
+fn segment_authored(def: &CreatureDef, fates: organism::FateGenome) -> Vec<organism::Segment> {
+    if fates.is_empty() {
+        return match &def.body {
+            BodyPlan::Segmented(segments) => segments.clone(),
+            BodyPlan::Chain(_) | BodyPlan::Rigid(_) => Vec::new(),
+        };
+    }
+    organism::grow_body(fates, SEGMENTED_BODY_CAP, body_laterals_enabled())
+}
+
+/// `segment_authored`'s segments, reduced to the `1`/`2` width encoding
+/// `OrganismState::segment_groups` and `segmented_body_after_step` share —
+/// see `organism::BodyPlan::segment_groups`, the same reduction applied to
+/// the authored (never grown) case.
+fn segment_authored_widths(def: &CreatureDef, fates: organism::FateGenome) -> Vec<u8> {
+    segment_authored(def, fates).iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect()
 }
 
 /// Does the body have a foothold where it is going?
@@ -7354,6 +7566,18 @@ impl Kin {
     }
 }
 
+/// **One side of a body relocation** — its cells and how they currently
+/// group into segments — bundled for the same reason `BodyShape` is: it
+/// keeps `relocate_chain` under Clippy's argument-count lint without losing
+/// the pairing between a position list and the grouping that describes it.
+/// `groups` is `&[]` for a `Chain`/`Rigid` body or any pure translation —
+/// see `relocate_chain`'s own doc.
+#[derive(Clone, Copy)]
+struct BodySide<'a> {
+    cells: &'a [(i32, i32)],
+    groups: &'a [u8],
+}
+
 /// Rewrite a chain from `from` to `to`, carrying every whole `Cell`.
 ///
 /// **Clear-then-write, in two passes.** The two position sets overlap by
@@ -7366,23 +7590,87 @@ impl Kin {
 /// P-1: the `Cell` values are moved, not rebuilt, so temperature,
 /// `FLAG_BURNING` and the burn timer ride along for every cell. A chain is
 /// where that matters most — a rebuild forgets once per cell per step.
-fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(i32, i32)]) {
-    // **The two ways this silently loses a cell, made loud.** `zip` is the
-    // trap: a `to` shorter than `from` drops the tail's `Cell` on the floor
-    // and a longer one leaves `state.chain` claiming a position that holds
-    // nothing, and either way `state.chain = to.to_vec()` records the
-    // *intended* body rather than the one written. A repeated position is
-    // the same failure from the other side — two writes, one cell, last
-    // write wins — and is §R3's headless ant
-    // (`Reports/creature-chain-head-loss-2026-08-30.md`). `landing_is_placeable`
-    // is what keeps a duplicate from reaching here; this says so out loud
-    // rather than trusting every future caller to have asked.
-    debug_assert_eq!(from.len(), to.len(), "a body relocates cell for cell; a length change here is a lost or invented cell");
+///
+/// **`from_groups`/`to_groups` are each side's segment layout — empty for a
+/// `Chain` or `Rigid` body, or for any pure translation (a fall, a flight
+/// substep), because every one of those preserves `from.len() == to.len()`
+/// and the *index* correspondence positionally: `to[i]` is always the same
+/// body part as `from[i]`.** Every such caller passes `&[]` for both, which
+/// this function reduces to "every cell is its own segment of width one" —
+/// `OrganismState::segment_groups`'s own convention — recovering the exact
+/// flat `zip` this function always did.
+///
+/// **A `Segmented` body under the lateral tuck rule (§7f) is the one case
+/// where `from.len()` and `to.len()` can genuinely differ, and the
+/// correspondence has to be found by (segment, role), never by flat
+/// index.** A tuck in the middle of the body shifts every later index, so
+/// index `k` of `to` is not index `k` of `from` the moment a segment
+/// widens or narrows anywhere ahead of it — a positional `zip` would hand a
+/// spine cell a lateral's identity, or worse. Walking `from_groups` and
+/// `to_groups` in lock-step instead finds each segment's own spine-to-spine
+/// and lateral-to-lateral pairing directly: a spine cell always carries
+/// (the spine never tucks); a lateral present on both sides carries its old
+/// `Cell` exactly as a spine cell does; one present only on `from` is
+/// tucking away and is simply not carried (cleared below, like the rest of
+/// `from`, and nothing more); one present only on `to` is **re-emerging**
+/// and has no old cell to carry, so `mint_lateral_cell` builds one fresh —
+/// the segment's own authored `CellType`, and a shade keyed on `(segment,
+/// is_lateral)` rather than on walk order, so a lateral that tucks and
+/// re-emerges repeatedly always comes back the same colour (§7f(1): "comes
+/// back the colour it left"). `def`/`authored`/`organism` are only ever
+/// read on that path; every non-Segmented caller's `authored` is `&[]` and
+/// never gets there.
+fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, authored: &[organism::Segment], from: BodySide, to: BodySide) {
+    let (from, from_groups, to, to_groups) = (from.cells, from.groups, to.cells, to.groups);
+    let (from_groups, to_groups): (Vec<u8>, Vec<u8>) = if from_groups.is_empty() && to_groups.is_empty() {
+        (vec![1; from.len()], vec![1; to.len()])
+    } else {
+        (from_groups.to_vec(), to_groups.to_vec())
+    };
+    // **The two ways this silently loses a cell, made loud.** A flat `zip`
+    // was the trap this assertion originally guarded: a `to` shorter than
+    // `from` drops a `Cell` on the floor and a longer one leaves
+    // `state.chain` claiming a position that holds nothing, and either way
+    // `state.chain = to.to_vec()` records the *intended* body rather than
+    // the one written. A repeated position is the same failure from the
+    // other side — two writes, one cell, last write wins — and is §R3's
+    // headless ant (`Reports/creature-chain-head-loss-2026-08-30.md`).
+    // `landing_is_placeable` is what keeps a duplicate from reaching here;
+    // this says so out loud rather than trusting every future caller to
+    // have asked. **A step never changes how many segments a body has,
+    // only how wide one is** — severing does that, in a separate call
+    // (`reconcile_chain`), never fused with a step — so the segment
+    // *count* on the two sides must still agree even though the cell
+    // *count* no longer has to.
+    debug_assert_eq!(from_groups.len(), to_groups.len(), "a step changes a segment's width, never how many segments a body has: {from_groups:?} vs {to_groups:?}");
     debug_assert!(
         to.iter().enumerate().all(|(i, p)| !to[..i].contains(p)),
         "a body cannot occupy one cell twice: {to:?} — the caller skipped landing_is_placeable"
     );
-    let cells: Vec<Cell> = from.iter().map(|&(cx, cy)| world.get(cx, cy)).collect();
+
+    // The correspondence, found by walking both segment lists in lock-step
+    // — see this function's own doc for why a positional `zip` is exactly
+    // wrong the moment a lateral tucks or re-emerges anywhere but the tail.
+    let mut carry: Vec<((i32, i32), (i32, i32))> = Vec::with_capacity(from.len());
+    let mut mint: Vec<((i32, i32), usize)> = Vec::new();
+    let (mut fi, mut ti) = (0usize, 0usize);
+    for (seg, (&fg, &tg)) in from_groups.iter().zip(&to_groups).enumerate() {
+        if fg > 0 && tg > 0 {
+            carry.push((from[fi], to[ti]));
+        }
+        match (fg == 2, tg == 2) {
+            (true, true) => carry.push((from[fi + 1], to[ti + 1])),
+            (true, false) | (false, false) => {} // tucking away, or never widened: nothing to carry
+            (false, true) => mint.push((to[ti + 1], seg)),                          // re-emerging: no old cell to carry
+        }
+        fi += fg as usize;
+        ti += tg as usize;
+    }
+    debug_assert_eq!(fi, from.len(), "from_groups must account for every cell of `from`: {from_groups:?} vs {from:?}");
+    debug_assert_eq!(ti, to.len(), "to_groups must account for every cell of `to`: {to_groups:?} vs {to:?}");
+
+    // Read every carried `Cell` value before anything is cleared below.
+    let carried: Vec<((i32, i32), Cell)> = carry.iter().map(|&(f, t)| (t, world.get(f.0, f.1))).collect();
 
     // **Lift the foliage this step is about to stand in.** Read before
     // anything is written, because the body's own cells are about to be
@@ -7422,8 +7710,19 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         restore_parted(world, &entry);
     }
 
-    for (&(cx, cy), &cell) in to.iter().zip(&cells) {
-        world.set(cx, cy, cell);
+    for (pos, cell) in carried {
+        world.set(pos.0, pos.1, cell);
+    }
+    if !mint.is_empty() {
+        // Read once, from the head, which the carry loop just wrote: every
+        // body cell shares one species material, `aux` alone tells them
+        // apart (`pack_cell_type`), so the head names it correctly for
+        // every mint below.
+        let material_id = to.first().map_or(material::EMPTY, |&(x, y)| world.get(x, y).material);
+        for (pos, seg) in mint {
+            let cell_type = authored.get(seg).and_then(|s| s.lateral).unwrap_or(CellType::Segment);
+            world.set(pos.0, pos.1, mint_lateral_cell(world, def, organism, material_id, cell_type, seg));
+        }
     }
     still_held.extend(newly_parted);
 
@@ -7465,6 +7764,36 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         state.chain = to.to_vec();
         state.parted = still_held;
     }
+}
+
+/// Mint a fresh `Cell` for a lateral that is re-emerging after a tuck —
+/// there is no old cell to carry forward, because this position held
+/// nothing last step (§7f(1): "not placed this step").
+///
+/// **Keyed on `(segment, is_lateral)`, never on walk order.** Walk order
+/// shifts by one for every segment between here and the head whenever any
+/// segment ahead tucks or re-emerges, so keying on it would recolour half
+/// the animal on every fold. `place_creature`'s own per-cell loop keys on
+/// walk order and is safe only because that order never changes after
+/// placement; a stable per-segment key means a lateral that tucks and
+/// re-emerges repeatedly always comes back the same colour, matching
+/// §7f(1)'s "comes back the colour it left". A lateral's key is its
+/// segment's spine key plus one, so the two never collide and both are
+/// stable for the segment's whole life.
+fn mint_lateral_cell(world: &World, def: &CreatureDef, organism: u16, material_id: material::MaterialId, cell_type: CellType, segment: usize) -> Cell {
+    let shades = world.materials.get(material_id).palette.len().max(1) as u32;
+    let key = segment as u64 * 2 + 1;
+    let shade = match def.shade_rule {
+        // No shipped `Segmented` body uses `Countershade` (both `ant` and
+        // `hopper` default to `Random`); re-deriving `Countershade`'s
+        // whole-body vertical span for one re-emerging cell would need the
+        // authored body's own extent, which nothing here keeps around
+        // after placement. Falling back to the random draw is correct
+        // where this is actually exercised and an honest placeholder where
+        // it is not, rather than a silent wrong answer.
+        ShadeRule::Random | ShadeRule::Countershade => rng::stream(world.seed, organism as u64, key, RNG_SLOT_SHADE).below(shades) as u8,
+    };
+    Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type))
 }
 
 /// Put one lifted tissue cell back exactly as it was, scalars included.
@@ -9398,6 +9727,24 @@ mod tests {
     /// Shares `digging_moves_the_ground_rather_than_eating_it`'s scene
     /// deliberately: that one is already known to produce digs, so a null
     /// here cannot be "the ant never dug" wearing a price failure's clothes.
+    ///
+    /// **`ant_long`, not the shipped `ant`, and that is the tuck rule's own
+    /// consequence, not a workaround for it.** The identity this test
+    /// checks -- one fixed joule figure per dig -- needs `body_cells`
+    /// constant across every dig, and the shipped ant's is not: a widened
+    /// segment that tucks (§7f) genuinely carries less body for exactly as
+    /// long as it is tucked, so `live_body_cells` -- what the dig charge is
+    /// actually billed against, `creature.rs:3149` -- legitimately varies
+    /// dig to dig. Measured before this swap: 12 digs at price 4 booked an
+    /// average of 0.81 steps' worth against an authored 1, because several
+    /// of them landed while a lateral was folded away. That is correct
+    /// (`OrganismState::segment_groups`'s own doc: "genuinely smaller while
+    /// tucked"), not a bug this test should paper over by loosening its
+    /// tolerance -- a loosened bound could not tell a real pricing error
+    /// from this. `ant_long` is `Chain(6)`, no `fates` table and no
+    /// laterals to ever fold, so its `body_cells` is the one thing this
+    /// test needs held constant and its species file says so is
+    /// unaffected by anything this build changes.
     fn dig_price_scene(price: f32) -> (u64, f64, f32) {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
@@ -9415,7 +9762,7 @@ mod tests {
             w.set(90, y, Cell::new(material::STONE, 0).with_attached(true));
             w.set(140, y, Cell::new(material::STONE, 0).with_attached(true));
         }
-        let species = w.species.id_of("ant").expect("ant species");
+        let species = w.species.id_of("ant_long").expect("ant_long species");
         let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
         def.dig_cost_in_moves = price;
         let per_dig = def.move_cost_per_cell * def.body.len() as f32 * price;
@@ -9432,7 +9779,9 @@ mod tests {
                 &def.recurrence,
             ),
         );
-        w.plant_ant(100, 95);
+        if let Some(site) = plant_creature_seed(&mut w, 100, 95, "ant_long") {
+            w.schedule_active_site(site);
+        }
         let ant = w.get(100, 95).organism_id();
         assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
         if let Some(state) = w.organism_mut(ant) {
@@ -11346,15 +11695,57 @@ mod tests {
         for cx in 90..130 {
             w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
         }
+        // **A ceiling, added alongside the tuck rule.** A single soil cell
+        // in an otherwise open column used to force a dig only because the
+        // shipped body could barely move at all (§7e: 96.8% blocked on
+        // rough ground) -- an ant that free-walks, which is the whole point
+        // of this build, climbs over a one-cell speed bump instead (`ants
+        // climb walls and ceilings`, `head_has_foothold`'s own doc) rather
+        // than digging through it. `feeding_and_digging_are_separate_genes`
+        // read `digs_only == 0` the moment mobility was fixed, which is
+        // `CLAUDE.md`'s "a scene that contradicts the code will look like a
+        // bug in the code" -- the scene's premise (this animal cannot get
+        // past the soil any other way) needs restating under a body that
+        // can actually walk, not the mechanism weakened to keep an old
+        // scene passing. The tunnel below re-establishes it: floor at 101,
+        // ceiling at 97, and the soil now fills every open row between
+        // them, so there is no row left to climb around through. Spans the
+        // same width as the floor -- a ceiling over the soil alone would
+        // just move the climb-around a few cells sideways to where there
+        // is still open sky. Two rows, matching the body's own thickness at
+        // placement (its laterals sit one row above the spine, never two),
+        // so there is no vertical room to dodge the soil column either.
+        // **And a west wall, found the hard way**: an open-ended tunnel is
+        // not sealed at all -- the first version of this fix had the ant
+        // retreat out the back, off the edge of the floor, and fall away
+        // from the whole scene rather than ever engage with the soil.
+        // `dig_price_scene`'s own box (this file, above) already proves the
+        // shape that works: floor, ceiling and both side walls, all the way
+        // from ceiling to floor.
+        for cx in 90..130 {
+            w.set(cx, 98, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        for ty in 98..=101 {
+            w.set(95, ty, Cell::new(material::STONE, 0).with_attached(true));
+        }
         // Geometry fitted to what the verbs actually read, which is not the
         // same for the two of them: `act` digs strictly the cell in the
         // heading direction (east, at spawn), while `adjacent_food` scans
-        // the head's whole 8-neighbourhood. So the soil goes *ahead* of the
-        // head and the corpse diagonally above it, where it can be eaten
-        // but can never be the dig target -- otherwise the dig arm would
-        // excavate the corpse and book it as a dig.
-        w.set(101, 100, Cell::new(soil, 0).with_attached(true));
-        w.set(101, 99, Cell::new(food, 0).with_attached(true));
+        // the head's whole 8-neighbourhood. The soil now fills the whole
+        // tunnel width ahead of the head, so it is unavoidable rather than
+        // merely ahead; the food sits behind the head instead, reachable by
+        // the 8-neighbourhood scan without ever crossing the soil, so it
+        // can be eaten but can never be the dig target -- otherwise the dig
+        // arm would excavate it and book it as a dig.
+        for ty in 99..=100 {
+            w.set(101, ty, Cell::new(soil, 0).with_attached(true));
+        }
+        // Directly above the head (100,100), not on any of the seven cells
+        // the shipped ant's own placement occupies (its two thorax
+        // laterals land at (99,99) and (98,99) -- one row further back),
+        // so the food does not collide with the body the way an ant-sized
+        // cell placed too close to the spawn point would.
+        w.set(100, 99, Cell::new(food, 0).with_attached(true));
 
         let species = w.species.id_of("ant").expect("ant species");
         let def = w.species.get(species).creature.as_ref().expect("creature").clone();
@@ -11923,12 +12314,12 @@ mod tests {
         // Into the middle cell, which does **not** vacate: follow-the-leader
         // puts (11,10) at index 0 and again at index 2, and before this rule
         // `relocate_chain` wrote it twice with the Segment last.
-        let into_body = body_after_step(&def, &chain, &[], (11, 10), 2, 2);
+        let (into_body, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 10), 2, 2, false);
         assert_eq!(into_body, vec![(11, 10), (10, 10), (11, 10)], "the duplicate this rule exists to refuse");
         assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false), "a body must not arrive with two cells in one place");
 
         // Into the tail, which does vacate: the same three cells, no repeat.
-        let into_tail = body_after_step(&def, &chain, &[], (11, 11), 2, 2);
+        let (into_tail, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 11), 2, 2, false);
         assert_eq!(into_tail, vec![(11, 11), (10, 10), (11, 10)]);
         assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false), "following your own tail is legal and must stay legal");
     }
@@ -12410,19 +12801,19 @@ mod tests {
 
         // Intact: the authored template, and the path that always worked.
         let intact = vec![(100, 100), (99, 100), (100, 99), (99, 99)];
-        let stepped = body_after_step(&def, &intact, &[], (101, 100), 0, 0);
+        let (stepped, _) = body_after_step(&w, &def, BodyShape { chain: &intact, groups: &[], authored: &[] }, (101, 100), 0, 0, false);
         assert_eq!(stepped.len(), intact.len(), "an intact body must still lay its whole template");
 
         // Bitten down to two cells, head first. Every one of these must come
         // out the far side, and nothing else with them.
         let injured = vec![(100, 100), (99, 99)];
-        let moved = body_after_step(&def, &injured, &[], (101, 100), 0, 0);
+        let (moved, _) = body_after_step(&w, &def, BodyShape { chain: &injured, groups: &[], authored: &[] }, (101, 100), 0, 0, false);
         assert_eq!(moved.len(), injured.len(), "length in must equal length out, or relocate_chain loses or invents a cell");
         assert_eq!(moved, vec![(101, 100), (100, 99)], "and the surviving shape travels with it, offset for offset");
 
         // Turning to face west mirrors the shape, exactly as an intact body's
         // template is mirrored rather than rotated.
-        let mirrored = body_after_step(&def, &injured, &[], (99, 100), 0, 4);
+        let (mirrored, _) = body_after_step(&w, &def, BodyShape { chain: &injured, groups: &[], authored: &[] }, (99, 100), 0, 4, false);
         assert_eq!(mirrored.len(), injured.len(), "a facing flip must not change how many cells there are");
         assert_eq!(mirrored, vec![(99, 100), (100, 99)], "x offsets mirror, y offsets do not -- facing is a mirror, never a rotation");
     }
@@ -12441,14 +12832,18 @@ mod tests {
     /// spine ends up, not above where the lateral itself used to be.
     #[test]
     fn a_segmented_body_bends_by_re_deriving_each_lateral() {
+        let w = test_world();
         let groups = [1u8, 2, 1];
         let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
-        let next = segmented_body_after_step(&chain, &groups, (6, 5));
+        // Nothing tucked here -- `authored` and the live `groups` agree --
+        // so this exercises the ordinary widen-and-place path.
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
         assert_eq!(
             next,
             vec![(6, 5), (5, 5), (5, 4), (4, 5)],
             "the spine must follow like a Chain and each lateral must sit directly above its own spine's new position"
         );
+        assert_eq!(next_groups, vec![1, 2, 1], "an unobstructed widened segment must stay expressed, not tuck for no reason");
     }
 
     /// **The laterals must add no collision the spine does not already
@@ -12477,6 +12872,7 @@ mod tests {
     /// asserts a property instead.
     #[test]
     fn a_lateral_adds_no_collision_the_spine_does_not_already_have() {
+        let w = test_world();
         let groups = [1u8, 2, 1];
         // Horizontal body, head east at (5,5), the wide segment behind it.
         let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
@@ -12487,12 +12883,23 @@ mod tests {
         for (dx, dy) in DIRS.iter().copied() {
             let step = (head.0 + dx, head.1 + dy);
             let bare = chain_follow(&spine, step);
-            let full = segmented_body_after_step(&chain, &groups, step);
-            assert_eq!(full.len(), chain.len(), "a body relocates cell for cell, heading ({dx},{dy}): {full:?}");
+            let (full, _) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, step, true);
+            assert_eq!(full.len(), chain.len(), "a placed body relocates cell for cell, heading ({dx},{dy}): {full:?}");
             if has_dup(&bare) {
+                // The spine itself folds back on its own body at this
+                // heading -- `landing_is_placeable` refuses the whole move
+                // downstream, and no lateral rule can or should paper over
+                // that. Counted as the positive control below, not asserted
+                // on: the tuck rule cannot be blamed for a collision that
+                // belongs to the spine alone.
                 spine_only_collisions += 1;
                 continue;
             }
+            // **The property under the tuck rule: a lateral takes its
+            // authored side, the other side, or tucks — it can never add a
+            // duplicate the spine did not already have**, so wherever the
+            // bare spine is clean, the full body (laterals placed or
+            // tucked) must be clean too.
             assert!(
                 !has_dup(&full),
                 "heading ({dx},{dy}): the spine alone is fine {bare:?} but the laterals collide {full:?}"
@@ -12507,6 +12914,110 @@ mod tests {
         );
     }
 
+    /// **§7f(1)'s central invariant, watched red first**: with the old
+    /// always-place-the-lateral rule (`lateral_for` returning a bare
+    /// position and the caller's `landing_is_placeable_through_tissue`
+    /// folding the lateral's own collision into the step), blocking *both*
+    /// of a widened segment's candidate cells refused the whole body's
+    /// move — the deadlock §7e measured at 43.9%/96.8% blocked. Under the
+    /// tuck rule the lateral simply is not placed; the spine's own step,
+    /// decided by the identical predicate a plain `Chain` uses, is
+    /// untouched by what a lateral could or could not do.
+    #[test]
+    fn a_body_with_both_sides_blocked_still_steps() {
+        let mut w = test_world();
+        // Both perpendicular candidates for the widened segment's *new*
+        // spine position (5,5) once the head steps to (6,5) -- see
+        // `lateral_for`'s own doc for the up-then-left tie order this
+        // geometry exercises.
+        w.set(5, 4, Cell::new(material::STONE, 0));
+        w.set(5, 6, Cell::new(material::STONE, 0));
+        let groups = [1u8, 2, 1];
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
+        assert!(
+            landing_is_placeable_through_tissue(&w, &chain, &next, true),
+            "the spine's own step must not be refused just because a lateral has nowhere to go: {next:?}"
+        );
+        assert_eq!(next, vec![(6, 5), (5, 5), (4, 5)], "the spine moves exactly as a bare Chain would; the blocked lateral is simply absent");
+        assert_eq!(next_groups, vec![1, 1, 1], "the widened segment reads as one cell wide this step -- tucked, not blocking");
+    }
+
+    /// **A tucked lateral re-emerges** (§7f(1), and §7f's "Cell type: kept" /
+    /// "Colour: ... keyed on (segment, is-lateral)"), tested through
+    /// `relocate_chain` itself rather than through a live colony -- the
+    /// property is arithmetic on one segment: step into the pinch, step out,
+    /// and check what actually landed in the grid.
+    ///
+    /// Built directly with `push_organism` rather than `place_creature`, so
+    /// the body is a hand-controlled three-segment shape (not ant's own
+    /// seven-cell grown one) and `authored` is the literal `Vec<Segment>`
+    /// this test wrote, not a `FateGenome` unfold -- the property under test
+    /// does not depend on where `authored` came from.
+    #[test]
+    fn a_tucked_lateral_re_emerges() {
+        let mut w = test_world();
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        let material_id = w.materials.id_of("ant").expect("ant material");
+        let authored = vec![
+            organism::Segment { cell: CellType::Head, lateral: None },
+            organism::Segment { cell: CellType::Segment, lateral: Some(CellType::Leg) },
+            organism::Segment { cell: CellType::Segment, lateral: None },
+        ];
+
+        let organism = w.push_organism(species).expect("a slot is free");
+        // Same geometry as the pure-function tests above: head east at
+        // (5,5), the widened middle segment's lateral at (4,4).
+        let chain = vec![(5, 5), (4, 5), (4, 4), (3, 5)];
+        let groups = vec![1u8, 2, 1];
+        for (i, &(x, y)) in chain.iter().enumerate() {
+            let cell_type = if i == 2 { CellType::Leg } else { CellType::Segment };
+            w.set(x, y, Cell::new(material_id, 0).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
+        }
+        if let Some(state) = w.organism_mut(organism) {
+            state.chain = chain.clone();
+            state.segment_groups = groups.clone();
+        }
+
+        // Step 1: into the pinch. Block both sides of the widened segment's
+        // next spine position, exactly as the test above.
+        w.set(5, 4, Cell::new(material::STONE, 0));
+        w.set(5, 6, Cell::new(material::STONE, 0));
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
+        assert_eq!(next_groups, vec![1, 1, 1], "test setup: both sides blocked, the widened segment must tuck");
+        relocate_chain(&mut w, organism, &def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
+        if let Some(state) = w.organism_mut(organism) {
+            state.segment_groups = next_groups.clone();
+        }
+        assert!(w.is_empty(4, 4), "the tucked lateral's old cell must be cleared, not left standing");
+        assert_eq!(w.organism(organism).expect("live").chain.len(), 3, "the body reads three cells wide while tucked");
+
+        // Step 2: out of the pinch. Clear the blockage and step again --
+        // `authored` (the stable reference) is unchanged; only the *live*
+        // `groups` fed into the walk is this step's own (post-tuck) shape.
+        w.set(5, 4, Cell::EMPTY);
+        w.set(5, 6, Cell::EMPTY);
+        let chain2 = w.organism(organism).expect("live").chain.clone();
+        let groups2 = w.organism(organism).expect("live").segment_groups.clone();
+        let (next2, next_groups2) = segmented_body_after_step(&w, BodyShape { chain: &chain2, groups: &groups2, authored: &groups }, (7, 5), true);
+        assert_eq!(next_groups2, vec![1, 2, 1], "room is free again: the lateral must re-emerge, read off `authored`, not off the still-tucked live `groups`");
+        assert_eq!(next2.len(), 4, "the cell count returns");
+        relocate_chain(&mut w, organism, &def, &authored, BodySide { cells: &chain2, groups: &groups2 }, BodySide { cells: &next2, groups: &next_groups2 });
+        if let Some(state) = w.organism_mut(organism) {
+            state.segment_groups = next_groups2;
+        }
+
+        // The re-emerged lateral is `next2[2]` -- walk order
+        // [spine0, spine1, lateral1, spine2] for groups [1, 2, 1].
+        let (lx, ly) = next2[2];
+        let reemerged = w.get(lx, ly);
+        assert_eq!(reemerged.organism_id(), organism, "the re-emerged cell must belong to the animal, not sit there unowned");
+        assert_eq!(organism::cell_type(reemerged.aux()), Some(CellType::Leg), "the role is the authored segment's own -- kept, per §7f(1), not re-derived from the live cell");
+        let expected = mint_lateral_cell(&w, &def, organism, material_id, CellType::Leg, 1);
+        assert_eq!(reemerged.shade, expected.shade, "the colour must be the one this segment's stable (segment, is-lateral) key always draws -- the same draw `mint_lateral_cell` makes, not a walk-order-keyed one");
+    }
+
     /// The defensive fallback: a `groups` that does not sum to `chain.len()`
     /// (empty, or otherwise wrong) must degrade to the ordinary follow
     /// rule rather than panic, drop a cell, or invent one. This should
@@ -12517,9 +13028,36 @@ mod tests {
     /// reads as correct until it is asked to run.
     #[test]
     fn a_segmented_body_with_a_mismatched_grouping_falls_back_to_the_plain_follow_rule() {
+        let w = test_world();
         let chain = [(5, 5), (4, 5), (3, 5)];
-        let next = segmented_body_after_step(&chain, &[], (6, 5));
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &[], authored: &[] }, (6, 5), true);
         assert_eq!(next, chain_follow(&chain, (6, 5)), "an empty or mismatched grouping must degrade to the ordinary follow rule");
+        assert!(next_groups.is_empty(), "the mismatched grouping degrades unchanged -- there is no widened segment to have tucked");
+    }
+
+    /// **The equality §7e's second ablation measured — `Segmented` with no
+    /// widened segments is byte-identical to `Chain(n)` at the same length
+    /// — must survive the tuck rule**, per §7f's cost fork: the spine's
+    /// movement stays untouched when no lateral is present. Where the pure
+    /// (0-lateral) case is guarded here, the shipped-with-laterals-on
+    /// equivalent is the walk-counter re-run against §7e's own table
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §7f, "Built and
+    /// measured").
+    ///
+    /// Swept over six seeds' worth of arbitrary headings/positions rather
+    /// than one hand-picked case, since the property has to hold for every
+    /// step a body can take, not just a convenient one.
+    #[test]
+    fn a_lateral_free_segmented_body_is_byte_identical_to_a_chain() {
+        let w = test_world();
+        let all_narrow = vec![1u8; 6];
+        let chain = vec![(50, 50), (49, 50), (48, 50), (47, 50), (46, 50), (45, 50)];
+        for (heading, to) in [(0u8, (51, 50)), (2, (50, 51)), (6, (49, 51)), (4, (50, 49)), (1, (51, 49)), (7, (49, 49))] {
+            let (segmented, segmented_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &all_narrow, authored: &all_narrow }, to, true);
+            let plain = chain_follow(&chain, to);
+            assert_eq!(segmented, plain, "heading {heading}: a Segmented body with no widened segment must move exactly like a Chain");
+            assert_eq!(segmented_groups, all_narrow, "no segment is ever widened, so none can tuck or re-emerge");
+        }
     }
 
     /// **The species file and its own genome must agree on what the animal
@@ -15293,10 +15831,12 @@ mod tests {
         // call did something.
         let mut w = test_world();
         let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         // Pick it up off the shelf: nothing within 8 of it any more.
         let chain = w.organism(ant).expect("live").chain.clone();
         let aloft: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x, y - 20)).collect();
-        relocate_chain(&mut w, ant, &chain, &aloft);
+        // A hand-built vertical shift, like a fall -- flat (`&[]`) groups.
+        relocate_chain(&mut w, ant, &def, &[], BodySide { cells: &chain, groups: &[] }, BodySide { cells: &aloft, groups: &[] });
 
         assert!(!launch(&mut w, ant, 0), "there is nothing to push off");
         assert_eq!(w.creature_stats.impulses, 0, "and it must not be counted as a launch");
@@ -15321,7 +15861,7 @@ mod tests {
             // Off the end of the shelf, over open air down to row 199.
             let chain = w.organism(id).expect("live").chain.clone();
             let out: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x + 22, y)).collect();
-            relocate_chain(&mut w, id, &chain, &out);
+            relocate_chain(&mut w, id, &def, &[], BodySide { cells: &chain, groups: &[] }, BodySide { cells: &out, groups: &[] });
             let start = w.organism(id).expect("live").chain[0];
             // Put it back in touch with the shelf for one instant so the
             // launch is legal, then let it go: a plinth of one cell.
