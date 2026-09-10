@@ -139,13 +139,33 @@ Let's fix that."* The record agrees: the 1-wide 5-cell spine is blocked on
 width, is what sticks in terrain; the card's ants did not move in 30 frames
 (checked frame by frame) and their laterals blinked (the tuck rule has no
 memory). Survival and dig counts are out as bars; **the blocked fraction per
-scene, by cause, is the bar**. Lane `bodies-mobility` (Opus, running, cut
-from the tuck branch): a blocked-step classifier over flat / rolling / a
-tunnel scene / the foliage bed for the two-cell ant, the bare spine and the
-2-wide body from one binary, the mechanical diagnosis (backing out of a
-dead end, U-turns onto self-vacated cells, straight-up with tuck, tuck with
-memory), and the rule specified for a Sonnet build; a moving card of one
-long ant in a tunnel.
+scene, by cause, is the bar**. **Answered the same evening (PR #311,
+stacked on the tuck branch): a body longer than two cells cannot turn
+round, and that is the whole of it — length, not width.** A body follows
+its head and a landing may not put two cells in one place, so the only
+own-cell a head may land on is the tail; for a two-cell ant that is its
+neighbour and reversing is one step, for a five-cell body it is four cells
+away and unreachable, so in a dead end it is stuck for ever. The
+classifier's histogram (one binary, four scenes): two-cell ant 0.6 / 4.0 /
+5.1 / 8.6% blocked on flat / rolling / tunnel / chamber, the 2-wide
+articulated ant 1.9 / 22.1 / 87.1 / 23.0%, and **`boxed_self` equals
+`boxed` in all sixteen rows**; the wide body is no worse than the 6-cell
+chain (23.0 against 26.4% in the chamber), so §12's width story does not
+reproduce. **The owner's flip — reversal in place, the chain's order swaps
+and no cell moves — brings the wide body to 2.3 / 7.1 / 7.6 / 11.5%**,
+within a few points of the two-cell ant on every scene; backing out was
+built and rejected (49% still blocked). The flip is behind
+`PIXEL_PHYSICS_REVERSE=flip`, **default off for one reason: foraging
+collapses with it on** (deliveries 23 → 0, round trips 32 → 19) — the trail
+and homing constants were calibrated against a colony that could not
+reverse, the shared-budget trap again. Two lanes now: **F** (Sonnet) makes
+the flip the default and finds why deliveries vanish (state the flip drops,
+a flip fired on a passing ant, or a blocked tick read downstream) and
+restores them, and **G** (Sonnet) founds a long body along the surface
+contour (§13f) so a colony seats near the two-cell ant's 39 of 52 instead
+of 12. The chamber's `roofed > 0` stays red with the flip on (blocked
+1,000 → 206 and still no roofed void) — what a colony chooses to dig, not
+whether it can move. Card `…9f00a9`: one long ant in a tunnel.
 
 **Not landed:** the articulated bodies (PR #303, CI red; un-parked by the
 ruling above).
