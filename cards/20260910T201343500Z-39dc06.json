@@ -1,0 +1,43 @@
+{
+  "id": "20260910T201343500Z-39dc06",
+  "created": "2026-09-10T20:13:43Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a4a993db7a539dfa5",
+    "branch": "claude/lab-b1-nectar-r27",
+    "commit": "42a013cf",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a4a993db7a539dfa5"
+  },
+  "title": "Nectar's flower, never visited",
+  "question": "The pale flower at the top of this stem (~22 rows above the soil) never gets a nectar visit across 120,000 frames -- does its height and the water in front of it read as clearly out of an ant's reach, or does it look like it should be gettable?",
+  "context_md": "B1' (nectar, in two currencies): a flower an animal can afford to feed at now pays out of the plant's own reproductive pocket and stays standing (`plant::nectar_offer`) instead of being bitten off whole. Built and unit-tested -- five green tests exercise every branch directly. But run on the played bed (seed 1, `scenario=played_bed`, 120,000 frames, the colony's own reach 395 of 512 columns), the mechanism never once fires: `flower_visits=0`, `nectar_paid=0` for the whole run. The flower pictured stands behind the pond visible at its base, at the height `Reports/dead-ends.md` line 1636 already recorded as out of an ant's reach (22-40 rows up a stem). `organs_built=87` and `fruit_dropped=14` say the plant side worked normally; nothing ate a flower or a fallen fruit either (`windfall_bitten=0`). This is the same reachability gap the pollinator design (a flitter with a bloom-seeking sense) is being built to close -- not built in this change.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed 1, frame 59,500-61,500",
+      "files": [
+        "20260910T201343500Z-39dc06/000-flower_card2.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "flower_visits (120k frames)": 0,
+        "nectar_paid (J)": 0,
+        "organs_built": 87,
+        "fruit_dropped": 14
+      },
+      "focus": null,
+      "gif_frames": 143
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
