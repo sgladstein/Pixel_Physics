@@ -2701,6 +2701,59 @@ pub struct SpeciesDef {
     pub flower_bands: PaletteBands,
     #[serde(default)]
     pub fruit_bands: PaletteBands,
+    /// **Frames after a fruit drops (or a flower is lost before it sets)
+    /// before the axis that bore it makes a fresh flower** —
+    /// `plant::process_rebloom`'s clock. `0` (the default) is today's
+    /// behaviour exactly: a determinate axis flowers once and the terminal
+    /// is finished for good, which is every species that does not author
+    /// this field, `tree`/`conifer`/`creeper`/`grass`/`moss` included (none
+    /// of them reaches `CellType::Flower` at all) and it was `herb` and
+    /// `scrambler` themselves before this field existed.
+    ///
+    /// **Why this exists**: PR #307 measured that the played bed stops
+    /// flowering on its own, with or without a colony feeding at it --
+    /// standing flowers 81 -> 25 -> 8 at frames 6,000 / 20,000 / 40,000
+    /// (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §1.2). A
+    /// determinate axis is a single-use flower: once its terminal sets fruit
+    /// and the fruit falls, that terminal is spent for the rest of the
+    /// plant's life, so a fixed population of axes flowering once each is a
+    /// bed that necessarily runs dry, independent of whatever is or is not
+    /// eating from it. Nectar (PR #312) needs the opposite: a flower that
+    /// keeps existing to be fed at.
+    ///
+    /// **What "the same terminal" means mechanically.** A ripe fruit *is*
+    /// the axis's terminal cell (`plant::drop_organ`'s own doc: "the cell
+    /// stops being the parent's"), so the instant it drops it belongs to a
+    /// different organism and there is no cell left on this plant to
+    /// relabel back into a flower. `plant::rebloom_collar` finds the stem
+    /// cell one step closer to the collar than the departing fruit was --
+    /// the node the terminal grew from -- and that is where the new flower
+    /// is built once this timer runs out. Structurally this is "the same
+    /// axis, one metamer shorter," not literally the same pixel.
+    ///
+    /// **Paid from `OrganismState::reproductive_budget`, at the species'
+    /// own `Flower` `Ripen.cost`** -- reusing the number the organ economy
+    /// already prices a flower's lifecycle stage at, rather than a fourth
+    /// authored cost. This is a deliberate reading of an ambiguous brief,
+    /// and it is *not* what the first flower on a growing axis pays:
+    /// `Reports/dead-ends.md`'s "charged from the reproductive budget" entry
+    /// (line 911) is explicit that *construction* is charged at the acting
+    /// cell's own carbon (the owner's 2026-08-27 ruling) and only
+    /// *provisioning* an organ's clock draws on the reproductive account.
+    /// A rebloom is not a growing tip spending its own carbon to build
+    /// itself a flower; it is a settled stem cell, off the construction
+    /// economy entirely, making a whole-plant reproductive decision -- the
+    /// same shape `break_buds` already uses to fund a bud flush from the
+    /// plant's richest cell rather than the bud's own. So the account this
+    /// draws from follows the mechanism's *shape*, and the amount follows
+    /// the organ economy's own existing price for "a flower's worth of
+    /// commitment." A plant too poor to pay simply waits -- graded, never a
+    /// rule that mints carbon -- and the refusal is counted in the same
+    /// `World::organ_ripening_blocked` the rest of the organ pipeline uses,
+    /// since it is the same question: did the reproductive account cover
+    /// this organ's price.
+    #[serde(default)]
+    pub rebloom_after: u32,
     /// **How long this species' seeds stay viable**, as a half-life in
     /// frames: the number of frames over which half a dormant seed bank
     /// disappears. `0.0` means immortal, which is what every seed was
@@ -4021,6 +4074,8 @@ pub struct Species {
     pub nectar_refill: f32,
     pub flower_bands: PaletteBands,
     pub fruit_bands: PaletteBands,
+    /// See `SpeciesDef::rebloom_after`.
+    pub rebloom_after: u32,
     /// See `SpeciesDef::seed_half_life`.
     pub seed_half_life: f32,
     /// See `SpeciesDef::remains_half_life`.
@@ -4223,6 +4278,7 @@ impl From<SpeciesDef> for Species {
             nectar_refill: def.nectar_refill,
             flower_bands: def.flower_bands,
             fruit_bands: def.fruit_bands,
+            rebloom_after: def.rebloom_after,
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             life_half_life: def.life_half_life,
@@ -4749,6 +4805,27 @@ pub struct OrganismState {
     /// reader: this is the number a probe asks "is this plant carrying
     /// anything" and the one a review card prints beside the picture.
     pub organ_cells: u32,
+    /// **Stem cells waiting to grow a fresh flower**, as `(x, y, due_frame)`
+    /// triples — `plant::process_rebloom`'s own queue, filled at a fruit's
+    /// drop (or a flower's loss before it sets) by `plant::rebloom_collar`
+    /// and drained once per organism tick.
+    ///
+    /// **On `OrganismState` rather than a field on every `OrganismCell`,
+    /// and that is the memory trade rather than the obvious placement.** A
+    /// per-cell sidecar field costs four bytes on *every* cell of *every*
+    /// organism in the world for a timer that, at any moment, at most a
+    /// handful of cells anywhere are using; a `Vec` here costs nothing on a
+    /// plant that never reblooms (`rebloom_after: 0`, still the default for
+    /// five of seven shipped species) and a few bytes on the rest.
+    ///
+    /// **Not drained by anything but `process_rebloom`, deliberately.** A
+    /// stale entry — its target cell burned, snapped off, or grown over
+    /// before its timer ran out — is simply dropped the next time that pass
+    /// looks at it (`cell.organism_id() != organism_id` reads as "nothing
+    /// to grow from" there exactly as it does for a stray seed in
+    /// `organism_tick`), so nothing has to hunt for orphaned entries when a
+    /// cell disappears by some other route.
+    pub rebloom_pending: Vec<(i32, i32, u64)>,
     /// **How many of this plant's cells are structural anchors** — the
     /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
     /// loop rather than in a walk of its own.
