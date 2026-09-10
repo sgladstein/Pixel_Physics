@@ -270,8 +270,20 @@ round runs):
   `food_energy` 480 → 120, a 3.5x energy creation on the burnt-corpse path
   the re-pricing exposed. **Not landable; no PR.** Its §7d names the one
   next step — an env switch that places a `Segmented` body's laterals or
-  not, inside one binary — and **lane B** (Sonnet, running, branch cut from
-  theirs) is doing exactly that and then segmented-vs-chain at equal length.
+  not, inside one binary — and **lane B ran it (PR #299, stacked on their
+  branch): the laterals are the whole cause and the segmented spine is
+  exonerated.** Same binary, `PIXEL_PHYSICS_BODY_LATERALS=0`: ant **43.9% →
+  2.0%** flat, **96.8% → 14.8%** rolling (the `Chain(6)` control 2.5% /
+  12.4%); hopper 74.6% → 5.5%, 91.9% → 40.7% with a residual that is not
+  plain length either (`Chain(7)` 13.7%). A `Segmented` body of length 6
+  with no laterals is **byte-identical** to `Chain(6)` on every counter, so
+  `segmented_body_after_step` degenerates to `chain_follow` exactly. The fix
+  is a design decision — what a lateral does when its cell is not placeable
+  (`lateral_for`, `landing_is_placeable_through_tissue`) — so the creature
+  session was poked with a bounded brief: a lateral may never block a move
+  the bare spine could make; it takes the other side or **tucks** when there
+  is no room (a body that squeezes, the ethos' middle); re-run the table,
+  `ascii` green, the moving card, then merge `main` and open the PR.
   The ingestion question is answered in its lane note: **two clear sites**
   (the mouthful into the crop, `creature.rs:5001` on main; brood
   provisioning, which clears and credits in one block) and the drop site
