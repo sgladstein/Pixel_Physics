@@ -2145,6 +2145,26 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     if cell.material != windfall_id {
         return false; // a bare-set `seed`, or a species with no fruit: unaffected
     }
+    // **The true bite count, before the roll decides anything -- but only
+    // for a species that authors real fruit.** M2's brief (`Reports/lanes/
+    // evolution-lab-ecology-measure-2.md`) needed "how many times did an ant
+    // bite a fallen fruit" as a number rather than an estimate backed out of
+    // `seeds_spilled / seed_gut_survival`, which is silent for
+    // `seed_gut_survival: 0.0`. **The naive placement here -- counting every
+    // call that reaches this line -- was wrong and was caught by that same
+    // measurement, not by review**: `windfall_name` defaults to `"seed"` for
+    // a species with no fruit (`default_windfall_material`'s own doc
+    // comment), so for grass or shrub `windfall_id` resolves to the
+    // ordinary `seed` material and *every* bare-seed bite reaches this line
+    // too -- on `played_bed` seed 1 that read 384 bites in one
+    // 120,000-frame run against `seeds_spilled=0`, i.e. it was counting
+    // grass and shrub, which vastly outnumber herb and scrambler's fruit,
+    // not fallen fruit at all. Guarded the same way the roll below already
+    // is safe on such a species: exclude the sentinel string rather than
+    // trust that reaching this line means a real fruit was bitten.
+    if windfall_name != "seed" {
+        world.windfall_bitten += 1;
+    }
     let survival = world.species.get(species).seed_gut_survival.clamp(0.0, 1.0);
     if !rng.chance(survival) {
         return false; // the roll failed: the caller clears it exactly as today
@@ -21680,6 +21700,51 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         assert!(!survived, "an ownerless cell has no species to roll a survival chance for");
         assert_eq!(w.windfall_bitten_ownerless, 1, "the ownerless bite must be counted on its own line");
         assert_eq!(w.seeds_spilled, 0, "it did not spill -- there was no organism to spill it");
+    }
+
+    /// **M2's own positive and negative control, in one test.** The naive
+    /// placement of `windfall_bitten` counted every call that reached the
+    /// roll, and reached 384 in one real 120,000-frame run against
+    /// `seeds_spilled=0` -- it was counting grass and shrub's ordinary bare
+    /// seeds, not herb's fruit, because `windfall_material` defaults to the
+    /// literal `"seed"` for a species that authors none. This is the
+    /// positive control that catches the *specific* regression rather than
+    /// a generic "the counter moves": a fruiting species must move it, and
+    /// a non-fruiting species biting its own ordinary seed -- through the
+    /// identical code path, same function, same line -- must not.
+    #[test]
+    fn windfall_bitten_counts_real_fruit_and_not_an_ordinary_bare_seed() {
+        let mut w = test_world();
+
+        // The positive control: herb's own windfall material is "windfall",
+        // a real fruit skin.
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let herb_id = w.push_organism(herb).expect("an organism slot is free");
+        let (hx, hy) = (50, 50);
+        place(&mut w, (hx, hy), windfall, herb_id, CellType::Seed, (0.0, 0.0));
+        let mut rng = Rng::new(7);
+        seed_survives_bite(&mut w, hx, hy, &mut rng);
+        assert_eq!(w.windfall_bitten, 1, "a real fruit bite (herb, windfall material) must move the counter");
+
+        // The negative control: grass authors no fruit, so its own
+        // `windfall_material` defaults to plain `"seed"` -- a bare seed,
+        // not fallen fruit, wearing the ordinary seed material.
+        let grass = w.species.id_of("grass").expect("grass species must be loaded");
+        assert_eq!(
+            w.species.get(grass).windfall_material, "seed",
+            "test premise: grass must default to the no-fruit sentinel, or this control proves nothing"
+        );
+        let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+        let grass_id = w.push_organism(grass).expect("an organism slot is free");
+        let (gx, gy) = (60, 50);
+        place(&mut w, (gx, gy), seed_mat, grass_id, CellType::Seed, (0.0, 0.0));
+        seed_survives_bite(&mut w, gx, gy, &mut rng);
+        assert_eq!(
+            w.windfall_bitten, 1,
+            "an ordinary bare-seed bite on a species with no fruit must NOT move `windfall_bitten` -- \
+             it is a bite-on-fruit count, not a bite-on-anything-that-reaches-the-roll count"
+        );
     }
 
     /// **Confirms `Behavior::Germinate` does not key on material at all**,
