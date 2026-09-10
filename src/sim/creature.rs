@@ -5711,16 +5711,33 @@ fn colony_has_other_breeder(world: &World, exclude: u16, colony: u32, use_index:
         }
         false
     } else {
-        let (slots, _) = world.organism_slot_usage();
-        // **Organism ids are 1-based** (`decode_organism_id`'s own doc: slot
-        // index 0 means "no organism"), and `organism_slot_usage().0` is the
-        // backing `Vec`'s length -- so the valid range is `1..=slots`, not
-        // `0..slots`. Caught by `graded_regime_scales_the_bar_and_a_queenless_
-        // colony_resumes` going red: with the off-by-one, a colony's second
-        // (and, in a fresh world, *last*-allocated) organism was never scanned
-        // at all, so it could become a breeder that this function could never
-        // see.
-        for id in 1..=slots as u16 {
+        // **`live_organism_ids`, not a hand-rolled `1..=slots` slot-index
+        // range** -- found in review, comparing the two arms on a
+        // 40,000-frame run under `graded`: the sample tables agreed for
+        // 26,100 frames and then the scan arm quietly produced one more
+        // birth than the index arm, because it had stopped seeing a real
+        // breeder. `organism_id` encodes as `(generation << 12) |
+        // slot_index` (`encode_organism_id`'s own doc), so a bare
+        // `1..=slots` range is generation-0 **only**: `world.organism(id)`
+        // decodes each `id` in it with generation 0 baked in, and the
+        // moment a slot is freed and reused its occupant's real id carries
+        // a nonzero generation and is never produced by this range at all
+        // -- silently invisible, not merely stale. This is the second bug
+        // of exactly this shape here: the range bound (`1..=slots` versus
+        // `0..slots`) was already once wrong and is documented on
+        // `graded_regime_scales_the_bar_and_a_queenless_colony_resumes`;
+        // this is the *encoding* being wrong instead, and both errors
+        // share the same root cause -- reconstructing an id from a slot
+        // index by hand rather than asking the id allocator for one.
+        // `live_organism_ids` is that allocator's own answer, so this arm
+        // can no longer disagree with it. It allocates a `Vec`, which
+        // would matter in a hot path; it does not matter here, because
+        // after `use_index`'s default this arm is only ever the ablation
+        // baseline, never the common path -- and a baseline that
+        // undercounts organisms is worse than no baseline at all, because
+        // it makes the index look wrong on exactly the runs where the
+        // index is the one that is right.
+        for id in world.live_organism_ids() {
             *visits += 1;
             if is_other_breeder(id) {
                 return true;
@@ -5767,9 +5784,11 @@ fn nearest_breeder(world: &World, exclude: u16, colony: u32, x: i32, y: i32, use
             }
         }
     } else {
-        let (slots, _) = world.organism_slot_usage();
-        // **1-based, same reason as `colony_has_other_breeder`'s own comment.**
-        for id in 1..=slots as u16 {
+        // `live_organism_ids`, same fix and the same reason as
+        // `colony_has_other_breeder`'s own scan arm -- see its doc in
+        // full; a bare `1..=slots` range here has the identical
+        // generation-0-only blind spot.
+        for id in world.live_organism_ids() {
             *visits += 1;
             consider(id);
         }
@@ -15346,6 +15365,69 @@ mod tests {
             index_visits2 < scan_visits2,
             "nearest_breeder's index arm did not visit fewer organisms than the scan: index {index_visits2} scan {scan_visits2}"
         );
+    }
+
+    /// **A breeder living in a recycled slot is not invisible to either
+    /// arm.** `a` breeds this colony's floor slot, dies, and a new animal
+    /// (`b`) is placed into that same now-freed slot -- `push_organism`
+    /// bumps the slot's generation on reuse, so `b`'s encoded id is `a`'s
+    /// slot index wearing a *different* generation, not `a`'s old id
+    /// reborn. `b` then breeds. A scan that reconstructs ids as bare slot
+    /// indices (generation 0 always) can never produce `b`'s real id at
+    /// all, so it was silently blind to every breeder living in a reused
+    /// slot -- found in review, comparing the two arms on a 40,000-frame
+    /// run under `graded`, where the scan arm's births pulled ahead of the
+    /// index arm's the moment enough deaths had recycled a slot. Restore
+    /// the old `1..=slots` range in either scan arm and this goes red.
+    #[test]
+    fn a_breeder_in_a_recycled_slot_is_found_by_both_arms() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, c) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(c) {
+            s.colony = colony;
+        }
+        let slots_before = w.organism_slot_usage().0;
+
+        // Free `a`'s slot -- cells cleared first, since `free_organism`
+        // does not clear the body it leaves behind, and a caller not
+        // heeding that would place `b` on top of a corpse that is still
+        // materially there.
+        let (ax, ay) = *w.organism(a).expect("alive before the kill").chain.first().expect("a has a body");
+        let body: Vec<(i32, i32)> = w.organism(a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+
+        // A new animal into the same, now-free slot. Identified by
+        // scanning live ids rather than assumed back as `a`'s old id --
+        // `push_organism` bumps the slot's generation on reuse, so the
+        // encoded id is not the one that died.
+        w.plant_ant(ax, ay);
+        assert_eq!(w.organism_slot_usage().0, slots_before, "the new animal grew the organism table instead of reusing a's freed slot -- this scene is not exercising slot reuse at all");
+        let b = w.live_organism_ids().into_iter().find(|&id| id != c).expect("a second live animal exists beside c");
+        assert_ne!(b, a, "the recycled slot's new occupant kept the dead animal's own encoded id -- generation did not bump on reuse, so this test is not exercising the fault at all");
+
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+
+        let (cx, cy) = *w.organism(c).expect("c alive").chain.first().expect("c has a body");
+        for &use_index in &[true, false] {
+            let mut visits = 0u32;
+            assert!(
+                colony_has_other_breeder(&w, c, colony, use_index, &mut visits),
+                "colony_has_other_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+            let mut visits = 0u32;
+            assert!(
+                nearest_breeder(&w, c, colony, cx, cy, use_index, &mut visits).is_some(),
+                "nearest_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+        }
     }
 
     /// **Integration guard for `queen`, run solo** -- not part of the
