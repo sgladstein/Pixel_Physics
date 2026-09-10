@@ -2442,6 +2442,11 @@ const EMBEDDED: &[&str] = &[
     // The lab ancestor's flesh -- see `assets/materials/ancestor.ron`.
     include_str!("../../assets/materials/ancestor.ron"),
     include_str!("../../assets/materials/hopper.ron"),
+    // **Appended at the end, per this list's own rule stated throughout.**
+    // The seed a bitten windfall leaves behind
+    // (`plant::seed_survives_bite`), addressed only by `id_of("pip")` --
+    // never by number.
+    include_str!("../../assets/materials/pip.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
