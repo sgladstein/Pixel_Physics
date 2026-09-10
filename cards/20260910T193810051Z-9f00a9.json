@@ -1,0 +1,60 @@
+{
+  "id": "20260910T193810051Z-9f00a9",
+  "created": "2026-09-10T19:38:10Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a38b944d8963ff23a",
+    "branch": "claude/creature-mobility-r27",
+    "commit": "499b64ec",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a38b944d8963ff23a"
+  },
+  "title": "One long ant in a dead-end tunnel",
+  "question": "In the second clip the ant turns round where it stands and walks back out. Does that read as an animal turning round, or does the body look like it flips end-for-end?",
+  "context_md": "Press **z** to zoom — the tunnel is one cell high, so the clip is deliberately a thin strip.\n\nSame one ant, same tunnel, same 4,500 frames, one binary. The only difference is whether the animal is allowed to reverse.\n\nThe tunnel is one cell high with a blind end on the right. The ant walks in. A two-cell ant gets out of this by stepping backwards onto its own tail; a five-cell one cannot, because the only cell of its own body it is allowed to stand on is the very last one, and that is five cells behind its head. So it stays there.\n\n**What the second clip does is your suggestion**: the body turns end for end without moving a single cell — head and tail swap which end they are, nothing is placed anywhere new — and the animal then walks out forwards. The moment to watch is the turn itself: the mouth arrives at the other end of the body in a single frame.\n\nThe thing I am unsure of is exactly that frame. Everything else about the fix is settled — it fired **twice** in the whole run and that was enough to free the animal completely.",
+  "kind": "before_after",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "as it is now",
+      "files": [
+        "20260910T193810051Z-9f00a9/000-tunnel_off.gif"
+      ],
+      "caption": "it reaches the blind end and stays there",
+      "meta": {
+        "ants in the scene": 1,
+        "steps it managed": 40,
+        "steps refused": 262,
+        "share of steps refused": "87%",
+        "times it turned round": 0
+      },
+      "focus": null,
+      "gif_frames": 50
+    },
+    {
+      "label": "allowed to turn round",
+      "files": [
+        "20260910T193810051Z-9f00a9/001-tunnel_flip.gif"
+      ],
+      "caption": "it turns where it stands and walks back out",
+      "meta": {
+        "ants in the scene": 1,
+        "steps it managed": 374,
+        "steps refused": 5,
+        "share of steps refused": "1.3%",
+        "times it turned round": 2
+      },
+      "focus": null,
+      "gif_frames": 50
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
