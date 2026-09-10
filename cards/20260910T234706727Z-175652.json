@@ -1,0 +1,46 @@
+{
+  "id": "20260910T234706727Z-175652",
+  "created": "2026-09-10T23:47:06Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8b6b3906d251d74b",
+    "branch": "claude/lab-shrubs-flower-r27",
+    "commit": "a6a55250",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8b6b3906d251d74b"
+  },
+  "title": "Does the played bed still read as flowering",
+  "question": "Top half of each image is frame 40,000, bottom half is frame 120,000. Does the bed still read as in flower at both stops, and do the shrub's magenta/violet flowers read as a shrub's rather than the herb's yellow/orange?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "shipped (rebloom_after: 4000/3000/16000)",
+      "files": [
+        "20260910T234706727Z-175652/000-shipped.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "control (rebloom_after: 0, determinate)",
+      "files": [
+        "20260910T234706727Z-175652/001-off.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
