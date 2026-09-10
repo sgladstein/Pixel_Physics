@@ -1,0 +1,45 @@
+{
+  "id": "20260910T072110551Z-0180fc",
+  "created": "2026-09-10T07:21:10Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-afb3beed744140ec4",
+    "branch": "claude/creature-lateral-tuck-r26",
+    "commit": "bfebe595",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-afb3beed744140ec4"
+  },
+  "title": "Articulated ants after the lateral tuck fix",
+  "question": "Do these read as animals rather than chains, and does a tucked body squeezing through a gap read as squeezing?",
+  "context_md": "Two of the colony's four founded ants (seed=1, scene=colony, world frame 3600 = noon), walking on the bank surface. Report of record: Reports/creature-articulated-body-2026-09-09.md §7f.\n\nBefore this fix a lateral's own collision could block the whole body's step -- measured 43.9%/96.8% blocked on flat/rolling terrain, against a plain 6-cell chain's 2.5%/12.4%. The rule now: a widened segment's lateral takes its authored side if placeable, else the other side, else it tucks (not placed that step) and re-emerges automatically once room returns.\n\nascii's colony-forage round-trip count is back at 32 (was 0, bar is >=6, pre-articulated-body baseline was 23).",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "colony, two ants walking",
+      "files": [
+        "20260910T072110551Z-0180fc/000-pair.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "ants founded": 4,
+        "ant flat blocked %": "43.9 -> 1.9 (chain control 2.5)",
+        "ant rolling blocked %": "96.8 -> 22.1 (chain control 12.4)",
+        "hopper flat blocked %": "74.6 -> 6.8",
+        "hopper rolling blocked %": "91.9 -> 15.4",
+        "forage round trips": "0 -> 32"
+      },
+      "focus": null,
+      "gif_frames": 30
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
