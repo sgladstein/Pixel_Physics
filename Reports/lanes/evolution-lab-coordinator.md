@@ -184,6 +184,55 @@ hypothesis: a non-finite `bank`/`reachable` passing `bank + reachable <
 f32::INFINITY`; the instrument is a finiteness `debug_assert` at the
 precheck and a print at the `children` increment under `queen`.
 
+**Landed or opened so far, and what each overturned** (kept current as the
+round runs):
+
+- **design → PR #296**, `evolution-lab-ecology-design-2026-09-10.md`, filed
+  under *Creatures and ecology* by the index's own rule. Three measurements
+  that change the build: **the fruit pipeline is budget-limited, not
+  animal-limited** — a ripe fruit went unfilled 18,867 times in 40,000 frames
+  against 56 that dropped, and the refusals double with no colony, so a
+  pollination bonus goes on the ripening *price*, never the clock;
+  **nothing has ever eaten a flower** — the best mouthful in 40,000 frames
+  was a 960 J fruit, so the 1,440 calibrates a printed ceiling and a comment
+  and nectar is cheap; and **`labshot scenario= seed=` silently ignores the
+  seed**, so every played-bed contact sheet to date is seed 1 (the same
+  defect `labforage` fixed on itself; three lines). Build order **A0 → A1 →
+  A2 → B1 → B2 → C on the ruling → D → E**, plant side first, every
+  creature-side change one call at a named line (`creature.rs:4954` the
+  bite, `:5001` the clear, `:5137` the drop) after the bodies branch lands.
+  Its recommendation on pollen: **the player's BRUSH first**, animal-carried
+  pollen only on an owner reversal, because it costs the
+  cluster-in-genotype-space definition that is the lab's only operational
+  test for plant speciation. Cards `…6dfed9` (pollen) and `…cba50c`
+  (dispersal form) are the two rulings, asked in chat as well.
+- **measure → PR #297**, `Reports/lanes/evolution-lab-ecology-measure.md`.
+  `windfall_probe` and `chronicle` now take `scenario=` and echo it. On the
+  played bed, three seeds × 120,000 frames: **32 windfalls produced, standing
+  stock zero at every 30k checkpoint** (a fallen fruit lasts 354–518 frames),
+  fates eaten-or-carried 19 / rotted 14 / unclear 17 (the positive control
+  `handout=1000` moved eaten-or-carried 2 → 81, so the instrument reads),
+  and **2 of 3,089 germinations came from windfall**. The loop the round is
+  named for is not closing through fruit, and the first-order reason is not
+  reach (89% / 7% / 17% of standing organs within ground reach by seed — a
+  property of the draw, not a bottleneck). **The finding under it: windfall
+  cells arrive on the floor already ownerless** (`organism_id = 0`, credited
+  to neither producer, 7 and 15 unexplained departures on seeds 1 and 3),
+  and an ownerless windfall can never germinate because `germinate()` is
+  reached only through organism-scheduled dispatch. Eight causes ruled out
+  by direct check; the line was not found. Reproduction lives behind
+  `WF_DEBUG=1` in `windfall_probe` (frame 1,184, cell (456,158)). **This sits
+  under the whole arc**, so it got its own lane at once.
+- **A1** (Sonnet, running): the `labshot` seed fix as its first commit, then
+  `pip.ron` at 40 J (the shipped gut cannot see it: 40 × 0.25 < 12), `plant::
+  seed_survives_bite` at `seed_gut_survival: 0.6`, four counters, the one-line
+  hook as its own final commit for re-placing after the bodies branch, the
+  paired played-bed sweep. Told mid-flight to count bites on ownerless
+  windfalls separately so a null is attributable.
+- **W** (Sonnet, running): the ownership bug — instrument every windfall
+  write site, follow the cell from the repro frame, fix at the line, a guard
+  that fails unfixed, a bug section with the letter from `bugindex.py`.
+
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
 carry it, the player's BRUSH carries it, or both with the animals off); the
