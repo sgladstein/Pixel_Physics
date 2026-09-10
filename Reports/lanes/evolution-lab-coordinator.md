@@ -130,7 +130,25 @@ fallen fruit about twice in 360,000 frames on the played bed); the thicket
 bed (fruit on the floor 9.6x, bites 5 → 32 across the sweep, no pip yet a
 plant); the chronicle exported and a HISTORY page on F5.
 
-**Not landed, ruled on next:** the articulated bodies (PR #303, CI red).
+**Ruled 2026-09-10, after the verdicts: the bodies are a MECHANICAL problem
+and are to be fixed.** The owner: *"You are examining a lot how many survive
+and how much they dig... this seems more like a mechanical issue that these
+larger ants get stuck or cannot move easily in more complicated terrain.
+Let's fix that."* The record agrees: the 1-wide 5-cell spine is blocked on
+**54%** of moves underground against the 2-wide body's 63%, so length, not
+width, is what sticks in terrain; the card's ants did not move in 30 frames
+(checked frame by frame) and their laterals blinked (the tuck rule has no
+memory). Survival and dig counts are out as bars; **the blocked fraction per
+scene, by cause, is the bar**. Lane `bodies-mobility` (Opus, running, cut
+from the tuck branch): a blocked-step classifier over flat / rolling / a
+tunnel scene / the foliage bed for the two-cell ant, the bare spine and the
+2-wide body from one binary, the mechanical diagnosis (backing out of a
+dead end, U-turns onto self-vacated cells, straight-up with tuck, tuck with
+memory), and the rule specified for a Sonnet build; a moving card of one
+long ant in a tunnel.
+
+**Not landed:** the articulated bodies (PR #303, CI red; un-parked by the
+ruling above).
 The tuck rule walks (ant 43.9% / 96.8% → 1.9% / 22.1% blocked) and
 founding is now the spine-only rule, and three costs of the body remain
 that are design decisions, not defects — **a 5-segment ant seats 12 of 52
