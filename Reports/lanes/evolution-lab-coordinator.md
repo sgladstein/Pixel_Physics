@@ -221,7 +221,7 @@ STARVED, 1 CULLED, 1 KILLED" — click to expand, BACK returns; the CELL
 inspector overlapping wide bar pages found as a pre-existing layout gap),
 **#310** (rain ships **LIGHT**: the bed as it now is, with the tree, loses
 **16%** of its soil water on seed 1 unwatered, so OFF no longer holds; LIGHT
-holds both seeds within 7%; STEADY overshoots 15–19% and pools), **#312** (open, CI running: nectar in two currencies — `OrganismCell::nectar` refilled per tick,
+holds both seeds within 7%; STEADY overshoots 15–19% and pools), **#312** (nectar in two currencies — `OrganismCell::nectar` refilled per tick,
 `NECTAR_COST` 0.01 budget units, `nectar_yield` 120 J through
 `diet_quality`, the flower stands; `flower.food_energy` 1,440 stays for a
 gut that cannot take nectar — and **`flower_visits = 0` over a full session
