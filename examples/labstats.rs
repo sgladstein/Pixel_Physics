@@ -481,6 +481,42 @@ fn main() {
             println!("labstats: provision {name} -> Provision = {weight} on {n} standing ants");
         }
     }
+    // **`wire=<Input>:<Output>:<weight>[,...]` -- the general form of
+    // `provision=` above, on whichever species the bed was founded from.**
+    //
+    // `provision=` pins its output to `Provision` and its species to "ant",
+    // which is two hard-codings that fit the question it was written for and
+    // nothing else. The hopper's whole reason to exist is one instinct row --
+    // `(Bias, Impulse, 2.0)` -- and there was no way to move it without
+    // editing `hopper.ron` and rebuilding between arms, which is the
+    // `include_str!` trap that has produced three bit-identical "sweeps" in
+    // this repo. Through `set_genome_slot_on` it reaches the standing animals
+    // as well as the species copy, so an arm applies to the founders that are
+    // already on the ground.
+    if let Some(spec) = arg::<String>("wire") {
+        for entry in spec.split(',') {
+            let bits: Vec<&str> = entry.split(':').collect();
+            if bits.len() != 3 {
+                eprintln!("wire= wants Input:Output:weight, e.g. wire=Energy:Impulse:-1.0");
+                std::process::exit(2);
+            }
+            let Ok(weight) = bits[2].parse::<f32>() else {
+                eprintln!("wire= weight '{}' does not parse as a number", bits[2]);
+                std::process::exit(2);
+            };
+            let Some(i) = pixel_physics::sim::brain::INPUT_NAMES.iter().position(|n| n.eq_ignore_ascii_case(bits[0])) else {
+                eprintln!("wire= input '{}' is not one of brain::INPUT_NAMES", bits[0]);
+                std::process::exit(2);
+            };
+            let Some(o) = pixel_physics::sim::brain::OUTPUT_NAMES.iter().position(|n| n.eq_ignore_ascii_case(bits[1])) else {
+                eprintln!("wire= output '{}' is not one of brain::OUTPUT_NAMES", bits[1]);
+                std::process::exit(2);
+            };
+            let slot = pixel_physics::sim::brain::io_slot(pixel_physics::sim::brain::INPUTS[i], pixel_physics::sim::brain::OUTPUTS[o]);
+            let n = set_genome_slot_on(&mut lab, &colony_species, slot, weight);
+            println!("labstats: wire {}:{} = {weight} on {n} standing {colony_species}(s)", bits[0], bits[1]);
+        }
+    }
     if let Some(spec) = arg::<String>("dev") {
         for pair in spec.split(',') {
             let Some((name, w)) = pair.split_once(':') else {

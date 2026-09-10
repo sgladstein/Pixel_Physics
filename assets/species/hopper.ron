@@ -1377,10 +1377,43 @@
             // it appends exactly `(Bias, Impulse, HOP_IMPULSE_WEIGHT)` to a
             // body's wiring at build time, `HOP_IMPULSE_WEIGHT` is 2.0, and
             // the doc on it explains the value -- `squash(2.0) = 0.67`, so
-            // this animal jumps about two times in three whenever its move
+            // that animal jumps about two times in three whenever its move
             // roll succeeds, not always (a body that never walks never
             // reaches the edge of anything to jump off).
-            (Bias, Impulse, 2.0),
+            //
+            // **0.5 rather than that 2.0, and what it buys is not survival --
+            // it is the two thirds of the launches that were being thrown
+            // away.** `squash(0.5) = 0.33`, a hop on one move roll in three.
+            // `labstats colonyspecies=hopper frames=9000`, three seeds,
+            // `RAYON_NUM_THREADS=1`, means over seeds 1-3:
+            //
+            //                    launches  refused  flight moves  aloft@9k  starved aloft
+            //   2.0 (shipped)       2,791    1,683        18,843       6.3           11.3
+            //   0.5 (this)          2,187      971        14,959       6.3            7.0
+            //   0.5 + hunger gate     693      223         2,919       3.3           10.3
+            //
+            // `refused` is a launch called while already in the air, which is
+            // the verb firing into nothing. At 2.0 **60% of every launch this
+            // animal called was refused**; at 0.5 it is 44%, for 79% of the
+            // flight. Survivors at 9,000 frames are identical (6/6/7 against
+            // 6/9/4 -- one seed up, one down, one level), so this is not a
+            // survival change and is not offered as one. What it does move is
+            // `starved aloft`, the complaint this was opened on: **7/7/7
+            // against 8/9/17, below the shipped arm on three seeds of three.**
+            //
+            // **The hunger gate was measured and rejected, and it is the more
+            // interesting of the two results.** `(Bias, Impulse, 0.5) +
+            // (Energy, Impulse, -1.0)` -- a full hopper sits, a hungry one
+            // hops, the same shape as the ant's rest wire. It leads early
+            // (16.7 alive at frame 2,700 against 12.0) and loses late (3.3 at
+            // 9,000, **below the shipped arm on three seeds of three**), and
+            // it costs 85% of the flight. **A four-times-fewer-jumps arm that
+            // dies faster says the jump is not what is killing this animal**
+            // -- the flight is how it reaches food, so throttling it on
+            // hunger starves exactly the animal that needed to travel. Do not
+            // retry a gate that suppresses the jump when the animal is short
+            // of energy; if the hopper's death is to be fixed, it is not here.
+            (Bias, Impulse, 0.5),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
@@ -1451,12 +1484,24 @@
         // alone -- an ant that still moved 220 times and simply never
         // committed to a direction.
         //
-        // So the gate is written as `75*(fill - 0.6)`, which crosses zero at
-        // f* and still sits at -45 when empty and +30 when full. Both ends
-        // are at least as deep as the offsets this file was tuned with, the
-        // crossover is explicit, and it is carried in weights that mutate.
-        // Transition width is 12/75 = 0.16 of fill -- narrower than the
-        // -+18 version, which is the price of keeping the saturation.
+        // The gate WAS written as `75*(fill - 0.6)`, crossing zero at f* and
+        // sitting at -45 when empty and +30 when full.
+        //
+        // **+30 when full was the bug, and units 0/1 are fixed here: they
+        // read -45 / +45.5. Units 2/3 keep the saturated gate on purpose.**
+        // `open-bugs-handoff.md` §Z7, 2026-09-09. A gate deep enough to shut
+        // a symmetric pair is deep enough to flatten the signal it lets
+        // through: parked at +30 the pair moved `P(move)` by 0.004 against a
+        // walk drive of 2.0, so this animal was wired to its own trail and
+        // could not read it. Only the open state moves (+30 -> +0.5); the
+        // off depth (45) and the along weight (6) are the numbers this file
+        // measured and they stay. **Do not "finish the job" on units 2/3:**
+        // the same repair there is measured and is a regression -- a colony
+        // that can read channel B converges on patches it has already eaten,
+        // and the mirrored arena reads 25.0% for both pairs against 63.6%
+        // for the homing pair alone. **The whole derivation, the two commits
+        // that caused it, and both races are beside `ant.ron`'s own copy of
+        // this block** -- kept in one place rather than eight.
         hidden_wiring: [
             // units 0,1 -- channel A along the heading, gated ON a full crop
             // **Unit 4 is the odometer**, and it is three weights: one in
@@ -1510,10 +1555,10 @@
             (AtNest,      4,   0.05),
 
             (Bias,        0, -45.0),
-            (Carrying,    0,  75.0),
+            (Carrying,    0,  45.5),
             (PheroAAlong, 0,   6.0),
             (Bias,        1, -45.0),
-            (Carrying,    1,  75.0),
+            (Carrying,    1,  45.5),
             (PheroAAlong, 1,  -6.0),
             // units 2,3 -- channel B along the heading, gated ON an empty one
             (Bias,        2,  45.0),
