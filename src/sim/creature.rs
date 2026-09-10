@@ -65,6 +65,7 @@ use super::field;
 use super::material::{self, MaterialKind};
 use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
+use super::plant;
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -139,6 +140,20 @@ const RNG_SLOT_COLONY_SCENT: u64 = 4;
 /// roll or anything else reading `RNG_SLOT_MOVE` later on the same frame,
 /// the shared-`Rng` gotcha `RNG_SLOT_BIRTH`'s own doc names.
 const RNG_SLOT_FOUNDER_RESERVE: u64 = 5;
+/// The seed-survival stream at brood provisioning's clear site
+/// (`place_creature`'s shortfall loop): whether a windfall's own seed
+/// survives being taken to feed a birth. **Keyed on the parent ant's
+/// identity and a running per-iteration count, never on the bitten cell's
+/// position** -- this file's own law above, because the roll decides a
+/// *plant's* fitness (does this seed survive) and a position-keyed roll
+/// would make where a seed happens to lie a hidden, heritable advantage
+/// for the plant. The count decorrelates two windfalls taken in the same
+/// call for the same parent on the same frame, which a bare `(seed,
+/// parent, frame, SLOT)` tuple could not: `stream` is a pure function of
+/// its four inputs, so two calls with identical inputs return identical
+/// draws. Packed into the high bits so no `bite` value can ever collide
+/// with another named slot's small integer.
+const RNG_SLOT_SEED_SURVIVAL: u64 = 6;
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -1341,12 +1356,28 @@ fn place_creature(
                 if let Some((hx, hy)) = head {
                     let mut taken = 0.0;
                     let cells: Vec<(f32, i32, i32)> = provisions_in_reach(world, hx, hy, gut).collect();
-                    for (yielded, px, py) in cells {
+                    // `bite` decorrelates two windfalls taken to cover the
+                    // same shortfall on the same frame -- see `RNG_SLOT_
+                    // SEED_SURVIVAL`'s own doc for why this counts rather
+                    // than keying on `px, py`.
+                    for (bite, (yielded, px, py)) in cells.into_iter().enumerate() {
                         if taken >= shortfall {
                             break;
                         }
                         let banked = world.materials.get(world.get(px, py).material).worth_in_aux;
-                        world.set(px, py, Cell::EMPTY);
+                        // A bitten windfall's own seed asks the plant side
+                        // whether it survives the mouth before this clears
+                        // the cell -- see the identical hook and comment at
+                        // this bite's sibling site in `act`.
+                        let mut seed_rng = rng::stream(
+                            world.seed,
+                            parent as u64,
+                            world.frame,
+                            (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
+                        );
+                        if !plant::seed_survives_bite(world, px, py, &mut seed_rng) {
+                            world.set(px, py, Cell::EMPTY);
+                        }
                         if banked {
                             world.energy_ledger.harvested_corpse += yielded as f64;
                         } else {
@@ -4998,7 +5029,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let victim_group = (victim != 0 && victim != organism)
                     .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
                     .flatten();
-                world.set(fxx, fyy, Cell::EMPTY);
+                // A bitten windfall's own seed asks the plant side whether
+                // it survives the mouth before this clears the cell --
+                // `plant::seed_survives_bite` (`Reports/evolution-lab-
+                // ecology-design-2026-09-10.md` §2). `false` for anything
+                // that is not a windfall's seed, so this changes nothing
+                // else the bite verb does.
+                if !plant::seed_survives_bite(world, fxx, fyy, draw) {
+                    world.set(fxx, fyy, Cell::EMPTY);
+                }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
