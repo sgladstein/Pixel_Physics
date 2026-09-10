@@ -178,7 +178,7 @@ tree, the marks and *is the box empty*.
 Landed: **#306**, the played bed with four scramblers and a tree — and the
 thicket kept out of columns 180–330, because copied from the measurement
 bed it seated **2 ants of 52** at founding (6 by 30,000) against 29 / 38
-once moved: looking before committing caught it. Opened: **#307**, the
+once moved: looking before committing caught it. Landed: **#307**, the
 pollinator design (`evolution-lab-pollinator-design-2026-09-10.md`; the
 species is `flitter`): its three measurements move the build — **the
 thicket is the pollinator's larder** (standing flowers at frame 6,000,
