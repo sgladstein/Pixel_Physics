@@ -1,0 +1,42 @@
+{
+  "id": "20260910T204304060Z-4ec0c3",
+  "created": "2026-09-10T20:43:04Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9d602d999617cc1a",
+    "branch": "claude/lab-a2-ride-home-r27",
+    "commit": "79d744a3",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a9d602d999617cc1a"
+  },
+  "title": "The seed rides home",
+  "question": "Does the pip read as a seed the ant is carrying, and then putting down, rather than just an ant walking around?",
+  "context_md": "A2 -- Brief A2 of `Reports/evolution-lab-ecology-design-2026-09-10.md`: when a fruit's seed survives the bite (A1, PR #301), it now rides in the ant's crop instead of standing where it was bitten, and is put down as a live organism -- same genome, same lineage -- wherever the ant next drops a load.\n\n`played_bed`, seed 2, `scenario=played_bed frames=120000`. Two real deliveries land inside this window, at frames 49134 (x=329,y=155, carried 36 frames) and 49340 (x=324,y=158, carried 175 frames) -- the clip is centred between them, zoom 5x (102x64 world cells visible). Nothing is staged; this is a real run, real ants, real bites.\n\n**Read `PAUSED -- NOTHING IS TICKING` as a harness artifact, not a bug.** `labgif` drives frames through `tick_for_harness` rather than the play/pause dial, so the corner HUD reads PAUSED the whole time even though the box is genuinely running underneath it -- the frame counter in the same corner is the real clock.\n\n**Honest reading of the numbers, not just the picture**: across this seed, 6 seeds were carried and 4 delivered (2 still mid-transit when the run ended); of the 4 delivered, 2 were later re-bitten and 1 decayed before germinating. None of the 6 has germinated into a standing plant by frame 120,000 in this run, so `plants_from_pip_near_nest` reads 0 here -- the mechanism fires and conserves matter correctly (verified by five unit tests, each watched red before green), but this window is too short to show a seed becoming a plant. That is a finding about this bed's bite rate and germination timing, not a defect in the ride-home mechanism -- see the PR body for the full per-seed table.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed 2, frames 48900-49500",
+      "files": [
+        "20260910T204304060Z-4ec0c3/000-a2_nest.gif"
+      ],
+      "caption": "two deliveries land in this window (frames 49134, 49340)",
+      "meta": {
+        "seeds_delivered (this run, seed 2)": 4,
+        "plants_from_pip_near_nest (this run, seed 2)": 0,
+        "median carry, frames (n=4)": 175
+      },
+      "focus": null,
+      "gif_frames": 76
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
