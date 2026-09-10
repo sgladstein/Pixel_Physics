@@ -2250,6 +2250,95 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     true
 }
 
+/// **A2 -- the crop-side half of "the seed rides home."**
+/// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.2, Brief A2. The
+/// one caller is the bite site in `creature.rs`, immediately after
+/// `seed_survives_bite` has returned `true` and converted the bitten cell
+/// to `pip` **in place** -- called only when the biting animal's crop does
+/// not already carry a passenger (one seed per crop; a second survivor
+/// leaves its pip standing exactly as A1 always has, and never reaches
+/// here).
+///
+/// **No new organism.** The pip cell `seed_survives_bite` just wrote is
+/// still owned by the fruit's own child organism -- this reads that id
+/// (and the cell's material/shade/aux) back out, marks the organism
+/// `carried` so `step_organisms` does not reclaim its now-empty slot, and
+/// clears the cell. `World::set`'s `reindex_organism_cell` seam does the
+/// bookkeeping: the organism's `cells` map loses its one entry here, and
+/// `deliver_seed_passenger` below gives it a fresh one at the drop
+/// position under the same id.
+///
+/// Returns `None` only if `(x, y)` turns out to own no organism -- should
+/// not happen given the caller's own guard, but a passenger with no seed
+/// behind it is a worse bug than a silently skipped pickup.
+pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism::SeedPassenger> {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 {
+        return None;
+    }
+    let passenger = organism::SeedPassenger { organism_id, material: cell.material, shade: cell.shade, aux: cell.aux(), picked_up_frame: world.frame };
+    // Marked carried *before* the clear: both happen inside this one call
+    // with nothing else running between them, but this is the order that
+    // stays correct if that ever stops being true.
+    world.carried_seed_organisms.insert(organism_id);
+    world.set(x, y, Cell::EMPTY);
+    world.seeds_carried += 1;
+    Some(passenger)
+}
+
+/// **The other end of `take_seed_passenger`.** Writes the passenger back as
+/// a live, organism-owned `pip` cell at `(x, y)` -- the same organism id it
+/// has carried since the bite, so the delivered plant germinates through
+/// the ordinary `Behavior::Germinate` path with its real genome, lineage
+/// and endowment rather than a freshly rolled individual.
+///
+/// Two callers, both in `creature.rs`: the ordinary per-frame drop, and the
+/// spill an ant's own death writes its crop out as. Either way this is
+/// called *instead of* `Carried::into_cell` for the one flesh cell the
+/// passenger rides with, not in addition to it -- see `Crop::passenger`'s
+/// own doc for why that is a real, priced substitution rather than a
+/// conservation gap.
+pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    // **`A2_DEBUG=1` -- one line per delivery**, the same convention
+    // `windfall_probe`'s `WF_DEBUG` uses: free when unset (one env read),
+    // and the only way a card-hunting session finds *which* frame and
+    // column to zoom a GIF on without adding a one-off print and reverting
+    // it.
+    if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
+        eprintln!("A2_DEBUG deliver frame={} organism={} at=({x},{y}) carried_frames={}", world.frame, passenger.organism_id, world.frame.saturating_sub(passenger.picked_up_frame));
+    }
+    world.carried_seed_organisms.remove(&passenger.organism_id);
+    let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
+    world.seed_transit_frames.push(frames_carried as u32);
+    world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
+    world.seeds_delivered += 1;
+    // **The decay clock keeps running while carried** (§2.5) -- a free,
+    // graded transit cost, not a free ride. A passenger owns no cell in the
+    // grid for `organism_tick`'s own per-tick decay roll to visit while it
+    // rides, so the whole carried span is settled in one roll here instead
+    // of accruing incrementally. That is not an approximation:
+    // `half_life_chance` is already closed-form in the interval
+    // (`1 - 0.5^(interval/half_life)`), so one roll over the whole span is
+    // the exact same hazard a seed that never left the ground would have
+    // faced tick by tick.
+    let half_life = world.organism(passenger.organism_id).map(|s| s.species).map(|sp| world.species.get(sp).seed_half_life);
+    if let Some(half_life) = half_life {
+        let mut rng = growth_stream(world, passenger.organism_id, x, y);
+        if rng.chance(half_life_chance(half_life, frames_carried)) {
+            // One of `pips_rotted`'s exits, same as the standing case --
+            // see `World::seeds_spilled` for how the four are meant to sum.
+            // The write above and this one land in the same call: the pip
+            // was genuinely delivered (`seeds_delivered` already moved) and
+            // then immediately lost the viability race, exactly as a
+            // standing pip can decay on the very tick it could otherwise
+            // have germinated (`organism_tick`'s own seed-decay comment).
+            world.pips_rotted += 1;
+            shed_to_litter(world, x, y);
+        }
+    }
+}
+
 /// **What a flower pays out of the two currencies it holds, in budget
 /// units — a thirtieth of a fruit.**
 ///
@@ -6216,7 +6305,13 @@ pub fn step_organisms(world: &mut World) {
         if world.organism(organism_id).is_some_and(|s| s.senescent) {
             rot_remains(world, organism_id);
         }
-        if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) {
+        // **A2's exemption.** An organism riding in a crop as a
+        // `SeedPassenger` owns no cell in the grid for exactly the same
+        // reason a dead one does not -- `take_seed_passenger` clears its
+        // one cell -- so without this check its slot would be reclaimed,
+        // and possibly reissued to something else entirely, before the
+        // carrying ant ever puts it down. See `World::carried_seed_organisms`.
+        if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) && !world.carried_seed_organisms.contains(&organism_id) {
             world.free_organism(organism_id);
         }
     }
@@ -11348,6 +11443,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // mouth and grew anyway. See `plant::seed_survives_bite`.
     if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
         world.plants_from_pip += 1;
+        // **A2's raw material for "plants established near the nest."** The
+        // engine still has no opinion about where a nest column is (see
+        // `windfall_germination_x` just below); `labforage` buckets this
+        // against `LabBox::colony_columns` itself.
+        world.pip_germination_x.push(x);
     }
     // **Did this seedling arrive by parcel or by scatter?** `cell` is the
     // seed cell as it stood before this function relabels it into a shoot,
@@ -22101,6 +22201,75 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let cells = w.organism(id).map_or(0, |st| st.cells.len());
         assert!(cells > 1, "a pip on wet soil under open sky should have germinated within herb's germination budget, got {cells} cell(s)");
         assert_eq!(w.plants_from_pip, 1, "the it-worked counter must move when a pip germinates");
+    }
+
+    /// **A2, first hook: a bite that passes the roll loads a passenger and
+    /// leaves no pip behind.** `Reports/evolution-lab-ecology-design-2026-
+    /// 09-10.md` §2.2, Brief A2. Exercises the two calls in the exact order
+    /// `creature.rs`'s bite site makes them: `seed_survives_bite` converts
+    /// the cell to `pip` in place, then -- because nothing is carrying a
+    /// passenger yet -- `take_seed_passenger` lifts that same cell back out.
+    #[test]
+    fn a_surviving_seed_is_taken_as_a_passenger_and_leaves_no_pip_standing() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        assert!(seed_survives_bite(&mut w, x, y, &mut rng), "test setup: the roll must pass at seed_gut_survival 1.0");
+
+        let passenger = take_seed_passenger(&mut w, x, y).expect("a pip the bite just converted in place must yield a passenger");
+        assert_eq!(passenger.organism_id, id, "the passenger must carry the seed's own organism id, not a fresh one");
+
+        let cell = w.get(x, y);
+        assert_eq!(cell.material, material::EMPTY, "no pip may stand where the fruit was bitten once it is riding in a crop");
+        assert_eq!(w.organism(id).map_or(1, |s| s.cells.len()), 0, "the organism owns no cell while carried -- that is the whole reason it needs the carried-set guard");
+        assert!(w.organism(id).is_some(), "the organism itself must still be standing, just cell-less");
+        assert!(w.carried_seed_organisms.contains(&id), "World::carried_seed_organisms must protect a mid-carry organism from step_organisms' empty-cell-list reclaim");
+        assert_eq!(w.seeds_carried, 1, "the it-fired counter must move when a passenger is loaded");
+    }
+
+    /// **A2, the one-seed-per-crop rule: a second bite with a passenger
+    /// already aboard leaves its pip on the spot.** Brief A2's own words:
+    /// "one seed per crop... a second surviving seed leaves its pip
+    /// standing where it was bitten instead". `take_seed_passenger` is
+    /// simply never called for the second seed -- this proves that when it
+    /// is not called, `seed_survives_bite`'s own in-place conversion is
+    /// exactly what is left standing, unchanged.
+    #[test]
+    fn a_second_surviving_seed_with_a_passenger_already_aboard_stays_on_the_spot() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let first_id = w.push_organism(herb).expect("an organism slot is free");
+        let second_id = w.push_organism(herb).expect("an organism slot is free");
+        let (x1, y1) = (50, 50);
+        let (x2, y2) = (60, 50);
+        place(&mut w, (x1, y1), windfall, first_id, CellType::Seed, (0.0, 0.0));
+        place(&mut w, (x2, y2), windfall, second_id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        assert!(seed_survives_bite(&mut w, x1, y1, &mut rng), "test setup: the first roll must pass");
+        let passenger = take_seed_passenger(&mut w, x1, y1).expect("test setup: the first pip must be taken as a passenger");
+
+        // The crop now carries a passenger -- exactly the condition
+        // `creature.rs`'s gate checks (`crop.is_none_or(|c| c.passenger.is_none())`)
+        // -- so the caller must not call `take_seed_passenger` again. This
+        // second bite converts the cell to `pip` in place and is left there.
+        assert!(seed_survives_bite(&mut w, x2, y2, &mut rng), "test setup: the second roll must also pass");
+
+        let second_cell = w.get(x2, y2);
+        assert_eq!(second_cell.material, pip, "the second surviving seed must still be standing as a pip, not vanished");
+        assert_eq!(second_cell.organism_id(), second_id, "the second pip must still belong to its own organism");
+        assert!(!w.carried_seed_organisms.contains(&second_id), "the second organism was never taken as a passenger and must not be in the carried set");
+        assert_eq!(w.seeds_carried, 1, "only the first surviving seed may be taken -- the counter must not move a second time");
+        assert_eq!(passenger.organism_id, first_id, "sanity: the one passenger that was taken is still the first seed");
     }
 
     /// **The arithmetic in §2.3, as a guard that can fail.** Change

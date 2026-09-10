@@ -87,6 +87,21 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(600);
     let every: u64 = arg("every").unwrap_or(5);
     let zoom: u32 = arg("zoom").unwrap_or(1).max(1);
+    // **A2's own reason for existing: this file's `zoom` was a pixel
+    // replicate of the box's default (ceiling-level) camera, never a crop --
+    // fine for a whole-box rain card, useless for "zoomed on the nest
+    // column" (Brief A2). `center=x,y` opts into a real camera zoom instead,
+    // through the same `Renderer` the interactive app scrolls with, and is
+    // additive: leaving it unset reproduces every existing rain card
+    // byte-for-byte, since neither this branch nor its cousin below ever
+    // runs. Given as a world-cell *centre*, unlike `labshot`'s `look=` (a
+    // top-left corner) -- centring is what "zoomed on a column" wants and a
+    // corner is not.
+    let center: Option<(i32, i32)> = arg::<String>("center").map(|s| {
+        let v: Vec<i32> = s.split(',').map(|p| p.trim().parse().expect("center wants x,y")).collect();
+        assert_eq!(v.len(), 2, "center wants exactly x,y, got {s:?}");
+        (v[0], v[1])
+    });
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
     // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
     // relying on `zoom` alone** -- the review skill is explicit that a GIF
@@ -160,6 +175,27 @@ fn main() {
     println!("  at frame {start}: soil water {water_before}, rain cells so far {rain_before} (rain now armed at {})", rain.label());
 
     let (full_w, full_h) = (WIDTH, HEIGHT);
+    // **`center=` drives a real `Renderer` zoom**, through the identical
+    // `adjust_zoom`/`set_camera` machinery the interactive app's scroll
+    // wheel calls -- so the card shows fewer, bigger world cells around
+    // the nest rather than the same ceiling-level view blown up or merely
+    // trimmed. Set once, before the capture loop: the nest does not move
+    // over a few hundred frames, and re-centring every frame would fight a
+    // laden ant's own drift across the crop.
+    //
+    // **Orthogonal to `crop=` below, and composes with it.** `center`
+    // decides which world cells `lab.draw` puts into the frame at all;
+    // `crop` trims the rendered frame afterward, exactly as `filmstrip`'s
+    // own crop does -- a `center` shot can still be cropped tighter.
+    if let Some((ccx, ccy)) = center {
+        for _ in 1..zoom {
+            lab.renderer.adjust_zoom(1);
+        }
+        let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
+        let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+        lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
+        println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
+    }
     // The crop rect, clamped into the real frame so an out-of-bounds request
     // (a flower head near an edge, plus margin) shrinks rather than reading
     // past the buffer -- `filmstrip`'s own crop has this same clamp.
@@ -187,8 +223,14 @@ fn main() {
                 }
                 cropped
             };
-            let (zw, zh) = (w * zoom, h * zoom);
-            let zoomed = if zoom == 1 {
+            // **`center=`'s zoom already happened inside `lab.draw`** -- the
+            // renderer put fewer, bigger world cells into `full` (and so
+            // into `buf`) itself, so replicating pixels again here would
+            // zoom twice. Without `center`, `zoom` is still this file's
+            // original pixel replicate of whatever `crop` left (or the
+            // whole frame).
+            let (zw, zh) = if center.is_some() { (w, h) } else { (w * zoom, h * zoom) };
+            let zoomed = if center.is_some() || zoom == 1 {
                 buf
             } else {
                 let mut out_buf = vec![0u8; (zw * zh * 4) as usize];
@@ -224,6 +266,14 @@ fn main() {
     // so `every` ticks between captures maps directly to real elapsed time.
     let delay_ms = ((every * 1000) / 60).max(1);
     let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
+    // **Read off the actual first shot, not recomputed from `w`/`zoom`.**
+    // That recomputation was always `w * zoom, h * zoom`, which was true
+    // while this file only ever built one kind of frame and became a lie
+    // the moment `center=` started asking `lab.draw` for fewer, bigger
+    // world cells inside the *same* WIDTHxHEIGHT canvas instead. Caught by
+    // hand: the log read `2560x1600` over an image that was genuinely
+    // `512x320`, `CLAUDE.md`'s own "ask what your number counts" shape.
+    let (shot_w, shot_h) = shots.first().map_or((w, h), |img| (img.width(), img.height()));
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
     let n = gif_frames.len();
     match std::fs::File::create(&out) {
@@ -235,7 +285,7 @@ fn main() {
             if let Err(e) = encoder.encode_frames(gif_frames) {
                 eprintln!("labgif: gif encode failed: {e}");
             }
-            println!("  wrote {out} ({n} frames, {}x{} each)", w * zoom, h * zoom);
+            println!("  wrote {out} ({n} frames, {shot_w}x{shot_h} each)");
         }
         Err(e) => eprintln!("labgif: failed to create {out}: {e}"),
     }
