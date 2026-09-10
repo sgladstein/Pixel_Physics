@@ -59,6 +59,30 @@ pub use crate::app::{HEIGHT, WIDTH};
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
 
+/// **Today's date, as `YYYY-MM-DD`, UTC.** No date crate in this workspace
+/// (`Cargo.toml` carries nine dependencies and none of them tell time in
+/// calendar units), so this is Howard Hinnant's small, well-known
+/// days-since-epoch civil-calendar conversion rather than a new dependency
+/// for one filename. Proleptic Gregorian, correct for every date this build
+/// will ever see; `Lab::write_chronicle` is its only caller.
+fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
+
 /// The whole lab: a world, the systems that live beside the cell grid, a view
 /// on it, and the two things the player drives — time and what is on screen.
 pub struct Lab {
@@ -447,11 +471,86 @@ impl Lab {
         }
     }
 
+    /// **Where a chronicle export goes**, gitignored beside the shelf and the
+    /// saved bed (`.gitignore`'s own block for both) -- one player's own
+    /// record of a run, not authored content.
+    pub const CHRONICLE_DIR: &'static str = "assets/chronicles";
+    /// Environment override for [`Lab::CHRONICLE_DIR`], `scenario::ASSET_DIR_ENV`'s
+    /// own shape: a test or a second lab in this container writes somewhere
+    /// else instead of the shared, gitignored directory.
+    pub const CHRONICLE_DIR_ENV: &'static str = "PIXEL_PHYSICS_CHRONICLE_DIR";
+
+    fn chronicle_dir() -> std::path::PathBuf {
+        std::env::var(Self::CHRONICLE_DIR_ENV).map(std::path::PathBuf::from).unwrap_or_else(|_| Self::CHRONICLE_DIR.into())
+    }
+
+    /// What this box is, for the chronicle's own header and filename: the
+    /// scenario's file stem if the box on screen was opened from one, else
+    /// its species and colony species so an ordinary hand-built bed still
+    /// names itself rather than reading `BED`. Lower-cased and stripped to
+    /// `[a-z0-9_]` for the filename half -- a scenario title is free text
+    /// (`Scenario::title`'s own doc), and a slash or a colon in it would
+    /// either fail the write or, worse, land outside `CHRONICLE_DIR`.
+    fn bed_label(&self) -> String {
+        match &self.scenario {
+            Some(s) => s.name.clone(),
+            None => format!("{}_{}", self.spec.species, self.spec.colony_species),
+        }
+    }
+
+    fn bed_slug(&self) -> String {
+        self.bed_label()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect()
+    }
+
+    /// **Write this run's chronicle to a text file, and say on the bar where
+    /// it went.** Called from `reset()`, on the world about to be thrown
+    /// away, and from the binary's own shutdown hook -- `bin/lab.rs`'s
+    /// `exiting` -- so a run's history survives both ways a session ends:
+    /// pressing `REBUILD` and closing the window.
+    ///
+    /// **Never blocks either.** A write failure is reported the same way a
+    /// success is -- on the bar, through `ui.say` -- and the caller carries
+    /// on exactly as it would have: `CLAUDE.md`'s own rule for this
+    /// deliverable, and the reason this returns nothing a caller has to
+    /// branch on.
+    ///
+    /// **Skipped on a box nobody has run.** `reset()` fires on every
+    /// `REBUILD`, including the very first one after loading a scenario
+    /// (`load_scenario`'s own doc), and a chronicle of `FRAME 0` is a header
+    /// with nothing under it -- clutter, not a record.
+    pub fn write_chronicle(&mut self) {
+        if self.world.frame == 0 {
+            return;
+        }
+        let dir = Self::chronicle_dir();
+        let path = dir.join(format!(
+            "chronicle-{}-{}-s{}.txt",
+            today_utc(),
+            self.bed_slug(),
+            self.spec.seed
+        ));
+        let text = ui::chronicle_text(&self.world, &self.spec, &self.bed_label(), self.time.requested);
+        let result = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+        match result {
+            Ok(()) => self.ui.say(format!("CHRONICLE SAVED -> {}", path.display())),
+            Err(e) => self.ui.say(format!("CHRONICLE NOT SAVED: {e}")),
+        }
+    }
+
     /// Rebuild the box on screen from `self.spec`, keeping the view and the
     /// dial, and report what the scenario attached to it (if one) managed
     /// to place -- `Placed::default()` when there is none, so a caller need
     /// not match on `self.scenario` to use the count.
     pub fn reset(&mut self) -> scenario::Placed {
+        // **The run being replaced gets its chronicle before it goes.** This
+        // has to run before `spec.build()` two lines down overwrites
+        // `self.world` -- the whole point of the export is that a `REBUILD`
+        // does not silently erase the history of the box it is replacing.
+        self.write_chronicle();
         // **The rules and dials the player set survive the rebuild; the box
         // does not.** `spec.build()` returns a brand-new `World` at its
         // defaults, so a switch or a heredity number thrown on the
@@ -2438,6 +2537,7 @@ impl Lab {
             ui::Action::ParamScroll(d) => self.ui.scroll_params(d),
             ui::Action::RackScroll(d) => self.ui.scroll_rack(d),
             ui::Action::RackGroup => self.ui.toggle_rack_grouping(),
+            ui::Action::HistoryScroll(d) => self.ui.scroll_history(d),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),

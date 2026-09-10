@@ -500,14 +500,35 @@ pub(crate) struct LineStats {
     /// lineage, which has no per-individual name table for `LineRecord` to
     /// read against anyway).
     pub founder_traits: [f32; organism::CREATURE_TRAITS],
+    /// **The frame this lineage's number was first claimed.** Set once, in
+    /// whichever of `seed_line_stats` (a creature founder or stocked
+    /// release) or `note_line_population`'s own lazy-entry branch (a plant
+    /// lineage, whose entry does not exist until its first germination --
+    /// see `seed_line_stats`'s own doc) actually creates this row. HISTORY
+    /// page and the chronicle export's LEGENDS section both read it as "when
+    /// this line was founded"; `0` means never seeded, which cannot happen
+    /// for a lineage that ever reaches `LineEnded` (a line cannot end
+    /// without having been founded).
+    pub founder_frame: u64,
     /// The deepest `OrganismState::generation` any descendant has reached.
-    /// Animal lineages only -- see `World::note_line_generation`.
+    /// Animal lineages only -- see `World::note_line_generation`. A reader
+    /// wanting "generations reached" for a *plant* lineage (which never
+    /// calls that) has to fall back to the last member's own `generation`
+    /// instead -- `lab::ui::ended_lines` does exactly that.
     pub deepest_generation: u16,
     /// How many descendants of this lineage (the founder included) are alive
     /// right now. Incremented at both `Born` push sites, decremented in
     /// `free_organism`; never below zero by construction (a lineage cannot
     /// out-die itself).
     pub living: u32,
+    /// **The highest `living` has ever read.** A line that peaks at 40 and
+    /// dwindles to nothing over a thousand frames is a different finding
+    /// from one that peaks at 3 -- and the standing `living` count is 0 by
+    /// the time anything reads it for a line that has ended, same failure
+    /// shape as a grave that showed its bearer's full energy bank. Updated
+    /// beside `living` in both places that change it, never derived after
+    /// the fact.
+    pub peak_living: u32,
     /// **Which milestones have already fired**, one bit per rung across both
     /// tables: bits `0..GENERATION_MILESTONES.len()` for the generation
     /// table, the next `POPULATION_MILESTONES.len()` bits for the population
@@ -552,7 +573,10 @@ impl World {
     /// long as its founder survives ungerminated-descendant-less, which is a
     /// bounded, stated simplification rather than a silent one.
     pub(crate) fn seed_line_stats(&mut self, lineage: u32, founder_traits: [f32; organism::CREATURE_TRAITS]) {
-        self.line_stats.insert(lineage, LineStats { founder_traits, living: 1, ..Default::default() });
+        self.line_stats.insert(
+            lineage,
+            LineStats { founder_traits, living: 1, peak_living: 1, founder_frame: self.frame, ..Default::default() },
+        );
     }
 
     /// **Push one log line, reading `lineage` and `generation` off the
@@ -604,7 +628,39 @@ impl World {
         let mut crossed: Vec<usize> = Vec::new();
         {
             let stats = self.line_stats.entry(lineage).or_default();
+            // **The lazy-entry branch `seed_line_stats`'s own doc points
+            // at.** A plant founder never calls `seed_line_stats` (it has no
+            // per-individual name table for `LineRecord` to read, so there
+            // is nothing to seed traits from), so the first call that
+            // reaches here is the moment this row is created at all --
+            // `living == 0 && peak_living == 0` is exactly that moment and
+            // nowhere else (`peak_living` never falls once raised, so it is
+            // what tells "never touched" apart from "touched and happens to
+            // read zero now").
+            //
+            // **Two shapes of "first call", and both have to seed the row or
+            // one of them reads as a line that was never alive.** A first
+            // germination (`delta > 0`) is the ordinary case this branch was
+            // written for. But a founder that dies *without ever breeding*
+            // reaches here too, on its own death (`delta < 0`), as the
+            // *only* call this lineage ever gets -- and leaving `living` at
+            // its `Default` zero there would apply the death to a lineage
+            // that this row says was never alive, landing at `peak_living:
+            // 0` for a line whose founder was real for real frames. That is
+            // the vacuous-metric shape `CLAUDE.md` names directly: a number
+            // that reads zero not because nothing happened but because
+            // nothing was ever recorded. One member -- the founder itself --
+            // was alive up to this instant, so that is what `living` reads
+            // the moment before this delta lands, whichever sign it is.
+            if stats.living == 0 && stats.peak_living == 0 {
+                stats.founder_frame = born_frame;
+                if delta < 0 {
+                    stats.living = 1;
+                    stats.peak_living = 1;
+                }
+            }
             stats.living = (stats.living as i64 + delta).max(0) as u32;
+            stats.peak_living = stats.peak_living.max(stats.living);
             for (i, &threshold) in POPULATION_MILESTONES.iter().enumerate() {
                 let bit = 1u16 << (GENERATION_MILESTONES.len() + i);
                 if stats.living >= threshold && stats.milestones_hit & bit == 0 {
