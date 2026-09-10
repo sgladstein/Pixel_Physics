@@ -248,11 +248,23 @@ then the old straight lay; viable sites 5→9 on the colony scene and
 11/13/13→13/15/14 on the played bed, never fewer — but the *two-cell*
 control founds only 18–29 of 52 on the same bed, so most of the remaining
 gap is the bed's litter and the span-scaled spacing, not spine shape.
-Card `…7f9bac` asks whether the founded bodies lie flat. Lanes running:
-**S** (shrubs flower and axes re-bloom, cut from the nectar branch: the
-coordinator's recommendation on the flowering question, which the owner
-did not overrule; the tree stays and does not flower yet) and **F** (the
-flip on by default with foraging re-derived).
+Card `…7f9bac` asks whether the founded bodies lie flat. **#314 landed**
+(the sense, no species wired). **The flip is on by default with foraging
+restored (F, PR #316, stacked on the mobility branch)**: the ungated flip
+had cost deliveries because a boxed animal cannot tell a dead end from
+another ant standing in the one open heading, and it turned laden
+foragers round beside the nest; a laden animal now defers the flip one
+tick when only another body is in the way. Foraging scene, 12,000
+frames: deliveries 297 off / 233 ungated / **290** shipped, round trips
+14 / 7 / **25**; mobility on the four walk presets bit-identical to the
+flip arm. Two broader gates were built and rejected (they cost 16% and
+78% blocked on `tunnel`). The three bodies reds are unchanged: the §9
+swarm guard, the chamber roof, founding 5 of 52 on the colony scene
+(#315 makes it 9). **The bodies stack is #303 → #311 → #315 + #316, all
+waiting on the owner.** Lane running: **S** (shrubs flower and axes
+re-bloom, cut from the nectar branch: the coordinator's recommendation on
+the flowering question, which the owner did not overrule; the tree stays
+and does not flower yet).
 
 **The owner's verdicts, 2026-09-10 (synced 15:31 UTC), and what each sets
 in motion:** the thicket goes in the default played bed (*"Sure"*) and so
