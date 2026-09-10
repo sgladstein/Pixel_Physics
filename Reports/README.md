@@ -1913,6 +1913,35 @@ drift that two of these documents still reflect.**
   defect found while measuring: **`labshot scenario=… seed=N` is silently
   ignored** (`labforage` fixed exactly this on itself and `labshot` never got
   it), so every contact sheet of the played bed is seed 1.
+- [evolution-lab-pollinator-design-2026-09-10.md](evolution-lab-pollinator-design-2026-09-10.md)
+  — **design examination; priced proposals only, nothing built.** Specifies
+  the ruling that overturned the report above: **animals carry the pollen**,
+  and the box gets an animal whose living is flowers. Filed here rather than
+  under *The evolution lab* by that section's own rule — this is about the
+  biology, not the box. Carries the pollinator (`flitter`: `Chain(2)`, gut
+  `−1.0` so a flower pays it **120 J against the ant's 30**, no nest, the 2.0
+  hop the owner liked with one new wire — `(FoodAdjacent, Impulse, −2.0)`,
+  which is *not* the recorded dead end because it gates on food being here
+  rather than on the animal being poor); the **bloom sense**, two brain inputs
+  that cost the genome nothing because `brain.rs` reserved the dimensions, and
+  a `Sightings.bloom` recorded on rays that already exist and never broken, so
+  every shipped species stays bit-identical; and pollen as **one grain on the
+  animal, one coordinate-keyed entry on the world, one call in
+  `bear_seed_at`**. **Three measurements change what should be built.** The
+  thicket is the larder: standing flowers at frame 6,000 are a median **16 on
+  `played_bed` against 60 with scramblers**, fruit **2 against 48**. **The bed
+  stops flowering on its own and the colony is not the cause** — 81 → 25 → 8
+  standing flowers with a colony and **81 → 10 → 3 with the colony removed**,
+  so grazing is ruled out, the cause is determinacy, and the pollinator's real
+  precondition is a flower that **renews** rather than one that survives. And
+  **"nectar is paid out of the reproductive budget" is a units error** in the
+  design above: the budget is plant carbon capped at 4.0 where a fruit costs
+  0.3, and 120 is joules — nectar needs a cost *and* a yield. On what gene flow
+  costs: lineage becomes maternal descent, so `LINES BIGGEST` and
+  `selection_arena`'s arm attribution both silently narrow, and the allele
+  census reads a mixture it cannot distinguish from two clusters. Prices the
+  **petal-colour locus** separately, because its real cost is one more draw per
+  plant birth from a shared `Rng` — every seeded plant figure in the lab moves.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is
