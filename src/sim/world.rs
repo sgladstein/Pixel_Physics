@@ -2404,6 +2404,30 @@ pub struct World {
     /// real fruit's windfall material, owned or not.
     pub windfall_bitten: u64,
 
+    /// **Every reach of an organism-owned flower cell through
+    /// `plant::nectar_offer`, paid or not** — the sensitivity half of B1's
+    /// pair (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1,
+    /// Brief B1'). `nectar_paid` below is the effect half. **This is the
+    /// counter the positive control reads**: at a species'
+    /// `nectar_refill: 0.0` the pool can never fill, so `nectar_paid` stays
+    /// zero forever — and this field is what proves that zero is the
+    /// refill rate and not a probe that never reached a flower at all, by
+    /// still moving. Zero on any run with no fruiting species, by
+    /// construction: nothing else sets an organism-owned `CellType::Flower`.
+    pub flower_visits: u64,
+
+    /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
+    /// `nectar_yield` returns, summed every time one is non-zero. The
+    /// effect half of `flower_visits`' pair, and the plant's own side of
+    /// the exchange: this is the raw figure the plant handed over, before
+    /// the bite site's `diet_quality` filter decides how much of it a
+    /// given gut actually absorbs (that filtered figure is credited to
+    /// `EnergyLedger::harvested_plant` and is not this field — the two can
+    /// differ by an order of magnitude on a mismatched gut, which is the
+    /// point of keeping them apart). `nectar_paid / (frame / 1000.0)` at
+    /// any checkpoint is the design's own "joules paid per 1,000 frames".
+    pub nectar_paid: f64,
+
     /// **The x-coordinate of every germination whose seed cell wore a
     /// windfall material rather than plain `seed`** — the far-side
     /// discriminator for the fruit → animal → nest → seedling loop the
@@ -3758,6 +3782,8 @@ impl World {
             pips_eaten: 0,
             windfall_bitten_ownerless: 0,
             windfall_bitten: 0,
+            flower_visits: 0,
+            nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
             seeds_carried: 0,
             seeds_delivered: 0,

@@ -96,6 +96,18 @@
     // *inside* `[-4, 4]` with room on both sides, so the fallback that
     // starved `seed_launch` would not starve this one.
     seed_gut_survival: 0.6,
+    // **Nectar, in two currencies** (`Reports/evolution-lab-pollinator-
+    // design-2026-09-10.md` §3.1, Brief B1'). `nectar_yield: 120.0` J is a
+    // quarter of a leaf, credited to a feeding animal through
+    // `diet_quality` -- the arithmetic that checks it against
+    // `EAT_YIELD_THRESHOLD` is on that constant's own doc (`creature.rs`),
+    // the same way `pip.ron` checks its own food value there rather than
+    // by argument here. `nectar_refill: 0.25` fills a flower's own pool
+    // (`OrganismCell::nectar`) in four organism ticks; against
+    // `Ripen(rate: 0.02)`'s ~50-tick career as a flower, that is roughly
+    // twelve visits paid across its whole life, the design's own figure.
+    nectar_yield: 120.0,
+    nectar_refill: 0.25,
     stomatal_reserve: 0.2,
     // A ruderal's bank: short-lived seed, fast-rotting remains. Both an
     // order of magnitude below `tree`'s, which is what a herb *is* on the

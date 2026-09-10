@@ -3567,6 +3567,28 @@ pub fn diet_quality(world: &World, material: material::MaterialId, gut_bias: f32
 /// instruments land — a threshold set from an argument is exactly the shape
 /// this project has been bitten by, and it is recorded as such here rather
 /// than presented as measured.
+///
+/// **Checked again, not re-derived, against `nectar_yield`'s 120 J — the
+/// first sub-100-J-credit-adjacent figure in the box, and the one this
+/// threshold's own comment above asked to be checked against the next time
+/// something new landed here.** Unlike every earlier addition to this
+/// table, nectar's credit genuinely is run through `diet_quality` at the
+/// bite site (`plant::nectar_offer`'s own doc explains why it has to be —
+/// two different currencies meet there and this filter is what converts
+/// one into the other), so this is the real number an animal receives, not
+/// a forward check on one that is not yet filtered:
+///
+/// ```text
+/// gut     nectar credit = 120 * diet_quality   reads as
+/// 0.0     120 * (1 - 1/2)^2       = 30 > 12    clearly visible
+/// -1.0    120 * (1 - 0/2)^2       = 120 > 12   clearly visible
+/// +1.0    120 * (1 - 2/2)^2       = 0 < 12     invisible, as any plant food is
+/// ```
+///
+/// 2.5x headroom at the shipped neutral gut, the same margin `pip.ron`
+/// reasons about for its own 40 J against the same bar. If `nectar_yield`
+/// is ever authored below ~48 J on some species this arithmetic is the
+/// first place to recheck.
 pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
 
 /// **Trophallaxis's one constant, and it is doing three jobs at once** —
@@ -3930,19 +3952,29 @@ fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
 ///
 /// **Best, not first, and the difference is Gate 0.** This used to
 /// short-circuit on the first neighbour over the threshold, in `NEIGHBOURS_8`
-/// order — so an animal standing on a stem between a leaf and a flower ate
+/// order — so an animal standing on a stem between a leaf and a fruit ate
 /// whichever the array happened to reach first. That is not a preference, it
 /// is an artifact of a loop, and it is expensive here in a way it would not
 /// be in most engines: what decides whether an ant can ever afford a child is
 /// `hunger_fraction * start_energy + one mouthful` against the birth bar, so
 /// **which** mouthful is the whole of the arithmetic. A leaf pays 480 and a
-/// flower pays 1,440; taking the leaf because it sorts earlier costs the
-/// animal two thirds of the best meal it will ever be offered.
+/// fruit pays 960; taking the leaf because it sorts earlier costs the animal
+/// half the best whole-cell meal it will ever be offered.
 ///
-/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`: the largest
-/// mouthful any ant swallowed over 24,000 frames was **480** — a leaf —
-/// while flowers and fruit stood in the bed throughout and ants climbed 28
-/// rows up the stems. First-match is why.
+/// **The example used to be a flower (1,440), and it was rewritten rather
+/// than corrected in place** (`Reports/evolution-lab-pollinator-design-
+/// 2026-09-10.md` §3.1-§3.2): a flower is no longer only a destroyed
+/// 1,440 J mouthful, `plant::nectar_offer` lets an animal reach a flower
+/// whose own nectar pool is full and take a small credited sip while it
+/// stays standing, so "which cell scores highest" is no longer the whole
+/// story for a flower the way it still is for a fruit or a leaf. The rule
+/// this doc describes — score every neighbour, take the best — is
+/// untouched; only the number that used to illustrate it moved.
+///
+/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`, before nectar
+/// existed: the largest mouthful any ant swallowed over 24,000 frames was
+/// **480** — a leaf — while flowers and fruit stood in the bed throughout
+/// and ants climbed 28 rows up the stems. First-match is why.
 ///
 /// It costs eight `World::get` and eight `diet_yield` per creature tick
 /// instead of a short-circuit. `diet_yield` is a multiply and an absolute
@@ -5022,6 +5054,38 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **A flower an animal can afford to feed at pays nectar and
+                // stays standing** -- the box's first renewable food, and the
+                // mechanism the pollinator design needs before an animal can
+                // carry pollen at all (`Reports/evolution-lab-pollinator-
+                // design-2026-09-10.md` §3.1-§3.2, Brief B1', owner's ruling
+                // 2026-09-10). Tried before anything below reads or clears
+                // the cell, exactly where `seed_survives_bite` sits: `0.0`
+                // for anything that is not a flower, or a flower whose pool
+                // is not full, or whose plant cannot cover the charge, and
+                // the caller falls through to today's behaviour -- a dry
+                // flower is bitten off whole, same as before this hook
+                // existed (deliberate, `plant::nectar_offer`'s own doc).
+                //
+                // **Two currencies, filtered at the one place they meet.**
+                // `nectar_offer` pays the plant's side in budget units and
+                // hands back `nectar_yield` in joules; this gut has never
+                // seen either number, so the credit is priced through
+                // `diet_quality` exactly like every other mouthful -- unlike
+                // `worth`/`gain` below, there is no crop in between to hold
+                // the face value, so this is the whole of the credit in one
+                // step, booked to `harvested_plant` the same way the brood
+                // path (`try_bud`'s own shortfall loop, `:1384`) already
+                // books a bite taken to cover a birth.
+                let nectar_yield = plant::nectar_offer(world, fxx, fyy);
+                if nectar_yield > 0.0 {
+                    let credit = nectar_yield * diet_quality(world, bite.material, gut.bias);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.energy += credit;
+                    }
+                    world.energy_ledger.harvested_plant += credit as f64;
+                    return did;
+                }
                 // **Two numbers, and conflating them is a bug in both
                 // directions.** `worth` is what the mouthful is worth to
                 // anybody -- it is what goes back into the world if this
@@ -16230,6 +16294,117 @@ mod tests {
         assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
         assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
     }
+
+    // --- B1': nectar, in two currencies ---------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    // Brief B1'. The plant-side pocket tests (full, dry, poor, the zero-
+    // refill positive control) are in `plant.rs`'s own test module, beside
+    // `nectar_offer`.
+
+    /// **`EAT_YIELD_THRESHOLD`'s own doc says to check this here, and it is
+    /// now a live number, not a forward check** — `plant::nectar_offer`'s
+    /// own doc explains why the credit genuinely is run through
+    /// `diet_quality` at the bite site (two currencies meet there), so this
+    /// is exactly what an animal receives, not a hypothetical.
+    #[test]
+    fn the_neutral_guts_credit_on_a_nectar_visit_clears_the_threshold() {
+        let w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+
+        let neutral_quality = diet_quality(&w, flower, 0.0);
+        let credit = yield_j * neutral_quality;
+        assert!(
+            credit > EAT_YIELD_THRESHOLD,
+            "a {yield_j} J nectar payout credits {credit} J at the neutral gut against a bar of {EAT_YIELD_THRESHOLD} -- \
+             below this and no animal could ever be offered it under the box's usual filter"
+        );
+    }
+
+    /// **Driven through `act` itself rather than through `nectar_offer` and
+    /// the credit by hand**, so this is a test of the wiring at the bite
+    /// site, not only of the function it calls. Two currencies, two
+    /// separate checks: the plant's pocket must fall by exactly
+    /// `NECTAR_COST` (budget units) and the animal's bank must rise by
+    /// exactly `nectar_yield * diet_quality` (joules) — not the same
+    /// number, deliberately (§3.1's whole correction) — and both sides of
+    /// `EnergyLedger`'s live identity must still agree afterwards.
+    #[test]
+    fn a_nectar_visit_through_act_debits_budget_units_and_credits_filtered_joules() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("ant must be a creature");
+        let gut = gut_of(&w, ant, &def);
+
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (101, 100);
+        w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        if let Some(state) = w.organism_mut(plant_id) {
+            // `organism::RESOURCE_SCALE`, the same cap `plant::
+            // REPRODUCTIVE_BUDGET_CAP` is defined from -- that constant is
+            // private to `plant.rs`, so the value is restated rather than
+            // named.
+            state.reproductive_budget = organism::RESOURCE_SCALE;
+        }
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.nectar = 1.0; // full, or the scene proves nothing
+        }
+
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        assert_eq!((hx, hy), (100, 100), "test setup: the scene must put the ant's head where the flower is adjacent to it");
+
+        let expected_credit = yield_j * diet_quality(&w, flower_mat, gut.bias);
+        assert!(expected_credit > 0.0, "test setup: this gut must actually value plant matter or the scene proves nothing");
+
+        let ant_energy_before = w.organism(ant).expect("live").energy;
+        let plant_budget_before = w.organism(plant_id).expect("live").reproductive_budget;
+        let ledger_gap_before = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+
+        // Feed only -- dig and drop stay at 0 so the scene can only take the
+        // one verb this test is about, and a crop-less fresh ant cannot
+        // prefer the drop branch regardless.
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, ant, &def, &outputs, &mut draw);
+
+        let cell = w.get(fx, fy);
+        assert_eq!(cell.material, flower_mat, "a paid visit must leave the flower material standing");
+        assert_eq!(cell.organism_id(), plant_id, "the plant must still own the cell");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Flower), "still a Flower, not bitten off");
+        assert_eq!(w.organism_cell(fx, fy).expect("live").nectar, 0.0, "a paid visit must drain the flower's own pool");
+
+        let ant_energy_after = w.organism(ant).expect("live").energy;
+        let plant_budget_after = w.organism(plant_id).expect("live").reproductive_budget;
+        let credit = ant_energy_after - ant_energy_before;
+        let debit = plant_budget_before - plant_budget_after;
+        // `abs_diff` rather than `assert_eq!`: `RESOURCE_SCALE - NECTAR_COST`
+        // through f32 subtraction is `0.00999999...`, not the bit-exact
+        // `0.01` a literal parses to -- an f32 rounding artifact, not a
+        // pricing bug.
+        assert!(
+            (debit - plant::NECTAR_COST).abs() < 1e-6,
+            "the pocket must be debited NECTAR_COST (0.01 budget units), not a joule figure: got {debit}"
+        );
+        assert_eq!(credit, expected_credit, "the animal must be credited exactly yield * diet_quality, the filtered joule figure");
+        assert_ne!(credit, debit, "two currencies: the credit and the debit must NOT be the same number -- if they are, the units error is back");
+
+        assert_eq!(w.flower_visits, 1, "exactly one reach happened");
+        assert_eq!(w.nectar_paid, yield_j as f64, "the plant-side joule sum must record the raw nectar_yield, not the gut-filtered credit");
+
+        let ledger_gap_after = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+        assert_eq!(
+            ledger_gap_before, ledger_gap_after,
+            "crediting nectar must not open a gap between the live identity's two sides: {ledger_gap_before} -> {ledger_gap_after}"
+        );
+    }
+
     // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and
     // is deleted rather than ported.** All three of its arms were stated
     // against `roof = hunger_fraction * start_energy + one mouthful`, and a

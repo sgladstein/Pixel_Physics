@@ -103,6 +103,18 @@ fn main() {
         (v[0], v[1])
     });
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
+    // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
+    // relying on `zoom` alone** -- the review skill is explicit that a GIF
+    // should never carry `zoom` into the queue (`image-rendering: pixelated`
+    // already lets the viewer zoom client-side for free), so a card asking
+    // "does the visit at one flower head read" needs pixels removed before
+    // encoding, not multiplied. Applied to the raw `WIDTH x HEIGHT` buffer,
+    // before zoom, so the two compose exactly as `filmstrip`'s do. Absent or
+    // unparsable means the whole frame, today's behaviour exactly.
+    let crop: Option<(u32, u32, u32, u32)> = arg::<String>("crop").and_then(|s| {
+        let parts: Vec<u32> = s.split(',').filter_map(|p| p.parse().ok()).collect();
+        (parts.len() == 4).then(|| (parts[0], parts[1], parts[2], parts[3]))
+    });
 
     let mut sc = Scenario::load(&scenario_name).unwrap_or_else(|e| {
         eprintln!("scenario {scenario_name}: {e}");
@@ -145,8 +157,9 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} rain={} start={start} frames={frames} every={every} zoom={zoom} out={out}",
-        rain.label()
+        "labgif: scenario={scenario_name} seed={seed} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        rain.label(),
+        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}"))
     );
     println!("  {msg}");
 
@@ -161,28 +174,61 @@ fn main() {
     let rain_before = lab.world.rain_cells;
     println!("  at frame {start}: soil water {water_before}, rain cells so far {rain_before} (rain now armed at {})", rain.label());
 
-    let (w, h) = (WIDTH, HEIGHT);
-    // **`center=` drives a real `Renderer` zoom instead of the pixel
-    // replicate below**, through the identical `zoom_within`/`set_camera`
-    // machinery the interactive app's scroll wheel calls -- so the card
-    // shows fewer, bigger world cells around the nest rather than the same
-    // ceiling-level view blown up. Set once, before the capture loop: the
-    // nest does not move over a few hundred frames, and re-centring every
-    // frame would fight a laden ant's own drift across the crop.
-    if let Some((cx, cy)) = center {
+    let (full_w, full_h) = (WIDTH, HEIGHT);
+    // **`center=` drives a real `Renderer` zoom**, through the identical
+    // `adjust_zoom`/`set_camera` machinery the interactive app's scroll
+    // wheel calls -- so the card shows fewer, bigger world cells around
+    // the nest rather than the same ceiling-level view blown up or merely
+    // trimmed. Set once, before the capture loop: the nest does not move
+    // over a few hundred frames, and re-centring every frame would fight a
+    // laden ant's own drift across the crop.
+    //
+    // **Orthogonal to `crop=` below, and composes with it.** `center`
+    // decides which world cells `lab.draw` puts into the frame at all;
+    // `crop` trims the rendered frame afterward, exactly as `filmstrip`'s
+    // own crop does -- a `center` shot can still be cropped tighter.
+    if let Some((ccx, ccy)) = center {
         for _ in 1..zoom {
             lab.renderer.adjust_zoom(1);
         }
         let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
-        let (span_x, span_y) = lab.renderer.visible_span((w, h));
-        lab.renderer.set_camera(cx - span_x / 2, cy - span_y / 2, (w, h), Some(bounds));
-        println!("  camera centred on ({cx},{cy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
+        let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+        lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
+        println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
     }
+    // The crop rect, clamped into the real frame so an out-of-bounds request
+    // (a flower head near an edge, plus margin) shrinks rather than reading
+    // past the buffer -- `filmstrip`'s own crop has this same clamp.
+    let (cx, cy, w, h) = match crop {
+        Some((x, y, cw, ch)) => {
+            let x = x.min(full_w.saturating_sub(1));
+            let y = y.min(full_h.saturating_sub(1));
+            (x, y, cw.min(full_w - x), ch.min(full_h - y))
+        }
+        None => (0, 0, full_w, full_h),
+    };
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
-            let mut buf = vec![0u8; (w * h * 4) as usize];
-            lab.draw(&mut buf, 60.0);
+            let mut full = vec![0u8; (full_w * full_h * 4) as usize];
+            lab.draw(&mut full, 60.0);
+            let buf = if crop.is_none() {
+                full
+            } else {
+                let mut cropped = vec![0u8; (w * h * 4) as usize];
+                for row in 0..h {
+                    let src = (((cy + row) * full_w + cx) * 4) as usize;
+                    let dst = (row * w * 4) as usize;
+                    cropped[dst..dst + (w * 4) as usize].copy_from_slice(&full[src..src + (w * 4) as usize]);
+                }
+                cropped
+            };
+            // **`center=`'s zoom already happened inside `lab.draw`** -- the
+            // renderer put fewer, bigger world cells into `full` (and so
+            // into `buf`) itself, so replicating pixels again here would
+            // zoom twice. Without `center`, `zoom` is still this file's
+            // original pixel replicate of whatever `crop` left (or the
+            // whole frame).
             let (zw, zh) = if center.is_some() { (w, h) } else { (w * zoom, h * zoom) };
             let zoomed = if center.is_some() || zoom == 1 {
                 buf
