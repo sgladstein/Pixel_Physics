@@ -142,6 +142,7 @@
              border-top: 1px solid var(--line); padding-top: 10px; }
   .syncbox.bad { color: var(--bad); }
   .syncbox .err { display: block; margin-top: 4px; word-break: break-word;
+                  white-space: pre-wrap;
                   font-family: ui-monospace, monospace; font-size: 11px; }
   /* Full-screen viewer. A quarter of posted media is wider than the card pane
      at 1:1 -- one real card is 3076x80, which `fit` renders about 33px tall --
@@ -618,7 +619,8 @@ function renderSync() {
     el.className = "syncbox bad";
     el.innerHTML = "<strong>Sync is failing.</strong> Cards posted from other "
       + "machines are probably missing.<span class=\"err\">"
-      + esc(s.last_error) + "</span>";
+      + esc(s.last_error) + "</span>"
+      + (s.hint ? "<span class=\"err\">" + esc(s.hint) + "</span>" : "");
   } else if (s.last_ok) {
     el.className = "syncbox";
     el.textContent = "synced " + ago(s.last_ok);
