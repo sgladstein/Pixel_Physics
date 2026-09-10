@@ -597,7 +597,15 @@
         // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
         // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
         // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
-        mutation_rate: 0.0041678,
+        //
+        // **0.0039308, re-derived 2026-09-10** alongside `ant.ron` and
+        // `beetle.ron` when `BloomNear`/`BloomBearing` took `live_slots`
+        // 763 -> 809 (P1, the bloom sense -- two input columns, 23 slots
+        // each). This animal has an eye (`sight_range` above) but wires
+        // neither slot; the mutable surface still moved for it, the same
+        // reasoning `beetle.ron`'s copy of this comment already carries for
+        // the append before this one.
+        mutation_rate: 0.0039308,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

@@ -1060,6 +1060,16 @@ pub struct CreatureStats {
     /// beside any cost claim: a sense that timed as free while probing
     /// nothing would read here as a bargain and be a bug.
     pub sight_cells_read: u64,
+    /// **An animal read `BloomNear > 0` this tick** — "did the sense fire at
+    /// all", the pair `flower_visits`/`nectar_paid` needed on the other
+    /// side: those say a bite reached a flower, this says an eye found one
+    /// first. `CLAUDE.md`'s "did it fire at all needs a counter, not a
+    /// picture" — a `labgif` of an animal arriving at a flower cannot say
+    /// whether the sense is what got it there. Zero for every species that
+    /// has not authored `sight_range`, exactly as `sight_casts` is.
+    /// See `BrainInput::BloomNear`,
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    pub bloom_seen: u64,
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,

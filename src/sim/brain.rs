@@ -32,7 +32,14 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 27;
+/// **29, not 27, since 2026-09-10.** `BloomNear`/`BloomBearing` appended --
+/// see the two variants themselves and
+/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3. Lawful
+/// under the reserve for the same reason `PreyNear`/`PreyBearing` were:
+/// `INPUT_SLOTS` is 64 against a live count of 27 before this, so lighting
+/// up two more rows moves no existing weight and `GENOME_LEN` does not
+/// change.
+pub const BRAIN_INPUTS: usize = 29;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -250,6 +257,8 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "Alarm",
     "Made",
     "KinNeed",
+    "BloomNear",
+    "BloomBearing",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share",
@@ -780,6 +789,47 @@ pub enum BrainInput {
     /// hungry kin is the one anticipation a colony has that its own stomach
     /// cannot supply (`BrainOutput::Share`).
     KinNeed = 26,
+    /// **How close the nearest visible flower is** — 1.0 touching and 0.0
+    /// out of sight, `PreyNear`'s scale and for the same reason: nearness
+    /// rather than raw distance, so "nothing in sight" and "at the very
+    /// edge of sight" both read ~0 and the input rises as the flower gets
+    /// closer.
+    ///
+    /// **Nothing in this suite pointed at a flower before this.**
+    /// `FoodAdjacent` is the head's 8-neighbourhood, so it fires only once
+    /// an animal is already touching one; the nectar mechanism (B1',
+    /// `plant::nectar_offer`) paid out over 120,000 played-bed frames and
+    /// `flower_visits` read **0**, because nothing in the box could find a
+    /// flower except by walking into it by chance. See
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    ///
+    /// **The same ray, the same eye, and the cost is what makes this nearly
+    /// free.** `sight` already casts `SIGHT_RAYS` rays for prey, kin and
+    /// threat; a bloom is recorded on those rays and **never breaks one**
+    /// (`is_visible_bloom`, called from `sight` beside `is_visible_kin`),
+    /// so `sight_reads` — what `sight_fraction` bills — does not move and
+    /// the shipped, eyeless ant is bit-identical. **Zero for every species
+    /// that has not authored `sight_range`**, exactly as `PreyNear` is.
+    ///
+    /// **Not gut-filtered**, the same asymmetry `is_visible_kin` documents
+    /// beside `PreyNear`: a flower a gut cannot digest is still a flower to
+    /// look at, and the existing `FoodAdjacent`/diet filter at the bite site
+    /// is what actually decides whether reaching it pays.
+    BloomNear = 27,
+    /// **Which way to turn to face that flower**, as the signed angle from
+    /// the current heading normalized to `-1..1`. `PreyBearing`'s argument
+    /// transfers word for word: **positive = to the right**, so an authored
+    /// pursuit instinct is a *negative* weight into `Turn` (which biases
+    /// left when positive — see `creature.rs`'s candidate scoring), and
+    /// `0.0` means dead ahead *and* means nothing in sight, which is why
+    /// the pair ships together rather than `BloomNear` alone.
+    ///
+    /// A full-circle bearing to one cell found by a ray traced at CA
+    /// resolution — the same reason `PreyBearing` and `KinBearing` are not
+    /// a lateral difference of two coarse-field samples: it keeps this
+    /// input clear of `CLAUDE.md`'s block-nearest degeneracy, hit four
+    /// times on three lines and never once caught by a test.
+    BloomBearing = 28,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1103,6 +1153,8 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::Alarm,
     BrainInput::Made,
     BrainInput::KinNeed,
+    BrainInput::BloomNear,
+    BrainInput::BloomBearing,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1803,7 +1855,13 @@ mod tests {
         // 8 hidden) and `Share` (an output row, 35: 27 inputs + 8 hidden) in
         // one change -- trophallaxis. Every species' `mutation_rate`
         // re-derived to `3.18 / 763 = 0.0041678`.
-        assert_eq!(live, 763, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 763 -> 809 on 2026-09-10 with `BloomNear`/`BloomBearing` (P1, the
+        // bloom sense): two input columns, 23 slots each (15 outputs + 8
+        // hidden), no output. Every species' `mutation_rate` re-derived to
+        // `3.18 / 809 = 0.0039308` -- including `hopper.ron`, which had gone
+        // one append stale at the 706 figure and is caught up to the current
+        // one rather than a second-behind one.
+        assert_eq!(live, 809, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1897,7 +1955,20 @@ mod tests {
         // weight moves. `live_slots` 706 -> 763 and every species'
         // `mutation_rate` is re-derived to `3.18 / 763 = 0.0041678` in the
         // same change.
-        assert_eq!(genome_manifest(), 1_989_745_332);
+        //
+        // **Moved again 2026-09-10 by `BloomNear`/`BloomBearing`** -- P1,
+        // the bloom sense (`Reports/evolution-lab-pollinator-design-
+        // 2026-09-10.md` §2.3) -- lawfully on the input axis exactly as the
+        // appends above: inputs 27 -> 29 light up two columns of the
+        // 64-wide reserve that already existed and were already zero,
+        // `GENOME_LEN` is still 12,416, and not one existing weight moves.
+        // `live_slots` 763 -> 809 and every species' `mutation_rate` is
+        // re-derived to `3.18 / 809 = 0.0039308` in the same change --
+        // `hopper.ron` included, which is also the one species that wires
+        // the new pair (`(BloomNear, Move, ..)`, `(BloomBearing, Turn,
+        // ..)`); every other shipped species leaves both rows at
+        // `squash(0) = 0`.
+        assert_eq!(genome_manifest(), 978_653_888);
     }
 
     #[test]
