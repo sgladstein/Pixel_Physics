@@ -223,12 +223,29 @@ round runs):
   by direct check; the line was not found. Reproduction lives behind
   `WF_DEBUG=1` in `windfall_probe` (frame 1,184, cell (456,158)). **This sits
   under the whole arc**, so it got its own lane at once.
-- **A1** (Sonnet, running): the `labshot` seed fix as its first commit, then
-  `pip.ron` at 40 J (the shipped gut cannot see it: 40 × 0.25 < 12), `plant::
-  seed_survives_bite` at `seed_gut_survival: 0.6`, four counters, the one-line
-  hook as its own final commit for re-placing after the bodies branch, the
-  paired played-bed sweep. Told mid-flight to count bites on ownerless
-  windfalls separately so a null is attributable.
+- **A1 → PR #301.** `labshot` seeds a scenario at last (seeds 1/2/3 on the
+  played bed went from digit-identical to different); `pip.ron` at 40 J with
+  the arithmetic in its own comment (40 × 0.25 = 10 < 12: the shipped gut
+  cannot farm it, a plant specialist can — seed predation as a niche in one
+  number); `plant::seed_survives_bite` at `seed_gut_survival: 0.6` on herb
+  and scrambler, the organism kept so the pip germinates on the ordinary
+  path; five counters; the one-line hook at **both** clear sites as its own
+  commit; six tests, suite 1,553 / 0. **And the finding that reorders the
+  arc: an ant bites a fallen fruit about twice in 360,000 frames on the
+  played bed** (spills 0 / 2 / 0 over three seeds, with the ownerless
+  counter at ~0 after #300, so it is not the bug) — `dead-ends.md` line
+  1636 reproduced on a different bed and gut. The mechanism is right and
+  the event does not happen: the herb's fruit stands 22–40 rows up, drops
+  rarely (budget-limited, §296), and is gone from the floor in a few hundred
+  frames. The ablation was not run (null against null at n=2) and
+  `reproductive_allocation` was not re-derived, both by the brief's own
+  fork. **So A2 (the seed rides home) is not the next build; making fruit
+  reach the mouth is.** Two routes, cheapest first: a low fruiting plant in
+  the bed (the `scrambler` is exactly that and has never been in the played
+  bed — **lane M2**, Sonnet, running: the played bed with four scramblers
+  against the played bed, one binary, three seeds × 120,000, bites / spills
+  / pips / seedlings and whether the thicket feeds the colony), then B2
+  (pollination as a ripening-price discount) if fruit is still scarce.
 - **W → PR #300, §Z8 closed.** The ownerless windfall was a **third
   windfall-creation path neither counter saw**: a fruit organ severed by
   ordinary structural failure (a branch snapping under its own hanging
