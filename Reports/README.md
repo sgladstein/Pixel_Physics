@@ -1841,18 +1841,19 @@ drift that two of these documents still reflect.**
   breeding regimes x six seeds x 120,000 frames on the played bed. Queen-only
   breeding is a **thirteen-fold collapse**: median 1 generation against
   individual budding's 13.5, with a breeder-chain median of **zero**, meaning
-  that on four seeds of six no animal born in the box ever reproduced. Graded
-  suppression costs a quarter of the clock (10.0) and is the only arm that
-  improves the colony — 146 alive against 104, on half the deaths — so the
-  owner's grading ruling turns out to be the best arm rather than a
-  compromise. The three regimes are one rule at three settings of one knob
-  (the bar scaled by proximity to an animal that has already bred), so no
-  queen type exists and a queenless colony resuming is the same code path as
-  the opening state. Carries the played bed as a scenario, why a tree was
-  measured out of it (one tree shades the bench to 0.008 of lamp light), why
-  a grown bed seats 8 founders of 52 until a bare band is left for the nest,
-  and one unresolved anomaly reported rather than smoothed: `queen` leaks a
-  handful of extra breeders, which can only make the collapse a lower bound.
+  that on five seeds of six no animal born in the box ever reproduced. Graded
+  suppression costs about a third of the clock (8.5) and buys stability rather
+  than population — the same standing colony on a **quarter of the deaths** —
+  so individual-against-graded is a real trade for the owner and only
+  queen-only is settled as off the table. The three regimes are one rule at
+  three settings of one knob (the bar scaled by proximity to an animal that
+  has already bred), so no queen type exists and a queenless colony resuming
+  is the same code path as the opening state. Carries the played bed as a
+  scenario, why a tree was measured out of it (one tree shades the bench to
+  0.008 of lamp light), why a grown bed seats 8 founders of 52 until a bare
+  band is left for the nest, and one unresolved anomaly reported rather than
+  smoothed: `queen` leaks a second breeder, which can only make the collapse
+  a lower bound.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is

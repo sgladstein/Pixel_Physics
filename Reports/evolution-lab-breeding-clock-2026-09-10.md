@@ -143,46 +143,54 @@ colony founded at 6,000.** `RAYON_NUM_THREADS` pinned at 4, because every
 headline here is a counter and `CLAUDE.md` records a pure count swinging
 610 to 278 between an idle box and a loaded one.
 
+**Taken on `main` as of 2026-09-10.** An earlier identical sweep was run and
+then thrown away: the merge of `main` brought PR #291's composed move row
+onto the ant, which changes foraging and therefore breeding, and a figure
+taken on a tree nobody else has is not a figure. Both sweeps agree on every
+conclusion below; the individual arm's median is 13.5 in each.
+
 | regime | generations, median | range | breeder chain, median | births | alive at 120k | deaths |
 |---|---|---|---|---|---|---|
-| individual budding | **13.5** | 9-28 | 12.5 | 242 | 104 | 126 |
-| graded suppression | **10.0** | 5-21 | 9.0 | 183 | 146 | 60 |
-| queen-only | **1.0** | 1-2 | 0.0 | 11 | 24 | 2 |
+| individual budding | **13.5** | 8-36 | 12.5 | 273 | 146 | 146 |
+| graded suppression | **8.5** | 5-22 | 7.5 | 162 | 141 | **36** |
+| queen-only | **1.0** | 1-2 | **0.0** | 11 | 27 | 2 |
 
-Per seed, deepest generation reached (seeds 1-6):
+Per seed (1-6), deepest generation reached:
 
 ```
-individual   28  12  15  12  17   9
-graded       11  21   5  14   9   8
-queen         2   1   1   1   1   2
+individual    8  13  13  14  36  17
+graded       22   5  13   9   8   6
+queen         1   1   1   2   1   1
 ```
 
 ### What it says
 
-**Queen-only is a thirteen-fold collapse of the evolutionary clock, and it
-is not close.** Every seed lands at one or two generations in 120,000
-frames; the breeder chain — the depth a genome actually travels — has a
-median of **zero**, meaning that on four of six seeds no animal that was
-itself born in the box ever reproduced. Reproduction concentrated in one
-individual makes worker mutations dead ends, exactly as predicted, and the
-prediction turns out to understate it. The owner's target of 60-70
-generations in a session is unreachable under queen-only by three orders of
-magnitude.
+**Queen-only is a thirteen-fold collapse of the evolutionary clock, and it is
+not close.** Five seeds of six reach exactly one generation; none reaches
+three. The breeder chain — the depth a genome actually travels — has a median
+of **zero**, meaning that on five seeds of six *no animal born in the box ever
+reproduced*. The colony is the queen and her first brood, and that is where it
+stops. Reproduction concentrated in one individual makes worker mutations dead
+ends, exactly as predicted, and the prediction understated it.
 
-**Graded suppression costs about a quarter of the clock and buys stability.**
-10.0 generations against 13.5 is a 26% slowdown, well inside the spread of
-either arm. And it is the *only* arm that improves the colony: 146 animals
-alive against 104, on **half the deaths** (60 against 126). Individual
-budding is a boom-and-bust — seed 1 produced 868 births and 735 deaths, a
-colony that ate the bed down from 4,303 edible cells to 171 and then
-starved. Graded never does that.
+The owner's target of 60-70 generations in a session is unreachable under
+queen-only by three orders of magnitude. At individual budding's 13.5 per
+120,000 frames it needs about 530,000 frames; under queen-only it needs
+roughly seven million.
 
-**So the ethos' graded middle is not a compromise between two better
-options. It is the best arm on the table**, and the owner's ruling that
-fertility must be graded turns out to have been the right call on grounds
-nobody had measured: it was made on the "an outcome is a distribution, not
-a binary" principle, and it also happens to keep the clock ticking and the
-colony alive.
+**Graded suppression costs about a third of the clock and buys stability
+rather than population.** 8.5 against 13.5 is a real cost, larger than the
+earlier sweep suggested and worth stating plainly. What it buys is not more
+animals — 141 alive against 146 is a wash — but **a quarter of the deaths**,
+36 against 146. Individual budding is boom-and-bust: seed 5 ran 1,824 births
+and 1,684 deaths to stand 154 animals at the end, and the earlier sweep's
+seed 1 ate the bed from 4,303 edible cells down to 171 and then starved.
+Graded reaches the same standing population without the churn.
+
+**So the choice between individual and graded is a real trade, not a free
+win**, and it is the owner's to make: a third of the evolutionary clock, in
+exchange for a colony that stops eating itself. What the measurement does
+settle is that queen-only is off the table as the box's rule.
 
 ### What it does not say
 
@@ -198,31 +206,34 @@ condition under which castes are adaptive at all. `scent_spread` ships at
 zero, so two colonies are never strangers; these runs hold one colony. Under
 queen-only the colony is the unit of selection and a generation is a colony
 founding a colony — which cannot happen in a box with one nest and no
-dispersal. **The queen number above is therefore the clock for a queen
-regime as the box can express it today, not for eusociality as it would work
-with competing colonies.** It is still the number that decides whether the
-box can be committed to queen-only now, and the answer is no.
+dispersal. **The queen number above is therefore the clock for a queen regime
+as the box can express it today, not for eusociality as it would work with
+competing colonies.** It is still the number that decides whether to commit
+the box to queen-only now, and the answer is no.
 
 ### One anomaly, reported rather than smoothed
 
-Under `queen` the living-breeder count reaches 2 on two seeds and **5** on
-one, where a colony-wide rule permits one. `found_colony_of` is documented
-"one colony per founding" and the suppression scan is colony-scoped and
-self-excluding, so this is not colony splitting. Traced, it is not a
-first-frame race either: on seed 6 the count goes to 2 at frame 14,400 and
-to 5 at frame 44,100, tens of thousands of frames apart.
+Under `queen` the living-breeder count reaches **2** on two seeds, where a
+colony-wide rule permits one. (The pre-merge sweep saw 5 on one seed; on the
+current binary the maximum is 2.) `found_colony_of` is documented "one colony
+per founding" and the suppression scan is colony-scoped and self-excluding, so
+this is not colony splitting. Traced, it is not a first-frame race either: the
+count rises tens of thousands of frames apart.
 
 Cause unidentified, and it is the first thing the build phase must resolve.
 **The bound that makes the headline safe: a leak can only let more animals
-breed than the rule intends, so a perfect implementation is slower still.
-The thirteen-fold collapse is a lower bound on the collapse.**
+breed than the rule intends, so a perfect implementation is slower still. The
+thirteen-fold collapse is a lower bound on the collapse.**
 
 ## 6. What to build, in this order
 
-1. **Ship `graded` as the box's breeding rule**, at a suppression strength
-   derived from a sweep — `GRADED_MAX_SUPPRESSION` is a provisional 6.0 and
-   nothing has yet measured it. This is the arm that costs least and gives
-   most, and it satisfies the grading ruling by construction.
+1. **Put the individual-against-graded trade to the owner rather than
+   deciding it here.** Graded costs a third of the evolutionary clock and
+   returns a colony that does not eat itself; that is a taste question about
+   what the box is for, not a measurement question. What is settled is that
+   queen-only is not a candidate. If graded is chosen, its strength wants a
+   sweep first — `GRADED_MAX_SUPPRESSION` is a provisional 6.0 and nothing
+   has measured it.
 2. **Resolve the extra-breeder anomaly** before any of it is trusted further.
 3. **The caste channel, so sterility is provisioned rather than imposed.**
    `Provision` is a live output nobody wires and `Made` a live input nobody
