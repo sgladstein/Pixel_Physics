@@ -220,10 +220,54 @@ per founding" and the suppression scan is colony-scoped and self-excluding, so
 this is not colony splitting. Traced, it is not a first-frame race either: the
 count rises tens of thousands of frames apart.
 
-Cause unidentified, and it is the first thing the build phase must resolve.
-**The bound that makes the headline safe: a leak can only let more animals
-breed than the rule intends, so a perfect implementation is slower still. The
-thirteen-fold collapse is a lower bound on the collapse.**
+**Three causes ruled out by reading, 2026-09-10**, so the next session
+searches a smaller space rather than starting where this one did:
+
+- **Not colony splitting.** A scenario `Colony` entry founds exactly one
+  colony (`apply_colony` to `found_colony_of`: the first animal that fits
+  claims it and the rest join), and a bud inherits its parent's colony, so
+  every animal in these runs is in one colony.
+- **Not a second birth path.** There is exactly one `Origin::Bud`
+  construction site and exactly one caller of `try_bud`, so nothing is born
+  without passing the suppression.
+- **Not a recycled `children` count**, which was this session's own first
+  guess and was wrong. `OrganismState` is not reused across animals:
+  `push_organism` builds a fresh one and sets `children: 0` explicitly
+  (`world.rs:4154`), so only the slot *index* is recycled, never the state.
+  A guard written for that fault stayed green with the fault injected —
+  blind, because there was no fault — and both the guard and the redundant
+  reset it defended were withdrawn rather than kept.
+
+**The live hypothesis is the affordability re-check.** Under `queen` the
+suppressed bar is `f32::INFINITY`, and the gate is `bank + reachable < bar`.
+That comparison is **false** for a non-finite left-hand side — a `NaN` bank
+sails straight through an infinite bar, and so does an infinite one. Energy
+arithmetic now has trophallaxis moving joules between animals, which is
+where a `NaN` would come from. The cheap instrument is the one the review
+named: at the `children` increment, under `queen` only, recompute
+`colony_has_other_breeder` after the increment and print frame, parent id
+and generation, and the other breeders' ids and liveness when it is already
+true; run seed 6, which leaks earliest, and read the first line. Pair it
+with `debug_assert!(bank.is_finite() && reachable.is_finite())` at the
+precheck.
+
+**The bound that makes the headline safe either way: a leak can only let
+more animals breed than the rule intends, so a perfect implementation is
+slower still. The thirteen-fold collapse is a lower bound on the collapse.**
+
+### A second finding carried forward: `graded` does not scale yet
+
+`nearest_breeder` scans every organism slot — plants included, about 955 on
+the played bed at frame 6,000 — once per tick for every animal that can
+afford a child. The "rare tick" argument that keeps it off the hot path was
+made on a starving bed; on a fed colony of a thousand, which is the scale
+the owner already plays at, that is hundreds of animals against roughly two
+thousand slots every tick. **Before `graded` ships as the default it wants a
+per-colony breeder list**, validated live on read (each entry checked alive
+and still `children > 0`, dead ones pruned) so it keeps the cannot-go-stale
+property that motivated the live scan while making the read proportional to
+the breeders rather than the world. Measure it with `ascii`'s worst-frame
+figure on a fed thousand-ant bed, paired against the scan.
 
 ### Is the queen a dead end, or did it fail on implementation?
 
