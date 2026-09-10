@@ -2183,6 +2183,22 @@ pub struct World {
     /// were ever dispersed.
     pub fruit_dropped: u64,
 
+    /// **Windfall made by a fruit or flower organ losing structural
+    /// support, rather than by `plant::drop_organ` letting a ripe one go.**
+    /// The ecology round's first surprise: `fruit.ron` declares
+    /// `breaks_into: "windfall"`, so `structural::break_free` -- the
+    /// generic "convert this cell to its material's breaks_into" fallback
+    /// every snap, sever and grit-decline path shares -- turns a standing
+    /// fruit or flower into loose windfall exactly the same way it turns
+    /// stone into rubble, with no ripening, no reproductive-budget charge,
+    /// and no `fruit_dropped` tick. `windfall_probe` found real standing
+    /// windfall on the played bed while `fruit_dropped` read zero, which is
+    /// `CLAUDE.md`'s "ask what your number counts" aimed at `fruit_dropped`
+    /// itself: it is a count of *deliberate* drops, not of windfall
+    /// production, and the two are the same total only where nothing ever
+    /// snaps.
+    pub organ_shattered_to_windfall: u64,
+
     /// **Seed cells actually borne**, every one of them: the mature-cell
     /// path (`plant::set_seed`) and the fruit drop (`plant::drop_organ`)
     /// alike, counted where they share a floor in `plant::bear_seed_at`.
@@ -2217,6 +2233,25 @@ pub struct World {
     /// Zero is the expected reading. A non-zero one says `germinations` is
     /// an overcount and by how much.
     pub germinations_in_place: u64,
+
+    /// **The x-coordinate of every germination whose seed cell wore a
+    /// windfall material rather than plain `seed`** — the far-side
+    /// discriminator for the fruit → animal → nest → seedling loop the
+    /// ecology round asked for: `germinations` alone cannot say whether a
+    /// seedling arrived by parcel (a dropped or carried fruit) or by
+    /// scatter (a loose seed set directly by `plant::set_seed`), because
+    /// both paths converge on the same `CellType::Seed` and the same
+    /// `germinate()` call.
+    ///
+    /// **Positions, not a pre-bucketed histogram, and deliberately so** —
+    /// the engine has no opinion about where a nest column is; `LabBox`
+    /// does, and only the caller (`windfall_probe`) knows the nest it wants
+    /// distance measured from. `germinations_from_windfall().len()` is the
+    /// count; the values are the raw x for whatever bucketing the reader
+    /// needs. Bounded by how many germinations a run produces at all
+    /// (hundreds over a 120,000-frame bed, per `plant.rs`'s own figures),
+    /// so an unbounded `Vec` costs nothing worth capping.
+    pub windfall_germination_x: Vec<i32>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -3455,8 +3490,10 @@ impl World {
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
             fruit_dropped: 0,
+            organ_shattered_to_windfall: 0,
             seeds_borne: 0,
             germinations_in_place: 0,
+            windfall_germination_x: Vec::new(),
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
