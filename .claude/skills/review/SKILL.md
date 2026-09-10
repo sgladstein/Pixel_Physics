@@ -400,6 +400,19 @@ python3 scripts/review.py serve --open
 One server covers every worktree. Do not start one on the owner's behalf unless
 they ask; posting works whether or not it is running.
 
+### If it cannot reach the remote
+
+`serve` runs one sync in the foreground before it prints the URL and reports
+it — `synced: 3 file(s) in, 0 out`, or `SYNC FAILED:` with the reason and,
+for a missing login, the fix for the machine it is on. The page shows the
+same state under the queue path. Sync never asks the terminal for a username
+or password: a timer has no business doing that, and until 2026-09-10 it did,
+which kept every verdict the owner gave on their own disk. The repository is
+public, so only the *push* — verdicts going back — needs a login, and GitHub
+refuses an account password for git: the credential is a personal access
+token, or `gh auth setup-git`. `python3 scripts/review.py sync` prints the
+diagnosis on demand.
+
 ### From a phone
 
 ```
