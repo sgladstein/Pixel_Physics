@@ -12369,6 +12369,48 @@ mod tests {
         );
     }
 
+    /// **A segmented body cannot step straight up, and the reason is
+    /// arithmetic rather than terrain.** A lateral sits at its own spine's
+    /// `(sx, sy - 1)`; after a step the segment behind the head holds the
+    /// head's *old* cell; so if the head went straight up, its new cell and
+    /// that segment's lateral are the same position. `landing_is_placeable`
+    /// refuses a landing with a repeated position -- correctly, two cells
+    /// cannot share one -- so the step never happens.
+    ///
+    /// **One heading of eight, and the diagonals are unaffected**, which is
+    /// why an animal still climbs: up-left and up-right produce no
+    /// collision, and `tumble` re-rolls among headings that have somewhere
+    /// to go. Recorded as a guard rather than left to be rediscovered as
+    /// "ants seem reluctant to climb", because nothing else in the suite
+    /// looks at blocked moves *by heading* and the effect is invisible in
+    /// an aggregate.
+    ///
+    /// It is the price of placing the lateral in world space instead of
+    /// perpendicular to the local spine direction. Perpendicular is the
+    /// more correct rule and costs a rotation per segment per step; this
+    /// entry is here so that trade is re-opened deliberately rather than
+    /// stumbled into.
+    #[test]
+    fn a_segmented_body_cannot_step_straight_up_and_can_step_diagonally() {
+        let groups = [1u8, 2, 1];
+        // Horizontal body, head east at (5,5), the wide segment behind it.
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+
+        let straight_up = segmented_body_after_step(&chain, &groups, (5, 4));
+        let dup = straight_up.iter().enumerate().any(|(i, p)| straight_up[..i].contains(p));
+        assert!(
+            dup,
+            "a straight-up step must collide the trailing segment's lateral with the head's own new cell: {straight_up:?}"
+        );
+
+        let diagonal = segmented_body_after_step(&chain, &groups, (4, 4));
+        let dup_diag = diagonal.iter().enumerate().any(|(i, p)| diagonal[..i].contains(p));
+        assert!(
+            !dup_diag,
+            "a diagonal step must stay collision-free, or the body cannot climb at all: {diagonal:?}"
+        );
+    }
+
     /// The defensive fallback: a `groups` that does not sum to `chain.len()`
     /// (empty, or otherwise wrong) must degrade to the ordinary follow
     /// rule rather than panic, drop a cell, or invent one. This should
