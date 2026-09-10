@@ -1,0 +1,60 @@
+{
+  "id": "20260910T065858499Z-c8709b",
+  "created": "2026-09-10T06:58:58Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-aa53c2cfcd7bd335f",
+    "branch": "claude/lab-m2-scrambler-r26",
+    "commit": "337fdcb0",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-aa53c2cfcd7bd335f"
+  },
+  "title": "Played bed with a thicket at 60,000 frames",
+  "question": "Should scrambler (a low fruiting thicket) join the default played bed -- grass, herb, shrub?",
+  "context_md": "The played bed (grass/herb/shrub) has no LOW fruiting plant: herb's fruit stands 22-40 rows up a stem and the bite-a-fallen-fruit loop almost never fires (PR #301: 2 bites in 360,000 frames). `scrambler` carries flowers and fruit at ground level at every axis end. This is the same bed with four scramblers added at x=15,195,315,495 (kept off the nest band 210..310), everything else identical -- three seeds each, 120,000 frames, `RAYON_NUM_THREADS=4` pinned.\n\nBoth images are the identical crop (x=0..512, ground band y=120..200), seed 1, frame 60,000 -- same region, same zoom, so the comparison is fair. A single instant rarely shows fruit on the floor even when the mechanism is working (windfall's own residence time is short and the sample lands wherever the day's grazing left it), so read the counters in `meta`, not the still, for whether the loop fired.\n\n**Over 3 seeds x 120,000 frames each:** mean cumulative fruit reaching the ground went 12.3 -> 118.3 (about 9.6x). Real-fruit bites (owned + ownerless, the new `windfall_bitten` counter added this round) went from 5 total across the sweep to 32 total -- a real increase, but still rare and seed-dependent (0, 2, 2 on the plain bed; 3, 19, 0 total on the thicket bed, seed 3 landing zero bites even with 61 fruit dropped). Pips that survived a bite (`seeds_spilled`) went 2 -> 8. **`plants_from_pip` -- a seedling actually growing from a bitten seed -- was 0 in every one of the 6 runs.** The fruit-on-the-floor half of the loop clearly strengthens; the seedling-from-a-pip half was never once demonstrated, on either bed.\n\nColony feeding (intake/alive/born) trended slightly higher on the thicket bed in 2 of 3 seeds, but the spread across seeds is wide enough (alive ranged 57-181 on the thicket bed, 60-102 on the plain one) that 3 seeds cannot separate 'the thicket feeds better' from ordinary seed-to-seed variance -- no claim either way.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "played bed (grass/herb/shrub)",
+      "files": [
+        "20260910T065858499Z-c8709b/000-played_bed_60k.png"
+      ],
+      "caption": "no LOW fruiting plant",
+      "meta": {
+        "windfall_bitten (real fruit, mean/3 seeds)": 1.33,
+        "windfall_bitten (total, 3 seeds)": 4,
+        "windfall_bitten_ownerless (total)": 1,
+        "seeds_spilled (total)": 2,
+        "plants_from_pip (total)": 0,
+        "fruit_dropped (mean cumulative)": 12.3
+      },
+      "focus": null
+    },
+    {
+      "label": "played bed + 4 scramblers",
+      "files": [
+        "20260910T065858499Z-c8709b/001-scrambler_60k.png"
+      ],
+      "caption": "thicket at x=15,195,315,495",
+      "meta": {
+        "windfall_bitten (real fruit, mean/3 seeds)": 4.33,
+        "windfall_bitten (total, 3 seeds)": 13,
+        "windfall_bitten_ownerless (total)": 19,
+        "seeds_spilled (total)": 8,
+        "plants_from_pip (total)": 0,
+        "fruit_dropped (mean cumulative)": 118.3
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
