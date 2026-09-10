@@ -216,13 +216,12 @@ the instruments** (`selection_arena` attributes hybrids wholly to the
 mother's arm and must change). Also: the 2.0 hop makes *fewer* real
 launches than 0.5 (60% of its launches fire mid-air); what it buys is
 longer flights and what it costs is starving aloft, and the repair is one
-wire, `(FoodAdjacent, Impulse, −2.0)`, not the recorded dead end. Opened since: **#309** (HISTORY opens on a summary per colony — "43
+wire, `(FoodAdjacent, Impulse, −2.0)`, not the recorded dead end. Landed since: **#309** (HISTORY opens on a summary per colony — "43
 STARVED, 1 CULLED, 1 KILLED" — click to expand, BACK returns; the CELL
 inspector overlapping wide bar pages found as a pre-existing layout gap),
 **#310** (rain ships **LIGHT**: the bed as it now is, with the tree, loses
 **16%** of its soil water on seed 1 unwatered, so OFF no longer holds; LIGHT
-holds both seeds within 7%; STEADY overshoots 15–19% and pools), **#312**
-(nectar in two currencies — `OrganismCell::nectar` refilled per tick,
+holds both seeds within 7%; STEADY overshoots 15–19% and pools), **#312** (open, CI running: nectar in two currencies — `OrganismCell::nectar` refilled per tick,
 `NECTAR_COST` 0.01 budget units, `nectar_yield` 120 J through
 `diet_quality`, the flower stands; `flower.food_energy` 1,440 stays for a
 gut that cannot take nectar — and **`flower_visits = 0` over a full session
