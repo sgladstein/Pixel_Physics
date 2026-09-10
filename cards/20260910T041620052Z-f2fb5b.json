@@ -1,0 +1,60 @@
+{
+  "id": "20260910T041620052Z-f2fb5b",
+  "created": "2026-09-10T04:16:20Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ae4ff745f42995bd9",
+    "branch": "claude/lab-rain-r26",
+    "commit": "09da43d7",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ae4ff745f42995bd9"
+  },
+  "title": "The mister on the lid",
+  "question": "Does STEADY read as rain falling from the ceiling onto the bed, and is shipping OFF as the default the right call?",
+  "context_md": "Direction report Arc B item B3 -- an auto rain option for the lab. Lights stay on; only water changes.\n\nRain is a mister on the lid: each due tick it places water cells along the ceiling row, spread across the width, through the *same* placement call the WATER tool already uses -- so a column already holding rock or a grown plant refuses a drop exactly as it would refuse a player's own brush.\n\n**Both clips are the played bed (grass/herb/shrub, colony landed at frame 6,000), seed 1, frame 30,000-30,240, same binary.** The mister is armed at the instant capture starts, not pre-run -- so this is \"press RAIN\" on an already-established bed, not a bed that spent 30,000 frames soaking.\n\n**Why OFF ships as the default:** `examples/soil_drawdown.rs -- scenario=played_bed`, no watering, the owner's own 120,000-frame session, two seeds:\n\n| seed | frame 0 | frame 120,000 | loss |\n|---|---|---|---|\n| 1 | 24,998,400 | 23,568,991 | 5.72% |\n| 2 | 24,998,400 | 23,973,662 | 4.10% |\n\nBoth well under the ~10% line that would have called for a rate as the default. The positive control -- the identical bed with `founders=0` -- held **exactly** flat at 24,998,400 through the whole 120,000 frames on both seeds, zero loss, which is what says the drying above is the crop's own transpiration and bare-soil evaporation rather than a leak the census is inventing.\n\nOne finding this also turned up and is **not** part of the rate decision: even with the mister off, the sealed box's own water cycle (`weather::condense_under_a_lid`) drops condensation from the ceiling on its own -- a real, pre-existing mechanic, unrelated to this feature, and out of this change's scope (rain is placement only; the moisture pass is untouched).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "STEADY",
+      "files": [
+        "20260910T041620052Z-f2fb5b/000-steady.gif"
+      ],
+      "caption": "played_bed seed=1, frame 30,000-30,240, mister armed to STEADY the instant capture starts",
+      "meta": {
+        "rain cells placed in this window": 35,
+        "rain cells placed, cumulative": 35,
+        "soil water at window start": 24465905,
+        "soil water at window end": 24464490,
+        "soil water change": -1415
+      },
+      "focus": null,
+      "gif_frames": 41
+    },
+    {
+      "label": "OFF (shipped default)",
+      "files": [
+        "20260910T041620052Z-f2fb5b/001-off.gif"
+      ],
+      "caption": "identical bed, seed and window -- the mister never arms",
+      "meta": {
+        "rain cells placed in this window": 0,
+        "rain cells placed, cumulative": 0,
+        "soil water at window start": 24465905,
+        "soil water at window end": 24462531,
+        "soil water change": -3374
+      },
+      "focus": null,
+      "gif_frames": 41
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
