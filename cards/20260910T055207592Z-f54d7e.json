@@ -1,0 +1,42 @@
+{
+  "id": "20260910T055207592Z-f54d7e",
+  "created": "2026-09-10T05:52:07Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a53d2a408db67a62d",
+    "branch": "claude/lab-a1-pip-r26",
+    "commit": "888acd07",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a53d2a408db67a62d"
+  },
+  "title": "A bitten fruit's seed survives the mouth",
+  "question": "Does the pale pip read as a seed left behind, or does it just vanish into the dirt colour?",
+  "context_md": "**A1 of the evolution lab's ecology arc**: today an ant biting a fallen fruit destroyed the seed inside it along with the fruit. Now the seed has a chance to survive -- the bite still feeds the ant, but a pale `pip` is left standing where the fruit was, and it germinates on the ordinary seed path.\n\nThis is a small hand-built demo (one herb founder, one ant colony, `plant=herb colonies=1 founders=1 ants_at=10000 seed=5`), not the played-bed measurement -- chosen because it is where a *real* spill was confirmed to happen, not a unit test. Six stops, frames 26000-27000, cropped to the plant and its base.\n\n**What actually happened in this window**: `seeds_spilled=1, pips_rotted=1, plants_from_pip=0, pips_eaten=0` -- the seed survived one bite, then lost the species' own viability race before it ever germinated. That is real breakage in the mechanism's own vocabulary: some bites destroy the seed, some spare it, and a spared seed is not guaranteed to grow -- graded, not binary.\n\n**Why this scene rather than the deciding measurement**: over 3 seeds x 120,000 frames on `played_bed`, windfall bites are extremely rare -- 0, 2, 0-1 spills, matching a prior finding already on record (`Reports/dead-ends.md` line 1636: fruit rarely reaches the ground at all in these beds). The mechanism itself is confirmed working -- by 6 unit tests and by this live case -- but there was not enough real-world activity to judge the headline measurement (established plants up, stand not runaway, colony intake unchanged). That is written up as a finding in the PR rather than tuned around.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "frames 26000-27000",
+      "files": [
+        "20260910T055207592Z-f54d7e/000-pip_sequence.png"
+      ],
+      "caption": "one herb founder, one ant colony -- the six stops where the one confirmed spill in this run happened and then rotted",
+      "meta": {
+        "seeds_spilled": 1,
+        "plants_from_pip": 0,
+        "pips_rotted": 1,
+        "pips_eaten": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
