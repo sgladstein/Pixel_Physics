@@ -276,7 +276,7 @@ round runs):
   rain off — the lid's own condensation — and was pulled for that reason.
   Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
   Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
-- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed) — merged in that order 04:12–05:34, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
+- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed), #301 (the pip) — merged in that order 04:12–06:36, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
 - **The eusociality lane, un-poked, kept going and found a shipped bug**
   (four commits on PR #295, CI running): an organism id is
   `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
@@ -316,7 +316,16 @@ round runs):
   session was poked with a bounded brief: a lateral may never block a move
   the bare spine could make; it takes the other side or **tucks** when there
   is no room (a body that squeezes, the ethos' middle); re-run the table,
-  `ascii` green, the moving card, then merge `main` and open the PR.
+  `ascii` green, the moving card, then merge `main` and open the PR. **It
+  asked instead whether to build (2–3 hours of Opus) or hand over; the
+  coordinator answered by poke under the owner's cost policy — Opus designs,
+  Sonnet builds — and it wrote §7f, the rule as a build spec** (the spine
+  decides the move and a lateral never votes; authored side, other side, or
+  tuck; colour keyed on (segment, is-lateral) so a re-emerged cell returns
+  the colour it left; five sites named to the line; three tests; the §7e
+  table as the bar, laterals-on landing on laterals-off). **Lane T** (Sonnet,
+  running, cut from the bodies branch) builds exactly that and opens the PR
+  against `main`.
   The ingestion question is answered in its lane note: **two clear sites**
   (the mouthful into the crop, `creature.rs:5001` on main; brood
   provisioning, which clears and credits in one block) and the drop site
