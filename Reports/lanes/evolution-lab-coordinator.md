@@ -259,7 +259,7 @@ round runs):
   rain off — the lid's own condensation — and was pulled for that reason.
   Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
   Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
-- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain) — merged in that order 04:12–04:55, `docscheck` clean after each.
+- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed) — merged in that order 04:12–05:34, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
 - **The eusociality lane, un-poked, kept going and found a shipped bug**
   (four commits on PR #295, CI running): an organism id is
   `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
