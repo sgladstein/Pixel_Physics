@@ -168,11 +168,36 @@ merges on CI green and runs `docscheck` after each:
 | legends (Sonnet) | the chronicle written out on reset and quit (the direction report's first big swing), and a HISTORY page of the lines that ended — the graveyard the owner rated 5, given a place | `ui.rs` (new panel), `mod.rs` reset path, `world.rs` log region |
 | rain (Sonnet) | measure whether the played bed dries over a session, then `RAIN OFF / LIGHT / STEADY / HEAVY` from the lid through the water tool's own placement, default set from the measurement, a counter beside it (Arc B3, owner-asked) | `mod.rs` water tool, `ui.rs` BOX rows, a scenario `Setting`, one `labstats` line |
 
-**Put to the owner this round, through the queue:** pollen as gene flow
-(yes/no, the two readings priced); individual against graded breeding (the
-eusociality lane's to post, from #293 §5); the rain rate and default; the
-HISTORY page. Still unanswered from round twenty-five: the tree in the bed,
-the marks three-way, and *is the box empty*.
+**Ruled since round twenty-five, and where the ruling lives:** the breeding
+trade is **graded suppression** — the owner answered it in chat, and it is
+recorded as commit `e5792206` on the eusociality branch (PR opened by this
+round), not as a card. **That is a rule, not an accident: the owner's
+standing instruction is *"if it does not require a visual, just ask
+questions here"*** — a text question goes to the owner in chat, and the
+queue is for things judged by eye. Two conditions travel with the ruling
+before graded ships as the default: the breeder lookup must scale (today it
+scans every organism in the world, plants included, once per tick for every
+animal that can afford a child — `crowded_bench.ron` is the pessimal case
+built to price it), and `GRADED_MAX_SUPPRESSION` is a provisional 6.0 that
+nothing has swept. The extra-breeder anomaly (#293) has one live
+hypothesis: a non-finite `bank`/`reachable` passing `bank + reachable <
+f32::INFINITY`; the instrument is a finiteness `debug_assert` at the
+precheck and a print at the `children` increment under `queen`.
+
+**Put to the owner this round** — in chat, per the rule above, with the
+priced readings on cards as a second copy: pollen as gene flow (the animals
+carry it, the player's BRUSH carries it, or both with the animals off); the
+seed inside a taken fruit — left on the spot, or carried home and put down
+where a laden ant puts things down (a ring of herbs around the nest, at about
+three times the work); the rain rate and default; the HISTORY page. Still
+unanswered from round twenty-five: the tree in the bed (the owner's mix was
+grass, herb and shrub, so a *no* closes it), the marks three-way, and *is the
+box empty*.
+
+**Inherited from the phase-one coordinator, kept or dropped here:** the
+food-trail half of §Z7 (a decay sweep via `labforage bdecay=`);
+`scent_spread > 0` as the condition under which castes are adaptive; `CROSS`
+on the shelf; outdoor-to-lab collection. None is started this round.
 
 **Outside the box, offered and not started** — each is a question for the
 owner before it is a lane: **BRUSH**, pollinate by hand — the shelf's `CROSS`
@@ -190,7 +215,12 @@ experiments; **wild collection** (Arc C3).
 
 **Environment, learned this round:** a poke's fire response names where it
 landed — `cse_<lane id>` both times here, so the session-programs correction
-of 2026-09-09 holds.
+of 2026-09-09 holds. **A trigger's prompt bound to another session cannot be
+edited afterwards** (`update_trigger` refuses), so every new message is a new
+trigger, and the old one is deleted the moment it has fired so a stale prompt
+cannot be re-fired. And a lane whose status reads *"awaiting … results"* is
+usually in the sub-agent trap the note above names — it woke, resumed its
+build lane, and went idle again waiting for a turn that will never end.
 
 ## The earlier rounds
 
