@@ -164,6 +164,23 @@ pub struct LabBox {
     /// and lamps avoid a hand-placed wall exactly as they avoid a computed
     /// one.
     pub extra_walls: Vec<i32>,
+    /// **The mister on the lid** — Off/Light/Steady/Heavy. See
+    /// `super::rain::Rain` for the rates and the measurement the shipped
+    /// `Off` default rests on.
+    ///
+    /// On the spec, not on `World` or on `Ui`, for the same reason
+    /// `compartments` is: a scenario's own `bed:` block is the one place a
+    /// saved starting box's settings live, so a rate a scenario asks for
+    /// survives `LabBox::save`/`load_saved` and a `reset()` rebuild exactly
+    /// as the box's other knobs do, and a scenario `Setting` can turn it
+    /// on the same way `Knob::Bed` already turns any other bed field —
+    /// `params::box_rows`'s `rain` row is the one place that resolves.
+    ///
+    /// `#[serde(default)]` so every scenario `.ron` on disk before this
+    /// field existed keeps loading unchanged, at `Rain::Off` — the shipped
+    /// default and the value every one of them was already playing at.
+    #[serde(default)]
+    pub rain: super::rain::Rain,
 }
 
 /// **Rows of soil, and why this number and not a round one.**
@@ -268,6 +285,10 @@ impl Default for LabBox {
             lamp_spacing: 2 * LAMP_HALF + 1 + LAMP_GAP,
             seed: 1,
             extra_walls: Vec::new(),
+            // Measured: the played bed does not dry out enough over a
+            // session to need this on by default. See `rain`'s own doc and
+            // `super::rain`'s header for the numbers.
+            rain: super::rain::Rain::Off,
         }
     }
 }
@@ -971,6 +992,40 @@ mod tests {
         assert_eq!(loaded.width, 777);
         assert_eq!(loaded.founders, 3);
         assert_eq!(loaded.species, "moss");
+
+        let _ = std::fs::remove_file(&path);
+        std::env::remove_var(LabBox::ASSET_PATH_ENV);
+    }
+
+    /// **The mister's own setting round-trips through the same save/load
+    /// path.** Its own test rather than one more assertion folded into the
+    /// one above: `CLAUDE.md`'s deliverable for this field names save/load
+    /// as its own checkable claim, distinct from the scenario `Setting`
+    /// round trip (`rain::tests::rain_round_trips_through_a_scenario_
+    /// setting`), and a field added after a struct already has `#[derive(
+    /// PartialEq)]` is exactly the kind of thing a rename or a reordered
+    /// variant could silently break without a test naming it.
+    #[test]
+    fn a_saved_bed_round_trips_its_rain_setting() {
+        let _guard = BED_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let path = scratch_path("bed_roundtrip_rain");
+        let _ = std::fs::remove_file(&path);
+        std::env::set_var(LabBox::ASSET_PATH_ENV, &path);
+
+        let bed = LabBox { rain: crate::lab::rain::Rain::Heavy, ..LabBox::default() };
+        bed.save().expect("save");
+        let loaded = LabBox::load_saved().expect("a just-saved bed parses back");
+        assert_eq!(loaded.rain, crate::lab::rain::Rain::Heavy);
+
+        // And a bed saved *before* this field existed -- no `rain:` key at
+        // all -- must still load, at the shipped default, rather than
+        // refusing to parse. `#[serde(default)]` on the field is what this
+        // actually checks; written by hand rather than by `bed.save()`
+        // since every bed this binary can construct already carries the
+        // field.
+        std::fs::write(&path, "(width: 512, height: 320, soil_depth: 96, ground_y: 160, compartments: 1, founders: 8, species: \"herb\", colonies: 1, colony_ants: 52, colony_species: \"ant\", predators: 0, lamp_spacing: 33, seed: 1, extra_walls: [])").expect("write a pre-rain bed by hand");
+        let loaded = LabBox::load_saved().expect("a bed with no rain key still parses");
+        assert_eq!(loaded.rain, crate::lab::rain::Rain::Off, "a missing key must load at the shipped default, not refuse to parse");
 
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(LabBox::ASSET_PATH_ENV);

@@ -551,6 +551,13 @@ pub enum Action {
     /// press of that key to `Action::Tool(Tool::Scent)` as usual and every
     /// press after, while `SCENT` is already armed, here.
     ToggleScentChannel,
+    /// Step the mister -- Off/Light/Steady/Heavy. See `super::rain::Rain`
+    /// for the rates and `Lab::act`'s own handler for why this writes
+    /// `Lab::spec` directly rather than through a mirror the way
+    /// `CycleReaction` writes `Ui::reaction`: the BOX page already takes
+    /// `spec: &LabBox` to build its own rows (`FRAME`, `BED`, `SOIL`, ...),
+    /// so there is no second copy for a mirror to disagree with.
+    CycleRain,
 }
 
 /// **What a left-click on the world does.**
@@ -4097,6 +4104,24 @@ impl Ui {
                     format!("{} DEEP", spec.soil_depth),
                     FAINT,
                     "ROWS OF SOIL UNDER THE SURFACE. PLANTS ROOT INTO IT AND ANIMALS DIG IN IT, AND DEPTH IS PAID FOR IN FRAME TIME -- 40 ROWS TO 240 COSTS ABOUT TWICE THE FRAME.",
+                ),
+                // **The mister, on a `Row::choice` like `EVENTS` below --
+                // Off/Light/Steady/Heavy, `CLAUDE.md`'s ethos law again: a
+                // graded ladder rather than a switch. The count rides in the
+                // value string once it is nonzero, the same "counter beside
+                // the reading" `CLAUDE.md`'s own method section asks for --
+                // a picture of rain and a body count of zero mean the
+                // mechanism never fired, and this is the box's own reading
+                // of that count with nothing else on the page to carry it.**
+                Row::choice(
+                    "RAIN",
+                    if world.rain_cells > 0 {
+                        format!("{} -- {} CELLS", spec.rain.label(), world.rain_cells)
+                    } else {
+                        spec.rain.label().to_string()
+                    },
+                    Action::CycleRain,
+                    "THE MISTER ON THE LID -- WATER ARRIVES FROM THE TOP OF THE BOX AND FALLS ONTO THE BED, SPREAD ACROSS THE WIDTH, THROUGH THE SAME PLACEMENT THE WATER TOOL USES: A COLUMN WITH ROCK OR A GROWN PLANT ALREADY AT THE CEILING REFUSES A DROP EXACTLY AS IT WOULD REFUSE YOUR OWN BRUSH. CLICK TO CYCLE OFF -> LIGHT -> STEADY -> HEAVY, OR PRESS 8. LIGHTS STAY ON -- THIS ONLY EVER CHANGES WATER. SHIPS OFF: THE OWNER'S OWN PLAYED BED LOST ONLY ABOUT 3-6% OF ITS SOIL WATER ACROSS A FULL 120,000-FRAME SESSION WITH NO WATERING AT ALL (TWO SEEDS, AND A BARE BED WITH NO PLANTS LOST NONE), SO NOTHING WATERS THIS BED FOR YOU UNLESS YOU ASK. LIGHT/STEADY/HEAVY PLACE ABOUT 50/150/400 CELLS PER 1,000 FRAMES -- FOR A HEAVIER STAND, A SMALLER COMPARTMENT, OR A LONGER RUN THAN THAT.",
                 ),
                 Row::value(
                     "COMPARTMENTS",

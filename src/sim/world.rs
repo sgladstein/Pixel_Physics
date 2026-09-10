@@ -2903,6 +2903,20 @@ pub struct World {
     /// documented as read by nothing in the simulation and is set by three
     /// render tests that want a room drawn without their world going dark.
     sky_lighting: bool,
+    /// **Cells the lab's mister (`lab::rain`) has actually placed as water**,
+    /// summed since this world was built. An effect count, not an attempt
+    /// count -- `lab::rain::tick` only bumps this for a drop that reads back
+    /// as water afterwards, so a rate whose drops are all bouncing off grown
+    /// canopy reads as a small number rather than a healthy-looking one.
+    ///
+    /// Lives on `World` rather than on `Lab` for the reason `splashes_thrown`
+    /// and `structural_failures` do: a rebuild constructs a fresh `World`,
+    /// so a `REBUILD` zeroes this for free rather than needing its own line
+    /// in `Lab::reset`. Outdoor worlds never write it -- the outdoor game has
+    /// no mister and no lab `Setting` reaches this field -- so it stays 0
+    /// there for the whole run, same as `structural_failures` does on a
+    /// world with nothing built in it.
+    pub rain_cells: u64,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -3618,6 +3632,7 @@ impl World {
             seed: DEFAULT_WORLD_SEED,
             enclosure: None,
             sky_lighting: true,
+            rain_cells: 0,
         };
         world.ensure_chunks_for(bounds);
         world
