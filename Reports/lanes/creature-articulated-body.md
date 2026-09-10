@@ -4,7 +4,26 @@ Branch `claude/creature-evolution-engine-67lhjp`. Report of record:
 [`Reports/creature-articulated-body-2026-09-09.md`](../creature-articulated-body-2026-09-09.md).
 Written for the lab coordinator; everything substantive is in the report's §7.
 
-## Standing: NOT landable
+## Standing: spec written; build lane owed
+
+**§7f of the report is a complete build brief for the lateral rule** — the
+rule itself, the sites to change with line numbers and what must not change,
+the tests including the two that do not exist yet, the measurement to re-run,
+and the card to post. A build lane picks it up from this branch. Handed over
+rather than built here because a 2-3 hour rule build is a build, and the
+owner's standing split is design on Opus and builds on Sonnet.
+
+**The cause is settled** (§7e, coordinator's ablation, verified on this
+branch): the laterals are the whole of it and the segmented spine is
+exonerated — a `Segmented` body with zero laterals is byte-identical to
+`Chain(6)` on every counter, both presets. The design in §1–§6 stands. Only
+the movement rule is wrong.
+
+**The red guard in §9 stays red by decision**, and §7f(6) says why: it is not
+caused by this body plan, it must not be fixed by pinning `ant.ron` back, and
+it must not be fixed by moving the bar.
+
+## Before the spec was written: why it is not landable
 
 **Clippy in release is green. `ascii` is red and the bodies do not walk**, so
 there is no pull request and there is nothing to post to the review queue.

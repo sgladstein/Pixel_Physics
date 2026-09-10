@@ -659,6 +659,131 @@ exactly the kind of change `CLAUDE.md` asks be scoped and budgeted rather
 than started under an ablation's cost fork. That is the next report's
 problem, not this one's.
 
+### 7f. The lateral rule, specified — a build lane's brief
+
+**This is a specification, not a diagnosis.** §7e settled the cause; what
+follows is the whole of what has to be built, and it is deliberately written
+so a build lane can work from it without re-deriving anything above.
+
+#### (1) The rule
+
+**The spine decides the move. A lateral never gets a vote.**
+
+1. Compute the spine landing exactly as today: `chain_follow` over the
+   segment spines. **Placeability of the step is decided on the spine
+   alone**, by the same predicate a plain `Chain` uses. This is the whole
+   invariant, and everything else is bookkeeping under it.
+2. Then place each widened segment's lateral, in segment order:
+   - its **authored side** (the perpendicular `lateral_for` already prefers)
+     if that cell is placeable;
+   - else the **other side**;
+   - else it **tucks** — not placed this step, and that segment reads as one
+     cell wide.
+3. A tucked lateral **re-emerges** on any later step where a side is free.
+   Nothing remembers that it was tucked; the rule is evaluated fresh each
+   step, so re-emergence is automatic and needs no timer or flag.
+4. **Width 2 stays the representable maximum.** Nothing here widens a body.
+
+An animal squeezing through a gap therefore *looks* like an animal squeezing:
+it narrows, passes, and fills out again. That is the ethos' first law — an
+outcome is a distribution, not a binary — applied to a body instead of to
+rubble, and it is why tucking is the design rather than a fallback.
+
+**What a tucked lateral costs and keeps:**
+
+- **Cell type: kept.** The role comes from the *authored* segment
+  (`def.body`), never from the live cell, so a re-emerged lateral is the same
+  `Leg`/`Gut`/`Armour` it was.
+- **Colour: must be re-derived deterministically, and the key matters.**
+  `place_creature` draws shade from a stream keyed on the **walk-order
+  index**, and a tuck shifts every later index — so re-keying on walk order
+  would recolour half the animal whenever one segment folds. **Key the draw
+  on (segment index, is-lateral) instead**, and a cell that tucks and
+  re-emerges comes back the colour it left.
+- **Per-cell scalars: dropped.** The `OrganismCell` entry for a tucked
+  position goes with it. Creature body cells are not believed to carry
+  scalars that matter — unlike a plant's carbon, which is exactly the trap
+  `relocate_chain`'s `Parted` machinery exists for — but **the build lane
+  must check that before relying on it**, not inherit the belief from this
+  sentence.
+- **Upkeep and roles: genuinely smaller while tucked.** `live_body_cells`
+  reads `state.chain.len()`, and the role resolvers read fractions of the
+  live body, so a folded animal burns a little less and carries a little less
+  armour. That is correct rather than a side effect, and it should be stated
+  in a comment so nobody "fixes" it.
+
+#### (2) What to change, and what must not
+
+| site | change |
+|---|---|
+| `lateral_for` (`creature.rs:7159`) | returns a *choice* — authored side, other side, or none — instead of always a position. The perpendicular preference and its tie-order stay exactly as they are |
+| `segmented_body_after_step` (`creature.rs:7093`) | needs `&World` to test placeability, and returns the landing **and the live widths** together. The two must be written as one value; a landing whose grouping is computed separately is how they come to disagree |
+| `body_after_step` (`creature.rs:7201`) and its **six** call sites (`:6000`, `:6091`, `:6149`, `:6602`, `:6853`, `:6974`) | thread the world through; callers that only want cells take them off the returned pair |
+| `relocate_chain` (`creature.rs:7369`) | its `debug_assert_eq!(from.len(), to.len())` (`:7380`) is the contract that tucking breaks. **The correspondence becomes keyed by (segment, role), not positional** — with a tuck in the middle, index *k* of `to` is not index *k* of `from`, and a positional `zip` would hand a spine cell a lateral's identity. Clear what is dropped, write what is new |
+| `OrganismState::segment_groups` | becomes the **live** widths, rewritten with `chain` every step. Authored widths stay in `def.body` and are the only source for re-emergence |
+
+**Must not change:** the spine rule (`chain_follow`); `is_rigid()` staying
+false for `Segmented`; the head-only foothold rule; the duplicate-position
+check in `landing_is_placeable_through_tissue` (`creature.rs:7040`) — a
+landing still may not occupy one cell twice, and tucking is what makes that
+satisfiable rather than a reason to relax it. And **do not touch
+`assets/species/ant.ron` or `hopper.ron`**: the bodies are right, the
+movement rule is not.
+
+#### (3) The tests
+
+- **The property guard already exists and must go green unchanged**:
+  `a_lateral_adds_no_collision_the_spine_does_not_already_have`. It carries
+  its own bare-spine control and a positive control asserting the scene can
+  tell the two rules apart. Do not weaken either.
+- **A body with both sides blocked still steps.** Build the case, assert the
+  step happens and the segment comes out one wide. This is the invariant in
+  (1); if only one test survives review, it is this one.
+- **A tucked lateral re-emerges.** Step into the pinch, step out, assert the
+  cell count returns and the colour and role are the ones it left with.
+- **Put each fault back and watch it go red** before citing any of them. A
+  guard over emergent behaviour that has only ever been seen green is the
+  failure this repository has paid for most often, and §7c is three entries
+  of it from this branch alone.
+
+#### (4) The measurement
+
+Re-run **exactly** §7e's table, from **one binary**, laterals on, under the
+new rule, and put the rows beside §7e's. Same seed, same instrument, same two
+presets, with `ant_long` still the control. The bar is the laterals-off
+column, not the chain: the rule works when laterals-on lands on top of
+laterals-off.
+
+Then `ascii` must be green — round trips back near 23, not merely non-zero —
+and `filmstrip scene=colony` must found far more than 4 of 52. Quote the
+whole-frame figure from `ascii scene=foraging`'s `worst`/`mean` line, paired
+and alternating against a pre-change binary on a quiet box, and run the
+pinning check before quoting any worst.
+
+#### (5) The card
+
+`filmstrip gif=1`, never a still, animal count in the `meta`. The question is
+**"do these read as animals rather than chains?"** — the owner's own
+number-one issue, and the condition attached to the 2026-09-03 verdict that
+started this line. Post it before calling the ant done.
+
+#### (6) The red guard in §9 — the decision
+
+**Leave it red. Do not tune it green.** It is not caused by this body plan,
+and that is measured rather than assumed: swapping only `ant.ron` back to its
+pre-merge contents makes it pass with this body in place. The scene's premise
+— a plate no single mouth can open — died because the wiring that landed in
+PR #291 made one ant persistent enough to get through alone, which is an
+improvement in the ant and a problem for the scene.
+
+Two things follow. It must **not** be repaired by pinning `ant.ron` back:
+that reverts another lane's landed work while looking like an edit. And it
+must not be repaired by moving the bar until it passes: the honest fix is to
+re-establish the premise under the merged wiring and then demonstrate the
+repaired guard still fails with the mechanism broken. That is a fight-balance
+judgement belonging to whoever owns #291's wiring, and the pull request
+should say so rather than carry a green it did not earn.
+
 ## 8. What this deliberately leaves for later
 
 - **Palette.** Per-individual colour is the other half of
