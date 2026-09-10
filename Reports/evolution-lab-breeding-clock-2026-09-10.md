@@ -317,13 +317,22 @@ sweep before assuming the answer still holds.
 
 ## 6. What to build, in this order
 
-1. **Put the individual-against-graded trade to the owner rather than
-   deciding it here.** Graded costs a third of the evolutionary clock and
-   returns a colony that does not eat itself; that is a taste question about
-   what the box is for, not a measurement question. What is settled is that
-   queen-only is not a candidate. If graded is chosen, its strength wants a
-   sweep first — `GRADED_MAX_SUPPRESSION` is a provisional 6.0 and nothing
-   has measured it.
+1. **The owner's ruling on the trade, 2026-09-10: graded.** Put to them
+   directly rather than through the review queue, on their own standing
+   instruction that a question needing no visual is asked in the session
+   ("if it does not require a visual, just ask questions here") — so this
+   line is where the ruling lives, because the queue does not hold it.
+   Their words: *"I lean graded suppression, but I want to question if the
+   queen is dead end or it failed because of the implementation or
+   environment."* That second half is answered in §5 above, and the answer
+   is that the collapse is structural.
+
+   Graded costs a third of the evolutionary clock and returns a colony that
+   does not eat itself. Two conditions before it ships as the default, and
+   neither is optional: **the breeder lookup has to scale** (§5's second
+   finding — it currently scans every organism in the world), and
+   `GRADED_MAX_SUPPRESSION` wants a sweep, being a provisional 6.0 nothing
+   has measured.
 2. **Resolve the extra-breeder anomaly** before any of it is trusted further.
 3. **The caste channel, so sterility is provisioned rather than imposed.**
    `Provision` is a live output nobody wires and `Made` a live input nobody
