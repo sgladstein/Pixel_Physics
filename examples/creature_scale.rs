@@ -651,10 +651,11 @@ fn report(world: &World, k: i32, placed: i32, first_body_cells: Option<usize>) {
         .collect();
     println!("    deaths: {}", if deaths.is_empty() { "none".to_string() } else { deaths.join("  ") });
     println!(
-        "    reversals={} refused={}  (PIXEL_PHYSICS_REVERSE={})",
+        "    reversals={} refused={} traffic_deferred={}  (PIXEL_PHYSICS_REVERSE={})",
         s.reversals,
         s.reversals_refused,
-        std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "off (default)".to_string()),
+        s.reversals_traffic_deferred,
+        std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "flip (default, §13g)".to_string()),
     );
     println!(
         "    boxed={} ({:.1}% of blocked ticks)  boxed_self={} ({:.1}%)  width_changes={} ({:.3}/move)  tucked_segment_steps={}",

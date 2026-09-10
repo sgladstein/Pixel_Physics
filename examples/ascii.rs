@@ -1720,6 +1720,16 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **The reversal breakdown (§13g), printed even at zero.** A flip
+        // that fires on a laden ant, or one adjacent to the nest, is
+        // mirroring the one animal that has something to lose by it -- see
+        // `CreatureStats::reversals_carrying`/`reversals_at_nest`. High
+        // against `reversals` is the signature of the regression §13g
+        // diagnosed; low is the gate working.
+        println!(
+            "  reversals {} (carrying {} at-nest {}) refused {} traffic-deferred {} | boxed ticks {}",
+            st.reversals, st.reversals_carrying, st.reversals_at_nest, st.reversals_refused, st.reversals_traffic_deferred, st.boxed_ticks
+        );
         // **The damage counters, printed even while they are zero, for the
         // reason the reproduction ones below are.** `injuries` counts every
         // survived body-cell loss and has been here in spirit since

@@ -6596,7 +6596,37 @@ fn step_chain(
         // reversal that leaves the animal boxed at the other end would be
         // a strobe, not an escape.
         let rule = reverse_rule();
-        if rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, kin) {
+        let boxed = rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, kin);
+        // **Where, before anything moves.** Read off the pre-flip head:
+        // `reversals_carrying` and `reversals_at_nest` are the "where does
+        // this fire" breakdown the diagnosis needed -- a flip that fires on
+        // a laden ant is mirroring the one animal that has something to
+        // lose by it, turning its closest point to home into its farthest.
+        let carrying = boxed && world.organism(organism).is_some_and(|s| s.crop.is_some());
+        // **Boxed by terrain, not by traffic -- and only asked of a laden
+        // animal** (§13g, `Reports/creature-articulated-body-2026-09-09
+        // .md`). `is_boxed` cannot tell a dead end from a jam: a cell held
+        // by another ant reads exactly like a cell of rock. Tried
+        // unconditionally first and it cost real mobility on `tunnel`
+        // (7.6% blocked to 77.5%, measured): the mobility scenes carry no
+        // food at all, so every reversal there is an *empty-handed* animal
+        // exploring a passage packed with its own colony -- exactly where
+        // "another ant is standing in the way" is close to universal and
+        // deferring on it is close to disabling the flip. A colony has
+        // nothing to lose from an empty-handed animal turning round
+        // promptly even into a jam that was about to clear; it has a great
+        // deal to lose from a laden one doing the same at the door it was
+        // about to walk through. So the deferral applies to the one case
+        // that can afford to wait a beat, not to the one this rule exists
+        // for. A streak of consecutive boxed ticks was tried before that,
+        // unconditionally, and cost mobility the same way for the same
+        // reason -- see `boxed_by_traffic`'s own doc.
+        let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, kin);
+        if traffic {
+            world.creature_stats.reversals_traffic_deferred += 1;
+        }
+        if boxed && !traffic {
+            let at_nest = adjacent_nest(world, hx, hy, def);
             let reversed = match rule {
                 ReverseRule::Flip => flipped_body(world, &chain, &groups, &authored_widths, push),
                 ReverseRule::Back => backed_out_body(world, def, &chain, &groups, &authored_widths, push, kin),
@@ -6640,6 +6670,12 @@ fn step_chain(
                         state.heading = new_heading;
                     }
                     world.creature_stats.reversals += 1;
+                    if carrying {
+                        world.creature_stats.reversals_carrying += 1;
+                    }
+                    if at_nest {
+                        world.creature_stats.reversals_at_nest += 1;
+                    }
                     // **Not a `move`.** No cell of the body has covered any
                     // ground -- a flip moves none at all -- so counting it
                     // as one would inflate the very denominator every
@@ -7871,23 +7907,30 @@ type BodyCells = (Vec<(i32, i32)>, Vec<u8>);
 
 /// **Which way out of a dead end** -- `PIXEL_PHYSICS_REVERSE`.
 ///
-/// Off by default, so the shipped tree is byte-identical until one of the
-/// two is chosen. Both arms live in one binary for the reason every A/B
-/// here does: a recompile sitting between two arms becomes the thing that
-/// actually changed.
+/// **The flip is now the default** (§13g,
+/// `Reports/creature-articulated-body-2026-09-09.md`): a long body that
+/// cannot turn round is stuck in almost any terrain more complicated than
+/// open ground (§13d measured 87.1% of steps refused in a tunnel, against
+/// 7.6% flipping), and that is the shape of complaint this was built to
+/// answer. `PIXEL_PHYSICS_REVERSE=off` is the ablation -- the tree as it
+/// stood before this -- kept live in the same binary rather than deleted,
+/// for the reason every A/B here does: a recompile sitting between two
+/// arms becomes the thing that actually changed.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum ReverseRule {
-    /// No reversal at all -- the tree as it stands.
+    /// No reversal at all -- the tree as it stood before §13.
     Off,
-    /// **The owner's own suggestion: flip the whole body in place.** The
-    /// segment order swaps end for end and **no cell moves**, so there is
-    /// no landing to place, no self-collision, and no U-turn geometry to
-    /// satisfy. The next step is then an ordinary forward step from the
-    /// new head.
+    /// **The owner's own suggestion, and the default: flip the whole body
+    /// in place.** The segment order swaps end for end and **no cell
+    /// moves**, so there is no landing to place, no self-collision, and no
+    /// U-turn geometry to satisfy. The next step is then an ordinary
+    /// forward step from the new head.
     Flip,
     /// **Walk backwards**: the tail leads into a free cell and every
     /// segment inherits the position of the one behind it, which is
-    /// `chain_follow` run in the other direction.
+    /// `chain_follow` run in the other direction. Measured worse than
+    /// `Flip` on every scene in §13d and never the default; kept only as
+    /// the alternative the owner's proposal was priced against.
     Back,
 }
 
@@ -7895,14 +7938,14 @@ fn reverse_rule() -> ReverseRule {
     use std::sync::OnceLock;
     static R: OnceLock<u8> = OnceLock::new();
     let v = *R.get_or_init(|| match std::env::var("PIXEL_PHYSICS_REVERSE").as_deref() {
-        Ok("flip") => 1,
+        Ok("off") => 0,
         Ok("back") => 2,
-        _ => 0,
+        _ => 1,
     });
     match v {
-        1 => ReverseRule::Flip,
         2 => ReverseRule::Back,
-        _ => ReverseRule::Off,
+        0 => ReverseRule::Off,
+        _ => ReverseRule::Flip,
     }
 }
 
@@ -8034,6 +8077,60 @@ fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32),
     (0..8u8).all(|d| {
         let (dx, dy) = DIRS[d as usize];
         classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin).is_some()
+    })
+}
+
+/// **Would at least one of the eight headings be open if every *other*
+/// living creature's body were not there?** (§13g,
+/// `Reports/creature-articulated-body-2026-09-09.md`.) Called only for a
+/// laden animal -- see the call site for why an empty-handed one is never
+/// worth asking.
+///
+/// `is_boxed` cannot tell a dead end from a traffic jam: `classify_step`
+/// reads a cell occupied by another ant exactly the way it reads a cell of
+/// rock, `BlockedWhy::HeadSolid` either way, because the predicate asks
+/// "can I stand here" and not "what is stopping me". A jam clears on its
+/// own the moment the other animal takes its own next step; a dead end
+/// does not, because nothing in the world is going to move. Flipping for
+/// the first is a colony turning its own laden forager around at the door
+/// it was about to walk through; flipping for the second is the verb this
+/// rule was built for.
+///
+/// **Deliberately not a delay, and deliberately not asked of every
+/// animal.** A streak of consecutive boxed ticks was tried first, asked of
+/// every reversal regardless of cargo, and measured against exactly the
+/// wrong scene: `tunnel` places 16 animals in one narrow burrow network
+/// with no food in it at all, so *every* reversal there is an empty-handed
+/// animal exploring a passage its own colony fills, and even two ticks of
+/// grace compounds into real mobility lost (7.6% blocked at N=1 to 16.3%
+/// at N=2). Asking this same question of every animal, not only a laden
+/// one, was tried next and cost the same mobility the same way for the
+/// same reason: unconditionally, "another ant is standing in the way" is
+/// close to universal in that scene and answering it turns the flip off
+/// almost everywhere it was built to fire (7.6% to 77.5%, measured). Both
+/// numbers are in §13g. Scoping the call to a laden animal is what makes
+/// the question worth asking at all: the mobility scenes never populate a
+/// crop, so this function is never even called while measuring them, and
+/// the only cost left is the one tick a laden colony forager waits before
+/// a flip that would have turned it away from a nest it was about to
+/// reach.
+fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+    (0..8u8).any(|d| {
+        let (dx, dy) = DIRS[d as usize];
+        let target = (head.0 + dx, head.1 + dy);
+        // Already open -- not a refusal, so it cannot be a *traffic*
+        // refusal. `is_boxed` having read true is what makes this branch
+        // reachable at all; re-testing here rather than trusting that
+        // costs one more `classify_step` on a path that has already given
+        // up, the same trade `census_blocked` already makes.
+        if classify_step(world, def, body, target, (heading, d), push, kin).is_none() {
+            return false;
+        }
+        let (landing, _) = body_after_step(world, def, body, target, heading, d, push);
+        landing.iter().any(|&(px, py)| {
+            let occupant = world.get(px, py).organism_id();
+            occupant != 0 && !body.chain.contains(&(px, py)) && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
+        })
     })
 }
 
@@ -9301,37 +9398,33 @@ mod tests {
         assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         // `run` is this module's own way to advance a world -- a second one
         // would be a second thing to keep in step with the scheduler.
-        // 8,000, not 4,000: colony spacing derives from the body
-        // (`creature.rs`'s own founding code) and the shipped ant's grew,
-        // so fewer, farther-spaced founders need longer to find and pick
-        // up anything at all -- see `founding_a_colony_from_high_above_
-        // the_ground_still_finds_it`'s own comment on the same cause, and
-        // the frame count's own comment below for why this is 8,000 and
-        // not the 12,000 that reasoning first suggested.
-        run(&mut w, 8_000);
+        //
+        // **5,000, re-derived for §13g** (`Reports/creature-articulated-
+        // body-2026-09-09.md`). This frame count is calibrated against how
+        // fast this population moves and dies, and both moved when the flip
+        // became the default: `PIXEL_PHYSICS_REVERSE=flip` no longer leaves
+        // an animal stuck (rather than merely turned around, which is the
+        // point of §13), so this bed's founders rack up a nonzero `moves`/
+        // `pickups`/`digs` far sooner than the frame count below this one
+        // assumed -- but the same freedom to keep moving also burns energy
+        // faster in a bed this scene never re-tuned as a food economy.
+        // Measured on a fresh world each time, this build: **20 of 20 alive
+        // at 3,000 (0 pickups yet -- too early, the original vacuity this
+        // comment's predecessor names), 20 of 20 at 5,000, 11 of 20 at
+        // 8,000, 1 of 20 at 12,000** -- a collapse that arrives thousands of
+        // frames sooner than the pre-§13g curve this comment used to quote
+        // (14 of 20 at 8,000). `doomed.len() >= 4` below only needs a
+        // handful alive; 5,000 clears both bars at once with room on either
+        // side, which 8,000 no longer does.
+        run(&mut w, 5_000);
 
         // **Then kill some of them, because the dead-side term is the whole
-        // point and this bed does not produce a death on its own in 4,000
-        // frames.** The vacuity check below caught that on the first run: the
-        // identity held, and held over two zeroes. Killing animals that have
-        // already walked, dug and fed is what puts a non-trivial `life` into
-        // `dead_life` -- a death at frame 0 would roll up nothing and test
-        // just as little.
-        //
-        // **8,000, not 12,000.** The comment this replaces raised it from
-        // 4,000 for a real reason -- the shipped ant's wider colony spacing
-        // (`colony_stations`'s `body_span * 2`) means fewer, farther-spaced
-        // founders take longer to rack up a nonzero `moves`/`pickups`/`digs`
-        // -- but never re-checked the OTHER thing a longer run costs in this
-        // same bed: this colony *starves*. Swept on a fresh world each time:
-        // 20 placed, 20 still alive with zero deaths through 4,000 frames
-        // (confirming the original problem was real), 19 alive at 6,000, 14
-        // at 8,000, and only **3 of 20 at 12,000** -- most of the die-off
-        // happens in the 8,000-12,000 window, a real collapse rather than a
-        // slow bleed. `doomed.len() >= 4` below only needs a handful alive,
-        // and 8,000 clears it with a live population more than 3x the ask
-        // while still being 2x the frame count the original fix judged
-        // necessary.
+        // point and this bed does not produce a death on its own this
+        // early.** The vacuity check below caught that on the first run of
+        // this test: the identity held, and held over two zeroes. Killing
+        // animals that have already walked, dug and fed is what puts a
+        // non-trivial `life` into `dead_life` -- a death at frame 0 would
+        // roll up nothing and test just as little.
         let doomed: Vec<u16> = w.live_organism_ids().into_iter().take(8).collect();
         assert!(doomed.len() >= 4, "too few animals to kill for the dead-side term to mean anything");
         for id in doomed {
@@ -14136,6 +14229,221 @@ mod tests {
         assert_eq!(flipped[0], (3, 5), "what was the tail's spine is now the head's");
         assert_eq!(widths.len(), groups.len(), "the same segments, in the other order");
         assert!(flipped.iter().enumerate().all(|(i, p)| !flipped[..i].contains(p)), "a flipped body cannot occupy one cell twice: {flipped:?}");
+    }
+
+    /// **§13g's default, end to end: a laden animal turned round by the
+    /// flip actually gets home**, not just clear of the dead end.
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §13g.) The same
+    /// blind tunnel `a_long_body_is_boxed_in_a_dead_end_where_a_two_cell_
+    /// body_is_not` diagnoses, extended west with a nest floor to walk to
+    /// -- driven through the real scheduler and the real brain, not a
+    /// single hand-called step, so a flip that leaves the animal unable to
+    /// navigate afterward would show up here and did not in
+    /// `a_flip_reverses_heading_and_leaves_carried_state_untouched`'s
+    /// narrower check.
+    #[test]
+    fn a_laden_ant_in_a_dead_end_corridor_flips_and_reaches_the_nest() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 48..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The tunnel: blind at x=100, open west to x=50.
+        for x in 50..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        // **Load-bearing** (§13a): `place_creature` grows the body from the
+        // species' own `fates` table whenever it has one and falls back to
+        // `def.body` only when it does not -- `ant.ron` authors one, so the
+        // override above is silently ignored without this.
+        w.species.set_fates(species, Vec::new());
+        // The nest floor: the tunnel's south wall, for the western third of
+        // the walk -- an 8-neighbour scan off the head reads this exactly
+        // as `adjacent_nest` does in production, rather than the test
+        // asserting a coordinate the mechanism never actually checks.
+        let nest_material = w.materials.id_of(&def.nest).expect("the species names a real nest material");
+        for x in 55..90 {
+            w.set(x, 101, Cell::new(nest_material, 0));
+        }
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about: the ant was not placed");
+        {
+            let state = w.organism_mut(ant).expect("just placed");
+            assert_eq!(state.chain.len(), 6, "test setup: a 6-cell body is what makes the blind end unreachable without a flip -- see the override above");
+            state.crop = Some(Crop { material: leaf, cells: 3, digesting: 4.5, unit: 12.0, shade: 2 });
+        }
+
+        // **Sampled over the run, not read once at the end.** The nest
+        // floor is one stretch of a longer corridor and nothing stops the
+        // animal walking straight through and past it once it is no longer
+        // boxed, so a state read at a fixed final frame says where the walk
+        // ended up rather than whether it ever arrived there -- watched red
+        // exactly this way on an early build of this test.
+        //
+        // **The live predicate, not the clock built on top of it.**
+        // `since_nest` resets to 0 for exactly the tick that touches the
+        // nest and a second, faster upkeep pass increments it again before
+        // the next frame boundary this loop can observe -- watched directly
+        // on an earlier build of this test: the head walked the entire
+        // length of the nest floor, `since_nest` read `1` at every single
+        // sample along it and never once `0`, which is that clock's own
+        // timing, not a fact about whether the animal arrived.
+        // `adjacent_nest` is the geometric fact `since_nest` is built on top
+        // of, sampled directly off the live head position instead.
+        let mut left_home = false;
+        let mut reached_nest = false;
+        for _ in 0..2500 {
+            run(&mut w, 1);
+            let Some(state) = w.organism(ant) else { break };
+            if state.since_nest > 1 {
+                left_home = true;
+            } else if left_home {
+                let (hx, hy) = state.chain[0];
+                if adjacent_nest(&w, hx, hy, &def) {
+                    reached_nest = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(w.creature_stats.reversals >= 1, "the ant never flipped -- it should have been boxed at the blind end on its very first tick");
+        assert!(reached_nest, "the ant never got back within reach of the nest in 2500 frames -- it may have flipped and then failed to navigate home");
+        // Whether it still holds the load or the real brain chose `Drop`
+        // once `AtNest` and `Carrying` were both true is the outbound
+        // economy's question, not this test's -- either way the animal
+        // reached the nest carrying what it was laden with, which is what
+        // is being checked. A delivery is the stronger proof, not a
+        // sanity-check failure.
+        assert!(w.organism(ant).is_some(), "the ant must still be alive: lost rather than getting home is not this test's story");
+    }
+
+    /// **A flip changes the facing and nothing an economy reads**
+    /// (§13g). `crop`, `since_nest` and `forage_anchor` are
+    /// `OrganismState` scalars, not chain cells -- `relocate_chain` never
+    /// touches them, and this is the guard that makes that a checked fact
+    /// rather than a reading of the diff. Watched red first: with the
+    /// flip's own heading write (`(heading + 4) % 8`) replaced by copying
+    /// the old heading unchanged, this fails on the heading assertion; with
+    /// the crop assigned a fresh default rather than left alone, it fails
+    /// on the crop assertion.
+    #[test]
+    fn a_flip_reverses_heading_and_leaves_carried_state_untouched() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let (before_crop, before_since_nest, before_anchor, before_heading);
+        {
+            let state = w.organism_mut(ant).expect("just placed");
+            state.crop = Some(Crop { material: leaf, cells: 3, digesting: 4.5, unit: 12.0, shade: 2 });
+            state.since_nest = 137;
+            state.forage_anchor = (42, 42);
+            before_crop = state.crop;
+            before_since_nest = state.since_nest;
+            before_anchor = state.forage_anchor;
+            before_heading = state.heading;
+        }
+        assert_eq!(before_heading, 0, "test setup: place_creature stamps every founder east");
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, before_heading, &outputs, &def, &mut draw);
+
+        assert_eq!(w.creature_stats.reversals, 1, "the ant should have been boxed at the blind end and flipped on this very tick");
+        let state = w.organism(ant).expect("live");
+        assert_eq!(state.heading, (before_heading + 4) % 8, "a flip must reverse the facing exactly, not merely change it");
+        assert_eq!(state.crop, before_crop, "the crop is organism state, not a chain cell, and a flip must leave it exactly as it was");
+        assert_eq!(state.since_nest, before_since_nest, "the homing clock is organism state too, and a flip must not reset or otherwise touch it");
+        assert_eq!(state.forage_anchor, before_anchor, "the home anchor must survive a flip exactly: it is what the far side needs to find its way back");
+    }
+
+    /// **The gate, watched both ways** (§13g). Boxed by rock and this
+    /// body's own flank in every heading but one, which is occupied by
+    /// nothing but another living animal: `is_boxed` cannot tell that
+    /// apart from a real dead end, and unconditionally it committed a flip
+    /// here every time -- measured on the colony scene as most of a laden
+    /// forager's reversals, and the regression this branch exists to close.
+    /// `boxed_by_traffic` is what tells the two apart, and it is asked only
+    /// of a laden animal (see its own doc for why asking it of every
+    /// animal cost real mobility in `tunnel`).
+    #[test]
+    fn the_flip_does_not_fire_for_a_block_that_is_only_another_animal_standing_there() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        // The one extra opening: directly north of the blind end's head
+        // cell, so it is the single heading `is_boxed` would read as
+        // refused by nothing but whatever comes to stand in it.
+        w.set(100, 99, Cell::EMPTY);
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("just placed").crop = Some(Crop { material: ant_material, cells: 1, digesting: 0.0, unit: 1.0, shade: 0 });
+
+        let chain = w.organism(ant).expect("live").chain.clone();
+        let heading = w.organism(ant).expect("live").heading;
+        let body = BodyShape { chain: &chain, groups: &[], authored: &[] };
+
+        // Sanity: with the extra opening still empty, the animal is not
+        // boxed at all -- the scene does not yet contain the situation
+        // this test is about.
+        assert!(!is_boxed(&w, &def, body, chain[0], heading, false, None), "test setup: north must be open before another animal stands in it");
+
+        // Another live creature, standing in the one open heading -- not a
+        // real spawn, because a real one needs room to grow a body this
+        // one-cell opening does not have; a bare organism handle with one
+        // cell painted is everything `boxed_by_traffic` reads.
+        let other = w.push_organism(species).expect("a free slot");
+        w.set(100, 99, Cell::new(ant_material, 0).with_organism_id(other));
+        if let Some(s) = w.organism_mut(other) {
+            s.chain = vec![(100, 99)];
+        }
+
+        assert!(is_boxed(&w, &def, body, chain[0], heading, false, None), "with the opening occupied, every one of the eight headings must now read refused");
+        assert!(
+            boxed_by_traffic(&w, &def, body, chain[0], heading, false, None),
+            "the only refused heading that is not rock or this body's own flank is occupied by a living creature, which is exactly what this predicate exists to read"
+        );
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+        assert_eq!(w.creature_stats.reversals, 0, "a block that is only another animal standing there must not turn the ant round");
+        assert_eq!(w.creature_stats.reversals_traffic_deferred, 1, "the deferral counter is what should have fired instead");
     }
 
     /// **§7f(1)'s central invariant, watched red first**: with the old

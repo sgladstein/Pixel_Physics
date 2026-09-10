@@ -1,6 +1,12 @@
 # Ants
 
-*Current as of: 2026-09-09, evening, when four things changed at once and
+*Current as of: 2026-09-10. **A long ant can now turn round in a dead end**
+instead of standing there stuck — see "And a long ant can now turn round"
+below. It is the default, not an experiment: the one thing it had to be
+taught not to do is turn a laden forager away from a nest door that only
+looked blocked because another ant was passing through it, which it no
+longer does. The previous day's note, kept below for the rest of what it
+covers, opens with 2026-09-09, evening, when four things changed at once and
 one of the morning's own claims was overturned. **An ant can feel hunger
 now**: a well-fed ant mostly rests and a hungry one walks, and the colony
 digs when its nest is crowded rather than tunnelling the world out of
@@ -238,6 +244,24 @@ A colony in a wood is a great deal less stuck than it was. Blocked steps
 roughly halve, and where growing plants used to be what stopped an ant on
 two thirds of its failed steps, the handful left are trunks with no far side
 to reach.
+
+**And a long ant can now turn round.** Turning and looking somewhere else
+works for a short body, but a body several cells long cannot back out of a
+dead end the way it walked in — there simply is no way for it to step
+backwards over its own length. Walk one into a blind tunnel, a passage
+that doubles back sharper than its own body can bend, or a burrow it dug
+itself into a corner, and where it used to stand there twitching it now
+turns end for end on the spot — the tail becomes the head, facing back the
+way it came, with nothing about the animal moving to make room for it. The
+next step is an ordinary one, back out the way it arrived. It only does
+this once every heading really is refused, not merely the one it happened
+to be facing, so a length that can simply turn a corner still does.
+
+A carrying ant weighs this differently near the nest, where the colony's own
+comings and goings can make the one open path look blocked for a moment: it
+will wait out a jam from a nestmate rather than turn for home and walk away
+from a door it was about to reach, and only turns end for end when nothing
+in its way is going to move on its own.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than

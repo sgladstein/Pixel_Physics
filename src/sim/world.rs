@@ -1254,9 +1254,11 @@ pub struct CreatureStats {
     /// says whether `width_changes` is a lot or a little.
     pub tucked_segment_steps: u64,
     /// **Reversals committed** -- an animal that was refused in all eight
-    /// headings turning round rather than staying there. Zero unless
-    /// `PIXEL_PHYSICS_REVERSE` names a rule; zero for a two-cell body under
-    /// any rule, which cannot get boxed in the first place.
+    /// headings for `creature::REVERSAL_BOX_STREAK` consecutive ticks
+    /// turning round rather than staying there. `PIXEL_PHYSICS_REVERSE=flip`
+    /// is the default since §13g; `=off` is the ablation, at which this
+    /// reads zero. Zero for a two-cell body under any rule, which cannot
+    /// get boxed in the first place.
     pub reversals: u64,
     /// ...and the effect counter from the far side of the call
     /// (`CLAUDE.md` asks for it by name): reversals the rule was offered
@@ -1265,6 +1267,31 @@ pub struct CreatureStats {
     /// count climbing with this one climbing beside it is an animal
     /// thrashing at a dead end, not one getting out of it.
     pub reversals_refused: u64,
+    /// **Reversals committed by a laden animal** (`OrganismState::crop`
+    /// `is_some()` at the moment of the flip) -- the "where" breakdown
+    /// §13g's diagnosis needed and `reversals` alone cannot give. A flip is
+    /// mirroring the very animal that has something to lose by it: the head
+    /// that was one step from the nest becomes the tail, and the new head
+    /// is the body's farthest point from home, facing away from it. High
+    /// against `reversals` says the rule is firing on exactly the animals a
+    /// foraging colony can least afford it to.
+    pub reversals_carrying: u64,
+    /// **Reversals committed while the (pre-flip) head was nest-adjacent**
+    /// -- the worst timing `reversals_carrying` can name a coordinate for.
+    /// A colony's nest mouth is the one place in the world every laden ant
+    /// is trying to reach and every outbound ant is leaving from at once,
+    /// so it is also the one place `is_boxed` is most likely to be true for
+    /// a reason that has nothing to do with terrain: another ant standing
+    /// in the one open heading. §13g's gate exists because of this count.
+    pub reversals_at_nest: u64,
+    /// **Ticks `is_boxed` read true where `creature::boxed_by_traffic` also
+    /// read true** -- the flip was withheld because at least one of the
+    /// eight headings is refused only by another creature's body, not by
+    /// terrain. The animal falls through to `tumble` and re-tries next
+    /// tick, exactly as an ordinary blocked tick with a bad heading does.
+    /// High against `reversals` says most of what `is_boxed` alone would
+    /// have flipped for was a jam, not a dead end.
+    pub reversals_traffic_deferred: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.

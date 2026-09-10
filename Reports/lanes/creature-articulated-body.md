@@ -4,31 +4,44 @@ Branch `claude/creature-evolution-engine-67lhjp`. Report of record:
 [`Reports/creature-articulated-body-2026-09-09.md`](../creature-articulated-body-2026-09-09.md).
 Written for the lab coordinator; everything substantive is in the report's §7.
 
-## Standing: the cause of the immobility is length, not width -- a long body cannot turn round (§13)
+## Standing: the flip is now the default -- a laden animal near the nest is the one case it had to be taught not to fire for (§13g)
 
-**The owner ruled the question mechanical, not statistical**, and §13 answers
-it. A blocked-step classifier (`creature::BlockedWhy`, `PIXEL_PHYSICS_
-BLOCKED_CENSUS=1`) plus a one-wide tunnel scene and the chamber scene in
-`creature_scale` say: **every tick on which a long body has nowhere to go is
-a tick on which at least one direction is refused by its own cells and
-nothing else** -- `boxed_self` equals `boxed` to the last count in all
-sixteen rows of §13b, against a two-cell ant that reads zero on all four
-scenes. **Width costs nothing**: a one-wide six-cell chain and the two-wide
-articulated ant are both refused on 87.1% of steps in the tunnel.
+**The cause of the immobility was length, not width, and the fix is on by
+default as of `claude/creature-flip-default-r27`.** §13 (below) still has the
+diagnosis and the mechanism: the only own-cell a head may legally land on is
+the tail, so a body longer than two cells cannot reverse by walking, and the
+owner's own fix -- flip the body end for end where it stands, no cell moving
+-- closes it on every mobility scene (87.1% -> 7.6% blocked in the tunnel,
+22.1% -> 7.1% on `rolling`, 23.0% -> 11.5% in the chamber, all within a few
+points of the two-cell ant). §13e left it default-off because one paired
+`ascii` run showed foraging deliveries 23 -> 0: an ant that can turn round
+ranges further and stops coming home.
 
-The mechanism: the only own-cell a head may legally land on is the tail, and
-for a five-cell body the tail is four cells away, so a long body has no way
-to go backwards at all. **The owner's own fix -- flip the body end for end
-where it stands, no cell moving -- is built behind `PIXEL_PHYSICS_REVERSE=
-flip`, measured against walking backwards, and wins on every scene**: the
-two-wide body's blocked fraction goes 87.1% -> 7.6% in the tunnel, 22.1% ->
-7.1% on `rolling`, 23.0% -> 11.5% in the chamber, all within a few points of
-the two-cell ant. **Left default-off deliberately**: one paired `ascii` run
-shows foraging deliveries 23 -> 0 as ants range further and stop coming
-home, which is the trail constants needing re-derivation against a colony
-that can reverse -- §13e has the order of work. Card
-`20260910T193810051Z-9f00a9` (board `lab`) asks the owner whether the
-mirrored turn reads right.
+**§13g diagnosed why, fixed it, and turned the default on.** `is_boxed`
+cannot tell a genuine dead end from another ant standing in the one open
+heading -- both read as "refused" identically -- so the ungated flip was
+turning laden foragers around at the exact spot, crowded near the nest,
+where that misreading is most likely: 52 reversals in one colony run, 19 of
+them carrying, deliveries 297 -> 233. `creature::boxed_by_traffic` asks, only
+of a laden animal, whether the refusal is attributable to nothing but
+another creature's body -- and defers the flip for a tick if so, rather than
+turning the animal around. Deliveries recover to 290 (within 2.4% of the
+off baseline) and round trips come back *above* it, 14 -> 25, while every
+mobility number stays bit-identical to §13d's own flip arm, because the
+mobility scenes never populate a crop and the gate never engages there.
+Two cheaper gates (a streak of consecutive boxed ticks; the traffic check
+asked of every animal, not only a laden one) were tried first and both cost
+real mobility in the tunnel (16.3% and 77.5% blocked) for the same reason:
+in a burrow packed with the colony's own animals and no food at all, "another
+ant is in the way" is close to universal, and a broader gate turns the flip
+off almost everywhere it was built to fire. Full tables, the three
+hypotheses ruled in and out, and a test-precondition re-derivation this
+default change also forced (`every_lifetime_counter_closes_against_its_
+world_total`'s frame count, `colony_bed`'s survival curve having moved) are
+in §13g. Card `20260910T193810051Z-9f00a9` (board `lab`) still asks the
+owner whether the mirrored turn reads right; that question is about the
+picture, not about whether the default should be on, which this section
+settles by measurement.
 
 ## Superseded: lateral rule built and measured; PR open, awaiting review/merge
 

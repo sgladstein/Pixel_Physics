@@ -1646,3 +1646,192 @@ somewhere it would never stand anyway. The alternative -- a founder that
 digs itself in -- is a bigger change and needs the movement rule above
 first, since a founder digging into a bank is precisely the animal that then
 has to reverse out of its own hole.
+
+### 13g. The flip on by default (2026-09-10, branch `claude/creature-flip-default-r27`)
+
+**`PIXEL_PHYSICS_REVERSE` now defaults to `flip`; `=off` is the ablation.**
+§13e's own condition for turning it on -- foraging re-derived against a
+colony that can reverse, gated at or above the pre-articulated-body baseline
+-- is met below, on the same scene and the same counters.
+
+**The cause, isolated rather than guessed.** Three hypotheses were named for
+this task and tested in order:
+
+- **State loss or mirroring, ruled out by reading the code and then by a
+  test.** `flipped_body`'s own commit path touches exactly three things:
+  `state.chain` (via `relocate_chain`), `state.segment_groups` and
+  `state.heading`. `crop`, `since_nest` and `forage_anchor` are
+  `OrganismState` scalars, not chain cells, and nothing in the flip's commit
+  ever reaches them. `a_flip_reverses_heading_and_leaves_carried_state_
+  untouched` asserts all three survive a flip bit-for-bit and the heading
+  reverses by exactly `(heading + 4) % 8` -- watched red against a
+  deliberately broken build (heading left unchanged; crop reset to a fresh
+  default) to confirm the assertions can fail.
+- **`moves_blocked` read downstream as a give-up signal, ruled out by
+  search.** Every reader of `CreatureStats::moves_blocked` and
+  `OrganismState::life.moves_blocked` is a stat sink (printed or summed);
+  none feeds a decision. There is no code path for this hypothesis to have
+  fired through.
+- **The flip fires on a momentary block and sends a laden ant the wrong
+  way -- confirmed, and this is the cause.** `is_boxed` cannot tell a
+  genuine dead end from a traffic jam: `classify_step` reads a cell held by
+  another ant exactly the way it reads a cell of rock. A jam clears itself
+  the moment the other animal takes its own next step; a dead end does not.
+  Flipping for the first turns the animal's *closest* point to home into
+  its *farthest*, facing the wrong way, at the exact moment -- crowded near
+  the nest -- it is most likely to happen.
+
+**Two gates were tried and rejected before the one that shipped, both
+because they cost real mobility on the scene the rule exists for.**
+Measured, `creature_scale mode=walk`, `preset=tunnel`, `species=ant`, seed
+7, 4,000 frames, one binary:
+
+| gate | tunnel blocked |
+|---|---|
+| none (§13e's own arm) | 7.6% |
+| streak: N consecutive boxed ticks before flipping, N=2 | 16.3% |
+| streak, N=3 | 18.8% |
+| traffic check (below), asked of every animal | 77.5% |
+| traffic check, asked only of a laden animal (shipped) | **7.6%** |
+
+A streak costs mobility because `tunnel` re-enters a real dead end often
+enough that even one tick of grace compounds: there every boxed tick already
+*is* the genuine article, and the wait buys nothing. Asking the traffic
+check of every animal costs mobility for a different reason: the mobility
+scenes carry no food at all, so every reversal there is an empty-handed
+animal exploring a passage its own colony fills -- "another ant is standing
+in the way" is close to universal in a 16-animal burrow network, and
+answering it turned the flip off almost everywhere it was built to fire.
+
+**The fix: `creature::boxed_by_traffic`, asked only of a laden animal.**
+When `is_boxed` reads true for an animal carrying a crop, a second,
+same-tick scan re-reads the same eight headings and asks whether any
+refusal is attributable to nothing but another living creature's body
+rather than to terrain or this body's own flank. If so, the flip is
+withheld for this tick -- the animal falls through to the ordinary `tumble`
+path and re-tries next tick, exactly as any other blocked tick with a bad
+heading does. **Deliberately not a delay**: it costs nothing where the
+scenes never populate a crop (the mobility scenes), and where it does apply
+it asks a question answerable this tick, not N ticks from now.
+
+**Foraging restored, `ascii scene=foraging`, one binary, 12,000 frames
+(2,000 + 10,000), seed fixed in the scene:**
+
+| | off (`REVERSE=off`) | flip, ungated (the §13e regression) | flip, laden-only traffic gate (shipped default) |
+|---|---|---|---|
+| moves | 2,165 | 2,427 | 2,497 |
+| blocked | 234 | 257 | 167 |
+| deliveries | 297 | 233 | **290** |
+| round trips (`forage_trips`) | 14 | 7 | **25** |
+| deepest excursion | 18 | 18 | 18 |
+| nest-visits | 229 | 176 | 469 |
+| pickups | 1,356 | 1,204 | 1,209 |
+| reversals (carrying / at-nest) | 0 | 52 (19 / 2) | 34 (20 / 4) |
+| traffic-deferred | 0 | 0 | 16 |
+
+Deliveries land within 2.4% of the off baseline and round trips come back
+*above* it -- a colony that can turn round completes more foraging loops
+than one that cannot, once the one failure mode that made turning round
+dangerous is closed. `deliveries > 0`, `forage_trips >= 6` and
+`forage_depth_max >= 8` -- the three assertions `ascii`'s own guard makes --
+all pass comfortably (290, 25, 18), and `cargo run --release --example
+ascii` runs the whole suite clean apart from the one scene named in §13e as
+not this branch's to fix (below).
+
+**A note on the absolute numbers against §13e's own table.** §13e reports
+`moves 6,590`, `deliveries 23 -> 0` on the same scene; this session measures
+`moves 2,165-2,497`, `deliveries 290-297` on the current tip of this branch.
+Both are real, and they are not the same measurement: this scene's own
+productivity has moved on unrelated commits between whenever §13e's table
+was taken and now, the same drift `ascii`'s own `forage_trips` guard
+comment already documents happening twice on this exact scene (98 trips to
+24 to 23, across worldgen and litter changes with no creature code touched).
+`CLAUDE.md`'s remedy is the one applied here: re-measure the baseline fresh,
+in the same session, on the same binary, and compare paired arms rather than
+trusting an old absolute figure. The *relative* claim -- ungated flip costs
+foraging, the gate restores it -- reproduces cleanly; the specific numbers
+in §13e's table should not be re-quoted after this section.
+
+**Mobility retained exactly**, `creature_scale mode=walk`, `species=ant`,
+seed 7, 4,000 frames, `body=` unset (the shipped articulated body):
+
+| scene | §13d's flip number | this build's default |
+|---|---|---|
+| `tunnel` | 7.6% | **7.6%** |
+| `rolling` | 7.1% | **7.1%** |
+| `chamber` | 11.5% | **11.5%** |
+| `flat` | 2.3% | **2.3%** |
+
+Bit-identical to §13e's own ungated arm, because none of these scenes ever
+give an animal a crop -- `boxed_by_traffic` is asked and answers `false`
+by construction, and the gate never engages.
+
+**A residual risk, named rather than hidden.** `boxed_by_traffic` reads
+whether another creature is *present*, not whether it is *about to move*.
+Two laden animals mutually boxing each other in the same dead end, with no
+other heading open to either, would each defer indefinitely rather than
+ever flipping -- the traffic check is not a proof of eventual escape, only a
+better guess than a single reading. Not observed in the 12,000-frame colony
+run above (`traffic-deferred 16` against `reversals 34`, and delivery
+throughput improved rather than degrading), and not expected to matter until
+the colony is dense enough that mutual laden gridlock is common -- flagged
+for whoever next measures a much larger or longer-running colony.
+
+**The one constant this change re-derived, per `CLAUDE.md`'s standing
+rule.** `every_lifetime_counter_closes_against_its_world_total`
+(`sim::creature::tests`) runs a colony on `colony_bed` -- a plateau, open
+water and a plant canopy in one course -- for a fixed frame count, then
+kills some of the survivors to give the dead-side term something to sum.
+Under the old default that colony was still 14 of 20 alive at frame 8,000;
+under this one it is **1 of 20**, all `Starved`. The mechanism is not the
+traffic gate (`reversals_carrying 1`, `traffic_deferred 0` in that run) --
+it is the base flip itself, unconditionally increasing how much an animal
+that used to get stuck instead keeps moving and burning energy, in a bed
+this scene was never tuned as a food economy. Re-measured at 5,000 frames:
+20 of 20 alive (0 pickups yet, too early for the test's other vacuity
+check), climbing to 11 of 20 at 8,000 -- 5,000 clears both bars with
+headroom on either side, so the test now runs the colony for 5,000 frames
+rather than 8,000, with the comment carrying the new curve. This is a test
+precondition re-derived, not a design claim about `colony_bed`'s food
+economy, which nothing in this task's scope re-tuned.
+
+**Tests, watched red first**
+(`cargo test --lib -- sim::creature::tests::a_laden_ant`,
+`a_flip_reverses_heading`, `the_flip_does_not_fire_for_a_block`):
+
+- `a_laden_ant_in_a_dead_end_corridor_flips_and_reaches_the_nest` -- a
+  6-cell `Chain` ant, laden, placed at a blind tunnel end with a nest floor
+  further along the same corridor, driven through the real scheduler and
+  the real brain. Reads `adjacent_nest` directly off the live head position
+  every frame rather than the internal `since_nest` clock: that clock reads
+  `1`, never `0`, at every single sample along the entire nest floor on an
+  earlier build of this test (a second, faster upkeep pass increments it
+  again before the next frame boundary the test can observe), which is that
+  clock's own timing and not a fact about whether the animal arrived.
+- `a_flip_reverses_heading_and_leaves_carried_state_untouched` -- one
+  hand-called `step_chain` at a blind end; asserts `crop`, `since_nest` and
+  `forage_anchor` are bit-identical before and after, and heading is
+  exactly `(before + 4) % 8`. Watched red against a heading left unchanged
+  and against a crop reset to default.
+- `the_flip_does_not_fire_for_a_block_that_is_only_another_animal_standing_
+  there` -- the same blind end with one extra opening, empty until a second
+  organism (a bare handle with one painted cell, not a full spawn -- the
+  opening is too small to grow a real body into) stands in it. Asserts
+  `is_boxed` reads true, `boxed_by_traffic` reads true, and the subsequent
+  `step_chain` call commits zero reversals and one traffic deferral.
+
+**`cargo test --lib -- sim::creature::`: 1,567 passed / 1 failed / 69
+ignored** (whole-suite `cargo test --lib`: same). The one failure is §9's
+own swarm guard, red before this branch and left red per §7f(6) -- measured
+this run at median frame 101 (one attacker) against 77 (eight), the same
+shape as every prior reading. `cargo clippy --all-targets --release
+--locked -- -D warnings`: clean.
+
+**The other two reds named for this task, both unchanged by this branch.**
+`ascii`'s chamber-excavation scene still panics *"ants dug 77 cells and left
+no roofed void at all -- no tunnel stood"* -- §13e's own reading holds:
+blocked fell from 1,000 to 206 with the flip, and the colony still quarries
+the open face rather than tunnelling into it, which is §12's crater and not
+this movement rule's to fix. `filmstrip scene=colony` founds **5 of 52**
+asked (28 viable), matching §13f exactly -- a placement-time footprint check
+this movement rule never reaches, unaffected by any of the above.
