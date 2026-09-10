@@ -329,6 +329,25 @@ fn main() {
         if let Some(sd) = arg::<u64>("seed") {
             sc.bed.seed = sd;
         }
+        // **`creature=<species>` overrides who a scenario's `Colony`/
+        // `Colonies` placements found, the same shape `seed=` above is and
+        // for the same reason: a scenario's `.ron` bakes one species into
+        // its timeline (`played_bed.ron`'s `Colony(species: "ant", ...)`),
+        // so racing a second species on the owner's own played bed needs an
+        // override here rather than a second copy of the file --
+        // `Reports/evolution-lab-pollinator-design-2026-09-10.md` P1's
+        // three-arm measurement is exactly this: the played bed, once with
+        // its own ant and once with a bloom-wired species, same seed, same
+        // everything else.
+        if let Some(species) = arg::<String>("creature") {
+            sc.bed.colony_species = species.clone();
+            for p in sc.placements.iter_mut().chain(sc.timeline.iter_mut().map(|e| &mut e.what)) {
+                match p {
+                    Placement::Colony { species: s, .. } | Placement::Colonies { species: s, .. } => *s = species.clone(),
+                    _ => {}
+                }
+            }
+        }
         sc
     });
     let spec = match &scenario {
@@ -366,8 +385,8 @@ fn main() {
     // Echo the parameters. A knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- `plant_probe`'s 3.5-hour lesson.
     println!(
-        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}{}",
-        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed,
+        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} colony={} handout={handout} ants_at={ants_at}{}",
+        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed, spec.colony_species,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
@@ -502,10 +521,10 @@ fn main() {
     let mut peak_edible = 0usize;
 
     println!(
-        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8}",
+        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8} {:>5}",
         "frame", "ants", "plnts", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
-        "brdr", "gen", "bgen", "fvis", "necJ"
+        "brdr", "gen", "bgen", "fvis", "necJ", "bseen"
     );
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
@@ -547,7 +566,7 @@ fn main() {
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} | wfall={}",
+                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} {:>5} | wfall={}",
                 s.ants, s.plants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
                 s.ant_high, st.eats, st.births, st.deaths,
@@ -562,7 +581,15 @@ fn main() {
                 // the whole run while `fvis` keeps climbing. Divide `necJ`
                 // by `f / 1000.0` for "joules paid per 1,000 frames" at any
                 // sampled frame.
-                world.flower_visits, world.nectar_paid, s.windfall
+                //
+                // **P1's own pair, beside it**: `bseen` is `bloom_seen`, the
+                // bloom sense's own "did it fire at all" -- an eyed animal
+                // that read `BloomNear > 0` this tick, cumulative over the
+                // whole run so far. Read it against `fvis`: a bloom sense
+                // that fires while `fvis` stays flat found flowers and did
+                // not reach one; a `fvis` that climbs with `bseen` at 0 is a
+                // bite that arrived by chance, not by sight.
+                world.flower_visits, world.nectar_paid, world.creature_stats.bloom_seen, s.windfall
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {
@@ -660,7 +687,7 @@ fn main() {
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
-         flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={}",
+         flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -720,7 +747,11 @@ fn main() {
         // of the same seed.
         world.flower_visits, world.nectar_paid,
         if frames > 0 { world.nectar_paid / (frames as f64 / 1000.0) } else { 0.0 },
-        world.organs_built
+        world.organs_built,
+        // **P1 (the bloom sense)** -- the "it fired" half beside B1's
+        // "it worked" half above: an eyed animal reading `BloomNear > 0`,
+        // cumulative over the run. See `World::CreatureStats::bloom_seen`.
+        world.creature_stats.bloom_seen
     );
 }
 
