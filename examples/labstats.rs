@@ -843,6 +843,13 @@ fn main() {
         println!("  {row}");
     }
 
+    // The mister's own counter, `lab::rain`'s effect count -- zero on every
+    // control here, since none of them turns `RAIN` on, which is the
+    // specificity half `CLAUDE.md` asks a fresh counter for: quiet when
+    // nothing is wrong (rain off), the sensitivity half is `rain`'s own
+    // unit tests below `#[cfg(test)]` in `src/lab/rain.rs`.
+    println!("rain cells: {}", lab.world.rain_cells);
+
     check(&control, &lab, culled);
 
     if let Some(path) = png {

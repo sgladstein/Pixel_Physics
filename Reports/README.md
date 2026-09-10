@@ -1899,6 +1899,54 @@ drift that two of these documents still reflect.**
   corrections overturn two standing claims — the harness bed is not the
   played bed (a colony founded on grown plants holds 31 where the frame-0
   bed holds 4), and the trail circuit is wired and inert (§Z7).
+- [evolution-lab-breeding-clock-2026-09-10.md](evolution-lab-breeding-clock-2026-09-10.md)
+  — **measurement of record for the evolutionary clock, and the eusociality
+  lane's first deliverable, which is a number rather than a feature.** Three
+  breeding regimes x six seeds x 120,000 frames on the played bed. Queen-only
+  breeding is a **thirteen-fold collapse**: median 1 generation against
+  individual budding's 13.5, with a breeder-chain median of **zero**, meaning
+  that on five seeds of six no animal born in the box ever reproduced. Graded
+  suppression costs about a third of the clock (8.5) and buys stability rather
+  than population — the same standing colony on a **quarter of the deaths** —
+  so individual-against-graded is a real trade for the owner and only
+  queen-only is settled as off the table. The three regimes are one rule at
+  three settings of one knob (the bar scaled by proximity to an animal that
+  has already bred), so no queen type exists and a queenless colony resuming
+  is the same code path as the opening state. Carries the played bed as a
+  scenario, why a tree was measured out of it (one tree shades the bench to
+  0.008 of lamp light), why a grown bed seats 8 founders of 52 until a bare
+  band is left for the nest, and one unresolved anomaly reported rather than
+  smoothed: `queen` leaks a second breeder, which can only make the collapse
+  a lower bound.
+- [evolution-lab-ecology-design-2026-09-10.md](evolution-lab-ecology-design-2026-09-10.md)
+  — **design examination; priced proposals only, nothing built and two
+  decisions put to the owner.** Answers `evolution-lab-what-is-missing`
+  §4 ("the ecology has no relationships") with mechanisms: the seed inside
+  a fruit surviving the animal that eats or carries it, nectar as a small
+  meal the flower survives, pollination as a graded bonus, palatability
+  coupled to the leaf's own heritable tone. **The join is cheap and priced
+  to the line** — a windfall is already an organism-owned `CellType::Seed`,
+  and what destroys it is that `Crop` carries five scalars with no identity
+  in them, so *the seed survives the trip* is one field and two one-call
+  hooks at named sites. **Three measurements taken for it change what should
+  be built.** The fruit pipeline is **budget-limited, not pollinator-limited**
+  — a fruit was ripe and unaffordable **18,867 times against 56 drops**, and
+  the refusals *double* with no colony in the box — so a pollination bonus on
+  the ripening clock is inert and the bonus has to go on the price. **Nothing
+  has ever eaten a flower** (best mouthful swallowed 960, a fruit, not the
+  1,440 flower), which reproduces `dead-ends.md`'s 2026-08-30 finding and is
+  what makes the nectar change cheap: the 1,440 calibrates one printed ceiling
+  already recorded as misleading. And **a fallen fruit is gone from the floor
+  in 68 frames with no animals in the box at all**, so the colony is not the
+  main sink and the first deliverable of the arc is a windfall *exit* census
+  rather than a mechanism. On C — pollen as gene flow — it gives both readings
+  and recommends the **player's brush over the animals' bee-line**, because
+  the animal version costs the cluster definition that is the lab's only
+  operational test for plant speciation, and the brush builds the same
+  machinery; the ruling is card `20260910T032635178Z-6dfed9`. Also files a
+  defect found while measuring: **`labshot scenario=… seed=N` is silently
+  ignored** (`labforage` fixed exactly this on itself and `labshot` never got
+  it), so every contact sheet of the played bed is seed 1.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is

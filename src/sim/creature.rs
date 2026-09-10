@@ -65,6 +65,7 @@ use super::field;
 use super::material::{self, MaterialKind};
 use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
+use super::plant;
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -158,6 +159,27 @@ const RNG_SLOT_FOUNDER_RESERVE: u64 = 5;
 /// RESERVE`'s own doc gives for why a pure hash keyed differently cannot
 /// collide.
 const RNG_SLOT_BODY_FATE: u64 = 6;
+
+/// The seed-survival stream at brood provisioning's clear site
+/// (`place_creature`'s shortfall loop): whether a windfall's own seed
+/// survives being taken to feed a birth. **Keyed on the parent ant's
+/// identity and a running per-iteration count, never on the bitten cell's
+/// position** -- this file's own law above, because the roll decides a
+/// *plant's* fitness (does this seed survive) and a position-keyed roll
+/// would make where a seed happens to lie a hidden, heritable advantage
+/// for the plant. The count decorrelates two windfalls taken in the same
+/// call for the same parent on the same frame, which a bare `(seed,
+/// parent, frame, SLOT)` tuple could not: `stream` is a pure function of
+/// its four inputs, so two calls with identical inputs return identical
+/// draws. Packed into the high bits so no `bite` value can ever collide
+/// with another named slot's small integer.
+///
+/// **7, not 6** -- `RNG_SLOT_BODY_FATE` above claimed 6 first (this
+/// branch's own lateral-tuck work merging against `main`'s independently
+/// added slot); two RNG stream constants sharing one value would alias
+/// their draws, which is exactly the collision every slot constant's own
+/// doc in this file argues a *distinct* integer avoids.
+const RNG_SLOT_SEED_SURVIVAL: u64 = 7;
 
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
@@ -1499,12 +1521,28 @@ fn place_creature(
                 if let Some((hx, hy)) = head {
                     let mut taken = 0.0;
                     let cells: Vec<(f32, i32, i32)> = provisions_in_reach(world, hx, hy, gut).collect();
-                    for (yielded, px, py) in cells {
+                    // `bite` decorrelates two windfalls taken to cover the
+                    // same shortfall on the same frame -- see `RNG_SLOT_
+                    // SEED_SURVIVAL`'s own doc for why this counts rather
+                    // than keying on `px, py`.
+                    for (bite, (yielded, px, py)) in cells.into_iter().enumerate() {
                         if taken >= shortfall {
                             break;
                         }
                         let banked = world.materials.get(world.get(px, py).material).worth_in_aux;
-                        world.set(px, py, Cell::EMPTY);
+                        // A bitten windfall's own seed asks the plant side
+                        // whether it survives the mouth before this clears
+                        // the cell -- see the identical hook and comment at
+                        // this bite's sibling site in `act`.
+                        let mut seed_rng = rng::stream(
+                            world.seed,
+                            parent as u64,
+                            world.frame,
+                            (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
+                        );
+                        if !plant::seed_survives_bite(world, px, py, &mut seed_rng) {
+                            world.set(px, py, Cell::EMPTY);
+                        }
                         if banked {
                             world.energy_ledger.harvested_corpse += yielded as f64;
                         } else {
@@ -2389,15 +2427,51 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     if bank + reachable < bar {
         return None;
     }
+    // **Fertility suppression**, applied to the composed `bar` above and
+    // only now that the affordability precheck just above has already
+    // passed against the UNSUPPRESSED bar -- never before it, and never
+    // onto `threshold` alone. Scaling `threshold` and then re-flooring
+    // against `cost + 1.0` would let that floor win the moment suppression
+    // pushed the scaled threshold back under it, and a heavily suppressed
+    // worker would breed the instant it could merely afford a child -- the
+    // arm would then move nothing, `CLAUDE.md`'s "a change that moves
+    // *nothing* is different evidence" case, and it would have invalidated
+    // the whole measurement this switch exists to take.
+    //
+    // **Suppression only ever raises the bar** -- `queen` replaces it with
+    // `f32::INFINITY`, `graded`'s factor is always `>= 1.0` -- so an animal
+    // that failed the precheck above could never have passed it suppressed
+    // either. That is what lets the precheck run first and keeps
+    // `suppress_bar`'s colony scan off the common path: it runs only on
+    // the rare tick an animal could otherwise already afford a child, not
+    // on every tick for every animal. See `breeding_regime`'s own doc for
+    // the regimes themselves.
+    let (bar, breeder_scan_visits) = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
+    // **Read off the parent here, while `state` is still the parent** (see
+    // the `Origin::Bud` arm in `place_creature` for the incident this
+    // naming exists to prevent) -- moved ahead of the affordability check
+    // below so `state`'s own borrow of `world` ends here, before anything
+    // needs `world` mutably again. Pure reads, so reordering them across
+    // that check changes nothing about what either computes.
     let species_id = state.species;
     let parent_genome = state.genome.clone();
-    // **Read off the parent here, while `state` is still the parent.** See
-    // the `Origin::Bud` arm in `place_creature` for the incident this
-    // naming exists to prevent.
     let parent_generation = state.generation;
     let parent_lineage = state.lineage;
     let parent_colony = state.colony;
     let parent_fates = state.fates;
+    // **Counted regardless of whether this birth goes on to succeed** --
+    // the candidates were already examined the moment `suppress_bar`
+    // returned, above, so gating this on the affordability check below
+    // would undercount by exactly the calls that return `None` there.
+    // Lands here rather than inside `suppress_bar`/`colony_has_other_
+    // breeder`/`nearest_breeder` themselves because all three only ever
+    // hold `&World` -- `state`'s own borrow, alive until the line above,
+    // rules out anything stronger reaching them -- and this is the first
+    // point after that borrow ends where `world` is usable mutably again.
+    world.creature_stats.breeder_scan_visits += breeder_scan_visits as u64;
+    if bank + reachable < bar {
+        return None;
+    }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
 
     // **The child's body-growth genome, inherited and mutated here, on the
@@ -2507,6 +2581,27 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
         world.note_birth_denied(organism);
         return None;
     };
+    // **The breeding-regime counters, on success only** -- a denial above
+    // already returned and touched neither. Both read the PARENT's own
+    // facts (`organism`, `parent_generation`), captured earlier while
+    // `state` was still the parent: which animal just proved it can
+    // reproduce, and how deep the chain that just extended itself already
+    // was. `children` is what `breeding_regime`'s `queen`/`graded` arms
+    // read as "is this animal a breeder" -- see `OrganismState::children`'s
+    // own doc for why it is not `life.offspring` wearing a new name.
+    world.deepest_breeder_generation = world.deepest_breeder_generation.max(parent_generation);
+    if let Some(p) = world.organism_mut(organism) {
+        p.children = p.children.saturating_add(1);
+    }
+    // **The index write, in the same breath as the count that defines a
+    // breeder.** `record_breeder` prunes `parent_colony`'s candidate list
+    // of anyone who has died since it was last touched, then pushes
+    // `organism` on (idempotently -- a parent already listed from an
+    // earlier bud is not duplicated). This is the one site in the whole
+    // call chain with `&mut World`; see `record_breeder`'s own doc for why
+    // that is exactly why pruning has to happen here and cannot happen on
+    // `colony_has_other_breeder`/`nearest_breeder`'s read path.
+    world.record_breeder(parent_colony, organism);
     // **Mutate after placement, on the child's own handle.** The stream is
     // keyed on the handle the allocator just issued plus the frame, so it
     // cannot be predicted from the parent and cannot repeat when a slot is
@@ -5344,7 +5439,15 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 let victim_group = (victim != 0 && victim != organism)
                     .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
                     .flatten();
-                world.set(fxx, fyy, Cell::EMPTY);
+                // A bitten windfall's own seed asks the plant side whether
+                // it survives the mouth before this clears the cell --
+                // `plant::seed_survives_bite` (`Reports/evolution-lab-
+                // ecology-design-2026-09-10.md` §2). `false` for anything
+                // that is not a windfall's seed, so this changes nothing
+                // else the bite verb does.
+                if !plant::seed_survives_bite(world, fxx, fyy, draw) {
+                    world.set(fxx, fyy, Cell::EMPTY);
+                }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
@@ -5831,6 +5934,345 @@ fn spoil_kept() -> bool {
 fn trophallaxis_enabled() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_TROPHALLAXIS").as_deref() != Ok("off"))
+}
+
+/// The three regimes `breeding_regime` selects between. See that
+/// function's own doc for what each one does and why.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BreedingRegime {
+    Individual,
+    Queen,
+    Graded,
+}
+
+/// **The ablation switch the evolution lab's generations-per-session
+/// measurement needs**: which regime governs who may bud, `individual` by
+/// default -- every animal buds on its own account, exactly as it does
+/// today.
+///
+/// `PIXEL_PHYSICS_BREEDING` selects it:
+/// - `individual` (default, and anything unset or unrecognised): no
+///   suppression. `suppress_bar` returns the unsuppressed `bar` before it
+///   scans anything, so this arm is provably today's code.
+/// - `queen`: **colony-wide, not distance-based.** While any *other*
+///   living animal in the same colony has `children > 0` -- has itself
+///   already budded -- nobody else in that colony can bud at all. One
+///   breeder per colony at a time: the first animal in a founding colony
+///   to reach its bar breeds and, by breeding, becomes the thing that
+///   shuts every other member out; if it dies the colony has no living
+///   breeder and the next animal to reach its bar succeeds it. No radius
+///   enters into it -- seeded at `PIXEL_PHYSICS_BREEDING_RADIUS=24` on a
+///   512-wide bed whose colony ranges over roughly 260 columns, a distance
+///   term here would produce something like ten breeders spaced 24 cells
+///   apart: territorial spacing, not queen-only breeding, and a number
+///   that is arithmetically correct while answering a different question
+///   (`CLAUDE.md`'s "ask what your number counts when nothing is wrong").
+/// - `graded`: the bar to bud is scaled by distance to the nearest *other*
+///   living breeder (`children > 0`) in the colony, from a maximum at
+///   distance 0 down to exactly `1.0` (no suppression) at
+///   `PIXEL_PHYSICS_BREEDING_RADIUS` cells and beyond.
+///
+/// **A breeder is `children > 0`, full stop -- not a founder's generation
+/// too.** A colony is founded with every member at generation 0, so a
+/// definition that counted generation 0 as breeding would make every
+/// founder a breeder from frame zero and `queen` would suppress nothing
+/// but a founder's own later children -- measurably close to `individual`,
+/// which is `CLAUDE.md`'s "a change that moves *nothing* is different
+/// evidence" case wearing a definition instead of a formula. Dropping the
+/// founder clause makes the rule bootstrap itself instead: nobody has
+/// budded at founding, so nobody is a breeder, so nobody is suppressed,
+/// and the first animal to breed becomes the fact the rest of the colony
+/// reads next.
+///
+/// **An env switch rather than three builds, matching `trophallaxis_enabled`
+/// and for the same reason `CLAUDE.md` gives it**: the measurement this
+/// exists for is generations-per-session *compared across regimes*, and
+/// two arms compared inside one run are immune to the stale-binary failure
+/// and to a counter downstream of `parallel.rs`'s checkerboard being only
+/// load-independent at fixed parallelism.
+///
+/// **Verified at the process level, not in this test binary** -- matching
+/// `trophallaxis_enabled`'s own note just above: a single test process
+/// observes only one value of this static, and setting the var from
+/// inside a `#[test]` races every other test that may already have read
+/// it. The regime-consuming logic (`suppress_bar` and what it calls) takes
+/// the regime as a plain argument for exactly this reason, so it can be
+/// exercised directly with an explicit `BreedingRegime` in-process; only
+/// the var-to-`BreedingRegime` parse itself has to be checked by running
+/// the built binary twice, once per arm.
+fn breeding_regime() -> BreedingRegime {
+    static REGIME: std::sync::OnceLock<BreedingRegime> = std::sync::OnceLock::new();
+    *REGIME.get_or_init(|| match std::env::var("PIXEL_PHYSICS_BREEDING").as_deref() {
+        Ok("queen") => BreedingRegime::Queen,
+        Ok("graded") => BreedingRegime::Graded,
+        _ => BreedingRegime::Individual,
+    })
+}
+
+/// The reach, in world cells, that `breeding_regime`'s **`graded`** arm
+/// alone measures a breeder's presence by --
+/// `PIXEL_PHYSICS_BREEDING_RADIUS`, default `24`. `queen` does not read
+/// this: it is colony-wide by design (see `breeding_regime`'s own doc for
+/// why a distance term there would measure territorial spacing instead of
+/// queen-only breeding). Kept a separate env var rather than a constant so
+/// the radius can be swept without a rebuild, the same reason the regime
+/// itself is a var and not three builds.
+fn breeding_radius() -> i32 {
+    static RADIUS: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *RADIUS.get_or_init(|| std::env::var("PIXEL_PHYSICS_BREEDING_RADIUS").ok().and_then(|s| s.parse().ok()).unwrap_or(24))
+}
+
+/// **How much harder budding gets immediately beside a breeder**, in the
+/// `graded` regime: the multiplier `suppress_bar` applies to the bar at
+/// distance 0, falling linearly to `1.0` (no suppression at all) at
+/// `breeding_radius()` cells and beyond.
+///
+/// A provisional round number, not a measured one -- nothing has yet run
+/// the generations-per-session sweep this whole mechanism exists to feed,
+/// so there is nothing to derive it from (`CLAUDE.md`'s "set bars from
+/// measurement" cannot apply to a bar that is itself the first thing being
+/// measured). Large enough that a worker beside a breeder visibly
+/// struggles without being `queen`'s hard wall -- the graded arm's own
+/// reason to exist beside that regime.
+const GRADED_MAX_SUPPRESSION: f32 = 6.0;
+
+/// The `graded` multiplier at `dist` cells from the nearest breeder --
+/// `1.0` (no suppression) at `radius` and beyond, rising linearly to
+/// `GRADED_MAX_SUPPRESSION` at `dist == 0`. See that constant's own doc.
+fn graded_suppression_factor(dist: f32, radius: i32) -> f32 {
+    if radius <= 0 || dist >= radius as f32 {
+        return 1.0;
+    }
+    let t = 1.0 - dist / radius as f32;
+    1.0 + (GRADED_MAX_SUPPRESSION - 1.0) * t
+}
+
+/// **The ablation switch this change's own measurement needs**: whether
+/// `colony_has_other_breeder` and `nearest_breeder` read `World::
+/// colony_breeders` (the default) or fall back to the O(organism slots)
+/// scan the index replaces -- `PIXEL_PHYSICS_BREEDER_INDEX=scan` selects
+/// the old behaviour; anything else, including unset, keeps the index.
+///
+/// Same `OnceLock` + env pattern as `breeding_regime`/`trophallaxis_
+/// enabled`, and for the same reason: the claim this switch exists to
+/// support is a comparison between two arms, and two arms compared
+/// *inside one run* are immune to the stale-binary failure and to a
+/// counter downstream of `parallel.rs`'s checkerboard being only
+/// load-independent at fixed parallelism (`CLAUDE.md`'s own rules for a
+/// wall-clock number taken across two separate runs).
+///
+/// **Read once and passed down as a plain argument** -- matching
+/// `regime`/`radius`'s own pattern, and for the same reason
+/// `suppress_bar`'s doc gives for them: so `colony_has_other_breeder` and
+/// `nearest_breeder` can be exercised in-process on an explicit arm, which
+/// is exactly what the equivalence guard between the two arms needs and
+/// an env var cannot give a `#[test]` (`breeding_regime`'s own note).
+///
+/// The old scan is kept reachable rather than deleted precisely because it
+/// is the control: `World::creature_stats.breeder_scan_visits` is what
+/// proves the index arm is doing *less* work rather than *no* work, and
+/// that claim only means something measured against this arm, inside the
+/// same binary.
+fn breeder_index_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BREEDER_INDEX").as_deref() != Ok("scan"))
+}
+
+/// Is there a living animal in `colony`, other than `exclude`, with
+/// `children > 0` -- `queen`'s whole rule, and why that regime needs no
+/// position and no radius: this is a fact about the colony, not about
+/// where anyone stands.
+///
+/// **Only ever called from `suppress_bar`, itself only reached after
+/// `try_bud`'s affordability precheck has already passed** -- a scan or
+/// lookup on every tick for every animal that can afford a child is
+/// exactly the hot-path cost `CLAUDE.md` warns against, and gating it
+/// behind an already-rare "can this animal even afford a child" check
+/// keeps it off the common path entirely. That gate is necessary and, on
+/// its own, no longer sufficient: it was measured on a starving bed, where
+/// affording a child is rare enough that the gate alone was assumed to
+/// keep this cheap. At the thousand-ant scale the owner already plays at,
+/// the same gate still passes hundreds of animals a tick, each scanning
+/// against roughly 2,000 organism slots -- found in review, and the whole
+/// reason this function has two arms now instead of one.
+///
+/// **`use_index` picks the arm** (`breeder_index_enabled`'s own doc for
+/// why it is a plain argument here rather than a second internal env
+/// read):
+///
+/// - **index** (the default): reads `World::colony_breeders`, this
+///   colony's own candidate list, in place of every organism slot in the
+///   world. **A candidate list, never a source of truth** -- the
+///   invariant is one-directional:
+///
+///   > Every living breeder is in its colony's list. Entries that are
+///   > not breeders may also be in it.
+///
+///   so this function validates every id it reads off the list live
+///   (`world.organism(id)`, colony match, `children > 0`), exactly as the
+///   scan arm below validates every slot it visits. A stale entry is
+///   *skipped*, never trusted -- it can turn into a false negative that a
+///   later, correct candidate then overturns, but it can never produce a
+///   wrong `true`. Nothing on any death path has to know this list
+///   exists: `free_organism` is deliberately untouched, and this
+///   live-validating read is what makes that safe. See
+///   `World::colony_breeders` and `World::record_breeder`'s own docs for
+///   where the list is written and pruned, and why neither can happen
+///   here.
+/// - **scan**: the original O(organism slots) walk, kept reachable as the
+///   ablation's control arm rather than deleted.
+///
+/// Both arms count every candidate they look at into `*visits`
+/// (`World::creature_stats.breeder_scan_visits`'s own doc) -- the "did it
+/// fire, and on how much" pairing `CLAUDE.md` asks for beside a claim that
+/// work got cheaper.
+fn colony_has_other_breeder(world: &World, exclude: u16, colony: u32, use_index: bool, visits: &mut u32) -> bool {
+    let is_other_breeder = |id: u16| id != exclude && world.organism(id).is_some_and(|s| s.colony == colony && s.children > 0);
+    if use_index {
+        let Some(list) = world.colony_breeders.get(&colony) else { return false };
+        for &id in list {
+            *visits += 1;
+            if is_other_breeder(id) {
+                return true;
+            }
+        }
+        false
+    } else {
+        // **`live_organism_ids`, not a hand-rolled `1..=slots` slot-index
+        // range** -- found in review, comparing the two arms on a
+        // 40,000-frame run under `graded`: the sample tables agreed for
+        // 26,100 frames and then the scan arm quietly produced one more
+        // birth than the index arm, because it had stopped seeing a real
+        // breeder. `organism_id` encodes as `(generation << 12) |
+        // slot_index` (`encode_organism_id`'s own doc), so a bare
+        // `1..=slots` range is generation-0 **only**: `world.organism(id)`
+        // decodes each `id` in it with generation 0 baked in, and the
+        // moment a slot is freed and reused its occupant's real id carries
+        // a nonzero generation and is never produced by this range at all
+        // -- silently invisible, not merely stale. This is the second bug
+        // of exactly this shape here: the range bound (`1..=slots` versus
+        // `0..slots`) was already once wrong and is documented on
+        // `graded_regime_scales_the_bar_and_a_queenless_colony_resumes`;
+        // this is the *encoding* being wrong instead, and both errors
+        // share the same root cause -- reconstructing an id from a slot
+        // index by hand rather than asking the id allocator for one.
+        // `live_organism_ids` is that allocator's own answer, so this arm
+        // can no longer disagree with it. It allocates a `Vec`, which
+        // would matter in a hot path; it does not matter here, because
+        // after `use_index`'s default this arm is only ever the ablation
+        // baseline, never the common path -- and a baseline that
+        // undercounts organisms is worse than no baseline at all, because
+        // it makes the index look wrong on exactly the runs where the
+        // index is the one that is right.
+        for id in world.live_organism_ids() {
+            *visits += 1;
+            if is_other_breeder(id) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// The distance, in cells, from `(x, y)` to the nearest **other** living
+/// breeder (`children > 0`) in `colony` -- `None` if `colony` has none
+/// besides (at most) `exclude` itself. `graded`'s own lookup; `queen` uses
+/// `colony_has_other_breeder` instead and never calls this.
+///
+/// Same hot-path guarding, the same `use_index` arm and the same reason to
+/// validate rather than trust an entry -- see `colony_has_other_breeder`'s
+/// own doc in full; this differs only in what it does with each id that
+/// passes.
+///
+/// Squared distance compares in the same order as the true distance, so
+/// the scan takes one `sqrt` total, on the eventual winner, rather than
+/// one per candidate.
+fn nearest_breeder(world: &World, exclude: u16, colony: u32, x: i32, y: i32, use_index: bool, visits: &mut u32) -> Option<f32> {
+    let mut nearest_sq: Option<i64> = None;
+    let mut consider = |id: u16| {
+        if id == exclude {
+            return;
+        }
+        let Some(candidate) = world.organism(id) else { return };
+        if candidate.colony != colony || candidate.children == 0 {
+            return;
+        }
+        let Some(&(cx, cy)) = candidate.chain.first() else { return };
+        let dx = (cx - x) as i64;
+        let dy = (cy - y) as i64;
+        let dist_sq = dx * dx + dy * dy;
+        nearest_sq = Some(nearest_sq.map_or(dist_sq, |cur| cur.min(dist_sq)));
+    };
+    if use_index {
+        if let Some(list) = world.colony_breeders.get(&colony) {
+            for &id in list {
+                *visits += 1;
+                consider(id);
+            }
+        }
+    } else {
+        // `live_organism_ids`, same fix and the same reason as
+        // `colony_has_other_breeder`'s own scan arm -- see its doc in
+        // full; a bare `1..=slots` range here has the identical
+        // generation-0-only blind spot.
+        for id in world.live_organism_ids() {
+            *visits += 1;
+            consider(id);
+        }
+    }
+    nearest_sq.map(|sq| (sq as f64).sqrt() as f32)
+}
+
+/// **`bar`, after fertility suppression, paired with how many candidates
+/// it cost to compute** -- `(bar, visits)`. `visits` is always `0` under
+/// `individual`, and feeds `try_bud`'s own addition to `World::
+/// creature_stats.breeder_scan_visits` -- see that call site's own
+/// comment for why the addition happens there and not in this function.
+///
+/// Takes `regime` and `radius` as plain arguments rather than reading
+/// `breeding_regime`/`breeding_radius` itself, so this function and
+/// everything it calls can be exercised in-process with an explicit arm --
+/// see `breeding_regime`'s own note on why the var itself cannot be
+/// toggled safely inside a `#[test]`. `breeder_index_enabled` is read once
+/// here rather than threaded in as an eighth argument: clippy's
+/// argument-count lint is already at its limit on the seven below, and
+/// `colony_has_other_breeder`/`nearest_breeder` are themselves the layer
+/// the equivalence guard calls directly with an explicit `use_index`, so
+/// nothing downstream needs to reach the switch through here.
+///
+/// `pos` -- the querying animal's own head, `(x, y)` -- is one argument
+/// rather than two so the signature stays inside clippy's argument count;
+/// `queen` never reads it (see `colony_has_other_breeder`'s own doc for
+/// why that regime needs no position at all).
+fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: u16, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
+    let use_index = breeder_index_enabled();
+    let mut visits = 0u32;
+    let suppressed = match regime {
+        // **Today's code, provably**: no scan above this arm, on the most
+        // common regime there is.
+        BreedingRegime::Individual => bar,
+        BreedingRegime::Queen => {
+            if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
+                f32::INFINITY
+            } else {
+                // **A queenless colony resumes** (owner's ruling): no
+                // *other* living breeder in the colony reads as "nothing to
+                // suppress against" rather than as a locked door -- the
+                // ethos' "an outcome is a distribution, not a binary",
+                // applied to whether a breeder is present rather than to
+                // the bar itself. This is also the colony's founding state:
+                // nobody has `children > 0` yet, so nobody is suppressed,
+                // and the rule bootstraps itself.
+                bar
+            }
+        }
+        BreedingRegime::Graded => match nearest_breeder(world, organism, colony, pos.0, pos.1, use_index, &mut visits) {
+            // Same "queenless colony resumes" reasoning as `queen` above.
+            None => bar,
+            Some(dist) => bar * graded_suppression_factor(dist, radius),
+        },
+    };
+    (suppressed, visits)
 }
 
 /// **Line the hole just dug** — turn the loose ground around it into the
@@ -16117,6 +16559,600 @@ mod tests {
         assert_eq!(
             fed.deepest_generation, plants_before,
             "an ant birth moved the PLANT depth counter -- the two are crossed"
+        );
+    }
+
+    /// **`children` is a fact about successful buds, not attempts.**
+    /// `a_walled_in_parent_is_many_attempts_and_one_animal` above already
+    /// proves attempts and animals diverge; this proves `children` moves
+    /// with the latter, on the parent, the moment a bud actually succeeds.
+    #[test]
+    fn a_founder_that_buds_shows_a_nonzero_children_count() {
+        let (mut w, founders) = breeding_colony(1, 2000.0, 0.0);
+        let parent = founders[0];
+        assert_eq!(w.organism(parent).expect("founder is alive").children, 0, "a fresh founder already reads as having bred");
+        run(&mut w, 60);
+        assert!(w.creature_stats.births > 0, "nothing bred, so this proves nothing about `children`");
+        assert!(
+            w.organism(parent).expect("founder is alive").children > 0,
+            "the founder budded (births={}) but its own `children` count stayed at 0",
+            w.creature_stats.births
+        );
+    }
+
+    /// **`deepest_breeder_generation` is not blind.** It must move on a run
+    /// where breeding demonstrably happened, and it must read strictly
+    /// shallower than `deepest_animal_generation`, because a parent's own
+    /// generation is always one shallower than the child it just produced
+    /// -- see that field's own doc for the inductive argument. Point the
+    /// write at the CHILD's `generation` instead of the parent's (the same
+    /// value `deepest_animal_generation` already uses) and this goes red
+    /// on the second assert: the two counters become identical rather than
+    /// one strictly behind the other.
+    #[test]
+    fn deepest_breeder_generation_moves_and_stays_behind_the_animal_counter() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        assert_eq!(w.deepest_breeder_generation, 0, "{} founders have not bred yet", founders.len());
+        // Re-fund the living population across several rounds -- the same
+        // shape `generation_depth_keeps_climbing_across_successive_births`
+        // uses -- so a child gets the chance to breed itself and not just
+        // exist.
+        for _ in 0..6 {
+            for id in live_creature_ids(&w) {
+                fund(&mut w, id, 2010.0);
+            }
+            run(&mut w, 60);
+        }
+        assert!(w.creature_stats.births > 0, "nothing bred over 360 frames from 8 founders");
+        assert!(
+            w.deepest_breeder_generation > 0,
+            "{} births happened and the breeder-depth counter never left 0",
+            w.creature_stats.births
+        );
+        assert!(
+            w.deepest_breeder_generation < w.deepest_animal_generation,
+            "breeder depth {} is not strictly behind animal depth {} -- deepest_breeder_generation is reading the child's generation, not the parent's",
+            w.deepest_breeder_generation,
+            w.deepest_animal_generation
+        );
+    }
+
+    /// **`individual`: `suppress_bar` is the identity function, and
+    /// provably so.** Constructed so suppression would fire under `queen`
+    /// or `graded` -- a second colony member with `children > 0`, standing
+    /// right on top of the querying animal -- and confirming `individual`
+    /// still hands the bar back completely unchanged. `bar` is
+    /// deliberately a value nothing else in the scene could produce, so an
+    /// accidental scan-and-multiply would move it and this would notice.
+    #[test]
+    fn individual_regime_is_the_identity_even_with_a_breeder_present() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a is alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        let (ax, ay) = *w.organism(a).expect("a is alive").chain.first().expect("a has a body");
+        let bar = suppress_bar(BreedingRegime::Individual, 24, &w, a, colony, (ax, ay), 12345.0).0;
+        assert_eq!(bar, 12345.0, "individual suppressed a bar with a breeder present in the same colony");
+    }
+
+    /// **`queen`: colony-wide, self-exclusive, and it restores itself on
+    /// succession** -- the coordinator's corrected reading of the regime
+    /// (colony-wide, not distance-based), checked as four facts about one
+    /// small forced colony rather than as four separate scenes:
+    ///
+    /// 1. Nobody has bred yet, so nobody is suppressed (the founding
+    ///    state, and the same answer `graded` gives a colony with no
+    ///    breeder at all -- see that regime's own guard).
+    /// 2. The moment one member has `children > 0`, every *other* member
+    ///    reads an unreachable bar.
+    /// 3. The breeder itself is not suppressed by its own fact.
+    /// 4. Once the breeder is gone, the colony reads exactly like its
+    ///    founding state again, and a successor is free to take its place.
+    #[test]
+    fn queen_regime_is_colonywide_self_exclusive_and_resumes_on_succession() {
+        let (mut w, founders) = breeding_colony(3, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder a").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        let (a, b, c) = (founders[0], founders[1], founders[2]);
+        let pos_of = |w: &World, id: u16| *w.organism(id).expect("alive").chain.first().expect("has a body");
+        let radius = 24;
+        let bar = 500.0;
+
+        // 1. Founding state: nobody has bred, nobody is suppressed.
+        for &id in &[a, b, c] {
+            let (x, y) = pos_of(&w, id);
+            assert_eq!(
+                suppress_bar(BreedingRegime::Queen, radius, &w, id, colony, (x, y), bar).0,
+                bar,
+                "organism {id} was suppressed before anyone in the colony had bred"
+            );
+        }
+
+        // 2 & 3. `a` becomes the breeder. `record_breeder` alongside the
+        // hand-set `children`, mirroring what `try_bud` does for a real
+        // bud -- the index only ever learns of a breeder through that
+        // call, and a bare field write does not run it.
+        if let Some(s) = w.organism_mut(a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, a);
+        let (ax, ay) = pos_of(&w, a);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, a, colony, (ax, ay), bar).0,
+            bar,
+            "the breeder suppressed itself"
+        );
+        for &id in &[b, c] {
+            let (x, y) = pos_of(&w, id);
+            assert_eq!(
+                suppress_bar(BreedingRegime::Queen, radius, &w, id, colony, (x, y), bar).0,
+                f32::INFINITY,
+                "organism {id} was not shut out while `a` was a living breeder in its colony"
+            );
+        }
+
+        // 4. Succession: kill `a`; `b` is free again; `b` becomes the new
+        // breeder; `c` is now shut out by `b` instead of by `a`.
+        let body: Vec<(i32, i32)> = w.organism(a).expect("a is alive").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+        let (bx, by) = pos_of(&w, b);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, b, colony, (bx, by), bar).0,
+            bar,
+            "`b` stayed suppressed after the colony's only breeder died"
+        );
+        // Same reason as `a`'s own `record_breeder` call above: the index
+        // only learns of a breeder through that call, not through the bare
+        // field write.
+        if let Some(s) = w.organism_mut(b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+        let (cx, cy) = pos_of(&w, c);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, c, colony, (cx, cy), bar).0,
+            f32::INFINITY,
+            "`c` was not shut out by `b`, the colony's successor breeder"
+        );
+    }
+
+    /// **`graded`'s multiplier, at both ends and the middle.** `0` is the
+    /// maximum, `radius` and beyond is exactly `1.0` (no suppression), and
+    /// the values between fall strictly as distance grows.
+    #[test]
+    fn graded_regime_factor_falls_from_max_to_one_at_the_radius() {
+        let radius = 24;
+        assert_eq!(graded_suppression_factor(0.0, radius), GRADED_MAX_SUPPRESSION, "distance 0 is not the maximum");
+        assert_eq!(graded_suppression_factor(radius as f32, radius), 1.0, "at the radius is not exactly unsuppressed");
+        assert_eq!(graded_suppression_factor(radius as f32 + 50.0, radius), 1.0, "beyond the radius is not exactly unsuppressed");
+        let near = graded_suppression_factor(4.0, radius);
+        let mid = graded_suppression_factor(12.0, radius);
+        let far = graded_suppression_factor(20.0, radius);
+        assert!(near > mid && mid > far && far > 1.0, "the factor is not strictly falling: near {near} mid {mid} far {far}");
+    }
+
+    /// **`graded` composes its factor onto the bar, and a colony where
+    /// nobody has bred yet reads exactly like `queen`'s founding state**
+    /// -- unsuppressed, not locked.
+    #[test]
+    fn graded_regime_scales_the_bar_and_a_queenless_colony_resumes() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+        }
+        let (ax, ay) = *w.organism(a).expect("a alive").chain.first().expect("a has a body");
+        let radius = 24;
+        let bar = 500.0;
+
+        // Nobody has bred: graded reads the same "resumes" answer as queen.
+        assert_eq!(
+            suppress_bar(BreedingRegime::Graded, radius, &w, a, colony, (ax, ay), bar).0,
+            bar,
+            "graded suppressed a colony where nobody has bred yet"
+        );
+
+        // `b` becomes the breeder, a few cells from `a` (`breeding_colony`
+        // spaces founders 4 cells apart -- well inside the default radius).
+        // `record_breeder` alongside the hand-set `children` for the same
+        // reason as the `queen` guard above: the index only learns of a
+        // breeder through that call.
+        if let Some(s) = w.organism_mut(b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+        let suppressed = suppress_bar(BreedingRegime::Graded, radius, &w, a, colony, (ax, ay), bar).0;
+        assert!(suppressed > bar, "a living breeder in range did not raise the bar at all: {suppressed}");
+        assert!(suppressed.is_finite(), "graded produced an unreachable bar -- that is `queen`'s job, not this regime's");
+    }
+
+    /// **The index and the scan agree.** A hand-built world with two
+    /// colonies, several breeders, one dead breeder still sitting
+    /// unpruned on its colony's list, and a non-breeder in each colony --
+    /// everything `colony_has_other_breeder` and `nearest_breeder` have to
+    /// tell apart, in one scene. Comment out the `list.push` in
+    /// `World::record_breeder` and this goes red: the index arm then
+    /// answers from an empty list for every colony that has ever bred.
+    #[test]
+    fn breeder_index_agrees_with_the_scan() {
+        let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
+        assert_eq!(founders.len(), 6, "the scene did not place all six founders");
+        let (c1a, c1b, c1c, c2a, c2b, c2c) = (founders[0], founders[1], founders[2], founders[3], founders[4], founders[5]);
+        let colony1 = w.organism(c1a).expect("alive").colony;
+        let colony2 = w.organism(c2a).expect("alive").colony;
+        assert_ne!(colony1, colony2, "breeding_colony gives every founder its own colony -- these two should differ before this test forces any together");
+        for &id in &[c1a, c1b, c1c] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony1;
+            }
+        }
+        for &id in &[c2a, c2b, c2c] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony2;
+            }
+        }
+
+        // colony1: c1a and c1b breed; c1c never does -- the non-breeder.
+        for &id in &[c1a, c1b] {
+            if let Some(s) = w.organism_mut(id) {
+                s.children = 1;
+            }
+            w.record_breeder(colony1, id);
+        }
+
+        // colony2: c2a breeds, then dies with no birth afterward to prune
+        // it -- the stale entry this scene has to survive. c2b breeds
+        // after the death, so colony2 also has a live breeder; c2c never
+        // breeds at all.
+        if let Some(s) = w.organism_mut(c2a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony2, c2a);
+        let body: Vec<(i32, i32)> = w.organism(c2a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(c2a);
+        if let Some(s) = w.organism_mut(c2b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony2, c2b);
+
+        for &(asker, colony) in &[(c1a, colony1), (c1c, colony1), (c2b, colony2), (c2c, colony2)] {
+            let (x, y) = *w.organism(asker).expect("asker is alive").chain.first().expect("asker has a body");
+            let mut index_visits = 0u32;
+            let index_answer = colony_has_other_breeder(&w, asker, colony, true, &mut index_visits);
+            let mut scan_visits = 0u32;
+            let scan_answer = colony_has_other_breeder(&w, asker, colony, false, &mut scan_visits);
+            assert_eq!(index_answer, scan_answer, "colony_has_other_breeder disagrees for asker={asker} colony={colony}: index {index_answer} scan {scan_answer}");
+
+            let mut index_visits2 = 0u32;
+            let index_dist = nearest_breeder(&w, asker, colony, x, y, true, &mut index_visits2);
+            let mut scan_visits2 = 0u32;
+            let scan_dist = nearest_breeder(&w, asker, colony, x, y, false, &mut scan_visits2);
+            assert_eq!(index_dist, scan_dist, "nearest_breeder disagrees for asker={asker} colony={colony}: index {index_dist:?} scan {scan_dist:?}");
+        }
+    }
+
+    /// **A stale entry cannot lie.** Kill `a`, the colony's only breeder,
+    /// and breed nobody afterward -- so `record_breeder`'s prune never
+    /// runs again and the dead id sits in the list, unpruned, for the
+    /// rest of this test. If either reader trusted the list without
+    /// validating each id live, both would still see a breeder that no
+    /// longer exists. Delete the `world.organism(id).is_some()` half of
+    /// either reader's check and this goes red.
+    #[test]
+    fn a_stale_breeder_entry_reads_as_no_breeder() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+        }
+        if let Some(s) = w.organism_mut(a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, a);
+        assert_eq!(w.colony_breeders.get(&colony).map(Vec::len), Some(1), "record_breeder did not push the new breeder");
+
+        // Kill `a` directly -- no birth happens afterward, so nothing ever
+        // calls `record_breeder` again and the dead id is exactly where
+        // the push above left it.
+        let body: Vec<(i32, i32)> = w.organism(a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+        assert!(w.organism(a).is_none(), "free_organism did not kill a -- this test is not exercising staleness at all");
+        assert_eq!(
+            w.colony_breeders.get(&colony).map(Vec::len),
+            Some(1),
+            "the dead id is not still sitting in the list -- something pruned it, so this is not testing what it claims to"
+        );
+
+        let (bx, by) = *w.organism(b).expect("b alive").chain.first().expect("b has a body");
+        let mut visits = 0u32;
+        assert!(!colony_has_other_breeder(&w, b, colony, true, &mut visits), "a dead breeder, still on the list, read as a living one");
+        assert_eq!(nearest_breeder(&w, b, colony, bx, by, true, &mut visits), None, "a dead breeder, still on the list, produced a distance");
+    }
+
+    /// **No false negatives.** After a real run in which several animals
+    /// across more than one colony have actually bred (through `try_bud`,
+    /// not a hand-set field), every living animal with `children > 0`
+    /// appears in its own colony's list. Break the push in
+    /// `World::record_breeder` and this goes red on the first breeder it
+    /// checks.
+    #[test]
+    fn every_living_breeder_is_in_its_own_colonys_list() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        // Two colonies of four, so "more than one colony" is not
+        // incidental to the scene.
+        let colony_a = w.organism(founders[0]).expect("alive").colony;
+        let colony_b = w.organism(founders[4]).expect("alive").colony;
+        for &id in &founders[0..4] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony_a;
+            }
+        }
+        for &id in &founders[4..8] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony_b;
+            }
+        }
+        run(&mut w, 200);
+        assert!(w.creature_stats.births > 0, "nothing bred over 200 frames from 8 funded founders -- this proves nothing about the index");
+
+        let breeders: Vec<u16> = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).collect();
+        assert!(!breeders.is_empty(), "births fired but no live animal shows children > 0");
+        let mut colonies_seen = std::collections::BTreeSet::new();
+        for id in breeders {
+            let colony = w.organism(id).expect("just listed as live").colony;
+            colonies_seen.insert(colony);
+            let list = w.colony_breeders.get(&colony);
+            assert!(
+                list.is_some_and(|l| l.contains(&id)),
+                "organism {id} has children > 0 in colony {colony} but is not in that colony's breeder list"
+            );
+        }
+        assert!(colonies_seen.len() > 1, "every breeder came from the same colony -- 'more than one colony' was not actually exercised");
+    }
+
+    /// **The visit counter proves the removed work is real, not merely
+    /// that the answer stayed the same.** Both arms must report a
+    /// non-zero count -- a zero on the index arm would mean the lookup
+    /// stopped happening rather than got cheaper (`CLAUDE.md`'s "a cost
+    /// that vanishes may be work that vanished"), and on a colony that is
+    /// a small fraction of the world's organisms, the index arm's count
+    /// must read strictly below the scan's for the identical answer.
+    #[test]
+    fn breeder_scan_visits_is_smaller_on_the_index_arm() {
+        let (mut w, founders) = breeding_colony(10, 2000.0, 0.0);
+        // `breeding_colony` places founders in order into a fresh world
+        // with nothing yet freed, so `founders[0]` and `founders[9]` land
+        // in the *first* and *last* organism slots respectively
+        // (`push_organism`'s own doc: a birth only grows the `Vec` when no
+        // freed slot is available to reuse first). The asker is the first
+        // slot and the sole breeder is the last, in a colony together;
+        // the other eight founders each keep their own separate colony
+        // (`breeding_colony`'s default), so the scan must walk past every
+        // one of them, finding no match, before it reaches the breeder --
+        // this is what makes `scan_visits` below robust to loop order
+        // rather than an accident of which slot happens to match first.
+        let asker = founders[0];
+        let breeder = founders[9];
+        let colony = w.organism(asker).expect("alive").colony;
+        if let Some(s) = w.organism_mut(breeder) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        w.record_breeder(colony, breeder);
+
+        let (x, y) = *w.organism(asker).expect("alive").chain.first().expect("has a body");
+
+        let mut scan_visits = 0u32;
+        let scan_answer = colony_has_other_breeder(&w, asker, colony, false, &mut scan_visits);
+        let mut index_visits = 0u32;
+        let index_answer = colony_has_other_breeder(&w, asker, colony, true, &mut index_visits);
+        assert_eq!(scan_answer, index_answer, "the two arms disagree, so the visit counts below are not even comparable");
+        assert!(scan_answer, "the scene's own breeder was not found by either arm -- this test proves nothing about visit counts");
+        assert!(scan_visits > 0, "the scan arm reported zero organisms visited");
+        assert!(
+            index_visits > 0,
+            "the index arm reported zero organisms visited -- it looks cheaper because it stopped looking, not because it looks at less"
+        );
+        assert!(
+            index_visits < scan_visits,
+            "the index arm did not visit fewer organisms than the scan: index {index_visits} scan {scan_visits} over {} organism slots",
+            w.organism_slot_usage().0
+        );
+
+        let mut scan_visits2 = 0u32;
+        let _ = nearest_breeder(&w, asker, colony, x, y, false, &mut scan_visits2);
+        let mut index_visits2 = 0u32;
+        let _ = nearest_breeder(&w, asker, colony, x, y, true, &mut index_visits2);
+        assert!(scan_visits2 > 0, "nearest_breeder's scan arm reported zero organisms visited");
+        assert!(index_visits2 > 0, "nearest_breeder's index arm reported zero organisms visited");
+        assert!(
+            index_visits2 < scan_visits2,
+            "nearest_breeder's index arm did not visit fewer organisms than the scan: index {index_visits2} scan {scan_visits2}"
+        );
+    }
+
+    /// **A breeder living in a recycled slot is not invisible to either
+    /// arm.** `a` breeds this colony's floor slot, dies, and a new animal
+    /// (`b`) is placed into that same now-freed slot -- `push_organism`
+    /// bumps the slot's generation on reuse, so `b`'s encoded id is `a`'s
+    /// slot index wearing a *different* generation, not `a`'s old id
+    /// reborn. `b` then breeds. A scan that reconstructs ids as bare slot
+    /// indices (generation 0 always) can never produce `b`'s real id at
+    /// all, so it was silently blind to every breeder living in a reused
+    /// slot -- found in review, comparing the two arms on a 40,000-frame
+    /// run under `graded`, where the scan arm's births pulled ahead of the
+    /// index arm's the moment enough deaths had recycled a slot. Restore
+    /// the old `1..=slots` range in either scan arm and this goes red.
+    #[test]
+    fn a_breeder_in_a_recycled_slot_is_found_by_both_arms() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, c) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(c) {
+            s.colony = colony;
+        }
+        let slots_before = w.organism_slot_usage().0;
+
+        // Free `a`'s slot -- cells cleared first, since `free_organism`
+        // does not clear the body it leaves behind, and a caller not
+        // heeding that would place `b` on top of a corpse that is still
+        // materially there.
+        let (ax, ay) = *w.organism(a).expect("alive before the kill").chain.first().expect("a has a body");
+        let body: Vec<(i32, i32)> = w.organism(a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+
+        // A new animal into the same, now-free slot. Identified by
+        // scanning live ids rather than assumed back as `a`'s old id --
+        // `push_organism` bumps the slot's generation on reuse, so the
+        // encoded id is not the one that died.
+        w.plant_ant(ax, ay);
+        assert_eq!(w.organism_slot_usage().0, slots_before, "the new animal grew the organism table instead of reusing a's freed slot -- this scene is not exercising slot reuse at all");
+        let b = w.live_organism_ids().into_iter().find(|&id| id != c).expect("a second live animal exists beside c");
+        assert_ne!(b, a, "the recycled slot's new occupant kept the dead animal's own encoded id -- generation did not bump on reuse, so this test is not exercising the fault at all");
+
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+
+        let (cx, cy) = *w.organism(c).expect("c alive").chain.first().expect("c has a body");
+        for &use_index in &[true, false] {
+            let mut visits = 0u32;
+            assert!(
+                colony_has_other_breeder(&w, c, colony, use_index, &mut visits),
+                "colony_has_other_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+            let mut visits = 0u32;
+            assert!(
+                nearest_breeder(&w, c, colony, cx, cy, use_index, &mut visits).is_some(),
+                "nearest_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+        }
+    }
+
+    /// **Integration guard for `queen`, run solo** -- not part of the
+    /// default suite. `breeding_regime`'s own doc explains why: toggling
+    /// its env var inside a parallel `#[test]` races every other test that
+    /// may already have read it. Run with:
+    ///
+    /// `PIXEL_PHYSICS_BREEDING=queen cargo test --lib
+    /// queen_wiring_produces_a_breeder_and_a_birth -- --ignored
+    /// --test-threads=1`
+    ///
+    /// Every other `queen` guard above calls `suppress_bar` directly with
+    /// an explicit `BreedingRegime`, which proves the function is correct
+    /// but not that `try_bud` actually reaches it with the real env var
+    /// set. A colony that breeds zero times everywhere would trivially
+    /// satisfy "nothing is suppressed into never breeding" while meaning
+    /// the wiring itself is dead -- `CLAUDE.md`'s "ask what your number
+    /// counts when nothing is wrong" -- so this asserts the non-zero half
+    /// explicitly.
+    #[test]
+    #[ignore]
+    fn queen_wiring_produces_a_breeder_and_a_birth() {
+        let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        run(&mut w, 400);
+        assert!(
+            w.creature_stats.births > 0,
+            "PIXEL_PHYSICS_BREEDING=queen produced zero births over 400 frames from 6 funded founders -- either the wiring is dead or the scene cannot breed at all"
+        );
+        let breeders = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).count();
+        assert!(breeders > 0, "births fired but no live animal in the colony shows children > 0");
+        // **The visit counter's own wiring, checked end to end.** Every
+        // other guard on `breeder_scan_visits` calls `colony_has_other_
+        // breeder`/`nearest_breeder` directly; `queen` is the one regime
+        // guaranteed to reach them through the real `try_bud` -> `suppress_
+        // bar` path on every tick an animal can afford a child, so this is
+        // the check that `try_bud`'s own addition to `world.creature_
+        // stats.breeder_scan_visits` actually runs, not just that the leaf
+        // functions report a count when called in isolation.
+        assert!(
+            w.creature_stats.breeder_scan_visits > 0,
+            "breeder lookups ran under PIXEL_PHYSICS_BREEDING=queen (births={}) but breeder_scan_visits stayed at 0 -- it is not wired to try_bud's call site",
+            w.creature_stats.births
+        );
+    }
+
+    /// **Integration guard for `graded`, run solo** -- see
+    /// `queen_wiring_produces_a_breeder_and_a_birth`'s doc for why this is
+    /// not part of the default suite. Run with:
+    ///
+    /// `PIXEL_PHYSICS_BREEDING=graded cargo test --lib
+    /// graded_wiring_reduces_births_near_a_breeder -- --ignored
+    /// --test-threads=1`
+    ///
+    /// **The control must not share a colony with anyone**, or it stops
+    /// controlling for anything: forcing all eight founders into one colony
+    /// on both arms was the first version of this test, and it measured
+    /// `with 2, without 2` -- a clean, tidy, wrong number
+    /// (`CLAUDE.md`'s "the tell, when there is no control to hand, is
+    /// tidiness"). The reason is the mechanism's own bootstrap dynamic:
+    /// the moment *any* founder in a shared colony buds first, it becomes
+    /// a breeder and starts suppressing every other member from that tick
+    /// on -- which fires almost immediately in the "no breeder" arm too,
+    /// so both arms converge to the same "one breeder, rest suppressed"
+    /// shape instead of one of them staying unsuppressed. `breeding_colony`
+    /// already gives every founder its own colony by default (`place_
+    /// creature`'s `Origin::Founder` arm), so the true no-suppression
+    /// control is simply *not* forcing them together.
+    #[test]
+    #[ignore]
+    fn graded_wiring_reduces_births_near_a_breeder() {
+        let without = {
+            let (mut w, _founders) = breeding_colony(8, 2000.0, 0.0);
+            run(&mut w, 400);
+            w.creature_stats.births
+        };
+        let with_breeder = {
+            let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+            let colony = w.organism(founders[0]).expect("founder").colony;
+            for &id in &founders {
+                if let Some(s) = w.organism_mut(id) {
+                    s.colony = colony;
+                }
+            }
+            if let Some(s) = w.organism_mut(founders[0]) {
+                s.children = 1;
+            }
+            // Same reason as the other hand-set-breeder guards: the index
+            // only learns of a breeder through `record_breeder`, not
+            // through the bare field write above.
+            w.record_breeder(colony, founders[0]);
+            run(&mut w, 400);
+            w.creature_stats.births
+        };
+        assert!(without > 0, "the no-breeder control produced zero births -- it controls for nothing");
+        assert!(
+            with_breeder < without,
+            "a breeder present in the colony did not reduce total births under PIXEL_PHYSICS_BREEDING=graded: with {with_breeder}, without {without}"
         );
     }
 

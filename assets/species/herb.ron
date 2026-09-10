@@ -78,6 +78,24 @@
     // Gold and orange fruit — a ripe seed head, not a berry.
     fruit_bands: (first: 4, count: 2),
     windfall_material: "windfall",
+    // **The seed coat survives an ant's bite 60% of the time** -- the
+    // gnawed fruit is eaten, the seed inside it is not, and it stands as a
+    // `pip` where the fruit was (`plant::seed_survives_bite`,
+    // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.4). A plant
+    // trait, not the animal's: it is the coat that survives a gut. Rolled
+    // once per bite and clamped to [0, 1] in code, so an evolved value
+    // outside that range is inert rather than a crash.
+    //
+    // **Evolvable from the day it lands, unlike `seed_launch`.**
+    // `Reports/dead-ends.md` line 1708 found `seed_launch` reachable only
+    // within `PARAM_REACH * 1.0 = 4` of zero because no species authored a
+    // non-zero value and the corpus fallback is 1.0 -- and 4 cells falls
+    // short of that lever's useful range. This field is not on
+    // `ParamGenome` yet, so no such clamp applies today, but it is worth
+    // recording now: a probability's whole range is `[0, 1]`, which sits
+    // *inside* `[-4, 4]` with room on both sides, so the fallback that
+    // starved `seed_launch` would not starve this one.
+    seed_gut_survival: 0.6,
     stomatal_reserve: 0.2,
     // A ruderal's bank: short-lived seed, fast-rotting remains. Both an
     // order of magnitude below `tree`'s, which is what a herb *is* on the

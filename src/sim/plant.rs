@@ -2058,6 +2058,112 @@ fn drop_organ(world: &mut World, x: i32, y: i32, parent_id: u16, cost: f32, rng:
     true
 }
 
+/// **The mouth-side half of "the seed survives being eaten."** The one
+/// caller is the bite site in `creature.rs` (`:5001`), which replaces an
+/// unconditional `world.set(fxx, fyy, Cell::EMPTY)` with "clear it only if
+/// this returns `false`" -- see that call site's own comment for why the
+/// hook has to be exactly one line.
+///
+/// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2: if the bitten
+/// cell is a windfall fruit's own seed -- an organism-owned
+/// `CellType::Seed` wearing the species' `windfall_material` -- this rolls
+/// `seed_gut_survival` and, on success, converts the cell **in place** to
+/// `pip` and returns `true`, so the caller leaves it standing. On failure,
+/// or on anything that is not a windfall's seed, it returns `false` and the
+/// caller clears the cell exactly as it always has.
+///
+/// **In place, same organism id, same `aux`.** `World::set`'s own
+/// `reindex_organism_cell` is a no-op when the organism id does not change
+/// (`was == now`), so the seed's `OrganismCell` sidecar survives the write
+/// untouched and the organism is never reconciled away -- it still owns
+/// exactly the one cell it always did, now wearing a different material.
+/// `Behavior::Germinate` does not read the cell's own material at all (only
+/// its `CellType` and the species' `shoot_material`/`root_material`), so a
+/// pip germinates through the identical path a bare seed or a windfall
+/// does -- verified by
+/// `a_pip_germinates_through_the_ordinary_seed_path` rather than assumed.
+///
+/// **A standing `pip` met a second bite is not protected again**, and
+/// costs no extra call site: this only rolls on the windfall material, so
+/// a `pip` (not a windfall) falls straight through to the `false` branch --
+/// counted as `World::pips_eaten` on the way, since that exit has nowhere
+/// else in the engine it could be seen from. The other two exits,
+/// `plants_from_pip` and `pips_rotted`, are counted in `germinate` and in
+/// the seed-decay sites (`organism_tick`'s half-life block, `decay.rs`'s
+/// material channel) respectively -- see `World::seeds_spilled` for how
+/// the four are meant to sum.
+///
+/// **Safe on a species that authors neither field.** `windfall_material`
+/// defaults to `"seed"` for a species with no fruit, so `windfall_id` can
+/// resolve to the ordinary `seed` material -- but `seed_gut_survival`
+/// defaults to `0.0` for the same species, and `Rng::chance` returns
+/// `false` at `p <= 0.0` **without drawing**, so an ordinary seed bite on
+/// such a species costs nothing and perturbs no stream, exactly as it did
+/// before this function existed.
+pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> bool {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 {
+        // **The coordinator's finding, 2026-09-10** (measure lane, PR #297,
+        // `Reports/lanes/evolution-lab-ecology-measure.md` "What surprised
+        // me"): many `windfall` cells on the played bed are already
+        // ownerless the first time anything observes them -- a live
+        // upstream bug, eight causes already ruled out there, repro
+        // `WF_DEBUG=1 windfall_probe scenario=played_bed seed=1 frames=1300
+        // sample=10 fate=1`. An ownerless windfall has no organism to ask
+        // for a species' `seed_gut_survival`, so it can never roll here --
+        // a low `seeds_spilled` could be *this* bug rather than a low
+        // survival odds, and `World::windfall_bitten_ownerless` is what
+        // tells the two apart. Matched on the literal `windfall` material
+        // rather than by species, because an ownerless cell has no
+        // organism to ask which species it belongs to.
+        if world.materials.id_of("windfall").is_some_and(|id| id == cell.material) {
+            world.windfall_bitten_ownerless += 1;
+        }
+        return false;
+    }
+    if organism::cell_type(cell.aux()) != Some(CellType::Seed) {
+        return false;
+    }
+    let Some(species) = world.organism(organism_id).map(|s| s.species) else {
+        return false;
+    };
+    // A standing pip meeting a *second* bite: not a windfall, so there is
+    // nothing to roll. This is the `pips_eaten` exit -- counted here
+    // because the bite site itself does not know a pip from any other
+    // loose food cell, and should not have to.
+    if let Some(pip_id) = world.materials.id_of("pip") {
+        if cell.material == pip_id {
+            world.pips_eaten += 1;
+            return false;
+        }
+    }
+    let windfall_name = world.species.get(species).windfall_material.clone();
+    let Some(windfall_id) = world.materials.id_of(&windfall_name) else {
+        return false;
+    };
+    if cell.material != windfall_id {
+        return false; // a bare-set `seed`, or a species with no fruit: unaffected
+    }
+    let survival = world.species.get(species).seed_gut_survival.clamp(0.0, 1.0);
+    if !rng.chance(survival) {
+        return false; // the roll failed: the caller clears it exactly as today
+    }
+    // A stripped asset set with no `pip.ron` loaded: degrade to today's
+    // behaviour rather than pretend a survival the world cannot represent.
+    let Some(pip_id) = world.materials.id_of("pip") else {
+        return false;
+    };
+    // Uniform across the material's own palette, mirroring `bear_seed_at`'s
+    // own shade draw for a fresh windfall/seed -- no species banding here,
+    // `pip` carries its own four-tone palette regardless of species.
+    let shades = world.materials.get(pip_id).palette.len().max(1) as u32;
+    let shade = rng.below(shades) as u8;
+    world.set(x, y, Cell::new(pip_id, shade).with_organism_id(organism_id).with_aux(cell.aux()));
+    world.seeds_spilled += 1;
+    true
+}
+
 /// One band index inside a declared `PaletteBands` range, or 0 where the
 /// species declares none — which is the first band of whatever palette the
 /// material has, i.e. the pre-band look.
@@ -3448,6 +3554,15 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
     if cell_type == CellType::Seed {
         let half_life = world.species.get(species_id).seed_half_life;
         if rng.chance(half_life_chance(half_life, SEED_TICK_INTERVAL)) {
+            // **One of `pips_rotted`'s two exits** -- a `pip` that lost
+            // this species-wide viability race, same as any other seed
+            // would, before `shed_to_litter` below converts it away. The
+            // other exit is `decay.rs`'s material channel, which a `pip`
+            // (unlike a bare `seed`) also carries -- see `World::
+            // seeds_spilled` for how the four exits are meant to sum.
+            if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
+                world.pips_rotted += 1;
+            }
             shed_to_litter(world, x, y);
             // No reschedule: the organism now owns no cells, and
             // `step_organisms`' existing empty-cell-list check returns its
@@ -10902,6 +11017,24 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // that fires a few hundred times a run. See `World::germinations_in_place`.
     if world.organism(organism_id).is_some_and(|st| st.cells.len() > 1) {
         world.germinations_in_place += 1;
+    }
+    // **The `plants_from_pip` exit**, read off `cell.material` before the
+    // write below overwrites it to the shoot material -- the "it worked"
+    // half of `World::seeds_spilled`, and the headline number for "the
+    // colony that gardens survives": every one of these rode an ant's
+    // mouth and grew anyway. See `plant::seed_survives_bite`.
+    if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
+        world.plants_from_pip += 1;
+    }
+    // **Did this seedling arrive by parcel or by scatter?** `cell` is the
+    // seed cell as it stood before this function relabels it into a shoot,
+    // so `cell.material` still carries the windfall/seed distinction
+    // `plant::drop_organ` and `plant::bear_seed_at` wrote in -- the
+    // discriminator the ecology round asked for and the reason it is read
+    // here rather than reconstructed later. See
+    // `World::windfall_germination_x`.
+    if Some(cell.material) == world.materials.id_of("windfall") {
+        world.windfall_germination_x.push(x);
     }
     // **A plant's "born" is its germination, not its allocation.** Its
     // organism was created when its parent set the seed, which may have been
@@ -21480,4 +21613,218 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         assert!(state.is_none(), "a seed with nowhere to go must not hold its slot for ever");
     }
 
+    // --- A1: the seed survives the mouth ---------------------------------
+    // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.
+
+    #[test]
+    fn a_gut_survival_of_one_always_leaves_a_pip_the_organism_still_owns() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered in material.rs's include_str! list");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+
+        assert!(survived, "a gut_survival of 1.0 must always let the seed through");
+        let cell = w.get(x, y);
+        assert_eq!(cell.material, pip, "a surviving seed should be wearing pip, not windfall");
+        assert_eq!(cell.organism_id(), id, "the organism must still own the cell -- it was never reconciled away");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Seed), "still a Seed, not relabeled to anything else");
+        assert!(w.organism(id).is_some(), "the organism itself must still be standing");
+        assert_eq!(w.seeds_spilled, 1, "the it-fired counter must move on a successful spill");
+    }
+
+    #[test]
+    fn a_gut_survival_of_zero_leaves_the_clear_to_the_caller() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 0.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+
+        assert!(!survived, "a gut_survival of 0.0 must never let the seed through");
+        assert_eq!(w.get(x, y).material, windfall, "the cell must be untouched -- clearing it is the caller's job, not this function's");
+        assert_eq!(w.get(x, y).organism_id(), id, "still owned, still standing, for the caller to clear");
+        assert_eq!(w.seeds_spilled, 0, "no spill happened, so the it-fired counter must not move");
+    }
+
+    /// The coordinator's finding, 2026-09-10 (measure lane PR #297): a
+    /// windfall bitten before anything owns it can never roll, and that
+    /// has to be attributable rather than silently folding into a low
+    /// `seeds_spilled`. See `World::windfall_bitten_ownerless`.
+    #[test]
+    fn an_ownerless_windfall_counts_separately_from_a_failed_roll() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0; // would always spill, if it could roll at all
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let (x, y) = (50, 50);
+        // Organism id 0: nobody owns this cell, mirroring the measure
+        // lane's repro rather than constructing it by hand.
+        w.set(x, y, Cell::new(windfall, 0));
+        assert_eq!(w.get(x, y).organism_id(), 0, "test setup: the cell must be ownerless");
+
+        let mut rng = Rng::new(7);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+
+        assert!(!survived, "an ownerless cell has no species to roll a survival chance for");
+        assert_eq!(w.windfall_bitten_ownerless, 1, "the ownerless bite must be counted on its own line");
+        assert_eq!(w.seeds_spilled, 0, "it did not spill -- there was no organism to spill it");
+    }
+
+    /// **Confirms `Behavior::Germinate` does not key on material at all**,
+    /// rather than assuming it from reading the dispatch -- the same
+    /// bed-building shape `a_seed_waits_for_water_and_germinates_when_it_
+    /// arrives` uses, standing in for a windfall's own seed by relabeling
+    /// a freshly planted seed to `pip` in place, exactly as `plant::
+    /// seed_survives_bite` does at the bite site (minus the roll).
+    #[test]
+    fn a_pip_germinates_through_the_ordinary_seed_path() {
+        let mut w = test_world();
+        w.seed = 1; // a provably rain-free window, same pin `run_seed_bed` uses
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered in material.rs's include_str! list");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        assert!(w.plant_tree_species(x, y, "herb"), "test setup: the seed should have been planted");
+        let id = w.get(x, y).organism_id();
+        assert_ne!(id, 0, "test setup: the seed should own its cell");
+        // Relabel the freshly planted `seed` cell to `pip`, in place --
+        // same organism id, same aux, exactly what `seed_survives_bite`
+        // does at the bite site. `World::set`'s `reindex_organism_cell` is
+        // a no-op when the organism id does not change, so this must not
+        // orphan the organism.
+        let aux = w.get(x, y).aux();
+        w.set(x, y, Cell::new(pip, 0).with_organism_id(id).with_aux(aux));
+        assert_eq!(w.get(x, y).organism_id(), id, "test setup: relabeling in place must not orphan the organism");
+
+        run_with_fields(&mut w, 1_000);
+
+        let cells = w.organism(id).map_or(0, |st| st.cells.len());
+        assert!(cells > 1, "a pip on wet soil under open sky should have germinated within herb's germination budget, got {cells} cell(s)");
+        assert_eq!(w.plants_from_pip, 1, "the it-worked counter must move when a pip germinates");
+    }
+
+    /// **The arithmetic in §2.3, as a guard that can fail.** Change
+    /// `pip.ron`'s `food_energy` and this must go red before it goes
+    /// green -- watched by hand at 500.0 (both arms clear the bar, both
+    /// assertions fail) before landing at the shipped 40.0.
+    #[test]
+    fn a_neutral_gut_cannot_see_a_pip_but_a_seed_specialist_can() {
+        let w = test_world();
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered in material.rs's include_str! list");
+        let cell = Cell::new(pip, 0);
+
+        let neutral = super::super::creature::diet_yield(&w, cell, 0.0);
+        let specialist = super::super::creature::diet_yield(&w, cell, -1.0);
+
+        assert!(
+            neutral < super::super::creature::EAT_YIELD_THRESHOLD,
+            "the shipped neutral gut must not be able to see a pip as food: got {neutral}, threshold {}",
+            super::super::creature::EAT_YIELD_THRESHOLD
+        );
+        assert!(
+            specialist > super::super::creature::EAT_YIELD_THRESHOLD,
+            "a plant specialist (gut_bias -1.0) must be able to eat a pip: got {specialist}, threshold {}",
+            super::super::creature::EAT_YIELD_THRESHOLD
+        );
+    }
+
+    /// **The four exits sum to the spills, over a short run.** Not a full
+    /// colony simulation -- that is `labforage`'s job -- but a direct
+    /// exercise of every counted path: one pip eaten on a second bite
+    /// (deterministic), one pip germinated on wet soil (deterministic, the
+    /// same recipe as the test above), and several left to the species'
+    /// ordinary half-life hazard (stochastic -- either exit is fine, only
+    /// the identity is asserted).
+    #[test]
+    fn the_exits_plus_standing_stock_sum_to_the_spills() {
+        let mut w = test_world();
+        w.seed = 1;
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0; // every bite in this test spills
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered in material.rs's include_str! list");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let mut rng = Rng::new(11);
+
+        // One pip given proper wet soil and open sky, so at least one of
+        // the three exits is guaranteed rather than left to chance --
+        // `CLAUDE.md`'s "run the positive control" for this identity.
+        let (gx, gy) = (40, 60);
+        for dx in -1..=1 {
+            w.set(gx + dx, gy + 1, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+        }
+        w.set(gx, gy + 2, Cell::new(material::STONE, 0));
+        let gid = w.push_organism(herb).expect("an organism slot is free");
+        place(&mut w, (gx, gy), windfall, gid, CellType::Seed, (0.0, 0.0));
+        assert!(seed_survives_bite(&mut w, gx, gy, &mut rng), "gut_survival 1.0 must always spill");
+        let site = reschedule_organism(gx, gy, gid, 0, 0, w.organism_due(ORGANISM_TICK_INTERVAL));
+        w.schedule_active_site(site);
+
+        // A few more, resting on bare stone -- no water, so they cannot
+        // germinate, and are left to `seed_half_life`'s own hazard over
+        // the run (rot) or simply outlast it (standing).
+        let mut standing_positions = Vec::new();
+        for i in 0..4 {
+            let (sx, sy) = (70 + i * 6, 60);
+            w.set(sx, sy + 1, Cell::new(material::STONE, 0));
+            let sid = w.push_organism(herb).expect("an organism slot is free");
+            place(&mut w, (sx, sy), windfall, sid, CellType::Seed, (0.0, 0.0));
+            assert!(seed_survives_bite(&mut w, sx, sy, &mut rng), "gut_survival 1.0 must always spill");
+            let site = reschedule_organism(sx, sy, sid, 0, 0, w.organism_due(ORGANISM_TICK_INTERVAL));
+            w.schedule_active_site(site);
+            standing_positions.push((sx, sy));
+        }
+
+        // One more bite, standing in for `creature.rs`'s bite site on an
+        // already-spilled pip: not a windfall, so this must not spill
+        // again -- it is `pips_eaten`, and the caller (here, this line)
+        // clears the cell exactly as `creature.rs`'s hook does.
+        assert!(!seed_survives_bite(&mut w, gx, gy, &mut rng), "a standing pip must not be protected a second time");
+        // `gx, gy` no longer stands for the germination arm after this --
+        // it has just been eaten, so drop it from the standing-pip scan
+        // below and do not expect it to germinate.
+        w.set(gx, gy, Cell::EMPTY);
+
+        run_with_fields(&mut w, 6_000);
+
+        let standing_pips = standing_positions.iter().filter(|&&(x, y)| w.get(x, y).material == pip).count() as u64;
+        assert_eq!(
+            w.seeds_spilled,
+            w.plants_from_pip + w.pips_rotted + w.pips_eaten + standing_pips,
+            "spills {} must equal plants {} + rotted {} + eaten {} + standing {}",
+            w.seeds_spilled,
+            w.plants_from_pip,
+            w.pips_rotted,
+            w.pips_eaten,
+            standing_pips
+        );
+        assert_eq!(w.pips_eaten, 1, "the forced second bite must be the one pip eaten");
+        assert!(
+            w.plants_from_pip + w.pips_rotted + w.pips_eaten > 0,
+            "the identity must not be checked on a run where nothing moved"
+        );
+    }
 }

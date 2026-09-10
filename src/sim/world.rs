@@ -78,6 +78,24 @@ struct OrganismSlot {
     state: Option<OrganismState>,
 }
 
+/// The shared "is this id still alive" check behind `World::organism` and
+/// `World::record_breeder`'s prune. A free function taking `organisms`
+/// directly rather than a `&self` method, so `record_breeder` can call it
+/// while `self.colony_breeders` is already borrowed mutably — the two are
+/// disjoint fields, but `organism`'s own `&self` signature would force the
+/// whole struct to be borrowed and rule that out.
+fn organism_in(organisms: &[OrganismSlot], organism_id: u16) -> Option<&OrganismState> {
+    let (slot_index, generation) = decode_organism_id(organism_id);
+    if slot_index == 0 {
+        return None;
+    }
+    let slot = organisms.get((slot_index - 1) as usize)?;
+    if slot.generation != generation {
+        return None;
+    }
+    slot.state.as_ref()
+}
+
 /// Identifies a promoted `liquid::LiquidBody` (`Reports/liquid-heightfield-
 /// design.md` §3c/§9a). Never stored on a `Cell` — unlike `organism_id`,
 /// which has to round-trip through a cell's own bits, a liquid body's cell
@@ -1073,6 +1091,25 @@ pub struct CreatureStats {
     /// A lower bound, because organism slots are recycled — see
     /// `World::denied_seen`.
     pub births_denied_animals: u64,
+    /// **Organism slots the breeding-suppression lookup actually looked
+    /// at** — one count per candidate examined, on whichever arm
+    /// `creature::breeder_index_enabled` selects: every slot the O(organism
+    /// slots) scan walks, or every id `World::colony_breeders`' per-colony
+    /// index validates. `suppress_bar`'s `individual` arm never reaches
+    /// either lookup by construction, so a world that never sets
+    /// `PIXEL_PHYSICS_BREEDING` away from its default reads this at
+    /// exactly `0` — see `breeding_regime`'s own doc.
+    ///
+    /// **The counter the per-colony index has to be checked against, not
+    /// the timing.** `CLAUDE.md`'s own rule: a cost that vanishes may be
+    /// work that vanished, and a queue that goes quiet because the system
+    /// stopped asking looks identical, in every timing, to one that
+    /// converged. Compared between the two arms inside one run, on a
+    /// colony that is a small fraction of the world's organisms, the index
+    /// arm's count reads strictly lower than the scan arm's for the
+    /// identical answer — proof the lookup got cheaper, not that it
+    /// stopped happening.
+    pub breeder_scan_visits: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -2183,6 +2220,22 @@ pub struct World {
     /// were ever dispersed.
     pub fruit_dropped: u64,
 
+    /// **Windfall made by a fruit or flower organ losing structural
+    /// support, rather than by `plant::drop_organ` letting a ripe one go.**
+    /// The ecology round's first surprise: `fruit.ron` declares
+    /// `breaks_into: "windfall"`, so `structural::break_free` -- the
+    /// generic "convert this cell to its material's breaks_into" fallback
+    /// every snap, sever and grit-decline path shares -- turns a standing
+    /// fruit or flower into loose windfall exactly the same way it turns
+    /// stone into rubble, with no ripening, no reproductive-budget charge,
+    /// and no `fruit_dropped` tick. `windfall_probe` found real standing
+    /// windfall on the played bed while `fruit_dropped` read zero, which is
+    /// `CLAUDE.md`'s "ask what your number counts" aimed at `fruit_dropped`
+    /// itself: it is a count of *deliberate* drops, not of windfall
+    /// production, and the two are the same total only where nothing ever
+    /// snaps.
+    pub organ_shattered_to_windfall: u64,
+
     /// **Seed cells actually borne**, every one of them: the mature-cell
     /// path (`plant::set_seed`) and the fruit drop (`plant::drop_organ`)
     /// alike, counted where they share a floor in `plant::bear_seed_at`.
@@ -2217,6 +2270,76 @@ pub struct World {
     /// Zero is the expected reading. A non-zero one says `germinations` is
     /// an overcount and by how much.
     pub germinations_in_place: u64,
+
+    /// **A bite met a windfall's own seed and the survival roll passed** --
+    /// the *it fired* half of `plant::seed_survives_bite`
+    /// (`Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6). The
+    /// bitten cell converted to `pip` in place instead of being cleared,
+    /// and the child organism is not reconciled away.
+    ///
+    /// **The three exits below sum to this**, plus whatever is still
+    /// standing as a `pip` when counted: a pip either germinates
+    /// (`plants_from_pip`), rots away (`pips_rotted`), or is eaten on a
+    /// later bite (`pips_eaten`). A residual would be a fourth exit nobody
+    /// knew about.
+    pub seeds_spilled: u64,
+
+    /// **A `pip` germinated into a plant** -- the *it worked* half of
+    /// `seeds_spilled`, counted in `plant::germinate` off the cell's
+    /// material before it is overwritten to the shoot material. The
+    /// headline number for "the colony that gardens survives": every one
+    /// of these is a seed that rode a mouth and grew anyway.
+    pub plants_from_pip: u64,
+
+    /// **A standing `pip` disappeared without germinating or being eaten**
+    /// -- counted at both of its two real exits, since a `pip` shares the
+    /// species' `seed_half_life` hazard every `CellType::Seed` does
+    /// (`organism_tick`'s seed-decay block, shed to litter) and *also*
+    /// carries its own `decays_into` (`decay.rs`, rotted to soil), unlike a
+    /// bare `seed`, which has neither route disabled and the other absent.
+    /// See `seeds_spilled` for how the four exits are meant to sum.
+    pub pips_rotted: u64,
+
+    /// **A standing `pip` met a second bite.** Not a windfall, so
+    /// `seed_survives_bite` does not roll again -- this is ordinary
+    /// predation on an already-spilled seed, counted where the bite site
+    /// asks the plant side and gets `false` back, and then clears the cell
+    /// exactly as it does for any other food. See `seeds_spilled`.
+    pub pips_eaten: u64,
+
+    /// **A bite met a `windfall` cell with `organism_id == 0`** -- no
+    /// organism to ask which species' `seed_gut_survival` applies, so
+    /// `seed_survives_bite` could not roll and returned `false` without
+    /// touching `seeds_spilled` at all. Not this mechanism's own fault: a
+    /// live upstream bug leaves many `windfall` cells on the played bed
+    /// already ownerless the first time anything observes them
+    /// (coordinator finding, 2026-09-10, measure lane PR #297,
+    /// `Reports/lanes/evolution-lab-ecology-measure.md` "What surprised
+    /// me"; repro `WF_DEBUG=1 windfall_probe scenario=played_bed seed=1
+    /// frames=1300 sample=10 fate=1`). **Read this before retuning
+    /// `seed_gut_survival` or `reproductive_allocation` against a low
+    /// `seeds_spilled`** -- a high reading here says the larder was never
+    /// reachable, not that the odds are wrong.
+    pub windfall_bitten_ownerless: u64,
+
+    /// **The x-coordinate of every germination whose seed cell wore a
+    /// windfall material rather than plain `seed`** — the far-side
+    /// discriminator for the fruit → animal → nest → seedling loop the
+    /// ecology round asked for: `germinations` alone cannot say whether a
+    /// seedling arrived by parcel (a dropped or carried fruit) or by
+    /// scatter (a loose seed set directly by `plant::set_seed`), because
+    /// both paths converge on the same `CellType::Seed` and the same
+    /// `germinate()` call.
+    ///
+    /// **Positions, not a pre-bucketed histogram, and deliberately so** —
+    /// the engine has no opinion about where a nest column is; `LabBox`
+    /// does, and only the caller (`windfall_probe`) knows the nest it wants
+    /// distance measured from. `germinations_from_windfall().len()` is the
+    /// count; the values are the raw x for whatever bucketing the reader
+    /// needs. Bounded by how many germinations a run produces at all
+    /// (hundreds over a 120,000-frame bed, per `plant.rs`'s own figures),
+    /// so an unbounded `Vec` costs nothing worth capping.
+    pub windfall_germination_x: Vec<i32>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -2667,6 +2790,58 @@ pub struct World {
     /// means nothing has bred, and a founder is generation 0.
     pub deepest_animal_generation: u16,
 
+    /// The deepest generation any animal that has **itself reproduced**
+    /// has reached -- the breeding-regime counter beside
+    /// [`Self::deepest_animal_generation`], and not a duplicate of it.
+    ///
+    /// `deepest_animal_generation` is a max over every child ever *born*,
+    /// so under `queen`-only breeding (`creature::breeding_regime`) it
+    /// counts sterile workers too: a breeder at generation 4 producing a
+    /// worker that never itself buds still pushes that counter to 5, one
+    /// step deeper than any genome in the colony actually travelled. This
+    /// counter only advances on a **parent's own** generation, at the
+    /// moment its bud succeeds, so it reads the depth of the chain a
+    /// genome actually travels rather than the depth of the chain plus one
+    /// generation of dead ends -- exactly the gap the generations-per-
+    /// session measurement this switch exists for has to see.
+    ///
+    /// Written in `creature::try_bud`, beside `OrganismState::children`'s
+    /// own increment, for the same reason `deepest_animal_generation`'s
+    /// own doc gives: the two writes must not be able to drift apart.
+    ///
+    /// Zero in a world where nothing has bred, or where the regime has
+    /// simply never made this counter differ from its sibling yet. It
+    /// accumulates and never drops, exactly like `deepest_animal_generation`.
+    pub deepest_breeder_generation: u16,
+
+    /// **Per-colony candidate breeder list** — `OrganismState::colony`
+    /// (written once, in `place_creature`'s common tail, and never again —
+    /// see that field's own doc) mapped to the ids `World::record_breeder`
+    /// has pushed onto it. Read by `creature::colony_has_other_breeder` and
+    /// `creature::nearest_breeder` in place of the O(organism slots) scan
+    /// their docs used to require — see those functions' own docs for the
+    /// argument that replaces.
+    ///
+    /// **A candidate list, never a source of truth.** The invariant is
+    /// one-directional:
+    ///
+    /// > Every living breeder is in its colony's list. Entries that are
+    /// > not breeders may also be in it.
+    ///
+    /// so every reader validates each id live (`organism`, colony match,
+    /// `children > 0`) before trusting it — a stale entry is skipped
+    /// rather than believed, so it can only ever produce a false negative
+    /// that a validating reader turns into a correct skip, never a wrong
+    /// answer. `record_breeder` prunes opportunistically, on the one call
+    /// site with `&mut World`; see its own doc for why pruning cannot live
+    /// on the `&World`-only read path.
+    ///
+    /// `BTreeMap`, not `HashMap`, matching `line_stats` above for the same
+    /// two reasons: deterministic by construction (`CLAUDE.md` requires
+    /// it, and a `HashMap` would raise the hasher-seed question this
+    /// sidesteps entirely) and a colony number is sparse.
+    pub(crate) colony_breeders: std::collections::BTreeMap<u32, Vec<u16>>,
+
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -2779,6 +2954,20 @@ pub struct World {
     /// documented as read by nothing in the simulation and is set by three
     /// render tests that want a room drawn without their world going dark.
     sky_lighting: bool,
+    /// **Cells the lab's mister (`lab::rain`) has actually placed as water**,
+    /// summed since this world was built. An effect count, not an attempt
+    /// count -- `lab::rain::tick` only bumps this for a drop that reads back
+    /// as water afterwards, so a rate whose drops are all bouncing off grown
+    /// canopy reads as a small number rather than a healthy-looking one.
+    ///
+    /// Lives on `World` rather than on `Lab` for the reason `splashes_thrown`
+    /// and `structural_failures` do: a rebuild constructs a fresh `World`,
+    /// so a `REBUILD` zeroes this for free rather than needing its own line
+    /// in `Lab::reset`. Outdoor worlds never write it -- the outdoor game has
+    /// no mister and no lab `Setting` reaches this field -- so it stays 0
+    /// there for the whole run, same as `structural_failures` does on a
+    /// world with nothing built in it.
+    pub rain_cells: u64,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -3431,8 +3620,15 @@ impl World {
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
             fruit_dropped: 0,
+            organ_shattered_to_windfall: 0,
             seeds_borne: 0,
             germinations_in_place: 0,
+            seeds_spilled: 0,
+            plants_from_pip: 0,
+            pips_rotted: 0,
+            pips_eaten: 0,
+            windfall_bitten_ownerless: 0,
+            windfall_germination_x: Vec::new(),
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
@@ -3463,6 +3659,8 @@ impl World {
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
+            deepest_breeder_generation: 0,
+            colony_breeders: std::collections::BTreeMap::new(),
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -3490,6 +3688,7 @@ impl World {
             seed: DEFAULT_WORLD_SEED,
             enclosure: None,
             sky_lighting: true,
+            rain_cells: 0,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -4130,6 +4329,8 @@ impl World {
             inherited: false,
             stocked: false,
             generation: 0,
+            // Zero until this animal buds one itself, in `try_bud`.
+            children: 0,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
             // is allocating a plant (same reasoning as `traits` above).
@@ -4188,15 +4389,7 @@ impl World {
     /// has since been reused by a different organism — the generation
     /// mismatch this whole scheme exists to catch, not a panic.
     pub fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
-        let (slot_index, generation) = decode_organism_id(organism_id);
-        if slot_index == 0 {
-            return None;
-        }
-        let slot = self.organisms.get((slot_index - 1) as usize)?;
-        if slot.generation != generation {
-            return None;
-        }
-        slot.state.as_ref()
+        organism_in(&self.organisms, organism_id)
     }
 
     /// Mutable counterpart to `organism`, same generational check.
@@ -4270,6 +4463,43 @@ impl World {
                 true
             }
             None => false,
+        }
+    }
+
+    /// **Push `organism_id` onto `colony`'s candidate breeder list, pruning
+    /// that same list of anyone who has died since it was last touched.**
+    ///
+    /// Called from exactly one site — `creature::try_bud`, in the same
+    /// breath as the `children` increment that is what makes `organism_id`
+    /// a breeder in the first place — and that is not incidental: it is
+    /// the only place in the whole call chain that holds `&mut World`.
+    /// `colony_has_other_breeder` and `nearest_breeder` only ever see
+    /// `&World` (`try_bud`'s own `state` borrow spans their call and rules
+    /// out anything stronger reaching them — see `suppress_bar`'s call
+    /// site), so a `Vec` cannot be pruned from the read path at all; this
+    /// is where it has to happen instead.
+    ///
+    /// **Pruning here, not lazily on read, is what keeps the list bounded.**
+    /// A long-running colony loses breeders constantly; without this, the
+    /// list would grow by one dead entry per death forever, and the point
+    /// of trading an O(organism slots) scan for an O(colony breeders) one
+    /// would erode back toward the thing it replaced. `organism_in` rather
+    /// than `self.organism(id)` in the retain below for the reason given on
+    /// that function's own doc — this runs while `self.colony_breeders` is
+    /// already borrowed mutably through `list`.
+    ///
+    /// **Idempotent on repeat calls for the same animal** — `contains`
+    /// before `push`, so a parent that has already bred does not gain a
+    /// new entry on every subsequent bud. Without that check the list
+    /// would grow with every *birth*, not every *breeder*, exactly on the
+    /// long-lived, highly fecund founders this index exists to stop the
+    /// world from paying for.
+    pub(crate) fn record_breeder(&mut self, colony: u32, organism_id: u16) {
+        let organisms = &self.organisms;
+        let list = self.colony_breeders.entry(colony).or_default();
+        list.retain(|&id| organism_in(organisms, id).is_some());
+        if !list.contains(&organism_id) {
+            list.push(organism_id);
         }
     }
 
