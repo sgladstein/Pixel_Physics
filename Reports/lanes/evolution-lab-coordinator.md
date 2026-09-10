@@ -243,7 +243,7 @@ round runs):
   rain off — the lid's own condensation — and was pulled for that reason.
   Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
   Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
-- **measure landed** (#297 merged 04:36, docscheck clean after).
+- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain) — merged in that order 04:12–04:55, `docscheck` clean after each.
 - **The eusociality lane, un-poked, kept going and found a shipped bug**
   (four commits on PR #295, CI running): an organism id is
   `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
@@ -255,7 +255,7 @@ round runs):
   40,000)**, as two arms of one binary over 40,000 frames: identical for
   26,100 frames, then one birth apart. Fixed; all six queen seeds now report
   exactly one breeder; the thirteen-fold collapse is unchanged and now tight.
-  PR #295 is therefore code, not docs, and lands before the bodies branch.
+  PR #295 is therefore code, not docs; it landed before the bodies branch, which must merge `main` before anything else happens to it.
 - **The articulated bodies are built and they do not walk** — the creature
   lane's own §7, pushed and then the session went idle at ~$145. Ant 5
   segments / 7 cells, hopper 7 / 8, expressed from four heritable rules
