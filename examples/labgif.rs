@@ -34,7 +34,7 @@
 //! counters say whether it *did* anything.
 
 use pixel_physics::lab::rain::Rain;
-use pixel_physics::lab::scenario::Scenario;
+use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::update;
 
@@ -121,6 +121,22 @@ fn main() {
         std::process::exit(1);
     });
     sc.bed.seed = seed;
+    // **`creature=<species>` overrides who a scenario's `Colony`/
+    // `Colonies` placements found** -- `labforage`'s own knob, same syntax,
+    // added there first for P1's three-arm measurement
+    // (`Reports/evolution-lab-pollinator-design-2026-09-10.md`). A card
+    // showing a bloom-wired species arriving at a flower on the owner's own
+    // played bed needs this scenario to found that species rather than the
+    // `.ron` file's own `Colony(species: "ant", ...)`.
+    if let Some(species) = arg::<String>("creature") {
+        sc.bed.colony_species = species.clone();
+        for p in sc.placements.iter_mut().chain(sc.timeline.iter_mut().map(|e| &mut e.what)) {
+            match p {
+                Placement::Colony { species: s, .. } | Placement::Colonies { species: s, .. } => *s = species.clone(),
+                _ => {}
+            }
+        }
+    }
     // **The warm-up runs at `Off`, whatever `rain=` asked for** -- the
     // requested rate is armed only once capturing starts, below. A card
     // built by pre-soaking the bed for `start` frames at the target rate
@@ -157,7 +173,8 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        lab.spec.colony_species,
         rain.label(),
         crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}"))
     );
