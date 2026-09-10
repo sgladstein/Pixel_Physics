@@ -7093,14 +7093,78 @@ fn segmented_body_after_step(chain: &[(i32, i32)], groups: &[u8], head: (i32, i3
     let new_spines = chain_follow(&old_spines, head);
     // Reassemble in walk order, re-deriving each lateral from its own
     // segment's *new* spine position.
-    let mut out = Vec::with_capacity(chain.len());
-    for (&(sx, sy), &g) in new_spines.iter().zip(groups) {
+    let mut out: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+    for (i, (&(sx, sy), &g)) in new_spines.iter().zip(groups).enumerate() {
         out.push((sx, sy));
         if g == 2 {
-            out.push((sx, sy - 1));
+            out.push(lateral_for(&new_spines, i, (sx, sy)));
         }
     }
     out
+}
+
+/// **Where segment `i`'s lateral cell sits: perpendicular to its own spine
+/// direction, on the first side that is not already spine.**
+///
+/// **This was `(sx, sy - 1)` — always world-space "up" — and that body could
+/// not walk.** Measured on `creature_scale mode=walk`, one seed, same scene,
+/// against a six-cell plain chain as the paired control:
+///
+/// | body | `preset=flat` | `preset=rolling` |
+/// |---|---|---|
+/// | `ant_long`, `Chain(6)`, 6 cells | **2.5%** blocked | **12.4%** |
+/// | the shipped articulated ant, 7 cells | **51.6%** | **96.3%** |
+///
+/// Length is controlled for by that pair, so the cost was the lateral. The
+/// mechanism is a **deadlock, not a tax**: a lateral fixed at `sy - 1`
+/// collides with the segment ahead whenever the spine runs vertically, and a
+/// spine acquires a vertical link the moment the head takes any upward step.
+/// `landing_is_placeable` then refuses *every* candidate — correctly, two
+/// cells cannot share one position — so the animal cannot move, and it cannot
+/// clear the kink either, because clearing it requires the moves it is being
+/// refused. On the colony scene that read as `ascii`'s
+/// `the colony has gone sessile: 0 round trips of 8+ cells`, with 172 moves
+/// against 9,586 blocked.
+///
+/// Perpendicular removes the dominant case by construction — a cell
+/// orthogonal to the direction of the segment ahead is never the segment
+/// ahead — and the second side handles a spine that bends back on itself,
+/// where the first perpendicular can land on the segment *behind*.
+///
+/// **Deterministic, and it reduces to the old rule where the old rule
+/// worked**: for a body lying horizontally the preferred perpendicular is
+/// `(0, -1)`, so a straight animal is laid out exactly as before and
+/// `a_segmented_body_bends_by_re_deriving_each_lateral` is unchanged.
+/// Preference is up first, then left, so the choice is a function of the
+/// body's own shape and never of iteration order (`CLAUDE.md`'s tie-order
+/// rule).
+fn lateral_for(spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32)) -> (i32, i32) {
+    // The direction of the segment ahead; for the head, the one behind,
+    // reversed, so a lead segment's lateral sits the same side as the rest.
+    let (dx, dy) = if i > 0 {
+        let (ax, ay) = spines[i - 1];
+        (ax - sx, ay - sy)
+    } else if let Some(&(bx, by)) = spines.get(1) {
+        (sx - bx, sy - by)
+    } else {
+        (1, 0)
+    };
+    let mut candidates = [(dy, -dx), (-dy, dx)];
+    // Up first, then left: a total order on the two, so the same body always
+    // resolves the same way.
+    candidates.sort_by_key(|&(px, py)| (py, px));
+    for (px, py) in candidates {
+        let cell = (sx + px, sy + py);
+        if !spines.contains(&cell) {
+            return cell;
+        }
+    }
+    // Both perpendiculars are spine: a body coiled tight enough that there is
+    // no free side. Return the preferred one anyway and let
+    // `landing_is_placeable` refuse the step, which is the honest outcome —
+    // inventing a third position would put a cell somewhere the shape does
+    // not say it is.
+    (sx + candidates[0].0, sy + candidates[0].1)
 }
 
 /// Where this creature's cells end up if its head steps to `head`.
@@ -12369,45 +12433,59 @@ mod tests {
         );
     }
 
-    /// **A segmented body cannot step straight up, and the reason is
-    /// arithmetic rather than terrain.** A lateral sits at its own spine's
-    /// `(sx, sy - 1)`; after a step the segment behind the head holds the
-    /// head's *old* cell; so if the head went straight up, its new cell and
-    /// that segment's lateral are the same position. `landing_is_placeable`
-    /// refuses a landing with a repeated position -- correctly, two cells
-    /// cannot share one -- so the step never happens.
+    /// **The laterals must add no collision the spine does not already
+    /// have** — the paired control, inside the test, over all eight headings.
     ///
-    /// **One heading of eight, and the diagonals are unaffected**, which is
-    /// why an animal still climbs: up-left and up-right produce no
-    /// collision, and `tumble` re-rolls among headings that have somewhere
-    /// to go. Recorded as a guard rather than left to be rediscovered as
-    /// "ants seem reluctant to climb", because nothing else in the suite
-    /// looks at blocked moves *by heading* and the effect is invisible in
-    /// an aggregate.
+    /// Some headings collide for a reason that has nothing to do with this
+    /// body plan: stepping straight back along your own body puts the head
+    /// on the cell the second segment is about to occupy, and a plain
+    /// `Chain` is refused there too. So the claim is not "never collides",
+    /// which is false and would be a bar tuned to whatever the rule happens
+    /// to do; it is **"collides exactly where a bare spine of the same
+    /// shape would"**, which is the property that makes a lateral free.
     ///
-    /// It is the price of placing the lateral in world space instead of
-    /// perpendicular to the local spine direction. Perpendicular is the
-    /// more correct rule and costs a rotation per segment per step; this
-    /// entry is here so that trade is re-opened deliberately rather than
-    /// stumbled into.
+    /// It did not hold. With the lateral fixed at world-space `(sx, sy - 1)`
+    /// a straight-up step put the trailing segment's lateral on the head's
+    /// own new cell, and that was a **deadlock rather than a tax**: a spine
+    /// acquires a vertical link on any upward step, and from then on the
+    /// collision recurs on every candidate, so the animal can neither move
+    /// nor clear the kink. Measured at 51.6% blocked on dead-flat ground
+    /// against a six-cell plain chain's 2.5%; `lateral_for` carries the
+    /// table and the fix.
+    ///
+    /// An earlier version of this guard *characterised* the defect — it
+    /// asserted the collision happened — and went red the moment the rule
+    /// was corrected. That is the right way round, and it is why this one
+    /// asserts a property instead.
     #[test]
-    fn a_segmented_body_cannot_step_straight_up_and_can_step_diagonally() {
+    fn a_lateral_adds_no_collision_the_spine_does_not_already_have() {
         let groups = [1u8, 2, 1];
         // Horizontal body, head east at (5,5), the wide segment behind it.
         let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
-
-        let straight_up = segmented_body_after_step(&chain, &groups, (5, 4));
-        let dup = straight_up.iter().enumerate().any(|(i, p)| straight_up[..i].contains(p));
+        let spine = [(5, 5), (4, 5), (3, 5)];
+        let head = (5, 5);
+        let has_dup = |v: &[(i32, i32)]| v.iter().enumerate().any(|(i, p)| v[..i].contains(p));
+        let mut spine_only_collisions = 0;
+        for (dx, dy) in DIRS.iter().copied() {
+            let step = (head.0 + dx, head.1 + dy);
+            let bare = chain_follow(&spine, step);
+            let full = segmented_body_after_step(&chain, &groups, step);
+            assert_eq!(full.len(), chain.len(), "a body relocates cell for cell, heading ({dx},{dy}): {full:?}");
+            if has_dup(&bare) {
+                spine_only_collisions += 1;
+                continue;
+            }
+            assert!(
+                !has_dup(&full),
+                "heading ({dx},{dy}): the spine alone is fine {bare:?} but the laterals collide {full:?}"
+            );
+        }
+        // The positive control: if no heading collided even for a bare
+        // spine, this scene cannot tell a free lateral from a costly one
+        // and the loop above asserted nothing interesting.
         assert!(
-            dup,
-            "a straight-up step must collide the trailing segment's lateral with the head's own new cell: {straight_up:?}"
-        );
-
-        let diagonal = segmented_body_after_step(&chain, &groups, (4, 4));
-        let dup_diag = diagonal.iter().enumerate().any(|(i, p)| diagonal[..i].contains(p));
-        assert!(
-            !dup_diag,
-            "a diagonal step must stay collision-free, or the body cannot climb at all: {diagonal:?}"
+            spine_only_collisions > 0,
+            "no heading collides even for a bare spine, so this body cannot distinguish the two rules"
         );
     }
 

@@ -1213,8 +1213,17 @@ drift that two of these documents still reflect.**
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
 - [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
-  — **design only, 2026-09-09. Nothing in it is built**; §7 says so and says
-  what it owes once something is. Can a creature's body come out of a
+  — **design 2026-09-09, built 2026-09-10, and the bodies do not walk.**
+  §7 is the measurement: an articulated ant is blocked on **43.9%** of its
+  moves on dead-flat ground and **96.8%** on `rolling`, against a six-cell
+  plain chain's **2.5%** and **12.4%** on the same seed — length controlled,
+  so it is the body plan. `ascii` fails outright (*"the colony has gone
+  sessile"*, 172 moves against 9,586 blocked) and `scene=colony` founds 4
+  ants of 52. §7b is a real defect found and fixed on the way (a lateral
+  fixed in world space deadlocks a spine that has gone vertical) which moved
+  the number barely at all, and §7c is three hypotheses that moved nothing,
+  recorded so they are not retried. The design below stands; the movement
+  rule does not. Can a creature's body come out of a
   genome instead of a species file? Yes, and the reason is that
   `World::push_organism` already seeds **every** organism, creature included,
   with a `FateGenome` from its species table — an ant has had a body genome

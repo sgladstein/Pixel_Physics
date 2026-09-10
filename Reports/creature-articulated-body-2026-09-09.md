@@ -430,32 +430,104 @@ the owner's and it is on a moving sequence, not on a metric and not on a
 still — the condition the owner attached to the six-silhouette card on
 2026-09-03. §7 is where it goes.
 
-## 7. Status: design only. Nothing here is built.
+## 7. Status: built, measured, and **it does not walk**
 
-**This branch is documentation. No engine change, no species change, no
-measurement.** The heading said "built and shipped with this report" over an
-empty placeholder before the build existed, which is `CLAUDE.md`'s own gotcha
-— *a commit message is not evidence the change is in the file* — arriving as a
-report claiming a build that had not happened. Corrected on the coordinator's
-review rather than left to be discovered by whoever measured against it.
+**The build is on the branch and the bodies are wrong.** The ant and the
+hopper are expressed through the growth program exactly as §2a describes —
+5 segments and 7 cells, 7 segments and 8 cells, from four heritable rules
+each — and an animal built that way is **blocked on 44% to 97% of its
+attempted moves**. The colony does not forage. This section is the
+measurement, because the measurement is the deliverable now.
 
-When the build lands on this branch, this section is written **from the
-measured results**, and it owes three things and no others:
+### 7a. The number, with its paired control
 
-- the shipped cell count and shape of the ant and of the hopper;
-- the frame cost, from `ascii scene=foraging`'s `worst`/`mean` line, paired and
-  alternating against a binary built before the change on the same machine in
-  the same session, with the pinning test applied before any worst is quoted;
-- the review card id, its `meta` counts, and what the moving sequence showed.
+`examples/creature_scale mode=walk`, one seed, 24 attempted placements, 4,000
+frames. The control is `ant_long` — `Chain(6)`, six cells, a plain chain — so
+**body length is controlled for** and what is left is the body plan.
 
-**Until then nothing in this report has been demonstrated in the engine.** It
-is a feasibility argument built by reading the source, and its numbers are
-properties of the code as it stands, not measurements of a body that walks.
+| body | cells | `preset=flat` | `preset=rolling` |
+|---|---|---|---|
+| `ant_long`, plain chain | 6 | **2.5%** | **12.4%** |
+| ant, articulated | 7 | **43.9%** | **96.8%** |
+| hopper, articulated | 8 | **74.6%** | **91.9%** |
 
-**Status at the time of writing:** the build is on the branch and the library
-suite is green but for one guard, which §9 records with the experiment that
-isolated it. Clippy in release is green. The frame cost and the moving
-sequence are not taken yet.
+`examples/ascii` fails on it outright, which is how it was found:
+
+```
+the colony has gone sessile: 0 round trips of 8+ cells
+(measured 23 here on 2026-08-29 at f96c08d, 24 at ba6fc98; was 98 on 2026-08-23),
+deepest excursion 7 cells, reach profile [10, 1, 1, 0, 0, 0, 0, 0]
+```
+
+with **172 moves against 9,586 blocked** over 12,000 frames. And on
+`filmstrip scene=colony`, **4 ants founded of 28 viable sites of 52 asked** —
+so placement is failing too: the site predicate says a site is good and the
+body does not fit in it.
+
+### 7b. One real defect found and fixed, which was not the cause
+
+The lateral cell was placed at world-space `(sx, sy − 1)`, always. A spine
+acquires a vertical link on any upward step, and from then on that lateral
+sits exactly on the segment ahead — so `landing_is_placeable` refuses every
+candidate, correctly, and the animal can neither move nor clear the kink.
+A deadlock rather than a tax.
+
+Replaced by a **perpendicular** rule: the lateral sits orthogonal to the
+direction of the segment ahead, on the first of the two sides that is not
+already spine, preferring up then left. It reduces to the old rule for a
+straight body, so a horizontal animal is laid out exactly as before.
+
+It is guarded by the right property — *the laterals add no collision the
+spine does not already have*, over all eight headings, with a bare-spine
+paired control inside the test and a positive control asserting the scene can
+tell the two rules apart. An earlier version of that guard **characterised
+the defect** instead, asserting the collision happened, and went red the
+moment the rule was corrected; that is the right way round and it is recorded
+because the temptation is to keep such a test passing.
+
+**And it moved the number barely at all**: ant on flat 51.6% → 43.9%, ant on
+rolling 96.3% → 96.8%. So the defect was real, the fix is right, and it is
+**not** what makes these bodies immobile.
+
+### 7c. Three hypotheses, all wrong, recorded so they are not retried
+
+Each was reverted, and each is recorded because a change that moves nothing
+is evidence about the condition it keyed on, not a neutral outcome.
+
+| hypothesis | what happened |
+|---|---|
+| the whole body had become a jaw, so capping the non-mouth fight reach at the length it was authorised for | breach frames **101 and 109, byte for byte identical**. The reach is not binding |
+| attackers spaced below the engine's own `COLONY_ANT_SPACING.max(body_span * 2)` were gridlocking | 109 → **107** |
+| the lateral rule (§7b) | 51.6% → 43.9% flat, 96.3% → 96.8% rolling |
+
+Two further things ruled out by reading rather than by running: `composition_
+mix` is `1.0 + GAIN × (frac − baseline)`, exactly 1.0 at the baseline, so an
+animal with none of a role is unmoved by it; and **no code branches on
+`BodyPlan::Chain` in the movement path**, so a segmented body is not falling
+into a rigid-body path by accident.
+
+**The lateral count is anti-correlated with the damage**, which is the
+strongest clue left and the reason the remaining suspicion is not "laterals":
+the hopper has **one** lateral and is blocked *more* than the ant's two
+(74.6% against 43.9% on flat). What the hopper has more of is **spine
+length** — 7 segments against 5 — while a plain chain of 6 is at 2.5%.
+
+### 7d. What is actually owed next
+
+The unexplained quantity is why a segmented spine of `n` costs so much more
+than a plain chain of `n`, when the spine rule *is* the chain rule and the
+only other cells are one per widened segment. The next step is not another
+hypothesis: it is **an ablation inside one binary** — an env switch that
+places a `Segmented` body's laterals or does not, changing nothing else, so
+both arms come from the same build and one run separates them. That is this
+project's own prescription for a confound, and it would have saved the three
+rows in §7c.
+
+**Not measured, deliberately, because there is nothing yet worth measuring:**
+the frame cost, and the moving sequence for the review queue. A contact sheet
+of four immobile ants is not a question worth an owner's time, and the ethos
+this project is built on says a mechanic that is right on paper and dull in
+the hand has failed. This one is not even right on paper yet.
 
 ## 8. What this deliberately leaves for later
 
