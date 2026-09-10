@@ -174,6 +174,34 @@ the default bed (`…c8709b`), the rain rate (`…f2fb5b`), the HISTORY page
 (`…c0b68b`), the moving bodies (`…0180fc`), and from round twenty-five the
 tree, the marks and *is the box empty*.
 
+**Round twenty-seven, opened on the verdicts (2026-09-10, 16:00 UTC).**
+Landed: **#306**, the played bed with four scramblers and a tree — and the
+thicket kept out of columns 180–330, because copied from the measurement
+bed it seated **2 ants of 52** at founding (6 by 30,000) against 29 / 38
+once moved: looking before committing caught it. Opened: **#307**, the
+pollinator design (`evolution-lab-pollinator-design-2026-09-10.md`; the
+species is `flitter`): its three measurements move the build — **the
+thicket is the pollinator's larder** (standing flowers at frame 6,000,
+median 60 on the thicket bed against 16 on herbs); **the bed stops
+flowering on its own and the colony is not the cause** (81 → 10 → 3 flowers
+by 40,000 with the colony *removed*: herb and scrambler are determinate,
+an axis ends in a flower and stops), so the first build is **a flower that
+renews (B1′)**, not a rule keeping ants off flowers; and **"nectar out of
+the reproductive budget" was a units error in the ecology design** (plant
+carbon capped at 4.0 where a fruit costs 0.3, against creature joules) —
+nectar is two numbers and an exchange rate. Build order **B1′ → (P1 the
+bloom sense ∥ B2) → P2 the flitter → C1 animals carry pollen → C2 the
+petal-colour locus (lands alone: it moves every seeded plant figure) → I
+the instruments** (`selection_arena` attributes hybrids wholly to the
+mother's arm and must change). Also: the 2.0 hop makes *fewer* real
+launches than 0.5 (60% of its launches fire mid-air); what it buys is
+longer flights and what it costs is starving aloft, and the repair is one
+wire, `(FoodAdjacent, Impulse, −2.0)`, not the recorded dead end. Lanes
+running: A2 (the seed rides home), B1 (nectar, re-briefed to B1′ by
+message), R2 (rain on at the measured rate), H2 (HISTORY per colony), and
+`bodies-mobility` (Opus: the blocked-step classifier and the movement
+rule).
+
 **The owner's verdicts, 2026-09-10 (synced 15:31 UTC), and what each sets
 in motion:** the thicket goes in the default played bed (*"Sure"*) and so
 does a tree (*"a mix is best"*); **rain ships ON with the control kept**
