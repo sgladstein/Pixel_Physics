@@ -1002,3 +1002,272 @@ wiring, not something to settle inside an appearance change.
 lane's landed work reverted, which is the stale-file failure `CLAUDE.md`
 records: it looks like a modification and is really a revert of an upstream
 commit, and nobody recognises it as theirs.
+
+## 10. The founding repair (2026-09-10, lane K, branch `claude/creature-lateral-tuck-r26`)
+
+**Founding now decides on the spine alone, exactly like a step.** §7f's
+movement rule (§7f(1)) was never wired into `place_creature`: founding kept
+its own, older check -- refuse the site if *any* cell of the body's full
+*authored* footprint is not empty, evaluated once before the animal has ever
+taken a step. A spine that fit perfectly still lost the whole site to one
+blocked lateral cell, which is why `filmstrip scene=colony` founded 4 of 52
+even after §7f landed (§7f(7) recorded this as expected and out of scope for
+that build). This closes it: `place_creature` computes the spine's straight-
+line footprint (the same formula `BodyPlan::offsets` uses for a fresh body),
+refuses the site only if the spine itself does not fit, and then places each
+widened segment's lateral by calling **the movement rule's own `lateral_for`**
+-- authored side, other side, or tuck -- rather than a second, independently
+maintained placement rule. `segment_groups` is seeded from what actually got
+placed, so a founder born with a tucked lateral is not a corrupted body: it
+re-emerges on its first step exactly as a lateral tucked mid-walk does
+(§7f(1)), because `segmented_body_after_step` reads `segment_authored`, not
+`segment_groups`, to decide whether a segment may *attempt* a lateral.
+
+**The numbers, both scenes, one binary each, the `PIXEL_PHYSICS_BODY_LATERALS=0`
+arm as the control this task's brief asked for:**
+
+| scene | before this build | after (this fix) | laterals=0 control |
+|---|---|---|---|
+| `filmstrip scene=colony` seed=1 (52 asked, 28 "viable" by the scene's own probe) | **4** founded | **5** founded | **5** founded |
+| `labshot scenario=played_bed frames=6000,6100` seed=1 (52 asked) | **11** animals at frame 6,000 (steady at 6,100) | **12** at frame 6,000 (steady at 6,100) | **12** at frame 6,000 (steady at 6,100) |
+
+**The fix lands exactly on the control, on both scenes, not merely closer to
+it.** That is the bar this task set (*"close to what a bare spine
+founds"*), and it is met precisely rather than approximately -- the founding
+predicate and the movement predicate now agree completely, where before this
+build they disagreed by exactly the lateral cells a naive full-footprint scan
+adds over a spine-only one.
+
+**Why the absolute numbers are still small, and why that is not this task's
+defect to fix.** Both scenes' `laterals=0` control -- a bare, un-widened
+5-cell spine, which can never lose a site to a lateral because it has none --
+*also* only founds 5 of 52 and 12 of 52. That is definitive: whatever is
+capping these two scenes at roughly a tenth of the ask, it is not body width,
+because the width-free body hits the identical ceiling. `filmstrip`'s own
+comment already names one open, separate cause (`open-bugs-handoff.md` §R2,
+the `colony_ant_site` probe disagreeing with `found_colony` about what counts
+as ground -- the "viable" column above is that probe's count, not evidence of
+what a real body can use); `played_bed.ron`'s own header comment names a
+second (grown vegetation and its seed litter occupying the surface by frame
+6,000, and colony spacing rules eating sites a bare terrain would not). Both
+are the "placement fails as well as movement" defect the PR body already
+flagged as separate from §7f's own scope, and this task's mandate was the
+width/lateral half of that sentence -- which is now closed, verified by
+parity with the correct control on two independent scenes -- not the whole
+sentence.
+
+**Test, watched red before being trusted.** `a_founding_site_with_a_blocked_
+lateral_still_founds_tucked` (`src/sim/creature.rs`, beside `found_colony_
+never_puts_an_ant_on_water`): an open-floor control founds with at least one
+segment at width 2 (the positive control, so the obstructed arm below can
+actually tell tucked from never-widened); a second world boxes a level ant's
+lateral top and bottom -- the floor it already stands on for "down", a
+ceiling one cell above the spine for "up", the exact cell `lateral_for`'s
+"authored side" candidate lands on for a level body -- and asserts the site
+still founds, every segment reading one cell wide, physically fewer cells
+than the open control. Watched red against the pre-fix `place_creature`: the
+boxed-in world's `spawn()` call panics (`place_creature` returns `None`,
+`.expect` fires) under the old full-footprint rule, and passes clean once
+the fix lands. `cargo test --lib`: this test plus the whole suite at 1,562
+passed / 1 failed (§9's own guard, unrelated and unchanged) / 69 ignored.
+
+## 11. Task B: the swarm guard's cause, isolated further -- length over width, and rescaling the plate does not restore the premise
+
+**§9 already isolated the cause to "the articulated body against the rewired
+brain" without separating body length from body width.** This section does
+that separation, with the two `#[ignore]`d diagnostic probes added beside the
+guard (`probe_lone_attacker_breach_frame_by_body`,
+`probe_plate_calibration` -- not gates, run by hand with the env vars their
+own doc comments name) as the instrument, per this task's own instruction to
+diagnose rather than guess.
+
+**Length, not width, drives the lone attacker's speed.** The lone arm's
+median breach frame, one binary, eight seeds, `BUDGET=900` unless noted:
+
+| body | median | per-seed frames |
+|---|---|---|
+| shipped ant, 7 cells (laterals on) | **101** | 19, 44, 52, 60, 101, 123, never, never |
+| shipped ant, 5-cell spine (`PIXEL_PHYSICS_BODY_LATERALS=0`, no width at all) | **112** | 48, 56, 60, 109, 112, 130, 154, 241 |
+
+Both land in the same order of magnitude, and the width-off arm has **zero**
+900-frame timeouts against the width-on arm's two -- if anything the width-
+free body is the *more* reliable of the two, not the safer-for-the-beetle
+one. Per this task's own test: the 5-cell spine also breaches at ~101, so the
+cause is body **length**, not width. The mechanism is not new to this
+branch: `adjacent_food_counted`'s whole-body scan (dated 2026-09-06, "scanned
+the head alone until" that date, its own doc explicit that this is *"the
+thing this exists for is an attacker clamped onto a flank, which the head
+cannot turn to face"*) lets any body cell -- not only the head -- find and
+bite a hostile organism. A longer body, wide or not, is more often touching
+its target somewhere along its length on any given tick, so it locks onto and
+starts working a beetle sooner and more reliably than the old 2-cell ant did.
+This is length acting through a rule that already shipped before the
+articulated body, not an artifact of this branch's own lateral tuck rule or
+of width.
+
+**`ant_long` (`Chain(6)`, no `fates` table) is *not* a clean length-only
+control, and its result is recorded here so nobody trusts it blind.** Same
+lone-arm harness, `ant_long` in place of `ant`: median **900**, six of eight
+seeds timing out (`392, 504, 900, 900, 900, 900, 900, 900`) -- read alone
+this says "a plain six-cell chain is nearly harmless," which would flatly
+contradict the 5-cell-spine result two paragraphs up. It is confounded on at
+least two axes checked directly in its own file: `start_energy: 900.0`
+against the shipped ant's `200.0` (`ant_long.ron` predates the four-price
+locked-field audit and was never re-tuned against it), and `force_fraction`
+never authored at all (defaults to 0, so the species pays nothing to carry
+its jaw -- a cost difference, not a force one, but evidence the file was
+never brought current for combat). More likely still: `ant_long.ron`'s own
+header says *"Everything else in this file is `ant.ron` unchanged"*, which
+was true when it was written and has not been true since the Attack/Alarm
+instinct append §9 itself says moved the shipped seed's swarm ratio from
+5.3x to 1.9x -- `ant_long` almost certainly carries the *pre*-append
+instincts. **Dead end, recorded so it is not retried**: `ant_long` answers
+"what does a stale, uncombat-tuned species do here," not "what does body
+length alone do here." The 5-cell-spine ablation above is the clean control;
+this one is not.
+
+**Rescaling the plate -- this task's other named branch -- was tried and does
+not restore the premise; it makes the swarm's relative position *worse* as
+the plate gets tougher.** `probe_plate_calibration` swept `TRAIT_ARMOUR`
+(the world's own shipped `trait_reach` ceiling, `TRAIT_REACH_MAX = 8.0`, left
+untouched -- only the allele moves, never the dial's own top), lone and swarm
+arms, eight seeds, `BUDGET=3600` so a slower breach is not miscounted as
+"never":
+
+| armour allele | lone median | swarm median | swarm/lone ratio |
+|---|---|---|---|
+| 1 (shipped bed) | 101 | 77 (the guard's own live number, post-fix) | **0.76** |
+| 4 | 153 | 182 | **1.19** |
+| 8 (the trait's own ceiling) | 239 | 336 | **1.41** |
+
+At the shipped armour the swarm is still faster than one ant, just not by the
+guard's required 1.5x margin (77 against a floor of ~67). Raising the plate
+does not close that gap -- it **reverses** it, and by a growing amount: at
+armour 8 the swarm takes 41% *longer* than one attacker, the opposite of "the
+swarm gets through what one mouth cannot." Per `CLAUDE.md`'s own convention,
+a lever that makes the target metric worse in the direction it was raised for
+is not a tuning problem, it is the wrong lever, and it is recorded here as a
+dead end for the fight-balance owner rather than as this task's own fix.
+
+**Why: crowding, measured directly, and the same shape as §7e/§7f's own
+lateral-cost finding, now hitting the *swarm* rather than the *lone*
+attacker.** `probe_plate_calibration`'s per-seed `moves`/`blocked` at armour
+4 (a fight long enough for the effect to accumulate):
+
+| seed | lone blocked/moves | swarm blocked/moves |
+|---|---|---|
+| 1 | 1/4 = 25% | 29/77 = **38%** |
+| 2 | 2/11 = 18% | 14/62 = **23%** |
+| 3 | 3/12 = 25% | 16/56 = **29%** |
+| 4 | 1/10 = 10% | 10/27 = **37%** |
+| 6 | 3/7 = 43% | 49/84 = **58%** |
+| 7 | 6/14 = 43% | 60/116 = **52%** |
+
+Every one of six seeds shows the swarm's own blocked-move fraction above the
+lone attacker's, by 1.2x to 3.7x. Eight width-2 bodies converging on one
+target interfere with **each other's** movement measurably more than one
+body does on its own, and that cost is paid every tick the fight is still
+running -- which is exactly why raising the armour (making the fight run
+longer) makes the swarm's relative disadvantage worse rather than better: a
+longer fight is more ticks for the crowding cost to accumulate against, on
+top of whatever the plate itself is costing.
+
+**So the cause is neither of this task's two clean buckets, and the honest
+account is a compound one.** Body length (through a pre-existing, unrelated
+rule) makes one attacker faster than the guard's premise assumed; body width
+(through crowding among the eight, not through anything about the lone
+arm) makes the swarm slower relative to that one attacker than the premise
+assumed; and the two compound rather than cancel as the fight gets harder.
+This is not an accounting line to fix (the whole-body scan is deliberate,
+dated, and unrelated to this branch; the crowding is real physical
+interference, not a miscount) and it is not a plate value away from being
+fixed (measured across a 8x range of the trait's own ceiling, and the wrong
+direction). **Left exactly as §7f(6)/§9 already decided: red, untouched,**
+now with the length/width split and the plate sweep on record so neither is
+retried blind. `sim::creature::tests::a_swarm_gets_through_what_one_mouth_
+cannot` is not deleted, not `#[ignore]`d, and not weakened.
+
+## 12. Task C: the chamber assertion is a real consequence of body width -- diagnosed, and left red
+
+**`examples/ascii.rs`'s "ants excavating a chamber out of soil" scene
+(`nest_dig_scene`, its `roofed > 0` assertion dated 2026-09-05, older than
+the articulated body) fails on this branch and is unaffected by anything in
+this task's own change -- §7f(7) already found and recorded this before task
+A or B were touched.** Diagnosed here with a windowed instrument (per-1,000-
+frame dug/void/roofed/moves/blocked, every death's frame, cause and last
+known position, and a final row-by-row void census), built as a temporary
+scene in `examples/ascii.rs` for this investigation and removed again
+afterward -- it is not part of the committed tree; the numbers below are what
+it measured.
+
+**The scene digs an unroofed crater at the top of the bank regardless of
+body width -- this part is a pre-existing, width-independent quirk, not the
+cause.** Row-by-row void at the final frame (`depth` counted down from the
+bank's own top row), both arms:
+
+| depth | width on (shipped) | width off (`LATERALS=0`) |
+|---|---|---|
+| 0 | 57 | 56 |
+| 1 | 51 | 51 |
+| 2 | 45 | 47 |
+| 3 | 42 | 41 |
+| 4 | 39 | 37 |
+| 6 | 29 | 29 |
+| 8 | 18 | 17 |
+| 11 | 8 | 3 |
+| 12 | 3 | -- |
+| 27-29 | **0** | **4, 6, 4** |
+
+The two arms carve a near-identical crater open to the bank's own top surface
+across the first ~12 rows -- a colony quarrying the open face rather than
+tunnelling into it, exactly the shape `CLAUDE.md`'s own metric-traps section
+already names ("standing void is not dug void... a pit is standing void").
+Every cell in that crater is unroofed by construction (nothing solid stands
+between it and the sky), and both arms dig it the same way, so **this is not
+what body width breaks.**
+
+**What width breaks is reaching the *second* gallery, deep by the stone
+floor, that the width-off colony finds and the width-on one never does.**
+The width-off arm alone digs down to depth 27-29 (4-6 void cells per row,
+tucked under nearly thirty rows of intact soil) -- a genuine tunnel with an
+intact roof, which is exactly what `roofed 14` at the final frame is reading.
+The width-on colony never reaches anywhere near that depth in the full 8,000
+frames; its `roofed` count is **0** at every window from frame 1,000 onward,
+not merely low.
+
+**Why it never gets there: the same crowding cost task B found, now
+starving a colony instead of merely slowing a swarm.** Over the identical
+8,000 frames, one binary each:
+
+| | width on (shipped) | width off (`LATERALS=0`) |
+|---|---|---|
+| digs, final | 96 | **133** (+39%) |
+| moves blocked / moves, frame 7,000 | 878/1,396 = **63%** | 760/1,406 = 54% |
+| deaths | **5 of 6** | 1 of 6 |
+| death cause, every one | STARVED | STARVED |
+
+Every death in both arms is `DeathCause::Starved`, not a cave-in or a bite --
+several of the width-on colony's dead were last seen well outside the bank
+entirely (e.g. `(0,111)`, `(17,105)`, `(20,104)`), consistent with a colony
+spending an outsized share of its ticks blocked or wandering rather than
+digging or feeding, exactly the pattern of "burns energy without progress"
+task C's own hypothesis (3) named. The width-2 body, self-interfering in its
+own dug gallery the way eight width-2 attackers interfere with each other
+around one beetle, digs 28% fewer cells and starves five times as many ants
+in the same budget -- and never lives long enough, as a colony, to reach the
+depth where a stable roof would read as `roofed > 0` at all.
+
+**This is a real, geometric-and-behavioural consequence of width, not a
+one-line accounting bug or a placement predicate -- so per this task's own
+branch, it is written up rather than patched, and the assertion stays red.**
+Nothing here counts a body cell as fill (the void/roofed instrument used
+above is the scene's own, unmodified), and nothing here is a placement
+defect (task A's fix is orthogonal -- it changes whether a *site* founds, not
+how a *standing* colony digs). A 2-wide body cannot dig a roofed chamber the
+way a 1-wide one does, in this scene, because it cannot survive long enough
+to reach one: fixing that is a burrow-geometry or body-shape design decision
+belonging to whoever owns that line next (the PR body already named this
+seam), not a repair this task's mandate covers. `nest_dig_scene`'s `assert!
+(roofed > 0, ...)` is left exactly as written; `cargo run --release --example
+ascii` still panics there, and every scene before it in the catalogue is
+green.

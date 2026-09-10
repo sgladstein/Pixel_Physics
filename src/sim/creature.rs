@@ -1267,20 +1267,72 @@ fn place_creature(
         grown = BodyPlan::Segmented(organism::grow_body(body_fates, SEGMENTED_BODY_CAP, body_laterals_enabled()));
         &grown
     };
-    let positions: Vec<(i32, i32)> = body.offsets(facing_west).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
-    if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
-        return None;
-    }
+    // **A founding site's placeability is decided the same way a step's is:
+    // on the spine alone, with each widened segment's lateral taking its
+    // authored side, the other side, or tucking** (task A of the founding
+    // repair, `Reports/creature-articulated-body-2026-09-09.md` §7f). The
+    // old rule here refused a site whenever *any* cell of the body's full
+    // authored footprint was not empty, checked once before the animal had
+    // taken a single step -- so a spine that fit perfectly still lost the
+    // site to one blocked lateral cell, which is why `filmstrip
+    // scene=colony` founded 4 of 52 asked. `lateral_for` is the exact
+    // function the movement rule calls for a live step; reused here rather
+    // than re-derived, so the two placeability rules cannot drift apart.
+    let (positions, segment_groups, cell_types): (Vec<(i32, i32)>, Vec<u8>, Vec<CellType>) = if let BodyPlan::Segmented(segments) = body {
+        // The body's shape at the moment it is placed is a straight line
+        // trailing the head along the facing -- the exact formula
+        // `BodyPlan::offsets` uses for a `Segmented` body's spine before it
+        // has taken a step to bend around anything.
+        let spines: Vec<(i32, i32)> = (0..segments.len() as i32).map(|i| (x + if facing_west { i } else { -i }, y)).collect();
+        // **Unconditional**, exactly as `segmented_body_after_step`'s own
+        // spine landing: if the spine itself does not fit, there is no site
+        // here regardless of what either lateral could do.
+        if spines.iter().any(|&(px, py)| !world.is_empty(px, py)) {
+            return None;
+        }
+        let mut placed: Vec<(i32, i32)> = Vec::with_capacity(body.len());
+        let mut groups: Vec<u8> = Vec::with_capacity(segments.len());
+        let mut types: Vec<CellType> = Vec::with_capacity(body.len());
+        for (i, seg) in segments.iter().enumerate() {
+            let spine = spines[i];
+            placed.push(spine);
+            types.push(seg.cell);
+            if let Some(lateral_type) = seg.lateral {
+                // No old body to vacate into at founding, so the vacate
+                // licence (`lateral_for`'s `chain` argument) is empty; `push`
+                // is `false` -- a lateral this constrained tucks rather than
+                // shoving through soil to make room for itself.
+                match lateral_for(world, &[], &placed, &spines, i, spine, false) {
+                    Some(cell) => {
+                        placed.push(cell);
+                        types.push(lateral_type);
+                        groups.push(2);
+                    }
+                    // Tucked at founding, same as tucked mid-walk: not an
+                    // error, and it re-emerges the moment the animal steps
+                    // and a side clears -- nothing here remembers the tuck.
+                    None => groups.push(1),
+                }
+            } else {
+                groups.push(1);
+            }
+        }
+        (placed, groups, types)
+    } else {
+        let positions: Vec<(i32, i32)> = body.offsets(facing_west).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
+        if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
+            return None;
+        }
+        // The per-segment sizing an injury has to preserve; empty for a
+        // `Chain` or `Rigid` body, which never reads it -- see
+        // `OrganismState::segment_groups`.
+        (positions, body.segment_groups(), body.cell_types())
+    };
     // Taken before `positions` is moved into the organism's chain, because
-    // the structural grant is per body cell.
+    // the structural grant is per body cell -- and, for a `Segmented` body
+    // with a tucked lateral, genuinely smaller than the authored footprint,
+    // the same way a tuck mid-walk is (§7f "Upkeep and roles").
     let body_cells = positions.len();
-    // Walked out in the same order as `positions`, so the loop below can
-    // zip them index for index -- see `BodyPlan::cell_types`'s own doc.
-    let cell_types = body.cell_types();
-    // The per-segment sizing an injury has to preserve; empty for a `Chain`
-    // or `Rigid` body, which never reads it -- see `OrganismState::
-    // segment_groups`.
-    let segment_groups = body.segment_groups();
 
     // At the slot ceiling nothing hatches -- see `plant_worm_seed` above,
     // and `World::push_organism` for why refusal beats a corrupted id.
@@ -9141,6 +9193,62 @@ mod tests {
         assert!(afloat.is_empty(), "{} ants with no cell resting on ground: {:?}", afloat.len(), &afloat[..afloat.len().min(8)]);
     }
 
+    /// **Founding, task A of the founding repair
+    /// (`Reports/creature-articulated-body-2026-09-09.md`'s addendum): a
+    /// site is viable when the spine fits, and a lateral with nowhere to go
+    /// tucks rather than refusing the whole site.** The old rule --
+    /// `place_creature` refusing a site whenever any cell of the body's
+    /// *full authored footprint* was not empty -- is why `filmstrip
+    /// scene=colony` founded 4 of 52: a clear spine lost the site to one
+    /// blocked lateral cell. This is that rule's positive and negative case
+    /// in one test, watched red against the pre-fix `place_creature` before
+    /// being trusted.
+    #[test]
+    fn a_founding_site_with_a_blocked_lateral_still_founds_tucked() {
+        // **The open-floor control, first.** Its own positive control: if
+        // every widened segment does not found at width 2 here, the boxed-in
+        // arm below proves nothing about tucking specifically.
+        let mut open = test_world();
+        let floor = open.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            open.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        let open_id = spawn(&mut open, "ant", 50, 119);
+        assert_ne!(open_id, 0, "the open-floor control must found -- nothing here should ever refuse it");
+        let open_groups = open.organism(open_id).map(|s| s.segment_groups.clone()).unwrap_or_default();
+        assert!(
+            !open_groups.is_empty() && open_groups.contains(&2),
+            "the ant must be a Segmented body with at least one widened segment on open ground, or this test cannot tell tucked from never-widened: {open_groups:?}"
+        );
+
+        // **Boxed in, top and bottom.** The floor (`y = 120`) is the ant's
+        // own foothold, already occupying the lateral's "down" candidate;
+        // a ceiling at `y = 118` -- one cell above the spine's row, exactly
+        // where `lateral_for`'s "up" candidate (the authored side for a
+        // level body) would land -- takes the other one. Every widened
+        // segment's lateral has nowhere to go.
+        let mut w = test_world();
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            w.set(x, 118, Cell::new(floor, 0).with_attached(true));
+        }
+        let id = spawn(&mut w, "ant", 50, 119);
+        assert_ne!(
+            id, 0,
+            "the spine's own row (119) is clear of both the floor and the ceiling, so the site must found even though every lateral is boxed in -- this is the old rule's own failure mode"
+        );
+        let groups = w.organism(id).map(|s| s.segment_groups.clone()).unwrap_or_default();
+        assert_eq!(groups.len(), open_groups.len(), "boxing in a lateral must not change how many segments the body has, only how wide one reads: {groups:?} against the open control's {open_groups:?}");
+        assert!(
+            groups.iter().all(|&g| g == 1),
+            "boxed top and bottom, every segment -- widened or not -- must read one cell wide: {groups:?}"
+        );
+        let cells = w.organism(id).map(|s| s.chain.len()).unwrap_or(0);
+        assert_eq!(cells, groups.len(), "a fully tucked founding is exactly one cell per segment: {cells} cells against {} segments", groups.len());
+        let open_cells = open.organism(open_id).map(|s| s.chain.len()).unwrap_or(0);
+        assert!(cells < open_cells, "a founding with every lateral tucked must be physically smaller than the open control: {cells} against {open_cells}");
+    }
+
     /// The canopy half of `open-bugs-handoff.md` §R. A downward scan from
     /// the sky stops on a leaf, so a column with a tree over it read as
     /// having no ground -- 217 of 308 columns on the colony scene's own
@@ -10662,6 +10770,142 @@ mod tests {
             swarm_lost >= lone_lost,
             "eight mouths must take at least as much off an armoured beetle as one does, summed over 8 seeds: swarm {swarm_lost} against lone {lone_lost}"
         );
+    }
+
+    /// **Diagnostic probe for §9's guard -- not a guard, and not gated by
+    /// anything.** Task B's isolation question is "does the lone attacker's
+    /// fast breach (frame 101, median) track body *length* or body
+    /// *width*?", and the honest way to answer it is to run the same
+    /// one-mouth-on-a-plate scene with the width taken away and see whether
+    /// 101 moves.
+    ///
+    /// **Two independent ablations, both read against the shipped ant's own
+    /// 101:**
+    /// - `PIXEL_PHYSICS_BODY_LATERALS=0` grows the *same* species' fates
+    ///   table with every lateral suppressed -- a 5-cell spine, no width,
+    ///   same production rule.
+    /// - `PIXEL_PHYSICS_PROBE_SPECIES=ant_long` swaps the attacker for
+    ///   `ant_long`'s hand-authored `Chain(6)` -- no `fates` table at all,
+    ///   so this is length without the grown-body machinery anywhere near
+    ///   it, a second and independent control on the same question.
+    ///
+    /// `#[ignore]`d on purpose: this exists to be re-run by hand with those
+    /// two env vars, not to gate CI on either arm of an ablation.
+    #[test]
+    #[ignore = "diagnostic probe for §9, not a guard -- run by hand with PIXEL_PHYSICS_BODY_LATERALS=0 or PIXEL_PHYSICS_PROBE_SPECIES=ant_long set"]
+    fn probe_lone_attacker_breach_frame_by_body() {
+        let species = std::env::var("PIXEL_PHYSICS_PROBE_SPECIES").unwrap_or_else(|_| "ant".to_string());
+        const BUDGET: usize = 900;
+        // The lone arm of `a_swarm_gets_through_what_one_mouth_cannot`'s own
+        // `cells_taken_seed`, attacker count and species pulled out to
+        // parameters so the two can be compared without touching the guard.
+        let cells_taken_seed = |seed: u64| -> (u64, usize, usize) {
+            let mut w = test_world();
+            if seed > 0 {
+                w.seed = 1234 + seed * 7919;
+            }
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 40..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the probe is about");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_ARMOUR] = 1.0;
+            }
+            let before = w.organism(beetle).map_or(0, |st| st.chain.len());
+            let a = spawn(&mut w, &species, 96, 119);
+            assert_ne!(a, 0, "the lone attacker ({species}) was not placed -- this scene does not fit that body");
+            if let Some(st) = w.organism_mut(a) {
+                st.energy = 100_000.0;
+            }
+            let mut first_loss = 0usize;
+            for f in 1..=BUDGET {
+                run(&mut w, 1);
+                let n = w.organism(beetle).map_or(0, |st| st.chain.len());
+                if n < before {
+                    first_loss = f;
+                    break;
+                }
+            }
+            let after = w.organism(beetle).map_or(0, |st| st.chain.len());
+            (w.creature_stats.gnaws, first_loss, before.saturating_sub(after))
+        };
+        let mut frames: Vec<usize> = Vec::new();
+        for seed in 0..8u64 {
+            let (g, f, l) = cells_taken_seed(seed);
+            println!("  seed {seed}: gnaws {g} first_loss {f} lost {l}");
+            frames.push(if f == 0 { BUDGET } else { f });
+        }
+        frames.sort_unstable();
+        println!(
+            "species={species} PIXEL_PHYSICS_BODY_LATERALS={:?} median {} of {frames:?}",
+            std::env::var("PIXEL_PHYSICS_BODY_LATERALS"),
+            frames[frames.len() / 2]
+        );
+    }
+
+    /// **Calibration probe for §9, not a guard.** Once the length-vs-width
+    /// question above is answered, the remaining question is a number: what
+    /// armour value makes `a_swarm_gets_through_what_one_mouth_cannot`'s
+    /// plate genuinely beyond the shipped body's one mouth again, at the
+    /// *arms-race* reach the world already ships (`World::trait_reach`
+    /// defaults to `TRAIT_REACH_MAX`, per `test_world` and `World::default`
+    /// alike -- this probe does not raise it, only the allele within it).
+    /// Env vars: `PIXEL_PHYSICS_PROBE_ARMOUR` (trait allele, default 1.0 --
+    /// the guard's shipped value), `PIXEL_PHYSICS_PROBE_ATTACKERS` (default
+    /// 1, the lone arm; set 8 to check the swarm side of the same setting).
+    /// A longer budget than the guard's 900 so "does it ever breach" and
+    /// "how much later" can both be read off one run rather than every
+    /// timeout reading as the same censored value.
+    #[test]
+    #[ignore = "calibration probe for §9, not a guard -- sweep PIXEL_PHYSICS_PROBE_ARMOUR by hand"]
+    fn probe_plate_calibration() {
+        let armour: f32 = std::env::var("PIXEL_PHYSICS_PROBE_ARMOUR").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        let attackers: i32 = std::env::var("PIXEL_PHYSICS_PROBE_ATTACKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        const BUDGET: usize = 3600;
+        let cells_taken_seed = |seed: u64| -> (u64, usize, usize, u64, u64) {
+            let mut w = test_world();
+            if seed > 0 {
+                w.seed = 1234 + seed * 7919;
+            }
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 40..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_ARMOUR] = armour;
+            }
+            let before = w.organism(beetle).map_or(0, |st| st.chain.len());
+            for i in 0..attackers {
+                let a = spawn(&mut w, "ant", 96 - i * 6, 119);
+                if let Some(st) = w.organism_mut(a) {
+                    st.energy = 100_000.0;
+                }
+            }
+            let mut first_loss = 0usize;
+            for f in 1..=BUDGET {
+                run(&mut w, 1);
+                let n = w.organism(beetle).map_or(0, |st| st.chain.len());
+                if n < before {
+                    first_loss = f;
+                    break;
+                }
+            }
+            let after = w.organism(beetle).map_or(0, |st| st.chain.len());
+            (w.creature_stats.gnaws, first_loss, before.saturating_sub(after), w.creature_stats.moves, w.creature_stats.moves_blocked)
+        };
+        let mut frames: Vec<usize> = Vec::new();
+        for seed in 0..8u64 {
+            let (g, f, l, mv, blk) = cells_taken_seed(seed);
+            println!("  seed {seed}: gnaws {g} first_loss {f} lost {l} moves {mv} blocked {blk}");
+            frames.push(if f == 0 { BUDGET } else { f });
+        }
+        frames.sort_unstable();
+        let timeouts = frames.iter().filter(|&&f| f == BUDGET).count();
+        println!("armour={armour} attackers={attackers} budget={BUDGET} median {} timeouts {timeouts}/8 of {frames:?}", frames[frames.len() / 2]);
     }
 
     /// **The two arms-race slots reach further when the dial says so, and at
