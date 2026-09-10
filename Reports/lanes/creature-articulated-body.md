@@ -4,7 +4,33 @@ Branch `claude/creature-evolution-engine-67lhjp`. Report of record:
 [`Reports/creature-articulated-body-2026-09-09.md`](../creature-articulated-body-2026-09-09.md).
 Written for the lab coordinator; everything substantive is in the report's §7.
 
-## Standing: lateral rule built and measured; PR open, awaiting review/merge
+## Standing: the cause of the immobility is length, not width -- a long body cannot turn round (§13)
+
+**The owner ruled the question mechanical, not statistical**, and §13 answers
+it. A blocked-step classifier (`creature::BlockedWhy`, `PIXEL_PHYSICS_
+BLOCKED_CENSUS=1`) plus a one-wide tunnel scene and the chamber scene in
+`creature_scale` say: **every tick on which a long body has nowhere to go is
+a tick on which at least one direction is refused by its own cells and
+nothing else** -- `boxed_self` equals `boxed` to the last count in all
+sixteen rows of §13b, against a two-cell ant that reads zero on all four
+scenes. **Width costs nothing**: a one-wide six-cell chain and the two-wide
+articulated ant are both refused on 87.1% of steps in the tunnel.
+
+The mechanism: the only own-cell a head may legally land on is the tail, and
+for a five-cell body the tail is four cells away, so a long body has no way
+to go backwards at all. **The owner's own fix -- flip the body end for end
+where it stands, no cell moving -- is built behind `PIXEL_PHYSICS_REVERSE=
+flip`, measured against walking backwards, and wins on every scene**: the
+two-wide body's blocked fraction goes 87.1% -> 7.6% in the tunnel, 22.1% ->
+7.1% on `rolling`, 23.0% -> 11.5% in the chamber, all within a few points of
+the two-cell ant. **Left default-off deliberately**: one paired `ascii` run
+shows foraging deliveries 23 -> 0 as ants range further and stop coming
+home, which is the trail constants needing re-derivation against a colony
+that can reverse -- §13e has the order of work. Card
+`20260910T193810051Z-9f00a9` (board `lab`) asks the owner whether the
+mirrored turn reads right.
+
+## Superseded: lateral rule built and measured; PR open, awaiting review/merge
 
 **§7f's lateral rule is built, on `claude/creature-lateral-tuck-r26` (cut from
 this branch), measured against its own table, and merged with `main`.** §7f(7)

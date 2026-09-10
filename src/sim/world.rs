@@ -1211,6 +1211,60 @@ pub struct CreatureStats {
     /// What the handling cost, booked into `metabolized`. `shared_j /
     /// share_energy` is whether the verb is paying for itself.
     pub share_energy: f64,
+
+    // --- the blocked-step census (§13) ---------------------------------
+    //
+    // **Off unless `PIXEL_PHYSICS_BLOCKED_CENSUS=1`**, and every field
+    // below stays zero without it -- these run an extra eight-direction
+    // scan on a tick that has already given up, which is cheap but is not
+    // free, and nothing in the shipped game reads them.
+    //
+    /// **Why a refused candidate was refused**, indexed by
+    /// `creature::BlockedWhy`. Three entries per blocked tick: exactly the
+    /// three forward candidates `step_chain` scored and declined, so the
+    /// column sums to `3 * moves_blocked` when the census is on.
+    ///
+    /// `moves_blocked` alone says an animal did not move and cannot say
+    /// whether a wall, its own body, or a missing foothold is what stopped
+    /// it -- and those want completely different fixes.
+    pub blocked_why: [u64; crate::sim::creature::BLOCKED_WHY_N],
+    /// **Ticks on which no direction of the eight could be walked** --
+    /// the animal is not "facing the wrong way", it is stuck.
+    ///
+    /// This is the distinction `moves_blocked` cannot draw and the one the
+    /// mechanics of a long body turn on: a blocked tick that `tumble` can
+    /// fix by re-aiming costs one tick, and a blocked tick where every
+    /// heading is refused costs the rest of the animal's life.
+    pub boxed_ticks: u64,
+    /// ...of which: **boxed, and at least one of the eight directions is
+    /// refused by nothing but this body's own cells.**
+    ///
+    /// The signature of a body that cannot reverse. A two-cell animal can
+    /// never score here -- its tail is adjacent to its head, it vacates on
+    /// the same tick, and stepping into it is legal -- so a non-zero count
+    /// is length, not terrain, and the paired zero on the two-cell arm is
+    /// the specificity control.
+    pub boxed_self_ticks: u64,
+    /// **Segment width transitions across a committed move** -- a lateral
+    /// tucking or re-emerging. Divided by `moves` this is the flicker rate:
+    /// a squeeze through a gap is two transitions for the whole passage, a
+    /// strobe is one every step.
+    pub width_changes: u64,
+    /// Tucked segments summed over committed moves, the denominator that
+    /// says whether `width_changes` is a lot or a little.
+    pub tucked_segment_steps: u64,
+    /// **Reversals committed** -- an animal that was refused in all eight
+    /// headings turning round rather than staying there. Zero unless
+    /// `PIXEL_PHYSICS_REVERSE` names a rule; zero for a two-cell body under
+    /// any rule, which cannot get boxed in the first place.
+    pub reversals: u64,
+    /// ...and the effect counter from the far side of the call
+    /// (`CLAUDE.md` asks for it by name): reversals the rule was offered
+    /// and declined, because the body could not be laid down or because
+    /// the reversed animal would still have been boxed. A `reversals`
+    /// count climbing with this one climbing beside it is an animal
+    /// thrashing at a dead end, not one getting out of it.
+    pub reversals_refused: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.

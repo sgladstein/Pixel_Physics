@@ -6575,6 +6575,87 @@ fn step_chain(
                 return false;
             }
         }
+        // **The blocked-step census (§13), off unless asked for.** Placed
+        // before `tumble`, which rewrites `state.heading` -- classifying
+        // after it would attribute this tick's refusal to next tick's
+        // heading, which is the "arithmetically correct, answers a
+        // different question" failure `CLAUDE.md` names.
+        if blocked_census_enabled() {
+            census_blocked(world, def, body, (hx, hy), heading, push, kin);
+        }
+        // **The reversal (§13), gated on being *boxed* rather than merely
+        // blocked.** An animal with a good heading available is not stuck
+        // and `tumble` is the whole remedy; an animal refused in all eight
+        // is stuck for good, and for a body longer than two cells the
+        // census says that is what almost every blocked tick is. See
+        // `is_boxed`, and `ReverseRule` for the two candidates.
+        //
+        // **The verb has to deliver something** (`CLAUDE.md`'s second law):
+        // the reversal is committed only if the reversed body can then
+        // walk, tested by the same `is_boxed` on the far side of it. A
+        // reversal that leaves the animal boxed at the other end would be
+        // a strobe, not an escape.
+        let rule = reverse_rule();
+        if rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, kin) {
+            let reversed = match rule {
+                ReverseRule::Flip => flipped_body(world, &chain, &groups, &authored_widths, push),
+                ReverseRule::Back => backed_out_body(world, def, &chain, &groups, &authored_widths, push, kin),
+                ReverseRule::Off => None,
+            };
+            if let Some((cells, widths)) = reversed {
+                // **The facing is the flip's, not the back-out's.** A
+                // flipped animal has physically turned round, so its
+                // forward direction reverses with it. A backing animal is
+                // still facing the dead end -- which is what an ant backing
+                // out of a burrow is doing -- so its heading is left alone.
+                let new_heading = if rule == ReverseRule::Flip { (heading + 4) % 8 } else { heading };
+                // **The delivery test, and it is different for the two
+                // rules.** A flip must leave the animal able to walk or it
+                // is a strobe: nothing moved, so a flip that does not open
+                // a direction has changed nothing but the picture, and the
+                // next tick would flip it straight back. A back-out has
+                // already covered ground by the time it is committed -- the
+                // tail is in a cell it was not in -- so requiring it to
+                // *also* unbox the head asks it to finish the whole escape
+                // in one step, which no single backward step can do. Gating
+                // both on the flip's test measured the back-out at 8
+                // reversals against 2,371 refusals, which is a number about
+                // this gate rather than about backing out.
+                let delivers = rule != ReverseRule::Flip
+                    || !is_boxed(
+                        world,
+                        def,
+                        BodyShape { chain: &cells, groups: &widths, authored: &authored_widths },
+                        cells[0],
+                        new_heading,
+                        push,
+                        kin,
+                    );
+                if delivers {
+                    // `relocate_chain` writes `state.chain` itself; only
+                    // the live widths and the facing are this caller's.
+                    relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &cells, groups: &widths });
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.segment_groups = widths;
+                        state.heading = new_heading;
+                    }
+                    world.creature_stats.reversals += 1;
+                    // **Not a `move`.** No cell of the body has covered any
+                    // ground -- a flip moves none at all -- so counting it
+                    // as one would inflate the very denominator every
+                    // blocked fraction in §13 is read against. It is still
+                    // a blocked tick: the animal did not get anywhere.
+                    world.creature_stats.moves_blocked += 1;
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.life.moves_blocked += 1;
+                    }
+                    return false;
+                }
+                world.creature_stats.reversals_refused += 1;
+            } else {
+                world.creature_stats.reversals_refused += 1;
+            }
+        }
         tumble(world, organism, def, draw);
         world.creature_stats.moves_blocked += 1;
         // **What was in the way — tissue, or the world?** `moves_blocked`
@@ -6652,6 +6733,16 @@ fn step_chain(
     let (tx, ty) = (hx + dx, hy + dy);
 
     let (next, next_groups) = body_after_step(world, def, body, (tx, ty), heading, new_heading, push);
+    // **Flicker, over committed moves only** (§13). A lateral that tucks to
+    // clear a gap and fills back out the other side is two transitions for
+    // the whole passage; one that tucks and re-emerges every step is one
+    // per move, and reads on screen as a strobe rather than as a squeeze --
+    // the owner's "stuck and just flashing". Nothing here decides anything;
+    // it is the number that says which of the two is happening.
+    if blocked_census_enabled() {
+        world.creature_stats.width_changes += groups.iter().zip(&next_groups).filter(|(a, b)| a != b).count() as u64;
+        world.creature_stats.tucked_segment_steps += authored_widths.iter().zip(&next_groups).filter(|&(&a, &g)| a == 2 && g == 1).count() as u64;
+    }
     relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
@@ -7590,6 +7681,359 @@ fn landing_is_placeable_through_tissue(world: &World, chain: &[(i32, i32)], land
 fn landing_is_placeable_all_tissue(world: &World, chain: &[(i32, i32)], landing: &[(i32, i32)]) -> bool {
     landing.iter().enumerate().all(|(i, &p)| {
         (world.is_empty(p.0, p.1) || chain.contains(&p) || is_living_tissue(world, world.get(p.0, p.1))) && !landing[..i].contains(&p)
+    })
+}
+
+/// **Why one candidate step was refused** -- the fixed set, derived from
+/// the two predicates that are the only things able to refuse a move
+/// (`landing_is_placeable_through_tissue` and `body_has_foothold`), not
+/// from a guess about what terrain does.
+///
+/// `moves_blocked` says an animal did not move. It cannot say whether a
+/// wall stopped it, its own body stopped it, or there was simply nothing
+/// to stand on -- and those want three completely different fixes, which
+/// is why a single blocked *fraction* has never been able to aim one.
+///
+/// **What each variant counts when nothing is wrong** (`CLAUDE.md`'s
+/// standing question): on open ground a walking animal is placeable in
+/// most directions and `NoFoothold` upward, `HeadSolid` reads the ground
+/// it is standing on, and `HeadOnSelf`/`BodyFold`/`BodyBlocked` are all
+/// **zero** -- for a `Chain(2)` `HeadOnSelf` is zero *by construction*,
+/// since its only body cell is its tail and the tail vacates on the same
+/// tick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockedWhy {
+    /// The head's own target is solid world material -- rock, soil, a
+    /// packed wall. The ordinary "there is a wall there" refusal.
+    HeadSolid,
+    /// The head's target is living plant tissue that `is_partable` will not
+    /// let a body through: wood, a bole. `trunk_crossing` is the remedy
+    /// already built for this one.
+    HeadTissue,
+    /// The head's target is outside the world. `World::get` answers with a
+    /// `BEDROCK` sentinel there, so without this it would read as
+    /// `HeadSolid` and a colony pinned against the edge would look like a
+    /// colony pinned against rock.
+    HeadEdge,
+    /// **The head's target is one of this body's own cells, and that cell
+    /// is not the one vacating this tick** -- so the landing would put two
+    /// cells in one place and `landing_is_placeable_through_tissue`'s
+    /// duplicate clause refuses it.
+    ///
+    /// This is the whole of the reverse asymmetry between a short body and
+    /// a long one, and it is the rule's own choice rather than geometry:
+    /// under `chain_follow` the only own-cell a head may legally land on is
+    /// the **tail**, because every other cell is still occupied by the
+    /// segment behind it when the head arrives. For a `Chain(2)` the tail
+    /// is the head's own neighbour, so a two-cell ant reverses in one step
+    /// and can never score here. For a six-cell body the tail is five cells
+    /// away and unreachable in one step, so *no* own cell is ever a legal
+    /// landing and a long body simply cannot turn round.
+    HeadOnSelf,
+    /// Two non-head cells of the landing want the same position -- a spine
+    /// folding back on itself. Distinct from `HeadOnSelf` because the
+    /// remedies differ: this one is not fixed by letting the body reverse.
+    BodyFold,
+    /// A non-head landing cell is refused by the world. **Expected to be
+    /// zero, and kept as the control that says the classifier is reading
+    /// the right cells**: every non-head cell of a `chain_follow` landing
+    /// is a cell this body already occupies, and `lateral_for` only ever
+    /// returns a cell it has just tested, so nothing here should be able to
+    /// fire. A non-zero count means a body plan is placing a cell it never
+    /// checked.
+    BodyBlocked,
+    /// The landing is legal and there is nothing for the head to hold on
+    /// to. Not a fault: `wiki/ants.md` says in as many words that an ant
+    /// which can see nowhere to put its feet turns and looks somewhere
+    /// else. Counted because a colony stopped by open air and one stopped
+    /// by rock look identical in `moves_blocked`.
+    NoFoothold,
+}
+
+/// How many `BlockedWhy` variants there are, for the census array.
+pub const BLOCKED_WHY_N: usize = 7;
+
+impl BlockedWhy {
+    fn index(self) -> usize {
+        match self {
+            BlockedWhy::HeadSolid => 0,
+            BlockedWhy::HeadTissue => 1,
+            BlockedWhy::HeadEdge => 2,
+            BlockedWhy::HeadOnSelf => 3,
+            BlockedWhy::BodyFold => 4,
+            BlockedWhy::BodyBlocked => 5,
+            BlockedWhy::NoFoothold => 6,
+        }
+    }
+
+    /// The column headings, in `index()` order.
+    pub const NAMES: [&'static str; BLOCKED_WHY_N] = ["head_solid", "head_tissue", "head_edge", "head_on_self", "body_fold", "body_blocked", "no_foothold"];
+
+    /// **Is this refusal one that only this body's own cells caused?** The
+    /// question "would a shorter animal have got through here" reduces to
+    /// exactly this, which is why it is a method on the reason rather than
+    /// a re-derivation at the call site.
+    fn is_self_inflicted(self) -> bool {
+        matches!(self, BlockedWhy::HeadOnSelf | BlockedWhy::BodyFold)
+    }
+}
+
+/// **Why the step to `head` would be refused, or `None` if it would not**
+/// -- the classifier behind `CreatureStats::blocked_why`.
+///
+/// Runs exactly the two predicates the walk itself runs, in the same
+/// order, over the landing `body_after_step` actually produces. It is
+/// deliberately not a second, cheaper model of what refuses a move: a
+/// classifier that disagrees with the code it classifies is worse than no
+/// classifier, because its histogram still looks like an answer.
+///
+/// A duplicate is attributed to the **head** whenever the head is one of
+/// the two cells involved, not to the body cell the walk happens to reach
+/// second: a head that steps onto its own flank is what displaced the body
+/// cell, and blaming the body cell would file the reverse defect under
+/// `BodyFold` where no reversing rule would ever look for it.
+fn classify_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), headings: (u8, u8), push: bool, kin: Option<Kin>) -> Option<BlockedWhy> {
+    let chain = body.chain;
+    let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
+    for (i, &p) in landing.iter().enumerate() {
+        if landing[..i].contains(&p) {
+            return Some(if p == landing[0] { BlockedWhy::HeadOnSelf } else { BlockedWhy::BodyFold });
+        }
+        if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+            continue;
+        }
+        if i > 0 {
+            return Some(BlockedWhy::BodyBlocked);
+        }
+        if !world.in_bounds(p.0, p.1) {
+            return Some(BlockedWhy::HeadEdge);
+        }
+        return Some(if is_living_tissue(world, world.get(p.0, p.1)) { BlockedWhy::HeadTissue } else { BlockedWhy::HeadSolid });
+    }
+    if !body_has_foothold(world, def, &landing, head, kin) {
+        return Some(BlockedWhy::NoFoothold);
+    }
+    None
+}
+
+/// **Is the blocked-step census on?** Off by default, so nothing in the
+/// shipped game pays for the extra eight-direction scan it adds to a tick
+/// that has already given up. `PIXEL_PHYSICS_BLOCKED_CENSUS=1` turns it on
+/// for a harness, which is the same one-binary A/B pattern
+/// `parting_enabled` uses and for the same reason.
+fn blocked_census_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BLOCKED_CENSUS").map(|v| v != "0").unwrap_or(false))
+}
+
+/// Record one blocked tick: why each of the three candidates the walk
+/// scored was refused, and whether *any* of the eight headings could have
+/// been walked at all.
+///
+/// **The eight-way scan is the diagnosis and the three-way one is not.** A
+/// blocked tick whose animal has a good heading available costs one tick --
+/// `tumble` re-aims it and it walks next tick. A blocked tick where all
+/// eight are refused costs the animal the rest of its life, and only a scan
+/// wider than the three candidates the walk looked at can tell those apart.
+fn census_blocked(world: &mut World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) {
+    // The same three candidates `step_chain` scored, defined here rather
+    // than handed in: a census of a different three would be a histogram
+    // of a decision the walk never made.
+    for d in [(heading + AHEAD_LEFT) % 8, heading, (heading + AHEAD_RIGHT) % 8] {
+        let (dx, dy) = DIRS[d as usize];
+        if let Some(why) = classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+            world.creature_stats.blocked_why[why.index()] += 1;
+        }
+    }
+    let mut usable = false;
+    let mut self_inflicted = false;
+    for d in 0..8u8 {
+        let (dx, dy) = DIRS[d as usize];
+        match classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+            None => usable = true,
+            Some(why) => self_inflicted |= why.is_self_inflicted(),
+        }
+    }
+    if !usable {
+        world.creature_stats.boxed_ticks += 1;
+        if self_inflicted {
+            world.creature_stats.boxed_self_ticks += 1;
+        }
+    }
+}
+
+/// **A body's cells and the live widths that say how they group into
+/// segments** -- the pair every rule that lays a body out returns, because
+/// a grouping computed separately from the landing it describes is exactly
+/// how the two come to disagree (§7f(2)).
+type BodyCells = (Vec<(i32, i32)>, Vec<u8>);
+
+/// **Which way out of a dead end** -- `PIXEL_PHYSICS_REVERSE`.
+///
+/// Off by default, so the shipped tree is byte-identical until one of the
+/// two is chosen. Both arms live in one binary for the reason every A/B
+/// here does: a recompile sitting between two arms becomes the thing that
+/// actually changed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReverseRule {
+    /// No reversal at all -- the tree as it stands.
+    Off,
+    /// **The owner's own suggestion: flip the whole body in place.** The
+    /// segment order swaps end for end and **no cell moves**, so there is
+    /// no landing to place, no self-collision, and no U-turn geometry to
+    /// satisfy. The next step is then an ordinary forward step from the
+    /// new head.
+    Flip,
+    /// **Walk backwards**: the tail leads into a free cell and every
+    /// segment inherits the position of the one behind it, which is
+    /// `chain_follow` run in the other direction.
+    Back,
+}
+
+fn reverse_rule() -> ReverseRule {
+    use std::sync::OnceLock;
+    static R: OnceLock<u8> = OnceLock::new();
+    let v = *R.get_or_init(|| match std::env::var("PIXEL_PHYSICS_REVERSE").as_deref() {
+        Ok("flip") => 1,
+        Ok("back") => 2,
+        _ => 0,
+    });
+    match v {
+        1 => ReverseRule::Flip,
+        2 => ReverseRule::Back,
+        _ => ReverseRule::Off,
+    }
+}
+
+/// The spine cells alone, pulled out from under whatever laterals are
+/// currently expressed -- group `g`'s first cell, in `groups` order.
+///
+/// Factored out because three rules now need it (`segmented_body_after_
+/// step`, and the two reversals below) and a fourth copy of the same
+/// four-line walk is how they come to disagree about what a spine is.
+/// A body with no groups at all -- a plain `Chain` -- is all spine.
+fn spines_of(chain: &[(i32, i32)], groups: &[u8]) -> Vec<(i32, i32)> {
+    if groups.is_empty() {
+        return chain.to_vec();
+    }
+    let mut out = Vec::with_capacity(groups.len());
+    let mut idx = 0usize;
+    for &g in groups {
+        if let Some(&spine) = chain.get(idx) {
+            out.push(spine);
+        }
+        idx += g as usize;
+    }
+    out
+}
+
+/// Lay a body out along `new_spines`, re-deriving each widened segment's
+/// lateral exactly the way a step does.
+///
+/// **Shared by both reversals so neither can invent a second lateral
+/// rule.** `lateral_for` is called with the same three arguments
+/// `segmented_body_after_step` gives it, which is what makes a reversed
+/// body's width obey the tuck rule (§7f) rather than a copy of it.
+/// **The empty-`groups` convention is load-bearing and is preserved here,
+/// which cost a body.** `relocate_chain` falls back to one-cell-per-segment
+/// only when *both* sides' groups are empty; hand it an empty `from` and a
+/// `vec![1; n]` `to` and its carry loop zips an empty list against a full
+/// one, carries **nothing**, clears every cell of the old body and writes
+/// none back. Measured on the first build of the reversal: `deaths: Killed
+/// 13` on the `Chain(6)` arm -- thirteen animals whose entire body was
+/// deleted mid-flip -- while the articulated arm, whose groups are non-empty
+/// on both sides, was untouched. The `debug_assert_eq!` that names this
+/// exact failure is compiled out in release, which is where every
+/// measurement here is taken.
+fn lay_out_along(world: &World, chain: &[(i32, i32)], new_spines: &[(i32, i32)], authored: &[u8], groups_were_empty: bool, push: bool) -> BodyCells {
+    let mut out: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+    let mut groups: Vec<u8> = Vec::with_capacity(new_spines.len());
+    for (i, &(sx, sy)) in new_spines.iter().enumerate() {
+        out.push((sx, sy));
+        if authored.get(i).copied().unwrap_or(1) == 2 {
+            match lateral_for(world, chain, &out, new_spines, i, (sx, sy), push) {
+                Some(cell) => {
+                    out.push(cell);
+                    groups.push(2);
+                }
+                None => groups.push(1),
+            }
+        } else {
+            groups.push(1);
+        }
+    }
+    (out, if groups_were_empty { Vec::new() } else { groups })
+}
+
+/// **Turn the animal round without moving it** -- the `Flip` rule.
+///
+/// The new spine list is the old one reversed, so every spine cell stays
+/// exactly where it is and only the *order* changes. `relocate_chain`
+/// carries cell contents by segment, so the head's own cell travels to
+/// what was the tail's position and the animal comes out **mirrored**:
+/// the mouth is now at the far end, which is what "it turned round" looks
+/// like on a body five cells long.
+///
+/// **Why mirroring rather than walking backwards is the cheaper reading
+/// of the same event**: every role resolver in the economy reads a
+/// *fraction* of the live body (`live_body_cells` and the `CellType`
+/// counts), and reversing the order changes no multiset, so nothing in
+/// the economy can tell. There is no stored "authored side" for a lateral
+/// to mirror either -- `lateral_for` re-derives the side from world-space
+/// up-then-left on every step, so the flip simply re-lays them here and
+/// the question does not arise.
+///
+/// Returns `None` if the flipped body could not be laid down -- which
+/// should not happen, since the spines do not move, and is checked rather
+/// than assumed.
+fn flipped_body(world: &World, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool) -> Option<BodyCells> {
+    let mut new_spines = spines_of(chain, groups);
+    new_spines.reverse();
+    let (cells, widths) = lay_out_along(world, chain, &new_spines, authored, groups.is_empty(), push);
+    (cells.iter().enumerate().all(|(i, p)| !cells[..i].contains(p))).then_some((cells, widths))
+}
+
+/// **Walk backwards** -- the `Back` rule, and the alternative the flip is
+/// priced against.
+///
+/// The tail leads into `tail_target` and every segment inherits the
+/// position of the one behind it: `chain_follow` in the other direction.
+/// The head's own cell stays the head, so the animal keeps its facing and
+/// reverses along its own length, which is what an ant backing out of a
+/// burrow does.
+///
+/// Costlier than the flip in exactly one place, and it is the place that
+/// matters: the tail's step is a **second steering decision** with no
+/// brain behind it, so the tail target has to be chosen here by a rule of
+/// this function's own invention. It takes the first of the tail's eight
+/// neighbours that is empty, is not part of this body, and gives the
+/// arriving cell a foothold, in `DIRS` order for determinism.
+fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool, kin: Option<Kin>) -> Option<BodyCells> {
+    let old_spines = spines_of(chain, groups);
+    let &tail = old_spines.last()?;
+    let target = DIRS.iter().map(|&(dx, dy)| (tail.0 + dx, tail.1 + dy)).find(|&(tx, ty)| {
+        world.in_bounds(tx, ty) && (world.is_empty(tx, ty) || (push && is_partable(world, world.get(tx, ty)))) && !chain.contains(&(tx, ty)) && head_has_foothold(world, (tx, ty), kin)
+    })?;
+    let mut new_spines: Vec<(i32, i32)> = old_spines.iter().skip(1).copied().collect();
+    new_spines.push(target);
+    let (cells, widths) = lay_out_along(world, chain, &new_spines, authored, groups.is_empty(), push);
+    (landing_is_placeable_through_tissue(world, chain, &cells, push) && body_has_foothold(world, def, &cells, cells[0], kin)).then_some((cells, widths))
+}
+
+/// **Is this animal boxed -- refused in all eight headings, not merely
+/// facing the wrong way?**
+///
+/// The distinction the blocked-step census was built to draw, promoted to
+/// a decision: a blocked tick with a good heading available costs one
+/// tick, because `tumble` re-aims and the animal walks next tick. A
+/// blocked tick with none costs the animal everything after it, and is
+/// the only state a reversal is for. Gating on it is what keeps the verb
+/// off the hot path and out of ordinary walking.
+fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+    (0..8u8).all(|d| {
+        let (dx, dy) = DIRS[d as usize];
+        classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin).is_some()
     })
 }
 
@@ -13598,6 +14042,100 @@ mod tests {
             spine_only_collisions > 0,
             "no heading collides even for a bare spine, so this body cannot distinguish the two rules"
         );
+    }
+
+    /// **The §13 diagnosis, asserted as a property rather than described.**
+    ///
+    /// A one-cell-high tunnel with a blind end, and one body standing in
+    /// it facing the blind end. The claim is not "a long body is slower";
+    /// it is that a long body is **boxed** -- refused in all eight
+    /// headings -- in a cell where a two-cell body is not, and that the
+    /// direction which distinguishes them is refused for one specific
+    /// reason: the head would land on a cell of its own body that is not
+    /// vacating.
+    ///
+    /// The two-cell arm is the control, and it is the whole argument. It
+    /// stands in the identical cell of the identical tunnel; the only
+    /// thing that differs is how far its tail is from its head. If it were
+    /// also boxed, the tunnel would be the cause and no movement rule
+    /// could help.
+    #[test]
+    fn a_long_body_is_boxed_in_a_dead_end_where_a_two_cell_body_is_not() {
+        let mut w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.as_ref().expect("creature").clone();
+        // Solid rock, with a one-cell-high tunnel cut west out of it and
+        // closed at (100, 100) -- the blind end.
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let long: Vec<(i32, i32)> = (0..6).map(|i| (100 - i, 100)).collect();
+        let short: Vec<(i32, i32)> = (0..2).map(|i| (100 - i, 100)).collect();
+        // Facing east, into the blind end.
+        let heading = 0u8;
+        let long_body = BodyShape { chain: &long, groups: &[], authored: &[] };
+        let short_body = BodyShape { chain: &short, groups: &[], authored: &[] };
+        assert!(
+            is_boxed(&w, &def, long_body, long[0], heading, false, None),
+            "a six-cell body at the blind end must have nowhere to go -- if it does, this scene is not the situation the diagnosis is about"
+        );
+        assert!(
+            !is_boxed(&w, &def, short_body, short[0], heading, false, None),
+            "a two-cell body in the identical cell must NOT be boxed: it steps onto its own tail, which vacates on the same tick"
+        );
+        // ...and *why* they differ. West is straight back along the body.
+        let west = 4usize;
+        let (dx, dy) = DIRS[west];
+        assert_eq!(
+            classify_step(&w, &def, long_body, (long[0].0 + dx, long[0].1 + dy), (heading, west as u8), false, None),
+            Some(BlockedWhy::HeadOnSelf),
+            "the long body's way out is refused by its own flank, not by the rock"
+        );
+        assert_eq!(
+            classify_step(&w, &def, short_body, (short[0].0 + dx, short[0].1 + dy), (heading, west as u8), false, None),
+            None,
+            "the short body's way out is its own tail, and stepping into a vacating cell is legal"
+        );
+    }
+
+    /// **The flip keeps every cell and reverses the order** -- for a plain
+    /// `Chain` and for a widened `Segmented` body alike.
+    ///
+    /// The `Chain` half is the regression guard for a real, measured
+    /// defect: `lay_out_along` must hand back an **empty** width list when
+    /// it was given one, because `relocate_chain`'s one-cell-per-segment
+    /// fallback fires only when *both* sides' groups are empty. Returning
+    /// `vec![1; n]` there makes its carry loop zip an empty list against a
+    /// full one, carry nothing, clear the old body and write none of it
+    /// back. Watched red: the first build of the flip measured `deaths:
+    /// Killed 13` on the `Chain(6)` arm of the tunnel scene -- thirteen
+    /// animals whose entire body was deleted mid-flip -- and the
+    /// `debug_assert_eq!` inside `relocate_chain` that names this exact
+    /// failure is compiled out of every release measurement.
+    #[test]
+    fn flipping_a_body_reverses_its_order_and_keeps_the_empty_groups_convention() {
+        let w = test_world();
+        let chain: Vec<(i32, i32)> = (0..6).map(|i| (100 - i, 100)).collect();
+        let (flipped, widths) = flipped_body(&w, &chain, &[], &[], false).expect("a body standing still can always be flipped");
+        assert_eq!(flipped, vec![(95, 100), (96, 100), (97, 100), (98, 100), (99, 100), (100, 100)], "the flip is the same cells in the other order; nothing moves");
+        assert!(
+            widths.is_empty(),
+            "a Chain's groups are empty and must stay empty: relocate_chain's fallback needs BOTH sides empty, and a vec![1; n] here deletes the body"
+        );
+        // The widened case: the segment order reverses, and each widened
+        // segment keeps a lateral because there is room for one.
+        let groups = [1u8, 2, 1];
+        let widened = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let (flipped, widths) = flipped_body(&w, &widened, &groups, &groups, false).expect("flippable");
+        assert_eq!(flipped.len(), widened.len(), "a flip relocates cell for cell");
+        assert_eq!(flipped[0], (3, 5), "what was the tail's spine is now the head's");
+        assert_eq!(widths.len(), groups.len(), "the same segments, in the other order");
+        assert!(flipped.iter().enumerate().all(|(i, p)| !flipped[..i].contains(p)), "a flipped body cannot occupy one cell twice: {flipped:?}");
     }
 
     /// **§7f(1)'s central invariant, watched red first**: with the old

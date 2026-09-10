@@ -1271,3 +1271,378 @@ seam), not a repair this task's mandate covers. `nest_dig_scene`'s `assert!
 (roofed > 0, ...)` is left exactly as written; `cargo run --release --example
 ascii` still panics there, and every scene before it in the catalogue is
 green.
+
+## 13. The mechanics of a long body in terrain (2026-09-10, branch `claude/creature-mobility-r27`)
+
+**The owner's ruling that opened this task, verbatim:** *"You are examining a
+lot how many survive and how much they dig, etc. You are focusing on these
+downstream statistics, but this seems more like a mechanical issue that these
+larger ants get stuck or cannot move easily in more complicated terrain.
+Let's fix that."* So there are no survival, dig or birth numbers below. The
+question is mechanical, and it has a mechanical answer.
+
+**The answer in one sentence: a body longer than two cells cannot turn
+round, and almost every time one of them is stuck, that is why.** Not width
+-- a one-wide six-cell chain and the two-wide articulated ant are stuck
+*identically* (87.1% of steps refused each, in the tunnel scene below).
+Length alone.
+
+### 13a. The instrument: a blocked-step classifier
+
+`moves_blocked` says an animal did not move. It cannot say whether a wall
+stopped it, its own body stopped it, or there was nothing to stand on -- and
+those want three different fixes, which is why a blocked *fraction* has
+never been able to aim one. `creature::BlockedWhy` is the fixed set of
+reasons, derived from the only two predicates that can refuse a move
+(`landing_is_placeable_through_tissue` and `body_has_foothold`) rather than
+from a guess about terrain:
+
+| reason | what refused the step |
+|---|---|
+| `head_solid` | the head's target is solid world material |
+| `head_tissue` | ...is living plant tissue a body may not part (a bole) |
+| `head_edge` | ...is outside the world |
+| **`head_on_self`** | ...is one of this body's **own** cells, and that cell is not the one vacating this tick |
+| `body_fold` | two non-head landing cells want one position |
+| `body_blocked` | a non-head landing cell is refused by the world |
+| `no_foothold` | the landing is legal and there is nothing to hold on to |
+
+`classify_step` runs the walk's own predicates over the landing
+`body_after_step` actually produces -- deliberately not a second, cheaper
+model of what refuses a move, because a classifier that disagrees with the
+code it classifies is worse than none: its histogram still looks like an
+answer.
+
+**Two counters carry the diagnosis, and the histogram alone does not.** The
+walk scores only three candidates, so a histogram over those three cannot
+tell "facing the wrong way" from "stuck". `boxed_ticks` counts blocked ticks
+on which **none of the eight headings** can be walked; `boxed_self_ticks`
+counts those where at least one heading is refused by nothing but this
+body's own cells. The first says the animal is stuck rather than merely
+turned around; the second says a shorter animal in the identical cell would
+not have been.
+
+**Controls, both directions, before any of it was trusted.**
+*Specificity*: `body_blocked` is 0 in every run in this section (every
+non-head cell of a `chain_follow` landing is a cell the body already
+occupies, so nothing there can fire -- a non-zero count would mean a body
+plan placing a cell it never checked), `body_fold` is 0 everywhere (the §7f
+tuck rule is doing its job; laterals are not causing collisions), and the
+two-cell ant reads `boxed 0` and `head_on_self 0` on **all four scenes**, by
+construction: its only body cell is its tail, and the tail vacates on the
+same tick. *Sensitivity*: the tunnel scene below, where the same counter
+reads 99.7%.
+
+`PIXEL_PHYSICS_BLOCKED_CENSUS=1` turns it on. Off by default, so nothing in
+the shipped game pays for the extra eight-way scan it adds to a tick that
+has already given up.
+
+**Two scenes were added to `creature_scale` because no generated preset
+contains the terrain the complaint is about.** `preset=tunnel` is solid rock
+with one-cell-wide passages cut through it -- a dead-end tunnel, a passage
+with two right-angle bends, and a vertical shaft, with half the animals
+started *inside* the passages rather than left to find them (hoping a
+wanderer finds a tunnel is how a scene ends up measuring wandering).
+`preset=chamber` is `ascii`'s own `nest_dig_scene` geometry, where the
+passages are the ones the animals cut themselves and are therefore exactly
+as wide as the body that made them.
+
+**One defect found in the harness on the way, and it invalidated an
+ablation that already existed.** `body=chainN` wrote `def.body` and nothing
+else -- but `place_creature` grows the body from the species' `fates` table
+whenever it has one and only falls back to `def.body` when it does not, and
+`ant.ron` and `hopper.ron` both author one. So the override was **silently
+ignored** on exactly the two species anyone would use it on.
+`SpeciesRegistry::set_fates`'s own doc names this trap in as many words;
+this call site is the second to walk into it. Fixed by clearing the table
+with the override, and the tell that catches it is the one `CLAUDE.md`
+names: `body_cells=` in the harness's own row must move when the override
+does, and it did not. **Note what this costs the `chain6` arm below**:
+clearing the fate table also removes the body's role differentiation, so
+`chain6` is a control for *length* and is not a control for anything the
+economy reads.
+
+### 13b. The table
+
+`creature_scale mode=walk`, seed 7, 4,000 frames, `RAYON_NUM_THREADS=4`,
+one binary, `PIXEL_PHYSICS_BLOCKED_CENSUS=1`. `boxed` and `boxed_self` are
+percentages **of blocked ticks**; the two causes are percentages of the
+per-candidate histogram.
+
+| scene | body | cells | blocked | boxed | boxed_self | top cause | 2nd cause |
+|---|---|---|---|---|---|---|---|
+| `flat` | two-cell ant | 2 | **0.6%** | **0%** | **0%** | head_solid 95.0 | head_edge 5.0 |
+| `flat` | 6-cell chain | 6 | 1.8% | 61.0% | 61.0% | head_solid 43.3 | head_edge 25.1 |
+| `flat` | 5-cell spine | 5 | 2.0% | 65.0% | 65.0% | head_solid 44.6 | **head_on_self 21.2** |
+| `flat` | 2-wide articulated | 7 | 1.9% | 40.7% | 40.7% | head_solid 66.7 | **head_on_self 11.4** |
+| `rolling` | two-cell ant | 2 | **4.0%** | **0%** | **0%** | head_solid 95.8 | head_tissue 4.2 |
+| `rolling` | 6-cell chain | 6 | 10.6% | 80.8% | 80.8% | head_solid 57.5 | **head_on_self 26.7** |
+| `rolling` | 5-cell spine | 5 | 14.8% | 87.9% | 87.9% | head_solid 52.2 | **head_on_self 29.3** |
+| `rolling` | 2-wide articulated | 7 | 22.1% | 91.1% | 91.1% | head_solid 65.0 | **head_on_self 21.0** |
+| `tunnel` | two-cell ant | 2 | **5.1%** | **0%** | **0%** | head_solid 100.0 | -- |
+| `tunnel` | 6-cell chain | 6 | **87.1%** | 99.5% | 99.5% | head_solid 86.7 | **head_on_self 13.3** |
+| `tunnel` | 5-cell spine | 5 | **84.4%** | 99.6% | 99.6% | head_solid 87.5 | **head_on_self 12.5** |
+| `tunnel` | 2-wide articulated | 7 | **87.1%** | 99.7% | 99.7% | head_solid 86.8 | **head_on_self 13.2** |
+| `chamber` | two-cell ant | 2 | **8.6%** | **0%** | **0%** | head_solid 100.0 | -- |
+| `chamber` | 6-cell chain | 6 | 26.4% | 86.3% | 86.3% | head_solid 77.3 | **head_on_self 17.6** |
+| `chamber` | 5-cell spine | 5 | 21.5% | 73.6% | 73.6% | head_solid 70.5 | **head_on_self 16.2** |
+| `chamber` | 2-wide articulated | 7 | 23.0% | 88.2% | 88.2% | head_solid 61.7 | **head_on_self 17.5** |
+
+**`boxed_self` equals `boxed` to the last count in all sixteen rows.** Every
+single tick on which a long body has nowhere to go is a tick on which at
+least one direction is refused by its own cells and nothing else. That is
+not a tendency, it is an identity, and it is the finding.
+
+**Width costs nothing here.** In the tunnel the one-wide six-cell chain and
+the two-wide seven-cell ant are refused on 87.1% of steps *each*. §12 read
+63% against 54% on the chamber scene and attributed it to width; on this
+instrument the same scene reads 23.0% (two-wide) against 26.4% (one-wide
+six-cell) -- the wide body is the **better** of the two. Whatever §12
+measured, body width is not what stops a long animal in a tunnel.
+
+**Flicker.** Segment widths change on 0.14 of committed moves on `flat` and
+`tunnel`, 0.36 on `rolling`, 0.57 on `chamber`. Per *tick*, which is what an
+eye sees, the stuck tunnel body changes width **0.0065 times a tick** -- one
+change every 154 ticks. So the tuck rule is not strobing, and the owner's
+"stuck and just flashing" is not lateral tucking; it wants its own
+reproduction on the colony scene before anything is built for it.
+
+### 13c. The mechanical diagnosis, in plain words
+
+**What a two-cell ant can do that a five-cell one cannot: reverse.**
+
+A body follows its head. When the head steps, every cell behind it moves
+into the cell the one ahead of it just left, and the landing may not put two
+cells in one place. Work through which of its own cells a head may therefore
+legally land on, and the answer is exactly one: **the tail**, because the
+tail is the only cell nothing else is moving into. Every other own-cell is
+still occupied by the segment behind it at the moment the head would arrive.
+
+For a two-cell ant the tail is the head's own neighbour. Reversing is one
+ordinary step, always available, and that is why it reads as an animal that
+turns on the spot. For a five-cell body the tail is four cells away and
+cannot be reached in a single step -- so **no** own-cell is ever a legal
+landing, and a long body has no way to go backwards at all.
+
+On open ground this barely shows: there is almost always somewhere else to
+go, and the cost is the odd wasted tick (`flat`, 1.9% of steps). It becomes
+the whole story the moment the animal is somewhere it can only leave the way
+it came in -- a dead-end tunnel, a bend it has overshot, a gallery it dug
+itself. There, "go back" is the only move, and it is the one move the rule
+forbids. The animal stays until it starves. That is the owner's report,
+exactly: *stuck in more complicated terrain*.
+
+Sorted by what each is:
+
+- **Geometry, and no rule can change it.** A long body cannot turn round
+  *inside* a one-wide tunnel by walking, and real ants cannot either. It
+  cannot step straight up a face while its spine is horizontal. It cannot
+  cross a gap. These are properties of being long in a grid.
+- **The rule's own choice, and this is the whole of the problem.** That the
+  only way to reverse is to *walk* backwards head-first, which the
+  duplicate-position rule then forbids. Nothing about the world requires
+  that. The body already occupies a legal set of cells; there is no physical
+  reason it may not simply face the other way.
+- **Not a cause at all, measured rather than assumed.** Width
+  (`body_fold` 0, and the one-wide chain no better than the two-wide ant);
+  the lateral tuck rule (§7f) (`body_fold` 0 on every scene); foliage
+  (`head_tissue` at most 4.2%, and 0 in both underground scenes); footing
+  (`no_foothold` never above 19% and 0 in the tunnel).
+
+### 13d. The rule: turn the body round where it stands
+
+**This is the owner's own proposal, relayed mid-task and adopted:** *"cannot
+we just allow the creature to flip its whole body, so no U-turn is needed?"*
+It is the right shape for the reason above -- the problem is not that the
+animal cannot get anywhere, it is that it cannot get anywhere *facing the
+way it must go*.
+
+**The rule.** When an animal is refused in all eight headings, the segment
+order reverses end for end. **No cell moves.** There is no landing to place,
+no duplicate to avoid and no U-turn geometry to satisfy; the body already
+stands in a legal set of cells and it goes on standing in exactly those
+cells. The head is now the end that was the tail, and the next step is an
+ordinary forward step from it.
+
+Priced honestly, since the coordinator asked for each of these by name:
+
+- **Roles.** `relocate_chain` carries cell contents by segment, so the
+  head's own cell travels to what was the tail's position: the animal comes
+  out **mirrored** -- the mouth is now at the far end. The alternative
+  (roles stay on their cells, the animal walks backwards) is a bigger change
+  and buys nothing the economy can see: **every role resolver reads a
+  *fraction* of the live body**, and reversing an order changes no multiset,
+  so no cell count, no armour share and no gut share moves either way. The
+  choice is therefore purely what reads right, which is why it went to the
+  owner as a card rather than being decided here.
+- **A lateral's authored side: the question does not arise.** There is no
+  stored side to mirror. `lateral_for` re-derives the side from world-space
+  up-then-left on every step, so a flipped body simply re-lays its laterals
+  through the same call the walk uses, and the §7f tuck rule applies
+  unchanged.
+- **Facing.** `heading` reverses with the body, `(heading + 4) % 8`.
+- **Per-segment scalars.** None survive an ordinary step either --
+  `World::set`'s `reindex_organism_cell` seam gives every relocated cell a
+  fresh sidecar -- so a flip smuggles nothing back (§7f established this;
+  re-checked here rather than inherited).
+
+**When it fires.** Only when `is_boxed` -- refused in all eight headings --
+and only if the reversed body can then walk, tested by the same `is_boxed`
+on the far side. An animal that merely faces the wrong way is not stuck and
+`tumble` is the whole remedy; a flip that does not open a direction would be
+a strobe, since nothing moved. Gating on *boxed* rather than *blocked* is
+also what keeps the verb off the hot path: it runs on 1.9% of ticks on open
+ground.
+
+**Measured against walking backwards, one binary, `PIXEL_PHYSICS_REVERSE=
+off|flip|back`.** The `back` arm is the honest alternative: the tail leads
+into a free cell and every segment inherits the position of the one behind
+it -- `chain_follow` in the other direction, roles staying on their cells.
+
+Blocked fraction, same scenes, same seed:
+
+| scene | two-cell ant (the bar) | 2-wide, off | 2-wide, **flip** | 2-wide, back | 6-chain, off | 6-chain, **flip** | 6-chain, back |
+|---|---|---|---|---|---|---|---|
+| `flat` | 0.6% | 1.9% | **2.3%** | 2.7% | 1.8% | **1.5%** | 2.6% |
+| `rolling` | 4.0% | 22.1% | **7.1%** | 14.3% | 10.6% | **5.9%** | 11.4% |
+| `tunnel` | 5.1% | 87.1% | **7.6%** | 49.0% | 87.1% | **11.0%** | 58.4% |
+| `chamber` | 8.6% | 23.0% | **11.5%** | 18.0% | 26.4% | **13.3%** | 14.2% |
+
+**The flip wins on every scene, and the bar is met.** The brief's bar was
+"the two-wide body within a few points of the two-cell ant's on every
+scene": 2.3 against 0.6, 7.1 against 4.0, 7.6 against 5.1, 11.5 against 8.6.
+Steps *taken* in the tunnel go 388 to 3,004. No deaths in any arm.
+
+**`flat` gets very slightly worse (1.9% to 2.3%) and that is arithmetic, not
+a regression**: a flip is booked as a blocked tick, because the animal did
+not get anywhere, and 34 flips on that scene are almost exactly the 28-tick
+difference.
+
+**Backing out is worse everywhere and the reason is structural.** It fires
+constantly and resolves nothing -- 809 reversals in the tunnel against the
+flip's 136, and 49.0% blocked against 7.6%. A backward step does not change
+which end the head is; the animal is boxed again on the next tick and backs
+out again, and when it finally clears the mouth the head is the last thing
+out, facing back down the tunnel it just left. The flip terminates because
+it changes the *state* the boxing depends on; backing out only changes the
+position, so it has to be repeated until the geometry happens to relent.
+
+**One number in the first run of this comparison was about the gate and not
+about the rule, and is recorded so it is not re-derived.** Gating both arms
+on the flip's own delivery test ("the reversed body must be able to walk")
+measured backing out at **8 reversals against 2,371 refusals** -- which
+reads as "backing out never works" and is a fact about the gate: a single
+backward step cannot unbox a head, so the test rejected every one of them.
+The table above uses the right gate for each rule.
+
+### 13e. What is built, and what a build lane still owes
+
+**Built on this branch, and default-off.** `PIXEL_PHYSICS_REVERSE` is unset
+in the shipped tree, so behaviour is unchanged until someone turns it on;
+the switch exists so both arms live in one binary. The pieces are
+`ReverseRule`, `spines_of`, `lay_out_along`, `flipped_body`,
+`backed_out_body`, `is_boxed`, and the gate in `step_chain`'s blocked branch
+(`src/sim/creature.rs`), with `CreatureStats::reversals` /
+`reversals_refused` as the "did it fire" pair.
+
+**Why it is not on by default, and this is the whole of what is owed.** One
+paired `ascii` run, off against flip:
+
+| | off | flip |
+|---|---|---|
+| colony foraging: moves | 6,590 | 8,227 |
+| ...blocked | 357 | 315 |
+| ...**round trips** | **32** | **19** |
+| ...**deliveries** | **23** | **0** |
+| ...deepest excursion | 74 | 119 |
+| chamber: moves | 1,400 | 1,951 |
+| ...blocked | 1,000 | 206 |
+| ...digs | 96 | 77 |
+| ...**roofed void** | **0** | **0** |
+
+Mobility improves exactly as the table in 13d says. **Foraging changes, and
+not for the better**: an ant that can turn round ranges further and stops
+coming home. That is `CLAUDE.md`'s standing warning in its usual costume --
+the trail-following constants were calibrated against a colony that could
+not reverse, and a correct mechanism at inherited constants is a regression.
+**Re-deriving them is part of the work, not scope creep.** It is one paired
+run per arm and outcomes here have enormous spread, so the first job is to
+confirm it reproduces before tuning anything.
+
+**And the chamber's `roofed > 0` is not delivered.** Blocked falls from
+1,000 to 206 and the colony still leaves no roofed void: the flip fixes
+getting *stuck*, not what the colony chooses to dig. §12's crater -- a
+colony quarrying the open face rather than tunnelling into it, which both
+width arms did identically -- is untouched by anything here and remains
+whoever owns burrow geometry's to answer.
+
+**A defect this work introduced and fixed, worth carrying because the class
+outlives it.** The first build of the flip deleted the bodies of plain
+`Chain` animals outright -- `deaths: Killed 13` on the tunnel's `Chain(6)`
+arm. `relocate_chain` falls back to one-cell-per-segment only when **both**
+sides' group lists are empty; handing it an empty `from` and a `vec![1; n]`
+`to` makes its carry loop zip an empty list against a full one, carry
+nothing, clear the old body and write none of it back. The
+`debug_assert_eq!` that names this exact failure is compiled out in release,
+which is where every measurement in this section is taken -- and the
+"improvement" it produced looked wonderful: blocked 87.1% to 3.4%, because
+an animal that no longer exists is never blocked. `CLAUDE.md`'s *a cost that
+vanishes may be work that vanished*, and what caught it was printing deaths
+by cause beside the mobility numbers rather than `alive=` alone.
+
+**The order of work.**
+
+1. **Settle the picture.** Card `20260910T193810051Z-9f00a9` (board `lab`)
+   asks the owner whether the mirrored turn reads as an animal turning round.
+   If it does not, the alternative is roles-stay-on-cells (the animal walks
+   backwards, mouth trailing) -- same trigger, same numbers, a different
+   `relocate_chain` correspondence.
+2. **Re-derive foraging against a colony that can reverse**, and only then
+   turn `PIXEL_PHYSICS_REVERSE=flip` into the default. The gate is
+   `ascii`'s own `forage_trips` and `deliveries`, back at or above the
+   pre-articulated-body baseline (23 deliveries, 32 trips).
+3. **Then the frame cost**, paired and alternating, quoting the whole-frame
+   figure from `ascii scene=foraging`'s `worst`/`mean` line and running the
+   pinning check before quoting any worst. The verb runs on ~2% of ticks and
+   costs one eight-way scan when it does; that is the claim to check.
+
+**What must not change**, in the same form §7f(2) used:
+
+| | |
+|---|---|
+| `chain_follow` | the spine rule is untouched; a flip is not a step |
+| `is_rigid()` | stays false for `Segmented`; a rigid body does not flip |
+| the duplicate-position check | **unrelaxed**, and the flip is what makes it satisfiable: a reversed body occupies the cells it already occupied |
+| `a_lateral_free_segmented_body_is_byte_identical_to_a_chain` | must stay green -- the flip is written for `Chain` and `Segmented` alike, off the same `spines_of` |
+| `assets/species/*.ron` | untouched; this is a movement rule, not a body |
+
+**The tests**, both watched red before being trusted:
+`a_long_body_is_boxed_in_a_dead_end_where_a_two_cell_body_is_not` (the
+diagnosis as a property, with the two-cell body in the identical cell as its
+control) and
+`flipping_a_body_reverses_its_order_and_keeps_the_empty_groups_convention`
+(which goes red against the deleted-body defect above).
+`cargo test --lib -- sim::creature::`: **164 passed, 1 failed, 10 ignored**
+-- the one failure is §9's own guard, red before this branch and left red per
+§7f(6). `cargo clippy --all-targets --release --locked -- -D warnings`:
+clean, with the three lints it raised answered by simplifying signatures
+rather than by `#[allow]`, per §7f(7)'s precedent.
+
+### 13f. Founding is a separate question, and stays separate
+
+A site is still refused unless the spine's straight-line footprint fits,
+evaluated once before the animal has taken a step (§10 made that check agree
+with the movement rule; it did not remove it). That is why a colony seats 5
+of 52 and a played bed 12 of 52 -- and §10's own control settles that width
+is not the cause, because a bare spine hits the identical ceiling.
+
+**The proposal, one paragraph and deliberately not built here.** Found along
+the surface *contour* rather than along a straight line: take the spine's
+cells from the ground profile under the head, the way a chain lies when it
+walks over rough ground, instead of demanding `n` empty cells in a row at
+one height. A straight-line footprint is a shape a walking body only has on
+flat ground, so on any real terrain the founder is being asked to fit
+somewhere it would never stand anyway. The alternative -- a founder that
+digs itself in -- is a bigger change and needs the movement rule above
+first, since a founder digging into a bank is precisely the animal that then
+has to reverse out of its own hole.

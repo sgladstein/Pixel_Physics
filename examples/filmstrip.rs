@@ -523,6 +523,42 @@ fn build_scene(args: &Args) -> World {
     apply_world_settings(&mut w, args);
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
+        // **One long ant in a one-wide dead-end tunnel** -- the scene §13
+        // was built to answer, reduced to a single animal so the question
+        // is about the body and not about a crowd.
+        //
+        // Deliberately one ant, and deliberately a *dead end*: the whole
+        // claim is that a body longer than two cells walks in and can
+        // never come out, because the only own-cell a head may legally
+        // land on is the tail and the tail is five cells away. Watch the
+        // animal, not the counter: with `PIXEL_PHYSICS_REVERSE=flip` it
+        // turns round and walks back out, and without it, it does not.
+        //
+        // A grid of stills cannot answer this -- a stuck ant and a walking
+        // one are the same photograph -- so this scene exists to be run
+        // with `gif=1`.
+        "anttunnel" => {
+            let stone = pixel_physics::sim::material::STONE;
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    w.set(x, y, Cell::new(stone, 0).with_attached(true));
+                }
+            }
+            let carve = |w: &mut World, x0: i32, x1: i32, y0: i32, y1: i32| {
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            };
+            // A room, and a one-wide tunnel out of it closed at the far end.
+            carve(&mut w, 20, 60, 140, 175);
+            carve(&mut w, 60, 190, 158, 158);
+            // The ant starts well inside the tunnel, facing the dead end.
+            if let Some(site) = pixel_physics::sim::creature::plant_creature_seed(&mut w, 150, 158, "ant") {
+                w.schedule_active_site(site);
+            }
+        }
         // A large body released against the left wall, spreading right across
         // seven vertical chunk seams. The terracing/banding reproduction.
         "pour" => {
@@ -6250,6 +6286,12 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **Turning round -- the "did it fire at all" counter beside the
+    // picture** (`CLAUDE.md`, and the review skill's own house rule). An
+    // animal that walks out of a dead end and one that was never in it are
+    // the same footage; only this says which. Zero unless
+    // `PIXEL_PHYSICS_REVERSE` names a rule.
+    println!("  ...and turned round: {} times ({} refused)", st.reversals, st.reversals_refused);
     // **Digging, beside the moving.** A colony that ranges further also
     // excavates more, and excavation undermines roots -- so a tree count
     // that moves with a mobility change cannot be read as damage from the
