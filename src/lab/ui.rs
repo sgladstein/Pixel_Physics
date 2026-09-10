@@ -5611,13 +5611,30 @@ pub fn ended_lines(world: &World) -> Vec<EndedLine> {
         .collect()
 }
 
+/// **`ANIMAL` or `PLANT`, and the only place either literal is spelled out.**
+/// [`legend_paragraph`] and [`Ui::paint_history`]'s own KINGDOM column both
+/// call this rather than each carrying its own copy of the two words --
+/// two independent copies is exactly the shape that let a typo in one draw
+/// silently escape `every_string_the_bar_can_draw_is_drawable`, which reads
+/// the row through its hover note (built from this same function) and never
+/// saw the column text at all. Found by doing what that test's own doc
+/// demands of a guard: inject the fault and watch for red. One shared
+/// function makes that structurally impossible instead of merely checked.
+pub fn kingdom_label(creature: bool) -> &'static str {
+    if creature {
+        "ANIMAL"
+    } else {
+        "PLANT"
+    }
+}
+
 /// One [`EndedLine`], as the chronicle export's LEGENDS section prints it --
 /// name, kingdom, founder frame, generations reached, peak living count,
 /// frame ended, and the cause when one is known. Shared with the HISTORY
 /// page's hover note so the two cannot describe the same line two different
 /// ways.
 pub fn legend_paragraph(e: &EndedLine) -> String {
-    let kingdom = if e.creature { "ANIMAL" } else { "PLANT" };
+    let kingdom = kingdom_label(e.creature);
     let span = match e.generations {
         0 => "ENDED WITH ITS FOUNDER".to_string(),
         1 => "ENDED, 1 GENERATION".to_string(),
@@ -6355,7 +6372,7 @@ impl Ui {
                 fill(frame, band, FACE_HOVER);
             }
             text(frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
-            let kingdom = if r.creature { "ANIMAL" } else { "PLANT" };
+            let kingdom = kingdom_label(r.creature);
             text(frame, left + col[0], y + 2, kingdom, FAINT);
             text(frame, left + col[1], y + 2, &format!("{}", r.generations), FAINT);
             text(frame, left + col[2], y + 2, &format!("{}", r.peak_living), FAINT);
@@ -8405,6 +8422,18 @@ mod tests {
             for literal in HISTORY_LITERALS {
                 check(literal, "history literal");
             }
+            // **The KINGDOM column, and this was a blind spot too.** The
+            // row's `note` (`legend_paragraph`, checked above) also names the
+            // kingdom, so a first pass at this block read as covered without
+            // this line -- proven wrong by injecting `~#~` into the KINGDOM
+            // column's own literal (then a second, independent `"ANIMAL"`/
+            // `"PLANT"` inline in `paint_history`) and watching this test
+            // stay green: the note's kingdom came from a different copy of
+            // the same two words. Fixed at the root by [`kingdom_label`],
+            // the one function both call now, and checked here directly
+            // rather than only by way of the note.
+            check(kingdom_label(true), "history kingdom label");
+            check(kingdom_label(false), "history kingdom label");
         }
 
         // **The parameters page's own rows, and this was a blind spot.**
