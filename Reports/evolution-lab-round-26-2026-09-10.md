@@ -263,6 +263,37 @@ round runs):
   independently hardcoded kingdom labels and fixed them at the root. Card
   `…c0b68b` shows the page at frame 5,752 with 47 ended lines.
 
+- **K → pushed to PR #303 (`499b64ec`), and the bodies are still not
+  landable — for three reasons that are now design decisions, not
+  defects.** (A) **Founding is fixed to the spine-only rule** (placement
+  calls the movement rule's own `lateral_for`; a guard watched red first)
+  and it lands exactly on the width-free control on both scenes — colony
+  scene **4 → 5** of 52, played bed at frame 6,000 **11 → 12** of 52 — so
+  the width gap is closed and **what remains is body length: a 2-cell ant
+  seats 39 of 52 on the played bed and a 5-segment one seats 12.** An owner
+  dropping a colony gets a third of it. (B) **The §9 guard stays red, and
+  the cause is length, not width**: with laterals off the lone attacker's
+  median breach barely moves (101 → 112, against the 900-frame timeout the
+  scene was built on), through the pre-existing whole-body bite scan; and
+  re-scaling the plate makes it *worse* (swarm-to-lone ratio 0.76 at armour
+  1 → 1.41 at armour 8) because eight wide bodies crowd each other 1.2–3.7x
+  more than one does. (C) **A width-2 colony cannot dig a roofed chamber**:
+  both widths dig the same open crater, only the width-free colony reaches
+  the deep gallery that holds a roof (14 cells), the wide one digs 28% less,
+  is blocked 63% against 54%, and 5 of 6 starve outside the bank before a
+  chamber forms. Report §10–§12 carry the numbers. `cargo test --lib` 1,562
+  / 1 (§9) / 69 ignored; clippy clean; `ascii` green through "a double
+  bridge" (forage trips 14, bar 6) and red at the chamber scene.
+  **Reading:** the articulated body is a change to every constant that was
+  calibrated on a two-cell ant — founding sites, bite adjacency, tunnel
+  geometry — and each of the three is the shared-budget trap `CLAUDE.md`
+  names; none is a lane's to settle. The owner's call: accept the bodies
+  with those three costs re-derived as a follow-on programme (a founding
+  rule that seats a long body — curl, or found along the surface; a bite
+  that is the head's, not the body's; a dig that a wide body can roof), or
+  keep the branch as the design and the measurement and ship the
+  two-cell ant. PR #303 stays open with CI red until that is ruled.
+
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
 carry it, the player's BRUSH carries it, or both with the animals off); the
