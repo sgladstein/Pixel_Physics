@@ -276,7 +276,7 @@ round runs):
   rain off — the lid's own condensation — and was pulled for that reason.
   Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
   Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
-- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed), #301 (the pip), #302 (the thicket bed and `windfall_bitten`) — merged in that order 04:12–07:55, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
+- **Landed to main this round so far:** #296 (design), #297 (measure), #295 (breeder index and the recycled-slot fix), #298 (rain), #300 (the windfall keeps its seed), #301 (the pip), #302 (the thicket bed and `windfall_bitten`), #304 (the legends) — merged in that order 04:12–12:16, `docscheck` clean after each; the trunk run on the first four is green. #299 (the ablation switch) is merged into the bodies branch, not main.
 - **The eusociality lane, un-poked, kept going and found a shipped bug**
   (four commits on PR #295, CI running): an organism id is
   `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
@@ -369,7 +369,14 @@ round runs):
   worktree as an unverified WIP (`a59e118f` on `claude/lab-legends-r26`),
   killed it, and **lane L2** (Sonnet, running) finishes from there — merge
   `main` first, since seven landings moved `ui.rs`, `mod.rs` and
-  `world.rs` under it.
+  `world.rs` under it. **L2 → PR #304, merged**: the salvage compiled and
+  passed as found; the export writes on reset and quit through
+  `format_log_line` (header, LINES view, a LEGENDS paragraph per ended line,
+  the counts); the HISTORY page is on **F5** (every letter and the digits
+  the rain lane checked were bound) and from the LOG page's own row; the
+  brief's own verification step — inject `~#~`, watch it go red — found two
+  independently hardcoded kingdom labels and fixed them at the root. Card
+  `…c0b68b` shows the page at frame 5,752 with 47 ended lines.
 
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
