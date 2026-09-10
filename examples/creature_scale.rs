@@ -44,7 +44,7 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
-use pixel_physics::sim::organism::CreatureDef;
+use pixel_physics::sim::organism::{BodyPlan, CellType, CreatureDef, Segment};
 use pixel_physics::sim::{creature, parallel};
 
 /// Where in the day every frame is pinned. Noon, for the reason
@@ -78,6 +78,7 @@ fn main() {
     let mut control = true;
     let mut crop = CROP_DEFAULT;
     let mut zoom = PANEL_ZOOM_DEFAULT;
+    let mut body_override = String::new();
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -92,10 +93,18 @@ fn main() {
             "control" => control = v != "off",
             "crop" => crop = v.parse().unwrap_or(crop),
             "zoom" => zoom = v.parse().unwrap_or(zoom),
+            "body" => body_override = v.to_string(),
             _ => {}
         }
     }
-    println!("creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?}");
+    // Not this harness's own arg -- read by `creature::place_creature`
+    // through its own `OnceLock` -- but echoed here anyway, for the same
+    // reason every other setting on this line is: a log that does not name
+    // its settings was written by a binary that never had them.
+    let body_laterals = std::env::var("PIXEL_PHYSICS_BODY_LATERALS").unwrap_or_else(|_| "1 (default)".to_string());
+    println!(
+        "creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?} body={body_override:?} PIXEL_PHYSICS_BODY_LATERALS={body_laterals}"
+    );
 
     match mode.as_str() {
         "size" => size_mode(&Sheet {
@@ -108,7 +117,7 @@ fn main() {
             crop,
             zoom_px: zoom,
         }),
-        "walk" => walk_mode(&species, &scales, seed, &preset, count, frames),
+        "walk" => walk_mode(&species, &scales, seed, &preset, count, frames, &body_override),
         other => panic!("unknown mode {other}; expected size or walk"),
     }
 }
@@ -321,18 +330,71 @@ fn size_mode(sheet: &Sheet) {
 /// A whole colony rather than one animal, because a single body samples one
 /// piece of ground and the spread over terrain here is enormous
 /// (`CLAUDE.md`: compare two runs, not one run against a remembered number).
-fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32, frames: u64) {
+/// **`body_override`, the second ablation §7d asks for.** `"segmented"`
+/// takes `species`'s own authored `Chain(n)` -- so it has to be a plain
+/// chain, and `ant_long`'s `Chain(6)` is the one this project already ships
+/// as its length-matched control (§7a) -- and swaps it, in the live
+/// registry, for a `Segmented` body of the identical length: same head,
+/// same `n - 1` `Segment` cells, zero laterals. `plant_creature_seed` then
+/// places bodies from a species whose *material, economy and name* are
+/// completely unchanged and whose *code path* is not: `body_after_step`
+/// now takes the `Segmented` arm (`segmented_body_after_step`, which
+/// degenerates to the exact `chain_follow` rule when every group is 1 --
+/// see that function's own doc) instead of the plain `Chain` arm. If the
+/// two arms still differ, the difference is the code path, not the length,
+/// the lateral count, or the species' own numbers -- nothing else moved.
+fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32, frames: u64, body_override: &str) {
     for &k in scales {
         let mut world = build(k, seed, preset);
+        if body_override == "segmented" {
+            let id = world.species.id_of(species).unwrap_or_else(|| panic!("no species {species}"));
+            let mut def = world.species.get(id).creature.clone().expect("a creature");
+            let BodyPlan::Chain(n) = def.body else {
+                panic!("body=segmented expects {species} to author a plain Chain(n); it did not (BodyPlan has no Debug impl to print the shape it got instead)");
+            };
+            let mut segments = vec![Segment { cell: CellType::Head, lateral: None }];
+            for _ in 1..n {
+                segments.push(Segment { cell: CellType::Segment, lateral: None });
+            }
+            def.body = BodyPlan::Segmented(segments);
+            world.species.set_creature(id, def);
+        } else if let Some(n) = body_override.strip_prefix("chain") {
+            // **A second, narrower control**, added once the segmented-vs-
+            // chain ablation above came back byte-identical: is the
+            // articulated bodies' *residual* blocked rate at laterals=0
+            // (hopper's spine is 7, one longer than the `ant_long` control)
+            // spine *length* alone, with no `Segmented` code in it at all?
+            // `body=chain5`/`chain7` re-lays `species`'s own `Chain(n)` at a
+            // different `n`, so this varies exactly one thing the two
+            // ablations above did not: length, on the plain `Chain` path.
+            let n: i32 = n.parse().unwrap_or_else(|_| panic!("body=chainN needs a number, got {body_override:?}"));
+            let id = world.species.id_of(species).unwrap_or_else(|| panic!("no species {species}"));
+            let mut def = world.species.get(id).creature.clone().expect("a creature");
+            def.body = BodyPlan::Chain(n as u8);
+            world.species.set_creature(id, def);
+        }
         let cols: Vec<i32> = (0..WIDTH as i32 * k).filter(|&x| creature::colony_ant_site(&world, x, 0).is_some()).collect();
         assert!(cols.len() >= count as usize * 2, "only {} viable columns at k={k}", cols.len());
         let mut placed = 0;
+        // **The first placement's own cell count, read off the world the
+        // same way `size_mode` does (`body_cells`'s own doc: off the world,
+        // not off `BodyPlan`).** `PIXEL_PHYSICS_BODY_LATERALS=0` must move
+        // this number for a `Segmented` species and leave it alone for a
+        // plain `Chain` -- CLAUDE.md's stale-switch tell is identical
+        // output across a change that must have moved something, and this
+        // is the cheapest place to catch that before trusting the blocked%
+        // below at all.
+        let mut first_body_cells: Option<usize> = None;
         for i in 0..count {
             let x = cols[(i as usize * cols.len()) / count as usize];
             let Some(sy) = creature::colony_ant_site(&world, x, 0) else { continue };
             if let Some(site) = creature::plant_creature_seed(&mut world, x, sy - 1, species) {
                 world.schedule_active_site(site);
                 placed += 1;
+                if first_body_cells.is_none() {
+                    let id = world.get(x, sy - 1).organism_id();
+                    first_body_cells = Some(body_cells(&world, id).len());
+                }
             }
         }
         // **All three, in `ascii`'s order.** `parallel::step` is the CA
@@ -351,7 +413,8 @@ fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32,
         let attempts = s.moves + s.moves_blocked;
         let blocked = if attempts == 0 { f64::NAN } else { s.moves_blocked as f64 / attempts as f64 };
         println!(
-            "  k={k} placed={placed} alive={} ticks={} moves={} blocked={} => blocked {:.1}%  falls={} digs={}",
+            "  k={k} placed={placed} body_cells={} alive={} ticks={} moves={} blocked={} => blocked {:.1}%  falls={} digs={} impulses={} flight_moves={}",
+            first_body_cells.map(|n| n.to_string()).unwrap_or_else(|| "?".to_string()),
             world.live_creature_count(),
             s.ticks,
             s.moves,
@@ -359,6 +422,8 @@ fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32,
             blocked * 100.0,
             s.falls,
             s.digs,
+            s.impulses,
+            s.flight_moves,
         );
     }
 }

@@ -529,6 +529,136 @@ of four immobile ants is not a question worth an owner's time, and the ethos
 this project is built on says a mechanic that is right on paper and dull in
 the hand has failed. This one is not even right on paper yet.
 
+### 7e. The ablation (2026-09-10) — laterals are the cause, the spine is exonerated
+
+**§7d's own prescription, built and run: `PIXEL_PHYSICS_BODY_LATERALS=0|1`,**
+read once through a `OnceLock` (`creature::body_laterals_enabled`,
+`creature.rs:181`), gating only whether `organism::grow_body` keeps or drops
+`rule.lateral` while it walks a `FateGenome` (`organism.rs:1736` — `laterals`
+is now a parameter, not an env read, so a test can drive both arms in one
+process without fighting the once-per-process cache a `OnceLock` needs; the
+env var is read once at the one production call site,
+`creature::place_creature`). `1` (default) is today's shipped behaviour;
+`0` walks the identical rules at the identical `metamers`, stopping at the
+identical `cap` — same spine, same `CellType` per segment, same segment
+count — and just never pushes a lateral cell. `organism::tests::
+body_laterals_switch_strips_only_the_lateral_field` guards exactly that
+(spine untouched, laterals gone).
+
+**Table 1 — the switch, both shipped bodies, both presets, against the
+`ant_long` `Chain(6)` control, one seed (7), 24 placements, 4,000 frames,
+`RAYON_NUM_THREADS=4`:**
+
+| body | laterals | cells | `flat` blocked | `rolling` blocked |
+|---|---|---|---|---|
+| `ant_long`, `Chain(6)` | n/a | 6 | **2.5%** | **12.4%** |
+| ant, articulated | on (shipped) | 7 | 43.9% | 96.8% |
+| ant, articulated | **off** | 5 | **2.0%** | **14.8%** |
+| hopper, articulated | on (shipped) | 8 | 74.6% | 91.9% |
+| hopper, articulated | **off** | 7 | **5.5%** | **40.7%** |
+
+**The switch is connected** — `body_cells` (read off the world, not off
+`BodyPlan`) moves with it on every articulated row and holds flat on the
+`Chain(6)` control, which never reads it — and the 43.9%/96.8%/74.6%/91.9%
+shipped-arm figures reproduce §7a's own numbers exactly, byte for byte, on
+this build.
+
+**For the ant, laterals are the whole story.** Stripping them collapses
+blocked-on-flat from 43.9% to 2.0% — *below* the plain 6-cell chain's 2.5% —
+and blocked-on-rolling from 96.8% to 14.8%, essentially the chain's 12.4%.
+Two lateral cells, out of seven, were responsible for the entire pathology;
+the bare 5-cell spine walks at least as well as a 6-cell chain.
+
+**For the hopper, laterals explain nearly all of it and leave a residual.**
+One lateral cell, out of eight, was responsible for blocked-on-flat falling
+74.6% → 5.5% and blocked-on-rolling falling 91.9% → 40.7% — but 40.7% is
+still 3.3x the chain control's 12.4%, where the ant's own bare spine landed
+within noise of it. That gap is real and is not explained by §7d's own
+leading suspicion, which the second ablation below rules out directly.
+
+**Table 2 — the second ablation: does the `Segmented` code path itself cost
+anything, independent of laterals, at a length the plain chain control
+already covers?** `creature_scale`'s `body=segmented` override (new this
+change) takes `ant_long`'s own registry entry — same material, same economy,
+same name — and replaces its authored `Chain(6)` with a `Segmented` body of
+the identical length and zero laterals: same head, five plain `Segment`
+cells, nothing else touched.
+
+| body | code path | cells | `flat` blocked | `rolling` blocked |
+|---|---|---|---|---|
+| `ant_long` | `Chain(6)` | 6 | 2.5% | 12.4% |
+| `ant_long` | `Segmented`, 6 spine cells, 0 laterals | 6 | **2.5%** | **12.4%** |
+
+**Byte-identical — placed, alive, ticks, moves, blocked, falls and digs all
+match exactly, on both presets.** This is not a coincidence to be suspicious
+of (`CLAUDE.md`'s stale-binary tell is *identical output across a change
+that must have moved something*; here the two arms are proven, by the code's
+own construction, to compute the same thing). `segmented_body_after_step`
+(`creature.rs:7093`) rebuilds the spine with `chain_follow` over the
+group-0 cells and then, per segment, appends a lateral only `if g == 2`
+(`creature.rs:7117`); with every group at 1 — which is
+exactly what `laterals=false` or an unauthored-lateral literal body
+produces — the loop degenerates to pushing `(sx, sy)` for every segment and
+nothing else, which *is* `chain_follow`. **The `Segmented` movement code
+path is not the suspect.** §7d's own framing ("why does a segmented spine of
+`n` cost so much more than a plain chain of `n`") had the wrong noun: it is
+not the spine *code*, which this proves costs nothing extra; it was always
+the laterals.
+
+**A third, narrower control, run once the second ablation came back flat:**
+is the hopper's remaining residual pure spine *length* (7 cells against the
+control's 6), with no `Segmented` code in it at all? `body=chain5`/`chain7`
+re-lays `ant_long`'s own `Chain(n)` at a different `n`:
+
+| body | `flat` blocked | `rolling` blocked |
+|---|---|---|
+| `ant_long`, `Chain(5)` | 7.5% | 12.6% |
+| `ant_long`, `Chain(6)` (control) | 2.5% | 12.4% |
+| `ant_long`, `Chain(7)` | 4.8% | 13.7% |
+| hopper, laterals off (7 cells) | 5.5% | 40.7% |
+
+Length alone is noisy and non-monotonic at one seed — `Chain(5)` blocks
+*more* than `Chain(6)` on flat — but it stays within about 2 points of the
+control on both presets. `Chain(7)` **does** land close to the hopper's own
+flat figure (4.8% against 5.5%) but nowhere near its rolling one (13.7%
+against 40.7%). **Spine length does not explain the rolling residual
+either.**
+
+**What was checked and ruled out for the residual, by reading rather than by
+a fourth run.** The hopper is the one shipped body that fires
+`BrainOutput::Impulse` (`creature.rs:3175`), so a hop-selection-bias
+hypothesis was live: a launch is decided *before* `step_chain` runs and, on
+success, touches neither `moves` nor `moves_blocked` at all (`creature.rs:
+3191`, the `act` dispatch — "Deliberately not `moved`"), so if
+hopping preferentially removed *easy* ticks from the walking sample on rough
+ground, the remaining `step_chain` calls would skew toward the ground the
+verb could not clear, inflating blocked% with no change to the body at all.
+The counters this build added to `creature_scale`'s own printout
+(`impulses`, `flight_moves`) say this is backwards: launches are **common on
+`flat`** (1,490 impulses, 7,212 flight cells, against 3,904 walking moves for
+the laterals-off hopper) and **rare on `rolling`** (264 impulses, 825 flight
+cells, against 861 walking moves) — the opposite of what the hypothesis
+needs, since the residual is the rolling figure. Ruled out by the numbers
+already in hand, not retried as a guess.
+
+**Where this leaves it.** The switch, the spine code and (within a factor of
+~2) spine length are all exonerated by direct measurement; laterals are
+confirmed, mechanistically and numerically, as the dominant cause on both
+shipped bodies. What remains is a hopper-specific residual on rolling
+terrain (40.7% against a chain-length-matched ~13-14%) that is not the body
+plan — it is somewhere among the hopper's *other* authored differences from
+a plain chain (its own economy, jaw, dig thresholds, or the hop verb's
+interaction with uneven ground in a way the impulse/flight counters above do
+not by themselves explain). **No fix is built here.** The one candidate
+fix — relaxing `lateral_for`'s placement rule (`creature.rs:7159`) or
+`landing_is_placeable_through_tissue`'s per-cell requirement
+(`creature.rs:7040`) so a lateral's own collision does not veto an otherwise
+clear step — is a real design change to what a 2-wide body is allowed to
+do to the world around it, not a bounded, obviously-correct patch, and it is
+exactly the kind of change `CLAUDE.md` asks be scoped and budgeted rather
+than started under an ablation's cost fork. That is the next report's
+problem, not this one's.
+
 ## 8. What this deliberately leaves for later
 
 - **Palette.** Per-individual colour is the other half of
