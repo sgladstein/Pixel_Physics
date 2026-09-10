@@ -88,6 +88,18 @@ fn main() {
     let every: u64 = arg("every").unwrap_or(5);
     let zoom: u32 = arg("zoom").unwrap_or(1).max(1);
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
+    // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
+    // relying on `zoom` alone** -- the review skill is explicit that a GIF
+    // should never carry `zoom` into the queue (`image-rendering: pixelated`
+    // already lets the viewer zoom client-side for free), so a card asking
+    // "does the visit at one flower head read" needs pixels removed before
+    // encoding, not multiplied. Applied to the raw `WIDTH x HEIGHT` buffer,
+    // before zoom, so the two compose exactly as `filmstrip`'s do. Absent or
+    // unparsable means the whole frame, today's behaviour exactly.
+    let crop: Option<(u32, u32, u32, u32)> = arg::<String>("crop").and_then(|s| {
+        let parts: Vec<u32> = s.split(',').filter_map(|p| p.parse().ok()).collect();
+        (parts.len() == 4).then(|| (parts[0], parts[1], parts[2], parts[3]))
+    });
 
     let mut sc = Scenario::load(&scenario_name).unwrap_or_else(|e| {
         eprintln!("scenario {scenario_name}: {e}");
@@ -130,8 +142,9 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} rain={} start={start} frames={frames} every={every} zoom={zoom} out={out}",
-        rain.label()
+        "labgif: scenario={scenario_name} seed={seed} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        rain.label(),
+        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}"))
     );
     println!("  {msg}");
 
@@ -146,12 +159,34 @@ fn main() {
     let rain_before = lab.world.rain_cells;
     println!("  at frame {start}: soil water {water_before}, rain cells so far {rain_before} (rain now armed at {})", rain.label());
 
-    let (w, h) = (WIDTH, HEIGHT);
+    let (full_w, full_h) = (WIDTH, HEIGHT);
+    // The crop rect, clamped into the real frame so an out-of-bounds request
+    // (a flower head near an edge, plus margin) shrinks rather than reading
+    // past the buffer -- `filmstrip`'s own crop has this same clamp.
+    let (cx, cy, w, h) = match crop {
+        Some((x, y, cw, ch)) => {
+            let x = x.min(full_w.saturating_sub(1));
+            let y = y.min(full_h.saturating_sub(1));
+            (x, y, cw.min(full_w - x), ch.min(full_h - y))
+        }
+        None => (0, 0, full_w, full_h),
+    };
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
-            let mut buf = vec![0u8; (w * h * 4) as usize];
-            lab.draw(&mut buf, 60.0);
+            let mut full = vec![0u8; (full_w * full_h * 4) as usize];
+            lab.draw(&mut full, 60.0);
+            let buf = if crop.is_none() {
+                full
+            } else {
+                let mut cropped = vec![0u8; (w * h * 4) as usize];
+                for row in 0..h {
+                    let src = (((cy + row) * full_w + cx) * 4) as usize;
+                    let dst = (row * w * 4) as usize;
+                    cropped[dst..dst + (w * 4) as usize].copy_from_slice(&full[src..src + (w * 4) as usize]);
+                }
+                cropped
+            };
             let (zw, zh) = (w * zoom, h * zoom);
             let zoomed = if zoom == 1 {
                 buf

@@ -2538,6 +2538,8 @@ impl Lab {
             ui::Action::RackScroll(d) => self.ui.scroll_rack(d),
             ui::Action::RackGroup => self.ui.toggle_rack_grouping(),
             ui::Action::HistoryScroll(d) => self.ui.scroll_history(d),
+            ui::Action::HistoryOpen(colony) => self.ui.open_history_colony(colony),
+            ui::Action::HistoryBack => self.ui.close_history_colony(),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
