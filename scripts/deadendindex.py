@@ -112,10 +112,24 @@ def flat(s):
 def live_flags():
     """Env-var switches actually readable in the tree today.
 
-    An entry that cites one of these can be re-run in a single command; an entry
-    citing a flag that is *gone* needs the arm rebuilt before it can be re-asked
-    at all. That distinction sets the cost of every candidate, so it is measured
-    against `src/` rather than assumed from the prose."""
+    An entry citing a flag that is *gone* needs the arm rebuilt before it can be
+    re-asked at all, so this column sets a floor on the cost of re-testing it.
+
+    **It does not say the arm can be re-run, and the difference has been
+    measured.** `GROUND_ROOT` is the most-cited live flag here (three entries)
+    and it is correctly wired -- to a branch the scene never reaches. Paired
+    arms on `scene=worldcrack strike=12 preset=rolling seed=7`, 4,502 frames,
+    came back byte-identical on every column while `SCHED_PASS=1` reported
+    `grounded 0 (flat 0)` on every frame: `structural.rs:463` takes the ground
+    root only when a cell relaxes to `u16::MAX` *and* rests on ground, which
+    never happens there. The register already recorded the same vacuity for the
+    sibling flag `STRUCT_NO_GROUND_ROOT` (`structural:007`).
+
+    So an archived arm needs three steps, not one, and the first two are seconds
+    each: does the scene contain the situation (an effect counter non-zero in
+    the baseline arm), does the switched path execute (a counter on the far side
+    of the switch), and only then, do the arms differ? Skipping them is how a
+    byte-identical null gets written up as a negative result."""
     out = subprocess.run(
         ["grep", "-rhoE", r'env::var(_os)?\("[A-Z_0-9]+"', "src", "examples"],
         cwd=ROOT, capture_output=True, text=True,
