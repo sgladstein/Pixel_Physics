@@ -591,12 +591,26 @@ fn main() {
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
-         regime={} breeders={} gen={} bgen={}",
+         regime={} breeders={} gen={} bgen={} lookup={} visits={}",
         spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
         std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
-        last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation
+        last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation,
+        // **`visits` is the whole point of the breeder-index change, and
+        // `lookup` says which arm produced it.** Organisms the breeding rule
+        // had to look at over the run: the full-slot scan walks every
+        // organism in the world, the per-colony index walks that colony's
+        // breeders. Both arms count the same way, so the pair is a ratio
+        // rather than two numbers.
+        //
+        // Printed beside `born`/`alive` deliberately: the index changes only
+        // HOW an answer is computed, so at one seed and one regime every
+        // other field on this line must be identical between the arms. If
+        // `born` moves, the index changed behaviour and is wrong -- a
+        // whole-run equivalence check that no unit test can match.
+        if std::env::var("PIXEL_PHYSICS_BREEDER_INDEX").as_deref() == Ok("scan") { "scan" } else { "index" },
+        st.breeder_scan_visits
     );
 }
 

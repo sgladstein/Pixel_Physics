@@ -998,6 +998,26 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
         "THE NUMBER THIS BOX IS BUILT FROM. THE SAME SEED AND THE SAME BUILD REBUILD THE SAME BOX EXACTLY, WHICH IS WHAT LETS YOU CHANGE ONE PARAMETER AND COMPARE TWO RUNS RATHER THAN TWO WORLDS. TAKES EFFECT ON REBUILD.");
+    // **The mister, reachable here too -- as an integer 0-3, not a label.**
+    // This page's `bed()` closure only knows `integer`/`float` rows, and
+    // adding a labelled-choice row type for one field is not this lane's to
+    // do; the BOX page's own `RAIN` row (`ui.rs`'s `panel_rows`) is where a
+    // player reads and sets this as OFF/LIGHT/STEADY/HEAVY. What this row
+    // buys is the *other* route in: `resolve_setting` looks a scenario
+    // `Setting` up against this page's own registry, so `(subject: "the
+    // bed", field: "rain", value: 2)` in a `.ron` is how a saved scenario
+    // ships with the mister already on -- exactly the route `hunting_
+    // ground.ron` uses for `ant.sight_range`.
+    //
+    // **This one line, unlike every other row above, does not need a
+    // rebuild** -- `Lab::tick` reads `spec.rain` fresh every tick, so a
+    // change here is felt on the very next one. `needs_rebuild` matches
+    // every `Knob::Bed` field alike, so `adjust_param`'s notice still says
+    // "TAKES EFFECT ON REBUILD" when this is nudged from this page; that is
+    // this shared page's own coarse flag rather than something this field
+    // can opt out of, which is why the note below says the true story.
+    bed("rain", spec.rain.as_index() as f32, span(0.0, 3.0, 1.0),
+        "THE MISTER ON THE LID: 0 OFF, 1 LIGHT, 2 STEADY, 3 HEAVY. SEE THE BOX PAGE'S OWN `RAIN` ROW FOR THE RATES AND THE MEASUREMENT THE SHIPPED OFF DEFAULT RESTS ON. UNLIKE EVERY OTHER ROW ON THIS PAGE THIS TAKES EFFECT IMMEDIATELY, NOT ON REBUILD, WHATEVER THE NOTICE BELOW SAYS.");
 }
 
 /// **The world-level dials the parameters page exposes that are not a
@@ -1412,6 +1432,12 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
         "colony_ants" => spec.colony_ants = v as i32,
         "predators" => spec.predators = v as usize,
         "seed" => spec.seed = v as u64,
+        // Clamped through `Rain::from_index`, whose own `_ => Rain::Off`
+        // arm already refuses anything past `Heavy` -- so a scenario
+        // `Setting` asking for `value: 9` lands at `OFF` rather than
+        // panicking or reading out of bounds, the same forgiving rounding
+        // every other integral row here already gets from `v.round()`.
+        "rain" => spec.rain = crate::lab::rain::Rain::from_index(v as u8),
         _ => return false,
     }
     true
@@ -1436,6 +1462,7 @@ pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
         "colony_ants" => spec.colony_ants as f32,
         "predators" => spec.predators as f32,
         "seed" => spec.seed as f32,
+        "rain" => spec.rain.as_index() as f32,
         _ => return None,
     })
 }

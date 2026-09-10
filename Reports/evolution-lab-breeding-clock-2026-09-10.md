@@ -211,63 +211,97 @@ as the box can express it today, not for eusociality as it would work with
 competing colonies.** It is still the number that decides whether to commit
 the box to queen-only now, and the answer is no.
 
-### One anomaly, reported rather than smoothed
+### The anomaly is CLOSED: the scan was blind to recycled slots
 
-Under `queen` the living-breeder count reaches **2** on two seeds, where a
-colony-wide rule permits one. (The pre-merge sweep saw 5 on one seed; on the
-current binary the maximum is 2.) `found_colony_of` is documented "one colony
-per founding" and the suppression scan is colony-scoped and self-excluding, so
-this is not colony splitting. Traced, it is not a first-frame race either: the
-count rises tens of thousands of frames apart.
+**Cause found and fixed, 2026-09-10.** This report first said that under
+`queen` the living-breeder count reached 2 on two seeds where a colony-wide
+rule permits one, ruled out colony splitting, a second birth path and a
+recycled `children` count, and left the live hypothesis as a non-finite
+bank slipping through the infinite bar. **That hypothesis was wrong.** The
+cause was in the lookup itself, and it was found by measuring the
+per-colony breeder index against the scan it replaces.
 
-**Three causes ruled out by reading, 2026-09-10**, so the next session
-searches a smaller space rather than starting where this one did:
+**An organism id is `(generation << 12) | slot_index`.** Both scan loops
+iterated `1..=slots`, which are bare slot indices and so decode as
+generation 0 every time. When a slot is freed and reused its generation is
+bumped, so its occupant's real id is 4096 or higher and the loop never
+visits it. **The breeding rule was blind to every animal in a recycled
+slot** — a queen in a reused slot was invisible to
+`colony_has_other_breeder`, so a second animal bred.
 
-- **Not colony splitting.** A scenario `Colony` entry founds exactly one
-  colony (`apply_colony` to `found_colony_of`: the first animal that fits
-  claims it and the rest join), and a bud inherits its parent's colony, so
-  every animal in these runs is in one colony.
-- **Not a second birth path.** There is exactly one `Origin::Bud`
-  construction site and exactly one caller of `try_bud`, so nothing is born
-  without passing the suppression.
-- **Not a recycled `children` count**, which was this session's own first
-  guess and was wrong. `OrganismState` is not reused across animals:
-  `push_organism` builds a fresh one and sets `children: 0` explicitly
-  (`world.rs:4154`), so only the slot *index* is recycled, never the state.
-  A guard written for that fault stayed green with the fault injected —
-  blind, because there was no fault — and both the guard and the redundant
-  reset it defended were withdrawn rather than kept.
+It fits every fact the earlier investigation had: the count rose tens of
+thousands of frames in rather than at founding, because slots are only
+recycled once animals start dying. And it is the same class as the
+`0..slots` off-by-one fixed while the regime was built — that corrected the
+*range* and left the *encoding* wrong, both from reconstructing an id by
+hand instead of asking the allocator.
 
-**The live hypothesis is the affordability re-check.** Under `queen` the
-suppressed bar is `f32::INFINITY`, and the gate is `bank + reachable < bar`.
-That comparison is **false** for a non-finite left-hand side — a `NaN` bank
-sails straight through an infinite bar, and so does an infinite one. Energy
-arithmetic now has trophallaxis moving joules between animals, which is
-where a `NaN` would come from. The cheap instrument is the one the review
-named: at the `children` increment, under `queen` only, recompute
-`colony_has_other_breeder` after the increment and print frame, parent id
-and generation, and the other breeders' ids and liveness when it is already
-true; run seed 6, which leaks earliest, and read the first line. Pair it
-with `debug_assert!(bank.is_finite() && reachable.is_finite())` at the
-precheck.
+**Confirmed by re-running all six seeds**, played bed, 120,000 frames.
+Every one now reports exactly one living breeder, which is what a
+colony-wide rule permits:
 
-**The bound that makes the headline safe either way: a leak can only let
-more animals breed than the rule intends, so a perfect implementation is
-slower still. The thirteen-fold collapse is a lower bound on the collapse.**
+| seed | breeders before | breeders after | born | alive | gen | bgen |
+|---|---|---|---|---|---|---|
+| 1 | 1 | **1** | 9 | 25 | 1 | 0 |
+| 2 | **2** | **1** | 16 | 26 | 1 | 0 |
+| 3 | 1 | **1** | 13 | 29 | 1 | 0 |
+| 4 | **2** | **1** | 18 | 33 | 2 | 1 |
+| 5 | 1 | **1** | 22 | 35 | 1 | 0 |
+| 6 | 1 | **1** | 21 | 37 | 2 | 1 |
 
-### A second finding carried forward: `graded` does not scale yet
+**The headline is unchanged.** The median generation is still 1 and the
+median breeder chain still 0, so the thirteen-fold collapse stands — and it
+is now a tight figure rather than the lower bound this report had to settle
+for.
 
-`nearest_breeder` scans every organism slot — plants included, about 955 on
-the played bed at frame 6,000 — once per tick for every animal that can
-afford a child. The "rare tick" argument that keeps it off the hot path was
-made on a starving bed; on a fed colony of a thousand, which is the scale
-the owner already plays at, that is hundreds of animals against roughly two
-thousand slots every tick. **Before `graded` ships as the default it wants a
-per-colony breeder list**, validated live on read (each entry checked alive
-and still `children > 0`, dead ones pruned) so it keeps the cannot-go-stale
-property that motivated the live scan while making the read proportional to
-the breeders rather than the world. Measure it with `ascii`'s worst-frame
-figure on a fed thousand-ant bed, paired against the scan.
+**What found it was the instrument, not the reading**, and the general form
+is worth keeping. The old path and its replacement were run as two arms of
+one binary over a long run on a deliberately crowded bed; their sample
+tables were identical for 26,100 frames and then separated by a single
+birth. Nothing shorter would have shown it — at 12,000 frames the arms
+agree exactly. **An old path raced against its replacement inside one run
+is a correctness check no unit test here matched**, because a single
+differing decision cascades into a different world by the next frame and is
+therefore impossible to miss.
+
+### The second finding is fixed too: `graded` now scales
+
+The lookup used to scan every organism slot — plants included, about 955 on
+the played bed at frame 6,000 — once per tick for every animal that could
+afford a child. The "rare tick" argument keeping it off the hot path was
+made on a starving bed; at the thousand ants the owner already plays at,
+that is hundreds of animals against roughly two thousand slots every tick.
+
+`World::colony_breeders` is now a per-colony **candidate list**, never a
+source of truth. The invariant is one-directional — *every living breeder is
+in its colony's list, and entries that are not breeders may also be in it* —
+so false positives are skipped on read and false negatives cannot happen,
+because `children` is incremented in exactly one place and that place
+pushes. **Nothing was added to any death path**, which is what keeps the
+fragile half of a cache out of it: the original doc argued against a cache
+on the grounds that a stale "yes" would lock a colony with no breeder alive
+to unlock it, and that argument is respected rather than overridden.
+
+**Measured, both arms from one binary on `scenario=crowded_bench`** — one
+big colony among thirty plants, built to be the pessimal case for an index
+rather than a flattering one, since many small colonies would give the
+index almost nothing to walk:
+
+| frames | breeders by then | organisms visited, scan | index | ratio |
+|---|---|---|---|---|
+| 12,000 | 12 | 1,866,041 | 55,868 | **33x** |
+| 40,000 | 42 | 117,739,271 | 10,039,361 | **11.7x** |
+
+The ratio falls as the colony accumulates breeders, which is the honest
+scaling story and the reason the bed is crowded on purpose. Under
+`individual` the counter reads **zero** — the structural proof that the
+common path never looks at all.
+
+**The counter is what makes that claim checkable.** `breeder_scan_visits`
+counts candidates on *both* arms, so this is a ratio rather than two
+numbers, and a zero on the index arm would mean the lookups had stopped
+happening rather than got cheaper — `CLAUDE.md`'s "a cost that vanishes may
+be work that vanished". A guard asserts the non-zero half explicitly.
 
 ### Is the queen a dead end, or did it fail on implementation?
 
@@ -317,13 +351,22 @@ sweep before assuming the answer still holds.
 
 ## 6. What to build, in this order
 
-1. **Put the individual-against-graded trade to the owner rather than
-   deciding it here.** Graded costs a third of the evolutionary clock and
-   returns a colony that does not eat itself; that is a taste question about
-   what the box is for, not a measurement question. What is settled is that
-   queen-only is not a candidate. If graded is chosen, its strength wants a
-   sweep first — `GRADED_MAX_SUPPRESSION` is a provisional 6.0 and nothing
-   has measured it.
+1. **The owner's ruling on the trade, 2026-09-10: graded.** Put to them
+   directly rather than through the review queue, on their own standing
+   instruction that a question needing no visual is asked in the session
+   ("if it does not require a visual, just ask questions here") — so this
+   line is where the ruling lives, because the queue does not hold it.
+   Their words: *"I lean graded suppression, but I want to question if the
+   queen is dead end or it failed because of the implementation or
+   environment."* That second half is answered in §5 above, and the answer
+   is that the collapse is structural.
+
+   Graded costs a third of the evolutionary clock and returns a colony that
+   does not eat itself. Two conditions before it ships as the default, and
+   neither is optional: **the breeder lookup has to scale** (§5's second
+   finding — it currently scans every organism in the world), and
+   `GRADED_MAX_SUPPRESSION` wants a sweep, being a provisional 6.0 nothing
+   has measured.
 2. **Resolve the extra-breeder anomaly** before any of it is trusted further.
 3. **The caste channel, so sterility is provisioned rather than imposed.**
    `Provision` is a live output nobody wires and `Made` a live input nobody
