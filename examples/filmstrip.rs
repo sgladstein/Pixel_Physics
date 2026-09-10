@@ -1928,7 +1928,7 @@ fn build_scene(args: &Args) -> World {
             let params = presets.get("wetland").expect("the wetland preset");
             pixel_physics::worldgen::generate(&mut w, pixel_physics::worldgen::Spec::Generated { params, seed: args.seed });
 
-            let species = w.species.id_of("ant").expect("ant species");
+            let species = w.species.id_of(&args.colony_species).unwrap_or_else(|| panic!("colony_species={:?}: unknown species", args.colony_species));
             let genome = match args.genome.as_str() {
                 "authored" => w.species.get(species).genome.clone(),
                 "zero" => vec![0.0; pixel_physics::sim::brain::GENOME_LEN],
@@ -2036,16 +2036,17 @@ fn build_scene(args: &Args) -> World {
             // than `placed` on every seed. Arithmetically correct, and an
             // answer to a different question.
             let viable = would_place(&w, cx);
-            let placed = w.found_colony(cx, cy - 2);
+            let placed = w.found_colony_of(cx, cy - 2, &args.colony_species, pixel_physics::sim::creature::COLONY_ANTS);
             assert!(placed > 0, "the colony scene placed no ants -- the scene is not showing what it claims to");
             // **Three numbers, because the two gaps have different causes.**
             // 52 -> viable is the scene losing sites to water or a canopy;
-            // viable -> placed is `found_colony` disagreeing with the scene
-            // about what counts as ground, which is the predicate mismatch
-            // `open-bugs-handoff.md` §R2 flags. One number hides which.
+            // viable -> placed is `found_colony_of` disagreeing with the
+            // scene about what counts as ground, which is the predicate
+            // mismatch `open-bugs-handoff.md` §R2 flags. One number hides
+            // which.
             println!(
-                "scene=colony genome={} seed={} : {placed} ants founded of {viable} viable sites of 52 asked, at x={cx}, surface y={cy}",
-                args.genome, args.seed
+                "scene=colony colony_species={} genome={} seed={} : {placed} ants founded of {viable} viable sites of 52 asked, at x={cx}, surface y={cy}",
+                args.colony_species, args.genome, args.seed
             );
             println!("  suggested crop: crop={},{},240,110", cx - 120, cy - 70);
         }
@@ -3054,6 +3055,15 @@ struct Args {
     /// `genome=` for `scene=colony`: `authored`, `zero`, or `rNNN` naming a
     /// genome from `creature_space`'s sweep by the label it printed.
     genome: String,
+    /// `colony_species=` for `scene=colony` -- which species founds, default
+    /// `ant` (the shipped articulated body). `Reports/creature-articulated-
+    /// body-2026-09-09.md` §13h's paired reading is this scene run twice,
+    /// once at the default and once at `colony_species=ancestor` -- the
+    /// shipped two-cell `Chain(2)` body (`assets/species/ancestor.ron`),
+    /// which never reaches `founding_spine_walk` at all and so is the
+    /// control for "how many sites exist for *any* body" on this same
+    /// terrain, independent of this build's own contour lay.
+    colony_species: String,
     /// `scene=hop`'s impulse weight. **A knob rather than a constant so the
     /// scene can run its own control**: at 0 nothing hops, and four bodies
     /// milling on four shelves is what the engine did before this verb
@@ -3641,6 +3651,7 @@ fn parse() -> Args {
         cols: 3,
         zoom: 1,
         genome: String::from("authored"),
+        colony_species: String::from("ant"),
         blind: false,
         soak: 1500,
         hedge_gut: 1.0,
@@ -3774,6 +3785,7 @@ fn parse() -> Args {
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
+            "colony_species" => a.colony_species = v.to_string(),
             "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
             "soak" => a.soak = v.parse::<usize>().expect("soak=<frames>"),
             "gut" => a.hedge_gut = v.parse::<f32>().expect("gut=<-1.0..1.0>"),
