@@ -2286,6 +2286,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   was taken at about **one minute of play** (`open-bugs-handoff.md` §Z6),
   Gate 2 discriminates only *past* the founding grant, and a phase share
   transfers across neither machines nor beds.
+- [evolution-lab-round-26-2026-09-10.md](evolution-lab-round-26-2026-09-10.md)
+  — **record, 2026-09-10.** The coordinator's account of round twenty-six,
+  moved out of the lane note when it passed 30 KB: nine lanes in nine hours,
+  seven landed. What the round overturned, with the numbers: the fruit
+  pipeline is budget-limited, not pollinator-limited; nothing has ever eaten
+  a flower; `labshot` ignored `seed=` in scenario mode; an ant bites a fallen
+  fruit about twice in 360,000 frames on the played bed and 32 times across
+  a sweep with a thicket in it, and no pip has yet become a plant; a severed
+  fruit lost its seed's organism on landing (§Z8, closed); the breeding
+  rule was blind to every animal in a recycled slot; the articulated bodies'
+  immobility was entirely their side cells, and the tuck rule takes the ant
+  from 43.9% / 96.8% blocked to 1.9% / 22.1%. Also the rulings the round
+  depended on and the questions it put to the owner.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
