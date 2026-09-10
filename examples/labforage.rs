@@ -616,11 +616,39 @@ fn main() {
     // `false` for ever without one, so a run on `ancestor` reads 0 here by
     // construction rather than by failure.
     println!("  round trips: deliveries {} nest visits {}", st.deliveries, st.nest_visits);
+    // **A2 -- the seed rides home.** `Reports/evolution-lab-ecology-design-
+    // 2026-09-10.md` §2.6/§2.7, Brief A2. `nest_cols` is already computed
+    // above (scenario `Colony` entries or `LabBox::colony_columns`) for the
+    // food-distance bands, so the headline reuses it rather than asking the
+    // engine to have an opinion about where a nest is -- see
+    // `World::pip_germination_x`'s own doc for why that split is
+    // deliberate.
+    const NEAR_NEST_REACH: i32 = 32;
+    let plants_from_pip_near_nest =
+        world.pip_germination_x.iter().filter(|&&x| nest_cols.iter().any(|&c| (c - x).abs() <= NEAR_NEST_REACH)).count();
+    // Median, not mean: `seed_transit_frames` is exactly the kind of
+    // long-tailed sample (one lucky seed dropped a step from the bite, one
+    // unlucky one carried the length of the bed) a mean would let the tail
+    // dominate. `CLAUDE.md`'s own worked cases are about the same shape.
+    let seed_transit_median = {
+        let mut v = world.seed_transit_frames.clone();
+        v.sort_unstable();
+        v.get(v.len() / 2).copied()
+    };
+    println!(
+        "  A2 -- the seed rides home: seeds_carried {} seeds_delivered {} | plants_from_pip {} of which within {NEAR_NEST_REACH} cols of a nest {plants_from_pip_near_nest} | \
+         median carry {} frames over {} completed deliveries (herb.seed_half_life is 14,000; this becomes a live knob only if the median nears four figures)",
+        world.seeds_carried,
+        world.seeds_delivered,
+        world.plants_from_pip,
+        seed_transit_median.map_or_else(|| "n/a".to_string(), |m| m.to_string()),
+        world.seed_transit_frames.len()
+    );
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
-         windfall_bitten_ownerless={} lookup={} visits={}",
+         windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -644,6 +672,14 @@ fn main() {
         // retuning `seed_gut_survival`. See `World::
         // windfall_bitten_ownerless`.
         world.windfall_bitten_ownerless,
+        // **A2's own counters** -- "it fired" (`seeds_carried`), "it worked"
+        // (`seeds_delivered`), the headline (`plants_from_pip_near_nest`),
+        // and the transit-cost check, all computed just above.
+        // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6/§2.7.
+        world.seeds_carried,
+        world.seeds_delivered,
+        plants_from_pip_near_nest,
+        seed_transit_median.map_or_else(|| "n/a".to_string(), |m| m.to_string()),
         // **`visits` is the whole point of the breeder-index change, and
         // `lookup` says which arm produced it.** Organisms the breeding rule
         // had to look at over the run: the full-slot scan walks every
