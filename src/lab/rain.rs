@@ -13,37 +13,83 @@
 //! grow lights are the box's whole income and are not part of what this
 //! knob turns. Only water changes.
 //!
-//! # Why OFF, not a rate — the measurement this ships from
+//! # Why LIGHT, not OFF — the measurement this ships from
 //!
-//! `examples/soil_drawdown.rs -- scenario=played_bed` censused the owner's
-//! own bed (13 plants, a colony landing on the timeline at frame 6,000) with
-//! **no watering**, seeds 1 and 2, across the owner's own 120,000-frame
-//! session:
+//! **This is not the bed `Off` was originally measured against.** The
+//! played bed (`assets/lab_scenarios/played_bed.ron`) has since grown a
+//! low fruiting thicket and a tree on top of the thirteen-plant mix the
+//! first reading used — both owner rulings on review cards, landed by the
+//! played-bed-mix branch — and a tree alone shades the bench under it to
+//! under 1% of lamp light (that file's own header). So this lane re-asked
+//! the drawdown question on the bed as it now ships rather than inheriting
+//! the old reading, per the coordinator's own instruction that every number
+//! here is quoted fresh from now on.
 //!
-//! | seed | frame 0 | frame 6,000 | frame 120,000 | loss, whole session | loss, from frame 6,000 |
+//! `examples/soil_drawdown.rs -- scenario=played_bed rain=<0|1|2> frames=
+//! 120000 every=6000` (`rain=` is this lane's own addition to the harness,
+//! overriding the scenario's own unset field so one file can be measured at
+//! every rate) censused the new bed at OFF, LIGHT and STEADY, seeds 1 and 2,
+//! across the owner's own 120,000-frame session — soil water and, new this
+//! round, standing water sitting above the soil line (pooling on the bed,
+//! the failure a player would actually see and the number `labshot` prints
+//! nothing for):
+//!
+//! | rate | seed | frame 6,000 | frame 120,000 | soil water vs frame 6,000 | standing water @ 120,000 |
 //! |---|---|---|---|---|---|
-//! | 1 | 24,998,400 | 24,745,334 | 23,568,991 | 5.72% | 4.75% |
-//! | 2 | 24,998,400 | 24,667,881 | 23,973,662 | 4.10% | 2.81% |
+//! | OFF | 1 | 24,713,424 | 20,641,918 | **-16.47%** (-15.51% already by frame 60,000) | 2,946 |
+//! | OFF | 2 | 24,691,699 | 23,645,535 | -4.24% | 132 |
+//! | LIGHT | 1 | 24,947,611 | 26,764,991 | +7.28% | 2,363 |
+//! | LIGHT | 2 | 24,815,760 | 26,323,289 | +6.08% | 3,000 |
+//! | STEADY | 1 | 25,301,374 | 30,059,066 | **+18.80%** | **11,090** |
+//! | STEADY | 2 | 25,093,345 | 28,839,261 | **+14.93%** | **12,213** |
 //!
-//! Both readings sit under the ~10% line `CLAUDE.md`'s task set as the
-//! trigger for shipping a rate as the default. The positive control
-//! (`founders=0`, same soil depth, same 120,000 frames) held **exactly**
-//! flat at field capacity the whole run — 24,998,400 at every stop, zero
-//! loss — which is what says the drying above is the crop's own
-//! transpiration and evaporation from bare, sun-touched soil rather than a
-//! leak the census is inventing: `CLAUDE.md`'s standing rule that a number
-//! has to move on a case known to move and hold still on a case known not
-//! to, checked both ways here in one run each.
+//! **OFF is not safe any more.** Seed 1 alone breaks the ~10% line
+//! `CLAUDE.md`'s task set as the trigger for shipping a rate as the default,
+//! and breaks it early — already past it at frame 60,000, not a borderline
+//! reading rounded down at the finish. The gap between the two seeds
+//! (-16.47% against -4.24%) is the "outcomes here have enormous spread"
+//! warning `CLAUDE.md`'s method section gives for trusting a single seed,
+//! and it argues the same direction a wider sweep would: a tree that shades
+//! the bench to under 1% of lamp light changes the water story enough that
+//! OFF can no longer be trusted to hold this bed.
 //!
-//! So the played bed does not dry out over a session by enough to need
-//! watering turned on for the player automatically — [`Rain::Off`] ships as
-//! the default, and `EVAPORATION_...` below are the two figures this
-//! decision rests on, kept as constants rather than only prose so a later
-//! re-measurement has something to diff against. The rates below still
-//! exist and are not vestigial: a player growing a heavier stand, a smaller
-//! compartment, or a longer session than the owner's own 120,000 frames can
-//! turn one on, and `LIGHT`/`STEADY`/`HEAVY` is the graded ladder
-//! `CLAUDE.md`'s ethos law asks for rather than a single on/off switch.
+//! **LIGHT holds.** +7.28%/+6.08% at the worst (last) stop, comfortably
+//! inside the ±10% band and on the opposite side from OFF's miss — every
+//! earlier stop sits closer to flat still (the per-setting test below
+//! checks the rate itself over a clean window). Its standing-water reading
+//! (2,363–3,000 cells at the final stop) is the *same order of magnitude*
+//! as OFF's own reading on the identical bed (132–2,946), not a new failure
+//! LIGHT introduces: it is `weather::condense_under_a_lid`, the box's
+//! existing dew behaviour, confirmed independently by `examples/labgif.rs`'s
+//! own header (an `Off` control there still reads condensation with the
+//! mister's own counter flat at zero the whole time). The positive control
+//! — `founders=0`, the same 80-row soil depth, the same 120,000 frames,
+//! nothing alive at all — holds **exactly** flat at field capacity with
+//! **zero** standing water at every stop, which says the condensation above
+//! needs a transpiring plant to trigger at all and is not this census
+//! inventing a leak: `CLAUDE.md`'s rule that a number has to move on a case
+//! known to move and hold still on a case known not to, checked both ways
+//! in one run each.
+//!
+//! **STEADY overshoots badly on both readings, not just one:** soil water
+//! at +14.93%/+18.80%, well past the line, and standing water climbing
+//! without plateauing through the whole run to 11,090–12,213 cells at the
+//! final stop — four to thirty-five times OFF's own peak on the identical
+//! bed, exactly the pooling failure the ±10% line and the surface census
+//! exist to catch. HEAVY (400 cells/1,000 frames against STEADY's 150) was
+//! not measured: this lane's cost fork is "HEAVY only if STEADY is still
+//! under the bar", and STEADY is not under it — it is already well over.
+//!
+//! So [`Rain::Light`] ships as the default — the lowest setting that
+//! actually holds this bed within its own tolerance — `PLAYED_BED_*` below
+//! are the constants this decision rests on, kept rather than only prose so
+//! a later re-measurement has something to diff against, and [`Rain::Off`]
+//! stays one keypress away (`8`, or the BOX page's own `RAIN` row): the
+//! owner's own ruling on the rain card, *"you can ship on, but give me
+//! control over it."* `STEADY`/`HEAVY` remain the graded ladder above the
+//! default, for a heavier stand, a smaller compartment, or a longer session
+//! than the owner's own 120,000 frames — `CLAUDE.md`'s ethos law is still
+//! why this is four rates and not one on/off switch.
 //!
 //! # The mechanism
 //!
@@ -79,30 +125,52 @@
 use super::scene::LabBox;
 use crate::sim::world::World;
 
-/// **Soil water lost over the owner's own 120,000-frame played-bed session,
-/// with no watering** — `examples/soil_drawdown.rs -- scenario=played_bed
-/// seed=1 frames=120000 every=30000`. In `material::SOIL_FIELD_CAPACITY`
-/// units summed over every soil cell (`update::soil_moisture`), the same
-/// total this module's own header table reads from.
+/// **Soil water on the owner's own 120,000-frame played-bed session, with
+/// no watering** (`Rain::Off`) — `examples/soil_drawdown.rs -- scenario=
+/// played_bed seed=1 rain=0 frames=120000 every=6000`, re-measured on the
+/// bed as it now ships (thicket and tree included). In `material::
+/// SOIL_FIELD_CAPACITY` units summed over every soil cell (`update::
+/// soil_moisture`), the same total this module's own header table reads
+/// from.
 ///
 /// Kept as a constant, not only prose, so a later change to the bed, the
 /// plant mix, or the moisture pass can diff a fresh run against a number
-/// rather than a table cell. See this file's header for the full readings
-/// and the `founders=0` positive control that grounds them.
-pub const PLAYED_BED_LOSS_SEED1_FRAME0: (u64, u64) = (24_998_400, 23_568_991);
+/// rather than a table cell. See this file's header for the full readings,
+/// the standing-water-on-the-surface census that sits beside them, and the
+/// `founders=0` positive control that grounds them.
+pub const PLAYED_BED_LOSS_SEED1_FRAME0: (u64, u64) = (24_998_400, 20_641_918);
 /// The same reading from `world.frame == 6_000` — the moment the colony
 /// timeline lands and the bed becomes "played" rather than "growing" — to
 /// `120_000`, which is the window a rate is actually judged against in
 /// `apply_settings`'s own doc on `Knob::Bed` fields: the box a player waters
-/// is the one already running, not the one mid-build.
-pub const PLAYED_BED_LOSS_SEED1_FRAME6000: (u64, u64) = (24_745_334, 23_568_991);
+/// is the one already running, not the one mid-build. This is the reading
+/// that fails: -16.47%, already past the ~10% line by frame 60,000.
+pub const PLAYED_BED_LOSS_SEED1_FRAME6000: (u64, u64) = (24_713_424, 20_641_918);
 /// Seed 2 of the same pair, `CLAUDE.md`'s own minimum for "not one seed":
-/// a smaller loss than seed 1 (4.10% of the session, 2.81% from frame
-/// 6,000) but the same story -- neither seed crosses the ~10% line, and
-/// the `founders=0` control on this seed is identical to seed 1's (flat at
-/// 24,998,400 throughout, so it is not reprinted as its own constant).
-pub const PLAYED_BED_LOSS_SEED2_FRAME0: (u64, u64) = (24_998_400, 23_973_662);
-pub const PLAYED_BED_LOSS_SEED2_FRAME6000: (u64, u64) = (24_667_881, 23_973_662);
+/// a smaller loss than seed 1 (-5.41% of the session, -4.24% from frame
+/// 6,000) that stays under the ~10% line where seed 1 does not — the spread
+/// between the two, not either reading alone, is what makes `Off` unsafe as
+/// a default now. The `founders=0` control on this seed is identical to
+/// seed 1's (flat at 24,998,400 throughout, zero standing water, so it is
+/// not reprinted as its own constant).
+pub const PLAYED_BED_LOSS_SEED2_FRAME0: (u64, u64) = (24_998_400, 23_645_535);
+pub const PLAYED_BED_LOSS_SEED2_FRAME6000: (u64, u64) = (24_691_699, 23_645_535);
+
+/// **The shipped default's own reading, same bed, same window, `Rain::
+/// Light` armed throughout** (`rain=1`) — what [`Rain::default`] rests on.
+/// Overshoots on the *safe* side, +7.28%: still comfortably inside the
+/// ±10% band, unlike `Off`'s seed 1 above.
+pub const PLAYED_BED_LIGHT_SEED1_FRAME6000: (u64, u64) = (24_947_611, 26_764_991);
+/// Seed 2 of the default's own reading: +6.08%, the same story.
+pub const PLAYED_BED_LIGHT_SEED2_FRAME6000: (u64, u64) = (24_815_760, 26_323_289);
+/// **The rejected neighbour, one rate up** (`rain=2`, `Rain::Steady`) — kept
+/// so a later session does not have to re-run it to see why `Light` was
+/// chosen over it: +18.80%, well past the line. Standing water at the same
+/// stop (see this file's header) climbs to 11,090 cells, against `Light`'s
+/// 2,363 on the identical seed.
+pub const PLAYED_BED_STEADY_SEED1_FRAME6000: (u64, u64) = (25_301_374, 30_059_066);
+/// Seed 2 of the rejected neighbour: +14.93%, standing water 12,213 cells.
+pub const PLAYED_BED_STEADY_SEED2_FRAME6000: (u64, u64) = (25_093_345, 28_839_261);
 
 /// How many sim ticks apart a due drop falls, for every rate that has one.
 /// One constant rather than a per-rate interval: `CLAUDE.md`'s "when
@@ -124,10 +192,14 @@ const DROP_INTERVAL_FRAMES: u64 = 40;
 /// actually answers.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Rain {
-    /// No mister. The shipped default — see this file's header for the
+    /// No mister. One keypress (`8`) or one click away from the shipped
+    /// default — the owner's own ruling on the rain card, *"you can ship
+    /// on, but give me control over it"*. See this file's header for the
+    /// measurement that keeps this from being the default.
+    Off,
+    /// **The shipped default** — see this file's header for the
     /// measurement it rests on.
     #[default]
-    Off,
     Light,
     Steady,
     Heavy,
@@ -289,6 +361,33 @@ mod tests {
         }
     }
 
+    /// **The shipped default itself, named as `Rain::default()` rather than
+    /// hand-typed** -- so a future move of the `#[default]` attribute to a
+    /// rate whose own cadence was never re-measured is caught here rather
+    /// than silently inheriting whatever `each_rate_...`'s own loop happens
+    /// to cover. Asserts two things the header's table above rests on: the
+    /// default actually waters (it is not `Off` wearing a different name),
+    /// and it places close to its own `cells_per_1000_frames` claim over a
+    /// clean window -- the same tolerance `each_rate_...` uses, for the same
+    /// reason (1,000 is a multiple of `DROP_INTERVAL_FRAMES`).
+    #[test]
+    fn the_shipped_default_drawdown_matches_its_own_rate_over_a_short_window() {
+        let rate = Rain::default();
+        assert_ne!(rate, Rain::Off, "the shipped default must actually water the bed -- Off is a keypress away, not the default");
+        let (mut world, spec) = bare_bed();
+        let mut placed = 0u32;
+        for f in 0..1000u64 {
+            world.frame = f;
+            placed += tick(&mut world, &spec, rate);
+        }
+        let want = rate.cells_per_1000_frames();
+        let tolerance = (want / 10).max(2);
+        assert!(
+            placed.abs_diff(want) <= tolerance,
+            "default rate {rate:?}: placed {placed} cells in 1,000 frames, want {want} +/- {tolerance}"
+        );
+    }
+
     /// **Specificity: `Off` places nothing, ever.** The one rate with no
     /// entry in `Rain::drop`'s match, checked over a window four times
     /// `each_rate...`'s own so a rate that was accidentally wired to fire
@@ -336,7 +435,7 @@ mod tests {
         let spec0 = LabBox { founders: 0, colonies: 0, ..LabBox::default() };
         let mut world = spec0.build();
         let mut spec = spec0.clone();
-        assert_eq!(spec.rain, Rain::Off, "the bed this test builds must start at the shipped default");
+        assert_eq!(spec.rain, Rain::default(), "the bed this test builds must start at the shipped default");
         let settings = vec![Setting { subject: "the bed".to_string(), field: "rain".to_string(), value: 2.0 }];
         let applied = apply_settings(&mut world, &mut spec, &settings).expect("rain is a registered bed field");
         assert_eq!(applied, 1);

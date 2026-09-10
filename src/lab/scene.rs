@@ -166,7 +166,9 @@ pub struct LabBox {
     pub extra_walls: Vec<i32>,
     /// **The mister on the lid** — Off/Light/Steady/Heavy. See
     /// `super::rain::Rain` for the rates and the measurement the shipped
-    /// `Off` default rests on.
+    /// `Light` default rests on. `Off` is one keypress away (`8`, or the
+    /// BOX page's own `RAIN` row) — the owner's own ruling on the rain
+    /// card, *"you can ship on, but give me control over it."*
     ///
     /// On the spec, not on `World` or on `Ui`, for the same reason
     /// `compartments` is: a scenario's own `bed:` block is the one place a
@@ -176,9 +178,12 @@ pub struct LabBox {
     /// on the same way `Knob::Bed` already turns any other bed field —
     /// `params::box_rows`'s `rain` row is the one place that resolves.
     ///
-    /// `#[serde(default)]` so every scenario `.ron` on disk before this
-    /// field existed keeps loading unchanged, at `Rain::Off` — the shipped
-    /// default and the value every one of them was already playing at.
+    /// `#[serde(default)]` so every scenario `.ron` on disk, and every box
+    /// saved, before this field existed keeps loading unchanged — now at
+    /// `Rain::Light`, the shipped default, rather than the `Off` an older
+    /// build of this file shipped. A box that was deliberately built or
+    /// saved at `Off` still says so explicitly and still loads at `Off`;
+    /// this only changes what a *missing* key resolves to.
     #[serde(default)]
     pub rain: super::rain::Rain,
 }
@@ -285,10 +290,13 @@ impl Default for LabBox {
             lamp_spacing: 2 * LAMP_HALF + 1 + LAMP_GAP,
             seed: 1,
             extra_walls: Vec::new(),
-            // Measured: the played bed does not dry out enough over a
-            // session to need this on by default. See `rain`'s own doc and
-            // `super::rain`'s header for the numbers.
-            rain: super::rain::Rain::Off,
+            // `Rain::default()`, not a literal here: the shipped default is
+            // now `Light`, measured (re-measured against the bed with its
+            // thicket and tree -- `super::rain`'s header) to hold the played
+            // bed's soil water within its own tolerance where `Off` no
+            // longer does on every seed. One source of truth so a future
+            // re-measurement that moves `#[default]` moves this too.
+            rain: super::rain::Rain::default(),
         }
     }
 }
@@ -1025,7 +1033,12 @@ mod tests {
         // field.
         std::fs::write(&path, "(width: 512, height: 320, soil_depth: 96, ground_y: 160, compartments: 1, founders: 8, species: \"herb\", colonies: 1, colony_ants: 52, colony_species: \"ant\", predators: 0, lamp_spacing: 33, seed: 1, extra_walls: [])").expect("write a pre-rain bed by hand");
         let loaded = LabBox::load_saved().expect("a bed with no rain key still parses");
-        assert_eq!(loaded.rain, crate::lab::rain::Rain::Off, "a missing key must load at the shipped default, not refuse to parse");
+        // `Rain::default()`, not a hardcoded variant: the shipped default
+        // moved from `Off` to `Light` (the rain lane's own re-measurement
+        // against the played bed's thicket and tree), and this assertion
+        // went red on that move before being updated to match -- the guard
+        // rule `CLAUDE.md` asks for, watched failing rather than assumed.
+        assert_eq!(loaded.rain, crate::lab::rain::Rain::default(), "a missing key must load at the shipped default, not refuse to parse");
 
         let _ = std::fs::remove_file(&path);
         std::env::remove_var(LabBox::ASSET_PATH_ENV);
