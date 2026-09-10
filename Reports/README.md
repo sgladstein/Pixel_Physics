@@ -1865,6 +1865,25 @@ drift that two of these documents still reflect.**
   corrections overturn two standing claims — the harness bed is not the
   played bed (a colony founded on grown plants holds 31 where the frame-0
   bed holds 4), and the trail circuit is wired and inert (§Z7).
+- [evolution-lab-breeding-clock-2026-09-10.md](evolution-lab-breeding-clock-2026-09-10.md)
+  — **measurement of record for the evolutionary clock, and the eusociality
+  lane's first deliverable, which is a number rather than a feature.** Three
+  breeding regimes x six seeds x 120,000 frames on the played bed. Queen-only
+  breeding is a **thirteen-fold collapse**: median 1 generation against
+  individual budding's 13.5, with a breeder-chain median of **zero**, meaning
+  that on five seeds of six no animal born in the box ever reproduced. Graded
+  suppression costs about a third of the clock (8.5) and buys stability rather
+  than population — the same standing colony on a **quarter of the deaths** —
+  so individual-against-graded is a real trade for the owner and only
+  queen-only is settled as off the table. The three regimes are one rule at
+  three settings of one knob (the bar scaled by proximity to an animal that
+  has already bred), so no queen type exists and a queenless colony resuming
+  is the same code path as the opening state. Carries the played bed as a
+  scenario, why a tree was measured out of it (one tree shades the bench to
+  0.008 of lamp light), why a grown bed seats 8 founders of 52 until a bare
+  band is left for the nest, and one unresolved anomaly reported rather than
+  smoothed: `queen` leaks a second breeder, which can only make the collapse
+  a lower bound.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is

@@ -2667,6 +2667,30 @@ pub struct World {
     /// means nothing has bred, and a founder is generation 0.
     pub deepest_animal_generation: u16,
 
+    /// The deepest generation any animal that has **itself reproduced**
+    /// has reached -- the breeding-regime counter beside
+    /// [`Self::deepest_animal_generation`], and not a duplicate of it.
+    ///
+    /// `deepest_animal_generation` is a max over every child ever *born*,
+    /// so under `queen`-only breeding (`creature::breeding_regime`) it
+    /// counts sterile workers too: a breeder at generation 4 producing a
+    /// worker that never itself buds still pushes that counter to 5, one
+    /// step deeper than any genome in the colony actually travelled. This
+    /// counter only advances on a **parent's own** generation, at the
+    /// moment its bud succeeds, so it reads the depth of the chain a
+    /// genome actually travels rather than the depth of the chain plus one
+    /// generation of dead ends -- exactly the gap the generations-per-
+    /// session measurement this switch exists for has to see.
+    ///
+    /// Written in `creature::try_bud`, beside `OrganismState::children`'s
+    /// own increment, for the same reason `deepest_animal_generation`'s
+    /// own doc gives: the two writes must not be able to drift apart.
+    ///
+    /// Zero in a world where nothing has bred, or where the regime has
+    /// simply never made this counter differ from its sibling yet. It
+    /// accumulates and never drops, exactly like `deepest_animal_generation`.
+    pub deepest_breeder_generation: u16,
+
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
     /// changed** — the coarser of the two heredity dials. See
@@ -3463,6 +3487,7 @@ impl World {
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
+            deepest_breeder_generation: 0,
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -4125,6 +4150,8 @@ impl World {
             inherited: false,
             stocked: false,
             generation: 0,
+            // Zero until this animal buds one itself, in `try_bud`.
+            children: 0,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
             // is allocating a plant (same reasoning as `traits` above).
