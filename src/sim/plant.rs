@@ -11026,6 +11026,16 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
         world.plants_from_pip += 1;
     }
+    // **Did this seedling arrive by parcel or by scatter?** `cell` is the
+    // seed cell as it stood before this function relabels it into a shoot,
+    // so `cell.material` still carries the windfall/seed distinction
+    // `plant::drop_organ` and `plant::bear_seed_at` wrote in -- the
+    // discriminator the ecology round asked for and the reason it is read
+    // here rather than reconstructed later. See
+    // `World::windfall_germination_x`.
+    if Some(cell.material) == world.materials.id_of("windfall") {
+        world.windfall_germination_x.push(x);
+    }
     // **A plant's "born" is its germination, not its allocation.** Its
     // organism was created when its parent set the seed, which may have been
     // thousands of frames earlier -- that is what `OrganismState::born_frame`

@@ -12,6 +12,7 @@
 //! cargo run --release --example chronicle -- frames=6000
 //! cargo run --release --example chronicle -- frames=20000 seed=3 all=1
 //! cargo run --release --example chronicle -- founders=8 colonies=1 lines=1
+//! cargo run --release --example chronicle -- scenario=played_bed frames=20000
 //! ```
 //!
 //! `lines=1` (the default) prints only the line-bounded kinds -- what the LOG
@@ -20,7 +21,17 @@
 //! `CLAUDE.md`'s standing rule: a picture (or a page of prose) says what and
 //! where, and only the count says whether the thing fired -- and here the
 //! count is also the scale claim, line events against births and deaths.
+//!
+//! **`scenario=<name>` builds the whole bed from a saved scenario**,
+//! `labforage.rs`/`windfall_probe.rs`'s own pattern, and it is what fixes
+//! this binary's own instance of `CLAUDE.md`'s "an unknown argument is
+//! silently ignored": before this, `scenario=played_bed` matched no `arg()`
+//! key, so it parsed to nothing and this ran the eight-founder default bed
+//! under the played bed's name with no warning at all -- the coordinator hit
+//! this exactly, and it is why `frames=` alone is not proof of anything: the
+//! first line has to name what bed actually ran.
 
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::ui::format_log_line;
 use pixel_physics::sim::explosion::Blasts;
@@ -38,27 +49,67 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(6000);
     let all: u32 = arg("all").unwrap_or(0);
-    let spec = LabBox {
-        founders: arg("founders").unwrap_or(LabBox::default().founders),
-        colonies: arg("colonies").unwrap_or(LabBox::default().colonies),
-        seed: arg("seed").unwrap_or(LabBox::default().seed),
-        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
-        ..LabBox::default()
+    // A bad name refuses at load rather than quietly running the default bed
+    // under the wrong label -- see this file's own doc comment for why that
+    // silence is the bug this binary just had.
+    let scenario: Option<Scenario> = arg::<String>("scenario").map(|n| {
+        let mut sc = Scenario::load(&n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(2);
+        });
+        // `seed=` overrides the scenario's own bed seed -- `labforage.rs`'s
+        // identical line, for the identical reason: it has to land on
+        // `sc.bed`, not on `spec` below, or a seed sweep over a scenario is
+        // the same world every time.
+        if let Some(sd) = arg::<u64>("seed") {
+            sc.bed.seed = sd;
+        }
+        sc
+    });
+    let spec = match &scenario {
+        Some(s) => s.bed.clone(),
+        None => LabBox {
+            founders: arg("founders").unwrap_or(LabBox::default().founders),
+            colonies: arg("colonies").unwrap_or(LabBox::default().colonies),
+            seed: arg("seed").unwrap_or(LabBox::default().seed),
+            species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
+            ..LabBox::default()
+        },
     };
-    let mut world = spec.build();
-    let mut particles = ParticleSystem::new();
-    let mut blasts = Blasts::new();
-    let tuning = player::Tuning::default();
+    // Echo the parameters, scenario named right here on the first line --
+    // `plant_probe`'s 3.5-hour lesson (`CLAUDE.md`): a knob nobody can see
+    // the value of is a knob nobody can tell is disconnected.
     println!(
-        "chronicle: founders={} of {} colonies={} seed={} frames={} showing={}",
+        "chronicle: founders={} of {} colonies={} seed={} frames={} showing={}{}",
         spec.founders,
         spec.species,
         spec.colonies,
         spec.seed,
         frames,
-        if all == 1 { "ALL" } else { "LINES" }
+        if all == 1 { "ALL" } else { "LINES" },
+        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
+    let mut world = match &scenario {
+        Some(s) => {
+            let (w, _planted, placed) = s.build();
+            println!(
+                "  scenario {}: {} cells, {} plants, {} animals, {} settings applied",
+                s.name, placed.cells, placed.plants, placed.animals, placed.settings
+            );
+            w
+        }
+        None => spec.build(),
+    };
+    let mut particles = ParticleSystem::new();
+    let mut blasts = Blasts::new();
+    let tuning = player::Tuning::default();
     for _ in 0..frames {
+        // The scenario's own timeline, before this frame's step -- a colony
+        // founded this frame belongs in this frame's log, not next frame's
+        // (`labforage.rs`'s identical ordering).
+        if let Some(sc) = &scenario {
+            pixel_physics::lab::scenario::tick_timeline(sc, &mut world, &spec);
+        }
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
     }
 

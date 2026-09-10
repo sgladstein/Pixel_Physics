@@ -3776,12 +3776,24 @@ fn break_free(world: &mut World, x: i32, y: i32) -> bool {
     // whose material has no configured debris is left alone rather than
     // deleted: "not actually participating" beats silently destroying
     // content an author forgot to pair `breaks_into` with.
-    let Some(into) = world.materials.get(world.get(x, y).material).breaks_into else {
+    let before = world.get(x, y);
+    let Some(into) = world.materials.get(before.material).breaks_into else {
         return false;
     };
+    // **The ecology round's far-side counter for this conversion, read
+    // against `World::organ_shattered_to_windfall`'s own doc.** Gated on
+    // the organ label *and* the target material so a stone wall's grit and
+    // a dying limb's deadwood do not inflate a count this binary is meant
+    // to read as "a standing fruit or flower, not a drop, became
+    // windfall" -- checked before the write below erases `before`'s aux.
+    if matches!(organism::cell_type(before.aux()), Some(organism::CellType::Fruit) | Some(organism::CellType::Flower))
+        && Some(into) == world.materials.id_of("windfall")
+    {
+        world.organ_shattered_to_windfall += 1;
+    }
     let shades = world.materials.get(into).palette.len().max(1) as u32;
     let shade = world.rng.below(shades) as u8;
-    let temp = world.get(x, y).temperature();
+    let temp = before.temperature();
     // Deliberately *not* carrying `attached` across: whatever comes free is
     // no longer backed by the mass it broke out of. `Cell::new` starts
     // unattached, so this is the transition rather than an omission -- see
