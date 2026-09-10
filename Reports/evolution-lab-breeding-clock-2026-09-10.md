@@ -225,6 +225,52 @@ Cause unidentified, and it is the first thing the build phase must resolve.
 breed than the rule intends, so a perfect implementation is slower still. The
 thirteen-fold collapse is a lower bound on the collapse.**
 
+### Is the queen a dead end, or did it fail on implementation?
+
+**The owner's question, 2026-09-10, and the answer is that the collapse is
+structural — a better implementation makes it worse, not better.**
+
+Under a colony-wide queen rule, a second breeder can only appear when the
+sole breeder dies. So **the evolutionary clock IS the queen replacement
+rate**, by construction. The data agrees: every run that reached generation
+2 did so by exactly one succession, and the runs that never lost a breeder
+never left generation 1.
+
+That is what makes it a dead end rather than a tuning problem. Every
+improvement on the list — defining need against the breeding bar so workers
+feed the queen preferentially, provisioning her a larger reserve, giving her
+workers to defend her — **makes the queen live longer, and a queen who lives
+longer is a clock that ticks more slowly.** There is no setting of a
+well-implemented queen that runs faster in this box.
+
+**What the box is missing is not a better queen. It is colony-level
+reproduction.** In nature a queen-only lineage advances when a daughter
+queen *leaves and founds a new colony*; an evolutionary generation is a
+colony founding a colony. This box has one nest, no dispersal, and
+`scent_spread` at zero so colonies are never strangers — so the only channel
+by which the lineage can advance is the sole breeder dying. That is the
+whole finding.
+
+**The upside if it were built is castes, not the clock.** Queen-only makes
+the colony the unit of selection, which is the only condition under which
+sterile castes are adaptive — and castes are the actual goal. But even a
+working dispersal-based version would tick *slower* than individual budding,
+because a colony has to bank a surplus before it can export a founder.
+
+**So: likely dead, and not worth a playtest now.** A queen-only box is
+twenty-five ants with one of them breeding and nothing evolving; there is
+nothing in it for a playtest to judge that this table has not already said.
+The cheaper bet is that `graded` gets some of the same colony-level
+selection — breeding concentrates near breeders without being exclusive — at
+a third of the clock rather than all of it, and that is untested and worth
+testing once castes exist to select on.
+
+**The condition this rejection depends on**, recorded so it can be re-opened
+rather than re-derived: queen-only becomes worth measuring again the moment
+the box has **dispersal and colony competition**. If those get built for
+other reasons — the rack, predators, two colonies in one bed — re-run this
+sweep before assuming the answer still holds.
+
 ## 6. What to build, in this order
 
 1. **Put the individual-against-graded trade to the owner rather than
