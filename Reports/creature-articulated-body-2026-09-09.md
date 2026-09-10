@@ -452,6 +452,11 @@ measured results**, and it owes three things and no others:
 is a feasibility argument built by reading the source, and its numbers are
 properties of the code as it stands, not measurements of a body that walks.
 
+**Status at the time of writing:** the build is on the branch and the library
+suite is green but for one guard, which §9 records with the experiment that
+isolated it. Clippy in release is green. The frame cost and the moving
+sequence are not taken yet.
+
 ## 8. What this deliberately leaves for later
 
 - **Palette.** Per-individual colour is the other half of
@@ -491,3 +496,70 @@ properties of the code as it stands, not measurements of a body that walks.
   threaded from `organism_as_species` through to that line. Deliberately not
   done here: the body has to be heritable before exporting it means anything,
   and it is now.
+
+## 9. One guard is red on the merge, and what isolated it
+
+**`sim::creature::tests::a_swarm_gets_through_what_one_mouth_cannot` fails on
+this branch.** It is the only failure: `cargo test --lib` reads **1,532
+passed, 1 failed, 65 ignored**. It was green before the merge and it is green
+on `main`. Recorded here rather than fixed, because what it caught is a
+decision the creature line owns and not a defect in this build.
+
+**What it says:**
+
+```
+the swarm's median breach must still come far sooner than the lone attacker's:
+median frame 101 alone against 109 for eight, over 8 seeds
+```
+
+**What isolated it, in one experiment.** Holding this branch's body and
+swapping only `assets/species/ant.ron` back to its pre-merge contents — my
+body, my wiring — the test **passes**. With the merged file — my body, `main`'s
+wiring from PR #291 — it fails. So the cause is neither side alone: it is the
+articulated body against the rewired brain, and **the merge that produced it
+had zero conflicts in that file.** `CLAUDE.md` warns that a conflict count
+predicts whether a merge is laborious and cannot predict whether it is wrong;
+this is that, with a number.
+
+**What is actually happening, and it is not that the swarm got worse.** The
+scene's premise is *a plate no single ant mouth can open*, and the lone arm
+used to time out at the 900-frame budget — the test's own comment records
+900 against 484. It now breaches at **101**. One ant has become sufficient,
+so eight buy nothing, and the guard reads that as the swarm being slow. The
+guard is doing its job: **the scene has stopped containing the situation the
+test is named for**, which is `CLAUDE.md`'s *a scene that contradicts the code
+will look like a bug in the code*.
+
+**Two repairs were tried and both are recorded as moving nothing**, because a
+change that moves nothing is evidence about the condition it keyed on:
+
+- **Capping the non-mouth fight reach.** `adjacent_food_counted` scans the
+  whole body's 8-neighbourhood and, past the head, accepts any living non-self
+  organism — a concession authored for a `Chain(2)` ant, where "the body" was
+  one cell. At seven segments that reads as a distributed jaw, so capping it
+  at the reach it was authorised for looked like the answer. Result: **101 and
+  109, byte for byte identical.** Reverted. The reach is not what is binding.
+- **Widening the attackers' spacing to the engine's own rule.** The scene
+  spaces eight attackers 6 apart while `found_colony` uses
+  `COLONY_ANT_SPACING.max(body_span * 2)` = 10 for a 5-cell spine, and a line
+  of ants shoulder to shoulder gridlocks rather than converging. Result: 109
+  → **107**. Reverted.
+
+**What it is not.** Not the composition mix: `composition_mix` is
+`1.0 + GAIN * (frac − baseline)`, exactly 1.0 at the baseline, so an animal
+with no armour cells — the beetle — is unmoved by it. Not the cost
+re-derivation, which holds the whole-animal bill by construction.
+
+**What the fix is, and why it is not made here.** The honest repair is to
+restore the premise — an armour value one mouth genuinely cannot open under
+the *merged* wiring — and then re-check that the swarm still beats it. That is
+re-establishing a scene, not weakening a bar, and the distinction has to be
+demonstrated rather than asserted: the repaired guard must be watched failing
+with the mechanism broken, or it is a bar tuned until green. That is a
+measurement and a fight-balance judgement belonging to whoever owns PR #291's
+wiring, not something to settle inside an appearance change.
+
+**Do not "fix" it by pinning `ant.ron` back.** The pre-merge file is another
+lane's landed work reverted, which is the stale-file failure `CLAUDE.md`
+records: it looks like a modification and is really a revert of an upstream
+commit, and nobody recognises it as theirs.
