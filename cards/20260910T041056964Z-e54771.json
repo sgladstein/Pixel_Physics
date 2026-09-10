@@ -1,0 +1,45 @@
+{
+  "id": "20260910T041056964Z-e54771",
+  "created": "2026-09-10T04:10:56Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ad994811acaa5faff",
+    "branch": "claude/lab-legends-r26",
+    "commit": "09da43d7",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ad994811acaa5faff"
+  },
+  "title": "HISTORY page: lines that ended",
+  "question": "Does this read as the box's history? What's missing from a row?",
+  "context_md": "The direction report's first big swing: the chronicle as an export. The graveyard (dead animals, cause of death) rated poorly and has no place in this game -- this replaces it with a line-level view. Default bed, frame 5752 of a 6000-frame run.\n\nThe exported file's first 25 lines (`chronicle-2026-09-10-herb_ant-s1.txt`):\n\n```\nCHRONICLE OF herb_ant\nSEED 1  FOUNDERS 8 OF HERB  COLONIES 1  FRAMES 5752  DIAL 1X\n\nF     39  THE ASPEN LINE ENDED WITH ITS FOUNDER\nF     40  THE RAIL LINE ENDED WITH ITS FOUNDER\nF     41  THE ZENITH LINE ENDED WITH ITS FOUNDER\nF   3726  THE TORNADO LINE ENDED WITH ITS FOUNDER\nF   3846  THE FOEHN LINE ENDED WITH ITS FOUNDER\nF   3948  THE EGRET LINE ENDED WITH ITS FOUNDER\nF   3990  THE MALLOW LINE ENDED WITH ITS FOUNDER\nF   3996  THE NEBULA LINE ENDED WITH ITS FOUNDER\nF   4014  THE GORSE LINE ENDED WITH ITS FOUNDER\nF   4020  THE MYRTLE LINE ENDED WITH ITS FOUNDER\nF   4032  THE VULTURE LINE ENDED WITH ITS FOUNDER\nF   4068  THE UPDRAFT LINE ENDED WITH ITS FOUNDER\nF   4098  THE REED LINE ENDED WITH ITS FOUNDER\nF   4116  THE QUINCE LINE ENDED WITH ITS FOUNDER\nF   4134  THE HEATHER LINE ENDED WITH ITS FOUNDER\nF   4158  THE RAVEN LINE ENDED WITH ITS FOUNDER\nF   4158  THE OWL LINE ENDED WITH ITS FOUNDER\nF   4164  THE MAPLE LINE ENDED WITH ITS FOUNDER\nF   4248  THE GANNET LINE ENDED WITH ITS FOUNDER\nF   4254  THE MURRE LINE ENDED WITH ITS FOUNDER\nF   4266  THE JACKDAW LINE ENDED WITH ITS FOUNDER\nF   4296  THE BEECH LINE ENDED WITH ITS FOUNDER\n```\n\n...then a LEGENDS section (one paragraph per ended line: name, kingdom, founder frame, generations, peak living, frame ended, cause) and per-kind counts. Same file gets written on REBUILD and on quit.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "HISTORY page",
+      "files": [
+        "20260910T041056964Z-e54771/000-labui-page--history.png"
+      ],
+      "caption": "",
+      "meta": {
+        "lines ended": 47,
+        "frame": 5752
+      },
+      "focus": [
+        206,
+        0,
+        306,
+        296
+      ]
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
