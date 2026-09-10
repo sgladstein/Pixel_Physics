@@ -6,7 +6,7 @@ grow lights where the shipped plants and ants live. Design of record:
 with [`../evolution-lab-feasibility-2026-08-30.md`](../evolution-lab-feasibility-2026-08-30.md)
 under it.*
 
-**Read this before picking the lab up.** Twenty-five rounds have been run here
+**Read this before picking the lab up.** Twenty-six rounds have been run here
 since 2026-08-30. One to twenty-four are history and moved (2026-09-08, 2026-09-09) to
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md) —
 verbatim, with a priced contents table and a per-round map of which round belongs
@@ -129,6 +129,68 @@ measurement.
 notification" has ended its turn and will wait for ever — a message
 resumes it with its context intact; and six worktrees' `target/` filled
 the disk — delete a merged lane's `target/` the moment it lands.
+
+## Round twenty-six, 2026-09-10 — the box gets its first relationship
+
+*Coordinator `session_01NGdywxc1ACg3L5scK7xBTc` (tags `evolution-lab`,
+`coordinator`). State at open: phase one landed (round twenty-five); PR #293
+measured the breeding clock (queen-only is a thirteen-fold collapse and is
+off the table; individual against graded is the owner's taste call, §6.1 of
+that report); articulated creature bodies are in flight on
+`claude/creature-evolution-engine-67lhjp` (Opus, running — it owns
+`creature.rs`, `organism.rs`, `render.rs`, `ant.ron` and `hopper.ron` until it
+lands); the eusociality branch holds one unlanded scenario. Both were poked
+with the handover the recorded way and both fires landed (`cse_<lane>`).*
+
+**The direction, in one paragraph.** Phase one made the box legible; what it
+still lacks is a *relationship*. One organism eating another is the entire
+ecology, a flower is colour with no function to any animal, and the seed
+inside a carried fruit dies on the trip. The owner's own long-horizon
+complaint — *over a long enough time everything dies out* — has an
+ecological answer nobody has built: close the loop **fruit → animal → nest →
+seedling** and the colony becomes the plants' distribution network and the
+plants the colony's renewable larder. **The colony that gardens survives.**
+It is visible at play zoom (a ring of herbs around a nest, flowers turning
+to fruit after visits, fruit carried home in a line, a bed whose plant map
+records where the colony foraged), it is graded by construction (a bonus to
+setting seed, never a requirement — `dead-ends.md`'s seed-limited trap), and
+it is the patchy larder that §Z7's recruitment finding said no bed had.
+This is the owner's own first thought (*flowers and fruits and interactions
+between plants and creatures*) with the player's reason for it attached.
+
+**Lanes this round** — separate worktrees, file-disjoint, the coordinator
+merges on CI green and runs `docscheck` after each:
+
+| lane | delivers | owns |
+|---|---|---|
+| measure (Sonnet) | `scenario=` on `windfall_probe` and `chronicle`, both echoing their parameters — this coordinator ran `chronicle scenario=played_bed` and got the frame-0 bed with no warning, the silent-ignore gotcha; then the fruit loop censused on the played bed, three seeds × 120,000 frames: set, dropped, on the floor, eaten / carried / rotted, and where fruit-borne seedlings stand relative to the nest | `examples/windfall_probe.rs`, `chronicle.rs`, world-side counters only |
+| design (Opus) | the ecology design of record: gut/midden dispersal, nectar and pollination as a graded bonus, pollen as gene flow (an owner ruling, posted as a card with the BRUSH hand version), palatability co-evolution, a niche by height; build order with the creature-side hooks specified as one call each and placed last | `Reports/` |
+| legends (Sonnet) | the chronicle written out on reset and quit (the direction report's first big swing), and a HISTORY page of the lines that ended — the graveyard the owner rated 5, given a place | `ui.rs` (new panel), `mod.rs` reset path, `world.rs` log region |
+| rain (Sonnet) | measure whether the played bed dries over a session, then `RAIN OFF / LIGHT / STEADY / HEAVY` from the lid through the water tool's own placement, default set from the measurement, a counter beside it (Arc B3, owner-asked) | `mod.rs` water tool, `ui.rs` BOX rows, a scenario `Setting`, one `labstats` line |
+
+**Put to the owner this round, through the queue:** pollen as gene flow
+(yes/no, the two readings priced); individual against graded breeding (the
+eusociality lane's to post, from #293 §5); the rain rate and default; the
+HISTORY page. Still unanswered from round twenty-five: the tree in the bed,
+the marks three-way, and *is the box empty*.
+
+**Outside the box, offered and not started** — each is a question for the
+owner before it is a lane: **BRUSH**, pollinate by hand — the shelf's `CROSS`
+verb realised physically in the bed, on the same mechanism the animals would
+use, so the breeding fantasy arrives through the ecology; **sound** — the
+ethos lists *no sound* among what leaves an event unfinished, the lab has no
+audio dependency, and it needs a ruling on the dependency before anything
+else; **a nectar-feeding hopper** that lives up the stems — a niche by height
+(every food is worth the same at every height today), the first animal that
+is not a ground ant in body, verb and food, after articulated bodies land;
+**palatability co-evolution** — expensive dark leaves defended, the colony's
+gut evolving against the bed's defences, two kingdoms evolving against each
+other in colour on screen; **the bed as a record** — do not sweep it between
+experiments; **wild collection** (Arc C3).
+
+**Environment, learned this round:** a poke's fire response names where it
+landed — `cse_<lane id>` both times here, so the session-programs correction
+of 2026-09-09 holds.
 
 ## The earlier rounds
 
