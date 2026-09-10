@@ -63,6 +63,7 @@
 //! cargo run --release --example labforage -- control=selftest
 //! ```
 
+use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
@@ -132,6 +133,30 @@ struct Sample {
     ants: usize,
     /// Deepest row above the soil any ant head is standing at.
     ant_high: i32,
+    /// **Living animals that have produced at least one child** -- the
+    /// breeders, in the sense `creature::try_bud`'s suppression uses.
+    ///
+    /// This is the "did it fire at all" counter for a breeding regime, and
+    /// nothing else in the run can stand in for it. Under `queen` it must
+    /// sit at one per colony; under `individual` it climbs with the
+    /// population. A regime that reads as working from the birth count
+    /// alone, with this flat at zero, never suppressed anything -- the
+    /// collapse that was read as "chunks are working" while the body count
+    /// was zero for the whole run.
+    breeders: usize,
+    /// Deepest generation any animal has reached, ever -- sterile workers
+    /// included.
+    gen: u16,
+    /// Deepest generation of an animal that has ITSELF reproduced: the
+    /// chain a genome actually travels.
+    ///
+    /// Printed beside `gen` rather than instead of it, because the two
+    /// diverging is the whole tell. Under queen-only breeding `gen` counts
+    /// workers that are genetic dead ends and reads one step deeper than
+    /// the line; if `gen` climbs while this sits still, the arm is
+    /// manufacturing dead ends and its generation count is answering a
+    /// different question from the one asked.
+    bgen: u16,
 }
 
 /// **What is standing here that this gut would eat, and where.**
@@ -147,11 +172,19 @@ struct Sample {
 /// organism-owned and are exactly the food a walking ant meets. The sweep is
 /// 512x320 per sample and the default interval is 900 frames.
 fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &[i32]) -> Sample {
-    let mut s = Sample { ant_high: i32::MIN, ..Sample::default() };
+    let mut s = Sample {
+        ant_high: i32::MIN,
+        gen: world.deepest_animal_generation,
+        bgen: world.deepest_breeder_generation,
+        ..Sample::default()
+    };
     for id in world.live_organism_ids() {
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_some() {
             s.ants += 1;
+            if state.children > 0 {
+                s.breeders += 1;
+            }
             if let Some(&(_, hy)) = state.chain.first() {
                 s.ant_high = s.ant_high.max(spec.ground_y - hy);
             }
@@ -227,7 +260,49 @@ fn main() {
     // (the default) keeps this file's existing behaviour byte-for-byte --
     // founding happens before the loop, exactly as it always has.
     let ants_at: u64 = arg("ants_at").unwrap_or(0);
-    let spec = LabBox {
+    // **`scenario=<name>` builds the whole bed from a saved scenario**, the
+    // way `labshot` already does, and for the reason the played bed forced:
+    // the flags below spread ONE species evenly, and the owner's bed is a
+    // mix laid out by column. `lab::scenario` already places arbitrary
+    // species at arbitrary columns and already founds colonies on a
+    // timeline, so a species mix wanted a data file rather than another
+    // knob here. A bad name refuses at load rather than running the default
+    // bed under the wrong label -- the "an unknown argument is silently
+    // ignored" shape `CLAUDE.md` names.
+    let scenario: Option<Scenario> = arg::<String>("scenario").map(|n| {
+        let mut sc = Scenario::load(&n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(2);
+        });
+        // **`seed=` overrides the scenario's own bed seed, and it has to be
+        // done HERE, on the scenario, not on the `spec` below.**
+        //
+        // `Scenario::build` reads `self.bed`, so a seed applied only to the
+        // local `spec` reaches the census and nothing else: the world is
+        // built at the file's pinned seed every time. Caught by three seeds
+        // returning a **byte-identical** sample row -- `CLAUDE.md`'s
+        // "identical output across a change that must have moved something",
+        // and it was one command away from turning an eighteen-run sweep
+        // into three runs reported six times.
+        if let Some(sd) = arg::<u64>("seed") {
+            sc.bed.seed = sd;
+        }
+        sc
+    });
+    let spec = match &scenario {
+        // The scenario's own bed, so `ground_y`, `width` and the soil the
+        // census reads are the ones its placements were authored against --
+        // **except the seed, which `seed=` still overrides.**
+        //
+        // Without that override a scenario pins its own `bed.seed` and every
+        // run of a six-seed sweep is the same world six times. It announces
+        // itself as three seeds reporting an identical founder count, which
+        // is `CLAUDE.md`'s "identical outputs across settings mean the knob
+        // was never connected" -- caught here by exactly that tell, one
+        // command before an eighteen-run sweep would have been six copies of
+        // three runs.
+        Some(s) => s.bed.clone(),
+        None => LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
         // `labstats`' default, so a run here and a run there are the same bed.
@@ -239,8 +314,9 @@ fn main() {
         // `plant=<species>`: every figure this harness has produced was on
         // the default eight herbs; the owner's played bed is whatever the
         // PLANT chip offers, and a canopy is a different larder from a herb.
-        species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
-        ..LabBox::default()
+            species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
+            ..LabBox::default()
+        },
     };
     if control == "selftest" {
         return selftest(spec);
@@ -248,8 +324,9 @@ fn main() {
     // Echo the parameters. A knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- `plant_probe`'s 3.5-hour lesson.
     println!(
-        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}",
-        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed
+        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}{}",
+        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed,
+        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
     // Built bare and founded afterwards, for `windfall_probe`'s reason: a
@@ -257,12 +334,50 @@ fn main() {
     // because `place_creature` copies the traits at placement. At the
     // default `ants_at=0` the founding happens right here, same as always;
     // at `ants_at>0` it is deferred to that frame, in the loop below.
-    let bare = LabBox { colonies: 0, ..spec.clone() };
-    let (mut world, planted) = bare.build_counted();
-    let nest_cols = spec.colony_columns();
+    let (mut world, planted) = match &scenario {
+        Some(s) => {
+            if ants_at > 0 {
+                println!("  ants_at={ants_at} ignored -- a scenario's own timeline decides colony placement");
+            }
+            let (w, p, sp) = s.build();
+            println!(
+                "  scenario {}: {} cells, {} plants, {} animals, {} settings applied",
+                s.name, sp.cells, sp.plants, sp.animals, sp.settings
+            );
+            (w, p)
+        }
+        None => {
+            let bare = LabBox { colonies: 0, ..spec.clone() };
+            bare.build_counted()
+        }
+    };
+    // **Where the nests are, which the distance bands are measured from.**
+    // A scenario sets `colonies: 0` and founds on its timeline instead, so
+    // `colony_columns()` is empty for one and the whole `d<16 / d<48 /
+    // d<128 / far` split would silently collapse into `far` -- a census
+    // that still prints four columns and means none of them. Read the
+    // scenario's own `Colony` entries instead, from placements and timeline
+    // alike, since either may carry them.
+    let nest_cols: Vec<i32> = match &scenario {
+        Some(s) => {
+            let mut v: Vec<i32> = s
+                .placements
+                .iter()
+                .chain(s.timeline.iter().map(|e| &e.what))
+                .filter_map(|p| match p {
+                    Placement::Colony { x, .. } => Some(*x),
+                    _ => None,
+                })
+                .collect();
+            v.sort_unstable();
+            v.dedup();
+            v
+        }
+        None => spec.colony_columns(),
+    };
     let mut ants_placed = 0usize;
     let mut gut = 0.0f32;
-    if ants_at == 0 {
+    if scenario.is_none() && ants_at == 0 {
         for &x in &nest_cols {
             ants_placed += world.found_colony(x, spec.ground_y - 2);
         }
@@ -272,13 +387,13 @@ fn main() {
         "  bed: {} of {} founders planted, {}",
         planted.planted,
         planted.asked,
-        if ants_at == 0 {
-            format!("{ants_placed} ants in {} colony/colonies at {nest_cols:?}, founder gut_bias {gut}", spec.colonies)
-        } else {
-            format!("ants founded later at frame {ants_at}, {} colony/colonies staged at {nest_cols:?}", spec.colonies)
+        match (&scenario, ants_at) {
+            (Some(s), _) => format!("colonies arrive on {}'s timeline, nests at {nest_cols:?}", s.name),
+            (None, 0) => format!("{ants_placed} ants in {} colony/colonies at {nest_cols:?}, founder gut_bias {gut}", spec.colonies),
+            (None, _) => format!("ants founded later at frame {ants_at}, {} colony/colonies staged at {nest_cols:?}", spec.colonies),
         }
     );
-    if ants_at > frames {
+    if scenario.is_none() && ants_at > frames {
         // The same "an unknown argument is silently ignored" shape
         // `CLAUDE.md` names, with a frame number standing in for the flag:
         // a founding frame past the run's own length would otherwise never
@@ -300,20 +415,38 @@ fn main() {
     let mut peak_edible = 0usize;
 
     println!(
-        "{:>7} {:>5} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6}",
+        "{:>7} {:>5} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4}",
         "frame", "ants", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
-        "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died"
+        "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
+        "brdr", "gen", "bgen"
     );
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
         // `mark_visited`/`census` below so the frame it lands on already
         // sees the colony rather than the empty bed it replaced.
-        if ants_at > 0 && f == ants_at {
+        if scenario.is_none() && ants_at > 0 && f == ants_at {
             for &x in &nest_cols {
                 ants_placed += world.found_colony(x, spec.ground_y - 2);
             }
             gut = ant_gut_bias(&world);
             println!("  ants_at {ants_at}: founded {ants_placed} ants at {nest_cols:?}, founder gut_bias {gut}\n");
+        }
+        // **The scenario's timeline, before the census on the same frame**,
+        // so the frame a colony lands on already reports it rather than the
+        // empty bed it replaced -- the same ordering `ants_at` above needs
+        // and for the same reason.
+        if let Some(sc) = &scenario {
+            let arrived = pixel_physics::lab::scenario::tick_timeline(sc, &mut world, &spec);
+            if arrived.animals > 0 {
+                ants_placed += arrived.animals;
+                // **Read the founders' gut the frame they arrive, not
+                // before.** `ant_gut_bias` over an empty bed is 0.0, which
+                // is a real gut value (a pure-carrion ant), so a gut left
+                // at its initialiser is indistinguishable from a measured
+                // one -- a null wearing a measurement.
+                gut = ant_gut_bias(&world);
+                println!("  frame {f}: {} animal(s) arrived on the timeline, founder gut_bias {gut}\n", arrived.animals);
+            }
         }
         mark_visited(&world, &mut visited, spec.width);
         if f % sample_every == 0 {
@@ -327,10 +460,11 @@ fn main() {
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6}",
+                "{f:>7} {:>5} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4}",
                 s.ants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
-                s.ant_high, st.eats, st.births, st.deaths
+                s.ant_high, st.eats, st.births, st.deaths,
+                s.breeders, s.gen, s.bgen
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {
@@ -379,9 +513,12 @@ fn main() {
     println!("  animals: born {} died {} alive {} | handouts placed {handed_out}", st.births, st.deaths, last.ants);
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} edible={} unvisited={} floor={} aloft={} \
-         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={}",
+         peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} \
+         regime={} breeders={} gen={} bgen={}",
         spec.seed, spec.founders, spec.colonies, last.edible, last.unvisited, last.floor, last.aloft,
-        st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves
+        st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
+        std::env::var("PIXEL_PHYSICS_BREEDING").unwrap_or_else(|_| "individual".to_string()),
+        last.breeders, world.deepest_animal_generation, world.deepest_breeder_generation
     );
 }
 

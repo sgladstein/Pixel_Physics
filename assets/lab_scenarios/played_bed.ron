@@ -31,12 +31,31 @@
 // is "tree anyway", it is one more `Plant` line here and every figure taken
 // on this file has to be retaken.
 //
-// **Twenty-two plants, laid out rather than spread.** `LabBox::founders`
-// spaces one species evenly; a mix wants the shrubs apart from each other
-// (they are the clumps) with grass and herb filling between, so the plants
-// are placed by column here and `founders` is 0. Four shrubs at roughly
-// 120-column spacing anchor the patches; six herbs and twelve grass fill in
-// at 15-40 column gaps.
+// **Thirteen plants, and a bare band in the middle, both measured rather
+// than chosen.** A grown bed physically refuses a colony: `found_colony_of`
+// needs bare footing, and by frame 6,000 the vegetation and its seed litter
+// have taken the surface. Measured at frame 6,000, founders seated out of
+// the 52 asked for:
+//
+//   bare bed, no plants at all                     52
+//   22 plants spread evenly across the bed          8
+//   13 plants spread evenly across the bed         23
+//   13 plants with none in the nest band 210..310  33
+//
+// So the band is not decoration. A colony dropped on a full bed is a colony
+// of eight, and a run of it reads as a breeding rule that does not fire --
+// `CLAUDE.md`'s "a scene that contradicts the code will look like a bug in
+// the code", and the founder count is the only line in the output that says
+// so. A player does this by eye anyway: you place a nest on bare ground.
+//
+// A `Clear` sweeping the band immediately before founding was tried and is
+// NOT here: it bought 3 more founders (36 against 33) and cost three grown
+// plants, so it is a worse bed for a rounding error.
+//
+// Seating still varies a lot with the seed -- 33, 13 and 18 on seeds 1, 2
+// and 3 -- because where the seed litter falls is where the nest cannot go.
+// That spread is a real property of the played bed and belongs in any
+// figure taken on it.
 //
 // **The colony arrives at frame 6,000, on the timeline.** That is the whole
 // point of the file -- `Colony` in `timeline` rather than `placements` is
@@ -49,7 +68,7 @@
     bed: (
         width: 512,
         height: 320,
-        soil_depth: 96,
+        soil_depth: 80,
         ground_y: 160,
         compartments: 1,
         founders: 0,
@@ -64,30 +83,35 @@
     ),
     settings: [],
     placements: [
-        Plant(species: "grass", x: 20),
-        Plant(species: "herb",  x: 40),
-        Plant(species: "grass", x: 55),
-        Plant(species: "shrub", x: 70),
-        Plant(species: "grass", x: 90),
-        Plant(species: "grass", x: 110),
+        Plant(species: "grass", x: 25),
+        Plant(species: "herb",  x: 50),
+        Plant(species: "shrub", x: 75),
+        Plant(species: "grass", x: 105),
         Plant(species: "herb",  x: 130),
         Plant(species: "grass", x: 155),
-        Plant(species: "grass", x: 175),
-        Plant(species: "shrub", x: 190),
-        Plant(species: "herb",  x: 220),
-        Plant(species: "grass", x: 240),
-        Plant(species: "grass", x: 260),
-        Plant(species: "herb",  x: 280),
-        Plant(species: "shrub", x: 310),
+        Plant(species: "shrub", x: 180),
         Plant(species: "grass", x: 330),
-        Plant(species: "grass", x: 350),
-        Plant(species: "herb",  x: 370),
-        Plant(species: "grass", x: 400),
-        Plant(species: "shrub", x: 430),
-        Plant(species: "herb",  x: 460),
-        Plant(species: "grass", x: 490),
+        Plant(species: "herb",  x: 355),
+        Plant(species: "shrub", x: 380),
+        Plant(species: "grass", x: 410),
+        Plant(species: "herb",  x: 435),
+        Plant(species: "grass", x: 465),
     ],
     timeline: [
+        // **Clear the nest site one frame before the colony lands.**
+        //
+        // Without this the scenario asks for 52 founders and `found_colony_of`
+        // seats **8**: by frame 6,000 a grown grass bed has laid ~750
+        // ungerminated seeds across the surface, every one of them an
+        // occupied cell, and a colony needs bare footing. The run then reads
+        // as a colony that will not breed, which looks exactly like a broken
+        // breeding rule and is nothing of the kind -- `CLAUDE.md`'s "a scene
+        // that contradicts the code will look like a bug in the code",
+        // caught by the founder count and by nothing else in the output.
+        //
+        // A player does this by eye: you click bare ground. The band is 112
+        // columns of the bed's middle, cleared to 8 rows above the soil,
+        // which is where the seed litter sits.
         (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
     ],
     horizon: 120000,
