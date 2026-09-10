@@ -3022,8 +3022,8 @@ impl BodyPlan {
     /// cell once, at the hatch.
     pub fn cell_types(&self) -> Vec<CellType> {
         match self {
-            BodyPlan::Chain(n) => std::iter::once(CellType::Head).chain(std::iter::repeat(CellType::Segment).take((*n as usize).saturating_sub(1))).collect(),
-            BodyPlan::Rigid(cells) => std::iter::once(CellType::Head).chain(std::iter::repeat(CellType::Segment).take(cells.len())).collect(),
+            BodyPlan::Chain(n) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, (*n as usize).saturating_sub(1))).collect(),
+            BodyPlan::Rigid(cells) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, cells.len())).collect(),
             BodyPlan::Segmented(segments) => {
                 let mut out = Vec::with_capacity(self.len());
                 for s in segments {
@@ -6863,6 +6863,21 @@ impl SpeciesRegistry {
     /// pass and by nothing else.
     pub fn set_creature(&mut self, id: SpeciesId, def: CreatureDef) {
         self.species[id.0 as usize].creature = Some(def);
+    }
+
+    /// Same caveat as `set_genome` and `set_creature`, and the reason this
+    /// one exists is the same shape again: a test that hands a species a
+    /// synthetic `CreatureDef::body` (`creature::priced_ant`'s `Chain(n)`,
+    /// built to isolate the per-cell cost formula from any real species'
+    /// shape) is silently ignored the moment that species also carries a
+    /// `fates` table, because `place_creature` grows the body from
+    /// `body_fates` whenever it is non-empty and only falls back to
+    /// `def.body` when it is not (`grow_body`'s own call site). `ant` and
+    /// `hopper` both author one now, so a caller overriding just `body` gets
+    /// the real shipped shape back instead of the one it asked for. Clearing
+    /// the table here is how a test gets `def.body` honoured again.
+    pub fn set_fates(&mut self, id: SpeciesId, fates: Vec<(CellType, Vec<Fate>)>) {
+        self.species[id.0 as usize].fates = fates;
     }
 
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {

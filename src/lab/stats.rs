@@ -1621,7 +1621,17 @@ mod tests {
     /// dominant-species name and a total can support.
     #[test]
     fn the_census_splits_animals_by_species() {
-        let mut world = bed(0, 1);
+        // **`colony_ants: 8`, not `bed`'s own default 52, 2026-09-09.** The
+        // shipped ant is a `Segmented` body now and `creature::colony_
+        // stations` widens its corridor with the body's own span
+        // (`COLONY_ANT_SPACING.max(body_span * 2)`, deliberately not
+        // touched by this fix -- see that function's own doc): at 52 ants
+        // the candidate band is 510 cells wide, which overflows this box's
+        // 256 and reaches the exact columns below, so a beetle "release"
+        // there just as often meant "onto a standing ant". Eight ants are
+        // still a colony as far as `by_species` is concerned; the census
+        // logic under test does not care how many.
+        let mut world = LabBox { width: 256, height: 128, soil_depth: 24, ground_y: 64, founders: 0, colonies: 1, colony_ants: 8, ..LabBox::default() }.build();
         // Two beetles, released the way `LabBox::build_counted` releases its
         // own predators, at columns clear of the ant colony's own band so
         // neither placement can fail on the other's account.

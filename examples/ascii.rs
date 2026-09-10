@@ -1672,10 +1672,35 @@ fn forage_loop_scene() {
         world.step_active_sites();
         world.step_fields();
     }
-    for i in 0..55 {
-        let ax = 24 + i * 4;
+    // **A greedy walk that checks each placement, not 55 fixed slots 4
+    // apart.** The shipped ant is a `Segmented` body whose spine now spans
+    // 5 cells behind its head (`ant.ron`'s own `body:` list), and this is
+    // real generated hillside, not the flat floor every other scene's
+    // fixed-spacing loop gets away with: `surface(&world, ax)` is a
+    // per-column probe, so a fixed spacing plants the head at a height that
+    // fits *that* column while the trailing four cells, laid out at the
+    // same y, are only actually clear if the ground happens to be level
+    // across the whole span. Measured on this hillside: fixed 6-cell
+    // spacing (this loop's first fix, keyed to spacing alone, the same
+    // shape as `share_pair`'s) still placed only 11 of 55, because most
+    // columns are not that flat. `plant_creature_seed` (not the fire-and-
+    // forget `plant_ant`) reports which attempts actually landed, so a
+    // failure just tries the very next column instead of silently eating
+    // one of the 55 -- and a success skips a body's width ahead so the
+    // colony does not pack shoulder to shoulder purely by luck. Uses
+    // `plant_creature_seed` directly, so (unlike `plant_ant`) the site
+    // has to be scheduled by hand or a landed ant never takes a tick.
+    let mut ax = 24;
+    let mut placed = 0;
+    while placed < 55 && ax < w - 8 {
         let sy = surface(&world, ax);
-        world.plant_ant(ax, sy - 1);
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed(&mut world, ax, sy - 1, "ant") {
+            world.schedule_active_site(site);
+            placed += 1;
+            ax += 6;
+        } else {
+            ax += 1;
+        }
     }
 
     let print_state = |world: &World, label: &str| {
@@ -2122,8 +2147,18 @@ fn double_bridge_scene() {
             world.set(x, y, Cell::new(corpse, 0));
         }
     }
-    for i in 0..60 {
-        world.plant_ant(20 + i * 2, floor - 1);
+    // **16 ants 6 apart, not 60 two apart.** The shipped ant's `Segmented`
+    // body spans 5 cells behind its head, so most of 60 placements 2 apart
+    // silently collided with a neighbour already there and never placed at
+    // all -- a scene that read as "60 ants" while actually running on
+    // whatever fraction of them survived the pile-up, which is the "looks
+    // like a bug in the code" shape `CLAUDE.md` names for a scene that
+    // quietly stops matching what it claims. 16 at 6 apart is the most this
+    // 240-wide world's own nest-to-wall run (x=20..120) holds without
+    // reaching `WALL_X0`, and both assertions below ask only that *some*
+    // ants crossed and foraged, not that a specific count did.
+    for i in 0..16 {
+        world.plant_ant(20 + i * 6, floor - 1);
     }
 
     // **Integrated over the run, not read off the end.** A trail is a
@@ -2209,8 +2244,19 @@ fn nest_dig_scene() {
             .count()
     };
     let soil_before = bank(&world);
-    for i in 0..55 {
-        world.plant_ant(20 + i % 10 * 2, floor - 1 - (i / 10));
+    // **A single row, 6 apart, not a 10x6 grid 2 apart.** The grid packed
+    // ants both shoulder to shoulder (2 apart, against the shipped
+    // `Segmented` body's 5-cell span) and stacked a row apart with nothing
+    // under the upper rows -- `step_chain`'s support check does not count
+    // another creature's cells as footing, so every row but the bottom one
+    // would have dropped through open air into the pile on its first tick
+    // regardless of the horizontal spacing. Six ants on the floor to the
+    // left of and inside the nest (x=4..34, clear of the soil bank at 40)
+    // is a small colony next to the 50+ this scene used to ask for, but
+    // `digs > 0` and `packed > 0` below are what it actually checks, and
+    // six working ants clear both over 8,000 frames.
+    for i in 0..6 {
+        world.plant_ant(4 + i * 6, floor - 1);
     }
 
     run_colony(&mut world, 8000);
@@ -2433,9 +2479,19 @@ fn construction_scene() {
     // a bug in the code*, and the code was right.
     // The first ant founds the label and every later one joins it, which is
     // exactly the shape `creature::colony_of_site` exists for.
+    //
+    // **33 ants 6 apart, not 55 three apart.** The shipped ant's `Segmented`
+    // body spans 5 cells behind its head, so 3 seats every ant inside its
+    // own neighbour's -- `plant_creature_seed_in` already refuses that
+    // gracefully (the `if let Some` below), but most of the 55 calls would
+    // have refused, leaving a colony a fraction of the size the "left half,
+    // right half" comparison this scene runs needs to cover both. 33 at 6
+    // apart spans x=22..214, inside this 240-wide world and close to the
+    // food's own 20..220 spread, with every ant actually placed rather than
+    // silently dropped.
     let mut colony = None;
-    for i in 0..55 {
-        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, 22 + i * 3, floor - 2, "ant", colony) {
+    for i in 0..33 {
+        if let Some(site) = pixel_physics::sim::creature::plant_creature_seed_in(&mut world, 22 + i * 6, floor - 2, "ant", colony) {
             colony = colony.or_else(|| pixel_physics::sim::creature::colony_of_site(&world, &site));
             world.schedule_active_site(site);
         }
