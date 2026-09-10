@@ -118,6 +118,11 @@ fn spec_from_args() -> LabBox {
         // None: this harness varies geometry, and a hand-placed wall would be
         // a second axis in a ladder that exists to isolate one.
         extra_walls: Vec::new(),
+        // Held, not scaled -- a resolution ladder is a soil/frame-cost
+        // question and the mister is a placement knob with nothing to do
+        // with box size; the shipped default keeps this harness's own
+        // numbers exactly what they were before the field existed.
+        rain: pixel_physics::lab::rain::Rain::Off,
         // **Exhaustive on purpose -- no `..LabBox::default()`.** Two lanes
         // repaired the same red build here at once, one by adding
         // `lamp_spacing` and one by adding a struct update, and together they

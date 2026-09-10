@@ -25,6 +25,7 @@
 //! | `stats` | the census, and the page that draws it |
 //! | `ui`    | the control bar along the bottom, its pages, and the mouse |
 //! | `params`| which numbers the player can reach, and how they are written |
+//! | `rain`  | the mister on the lid: rates, cadence, and the measurement the default rests on |
 //! | this file | `Lab` — the state the four above are wired into, and the frame |
 //!
 //! **The viewport is `app::WIDTH` x `app::HEIGHT`**, deliberately the same
@@ -36,6 +37,7 @@ pub mod batch;
 pub mod names;
 pub mod params;
 pub mod plainspeak;
+pub mod rain;
 pub mod roster;
 pub mod scenario;
 pub mod scene;
@@ -1388,6 +1390,13 @@ impl Lab {
         if let Some(scenario) = &self.scenario {
             scenario::tick_timeline(scenario, &mut self.world, &self.spec);
         }
+        // **The mister, same timing contract as the timeline above: right
+        // after `frame::step`, so a drop this tick sees this tick's own
+        // settled state.** `rain::tick` is its own due-gate on `World::
+        // frame` and returns 0 immediately for `Rain::Off`, so a box with
+        // the mister off -- the shipped default -- pays one `match` and
+        // nothing else.
+        rain::tick(&mut self.world, &self.spec, self.spec.rain);
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -2789,6 +2798,21 @@ impl Lab {
             ui::Action::ToggleScentChannel => {
                 let ch = self.ui.toggle_scent_channel();
                 self.ui.say(format!("SCENT -- LAYING {}", scent_channel_label(ch)));
+            }
+            // **The mister, written straight onto `self.spec`** -- unlike
+            // `CycleReaction`/`CycleCreatureColour`, which mirror into `Ui`
+            // because `Ui` does not hold `TimeControl` or the renderer, the
+            // BOX page already takes `spec: &LabBox` to build `FRAME`/`BED`/
+            // `SOIL` and every other row on it, so there is nowhere for a
+            // mirror to drift out of step with. Persisted with the box for
+            // the same reason `compartments` is: it lives on `LabBox`, so
+            // `LabBox::save` and a scenario's own `bed:` block already carry
+            // it, and `params::write_bed`'s `"rain"` arm is the *other*
+            // writer -- a scenario `Setting` and this key press are two
+            // routes to the one field, not two fields to keep in step.
+            ui::Action::CycleRain => {
+                self.spec.rain = self.spec.rain.next();
+                self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
             }
         }
     }

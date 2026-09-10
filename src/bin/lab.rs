@@ -479,6 +479,16 @@ impl Handler {
             // it, so `1024X` was reachable by the bar and by `UP` and by no
             // digit at all.
             KeyCode::Digit7 => self.lab.act(Action::Preset(6)),
+            // **The mister, on `8` -- every letter `A`-`Z` in this match is
+            // already bound to something else** (checked against the whole
+            // function: the held keys, the tools, the panels, the overlays,
+            // the dial), so this is the first free key rather than a free
+            // letter. `8`/`9`/`0` are the digit row's own unclaimed rest --
+            // the dial and the rack stop at `7` (the comment above) and the
+            // chamber shortcut stops at `5` -- and outside the typing-mode
+            // branch above, which swallows every digit for a batch frame
+            // count, a bare `8` reaches here and nowhere else.
+            KeyCode::Digit8 => self.lab.act(Action::CycleRain),
             // The tools, in one unbroken run of the keyboard's bottom row and
             // in the same left-to-right order the bar draws them. The obvious
             // initials are not available -- `S` and `W` are the pan -- and six

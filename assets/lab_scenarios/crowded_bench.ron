@@ -1,0 +1,103 @@
+// A deliberately crowded bed, for measuring what a per-tick breeder lookup
+// costs -- not a question about the world, a question about the code.
+//
+// **The pessimal case for a per-colony breeder index, on purpose.** The
+// index it is built to test reads in time proportional to *one colony's*
+// breeders; the full-slot scan it replaces reads in time proportional to
+// *every organism in the world*. Twenty small colonies would flatter the
+// index and say nothing. So this is ONE colony, as large as the bed will
+// seat, among as many plants as will grow -- the arrangement where the
+// index has the most breeders to walk and the scan has the most organisms.
+//
+// **Plants are placed at frame 0 alongside the colony, and that ordering is
+// the whole reason this file exists rather than a flag on `played_bed`.** A
+// grown bed refuses a colony: `found_colony_of` needs bare footing and by
+// frame 6,000 the vegetation and its seed litter have the surface, which is
+// measured at 8 founders seated of 52 (see the played bed's own note). At
+// frame 0 every plant is still a single seed, so the founders seat and the
+// canopy closes around them afterwards. That gives both halves at once --
+// a large colony AND a large organism count -- which no ordering that
+// grows the bed first can produce.
+//
+// **Fed on a repeating timeline, because the lookup is gated on
+// affordability.** The scan runs only for an animal that could already pay
+// for a child, so a starving colony never reaches it and would measure
+// nothing -- the "rare tick" argument that justified the scan in the first
+// place was made on exactly such a bed. Windfall arriving every 1,200
+// frames keeps a large fraction of the colony at its breeding bar, which is
+// the state the cost is supposed to be measured in.
+//
+// **What it actually seats, measured rather than asked for: 126 animals of
+// the 1,000 requested**, spanning x 5..506 -- the colony saturates the bed
+// edge to edge and the count is bounded by the width, not by the number.
+// The request is left high on purpose so the bed stays saturated if it is
+// ever widened; `found_colony_of` seats what fits and reports it, and a
+// scenario's `animals` line is where that number is visible. Do not read
+// `count: 1000` as a population.
+//
+// At frame 1,200 it is 167 organisms with 72 of 126 animals carrying food,
+// which is the fed state the measurement needs; the organism count climbs
+// from there as the plants seed.
+//
+// Not a bed anything should be concluded about biologically: it is crowded,
+// fed by hand, and founded all at once.
+(
+    name: "crowded_bench",
+    title: "CROWDED BENCH",
+    question: "What does a breeding-rule lookup cost when one big colony lives among a lot of plants?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 96,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Colony(species: "ant", x: 256, count: 1000),
+        Plant(species: "grass", x: 16),
+        Plant(species: "herb",  x: 32),
+        Plant(species: "grass", x: 48),
+        Plant(species: "shrub", x: 64),
+        Plant(species: "grass", x: 80),
+        Plant(species: "herb",  x: 96),
+        Plant(species: "grass", x: 112),
+        Plant(species: "shrub", x: 128),
+        Plant(species: "grass", x: 144),
+        Plant(species: "herb",  x: 160),
+        Plant(species: "grass", x: 176),
+        Plant(species: "shrub", x: 192),
+        Plant(species: "grass", x: 208),
+        Plant(species: "herb",  x: 224),
+        Plant(species: "grass", x: 240),
+        Plant(species: "grass", x: 272),
+        Plant(species: "herb",  x: 288),
+        Plant(species: "grass", x: 304),
+        Plant(species: "shrub", x: 320),
+        Plant(species: "grass", x: 336),
+        Plant(species: "herb",  x: 352),
+        Plant(species: "grass", x: 368),
+        Plant(species: "shrub", x: 384),
+        Plant(species: "grass", x: 400),
+        Plant(species: "herb",  x: 416),
+        Plant(species: "grass", x: 432),
+        Plant(species: "shrub", x: 448),
+        Plant(species: "grass", x: 464),
+        Plant(species: "herb",  x: 480),
+        Plant(species: "grass", x: 496),
+    ],
+    timeline: [
+        (at: 1200, every: 1200, until: 0, what: Heap(material: "windfall", x: 200, cells: 40)),
+        (at: 1200, every: 1200, until: 0, what: Heap(material: "windfall", x: 312, cells: 40)),
+    ],
+    horizon: 30000,
+)

@@ -46,6 +46,7 @@
 //! something: if the bed drifts with nothing alive in it, the plant is not
 //! the cause and the rest of the run is measuring the wrong thing.
 
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::sim::material;
@@ -58,14 +59,15 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
 }
 
+/// One simulated tick. `Lab::tick_for_harness` rather than a bare
+/// `frame::step` -- the difference is `scenario::tick_timeline`, run
+/// immediately after `frame::step` inside it, and without it a scenario's
+/// running schedule (the played bed's colony landing at frame 6,000) would
+/// never fire: this file's own loop never touches `lab.scenario` directly.
+/// A no-op for a spec built the old way (`lab.scenario` is `None`), so this
+/// changes nothing for a `founders=`/`species=` run.
 fn tick(lab: &mut Lab) {
-    pixel_physics::sim::frame::step(
-        &mut lab.world,
-        &mut lab.particles,
-        &mut lab.blasts,
-        pixel_physics::sim::player::PlayerInput::default(),
-        &pixel_physics::sim::player::Tuning::default(),
-    );
+    lab.tick_for_harness();
 }
 
 /// Mean soil moisture over the cells of one row that actually hold water.
@@ -125,20 +127,59 @@ fn main() {
     // rooting pattern over the same bed, and "does the surface come back" is
     // exactly the sort of thing that would differ between them.
     let species: String = std::env::args().find_map(|a| a.strip_prefix("species=").map(str::to_string)).unwrap_or_else(|| LabBox::default().species);
-    let spec = LabBox { founders, colonies: 0, seed, species: species.clone(), ..LabBox::default() };
-    // Echo every parameter, including the ones that default -- `CLAUDE.md`'s
-    // megastudy gotcha, where a knob added after the binary was built was
-    // silently ignored and produced 24 logs of 3 populations.
-    println!(
-        "soil_drawdown: species={species} founders={founders} frames={frames} every={every} seed={seed} \
-         png={} fine={fine} (field capacity {}, wilting point {}, saturated {})",
-        png.as_deref().unwrap_or("-"),
-        material::SOIL_FIELD_CAPACITY,
-        material::SOIL_WILTING_POINT,
-        material::SOIL_SATURATED
-    );
-
-    let mut lab = Lab::new(spec.clone());
+    // `soil=` so the bare-bed control can be built at a named scenario's own
+    // soil depth (`played_bed.ron` ships 80, not `LabBox::default()`'s 96) --
+    // without it a "no plants" control is a different bed as well as an
+    // unplanted one, and the two differences are not separable.
+    let soil: Option<i32> = arg("soil");
+    // `scenario=<name>` builds the whole bed -- founders, timeline, settings
+    // -- from a saved scenario instead of the flags above, `labshot`'s own
+    // pattern for the same reason: a bed like `played_bed` (a mixed planting,
+    // then a colony landing on the timeline at frame 6,000) cannot be
+    // expressed as `founders=`/`species=` at all. A bad name refuses at load
+    // rather than silently opening the default bed, matching every other
+    // scenario-aware harness.
+    let scenario_name: Option<String> = arg("scenario");
+    let (mut lab, spec) = match &scenario_name {
+        Some(name) => {
+            let mut sc = Scenario::load(name).unwrap_or_else(|e| {
+                eprintln!("scenario {name}: {e}");
+                std::process::exit(1);
+            });
+            sc.bed.seed = seed;
+            let mut lab = Lab::new(sc.bed.clone());
+            let msg = lab.load_scenario(sc);
+            println!("soil_drawdown: scenario={} seed={seed} frames={frames} every={every} png={} fine={fine} \
+                       (field capacity {}, wilting point {}, saturated {})",
+                name.as_str(),
+                png.as_deref().unwrap_or("-"),
+                material::SOIL_FIELD_CAPACITY,
+                material::SOIL_WILTING_POINT,
+                material::SOIL_SATURATED
+            );
+            println!("  {msg}");
+            let spec = lab.spec.clone();
+            (lab, spec)
+        }
+        None => {
+            let spec = LabBox { founders, colonies: 0, seed, species: species.clone(), soil_depth: soil.unwrap_or(LabBox::default().soil_depth), ..LabBox::default() };
+            // Echo every parameter, including the ones that default --
+            // `CLAUDE.md`'s megastudy gotcha, where a knob added after the
+            // binary was built was silently ignored and produced 24 logs of
+            // 3 populations.
+            println!(
+                "soil_drawdown: species={species} founders={founders} soil={} frames={frames} every={every} seed={seed} \
+                 png={} fine={fine} (field capacity {}, wilting point {}, saturated {})",
+                spec.soil_depth,
+                png.as_deref().unwrap_or("-"),
+                material::SOIL_FIELD_CAPACITY,
+                material::SOIL_WILTING_POINT,
+                material::SOIL_SATURATED
+            );
+            let lab = Lab::new(spec.clone());
+            (lab, spec)
+        }
+    };
     let start_bank = lab.world.atmospheric_bank;
     let start_total = {
         let w = &lab.world;

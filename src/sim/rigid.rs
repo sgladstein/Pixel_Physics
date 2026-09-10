@@ -70,6 +70,8 @@ use std::collections::{HashMap, HashSet};
 
 use super::cell::Cell;
 use super::material::{self, MaterialId, MaterialKind};
+use super::organism;
+use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
 
 const NEIGHBOURS_4: [(i32, i32); 4] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
@@ -3798,7 +3800,29 @@ fn place_settled(world: &mut World, x: i32, y: i32, fresh: Cell) {
             LandingAux::Seed => fresh.with_aux(super::structural::seed_landing_aux(world, x, y, fresh.material)),
         }
     };
+    let organism_id = placed.organism_id();
     world.set(x, y, placed);
+    // **A landed cell that kept its organism must be scheduled, or nothing
+    // ever visits it again.** Every other cell `settle` writes is inert
+    // (`Cell::new` never sets `organism_id`, see the call site), so before
+    // the windfall fix this branch was dead by construction. A windfall
+    // that keeps its organism is a `Seed` with nowhere on the active-site
+    // heap: `germinate()` is reached only through organism-scheduled
+    // dispatch (`organism_tick`), and nothing else ever asks this
+    // position "is it time yet" -- so without this the fix above would
+    // hand the cell a real organism and still leave it un-germinable, the
+    // same failure with a different cause. Same first delay a fresh drop
+    // gets from `bear_seed_at` (`SEED_TICK_INTERVAL`), for the same reason
+    // stated there: it may still be settling and germination should
+    // follow it down promptly.
+    if organism_id != 0 {
+        world.schedule_active_site(ActiveSite {
+            x,
+            y,
+            kind: ActiveKind::Organism { organism: organism_id, stale_ticks: 0, plastochron: 0 },
+            next_frame: world.frame + super::plant::SEED_TICK_INTERVAL,
+        });
+    }
 }
 
 /// Write a settled body's cells back into the grid as ordinary CA material.
@@ -3865,6 +3889,12 @@ fn settle(world: &mut World, body: &ChunkBody) {
         }
     }
     let mut landed: Vec<(i32, i32)> = Vec::with_capacity(body.cells.len());
+    // Looked up once per settling body, not per cell: every other cell this
+    // loop writes is inert by construction (see below), so the overwhelming
+    // majority of settling bodies -- rock, log, deadwood -- never need this
+    // at all, and a body that does still pays one lookup rather than one per
+    // cell of a felled tree.
+    let windfall_id = world.materials.id_of("windfall");
     for cell in &body.cells {
         let (x, y) = body.cell_position(cell);
         // `Cell::new` starts unattached and with `aux` at 0, and both are
@@ -3970,6 +4000,62 @@ fn settle(world: &mut World, body: &ChunkBody) {
             }
             None => Cell::new(cell.material, cell.shade),
         };
+        // **`windfall` is the one landed material that must not go
+        // unattached, and the exception is gated on the material rather
+        // than widening the rule above.** Every other `severs_into` target
+        // (`log`, `deadleaf`, a windfall caught in a *second* collapse and
+        // landing with no target at all) is correctly orphaned by
+        // `Cell::new` above -- a felled limb is not the tree any more, and
+        // re-attaching it would make a chunk that fell immovable terrain
+        // wherever it stopped, exactly as this function's own doc warns.
+        // A windfall is different by owner ruling (`assets/materials/
+        // windfall.ron`, 2026-08-23): "the seed rides down inside it," and
+        // `germinate()` has exactly one call site, reached only through
+        // organism-scheduled dispatch -- an ownerless windfall can never
+        // germinate, ever, regardless of where it lands. That is the bug
+        // this block closes: a fruit organ severed by ordinary structural
+        // failure (a branch snapping under its own hanging weight, not a
+        // dig or a blast) rides through this exact `settle` path as a
+        // `BodyCell`, and its `organism_id` was silently zeroed here on
+        // every prior build -- confirmed live with `WF_DEBUG=1
+        // windfall_probe scenario=played_bed seed=1 frames=1300 sample=10
+        // fate=1`: a fruit cell owned by organism 4136 landing at (456,158)
+        // frame 1183, coming out the other side as material `windfall`,
+        // `organism_id` 0. Neither `World::fruit_dropped` (the ripening
+        // drop) nor `organ_shattered_to_windfall` (the single-cell shatter
+        // in `structural::break_free`) covers this: it is a third,
+        // previously uncounted creation path, through the whole-piece
+        // felling ladder (`fell_severed_tissue` -> `promote` -> here)
+        // rather than either of those.
+        //
+        // Reuses the fruit's own organism rather than minting a fresh
+        // child the way an ordinary `drop_organ` ripening does: that needs
+        // a live parent, a reproductive-budget charge and a keyed mutation
+        // stream, none of which belong in the generic landing seam every
+        // material's `severs_into` goes through. `World::set`'s own
+        // `reindex_organism_cell` -- the same seam an ordinary rolling
+        // `Seed` cell already relies on when it moves (see that function's
+        // own doc) -- re-anchors the organism's cell map to wherever this
+        // body actually settles, for free.
+        //
+        // Gated on the organism still existing at landing time: a body can
+        // spend several frames falling, and if its parent organism died or
+        // was freed in that window, `cell.organism_id` may now name a
+        // reused slot. Silently re-attaching to whatever that slot holds
+        // now would be worse than the bug this fixes, so that case falls
+        // back to the pre-fix, ownerless windfall -- graded, not a cliff.
+        let fresh = if cell.organism_id != 0 && Some(fresh.material) == windfall_id && world.organism(cell.organism_id).is_some() {
+            fresh.with_organism_id(cell.organism_id).with_aux(organism::pack_cell_type(organism::CellType::Seed))
+        } else {
+            fresh
+        };
+        if std::env::var("WF_DEBUG").as_deref() == Ok("1") && Some(fresh.material) == windfall_id {
+            eprintln!(
+                "[wf settle] frame {} ({x},{y}) organism_id={} (0 means still ownerless)",
+                world.frame,
+                fresh.organism_id()
+            );
+        }
         if world.in_bounds(x, y) && world.is_empty(x, y) {
             place_settled(world, x, y, fresh);
             landed.push((x, y));
@@ -6105,6 +6191,82 @@ mod tests {
             assert_eq!(w.get(10 + dx, 40).organism_id(), 0, "and it is not re-attached to the tree it came off");
             assert_eq!(w.get(30 + dx, 40).material, wood, "a painted `wood` wall has no organism id and must land as the wall it was");
         }
+    }
+
+    /// **A windfall is the one landed piece that must keep its organism.**
+    /// `windfall.ron`'s 2026-08-23 owner ruling is "the seed rides down
+    /// inside it," and `germinate()` has exactly one call site, reached
+    /// only through organism-scheduled dispatch -- so a windfall that lands
+    /// ownerless can never germinate, ever, wherever it comes to rest
+    /// (`Reports/open-bugs-handoff.md` §<letter>, measured on the played bed:
+    /// 15 of 23 ownerless windfall appearances over 40,000 frames, seed 1).
+    ///
+    /// A fruit organ severed by ordinary structural failure -- not the
+    /// `Ripen`/`drop_organ` path, which already handles this -- rides
+    /// through `fell_severed_tissue` -> `promote` -> here as a `BodyCell`,
+    /// same as a snapped branch. This is that path with nothing else in it:
+    /// one organism-owned `fruit` cell, promoted directly, dropped onto a
+    /// slope steep enough (45 degrees, comfortably past windfall's 26)
+    /// that it must roll rather than simply resting where it lands --
+    /// exercising both the landing conversion in `settle` and the ordinary
+    /// CA roll afterwards, since `World::set`'s `reindex_organism_cell` seam
+    /// has to keep re-anchoring it at every new resting position, exactly as
+    /// it already does for a rolling `Seed`.
+    #[test]
+    fn a_severed_fruit_lands_as_windfall_still_carrying_its_organism() {
+        let mut w = test_world();
+        let species = w.species.id_of("tree").expect("tree species must be loaded");
+        let organism_id = w.push_organism(species).expect("a fresh world has organism slots free");
+        let fruit = w.materials.id_of("fruit").expect("fruit material");
+        let windfall = w.materials.id_of("windfall").expect("windfall material");
+        assert_eq!(
+            w.materials.get(fruit).severs_into,
+            Some(windfall),
+            "test setup: fruit.ron must still sever into windfall, or this test is not exercising the reported path"
+        );
+
+        // A staircase descending to the right -- steep enough that a
+        // windfall landing at its top edge cannot simply rest there.
+        for x in 0..64i32 {
+            let floor_y = (20 + x).min(60);
+            for y in floor_y..64 {
+                w.set(x, y, Cell::new(material::BEDROCK, 0).with_attached(true));
+            }
+        }
+
+        // The severed fruit itself: organism-owned, above the staircase's
+        // top step. `promote` reads this straight off the grid, exactly as
+        // `organism_structural_tick`'s `detached` branch does when a real
+        // structural check calls it.
+        let (fx, fy) = (2, 10);
+        w.set(fx, fy, Cell::new(fruit, 0).with_organism_id(organism_id).with_aux(organism::pack_cell_type(organism::CellType::Fruit)));
+        promote(&mut w, &[(fx, fy)], None, None, None);
+        assert_eq!(w.chunk_bodies.len(), 1, "test setup: the severed fruit must be airborne as a body");
+
+        for _ in 0..800 {
+            step_chunk_bodies(&mut w);
+            crate::sim::update::step(&mut w);
+            if w.chunk_bodies.is_empty() {
+                break;
+            }
+        }
+        assert!(w.chunk_bodies.is_empty(), "the severed fruit never settled");
+
+        let resting = (0..64)
+            .flat_map(|x| (0..64).map(move |y| (x, y)))
+            .find(|&(x, y)| w.get(x, y).material == windfall)
+            .expect("the severed fruit must land somewhere as windfall material");
+        let cell = w.get(resting.0, resting.1);
+        assert_ne!(
+            cell.organism_id(),
+            0,
+            "a windfall that came from a severed fruit landed with organism_id 0 at {resting:?} -- it can never germinate"
+        );
+        assert!(
+            w.organism(cell.organism_id()).is_some(),
+            "the landed windfall's organism id {} does not resolve to a live organism",
+            cell.organism_id()
+        );
     }
 
     /// `promote` declines to schedule a structural check around organism

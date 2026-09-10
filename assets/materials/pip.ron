@@ -1,0 +1,101 @@
+// A bare seed left behind when an ant bites a fallen fruit and the seed
+// coat survives the mouth (`plant::seed_survives_bite`,
+// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2). Not `windfall`
+// -- the flesh is gone, eaten -- and not `seed` either, for the reason
+// argued below. `Germinate` (`plant.rs`, `Behavior::Germinate`) does not
+// key on material at all, only on `CellType::Seed`, so a pip germinates
+// through the identical path a bare seed or a windfall does.
+//
+// **Why a new material rather than reusing `seed`, and why the arithmetic
+// has to be checked here rather than assumed.** A windfall is worth 960 and
+// a `seed` is worth 480 (`seed.ron`), so if the seed a fruit left behind
+// stood at `seed`'s own value, one bite would feed the ant 960 J *and*
+// leave 480 J of plant standing -- 1,440 J out of a 960 J fruit, a
+// one-directional pump with no counterweight, exactly the shape
+// `Crop::unit`'s own `min` guard exists to stop and exactly the shape
+// evolution finds first.
+//
+// `food_energy: 40.0` closes it, checkably, against `creature.rs`'s own
+// numbers rather than by argument. `diet_yield` (`creature.rs:3468`)
+// multiplies face value by `diet_quality` -- a squared gut-match term that
+// peaks at 1.0 when the animal's `gut_bias` exactly matches the material's
+// `food_class` (-1.0 here, a plant, same as `seed` and `windfall`) -- and
+// the eat verb only sees a mouthful worth more than `EAT_YIELD_THRESHOLD`
+// (12.0, `creature.rs:3517`):
+//
+//   shipped neutral gut (bias  0.0): quality (1 - |0 - -1| / 2)^2 = 0.25
+//                                    40 * 0.25 = 10   < 12 -- invisible
+//   plant specialist   (bias -1.0): quality (1 - |-1 - -1| / 2)^2 = 1.0
+//                                    40 * 1.0  = 40   > 12 -- edible
+//
+// So the shipped ant cannot see a pip at all -- the pump cannot run, the
+// same fruit cannot feed an ant twice -- and a lineage that drifts its gut
+// toward the plant end opens seed predation as a real niche, expressed in
+// the one number the gut already reads rather than in a new rule. Guarded
+// by `a_neutral_gut_cannot_see_a_pip_but_a_seed_specialist_can` in
+// `plant.rs`, which fails if this constant, `EAT_YIELD_THRESHOLD` or the
+// quality formula ever drift apart.
+//
+// A material is warranted when its physics genuinely differ on numbers
+// that already exist (`flower.ron`'s own test): a pip differs from `seed`
+// on food value (40 against 480), on rot (below), and on colour, and the
+// colour is what makes it read as a *different* object rather than a fifth
+// silent label change (`flower.ron` names four that fired, counted, and
+// changed nothing anyone could see).
+(
+    name: "pip",
+    display: "Pip",
+    kind: Powder,
+    // Mirrors `seed.ron`'s other physics rather than inventing new ones --
+    // this is the same dry, husk-like object `seed` is, just paler and
+    // shorter-lived. Density and friction angle unchanged from `seed`.
+    density: 0.6,
+    friction_angle: 55.0,
+    // **Pale**, deliberately as far from `seed`'s browns and `windfall`'s
+    // reds and purples as this engine's four-tone convention allows -- a
+    // pip has to read as *a seed left behind*, not as a fruit stain or a
+    // patch of soil, at the zoom a contact sheet is judged at
+    // (`flower.ron`'s own recorded failure: a label change nobody can see
+    // is not a label change).
+    colors: [
+        (222, 214, 184),
+        (238, 230, 202),
+        (202, 192, 158),
+        (246, 240, 220),
+    ],
+    // Dry and small like the seed it is.
+    flammability: 0.5,
+    burn_temperature: 500.0,
+    burn_duration: 30,
+    burns_into: "ash",
+    heat_conductivity: 0.15,
+    // **Faster rot than `seed`, and the comparison is real rather than
+    // rhetorical: `seed.ron` declares no `decays_into` at all**, so a bare
+    // seed has no route through this channel and can only leave the world
+    // through the species' `seed_half_life` hazard (`plant.rs`'s
+    // `organism_tick`, shared by every `CellType::Seed` regardless of
+    // material). A pip keeps that same shared hazard *and* gains this
+    // second, faster exit -- the exposed coat left behind once the flesh
+    // that used to cover it is gone. Rates above `windfall`'s own
+    // (0.7 damp / 0.15 dry) for the same reason: a bitten-open seed is more
+    // exposed than the fruit that used to wrap it.
+    decays_into: "soil",
+    decay_yield: 0.05,
+    decay_chance_damp: 0.85,
+    decay_chance_dry: 0.3,
+    // **The gnome walks through a drift of them**, like `seed` and
+    // `windfall` both.
+    insubstantial: true,
+    // And it falls past a branch rather than sitting on it, mirroring
+    // `seed.ron`'s own argument verbatim: this is smaller and rounder than
+    // even the bare seed, and a one-cell-wide branch in this 2D slice is
+    // not a shelf spanning the wood's whole depth.
+    falls_through_organisms: true,
+
+    food_energy: 40.0,
+    // In MPa like every other value of this field. Same as `seed`: the hard
+    // part of plant matter is the coat, not the flesh, and a pip's coat is
+    // the same coat.
+    penetration_resistance: 0.2,
+    food_class: -1.0,
+)
