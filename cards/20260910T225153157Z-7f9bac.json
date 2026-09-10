@@ -1,0 +1,41 @@
+{
+  "id": "20260910T225153157Z-7f9bac",
+  "created": "2026-09-10T22:51:53Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a23d1629f6add2864",
+    "branch": "claude/creature-founding-r27",
+    "commit": "fbc603b8",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a23d1629f6add2864"
+  },
+  "title": "Founding curls to the ground now",
+  "question": "Do the founded bodies lie flat on the soil, at rest and separate -- or do any overlap or stand off the surface?",
+  "context_md": "Founding used to demand a straight n-cell run at one height; it now walks the spine along the ground contour (flat-with-foothold, then a step up or down, then flat unconditionally as a last resort) so a long body can curl to fit where a two-cell body already stood fine. This crop is the played bed's nest band at frame 6,100, right after the colony's timeline event founds it -- a still is honest here because founding is a placement, not motion.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "played_bed seed=1, frame 6100",
+      "files": [
+        "20260910T225153157Z-7f9bac/000-card_wide_3x.png"
+      ],
+      "caption": "",
+      "meta": {
+        "ants founded of 52": 13,
+        "seed": 1,
+        "frame": 6100
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
