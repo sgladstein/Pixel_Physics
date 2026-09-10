@@ -784,6 +784,118 @@ repaired guard still fails with the mechanism broken. That is a fight-balance
 judgement belonging to whoever owns #291's wiring, and the pull request
 should say so rather than carry a green it did not earn.
 
+#### (7) Built and measured (2026-09-10, branch `claude/creature-lateral-tuck-r26`)
+
+**The rule as specified, no deviation.** `lateral_for` now returns
+`Option<(i32, i32)>` — authored side, other side, or `None` — and
+`segmented_body_after_step` places a lateral only when its own candidate is
+placeable, dropping it (not the step) otherwise. Placeability of the spine's
+own landing is unconditional, exactly as before. `OrganismState::
+segment_groups` is now the *live* width, rewritten with `chain` every step;
+a new `segment_authored` (this individual's own grown shape, re-derived from
+`FateGenome` — pure, cheap, called once a tick) is the stable reference for
+whether a segment may *attempt* a lateral at all, so a tucked segment is
+offered its lateral again on every later step rather than staying tucked
+forever. `relocate_chain` finds the from/to correspondence by (segment,
+role) rather than by flat index, since a tuck can make the two lengths
+disagree; a re-emerging lateral is minted fresh (material and shade read
+off the still-alive spine, `CellType` from `segment_authored`, shade keyed
+on `(segment, is_lateral)` so a lateral that tucks and re-emerges
+repeatedly always comes back the same colour). `body_after_step`'s three
+slices (`chain`/`groups`/`authored`) and `relocate_chain`'s two position
+lists are bundled into `BodyShape`/`BodySide` to stay under Clippy's
+`too_many_arguments` lint (no prior use of `#[allow]` for it anywhere in
+the tree, so bundling rather than suppressing).
+
+**Table 1, re-run exactly as §7e's, laterals on under the new rule** (one
+binary, `creature_scale mode=walk`, seed 7, 24 placements, 4,000 frames,
+`RAYON_NUM_THREADS=4`, private `TMPDIR`):
+
+| body | laterals | cells | `flat` blocked | `rolling` blocked |
+|---|---|---|---|---|
+| `ant_long`, `Chain(6)` | n/a | 6 | 2.5% | 12.4% |
+| ant, articulated | old rule (shipped, §7e) | 7 | 43.9% | 96.8% |
+| ant, articulated | **new rule (this build)** | 7 | **1.9%** | **22.1%** |
+| ant, articulated | off (§7e, for reference) | 5 | 2.0% | 14.8% |
+| hopper, articulated | old rule (shipped, §7e) | 8 | 74.6% | 91.9% |
+| hopper, articulated | **new rule (this build)** | 8 | **6.8%** | **15.4%** |
+| hopper, articulated | off (§7e, for reference) | 7 | 5.5% | 40.7% |
+
+The `ant_long` control is byte-identical to §7e's own row, run fresh on this
+binary — the change touches nothing a plain `Chain` reads. **The ant lands
+on or ahead of the laterals-off floor on `flat` (1.9% against 2.0%, and
+within a point of the bare chain's 2.5%) and well inside it on `rolling`
+(22.1%, against the old rule's 96.8% and the chain's 12.4% — a 4.4x
+reduction from where §7e left it, though not fully to chain parity: some
+residual cost from carrying a lateral that must sometimes tuck is expected
+and is not what §7f asked to eliminate).** The hopper is the more
+unambiguous result: the new rule beats its own *laterals-off* ablation on
+both presets (6.8%/15.4% against 5.5%/40.7%), because tucking pays the
+mobility cost only on the ticks it is actually needed rather than every
+tick, which is exactly what §7f predicted a graded rule would buy over a
+blanket one.
+
+**`cargo run --release --example ascii`**: the colony-forage sessile guard
+— `st.forage_trips >= 6` — now reads **32 round trips**, comfortably above
+both the bar and the pre-articulated-body baseline of 23 (deepest excursion
+and reach profile also printed, unchanged in shape). It was **0** before
+this build, which is the specific number this task was asked to fix, and it
+is fixed. Running further, `ascii` reaches a *later* scene for the first
+time since the articulated body landed — "ants excavating a chamber out of
+soil" — and fails a **different, pre-existing** assertion there
+(`roofed > 0`, dated 2026-09-05, older than the articulated body): the
+6-ant colony in that scene digs 96 cells and leaves no roofed void, with 5
+of 6 ants dying. Checked, not assumed: the identical scene with
+`PIXEL_PHYSICS_BODY_LATERALS=0` (bare 5-cell spine, no width-2 segment
+anywhere) passes cleanly — `roofed 14`, 1 death — so the failure tracks
+body **width**, not the lateral placement rule this build changes; it
+reproduces whether a lateral is blocked (the old rule) or tucked (this
+one), because ascii could never reach this scene under the old rule to
+tell the two apart. Left unfixed here: a 2-wide body's effect on
+burrow/lining geometry is a different mechanism than §7f's movement rule,
+and building a fix for it would be exactly the "second rule of your own
+invention" the build brief's cost fork warns against. Flagged for whoever
+owns the body-shape or burrow-lining line next.
+
+**`filmstrip scene=colony` founding**: unchanged at **4 ants founded of 52
+asked, 28 viable sites** — the same as before this build, and expected to
+be: `place_creature` refuses a site whenever any cell of the body's full
+*authored* footprint is not empty, which is evaluated once at founding
+time, before the animal has taken a single step. Nothing about the lateral
+tuck rule reaches that check — tucking is a property of *movement*, not of
+the one-shot placement test — so a fix here was never implied by §7f and
+none was attempted. The founding shortfall against the old 2-cell ant's
+footprint is the same, separate defect the lane note already named
+("placement fails as well as movement").
+
+**Tests**: `a_lateral_adds_no_collision_the_spine_does_not_already_have`
+goes green unchanged, its own bare-spine positive control intact.
+`a_body_with_both_sides_blocked_still_steps` and
+`a_tucked_lateral_re_emerges` are new — both watched red against a
+reversion to the old always-place rule before being trusted green.
+`a_lateral_free_segmented_body_is_byte_identical_to_a_chain` guards the
+cost fork's hard invariant (zero-lateral `Segmented` == `Chain`) across six
+headings. `cargo test --lib`: **1,537 passed, 0 failed, 65 ignored** — the
+only prior failure besides §9's own guard was two scenes whose premise the
+tuck rule's own correct behaviour broke
+(`digging_costs_exactly_its_authored_price_per_cell` assumed a constant
+body-cell count, which tucking legitimately varies — fixed by pricing
+against `ant_long`'s fixed `Chain(6)` rather than the shipped ant;
+`feeding_and_digging_are_separate_genes`'s single-soil-cell obstacle used
+to force a dig only because the old body could barely move at all — fixed
+by sealing the scene into a tunnel the animal cannot route around). Both
+are `CLAUDE.md`'s "a scene that contradicts the code will look like a bug
+in the code," not defects in the rule.
+
+`cargo clippy --all-targets --release --locked -- -D warnings`: clean.
+
+**§9's guard, re-checked on this branch before the `main` merge**: still
+red, same shape as §7e/§7f(6) recorded — a lone attacker now breaches
+faster than the report's own numbers (this build's own measurement, one
+seed sweep, is in the pull request), consistent with mobility continuing
+to improve rather than with anything about *this* change reversing. Left
+red per §7f(6)'s own decision; not touched.
+
 ## 8. What this deliberately leaves for later
 
 - **Palette.** Per-individual colour is the other half of

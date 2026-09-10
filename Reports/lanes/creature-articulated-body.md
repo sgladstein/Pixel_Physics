@@ -4,7 +4,25 @@ Branch `claude/creature-evolution-engine-67lhjp`. Report of record:
 [`Reports/creature-articulated-body-2026-09-09.md`](../creature-articulated-body-2026-09-09.md).
 Written for the lab coordinator; everything substantive is in the report's §7.
 
-## Standing: spec written; build lane owed
+## Standing: lateral rule built and measured; PR open, awaiting review/merge
+
+**§7f's lateral rule is built, on `claude/creature-lateral-tuck-r26` (cut from
+this branch), measured against its own table, and merged with `main`.** §7f(7)
+carries the full write-up: the ant's blocked rate falls 43.9%/96.8% ->
+1.9%/22.1% on flat/rolling (chain control 2.5%/12.4%), the hopper's
+74.6%/91.9% -> 6.8%/15.4% (beating its own laterals-off ablation on both
+presets), `ascii`'s colony-forage round trips are back at 32 (was 0, bar 6),
+and `cargo test --lib` is 1,537 passed / 0 failed / 65 ignored. Two
+pre-existing scenes needed their premise re-established rather than the
+mechanism touched (`CLAUDE.md`'s "a scene that contradicts the code" —
+same shape as the §9 guard below), and one further pre-existing, unrelated
+`ascii` failure was uncovered and left for whoever owns the body-shape line
+next (§7f(7) has it). `filmstrip scene=colony` founding is unchanged at 4/52
+— that is a placement-time check the movement rule never reaches, not a
+regression.
+
+Superseded by that build: the paragraph below described the state before
+`claude/creature-lateral-tuck-r26` existed and is kept for the record.
 
 **§7f of the report is a complete build brief for the lateral rule** — the
 rule itself, the sites to change with line numbers and what must not change,
