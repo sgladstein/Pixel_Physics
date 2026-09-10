@@ -1,0 +1,41 @@
+{
+  "id": "20260910T114243974Z-c0b68b",
+  "created": "2026-09-10T11:42:43Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-af86d20f506853ca7",
+    "branch": "claude/lab-legends-r26",
+    "commit": "389a39c4",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-af86d20f506853ca7"
+  },
+  "title": "The box's own history",
+  "question": "Does the HISTORY page read as the box's history? What's missing from a row?",
+  "context_md": "New: every founding line that has ended now gets a record, in two places built from the same `LineEnded` log event so they can never disagree -- a HISTORY page (`F5`, or the LOG page's own row) and a text file exported on REBUILD and on quit.\n\nPictured: the default bed (`herb`/`ant`, seed 1), warmed to frame 5752 through `examples/labui.rs`'s own scripted click-through (LOG -> HISTORY). 47 lines have ended by that point in the sheet's run -- close to the ~45-by-frame-5000 estimate this was scoped against, so the page is showing a full, scrolled table rather than three rows in empty space.\n\nBelow are the first 25 lines of the exported chronicle file from a separate but identically-seeded run (default bed, same warmup, no extra script actions after it) -- `chronicle-2026-09-10-herb_ant-s1.txt`, written by `Lab::write_chronicle` through the same `format_log_line` the LOG page itself draws through. That run stops at the same frame (5752) but earlier in its own script, so its own count is 43, not 47 -- both numbers are real, they're just two different amounts of the same deterministic run.\n\n```\nCHRONICLE OF herb_ant\nSEED 1  FOUNDERS 8 OF HERB  COLONIES 1  FRAMES 5752  DIAL 1X\n\nF     39  THE ASPEN LINE ENDED WITH ITS FOUNDER\nF     40  THE RAIL LINE ENDED WITH ITS FOUNDER\nF     41  THE ZENITH LINE ENDED WITH ITS FOUNDER\nF   3726  THE TORNADO LINE ENDED WITH ITS FOUNDER\nF   3846  THE FOEHN LINE ENDED WITH ITS FOUNDER\nF   3948  THE EGRET LINE ENDED WITH ITS FOUNDER\nF   3990  THE MALLOW LINE ENDED WITH ITS FOUNDER\nF   3996  THE NEBULA LINE ENDED WITH ITS FOUNDER\nF   4014  THE GORSE LINE ENDED WITH ITS FOUNDER\nF   4020  THE MYRTLE LINE ENDED WITH ITS FOUNDER\nF   4032  THE VULTURE LINE ENDED WITH ITS FOUNDER\nF   4068  THE UPDRAFT LINE ENDED WITH ITS FOUNDER\nF   4098  THE REED LINE ENDED WITH ITS FOUNDER\nF   4116  THE QUINCE LINE ENDED WITH ITS FOUNDER\nF   4134  THE HEATHER LINE ENDED WITH ITS FOUNDER\nF   4158  THE RAVEN LINE ENDED WITH ITS FOUNDER\nF   4158  THE OWL LINE ENDED WITH ITS FOUNDER\nF   4164  THE MAPLE LINE ENDED WITH ITS FOUNDER\nF   4248  THE GANNET LINE ENDED WITH ITS FOUNDER\nF   4254  THE MURRE LINE ENDED WITH ITS FOUNDER\nF   4266  THE JACKDAW LINE ENDED WITH ITS FOUNDER\nF   4296  THE BEECH LINE ENDED WITH ITS FOUNDER\n```\n\nThe file goes on to a LEGENDS section (one paragraph per ended line: kingdom, founder frame, generations, peak living, frame ended, cause) and a COUNTS line last. The page's own hover note over a row is that same paragraph.\n\nReached the way `Chambers`/`PlantList` are reached -- no bar chip, since the bar has had none free since before this page existed -- through the LOG page's own `HISTORY` row, or `F5` (the next free slot in the `F1..F4` panel-key run; every letter was already bound, `H` included).",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "HISTORY page, frame 5752",
+      "files": [
+        "20260910T114243974Z-c0b68b/000-labui_history-page--history.png"
+      ],
+      "caption": "",
+      "meta": {
+        "lines ended (pictured)": 47,
+        "lines ended (export run)": 43,
+        "world frame": 5752
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
