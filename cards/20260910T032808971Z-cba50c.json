@@ -1,0 +1,44 @@
+{
+  "id": "20260910T032808971Z-cba50c",
+  "created": "2026-09-10T03:28:08Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a07393fb15b93d852",
+    "branch": "claude/lab-ecology-design-r26",
+    "commit": "09da43d7",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a07393fb15b93d852"
+  },
+  "title": "When an ant takes a fruit, where should the seed inside end up?",
+  "question": "Today the seed dies the moment an ant picks the fruit up. Two ways to let it live. (1) ON THE SPOT: the ant eats the flesh and leaves the pip lying where it bit, so the seed survives but hardly moves. (2) CARRIED HOME: the seed rides inside the ant and is put down wherever that ant puts things down - which for a laden ant is mostly the nest, so you get a ring of herbs around the nest and a bed whose planting map is a record of where the colony foraged. Which is the one you want to watch, and is (2) worth roughly three times the work?",
+  "context_md": "Your played bed at 40,000 frames: the nest band is the pale strip in the middle, plants either side. In this box a colony takes about **2,300 mouthfuls and gets 62 of them home**, and a fruit is the richest thing on the ground it can find. Every one of those seeds is currently destroyed on pickup.\n\n**What (2) gives you that (1) does not** is the headline: a line of ants carrying fruit home, and then a stand of herbs growing out of the midden. The colony becomes the plants' delivery service and the plants become a larder that refills itself - which is the direct answer to your own \"over a long enough time everything dies out\".\n\n**What (1) gives you** is the same rule at a third of the cost and no new state anywhere: a fruit eaten leaves a seed behind instead of a hole. It stops the colony being a pure seed sink, and it is nearly invisible.\n\nEither way the seed will not always survive - that is a number on the plant you can turn, so a fruit going through an animal is a gamble rather than a guarantee.\n\nNothing here is built. This decides which one gets built first.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260910T032808971Z-cba50c/000-nest.png"
+      ],
+      "caption": "Played bed, frame 40,000. The nest is the bare strip at soil level in the middle.",
+      "meta": {
+        "mouthfuls the colony took in 40,000 frames": 2327,
+        "of those that reached the nest": 62,
+        "fruit that fell from a plant in that time": 56,
+        "fallen fruit lying on the floor at any moment, on average": 0.4,
+        "how long one lies there before it is gone": "293 frames with ants, 68 with none",
+        "seeds that survived being carried": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
