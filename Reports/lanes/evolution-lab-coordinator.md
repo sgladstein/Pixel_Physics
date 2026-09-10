@@ -233,6 +233,51 @@ round runs):
   write site, follow the cell from the repro frame, fix at the line, a guard
   that fails unfixed, a bug section with the letter from `bugindex.py`.
 
+- **rain → PR #298**, `src/lab/rain.rs`. Measured first: the played bed loses
+  **5.7% / 4.1%** of its soil water over 120,000 frames on two seeds, against
+  a bare-soil control that lost exactly nothing — so `RAIN` ships **OFF**,
+  with a live `LIGHT / STEADY / HEAVY` ladder (50 / 150 / 400 cells per 1,000
+  frames) on key `8` (every letter was bound), placed through the WATER
+  tool's own call, jittered from the world's RNG, counted by
+  `World::rain_cells`. A "water still in the air" instrument read 30 with
+  rain off — the lid's own condensation — and was pulled for that reason.
+  Card `…f2fb5b` (STEADY against OFF, a GIF) asks whether the rate reads.
+  Also built: `examples/labgif.rs`, the lab's missing headless GIF capture.
+- **measure landed** (#297 merged 04:36, docscheck clean after).
+- **The eusociality lane, un-poked, kept going and found a shipped bug**
+  (four commits on PR #295, CI running): an organism id is
+  `(generation << 12) | slot`, and both breeder-scan loops iterated bare slot
+  indices, so **the breeding rule was blind to every animal in a recycled
+  slot** — which is the whole of #293's extra-breeder anomaly (a queen in a
+  reused slot was invisible, so a second animal bred). Found by running the
+  old scan and its replacement, a **per-colony breeder index (33x fewer
+  organisms visited at 12,000 frames on the crowded bench, 11.7x at
+  40,000)**, as two arms of one binary over 40,000 frames: identical for
+  26,100 frames, then one birth apart. Fixed; all six queen seeds now report
+  exactly one breeder; the thirteen-fold collapse is unchanged and now tight.
+  PR #295 is therefore code, not docs, and lands before the bodies branch.
+- **The articulated bodies are built and they do not walk** — the creature
+  lane's own §7, pushed and then the session went idle at ~$145. Ant 5
+  segments / 7 cells, hopper 7 / 8, expressed from four heritable rules
+  each; **blocked on 43.9% of moves on `flat` and 96.8% on `rolling`**
+  (hopper 74.6% / 91.9%) against a plain `Chain(6)` control at 2.5% / 12.4%;
+  `ascii` red ("the colony has gone sessile"); 4 of 52 ants founded on
+  `scene=colony`. One real deadlock fixed (the lateral sat on the segment
+  ahead after any upward step) and it moved the number barely; three
+  hypotheses recorded as moving nothing. The clue: the hopper has one
+  lateral and is blocked more than the ant's two — **spine length**, not
+  laterals, is the suspect. Also fixed on that branch: `corpse.ron`'s
+  `food_energy` 480 → 120, a 3.5x energy creation on the burnt-corpse path
+  the re-pricing exposed. **Not landable; no PR.** Its §7d names the one
+  next step — an env switch that places a `Segmented` body's laterals or
+  not, inside one binary — and **lane B** (Sonnet, running, branch cut from
+  theirs) is doing exactly that and then segmented-vs-chain at equal length.
+  The ingestion question is answered in its lane note: **two clear sites**
+  (the mouthful into the crop, `creature.rs:5001` on main; brood
+  provisioning, which clears and credits in one block) and the drop site
+  where a carried load becomes a whole cell again (`:5137`) — A1 was told to
+  hook both clears.
+
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
 carry it, the player's BRUSH carries it, or both with the animals off); the
