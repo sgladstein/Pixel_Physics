@@ -229,9 +229,25 @@ round runs):
   hook as its own final commit for re-placing after the bodies branch, the
   paired played-bed sweep. Told mid-flight to count bites on ownerless
   windfalls separately so a null is attributable.
-- **W** (Sonnet, running): the ownership bug — instrument every windfall
-  write site, follow the cell from the repro frame, fix at the line, a guard
-  that fails unfixed, a bug section with the letter from `bugindex.py`.
+- **W → PR #300, §Z8 closed.** The ownerless windfall was a **third
+  windfall-creation path neither counter saw**: a fruit organ severed by
+  ordinary structural failure (a branch snapping under its own hanging
+  weight) rides `fell_severed_tissue → promote → settle()` like any felled
+  limb, and `rigid.rs`'s `settle()` writes `Cell::new(into, shade)` for
+  every `severs_into` target — right for `wood → log` and `leaf →
+  deadleaf`, and for `fruit → windfall` it dropped the organism id and the
+  `Seed` packing. Confirmed on the measure lane's own frame and cell
+  (`src_organism_id=4136 fruit → windfall` at frame 1,183, (456,158)).
+  Fixed narrowly on the windfall target only — keep the id, stamp `Seed`,
+  let `World::set`'s existing re-anchor seam and a scheduling call the
+  landing was missing do the rest — with a guard watched red first
+  (`a_severed_fruit_lands_as_windfall_still_carrying_its_organism`).
+  Ownerless appearances **15 → 0 and 3 → 0** on two seeds over 40,000
+  frames; windfall-sourced germinations 1 → 2 and 0 → 0 (one seed each, so
+  noise, recorded as such). It narrows `settle()`'s deliberate "must not
+  silently re-attach" rule and says so in the code; the rule's stated harm
+  (a structural body reappearing load-bearing) cannot apply to a `Powder`.
+  `plant.rs` untouched. A1 was told to merge it before its deciding sweep.
 
 - **rain → PR #298**, `src/lab/rain.rs`. Measured first: the played bed loses
   **5.7% / 4.1%** of its soil water over 120,000 frames on two seeds, against
