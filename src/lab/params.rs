@@ -1017,7 +1017,7 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
     // this shared page's own coarse flag rather than something this field
     // can opt out of, which is why the note below says the true story.
     bed("rain", spec.rain.as_index() as f32, span(0.0, 3.0, 1.0),
-        "THE MISTER ON THE LID: 0 OFF, 1 LIGHT, 2 STEADY, 3 HEAVY. SEE THE BOX PAGE'S OWN `RAIN` ROW FOR THE RATES AND THE MEASUREMENT THE SHIPPED OFF DEFAULT RESTS ON. UNLIKE EVERY OTHER ROW ON THIS PAGE THIS TAKES EFFECT IMMEDIATELY, NOT ON REBUILD, WHATEVER THE NOTICE BELOW SAYS.");
+        "THE MISTER ON THE LID: 0 OFF, 1 LIGHT, 2 STEADY, 3 HEAVY. SEE THE BOX PAGE'S OWN `RAIN` ROW FOR THE RATES AND THE MEASUREMENT THE SHIPPED DEFAULT RESTS ON. UNLIKE EVERY OTHER ROW ON THIS PAGE THIS TAKES EFFECT IMMEDIATELY, NOT ON REBUILD, WHATEVER THE NOTICE BELOW SAYS.");
 }
 
 /// **The world-level dials the parameters page exposes that are not a
