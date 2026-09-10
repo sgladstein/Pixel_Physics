@@ -4359,6 +4359,57 @@ pub struct Crop {
     /// version would have made against the live identity's 1 J slack never
     /// happen.
     pub digesting: f32,
+    /// **A2 -- the seed rides home**, `Reports/evolution-lab-ecology-design-
+    /// 2026-09-10.md` §2.2. **One seed per crop.** Filled at the bite site
+    /// (`plant::take_seed_passenger`) only when this is still `None` -- a
+    /// second surviving seed in the same crop leaves its `pip` standing
+    /// where it was bitten instead, exactly as A1 always has. Popped by the
+    /// first cell the crop drops (`plant::deliver_seed_passenger`), so an
+    /// ant carrying three fruit delivers exactly one live seed. That
+    /// asymmetry is the graded outcome the brief asks for, not a
+    /// limitation.
+    ///
+    /// Orthogonal to `cells`/`unit`/`digesting`, which price the fruit's
+    /// *flesh* and are unaffected by whether a passenger rides along: a
+    /// passenger is a second, independent cargo that happens to be released
+    /// at the same drop event as one flesh cell, in its place.
+    pub passenger: Option<SeedPassenger>,
+}
+
+/// **What a bite's surviving seed becomes while it rides home.** Filled by
+/// `plant::take_seed_passenger` at the bite site, the instant
+/// `plant::seed_survives_bite` has already converted the bitten cell to
+/// `pip` **in place**; consumed by `plant::deliver_seed_passenger` at the
+/// first cell the crop puts down. `Reports/evolution-lab-ecology-design-
+/// 2026-09-10.md` §2.2, Brief A2.
+///
+/// **Carries the live organism id, not a fresh one.** The fruit's seed was
+/// already a child organism the moment its parent bore it
+/// (`plant::bear_seed_at`) -- alleles, fate table, lineage, endowment, all
+/// already drawn. A passenger only ever moves that same id's one cell from
+/// the bite site to the drop site; nothing here re-rolls a new individual.
+/// See `World::carried_seed_organisms` for what keeps the id alive while it
+/// owns no cell in the grid -- an organism with an empty `cells` map is
+/// ordinarily reclaimed on the very next organism tick
+/// (`step_organisms`'s own "empty cell list" rule).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SeedPassenger {
+    pub organism_id: u16,
+    /// Always `pip` in practice -- `take_seed_passenger`'s only caller reads
+    /// this straight off a cell `seed_survives_bite` just wrote as `pip` --
+    /// but it is read off the cell rather than looked up again, the same
+    /// conservatism `Carried::material` uses.
+    pub material: super::material::MaterialId,
+    pub shade: u8,
+    /// The packed `Cell::aux` at the moment of pickup -- `CellType::Seed`,
+    /// every time in practice, but carried rather than assumed so a
+    /// delivered pip germinates through the identical path a seed that
+    /// never left the ground does.
+    pub aux: u16,
+    /// `World::frame` at pickup, for `World::seed_transit_frames` --
+    /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.5's check on
+    /// whether transit is actually free against `seed_half_life`.
+    pub picked_up_frame: u64,
 }
 
 /// **What an animal dug out and has not put down yet.**
