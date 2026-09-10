@@ -559,6 +559,24 @@ fn main() {
         lab.set_cursor(None);
         tiles.push(("LINEAGE: ONE LINE".into(), shot(&mut lab)));
 
+        // **HISTORY: the founding lines that have ended.** A player reaches
+        // it through the LOG page's own row (the bar has had no free chip
+        // since before this page existed) or `F5`; both go through the
+        // identical `Action::Panel`, so this drives that directly rather
+        // than chaining two `open_list` hops through a row this file does
+        // not own (the BOX page's rows are another lane's -- `CLAUDE.md`'s
+        // file-ownership table). The count goes beside the picture rather
+        // than only in it: `CLAUDE.md`'s own rule that a table of rows says
+        // what and where, and only the number says whether any line has
+        // actually ended by this point in the run.
+        lab.ui.close_panel();
+        lab.act(Action::Panel(Panel::Log));
+        lab.act(Action::Panel(Panel::History));
+        let ended = pixel_physics::lab::ui::ended_lines(&lab.world).len();
+        fired.push(format!("HISTORY: {ended} founding lines have ended"));
+        tiles.push(("PAGE: HISTORY".into(), shot(&mut lab)));
+        lab.ui.close_panel();
+
         // **What the channel costs, as a counter rather than a clock.** The
         // overlay is documented as repainting only on the frames the ranking
         // moves, against the animated grain's measured ~10 ms every frame --

@@ -59,6 +59,12 @@ scripts/.branchcheck-selftest-mutant.sh
 /assets/lab_bed.ron
 /assets/lab_dials.ron
 
+# One player's own chronicle exports (`lab::Lab::write_chronicle`) -- a text
+# file per (date, bed, seed), written on REBUILD and on quit and overwritten
+# by the next one at the same three. Same rationale as the shelf and the bed
+# above: session state a player accumulates, not authored content.
+/assets/chronicles/
+
 # Contact sheets the `examples/` harnesses write to whatever directory they
 # are run from, which is normally the repo root. They are output to be looked
 # at and thrown away -- `labui` alone is 5 MB a run -- and every PNG that is
