@@ -2689,6 +2689,16 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         if seen.threat.is_some() {
             world.creature_stats.threat_sightings += 1;
         }
+        // **"Did it fire at all" needs a counter, not a picture**
+        // (`CLAUDE.md`). A `labgif` of an animal arriving at a flower
+        // cannot say whether the bloom sense is what got it there or
+        // whether it stumbled in exactly as every animal in the box did
+        // before this input existed -- this is the counter that answers
+        // it, read beside `flower_visits`/`nectar_paid` on the far side of
+        // the bite.
+        if inputs[brain::BrainInput::BloomNear as usize] > 0.0 {
+            world.creature_stats.bloom_seen += 1;
+        }
         if let Some(seen) = sighting {
             world.creature_stats.sightings += 1;
             world.creature_stats.sight_dist_sum += seen.dist as u64;
@@ -3492,6 +3502,28 @@ fn sense(
             error -= std::f32::consts::TAU;
         }
         inputs[I::ThreatBearing as usize] = error / std::f32::consts::PI;
+    }
+
+    // **The bloom pair, from the same cast again.** P1 of
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md`: nothing in
+    // this suite pointed at a flower before this input existed, so a
+    // flower that pays nectar to whatever feeds at it (B1') had no way to
+    // be found except by walking into one by chance. Same nearness and
+    // bearing arithmetic as prey/kin/threat, so a genome that learned one
+    // has learned the other's scale. Reads a constant 0.0 for a species
+    // with no `sight_range`, which is every shipped species until one
+    // authors it -- so appending this pair is byte-identical for the
+    // shipped ant.
+    if let Some(bloom) = seen_all.bloom {
+        inputs[I::BloomNear as usize] = (1.0 - bloom.dist / reach as f32).clamp(0.0, 1.0);
+        let bearing = ((bloom.y - y) as f32).atan2((bloom.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::BloomBearing as usize] = error / std::f32::consts::PI;
     }
 
     (inputs, seen_all, sight_reads, curvature_reads)
@@ -4343,6 +4375,13 @@ pub struct Sightings {
     /// `is_visible_threat` and `BrainInput::ThreatNear`. Recorded on the
     /// same rays, never breaking one.
     pub threat: Option<Sighting>,
+    /// The nearest visible flower -- see `is_visible_bloom` and
+    /// `BrainInput::BloomNear`. Recorded on the same rays, never breaking
+    /// one, for the reason every other passenger on this cast is not
+    /// allowed to break one: `reads` is what `sight_fraction` bills, and an
+    /// animal standing in a field of flowers must not look cheaper to feed
+    /// than one standing in a field of nothing.
+    pub bloom: Option<Sighting>,
 }
 
 /// What stops a sight line: **rock and soil, and nothing else.**
@@ -4415,6 +4454,26 @@ fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bo
     other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, gut)
 }
 
+/// Is this cell a flower?
+///
+/// **Not gut-filtered, the same asymmetry `is_visible_kin` documents.** A
+/// prey sense has to stop seeing what the mouth cannot use or the gene is
+/// nutritional bookkeeping rather than behaviour (`is_visible_prey`'s own
+/// doc); a bloom sense is not that -- an animal that cannot digest nectar
+/// still benefits from knowing where a flower is, because `FoodAdjacent`
+/// and the existing diet filter at the bite site are what decide whether
+/// reaching one pays. Filtering here would ask one predicate to do the
+/// nutrition question's job twice, and disagree with it the moment a gut
+/// gene changes.
+///
+/// `MaterialKind::Plant` rather than any material by name, exactly as the
+/// rest of this file reads a plant cell: `organism::cell_type` decodes
+/// which cell of the organism this is from `aux`, and `CellType::Flower`
+/// is the one answer that counts.
+fn is_visible_bloom(world: &World, cell: Cell) -> bool {
+    world.materials.kind(cell.material) == MaterialKind::Plant && organism::cell_type(cell.aux()) == Some(CellType::Flower)
+}
+
 /// **The distal sense: cast `SIGHT_RAYS` rays all round and return the
 /// nearest prey any of them reached.**
 ///
@@ -4468,6 +4527,8 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
     let mut kin_d2 = i32::MAX;
     let mut threat: Option<Sighting> = None;
     let mut threat_d2 = i32::MAX;
+    let mut bloom: Option<Sighting> = None;
+    let mut bloom_d2 = i32::MAX;
     // My own head, which is what a hunter's gut is asked about. Read once:
     // the question "would that animal eat this cell" is about *this* cell
     // for every ray.
@@ -4508,6 +4569,19 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
                     threat = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
                 }
             }
+            // **Blooms are recorded and never break the ray**, exactly as
+            // kin and threats are and for the same reason: `reads` is the
+            // bill, and an animal in a bed thick with flowers must not
+            // read as cheaper to feed than the same animal in a bed with
+            // none. `is_visible_bloom` is not gut-filtered -- see its own
+            // doc -- so this fires for any eyed species regardless of diet.
+            if is_visible_bloom(world, target) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < bloom_d2 {
+                    bloom_d2 = d2;
+                    bloom = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+            }
             if is_visible_prey(world, target, gut, organism) {
                 let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
                 if d2 < best_d2 {
@@ -4528,7 +4602,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             }
         }
     }
-    Sightings { prey: best, kin, threat }
+    Sightings { prey: best, kin, threat, bloom }
 }
 
 /// Is this cell **a living animal that would eat me**?
@@ -16403,6 +16477,95 @@ mod tests {
             ledger_gap_before, ledger_gap_after,
             "crediting nectar must not open a gap between the live identity's two sides: {ledger_gap_before} -> {ledger_gap_after}"
         );
+    }
+
+    // --- P1: the bloom sense ---------------------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3, Brief
+    // P1. `BloomNear`/`BloomBearing` are new inputs; the gate the brief
+    // names is that every shipped species stays bit-identical, which a unit
+    // test cannot show (see `ascii`/`labstats` before/after in the PR
+    // description) -- what belongs here is the sense's own positive
+    // control, watched red both ways before it is believed either way.
+
+    /// **The positive control, and it has to fail for a leaf as well as
+    /// succeed for a flower, or it proves nothing.** A beetle already ships
+    /// with an eye (`sight_range: 64`), so this needs no hypothetical range
+    /// the way the blind ant would: place one flower on a bare floor within
+    /// reach and the sense must fire; swap it for a leaf at the same cell
+    /// and it must read exactly zero, because a leaf is food but is not a
+    /// bloom -- the same "is this a flower, not merely a plant" question
+    /// `is_visible_bloom` exists to answer.
+    #[test]
+    fn a_beetle_sees_a_flower_and_not_a_leaf_standing_where_it_was() {
+        let bloom_bed = |flower: bool| -> f32 {
+            let mut w = test_world();
+            for cx in 0..200 {
+                w.set(cx, 101, Cell::new(material::STONE, 0));
+            }
+            let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+            assert_ne!(beetle, 0, "the beetle was not placed; the scene does not contain the situation this test is about");
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let (fx, fy) = (90, 100);
+            if flower {
+                let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+                let plant_id = w.push_organism(herb).expect("an organism slot is free");
+                w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+            } else {
+                let leaf_mat = w.materials.id_of("leaf").expect("leaf is compiled in");
+                w.set(fx, fy, Cell::new(leaf_mat, 0));
+            }
+            let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+            let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+            inputs[brain::BrainInput::BloomNear as usize]
+        };
+
+        let near = bloom_bed(true);
+        assert!(near > 0.0, "an eyed animal with a flower on a bare floor within reach must read BloomNear > 0; read {near}");
+
+        let leaf_near = bloom_bed(false);
+        assert_eq!(leaf_near, 0.0, "the same scene with a leaf standing where the flower was must read exactly 0 -- a leaf is food, not a bloom");
+    }
+
+    /// **`BloomNear`/`BloomBearing` read zero for the shipped ant, exactly
+    /// as `PreyNear`/`PreyBearing` do** -- `a_species_with_no_eye_reads_
+    /// every_distal_slot_as_zero`'s own claim, extended to the pair P1
+    /// appended. `sight_range: 0` is what every shipped ant carries; this
+    /// is what keeps appending the pair byte-identical for it.
+    #[test]
+    fn the_bloom_pair_reads_zero_for_a_species_with_no_eye() {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        assert_eq!(def.sight_range, 0, "test setup: the shipped ant must be blind, or this proves nothing about the shipped animal");
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::BloomNear as usize], 0.0);
+        assert_eq!(inputs[brain::BrainInput::BloomBearing as usize], 0.0);
+    }
+
+    /// **A bloom must not break the ray it is recorded on.** Placed behind
+    /// the flower, on the far side, is prey the beetle can also eat; if
+    /// recording the bloom broke the ray the way finding prey does, the
+    /// beetle would see the flower and never the ant standing past it. The
+    /// brief's whole gate is that this sense is free because it changes no
+    /// existing count -- this is what would fail first if it were not.
+    #[test]
+    fn a_bloom_does_not_block_the_ray_from_reaching_prey_past_it() {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+        assert_ne!(beetle, 0);
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        w.set(75, 100, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        w.plant_ant(90, 100); // past the flower, from the beetle's side
+        assert_ne!(w.get(90, 100).organism_id(), 0, "the ant was not placed; there is nothing to see past the flower");
+        let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+        let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+        assert!(inputs[brain::BrainInput::BloomNear as usize] > 0.0, "the flower must still be seen");
+        assert!(inputs[brain::BrainInput::PreyNear as usize] > 0.0, "the ant past the flower must still be seen -- the bloom must not have stopped the ray");
     }
 
     // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and

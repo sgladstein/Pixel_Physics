@@ -322,6 +322,22 @@
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
         sight_fraction: 0.000000081168831,
+        // **P1 tried spending this price and put it back.** `BloomNear`/
+        // `BloomBearing` (`src/sim/brain.rs`) were wired to this species --
+        // `sight_range: 32` and `(BloomNear, Move, 1.0)` +
+        // `(BloomBearing, Turn, -2.5)`, the same shape `PreyBearing` uses on
+        // the beetle -- and measured on `played_bed`, three seeds, 60,000
+        // frames: `flower_visits` stayed **0 on every run, wired or not**.
+        // The sense fired (`bloom_seen` 27/56 on two of three wired seeds)
+        // and pulled the animal upward -- highest head 21 rows against
+        // 0/0/6 unwired -- but the flower B1' measured stands ~22 rows up
+        // its own stem, one row past what any run reached. Not a blind eye,
+        // a short reach. Full measurement and the re-test condition:
+        // `dead-ends.md`, creatures section, 2026-09-10.
+        //
+        // `sight_fraction` stays anyway, same reason it always has: the
+        // price is set the day a range is worth authoring again, on this
+        // species or its successor.
         // **The price of the curvature disc, and it is the same number as
         // the eye's on purpose.** Owner's ruling, 2026-09-05: *everything
         // should be priced*. `curvature_radius` was the sensory ratchet
@@ -694,7 +710,19 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0039308, re-derived 2026-09-10.** This line had gone stale --
+        // `ant.ron`/`ancestor.ron`/`beetle.ron` were carried forward to
+        // `live_slots` 763 (`KinNeed`/`Share`, 2026-09-09) and this file was
+        // not, so it sat one append behind at the 706-slot figure through
+        // that whole change. P1's `BloomNear`/`BloomBearing` append moves
+        // every species again regardless (`live_slots` -> 809, `3.18 / 809
+        // = 0.0039308`, the same target value every other file gets in this
+        // change), so this is the point to catch the drift up rather than
+        // compound it a second append later. This is also the first file
+        // where the new slots are actually wired -- see the bloom pair in
+        // `instincts` below.
+        mutation_rate: 0.0039308,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1338,6 +1366,14 @@
             // retry a gate that suppresses the jump when the animal is short
             // of energy; if the hopper's death is to be fixed, it is not here.
             (Bias, Impulse, 0.5),
+
+            // **No bloom pair here.** `BloomNear`/`BloomBearing` were built
+            // (P1) and wired onto exactly this species, at `sight_range: 32`
+            // above -- see that comment for the measurement. The sense
+            // fired and the animal climbed toward what it saw; `flower_
+            // visits` stayed 0 regardless, because the reach the wiring
+            // needs is one row past what this body gets to. Left unwired
+            // rather than shipped for a behaviour that cannot land.
         ],
 
         // **The gate a single layer cannot express**, authored as weights
