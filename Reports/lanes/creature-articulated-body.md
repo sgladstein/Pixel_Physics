@@ -22,8 +22,21 @@ the paired control so **length is controlled for**:
 
 `filmstrip scene=colony` founds **4 ants of 52 asked** against 28 viable
 sites, so placement fails as well as movement. §7c lists three hypotheses
-that moved nothing, so they are not retried; §7d names the ablation that
-should come next instead of a fourth guess.
+that moved nothing, so they are not retried; §7d named the ablation, and
+§7e (branch `claude/creature-bodies-ablation-r26`, stacked on this one) ran
+it: **laterals are the cause, not the segmented spine.**
+`PIXEL_PHYSICS_BODY_LATERALS=0` collapses the ant to 2.0%/14.8%
+(flat/rolling), *at or below* the `Chain(6)` control, and the hopper to
+5.5%/40.7% — most of the way down from 74.6%/91.9%. A second ablation
+(`Segmented`, 6 spine cells, 0 laterals, vs `ant_long`'s own `Chain(6)`) came
+back **byte-identical** on every counter, on both presets, which exonerates
+the `Segmented` movement code path outright: it costs nothing beyond a
+`Chain` at matched length. What is left is a hopper-specific residual on
+`rolling` (40.7% against a length-matched ~13-14%) that is not the body plan
+and is not explained by spine length or by the hop verb's own counters
+either — narrowed, not fixed; no code changed on the shipped bodies. Still
+**NOT landable** as shipped (laterals stay on by default), but the next fix
+now has a target: the lateral placement/collision rule, not the spine.
 
 ## File ownership
 

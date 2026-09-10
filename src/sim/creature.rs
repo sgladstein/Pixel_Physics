@@ -166,6 +166,24 @@ const RNG_SLOT_BODY_FATE: u64 = 6;
 /// rule shape) -- see `grow_body`'s own doc.
 const SEGMENTED_BODY_CAP: usize = 8;
 
+/// **The ablation `Reports/creature-articulated-body-2026-09-09.md` §7d
+/// asks for: does a `Segmented` body's laterals cause the blocked-move rate
+/// (43.9%-96.8%, against a plain `Chain(6)` control's 2.5%-12.4%) or is the
+/// spine itself the suspect?** `PIXEL_PHYSICS_BODY_LATERALS=0` places every
+/// shipped articulated body -- the ant, the hopper, anything else grown
+/// through `organism::grow_body` -- with its lateral cells stripped and its
+/// spine untouched: same segment count, same `CellType` per segment, same
+/// cap. `1` (or unset) is today's shipped behaviour. Read once through a
+/// `OnceLock`, matching `keep_graph_enabled`/`crossing_enabled`/
+/// `tissue_parting_enabled` just below -- this file's standing pattern for
+/// a one-shot isolating control (`CLAUDE.md`'s "hold the semantic rule
+/// fixed" remedy for a confound).
+fn body_laterals_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BODY_LATERALS").map(|v| v != "0").unwrap_or(true))
+}
+
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
 /// lively than something merely growing — but not every frame, since a
@@ -1224,7 +1242,7 @@ fn place_creature(
     let body: &BodyPlan = if body_fates.is_empty() {
         &def.body
     } else {
-        grown = BodyPlan::Segmented(organism::grow_body(body_fates, SEGMENTED_BODY_CAP));
+        grown = BodyPlan::Segmented(organism::grow_body(body_fates, SEGMENTED_BODY_CAP, body_laterals_enabled()));
         &grown
     };
     let positions: Vec<(i32, i32)> = body.offsets(facing_west).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
@@ -12522,7 +12540,7 @@ mod tests {
             let def = species.creature.as_ref().expect("creature");
             let genome = organism::FateGenome::from_table(species.fate_table());
             assert!(!genome.is_empty(), "{name} must author a fates table for this test to mean anything");
-            let grown = organism::grow_body(genome, SEGMENTED_BODY_CAP);
+            let grown = organism::grow_body(genome, SEGMENTED_BODY_CAP, true);
             let BodyPlan::Segmented(authored) = &def.body else {
                 panic!("{name}'s body must be Segmented to compare against its own fates unfold");
             };

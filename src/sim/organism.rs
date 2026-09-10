@@ -1722,7 +1722,18 @@ impl FateGenome {
 /// the walk produces nothing at all — an empty genome, or a `cap` of 0 —
 /// this returns one plain `Head` segment rather than an empty `Vec`, which
 /// is the floor that keeps a mutated genome safe to place.
-pub fn grow_body(genome: FateGenome, cap: usize) -> Vec<Segment> {
+///
+/// **`laterals` is the ablation `Reports/creature-articulated-body-
+/// 2026-09-09.md` §7d asks for, threaded in rather than read from an env
+/// var here** — this function stays pure so a test can drive both arms
+/// directly, without fighting the once-per-process cache a `OnceLock`
+/// would need. `false` walks exactly the same rules at exactly the same
+/// `metamers` and stops at exactly the same `cap`; the only thing it
+/// changes is dropping `rule.lateral` on the floor, so the spine a caller
+/// gets back is byte-identical either way and only the lateral cells
+/// differ. The env var itself (`PIXEL_PHYSICS_BODY_LATERALS`) is read once
+/// at the one production call site, `creature::place_creature`.
+pub fn grow_body(genome: FateGenome, cap: usize, laterals: bool) -> Vec<Segment> {
     let mut out = Vec::new();
     let mut current = CellType::Head;
     let mut metamers: u8 = 0;
@@ -1730,7 +1741,7 @@ pub fn grow_body(genome: FateGenome, cap: usize) -> Vec<Segment> {
         let Some(rule) = genome.fate(current, FateWhen::Grew, metamers) else {
             break;
         };
-        out.push(Segment { cell: rule.becomes, lateral: rule.lateral });
+        out.push(Segment { cell: rule.becomes, lateral: if laterals { rule.lateral } else { None } });
         let Some(child) = rule.child else {
             break;
         };
@@ -8572,8 +8583,8 @@ mod tests {
             FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![terminal, general])]);
         let misordered = FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![general, terminal])]);
 
-        let ordered_body = grow_body(correctly_ordered, CAP);
-        let misordered_body = grow_body(misordered, CAP);
+        let ordered_body = grow_body(correctly_ordered, CAP, true);
+        let misordered_body = grow_body(misordered, CAP, true);
 
         assert!(
             ordered_body.len() < CAP,
@@ -8584,6 +8595,52 @@ mod tests {
             misordered_body.len(),
             CAP,
             "the fault put back: swapping the two rules must shadow the terminal one and run the axis to the cap every time"
+        );
+    }
+
+    /// **The ablation `Reports/creature-articulated-body-2026-09-09.md`
+    /// §7d asks for, at the one function that actually produces a
+    /// `Segmented` body's laterals.** `laterals: false` must be a pure
+    /// subtraction: the same owner walked at the same `metamers`, the same
+    /// `child` pointers followed, the same `cap` -- so the spine (`cell`
+    /// per segment, and segment count) is byte-identical between the two
+    /// arms and only `lateral` moves. If this test ever needs to touch the
+    /// spine to make it pass, the switch has stopped being the isolated
+    /// ablation the report calls for.
+    #[test]
+    fn body_laterals_switch_strips_only_the_lateral_field() {
+        const CAP: usize = 8;
+        let head = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Two widened segments (a lateral each) then a bare tail -- small,
+        // but it exercises the same shape `ant.ron`'s own fates table does:
+        // a lateral on an interior segment, none on the terminal one.
+        let widened = Fate {
+            when: FateWhen::Grew,
+            becomes: CellType::Segment,
+            child: Some(CellType::Segment),
+            lateral: Some(CellType::Leg),
+            after_metamers: None,
+        };
+        let tail = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+        let genome = FateGenome::from_table(&[(CellType::Head, vec![head]), (CellType::Segment, vec![tail, widened])]);
+
+        let with_laterals = grow_body(genome, CAP, true);
+        let without_laterals = grow_body(genome, CAP, false);
+
+        assert_eq!(
+            with_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            without_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            "the spine's cell-type sequence must be unmoved by the switch"
+        );
+        assert_eq!(with_laterals.len(), without_laterals.len(), "the switch must not change spine length");
+        assert_eq!(
+            with_laterals.iter().map(|s| s.lateral.is_some()).collect::<Vec<_>>(),
+            vec![false, true, false],
+            "laterals=true must keep the authored rule.lateral: head none, the widened segment Some(Leg), the tail none"
+        );
+        assert!(
+            without_laterals.iter().all(|s| s.lateral.is_none()),
+            "laterals=false must strip every lateral, including the ones the fates table authored: {without_laterals:?}"
         );
     }
 
