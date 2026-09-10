@@ -1,0 +1,43 @@
+{
+  "id": "20260910T032635178Z-6dfed9",
+  "created": "2026-09-10T03:26:35Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a07393fb15b93d852",
+    "branch": "claude/lab-ecology-design-r26",
+    "commit": "09da43d7",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a07393fb15b93d852"
+  },
+  "title": "Should a bee-line between two plants make the seed a cross?",
+  "question": "Two ways to let one plant's pollen reach another. (1) THE ANIMALS CARRY IT: a flower an ant walks over sets a seed that mixes in the last plant that ant visited, so a colony working a bed breeds it. (2) YOUR HAND CARRIES IT: a BRUSH tool you drag from flower to flower, and only where you daub does a cross happen. Which do you want in the box - or both, with the animals off by default?",
+  "context_md": "This is one herb on your own bed at 40,000 frames: a bare stalk with a flower head 35 rows up, and the colony on the soil underneath. Nothing has ever gone up for it.\n\n**What each buys.** The animals carrying pollen is the first thing in the box that is a *relationship* - isolate a compartment and it becomes an evolutionary event, and a bed of mixed lines starts producing plants that are neither parent, without you doing anything. The brush is the same machinery with you holding it: it puts the shelf's CROSS verb into the bed as something you do with your hand, and it is strictly cheaper.\n\n**What each costs.** The animals carrying it is *mating in the world*, which the direction of record currently rules a hard dead end - with no gene flow, a plant \"species\" here is defined as a cluster in genotype space that holds together, and that is the only definition the lab's own measurements use. Turn on gene flow across a shared bed and every line can blur into its neighbours, and the instruments that say whether two lines have really separated stop meaning anything. The brush costs none of that, because gene flow happens only where you put it - but it is not a relationship, and the colony gets nothing from it.\n\n**My recommendation is the brush first, the animals second and defaulted off**, because the brush builds the whole mechanism (a pollen payload plus a crossover at seed-set) and the animal half is then one hook and one switch. But this is your call, not mine - nothing gets built on it until you answer.\n\nNumbers under the picture are from your played bed, seed 1, one core.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260910T032635178Z-6dfed9/000-herbflower.png"
+      ],
+      "caption": "One herb, played bed, frame 40,000. The orange head at the top is the flower.",
+      "meta": {
+        "flowers standing in the bed": 66,
+        "fruit standing in the bed": 3,
+        "richest mouthful any ant swallowed in 40,000 frames": "960 - a fruit; the 1,440 flower has never been eaten",
+        "times a fruit was ripe and the plant could not afford to fill it": 18867,
+        "ants carrying food at that moment": "41 of 54"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
