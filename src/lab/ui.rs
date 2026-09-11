@@ -2061,7 +2061,9 @@ pub fn draw_life_marks(
         return;
     }
     for (body, species, colony) in life_mark_dots(world) {
-        let colour = match render::group_colour(colour_mode, species, colony) {
+        // A nestless species has no colony to wear -- see `group_colour`.
+        let homeless = world.species.get(species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+        let colour = match render::group_colour(colour_mode, species, colony, homeless) {
             Some(rgb) => [rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255],
             None => MARKER,
         };
@@ -4046,7 +4048,12 @@ impl Ui {
                         } else {
                             self.history.group_series(move |sp, _| sp == species)
                         };
-                        (s, tint_of(render::group_colour(paint_mode, species, colony).unwrap_or(render::GROUP_NONE)))
+                        // **`false` here on purpose, unlike the two body sites.** This is the
+                        // legend tint for one *series* on the population chart, and a series
+                        // IS a group -- a nestless species' lines still need telling apart
+                        // from each other, and there is no body on this chart to confuse it
+                        // with.
+                        (s, tint_of(render::group_colour(paint_mode, species, colony, false).unwrap_or(render::GROUP_NONE)))
                     })
                     .collect();
                 let peak = series.iter().flat_map(|(s, _)| s.iter().copied()).max().unwrap_or(0);
@@ -10462,7 +10469,8 @@ mod tests {
         let mut colours: std::collections::HashSet<[u8; 4]> = std::collections::HashSet::new();
         for row in &live {
             let Some(state) = row.who.resolve(&lab.world) else { continue };
-            let rgb = render::group_colour(mode, state.species, state.colony).unwrap_or([MARKER[0] as f32, MARKER[1] as f32, MARKER[2] as f32]);
+            let homeless = lab.world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+            let rgb = render::group_colour(mode, state.species, state.colony, homeless).unwrap_or([MARKER[0] as f32, MARKER[1] as f32, MARKER[2] as f32]);
             colours.insert([rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255]);
         }
         assert!(!colours.is_empty(), "test setup: resolved no colour for any live animal");

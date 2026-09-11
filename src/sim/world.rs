@@ -2530,6 +2530,51 @@ pub struct World {
     /// construction: nothing else sets an organism-owned `CellType::Flower`.
     pub flower_visits: u64,
 
+    /// **`flower_visits`, split by which species did the reaching** — Brief
+    /// P2's own counter, and the one that answers the question the total
+    /// cannot: *is the bed's pollinator feeding, or is the ant colony
+    /// walking over the low flowers while the flitter starves?* A bed with
+    /// two animals in it reports one number today, and P2's whole claim is
+    /// about which of them it belongs to.
+    ///
+    /// **Written at the bite site, not at the counter.**
+    /// `plant::nectar_offer` is the only writer of `flower_visits` above and
+    /// is deliberately not told who is visiting (its own doc: the plant's
+    /// side of the exchange knows nothing about the gut). So the attribution
+    /// happens at the one call site that holds the organism — see
+    /// `creature.rs`'s nectar hook, which brackets the call and credits the
+    /// difference. Keep the two in step: a second caller of `nectar_offer`
+    /// that does not bracket it will move the total and not this map, and
+    /// the tell is `flower_visits > sum(values)`.
+    ///
+    /// A `BTreeMap` rather than a `Vec` indexed by species id because a box
+    /// holds a handful of species and the ordering makes the printed line
+    /// deterministic, which a `HashMap` would not. **Keyed on the raw
+    /// `SpeciesId.0`**, not on `SpeciesId` itself, which is deliberately not
+    /// `Ord` -- a counter map is not a reason to widen a core type's derives
+    /// under another lane's hand.
+    pub flower_visits_by_species: std::collections::BTreeMap<u16, u64>,
+
+    /// **Flower cells taken off a plant by a mouth, split by which species'
+    /// mouth** — the design's own named counter for the failure it predicted
+    /// before the pollinator was built (`Reports/evolution-lab-pollinator-
+    /// design-2026-09-10.md` §2.2: *"a bed of poor plants gets stripped by
+    /// its own pollinators"*).
+    ///
+    /// **It is the effect half of `flower_visits_by_species` above, and they
+    /// point opposite ways.** A visit is an animal drinking and the flower
+    /// surviving; this is an animal eating the flower. A pollinator whose
+    /// visit count rises while this stays at zero is feeding; one where both
+    /// rise is grazing its own larder, and the two are indistinguishable in
+    /// `eats`.
+    ///
+    /// Written at the same bite site, past the nectar hook and past the
+    /// nectar-only refusal, so **a `CreatureDef::nectar_only` species reads
+    /// exactly 0 here for ever** — that zero is a claim about the mouth, and
+    /// an ordinary animal's row still moving is what says the counter is not
+    /// blind.
+    pub flowers_bitten_by_species: std::collections::BTreeMap<u16, u64>,
+
     /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
     /// `nectar_yield` returns, summed every time one is non-zero. The
     /// effect half of `flower_visits`' pair, and the plant's own side of
@@ -3028,6 +3073,43 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether soil levels its water sideways as readily as it does when
+    /// it is dry.** `update::update_soil_water`'s capillary exchange, and
+    /// the reason the bed stands in visible columns under the moisture
+    /// overlay.
+    ///
+    /// Capillary rests on a threshold, and there are two: above field
+    /// capacity a pair of neighbouring cells is declared level if it differs
+    /// by less than the drainable band (380 of 1000), below it by 60. The
+    /// wide one exists to stop a **pump** — drainage empties a cell in the
+    /// drainable band, capillary refills it from the saturated side, for
+    /// ever, keeping every chunk at every water-table boundary awake. That
+    /// argument is about two rules disagreeing over the *same* pair, and
+    /// **drainage only ever moves water down**, so the face it can fight
+    /// over is the vertical one. Applied to the sideways face as well, the
+    /// wide threshold lets two neighbouring columns stand a third of the
+    /// whole scale apart for ever.
+    ///
+    /// On, the sideways face uses the narrow threshold instead and the
+    /// columns go: over twelve seeds on the played bed, the widest standing
+    /// gap between neighbouring columns is **380 on every seed off and 0 on
+    /// every seed on**, and the water table stops being a comb of spikes.
+    ///
+    /// **Defaults off, which is the owner's ruling** (2026-09-11, on the
+    /// review card that put both beds in front of them): *"Let me test it in
+    /// a playtest… ship off by default."* A field on the world rather than
+    /// the `env::var` it started as, for exactly `plant_load_failure`'s
+    /// reason — a `OnceLock` read once per process is a measurement
+    /// instrument and cannot be reached from inside a running box, and a
+    /// playtest is the thing it was asked for. The lab's parameters panel
+    /// writes it; see `lab::params::Knob::Rule`.
+    ///
+    /// What it costs is the churn the wide threshold was holding down:
+    /// **1.84x the soil-moisture writes a tick, higher on 12 of 12 seeds**.
+    /// What it does *not* appear to cost is the biology — stand, plants and
+    /// animals all sit at a paired median of ~1.0 with the sign split down
+    /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
+    pub soil_capillary_levels: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -3944,6 +4026,8 @@ impl World {
             windfall_bitten_ownerless: 0,
             windfall_bitten: 0,
             flower_visits: 0,
+            flower_visits_by_species: std::collections::BTreeMap::new(),
+            flowers_bitten_by_species: std::collections::BTreeMap::new(),
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
             seeds_carried: 0,
@@ -3981,6 +4065,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
@@ -7907,6 +7992,10 @@ impl CellSurface for World {
         self.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -8226,6 +8315,10 @@ impl CellSurface for MoistureView<'_> {
     #[inline]
     fn frame(&self) -> u64 {
         self.world.frame
+    }
+
+    fn soil_capillary_levels(&self) -> bool {
+        self.world.soil_capillary_levels
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

@@ -485,6 +485,10 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // Only the `+x` and `+y` faces are visited, so each shared face is
     // handled exactly once and the exchange conserves rather than depending
     // on sweep order.
+    // **Read once per cell, not once per face** -- see
+    // `CellSurface::soil_capillary_levels`. Two faces are visited below and
+    // the answer cannot change between them.
+    let levels_sideways = surface.soil_capillary_levels();
     for (dx, dy) in [(1, 0), (0, 1)] {
         let n = surface.get(x + dx, y + dy);
         let n_capacity = surface.materials().get(n.material).water_capacity;
@@ -574,13 +578,12 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         // them silenced by the wide threshold, widest standing gap **380 --
         // sitting exactly on it**, and column means from 600 to 682.
         //
-        // `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows the sideways face back
-        // to the churn guard and changes nothing else, so the two readings
-        // are two runs of one binary rather than two builds -- **a control,
-        // not a proposal**, in the sense `soil_water_enabled` beside it uses.
-        // The default is the shipped rule, bit for bit.
-        let vertical_only = capillary_rest_is_vertical_only();
-        let rest = if wetter > material::SOIL_FIELD_CAPACITY && !(vertical_only && dy == 0) {
+        // `World::soil_capillary_levels` narrows the sideways face back to
+        // the churn guard and changes nothing else. **Off by default, which
+        // is the owner's ruling** -- it is a dial on the lab's parameters
+        // page rather than a constant, so the two beds are two settings in
+        // one running box rather than two builds.
+        let rest = if wetter > material::SOIL_FIELD_CAPACITY && !(levels_sideways && dy == 0) {
             material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY
         } else {
             SOIL_CAPILLARY_REST_UNSATURATED
@@ -706,25 +709,6 @@ fn wet_collapse_line() -> Option<u16> {
         Ok("waterlogged") => Some(material::SOIL_WATERLOGGED),
         _ => None,
     })
-}
-
-/// **Does the drainable-band rest threshold apply sideways as well as
-/// down?** `PIXEL_PHYSICS_SOIL_CAPILLARY=level` says no; the default says
-/// yes, which is what ships.
-///
-/// See the derivation inside `update_soil_water`'s capillary loop for what
-/// the wide threshold is for and why the sideways face is the half in
-/// question. This exists so the two can be compared in one binary rather
-/// than argued about: a knob read once per process cannot vary within a run,
-/// so the arms are two runs and the pairing is done offline, exactly as
-/// `labsoil` does for the soil nutrient.
-///
-/// **Not a proposal.** Narrowing the sideways threshold restores the churn
-/// the wide one was introduced to stop, and what that costs a settled bed is
-/// the number to take before anyone changes a default.
-fn capillary_rest_is_vertical_only() -> bool {
-    static V: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *V.get_or_init(|| std::env::var("PIXEL_PHYSICS_SOIL_CAPILLARY").as_deref() == Ok("level"))
 }
 
 /// **The ablation switch for soil moisture transport** — `PIXEL_PHYSICS_
@@ -2924,6 +2908,107 @@ mod tests {
             at(19),
             at(18),
             at(17)
+        );
+    }
+
+    /// **Two wet cells side by side stand apart for ever, until the bed is
+    /// told to level sideways.**
+    ///
+    /// The guard for `World::soil_capillary_levels`, and the reproduction of
+    /// the owner's second report — *water in the soil builds up in these
+    /// columns.* Above field capacity the capillary rule rests at the
+    /// drainable band (380 of 1000), a third of the whole scale, and it
+    /// applies that to **every** neighbour. The threshold's own derivation is
+    /// about a pump between drainage and capillary over the *same* pair, and
+    /// drainage only ever moves water down — so on the sideways face the wide
+    /// rest is guarding against nothing and two columns simply stand.
+    ///
+    /// **The scene is one row of soil roofed and floored in stone**, so the
+    /// only face the rule can act on is the sideways one. Without the roof a
+    /// wet cell drains downward and the arms would differ for a second
+    /// reason; without the floor the soil is a `Powder` standing in air and
+    /// slumps before anything is measured, which is `soil_wetting_probe`'s
+    /// own recorded scene error.
+    ///
+    /// The starting gap is **exactly** `SOIL_SATURATED - SOIL_FIELD_CAPACITY`
+    /// rather than a comfortable margin either side, and that is deliberate:
+    /// it is the state a rained-on bed actually reaches, and the widest
+    /// standing gap measured across a real bed sat exactly on the constant.
+    ///
+    /// # It reads the pair at the step, not the far ends of the row
+    ///
+    /// **And that is a finding rather than a convenience.** The moisture pass
+    /// is *change-driven* — `Chunk::take_moist_plan` walks what was written
+    /// last pass, dilated by one — so in a sealed scene where nothing else
+    /// ever wakes it, levelling propagates only as far as each pass's own
+    /// writes reach. Measured here: the pair at the step exchanges down to
+    /// 839 against 782 and stops, while the cell one further out still holds
+    /// 1000 and is never reconsidered, because by the time it was last walked
+    /// the gap to its neighbour was under the narrow threshold and after that
+    /// no write marked it again. The wave strands.
+    ///
+    /// That is a property of the pass and not of this dial — with the dial
+    /// off there is simply no gradient to strand — and it does not reach a
+    /// played bed, where rain, roots, drainage and the sun re-mark the soil
+    /// continuously: over twelve seeds on the played bed the dial takes the
+    /// widest standing gap in the *whole* bed from 380 to **0**, every seed.
+    /// So the bed-wide claim belongs to that sweep
+    /// (`Reports/soil-water-columns-2026-09-11.md`) and this test asserts the
+    /// rule it rests on, which is the one thing a four-cell scene can say
+    /// honestly.
+    ///
+    /// Both arms confirmed red for their own fault before this was committed.
+    #[test]
+    fn wet_cells_stand_apart_until_the_bed_is_told_to_level_sideways() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        // The pair straddling the step, after the bed has had time to settle.
+        let arm = |levels: bool| -> (u16, u16) {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            w.soil_capillary_levels = levels;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..32 {
+                w.set(x, 15, Cell::new(material::STONE, 0));
+                w.set(x, 17, Cell::new(material::STONE, 0));
+            }
+            w.set(7, 16, Cell::new(material::STONE, 0));
+            w.set(24, 16, Cell::new(material::STONE, 0));
+            for x in 8..24 {
+                let held = if x < 16 { material::SOIL_SATURATED } else { material::SOIL_FIELD_CAPACITY };
+                w.set(x, 16, Cell::new(soil, 0).with_aux(held));
+            }
+            for _ in 0..4_000 {
+                step(&mut w);
+            }
+            (soil_moisture(w.get(15, 16)), soil_moisture(w.get(16, 16)))
+        };
+
+        // Off — the shipped bed, and the owner's ruling for the default.
+        // Exact, not "still apart": the pair never exchanges a single unit,
+        // so anything but the placed values means the rule moved something.
+        let (wet, dry) = arm(false);
+        assert_eq!(
+            (wet, dry),
+            (material::SOIL_SATURATED, material::SOIL_FIELD_CAPACITY),
+            "off, two wet cells must stand exactly where they were put: {wet} beside {dry}"
+        );
+
+        // On — they level. The bar is a fifth of the standing gap rather than
+        // equality, because capillary rests at the *narrow* threshold (60)
+        // rather than at zero, and resting somewhere is the churn guard doing
+        // its remaining job. Measured at 57; the bar is 76.
+        let (wet, dry) = arm(true);
+        let gap = wet.abs_diff(dry);
+        assert!(
+            gap * 5 < material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY,
+            "on, the pair should have levelled: {wet} beside {dry}, still {gap} apart"
+        );
+        // …and levelled by *moving water between them*, not by draining it
+        // away. Without this the arm would pass if both simply went to zero.
+        assert!(
+            wet < material::SOIL_SATURATED && dry > material::SOIL_FIELD_CAPACITY,
+            "levelling must move water between the cells, not out of them: {wet} beside {dry}"
         );
     }
 

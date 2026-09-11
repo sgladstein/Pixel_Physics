@@ -147,6 +147,34 @@ pub trait CellSurface {
         self.set(x, y, cell);
     }
 
+    /// **Whether soil levels its water sideways as readily as it does when
+    /// it is dry** — `World::soil_capillary_levels`, which is where the
+    /// reasoning and the measurement live.
+    ///
+    /// On the trait because `update::update_soil_water` runs under all three
+    /// surfaces and has no `&World` of its own. Read **once per soil cell**,
+    /// hoisted above the capillary loop rather than tested per face: the
+    /// moisture pass walks thousands of cells a tick and this is a field read
+    /// behind a trait call, so halving the number of them is free.
+    ///
+    /// **No default body, deliberately, and that cost a control to find
+    /// out.** It was written with `false` — the shipped rule — on the
+    /// reasoning that a surface which forgets to override it reports the
+    /// behaviour that ships rather than a silent opt-in. That is true and it
+    /// is not enough: deleting `World`'s override left the guard over this
+    /// dial **green**, because the moisture phase runs under
+    /// [`MoistureView`](super::world) and `World` is the surface only in the
+    /// `PIXEL_PHYSICS_MOISTURE=sweep` control arm, which no test exercises.
+    /// A default turns a missing implementer into a wrong answer that
+    /// nothing can see.
+    ///
+    /// Without one the compiler refuses the surface instead, which is the
+    /// remedy `Reports/liquid-heightfield-design.md` §5a already argues for:
+    /// a correctness property resting on an enumeration staying complete is
+    /// a failure mode this repo has hit three times, and the fix is to make
+    /// incompleteness un-compilable rather than to test for it.
+    fn soil_capillary_levels(&self) -> bool;
+
     /// Clear a cell's moved flag once the sweep has skipped it. Always called
     /// on the position currently being visited.
     fn clear_moved(&mut self, x: i32, y: i32);

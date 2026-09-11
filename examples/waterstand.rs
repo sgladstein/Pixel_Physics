@@ -29,6 +29,9 @@
 //! `soil_drawdown`'s own flag, and for the same reason. `png=<prefix>` writes
 //! the bed twice, in material colours and through the soil-moisture overlay,
 //! because the standing sheet and the bed under it are two different pictures.
+//! `level=1` sets `World::soil_capillary_levels`, the sideways-levelling dial
+//! the lab's parameters page also carries -- the arm for the soil-column
+//! question, paired offline by seed.
 
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::Scenario;
@@ -143,6 +146,23 @@ fn census(world: &World, spec: &LabBox, frame: u64) {
         .map(|y| (0..spec.width).filter(|&x| world.materials.kind(world.get(x, y).material) == MaterialKind::Plant).count() as u64)
         .sum::<u64>();
     println!("                 plant cells {plants}");
+    // **The downstream line**, for the owner's question on the soil-column
+    // dial: *are there any downstream effects of the change?* A transport
+    // rule that moves water between columns could reach the stand, the
+    // reseeding funnel and the colony, and none of those is visible in a
+    // water census. One line, so a seed sweep can be read as a table.
+    println!(
+        "                 DOWNSTREAM plants {} animals {} plantcells {plants} standingwater {standing} saturatedsoil {}",
+        world.live_organism_ids().len() - world.live_creature_count(),
+        world.live_creature_count(),
+        (0..spec.height)
+            .flat_map(|y| (0..spec.width).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = world.get(x, y);
+                world.materials.get(c.material).water_capacity > 0 && update::soil_moisture(c) >= material::SOIL_SATURATED
+            })
+            .count()
+    );
     soil_columns(world, spec);
 }
 
@@ -209,11 +229,10 @@ fn soil_columns(world: &World, spec: &LabBox) {
             let (ma, mb) = (update::soil_moisture(a), update::soil_moisture(b));
             let (wetter, drier) = if ma > mb { (ma, mb) } else { (mb, ma) };
             let gap = wetter - drier;
-            // Mirrors `update_soil_water`'s own choice, switch included, so
-            // the "declared level" column says what the engine in *this* run
-            // is doing rather than what the shipped default would do.
-            let sideways_narrow = std::env::var("PIXEL_PHYSICS_SOIL_CAPILLARY").as_deref() == Ok("level");
-            let rest = if wetter > material::SOIL_FIELD_CAPACITY && !sideways_narrow {
+            // Mirrors `update_soil_water`'s own choice, dial included, so the
+            // "declared level" column says what the engine in *this* run is
+            // doing rather than what the shipped default would do.
+            let rest = if wetter > material::SOIL_FIELD_CAPACITY && !world.soil_capillary_levels {
                 material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY
             } else {
                 60
@@ -317,16 +336,21 @@ fn main() {
         }
     };
     lab.spec.rain = Rain::from_index(rain_idx);
+    // **`level=1` is the arm, and it is a field on the world rather than an
+    // env var** -- see `World::soil_capillary_levels`. Two runs of one binary,
+    // paired offline by seed.
+    lab.world.soil_capillary_levels = arg::<i32>("level").unwrap_or(0) != 0;
     let spec = lab.spec.clone();
     // Echo every parameter including the ones that default -- `CLAUDE.md`'s
     // megastudy gotcha, where a knob added after the binary was built was
     // silently ignored and produced 24 logs of 3 populations.
     println!(
-        "waterstand: {} seed={seed} rain={} frames={frames} every={every} soil={} width={}",
+        "waterstand: {} seed={seed} rain={} frames={frames} every={every} soil={} width={} water_levels_sideways={}",
         founders.map_or_else(|| format!("scenario={name}"), |n| format!("founders={n}")),
         lab.spec.rain.label(),
         spec.soil_depth,
-        spec.width
+        spec.width,
+        lab.world.soil_capillary_levels
     );
     println!("  {msg}");
     // **What the bed costs while it is doing this**, because the sideways
