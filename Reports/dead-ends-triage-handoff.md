@@ -31,7 +31,7 @@ was **confounded** (a creature test that failed because plants reacted), or the
 | `e2b6c362` | content-derived `stable_key` — positional ids were corrupting labels |
 | `34ac713b` | the creature slice; 473 of 779 screened |
 
-**473 of 779 screened (61%).**
+**556 of 779 screened (71%).**
 
 | label | n | | label | n |
 |---|--:|---|---|--:|
@@ -72,9 +72,15 @@ on.
 
 ## Remaining work, in order — push after every step
 
-### 1. Finish screening (295 entries left)
+### 1. Finish screening (223 entries left)
 
-Slice a (structural + destruction + powders, 207) is **in flight**. Then
+**structural is complete (90/90)**: 58 DEAD, 13 CONFOUNDED, 4 EXPIRED, 4 COSTED,
+3 UNBUILT, 3 META, **3 LANDED**, 1 UNWIRED, 1 RE-TESTED. The screener died on a
+window boundary before reaching destruction or powders; the rows survived
+because it was appending as it went, which is why that rule is in the brief.
+
+Left: destruction 99, powders 18, rendering 42, worldgen 23, scheduler 13,
+parallelism 10, plus two stragglers in `other`. Then
 rendering + worldgen + scheduler + parallelism (88), plus two stragglers in
 `other`.
 

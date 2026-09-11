@@ -472,3 +472,86 @@ db8220eab8	weather:019	DEAD	3	Any preference placed downstream of an uncondition
 cfe305023c	weather:022	DEAD	2	Firing a gust every frame is logically the same rejected term "wearing a different hat"; a structural equivalence argument.
 5193c96621	weather:023	DEAD	3	wrapping_sub would underflow at frame ~0; checked_sub is the required fix, not a stylistic choice.
 8abe52a07b	weather:024	META	2	States a guard limitation (background pressure noise can't separate "never dispersed" from "dispersed slowly") as a testing-methodology note, not a mechanism verdict.
+59414a0ea0	structural:001	DEAD	3	torque is the subtree's moment while base is the row's rock run; moving the origin makes the two describe different objects even more inconsistently.
+10c2d03b8f	structural:002	DEAD	2	aux can only encode 0 or u16::MAX and both are false claims; no third "held at unknown distance" value exists to replace them.
+9b670500f4	structural:003	CONFOUNDED	2	honouring is_anchor needs the bearing clamp's parent.is_none() gate dropped in the same change; that gate is still unmoved, an unpaired constant.
+7d8397fcad	structural:004	CONFOUNDED	2	GRAIN_FOOTING_PROBE (still 8) can't resolve hillside scree from a mid-air pile, so the probe's resolution can't carry the distinction the narrower rule needs.
+dbadf21a74	structural:005	DEAD	3	a short horizon must be small to bound the correction and small is exactly what strands cells; the two requirements are contradictory.
+b03f2167a8	structural:006	COSTED	2	unbounded field range lets one correction owe 2,400 rounds vs <=239 once bounded; names the still-unbuilt hierarchical potential as the reopening condition.
+ff5cf89a69	structural:007	CONFOUNDED	2	the per-source ablation's ranking is valid only while every other gate is held fixed, a confound inherent to per-source ablation.
+9ed7c7122a	structural:008	DEAD	3	aux=0 is read elsewhere as a genuine distance-to-bedrock, so the placeholder collides with a live data contract.
+e904d96e82	structural:009	DEAD	3	u16::MAX corrupts relative-order reads during the STRUCTURAL_TICK_INTERVAL window before correction; a timing defect, not a value choice.
+ee2ee1e872	structural:010	DEAD	3	"correct" is not locally observable, so no fixed-size box boundary can ever be right without containing a real anchor.
+1fa3d0a497	structural:011	DEAD	3	measured global recompute (RECONVERGE_AT) cuts scheduler time 12.49ms to 0.25ms, a superseding mechanism over any local tick patch.
+807da6ac65	structural:012	DEAD	1	address-only PLAN.md progress heading with no retest clause in the skeleton; defaulting to the file's dominant structural-argument pattern.
+f3c17c56be	structural:013	UNWIRED	2	directional costs default to 1 (old behaviour) for any un-authored material; the missing artifact is real per-material directional values.
+e1367366d2	structural:014	DEAD	3	the world is a 2D slice of 3D, so in-plane distance structurally cannot observe out-of-plane support.
+11a0a46894	structural:015	EXPIRED	2	aux and the burn timer became separate fields (per structural:089's own note), so the shared-tagged-union condition this holds on no longer applies and no re-test is recorded here.
+23ce2cd2bc	structural:016	COSTED	2	holds while relaxation is incremental/paced; names M10 streaming's per-chunk seeding scan (not yet built) as the condition that changes the cost shape.
+be6cfc22c7	structural:017	META	2	a scene-width parameter sized for the test itself; adjusting it changes what the test measures, not the engine.
+088c3e5e34	structural:018	CONFOUNDED	3	the multiplier form passed all six acceptance cases and was reverted only over stale unit tests and clippy lints, not on merit.
+04b1c7e1e8	structural:019	DEAD	2	player-built and freshly-undercut rock are both merely attached==false; the binary state can't distinguish them and no third state exists yet.
+cab1eef8a1	structural:020	DEAD	3	a cannot-fail guard contradicts a granular pile's near-zero bending capacity.
+e165445d1f	structural:021	DEAD	3	superseded by torque>capacity as the criterion; max_unsupported_span's vestigial form must be deleted or reinterpreted, not left half-live.
+0351fefcdd	structural:022	DEAD	3	geometry cannot encode history, so shape inference can't distinguish a mountain from a stacked wall.
+394d1f1fb7	structural:023	CONFOUNDED	2	shelf and column capacity share one base constant, conflating two different structural cases until decoupled.
+4ea02e5e95	structural:024	CONFOUNDED	1	measured on one specific old commit (43a57b7/bef468a); the entry itself warns against re-attributing later scene drift to concentration.
+f8f3dfa80e	structural:025	DEAD	3	even with attachment/evaluation-skip decoupled, the unbounded 12x-everywhere strength objection still stands by the author's own account.
+462b9d9293	structural:026	UNBUILT	1	the general objection is scoped away from authored data; the authored-joint route is preferred but not yet built.
+5ffd47a3f9	structural:027	DEAD	3	equal distances double-count in accumulation, an arithmetic defect; the contour use is exempted as still correct.
+893bfa6db6	structural:028	DEAD	2	determinism (same-build) is still required per PLAN.md, so the storage constraint this holds on is unchanged.
+17d9e814ca	structural:029	DEAD	3	under the load model a tower stands because it carries little, making the free-compression term structurally redundant.
+4ce15e015b	structural:030	DEAD	3	geometry cannot tell a mountain from a stacked wall.
+1ee22a58e2	structural:031	DEAD	3	same geometry-cannot-distinguish argument as the sibling model.
+e1def4f10d	structural:032	DEAD	3	the same binary-immunity defect keeps re-arriving as bookkeeping (aux==0, powder-below, budget exhaustion) under new names.
+6e4156f52d	structural:033	DEAD	3	superseded by torque/capacity; organism_structural_tick's lingering use of max_unsupported_span is the trap living on, not a reason to retry it.
+6c16beacb9	structural:034	CONFOUNDED	2	the constant is calibrated against specific flat-scene bores (5/9/13 at ~8 cells cover), not derived, so it doesn't generalize past that scenario.
+76c5db11b4	structural:035	CONFOUNDED	1	held at shallow-to-medium cover where relief is the only lever; a scenario-calibrated finding, untested where load binds.
+ae75f7d0ba	structural:038	EXPIRED	2	both preconditions (eager ground rooting, the flat 64x divisor) are gone per structural:061/063's account of the shipped kern/bearing model, and no re-test of this specific finding is recorded.
+93445909f2	structural:040	EXPIRED	2	eager ground rooting (the degenerate condition) is gone and the recorded bearing-model follow-up shipped per structural:061/063, but no re-check of this specific gate is recorded.
+0c1cd65ed8	structural:041	DEAD	2	the cascade is redundant with the wavefront by construction (tick's if-moved branch already reschedules touched cells and neighbours).
+967f161eec	structural:042	DEAD	3	the rejected shape (buying span globally to fix built structures) is preserved by the author across the reach-to-torque/capacity supersession.
+b5c88c2665	structural:047	COSTED	2	acceptable only because organism structures stay small relative to MAX_THICKEN_SCAN_CELLS; names a freed per-cell storage slot as the reopening condition.
+8ea910a4f9	structural:048	META	2	a correction to a mistaken reading of the code, not a tuning outcome or mechanism rejection.
+0230377b09	structural:049	UNBUILT	2	the mirror (roots stabilize soil) is correctly identified but blocked because powders remain outside structural.rs.
+66c1f861d2	structural:050	DEAD	2	right as a fallback but wrong as the model for a mining/building game; a requirements mismatch, not a defect in flood-fill itself.
+f3f8016824	structural:051	UNBUILT	2	evaluated only in the literature survey, never attempted in-repo.
+c89b2ad801	structural:052	DEAD	3	recorded as a category error at cell scale, not a tuning or performance question.
+aacfd1413b	structural:053	DEAD	2	reintroducing a free step needs re-deriving Section 3.1's termination argument for the accumulation walk; an arithmetic/termination constraint.
+375b6f6317	structural:054	DEAD	3	attachment is not a property of shape, so no tuning setting could recover it.
+ceeb2b933d	structural:055	LANDED	2	the small cap was raised to 20,000 once AnchorMemo made the support search O(region)/frame instead of per-check, reviving the larger-cap idea.
+191fa6c568	structural:056	DEAD	2	the truncation direction is inherent to the model, cap size set from measurement.
+34e04f7586	structural:057	DEAD	1	address-only comment on arch_span's cover probe, no retest text in the skeleton; defaulting per file pattern.
+ec9a420517	structural:058	LANDED	2	the described gap (no measure of opening size) was filled by arch_span's Terzaghi (B=Ht) measure, which the entry records as already added.
+e847e03714	structural:059	CONFOUNDED	1	measured at ~8 cells of cover; calibrated to a shallow-cover scenario, unresolved for deeper load-bound cover.
+9bf72d9ca2	structural:060	DEAD	1	address-only contact-width comment in bearing_moment, no retest text; defaulting per file pattern.
+0329286610	structural:061	DEAD	3	the no-tension bearing (kern) model already replaced GRANULAR_CAPACITY_DIVISOR once eager powder rooting ended.
+329a89bda0	structural:062	CONFOUNDED	3	the thin-wall collapse it targeted is actually mine's detach band reaching across a thin wall, a neighbouring-subsystem cause, not the averaged bonus.
+908e7a0afd	structural:063	LANDED	2	ground was demoted to a last-resort root, the parent.is_none() gate now discriminates correctly, and the granular case moved into bearing_moment -- the reverted approach was effectively revived once the surrounding model changed.
+5337e39094	structural:064	DEAD	1	address-only keyed-attachment comment in fn capacity, no retest text; defaulting per file pattern.
+90406faa6f	structural:065	DEAD	2	ties to the same superseded max_unsupported_span criterion documented elsewhere (structural:021/033).
+4cc644994e	structural:066	DEAD	1	address-only anchor-guard comment in evaluate_within, no retest text; defaulting per file pattern.
+d4180a20f2	structural:067	DEAD	2	guarded by test a_cell_resting_on_powder_is_evaluated_against_a_granular_capacity; settled behaviour.
+347f386ad9	structural:068	DEAD	2	a column is not charged the beam's moment, a structural (not tunable) distinction.
+8f2bcad3e6	structural:069	DEAD	2	dividing the moment by the section is structurally wrong; the named fix direction is load-sharing between parallel supports, not another divide.
+32772093d5	structural:070	DEAD	2	inherent whenever support-step costs can tie or be zero; guarded by an existing equal-shortest-path test.
+7884c91d80	structural:071	COSTED	2	settled by measurement (largest acceptance subtree ~1,500 cells floods within budget); names M10-scale subtree growth as the reopening condition.
+6f5c0931c8	structural:072	DEAD	1	framed as an owner decision rather than a measurement-based rejection; weak structural basis to name.
+56126ecc58	structural:073	DEAD	2	the layered FateLookup is superseded by a direct count; a superseding mechanism.
+005caa0008	structural:074	EXPIRED	2	plants are now held by roots rather than walls (2026-09-06 coupling), plausibly meeting "the organism support search anchors properly"; no re-test of the Phase 3 contamination is recorded.
+ad5ee1610c	structural:075	DEAD	1	address-only edge-anchoring comment in compute_world_distances, no retest text; defaulting per file pattern.
+3bc1162ff8	structural:076	META	1	a caution about correctly attributing cost by world composition before optimising -- a measurement-methodology note.
+128922d566	structural:077	DEAD	2	must run as a direct pass before any scheduler-dependent alternative exists to route through; an ordering argument.
+328cb5f893	structural:078	DEAD	2	a reactive-only relaxation is shown insufficient for a stroke; a counterexample.
+7c4836b0a7	structural:079	DEAD	2	guarded by test an_unsupported_foreground_blob_does_not_hang_in_mid_air; settling alone demonstrably isn't enough.
+d089449337	structural:080	DEAD	1	describes the wavefront-computed-once invariant; defends against redundant recomputation.
+34b2252825	structural:081	DEAD	1	address-only end-of-function settled-branch comment, no retest text; defaulting per file pattern.
+f55c3c2808	structural:082	DEAD	1	address-only judge-on-settle comment, no retest text; defaulting per file pattern.
+1ece26bd94	structural:083	DEAD	1	measured inert on the big-strike scene because relaxation already reschedules those cells itself; kept only as a hedge for if that stops.
+c85d6fcb4b	structural:084	DEAD	1	deferred to Reports/fracture-mechanics-design.md with no further detail in the skeleton.
+9c4c535136	structural:085	DEAD	2	under the (already current) load model a tower stands because it carries little, so support_cost_below's zero has nothing left to do -- same conclusion as structural:029.
+1bbaeed22e	structural:086	DEAD	2	the one-hand-placed-screen condition the exemption held under was already broken by worldgen-scale worlds.
+e5237b3dce	structural:087	DEAD	3	nothing within geometry can decide this; only new per-cell data could, and confinement affects outcome not occurrence.
+ea6dbc207d	structural:088	DEAD	1	module-doc rationale for direction-dependent step cost, defending against an isotropic-cost alternative; thin evidence beyond the heading.
+c6bde6156c	structural:089	RE-TESTED	2	the specific aliasing became impossible once aux and the burn timer split into separate fields, but the defer-while-burning behaviour was re-confirmed as still needed.
+60cd9442f7	structural:090	DEAD	2	holds while C1 keying and universal destructive-verb intactness-revocation remain the design, both still true.
