@@ -283,9 +283,19 @@ def stable_key(e):
     So the durable handle hashes the entry's own address. It survives
     insertion, deletion and reordering, and it changes only when the address
     itself is edited -- which is the case where a human should look anyway.
-    The ordinal stays as the readable label; this is what joins data to it."""
+    The ordinal stays as the readable label; this is what joins data to it.
+
+    **Scoped by section, and that is not cosmetic.** The register deliberately
+    lists some dead ends twice, because two documents record the same rejection
+    with different detail -- its own header says so. Hashing the address alone
+    gives those rows one key, which silently collapsed six of them into
+    already-labelled entries and made the coverage count read 55 of 59 liquids
+    when all 59 had been judged. Section plus address keeps rows 1:1 with the
+    file, so "how much is screened" stays answerable, and the duplicates simply
+    get a verdict each -- which is what the register asks for by carrying
+    them."""
     import hashlib
-    return hashlib.sha1(e["address"].encode("utf-8")).hexdigest()[:10]
+    return hashlib.sha1(f"{e['section']}\x00{e['address']}".encode("utf-8")).hexdigest()[:10]
 
 
 def write_outputs(entries):
