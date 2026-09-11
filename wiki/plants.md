@@ -3,19 +3,32 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (**petal colour passes from parent to
-seedling.** See "Colour is a readout, not decoration" below — it used to be
-the one channel a cross could not carry, and a bred stand's flowers now
-track their parents' shade the way foliage and bark already did. Previous
-note, 2026-09-10: **a spent flower is not the last one.** A herb, a
-scrambler and a shrub used to flower an axis exactly once: the fruit fell
-and that stem was finished for good, so a bed of flowering plants
-necessarily thinned out and eventually stopped flowering altogether,
-whether or not anything was feeding at the flowers. Now the stem waits and
-puts up a fresh flower in the same place, paid for the same way the first
-one was, and a shrub joins the flowering plants for the first time — its
-own colours, its own many-small-flowers-across-a-mound habit, its own much
-longer wait between blooms.)*
+*Current as of: 2026-09-11 (two independent changes landed the same day.
+**Petal colour passes from parent to seedling** — see "Colour is a
+readout, not decoration" below; it used to be the one channel a cross
+could not carry, and a bred stand's flowers now track their parents'
+shade the way foliage and bark already did. **A seed can leave in an
+animal's mouth instead of only in the wind** — an ant that bites a fallen
+fruit sometimes finds the seed inside survives, and sometimes carries it
+home instead of leaving it where it fell; see **Seeds carry provisions**
+and **The forest floor**. It is a real path, not a decoration: measured
+over three long sessions on the mixed bed the owner actually plants, it
+has carried a seed home a handful of times and none has yet come up as a
+plant — the seed usually does not outlive the trip, most fallen fruit
+lies where no animal's own daily round ever reaches it, and the one seed
+that did survive to be set down was eaten again within moments of
+arriving. So this is the shape of a mutualism that has not yet closed,
+not one that has.)*
+
+*Before that: 2026-09-10 (**a spent flower is not the last one.** A herb,
+a scrambler and — new on this date — a shrub used to flower an axis exactly
+once: the fruit fell and that stem was finished for good, so a bed of
+flowering plants necessarily thinned out and eventually stopped flowering
+altogether, whether or not anything was feeding at the flowers. Now the
+stem waits and puts up a fresh flower in the same place, paid for the same
+way the first one was, and a shrub joins the flowering plants for the first
+time — its own colours, its own many-small-flowers-across-a-mound habit,
+its own much longer wait between blooms.)*
 
 *Before that: 2026-09-06 (**ground is now worth something on its own, not
 just as somewhere to find water.** A plant living on a drip or on rain, with
@@ -697,6 +710,16 @@ seedlings are lost: a fresh shoot has to afford its first growth step before
 any income has arrived. Where a stand is dense enough that establishment
 actually fails, the provisioned ones are the ones that make it.
 
+**A seed that rode in an animal's mouth keeps its provisions too.** Biting a
+fallen fruit does not always destroy what is inside it — the seed can survive
+the mouth and be left standing where the fruit was, pale and small, or carried
+off and set down somewhere else entirely, still the same seed with the same
+stake its parent paid, not a fresh one drawn from nothing. Either way it takes
+root through the ordinary path above once conditions allow. What it does not
+get is any bonus for the trip: the ground an animal happens to set it down on
+is not necessarily better ground, and a seed that has changed hands has spent
+longer exposed to being eaten again than one that never left the plant.
+
 ## The forest floor
 
 A shed leaf does not vanish. It falls — through its own crown, past its own
@@ -764,6 +787,18 @@ Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the
 one part of a canopy's production that ends up where a walking animal can
 reach it. See `ants.md`.
+
+**Fallen fruit is a second kind of floor food, and it does not fall evenly.**
+A fruiting plant that grows low and spreads sideways rather than climbing —
+the kind a colony is likely to share ground with — drops its fruit right at
+the surface instead of up a stem an animal on the ground can never reach.
+Whether anything ever bites it is a different question from whether it is
+reachable at all: a colony forages over its own home range, and fruit lying
+outside that range is on the floor and still untouched, the same way a leaf
+drift standing in a corner nobody walks through just accumulates. The two
+have to be read together — where the fruit is, and where the animals
+actually go — to know whether a stand beside a nest is a garden or just a
+neighbour.
 
 ## Cutting a plant down
 

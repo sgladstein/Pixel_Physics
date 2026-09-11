@@ -62,6 +62,35 @@ fn soil_total(lab: &Lab) -> u64 {
     t
 }
 
+/// **Round 28's garden-loop card marker.** Draws a bright annulus (a ring,
+/// not a filled disc, so it does not itself hide the one cell it points at)
+/// into an RGBA buffer at `(cx, cy)` with the given outer `radius` and a
+/// fixed 2px thickness -- a plain distance-squared test, no crate needed
+/// for one shape. Clipped to the buffer's own bounds rather than panicking,
+/// since a caller near an edge is a real case (`crop=` can leave the ring
+/// partly off-frame) and losing the visible arc is better than losing the
+/// frame.
+#[allow(clippy::too_many_arguments)]
+fn draw_ring(buf: &mut [u8], full_w: u32, full_h: u32, cx: i64, cy: i64, radius: i64, color: [u8; 4]) {
+    let thickness = 2i64;
+    let outer2 = radius * radius;
+    let inner2 = (radius - thickness).max(0) * (radius - thickness).max(0);
+    for dy in -radius..=radius {
+        for dx in -radius..=radius {
+            let d2 = dx * dx + dy * dy;
+            if d2 > outer2 || d2 < inner2 {
+                continue;
+            }
+            let (px, py) = (cx + dx, cy + dy);
+            if px < 0 || py < 0 || px as u32 >= full_w || py as u32 >= full_h {
+                continue;
+            }
+            let idx = ((py as u32 * full_w + px as u32) * 4) as usize;
+            buf[idx..idx + 4].copy_from_slice(&color);
+        }
+    }
+}
+
 // **A "cells of water still in the air" census was tried here and pulled,
 // per `CLAUDE.md`'s own rule to check a fresh number against a case known to
 // be quiet.** The `rain=off` control read **30** cells "in the air" over
@@ -115,6 +144,33 @@ fn main() {
         let parts: Vec<u32> = s.split(',').filter_map(|p| p.parse().ok()).collect();
         (parts.len() == 4).then(|| (parts[0], parts[1], parts[2], parts[3]))
     });
+    // **`mark=1` -- round 28's garden-loop card, "the pip cell marked".**
+    // `.claude/skills/review/SKILL.md`: "a one-cell event is unreadable on a
+    // card even at 5x unless it is marked" -- a delivered `pip` is exactly
+    // that (`Reports/lanes/evolution-lab-garden-loop.md`). Rings the exact
+    // point `center=` put at the middle of the frame rather than taking a
+    // second world coordinate: `center`'s own math (`ccx - span_x/2` etc.)
+    // already puts that world cell at pixel `(full_w/2, full_h/2)` before
+    // any crop, so marking there needs no camera-to-pixel inversion of its
+    // own and cannot drift out of sync with what `center=` actually framed.
+    // Requires `center=` -- ringing an unset default camera would ring a
+    // point this file has no claim about.
+    let mark: bool = arg::<u32>("mark").unwrap_or(0) != 0;
+    if mark && center.is_none() {
+        eprintln!("labgif: mark=1 with no center= rings nothing -- center= names the world cell to ring");
+    }
+    // **`png_dir=<path>` -- writes every captured frame as its own PNG
+    // there too, numbered in capture order, alongside the GIF.** Added for
+    // the same card: `.claude/skills/review/SKILL.md` prefers a scrubbable
+    // frame sequence over a GIF "when the question is detail" -- here,
+    // the exact instant a delivered pip is re-bitten -- and a GIF's own
+    // frames cannot be posted individually after the fact. Optional and
+    // additive: omitted, this file's output is byte-for-byte what it always
+    // wrote.
+    let png_dir: Option<String> = arg("png_dir");
+    if let Some(dir) = &png_dir {
+        std::fs::create_dir_all(dir).unwrap_or_else(|e| panic!("labgif: png_dir {dir}: {e}"));
+    }
 
     let mut sc = Scenario::load(&scenario_name).unwrap_or_else(|e| {
         eprintln!("scenario {scenario_name}: {e}");
@@ -173,10 +229,11 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out} mark={mark} png_dir={}",
         lab.spec.colony_species,
         rain.label(),
-        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}"))
+        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
+        png_dir.as_deref().unwrap_or("none")
     );
     println!("  {msg}");
 
@@ -229,6 +286,48 @@ fn main() {
         if f % every == 0 {
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);
+            // **Ring before crop**, so the ring is just another part of the
+            // rendered frame as far as the crop/zoom code below is
+            // concerned -- it composes with both for free rather than
+            // needing its own offset math against whichever one ran.
+            if mark && center.is_some() {
+                draw_ring(&mut full, full_w, full_h, (full_w / 2) as i64, (full_h / 2) as i64, 8, [255, 0, 255, 255]);
+            }
+            // **`PIP_PROBE=1` -- confirms the ring is on the cell it claims
+            // to be, rather than trusting the camera math by eye.** Same
+            // convention as `A2_DEBUG`/`WF_DEBUG`: free when unset, one env
+            // read. `CLAUDE.md`'s own rule -- a debug readout must not be a
+            // function of the thing it debugs -- cuts the other way here
+            // too: don't trust a marked picture without a number saying the
+            // mark is where it claims.
+            if std::env::var("PIP_PROBE").as_deref() == Ok("1") {
+                if let Some((mx, my)) = center {
+                    let cell = lab.world.get(mx, my);
+                    let name = lab.world.materials.get(cell.material).name.clone();
+                    println!("PIP_PROBE frame={} at=({mx},{my}) material={name} organism={}", start + f, cell.organism_id());
+                }
+            }
+            // **`PIP_TRACE=<organism_id>` -- follows one pip's own organism
+            // by handle rather than by a fixed coordinate**, because `pip`
+            // is a `Powder` (`plant.rs`'s own Germinate-arm comment: "a seed
+            // germinates where it lands ... a seed is a Powder, it falls")
+            // and a freshly delivered one dropped into an elevated empty
+            // cell can fall for several ticks before it rests -- a fixed
+            // `PIP_PROBE` coordinate cannot tell "fell away" from "eaten"
+            // apart, and conflating them would misread which hypothesis
+            // the numbers support (`Reports/lanes/evolution-lab-garden-
+            // loop.md`).
+            if let Ok(want) = std::env::var("PIP_TRACE") {
+                if let Ok(want_id) = want.parse::<u16>() {
+                    match lab.world.organism(want_id) {
+                        Some(st) => {
+                            let cells: Vec<(i32, i32)> = st.cells.keys().copied().collect();
+                            println!("PIP_TRACE frame={} organism={want_id} cells={cells:?}", start + f);
+                        }
+                        None => println!("PIP_TRACE frame={} organism={want_id} GONE (slot reclaimed or never existed yet)", start + f),
+                    }
+                }
+            }
             let buf = if crop.is_none() {
                 full
             } else {
@@ -261,6 +360,12 @@ fn main() {
                 out_buf
             };
             if let Some(img) = image::RgbaImage::from_raw(zw, zh, zoomed) {
+                if let Some(dir) = &png_dir {
+                    let path = std::path::Path::new(dir).join(format!("frame_{:04}_f{f}.png", shots.len()));
+                    if let Err(e) = img.save(&path) {
+                        eprintln!("labgif: png_dir frame {}: {e}", path.display());
+                    }
+                }
                 shots.push(img);
             }
         }

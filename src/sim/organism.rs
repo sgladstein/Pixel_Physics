@@ -4741,6 +4741,38 @@ pub struct SeedPassenger {
     pub picked_up_frame: u64,
 }
 
+/// **Round 28's garden-loop instrument** — one row per pip, read straight
+/// off the exact site `plant.rs`'s own `Behavior::Germinate` arm reads
+/// `light`/`soil_water` from, not reconstructed after the fact. Pushed to
+/// `World::pip_checks` on a pip's *first* Germinate evaluation only
+/// (`OrganismState::deferred_germination` false on entry), so a pip that
+/// waits out a dry spell does not multiply its own row.
+///
+/// `Reports/lanes/evolution-lab-garden-loop.md` hypothesis (a): is the pip
+/// set down somewhere it structurally cannot clear these two thresholds —
+/// buried, in shade, or on dry ground? `light`/`soil_water` against their
+/// own `_threshold` twin say pass or fail against the mechanism's own bar,
+/// `resting` says whether it even has ground under it yet, and `overburden`
+/// is a cheap non-zero-cost-elsewhere proxy for "how buried" (see
+/// `plant::overburden_depth` — it is diagnostic-only, not the engine's own
+/// notion of depth, because there isn't one).
+#[derive(Clone, Copy, Debug)]
+pub struct PipCheck {
+    pub x: i32,
+    pub y: i32,
+    pub frame: u64,
+    /// A2 (rode home in a crop, set down by `plant::deliver_seed_passenger`)
+    /// against A1 (stands where the fruit was bitten) — see
+    /// `OrganismState::pip_delivered`.
+    pub delivered: bool,
+    pub resting: bool,
+    pub light: f32,
+    pub light_threshold: f32,
+    pub soil_water: f32,
+    pub soil_water_threshold: f32,
+    pub overburden: i32,
+}
+
 /// **What an animal dug out and has not put down yet.**
 ///
 /// The whole `Cell`, not just its material, and that is the conservation
@@ -5825,6 +5857,17 @@ pub struct OrganismState {
     /// dormancy do anything here. The count of *deferrals* would be a
     /// property of the polling interval, not of the mechanic.
     pub deferred_germination: bool,
+    /// **This pip rode home in a crop and was set down (A2), rather than
+    /// standing where the fruit was bitten (A1).** Round 28's garden-loop
+    /// instrument (`Reports/lanes/evolution-lab-garden-loop.md`): set by
+    /// `plant::deliver_seed_passenger` the instant a passenger is written
+    /// back as a live cell, and read once, at the pip's first `Behavior::
+    /// Germinate` check, into `PipCheck::delivered` -- so the diagnostic
+    /// table can tell a crop delivery from an in-place spill without
+    /// re-deriving it from position. Never cleared, but only ever read
+    /// before the cell relabels away from `Seed`, so a stale `true` on a
+    /// later, unrelated organism (slots are reused) cannot be observed.
+    pub pip_delivered: bool,
     /// **This individual is dead and what is left of it is rotting.** Set
     /// by `plant::organism_upkeep` the tick an organism is found holding no
     /// vital cell (see `Species::is_vital`), and never cleared.
