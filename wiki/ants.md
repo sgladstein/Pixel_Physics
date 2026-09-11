@@ -38,6 +38,16 @@ mostly stops it. See "An ant can carry a seed home" below for the honest
 read of what it does and does not do yet — the plants it produces so far
 stand out in the bed, not ringed around the nest, because an ant sets its
 cargo down wherever it happens to be, not only at the door.
+**Updated again the same day, later still: a seed now comes free only when
+the meal it rode in on is actually eaten, not the moment anything is set
+down.** Before this, digesting a carried meal down to nothing quietly
+destroyed the seed riding with it — the drop verb was the *only* way a
+seed ever reached the ground — and a fruit merely set down aside, uneaten,
+spilled a bare seed right there rather than keeping it. Now the eaten exit
+works (a finished meal sets its seed down where the ant happens to be when
+the last bite goes) and an uneaten drop puts the whole fruit back intact,
+seed included, for whoever bites it next. See the same section below for
+what this does and does not change about *where* seedlings end up.
 Before that, 2026-09-10, when a flower stopped being invisible at a
 distance. An animal with eyes can now see a bloom the way it sees another
 animal — from across the room, not only once it is standing on one. (This
@@ -1210,31 +1220,39 @@ place**. A pile a long way off may take a while to be discovered, and one
 right across the map may never be. Put food within reach of the colony and
 the whole loop runs.
 
-**An ant can carry a seed home instead of just a meal, and now, sometimes, it
-grows.** Biting a fallen fruit sometimes leaves the seed inside it whole
-rather than destroying it, and a whole seed can ride home in the same mouth a
-meal would, to be set down wherever the ant happens to be when it lets go —
-at the nest most often, but not only there. On the mixed bed the owner
-actually plants, a set-down seed has now grown into a standing plant more
-than once — the first time this loop has closed end to end. Two things had
-to be fixed to get there, neither visible from outside the box: a digging
-ant used to clear a set-down seed as ordinary spoil before it ever got the
-chance, and a carried seed's own waiting clock could silently stop counting
-partway home. With both closed, what decides whether a set-down seed
-germinates is almost entirely whether the ground under it is wet enough —
-dry ground, not predation, is now the real bottleneck, and a seed set down
-on ground that cannot hold water at all is moved a short way to the nearest
-patch that can, the way real ants heap refuse at a midden rather than on the
-doorstep itself.
+**An ant can carry a seed home instead of just a meal, and where it turns
+into a plant now matches when it is actually eaten, not when it is merely
+set down.** Biting a fallen fruit sometimes leaves the seed inside it whole
+rather than destroying it, and a whole seed can ride home in the same mouth
+a meal would. A seed used to come free the moment the ant next put anything
+down, wherever that happened to be — even a mouthful it had not swallowed a
+bite of yet. Now a seed only comes free once the meal carrying it is
+actually finished: an ant that eats everything in its mouth, flesh and all,
+sets the seed down at the spot where the last bite goes down, not before.
+Put a meal down before finishing it and nothing germinates yet — the whole
+fruit goes back on the ground intact, seed still inside it, waiting for
+whichever ant bites it next, the same as any fruit that fell there on its
+own. On the mixed bed the owner actually plants, a set-down seed has grown
+into a standing plant more than once this way — the first time this loop
+closed end to end. Two earlier things had to be fixed to get there, neither
+visible from outside the box: a digging ant used to clear a set-down seed
+as ordinary spoil before it ever got the chance, and a carried seed's own
+waiting clock could silently stop counting partway home. What decides
+whether a freed seed germinates is almost entirely whether the ground under
+it is wet enough — dry ground, not predation, is the real bottleneck, and a
+seed set down on ground that cannot hold water at all is moved a short way
+to the nearest patch that can, the way real ants heap refuse at a midden
+rather than on the doorstep itself.
 
 **It is not yet a ring of seedlings around the door, though, and that is a
-real finding rather than a bug.** An ant puts its cargo down wherever it
-happens to be when it lets go, not only at the nest, so the plants this loop
-has produced so far stand well out in the bed, not clustered at the colony's
-own threshold. The next piece of this loop is not germination any more — it
-is getting more of what an ant carries home to actually reach home before it
-lets go. A colony that gardens is closer to real than it was; a colony that
-gardens *at its own door* still is not.
+real finding rather than a bug.** A seed still comes free wherever the
+eating happens to finish, not only at the nest — a forager that carries a
+meal all the way home before finishing it plants at the door; one that
+snacks along the way plants wherever it stopped to finish, same as before.
+The next piece of this loop is not germination any more — it is getting
+more of what an ant carries home to actually reach home, and be eaten
+there, before it lets go. A colony that gardens is closer to real than it
+was; a colony that gardens *at its own door* still is not.
 
 They are better at it than they were, though, and the reason is worth
 knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —

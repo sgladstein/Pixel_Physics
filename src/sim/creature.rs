@@ -3564,6 +3564,34 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
                 // which is starvation rather than an exploit.
                 state.crop = (left > 0).then_some(Crop { cells: left, digesting: matured - c.unit, ..c });
             }
+            // **The owner's rule, 2026-09-11: "where should the seed drop
+            // when a creature picks up food -- it should drop where it is
+            // eaten, not immediately."** Digestion is where this crop's
+            // food is actually eaten, and `left == 0` is the one tick a
+            // passenger riding with it would otherwise vanish along with
+            // the empty crop: every intermediate cell (`left > 0`) already
+            // carries the passenger forward untouched through the `..c`
+            // spread just above (`digestion_does_not_consume_a_passenger`),
+            // so it only ever needs releasing once. **The last cell, not
+            // the first**: `Crop::cells` counts a total, not an ordered
+            // stack, so there is no cell to point at other than the one
+            // whose consumption empties the crop -- releasing on the first
+            // of a multi-cell meal would mean inventing an order the crop
+            // does not track, and would let the seed re-enter the world
+            // while the ant is still visibly eating the rest of the fruit.
+            // `PIXEL_PHYSICS_SEED_WHERE_EATEN=0` -- the same one-binary
+            // kill switch `plant::deliver_seed_passenger_uneaten` reads,
+            // checked here rather than shared because this call is the
+            // rare branch already (a passenger emptying its crop), never
+            // the sweep: reproduces this round's bug exactly, the
+            // passenger silently lost with the emptied crop. Default on.
+            if left == 0 && std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() != Ok("0") {
+                if let Some(passenger) = c.passenger {
+                    plant::deliver_seed_passenger(world, hx, hy, passenger);
+                    world.pips_released_by_digestion += 1;
+                    world.pip_digestion_release_x.push(hx);
+                }
+            }
             if world.materials.get(c.material).worth_in_aux {
                 world.energy_ledger.harvested_corpse += gain as f64;
             } else {
@@ -5924,14 +5952,22 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                    // **A2 -- popped by the first cell dropped.** A
+                    // **A2 -- popped by the first cell dropped, uneaten.** A
                     // passenger rides *in place of* this one flesh cell,
                     // not beside it -- see `Crop::passenger`'s own doc for
                     // why that is a priced substitution rather than a
                     // conservation gap. Wherever the ant happens to be, not
                     // only at the nest: "put down" is one verb.
+                    //
+                    // **`_uneaten`, not the bare pip.** The owner's rule,
+                    // 2026-09-11: a drop is not an eating, so the seed must
+                    // not come out here the way it does at the digestion
+                    // exit -- the fruit is put down whole, seed and all, and
+                    // whoever finds it bites through `seed_survives_bite`
+                    // like any other fallen fruit. See `plant::deliver_
+                    // seed_passenger_uneaten`'s own doc.
                     if let Some(passenger) = held.passenger {
-                        plant::deliver_seed_passenger(world, dx, dy, passenger);
+                        plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
                     } else {
                         world.set(dx, dy, unit.into_cell(world));
                     }
@@ -10035,6 +10071,12 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
         // with no other path back to one: a real slot leak, the same shape
         // `World::free_organism`'s own doc says this allocator exists to
         // close.
+        //
+        // **`_uneaten`, same as the living drop.** A death mid-carry is a
+        // drop, not a meal -- the owner's 2026-09-11 rule puts the seed
+        // back with its flesh here too, so whoever finds this corpse's
+        // fruit bites through `seed_survives_bite` fresh rather than
+        // finding a bare pip standing where the ant fell.
         let mut passenger = held.passenger;
         let mut left = held.cells;
         while left > 0 {
@@ -10042,7 +10084,7 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
                 break;
             };
             if let Some(p) = passenger.take() {
-                plant::deliver_seed_passenger(world, dx, dy, p);
+                plant::deliver_seed_passenger_uneaten(world, dx, dy, p);
             } else {
                 world.set(dx, dy, unit.into_cell(world));
             }
@@ -16866,32 +16908,45 @@ mod tests {
         assert_eq!(dropped[0].shade, 3, "the cargo's shade travels with it, or a fat corpse is put down looking like a picked-over one");
     }
 
-    /// **A2 -- the first cell an ant with a passenger aboard puts down
-    /// writes a live pip organism**, not a bare cell: organism id
-    /// non-zero, resolves, still `CellType::Seed` so it can germinate on
-    /// the ordinary path. `Reports/evolution-lab-ecology-design-2026-09-
-    /// 10.md` §2.2, Brief A2.
+    /// **A2, uneaten -- the first cell an ant with a passenger aboard puts
+    /// down writes a live *windfall* organism**, not a bare pip: organism
+    /// id non-zero, resolves, still `CellType::Seed` so it can germinate on
+    /// the ordinary path, and wearing the herb's own `windfall_material`
+    /// rather than `pip`. `Reports/lanes/evolution-lab-seed-where-eaten.md`,
+    /// the owner's 2026-09-11 rule read onto the drop side: a death
+    /// mid-carry is a drop, not a meal, so the fruit keeps its seed rather
+    /// than spilling a bare pip where the ant fell -- see
+    /// `plant::deliver_seed_passenger_uneaten`'s own doc.
+    ///
+    /// Was written against `plant::deliver_seed_passenger` directly (both
+    /// call sites were identical before this build); now the two calls
+    /// differ on exactly the material this test checks, which is the
+    /// **guard that must fail for the replacement** -- ported forward
+    /// rather than left asserting the old, now-wrong material.
     ///
     /// Exercised through the death-spill drop (`creature_dies`) rather
-    /// than the living per-frame one -- both call the identical
-    /// `plant::deliver_seed_passenger`, and this is the one reachable
-    /// directly in a unit test, exactly as `a_carried_corpse_keeps_its_
-    /// worth_when_it_is_put_down` above already does for an ordinary
+    /// than the living per-frame one, exactly as `a_carried_corpse_keeps_
+    /// its_worth_when_it_is_put_down` above already does for an ordinary
     /// cargo. `picked_up_frame` equals the current `world.frame`, so the
     /// transit-decay roll (§2.5, tested on its own below) has zero span to
     /// act on and cannot make this test flaky.
     #[test]
-    fn a_dying_carrier_still_delivers_its_passenger_as_a_live_organism() {
+    fn a_dying_carrier_still_delivers_its_passenger_as_a_live_windfall() {
         let mut w = test_world();
         for x in 92..112 {
             w.set(x, 101, Cell::new(material::STONE, 0));
         }
         let herb = w.species.id_of("herb").expect("herb species must be loaded");
         let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let windfall = w.materials.id_of("windfall").expect("windfall.ron must be registered");
         let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
         let seed_id = w.push_organism(herb).expect("an organism slot is free");
         let ant = spawn(&mut w, "ant", 100, 100);
         assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        // `passenger.material` is `pip`, per its own doc ("always `pip` in
+        // practice") -- unchanged by this build, and deliberately not what
+        // gets checked below: `deliver_seed_passenger_uneaten` ignores it
+        // and resolves the material from the organism's own species.
         let passenger =
             organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
         w.carried_seed_organisms.insert(seed_id);
@@ -16902,7 +16957,7 @@ mod tests {
         let delivered: Vec<Cell> =
             (92..112).flat_map(|x| (95..102).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.organism_id() == seed_id).collect();
         assert_eq!(delivered.len(), 1, "the passenger's organism must own exactly one cell after delivery, found {}", delivered.len());
-        assert_eq!(delivered[0].material, pip, "a delivered passenger must be wearing pip");
+        assert_eq!(delivered[0].material, windfall, "a dropped, uneaten passenger must be wearing its species' windfall material, not the bare pip -- the seed stays inside the fruit until someone eats it");
         assert_eq!(
             organism::cell_type(delivered[0].aux()),
             Some(CellType::Seed),
@@ -16911,9 +16966,61 @@ mod tests {
         assert!(w.organism(seed_id).is_some(), "the organism must resolve after delivery");
         assert_eq!(w.organism(seed_id).map_or(0, |s| s.cells.len()), 1, "the organism must own its one delivered cell");
         assert_eq!(w.seeds_delivered, 1, "the it-worked counter must move on delivery");
+        assert_eq!(w.fruit_dropped_with_seed, 1, "the uneaten-exit counter must move when a fruit is put down still carrying its seed");
         assert!(
             !w.carried_seed_organisms.contains(&seed_id),
             "delivery must release the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
+        );
+    }
+
+    /// **A2, eaten -- digestion consuming a crop's last cell releases the
+    /// passenger riding with it as a live standing `pip`**, at the eating
+    /// animal's own position, instead of silently vanishing with the empty
+    /// crop. `Reports/lanes/evolution-lab-seed-where-eaten.md`: the owner's
+    /// 2026-09-11 rule's other half -- "it should drop where it is eaten,
+    /// not immediately" -- and this is the positive control for the bug it
+    /// names: before this build, `pips_released_by_digestion` could not
+    /// move at all and the delivered pip simply never existed.
+    ///
+    /// `unit: 1.0` against the ant's own `digest_rate` (3.3, `ant.ron`)
+    /// guarantees the crop's one cell matures and is spent inside a single
+    /// tick, so `crop` going to `None` is the positive control that
+    /// digestion actually emptied it, the same convention `digestion_does_
+    /// not_consume_a_passenger` beside this test uses for its own
+    /// two-cell case.
+    #[test]
+    fn digestion_of_the_last_cell_releases_the_passenger_as_a_live_pip() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert!(w.organism(ant).expect("live").crop.is_none(), "test setup: digesting the crop's only cell must empty it, or this proves nothing about the release");
+        assert_eq!(w.pips_released_by_digestion, 1, "the it-fired counter must move when digestion empties a crop carrying a passenger");
+        assert_eq!(w.pip_digestion_release_x.len(), 1, "the where-instrument must gain exactly one entry alongside the counter");
+        let delivered: Vec<Cell> =
+            (0..200).flat_map(|x| (95..106).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger's organism must own exactly one cell after being released by digestion, found {}", delivered.len());
+        assert_eq!(delivered[0].material, pip, "digestion is the eaten exit -- it must write the bare pip, not the whole fruit `deliver_seed_passenger_uneaten` writes at a drop");
+        assert_eq!(w.seeds_delivered, 1, "the shared A2 delivery counter must move here too, the same as any other delivery");
+        assert!(
+            !w.carried_seed_organisms.contains(&seed_id),
+            "release must free the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
         );
     }
 
