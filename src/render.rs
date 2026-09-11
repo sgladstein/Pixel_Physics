@@ -1859,29 +1859,40 @@ const MAX_ZOOM: i32 = 8;
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
 /// The widest zoom-out step that still makes sense over `bounds` — the
-/// smallest stride whose view is at least as tall as the world, capped at
-/// [`MAX_ZOOM_OUT_STRIDE`].
+/// smallest stride whose view covers the whole box on **both** axes, capped
+/// at [`MAX_ZOOM_OUT_STRIDE`].
 ///
-/// **Height, not width, and that is the owner's rule rather than an
-/// oversight**: *"the max zoom out should limit at the full height of the
-/// lab."* A wide, short box would let a width rule open the view to eight
-/// times the box's height, which is the black screen this exists to stop; a
-/// tall, narrow one is letterboxed left and right by `set_camera`'s centring
-/// and reads as a tall box. The axis that decides is the one that runs out
-/// first on a 512x320 viewport, which is the short one.
+/// **Was height-only** — the owner's original rule: *"the max zoom out
+/// should limit at the full height of the lab."* That stopped a wide, short
+/// box from opening the view to eight times its height, which is a lot of
+/// void above and below the box; but it also meant a *wide* box could never
+/// zoom out far enough to show its own width, because the height axis alone
+/// decided the cap regardless of what the width needed. Reversed by the
+/// owner: *"I need to be able to zoom out to the max width even if the
+/// height isn't wide enough."* So each axis is checked on its own terms and
+/// the wider requirement wins — a tall, narrow box is already letterboxed
+/// left and right by `set_camera`'s centring and reads as a tall box; a
+/// wide, short one now gets the same treatment top and bottom instead of
+/// being held back by its own shortness.
 ///
 /// **Covering rather than fitting** — `ceil`, so the whole box is on screen
 /// with a little slack, rather than `floor`, which would show at most 320 rows
-/// of a 576-row box and never all of it. The box's height steps in 64s
-/// (`params.rs`), so it is rarely a multiple of a screen and the fitting rule
-/// would leave the widest zoom-out short of the box on nearly every setting.
+/// of a 576-row box and never all of it. The box's dimensions step in 64s
+/// (`params.rs`), so they are rarely a multiple of a screen and the fitting
+/// rule would leave the widest zoom-out short of the box on nearly every
+/// setting.
 fn max_zoom_out_stride(viewport: (u32, u32), bounds: Option<Rect>) -> i32 {
     let Some(b) = bounds else { return MAX_ZOOM_OUT_STRIDE };
+    let world_w = (b.max_x - b.min_x + 1).max(1);
     let world_h = (b.max_y - b.min_y + 1).max(1);
+    let view_w = (viewport.0 as i32).max(1);
     let view_h = (viewport.1 as i32).max(1);
-    // Ceiling division, so the last step covers the box rather than stopping
-    // just short of it.
-    ((world_h + view_h - 1) / view_h).clamp(1, MAX_ZOOM_OUT_STRIDE)
+    // Ceiling division on each axis, so the last step covers the box on that
+    // axis rather than stopping just short of it; the axis that needs more
+    // zoom-out to be fully covered decides.
+    let stride_w = (world_w + view_w - 1) / view_w;
+    let stride_h = (world_h + view_h - 1) / view_h;
+    stride_w.max(stride_h).clamp(1, MAX_ZOOM_OUT_STRIDE)
 }
 
 /// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
@@ -3145,7 +3156,8 @@ impl Renderer {
 
     /// **[`Renderer::adjust_zoom`] for a world you can see all of** — it keeps
     /// the middle of the screen on the same world cell, and it will not open
-    /// the view taller than `bounds`.
+    /// the view past what [`max_zoom_out_stride`] says `bounds` needs on
+    /// either axis.
     ///
     /// Two defects in the plain version, both reported from the lab and both
     /// invisible in a world larger than the widest view:
@@ -3154,8 +3166,10 @@ impl Renderer {
     ///   8192x2560 and the widest view is 2048x1280, so no stride can overrun
     ///   it; the lab's box is authored, is 320 rows by default and is a knob
     ///   the player turns, so the second stride already shows twice the box
-    ///   and three quarters of the screen is void. Owner: *"the max zoom out
-    ///   should limit at the full height of the lab."*
+    ///   and three quarters of the screen is void. Owner, originally:
+    ///   *"the max zoom out should limit at the full height of the lab"* —
+    ///   later widened to cover a box's width the same way; see
+    ///   [`max_zoom_out_stride`]'s own doc for the reversal.
     /// - **It zoomed about the top-left corner**, because the scale changed
     ///   and the camera did not, so the picture grew away from the origin
     ///   rather than around what you were looking at.
@@ -8983,6 +8997,40 @@ mod tests {
         }
         let (_, plain_span) = plain.visible_span(viewport);
         assert_eq!(plain_span, 1280, "the unclamped control did not open up, so this test proves nothing");
+    }
+
+    #[test]
+    fn zoom_out_reaches_a_wide_short_box_by_its_width_not_its_height() {
+        // Owner, reversing the height-only rule above: *"I need to be able to
+        // zoom out to the max width even if the height isn't wide enough."*
+        // A box shorter than one screen (so the height rule alone would cap
+        // the stride at 1, i.e. no zoom-out at all) but many screens wide
+        // must still be reachable by zooming out toward its width.
+        let viewport = (512u32, 320u32);
+        for world_w in [1024, 2048, 4096] {
+            let world = Rect::new(0, 0, world_w - 1, 127); // 128-row box: under one screen tall
+            let mut r = Renderer::new();
+            for _ in 0..10 {
+                r.zoom_within(-1, viewport, Some(world));
+            }
+            let (span_x, _) = r.visible_span(viewport);
+            let reachable = (512 * MAX_ZOOM_OUT_STRIDE).min(world_w);
+            assert!(
+                span_x >= reachable,
+                "a {world_w}-wide, 128-row box only ever showed {span_x} columns; {reachable} were reachable"
+            );
+        }
+
+        // The positive control: before this fix, the height-only rule left
+        // zoom_out_stride at 1 for a box shorter than one screen, whatever its
+        // width, so span_x would sit at 512 regardless of world_w.
+        let mut old_rule = Renderer::new();
+        for _ in 0..10 {
+            old_rule.adjust_zoom(-1);
+            old_rule.zoom_out_stride = old_rule.zoom_out_stride.min(1);
+        }
+        let (old_span_x, _) = old_rule.visible_span(viewport);
+        assert_eq!(old_span_x, 512, "the height-only control already reached full width, so this test proves nothing");
     }
 
     #[test]
