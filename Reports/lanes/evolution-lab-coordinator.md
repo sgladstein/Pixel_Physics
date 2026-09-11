@@ -104,10 +104,7 @@ design of record
 [`../evolution-lab-ecology-design-2026-09-10.md`](../evolution-lab-ecology-design-2026-09-10.md).
 Pointer and what binds.*
 
-**The direction.** Phase one made the box legible; it still had no
-*relationship* — one organism eating another was the entire ecology. Close
-the loop fruit → animal → nest → seedling and the colony becomes the plants'
-distribution network and the plants the colony's renewable larder: **the
+**The direction.** Close the loop fruit → animal → nest → seedling: **the
 colony that gardens survives.**
 
 **What binds.** The breeding trade is **graded** (commit `e5792206`); ship
@@ -123,12 +120,10 @@ design of record
 [`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).
 Pointer and what binds.*
 
-**Landed on `main`:** #306 (the bed: four scramblers and a tree), #307 (the
-pollinator design; the species is `flitter`), #309 (HISTORY opens on a
-summary per colony), #310 (rain ships LIGHT, control kept), #312 (nectar in
-two currencies), #313 (the seed rides home), #314 (the bloom sense — two
-brain inputs on the eye's rays, no species wired), #317 (herb and scrambler
-re-bloom, shrub flowers). **Stacked on the bodies branch and waiting on the
+**Landed on `main`:** #306 (the bed with thicket and tree), #307 (the
+pollinator design; the species is `flitter`), #309 (HISTORY per colony),
+#310 (rain LIGHT, control kept), #312 (nectar), #313 (the seed rides home),
+#314 (the bloom sense, no species wired), #317 (re-bloom; shrub flowers). **Stacked on the bodies branch and waiting on the
 owner:** #303 (the tuck) → #311 (length, not width; the flip) → #315
 (founding along the surface) + #316 (the flip on by default, foraging
 restored: deliveries 297 off / 290 on).
