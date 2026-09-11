@@ -17,18 +17,18 @@ sweep's own false-negative rate is measured rather than asserted.
 
 | | |
 |---|--:|
-| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | **495** |
+| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | **497** |
 | `META` — rejects a harness or a process, not an engine mechanism | 93 |
 | `CONFOUNDED` | 57 |
 | `UNBUILT` — argued and declined, never measured | 41 |
 | `COSTED` | 26 |
-| `EXPIRED` | 21 |
-| `SUSPECT-INSTRUMENT` | 9 |
-| `RE-TESTED` — condition met, retried, still no | 8 |
-| `LANDED` — retried, worked, shipped | 6 |
+| `EXPIRED` | 12 |
+| `SUSPECT-INSTRUMENT` | 10 |
+| `RE-TESTED` — condition met, retried, still no | 11 |
+| `LANDED` — retried, worked, shipped | 13 |
 | `UNWIRED` | 2 |
 
-**118 revival candidates, 15%** — and the adversarial pass below puts the true
+**111 revival candidates, 14%** — and the adversarial pass below puts the true
 figure nearer **20%**. **The register is right about roughly two thirds of what
 it holds.** That is the headline, and it is worth stating plainly: this is a
 well-kept record, and the value of a sweep is locating the minority precisely
@@ -170,9 +170,29 @@ skeleton-first run opened the register **four times in 176 entries** with no
 loss of quality. Four parallel screeners exhaust a session window before
 finishing — three runs died that way.
 
+## Landed since: the nine, and the gap they expose
+
+The deep read of the 24 highest-prior candidates demoted 15, and **nine of those
+were closable with a source citation rather than a measurement** — the re-test
+had been done and recorded in a doc comment or an asset, and never propagated
+back. All nine are now annotated in the register with `CONDITION MET`, each
+verified in source first. (Every line number the deep read reported had shifted
+with a merge, so each was re-located by content — trusting them would have
+written nine citations pointing at the wrong code.)
+
+`plants:019` is the one worth noticing: it carries **no `Re-test when:` clause
+at all**, which is why nothing ever asked whether its condition had arrived.
+**71 entries are in that position** — they cannot go stale *visibly*, because
+they never stated what would make them stale.
+
+That is the structural gap this sweep found and did not close: **the register is
+read by area and resolved in code.** `creatures:039` fell through it one way — a
+condition met by another line's work, unnoticed — and these nine fell through it
+the other, resolved and never written back.
+
 ## What is open
 
-1. **Rank the 118 candidates into a run order.** Each needs the original number,
+1. **Rank the remaining candidates into a run order.** Each needs the original number,
    the defect named in CLAUDE.md's vocabulary, the decisive check with *both*
    expected results, a cost tier, and what it buys in ethos terms.
 2. **Run the cheap tier.** Smaller than it looks: only 7 candidates cite a live
