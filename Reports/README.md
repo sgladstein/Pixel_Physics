@@ -2955,6 +2955,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [dead-ends-revival-2026-09-11.md](dead-ends-revival-2026-09-11.md) — **the
+  sweep `dead-ends.md` had never had, complete.** All 779 entries carry a
+  verdict: **495 are structurally dead, 93 reject an instrument rather than a
+  mechanism, and 118 (15%) are revival candidates** — with an adversarial pass
+  putting the true figure nearer 20%, because 3 of 40 sampled `DEAD` entries
+  reopened on inspection. The largest actionable class is `CONFOUNDED` (57): a
+  mechanism judged on a failure a *neighbouring* subsystem produced, twice over
+  for tree wind-lean alone. One case is verified end to end — `creatures:039`
+  parks the lateral pheromone sensors until "a flier" exists, `flitter` now
+  exists, and no species carries a lateral weight. Read with
+  [dead-ends.md](dead-ends.md); the machine-readable results are in
+  [data/dead-ends-triage/](data/dead-ends-triage/).
 - [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **in flight.**
   The sweep `dead-ends.md` has never had: which of its rejections were the
   *idea* being wrong, and which were the test being wrong, the experiment
