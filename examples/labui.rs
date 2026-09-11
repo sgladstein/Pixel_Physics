@@ -456,7 +456,7 @@ fn main() {
                 click(&mut lab, (r.x + 20, r.y + 4));
                 let _ = shot(&mut lab);
             }
-            fired.push(format!("WATCH {what}: cell page on group {}", lab.ui.specimen_section()));
+            fired.push(format!("WATCH {what}: cell page on group {:?}", lab.ui.specimen_section()));
             lab.set_cursor(None);
             tiles.push((format!("WATCH: {what} SERIES"), shot(&mut lab)));
         }
@@ -1411,7 +1411,7 @@ fn main() {
             Some(r) => {
                 click(&mut lab, (r.x + 20, r.y + 4));
                 fired.push(format!(
-                    "SPECIMEN {what}: clicking WORDS left the page showing group {}",
+                    "SPECIMEN {what}: clicking WORDS left the page showing group {:?}",
                     lab.ui.specimen_section()
                 ));
                 lab.set_cursor(None);
@@ -1430,7 +1430,7 @@ fn main() {
             Some(r) => {
                 click(&mut lab, (r.x + 20, r.y + 4));
                 fired.push(format!(
-                    "SPECIMEN {what}: clicking GENOME left the page showing group {}",
+                    "SPECIMEN {what}: clicking GENOME left the page showing group {:?}",
                     lab.ui.specimen_section()
                 ));
                 lab.set_cursor(None);
