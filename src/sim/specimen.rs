@@ -51,12 +51,16 @@
 //! agree on what a genome is:
 //!
 //! - **A plant** carries `genotype_draws` (ten continuous traits),
-//!   `alleles` (six discrete loci that jump rather than drift) and `fates`
+//!   `alleles` (seven discrete loci that jump rather than drift) and `fates`
 //!   (its production rule — the thing that makes a *growth form* evolvable
 //!   at all, see [`organism::FateGenome`]). Its foliage and bark bands are
-//!   *derived* from the alleles and so are not stored; its flower and fruit
-//!   bands have no locus yet and are stored, because otherwise a released
-//!   specimen would not be the plant you looked at.
+//!   *derived* from the alleles and so are not stored, and since round 28
+//!   (`organism::LOCUS_FLOWER_COLOUR`) its petal band could be derived the
+//!   same way too — this struct still stores it rather than re-deriving it
+//!   on release, which is harmless only because `alleles` travels with it
+//!   and a jar is never mutated between capture and release. Its fruit
+//!   band has no locus at all yet and is stored for the original reason:
+//!   otherwise a released specimen would not be the plant you looked at.
 //! - **A creature** carries `genome` (12,352 brain weights) and `traits`
 //!   (gut bias, birth grant). The genome goes to disk in `brain::Wiring`'s
 //!   **sparse named form**, not as 12,352 floats: `brain.rs`'s own argument
@@ -243,10 +247,14 @@ pub struct PlantGenetics {
     /// exactly what those specimens carried.
     #[serde(default)]
     pub params: Vec<organism::ParamOverride>,
-    /// Organ colour. Stored rather than derived because these two have no
-    /// locus yet (`OrganismState::flower_band`'s doc records the gap), so
-    /// a released specimen that re-drew them would not be the plant the
-    /// player pointed at.
+    /// Organ colour. `fruit_band` has no locus yet, so it must be stored --
+    /// a released specimen that re-drew it would not be the plant the
+    /// player pointed at. `flower_band` gained a locus in round 28
+    /// (`organism::LOCUS_FLOWER_COLOUR`) and could now be re-derived from
+    /// `alleles` on release the way `foliage_band`/`bark_band` already are;
+    /// it stays stored here alongside `fruit_band` rather than splitting the
+    /// pair, and it costs nothing because `sow_specimen_seed` sets it from
+    /// the same `alleles` this jar carries, so the two never disagree.
     pub flower_band: u8,
     pub fruit_band: u8,
     /// What its parent provisioned it with — species plumbing today, and
@@ -921,7 +929,7 @@ mod tests {
         for (slot, d) in state.genotype_draws.iter_mut().enumerate() {
             *d = (slot as f32) / 9.0 - 0.5;
         }
-        state.alleles = [1, 2, 1, 1, 1, 2];
+        state.alleles = [1, 2, 1, 1, 1, 2, 1];
         state.flower_band = 3;
         state.fruit_band = 2;
         state.endowment = 4.25;
