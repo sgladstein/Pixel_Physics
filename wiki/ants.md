@@ -1,6 +1,11 @@
 # Ants
 
-*Current as of: 2026-09-11, when a third animal arrived: **the flitter**,
+*Current as of: 2026-09-11, later the same day, when **the flitter learned
+to stay up**: an animal that can see a flower now holds itself on the air,
+turns while it is up there and settles on the bloom, instead of being thrown
+in an arc it cannot steer. The same change stopped anything that lands on
+water hanging over it until it starves. See "The flitter" below. Earlier on
+2026-09-11, when a third animal arrived: **the flitter**,
 the first one in the box that lives off flowers and the first that leaves
 the ground on purpose. It is two cells, it hops rather than walks, it has
 eyes, and nothing but nectar will feed it. See "The flitter" below for what
@@ -982,36 +987,65 @@ bloom it can see, hops harder when there is one in view, and — the one wire
 that keeps it alive — stops hopping while it is standing at one. An animal
 that jumps off its own dinner never eats.
 
+**And since 2026-09-11 it can stay up, which is what turning is for.** Until
+then a flitter in the air was blind: it read nothing, decided nothing and
+steered nothing, so the very instinct that points it at a flower was switched
+off for a third to a half of its life and each jump carried it about thirty
+uncontrolled cells at a target nine cells away. Now a flitter that can see a
+bloom stops falling, turns as it goes — an eighth of a circle at a time, the
+same turn a walking animal makes — crosses to the flower head and sets itself
+down on it. With nothing in sight it does not bother, and then it is exactly
+the hopper it always was: the lift is only ever spent on something it can
+already see. **Staying up is not free**: it costs roughly three and a half
+times standing still, and about half what walking the same distance costs, so
+an animal that flew everywhere would starve and one that flies the last few
+cells to a flower does not. How fast it crosses is a setting with three
+positions rather than a decision — slow, middling and quick — because which
+of them reads as a bee is a thing to watch rather than to argue about.
+
 **What it does, and it is worth watching.** It gets high — its head reaches
-tens of rows above the soil where an ant manages a dozen — and it leaves
-the bed alone. Put flitters on a bed and the plants and the flowers come
-through a long session in the same shape as on a bed with no flitter in it,
-or better. Nothing it does costs the plants anything.
+tens of rows above the soil where an ant manages a dozen — and it leaves the
+bed alone. Put flitters on a bed and the plants and the flowers come through
+a long session inside the swings that same bed makes on its own with no
+animal on it at all. **Nothing it swallows is a plant**: over a whole session
+every joule it takes in is a joule a flower handed out, to the joule, with
+nothing else on the menu.
 
-**And it dies out. Every time, so far, on every bed we have tried.** It
-does not find enough flowers. Over a whole session a flitter reaches a bloom
-a handful of times where it would need to do so constantly, and in between
-it does what you would do looking for something you cannot smell: it wanders
-sideways along the ground, hops, and lands somewhere else. Watching one for
-two thousand frames with a full flower nine cells away, it never came closer
-than nine, drifted away as often as toward, and spent the last eight hundred
-of those frames stuck in the air over one cell until it starved. A flower is
-a single cell and a whole bed holds a few dozen; seeing one from across the
-room turns out not to be the same as arriving at it.
+**And it still dies out. Every time, so far, on every bed we have tried.**
+The old account of why was half right. *"Watching one for two thousand frames
+with a full flower nine cells away, it never came closer than nine"* — that
+was an animal with no rudder and no brakes, and it is fixed: stand a flower
+where nothing that walks or jumps can reach it and the floating animal now
+arrives at it and stays. What the float did **not** buy is more meals. Over a
+long session on the owner's own bed the floating animal drinks from about as
+many flowers as the hopping one did, seed for seed, and the colony empties
+either way — because on the beds where it does well there are twenty-odd
+flowers standing and on the ones where it does badly there are six. A flower
+head is a handful of cells and a whole bed holds a few dozen; arriving at one
+turns out not to be the same as there being enough of them.
 
-**So the honest state of it is: the animal works and its food is too hard to
-find.** It flies, it reaches the canopy, it will not touch anything but
-nectar, and it cannot yet make a living. Bigger flowers, more of them, or
-something that leads an animal to one are all the same problem from
-different sides.
+**So the honest state of it is: the animal works and its food is too thin on
+the ground.** It flies, it steers, it reaches the canopy, it will not touch
+anything but nectar, and it cannot yet make a living. **The thing that is
+missing is no longer the animal — it is the bed.** A thicket in flower, more
+flowers, or something that leads an animal from one to the next are all the
+same problem from different sides.
 
 **And it carries no pollen.** Visiting a flower feeds the flitter and does
 nothing for the plant. That is the next piece.
 
-**One thing about the air, and it is not only about flitters.** Water is
-exactly as heavy as an animal here, so anything that hops and comes down on
-water does not land -- it hangs there and starves in mid-air. It is most of
-how a flitter dies, and most of how the older hopper dies too.
+**One thing about the air, and it is not only about flitters — fixed
+2026-09-11.** Water is exactly as heavy as an animal here, so anything that
+hopped and came down on water did not land: it hung there and starved in
+mid-air, which was **most of how a flitter died and most of how the older
+hopper died too** — between a half and nine tenths of every death. An animal
+that is weightless and is not flying is now standing on the water rather than
+hanging over it, and death in mid-air drops from most deaths to almost none.
+A flitter that is *flying* still stays up over a pond, which is the half of
+the rule that is easy to get wrong. What is left of it is honest: an animal
+that spends its last joules crossing to a flower can still die on the way,
+and about a third of a floating colony's deaths now happen that way, which is
+the price of the verb rather than a defect.
 
 **One thing to press.** The lab opens with animals wearing their *colony's*
 colour rather than their own, so the flitter's own pale blue-white body
