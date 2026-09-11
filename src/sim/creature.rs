@@ -7564,7 +7564,14 @@ pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
     let (ax, ay) = (dx as f32, dy as f32 - LAUNCH_LIFT);
     let len = (ax * ax + ay * ay).sqrt().max(f32::MIN_POSITIVE);
     if let Some(state) = world.organism_mut(organism) {
-        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0 });
+        // **`fly: 0.0` -- a launch is a launch, never a flight.** The verb
+        // that leaves the ground and the verb that stays up are separate
+        // genes on purpose (`BrainOutput::Fly`), so an animal that has
+        // authored only the hop arcs exactly as it always did and the first
+        // airborne brain tick is what decides whether this one is more than
+        // a hop. `turn_acc: 0.0` for the same reason: nothing is being
+        // steered yet.
+        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0, fly: 0.0, turn_acc: 0.0 });
     }
     world.creature_stats.impulses += 1;
     true
@@ -7650,6 +7657,241 @@ fn crossing_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("CROSS_TRUNK").map(|v| v != "0").unwrap_or(true))
 }
 
+/// **Whether a priced animal floats at all.** `FLY=0` is the float's
+/// semantic control -- the arm where the air is ballistic and nothing
+/// decides anything in it, which is `main` before
+/// `Reports/evolution-lab-flight-design-2026-09-11.md` and the baseline
+/// every measurement of the verb has to be read against.
+///
+/// A switch rather than a second set of weights, for `CLAUDE.md`'s stated
+/// reason: *the control is to hold the semantic rule fixed, not to add
+/// another metric*. Zeroing the `Fly` row instead would still run the brain
+/// aloft, still take its taxes and still move the hidden state, so the two
+/// arms would differ by more than the thing under test.
+fn float_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FLY").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **Whether a weightless, non-flying body is put down on the water it is
+/// floating in.** `LAND_AFLOAT=0` puts `open-bugs-handoff.md` §Z9 back --
+/// the animal hangs at `g_eff == 0` for the rest of its life and dies
+/// `STARVED ALOFT` -- so the fix can be watched going red, which
+/// `CLAUDE.md` requires before its green is cited as evidence.
+///
+/// Deliberately **not** folded into `FLY` above. The two answer different
+/// questions: this is a one-line bug fix that applies to every hopping
+/// animal in the box whether or not it can float, and that is a whole verb.
+fn land_afloat_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LAND_AFLOAT").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **What speed a floating animal thrusts toward, in cells per frame** --
+/// three settings behind one env var, `0.25` / `0.5` / `1.0`, default
+/// `0.5`.
+///
+/// **A selector rather than a chosen number, deliberately** (`CLAUDE.md`:
+/// *for "does this look right", ship a runtime selector rather than
+/// choosing*). Whether a pale dot crossing a canopy reads as a bee, a
+/// butterfly or a thrown pebble is not a test result, and five grain modes
+/// behind one key once settled in minutes a question no amount of argument
+/// had. What each option costs is legible from one line of arithmetic:
+/// `fly_cost_in_moves` bills per *frame*, so halving the speed doubles the
+/// joules per cell covered -- `0.25` is 0.25 J/cell for the flitter, `0.5`
+/// is 0.125, `1.0` is 0.0625, against walking's 0.25.
+///
+/// **An unrecognised value panics rather than falling back.** *An unknown
+/// argument is silently ignored* is a named gotcha in this repo and it cost
+/// a 3.5-hour study; a selector nobody can tell is disconnected is the same
+/// failure wearing an env var.
+pub fn flight_speed() -> f32 {
+    use std::sync::OnceLock;
+    static V: OnceLock<f32> = OnceLock::new();
+    *V.get_or_init(|| match std::env::var("FLIGHT_SPEED").as_deref() {
+        Err(_) | Ok("0.5") => 0.5,
+        Ok("0.25") => 0.25,
+        Ok("1.0") | Ok("1") => 1.0,
+        Ok(other) => panic!("FLIGHT_SPEED={other:?} is not one of 0.25 / 0.5 / 1.0 -- see creature::flight_speed"),
+    })
+}
+
+/// The octant of `DIRS` a velocity points along, nearest-neighbour.
+///
+/// **Normalised by the direction's own length, not a raw dot product.**
+/// `DIRS` mixes unit and diagonal vectors, so an unnormalised argmax is
+/// biased toward the four diagonals by sqrt(2) and a body flying due east
+/// would be recorded as heading north-east about as often as east. No
+/// `atan2`: `brain.rs`'s module doc bars libm from anything determinism
+/// depends on, and a heading feeds straight back into the next tick's
+/// bearing.
+fn octant_of(vx: f32, vy: f32) -> u8 {
+    let mut best = 0u8;
+    let mut best_score = f32::NEG_INFINITY;
+    for (i, &(dx, dy)) in DIRS.iter().enumerate() {
+        let len = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+        let score = (vx * dx as f32 + vy * dy as f32) / len;
+        if score > best_score {
+            best_score = score;
+            best = i as u8;
+        }
+    }
+    best
+}
+
+/// **One decision, taken in the air** -- the float's whole mechanism, and
+/// the thing `main` has never had. `Reports/evolution-lab-flight-design-
+/// 2026-09-11.md` §1.
+///
+/// Returns the joules this tick's thinking and looking cost, for the caller
+/// to charge beside the pro-rated idle: `step_flight` owns the ledger, as
+/// `creature_tick` does on the ground.
+///
+/// **Which object each rule evaluates, because that is the question this
+/// engine keeps getting wrong.** Lift and drag evaluate **the whole body**
+/// (`body_drag` over the chain, as they always have); steering evaluates
+/// **the velocity vector** -- not a candidate cell, and that is the entire
+/// departure. On the ground `Turn` biases three candidate cells and the
+/// world vetoes two of them, so a walker on level footing cannot be steered,
+/// only scattered (`open-bugs-handoff.md` R4); in the air there is nothing
+/// to veto, only a velocity to rotate. `FoodAdjacent` still evaluates the
+/// head's 8-neighbourhood, unchanged.
+///
+/// **The four verbs stay on the ground.** An airborne animal still cannot
+/// eat, dig, drop, attack or lay pheromone -- it is committed, and that is
+/// most of what the launch costs. What it can now do is *decide where it is
+/// going*, and set itself down when it gets there.
+///
+/// **Priced at the ground's rate, not the air's.** `synapse_fraction`,
+/// `sight_fraction` and `curvature_fraction` are per-*decision* charges and
+/// this runs once per `tick_interval` frames exactly as a walking tick does,
+/// so an animal thinks at one price wherever it is. The cost that is new is
+/// the lift itself (`CreatureDef::fly_cost_in_moves`), charged per frame by
+/// the caller.
+fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
+    let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
+    let heading = world.organism(organism).map_or(0, |s| s.heading);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def);
+    // **The eye's counters fire aloft too, and they have to.** Until this
+    // existed an airborne animal never cast, so `sight_casts` was a count of
+    // *walking* casts wearing the name of all of them -- and
+    // `sight_fraction` was derived against it. The share this adds is the
+    // number that re-derives it (design §3), so it must be visible rather
+    // than silently folded into the ground figure.
+    if organism_sight_range(world, organism, def) > 0 {
+        world.creature_stats.sight_casts += 1;
+        world.creature_stats.sight_cells_read += sight_reads;
+        if seen.threat.is_some() {
+            world.creature_stats.threat_sightings += 1;
+        }
+        if inputs[brain::BrainInput::BloomNear as usize] > 0.0 {
+            world.creature_stats.bloom_seen += 1;
+        }
+    }
+    let (outputs, active_synapses) = {
+        let Some(state) = world.organism_mut(organism) else {
+            return 0.0;
+        };
+        let genome = std::mem::take(&mut state.genome);
+        let mut brain_state = state.brain_state;
+        let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
+        let state = world.organism_mut(organism).expect("still live");
+        state.genome = genome;
+        state.brain_state = brain_state;
+        result
+    };
+    world.creature_stats.fly_ticks += 1;
+
+    // **Read raw and gated on strictly positive, exactly as `Impulse` is.**
+    // `squash(0.0)` is exactly 0.0, so a species with an unauthored row is
+    // never lifted and never thrusts -- the ballistic arc, byte for byte.
+    let fly = outputs[brain::BrainOutput::Fly as usize].clamp(0.0, 1.0);
+    let was_flying = flight.fly > 0.0;
+    flight.fly = fly;
+    if fly > 0.0 {
+        // **The float taking the arc over.** `launch` builds its velocity as
+        // the heading plus a fixed `LAUNCH_LIFT`, so a body a dozen frames
+        // into a hop is travelling nowhere near the octant it is recorded as
+        // facing -- and every bearing `sense` computes is measured against
+        // that recorded octant. On the frame the lift first comes on, the
+        // heading is re-read from where the body is actually going. This is
+        // the fifth place `state.heading` is written and the one the design
+        // report found missing from `launch`'s list.
+        let mut heading = if was_flying { heading } else { octant_of(flight.vx, flight.vy) };
+
+        // **The turn, in whole octants, at the rate the brain asks for --
+        // and it is the *heading* that turns, exactly as on the ground.**
+        // `step_chain` turns by moving the heading one octant
+        // (`AHEAD_LEFT` = +1 for a positive `Turn`, `AHEAD_RIGHT` = -1 for a
+        // negative one) and this is the same line, so a walk and a float
+        // cannot disagree about what a turn is -- and `(BloomBearing, Turn,
+        // -2.5)`, which is authored against the ground's convention, means
+        // the same thing in the air without being re-derived.
+        //
+        // **The fraction is carried rather than rounded away**
+        // (`Flight::turn_acc`): `Turn` is continuous and a heading is not,
+        // so a bearing worth a quarter of an octant a tick turns once every
+        // four ticks instead of never. `|Turn| < 1` bounds this at one
+        // octant a tick, which is the granularity a walking step turns by.
+        flight.turn_acc = (flight.turn_acc + outputs[brain::BrainOutput::Turn as usize]).clamp(-2.0, 2.0);
+        while flight.turn_acc >= 1.0 {
+            heading = (heading + AHEAD_LEFT) % 8;
+            flight.turn_acc -= 1.0;
+            world.creature_stats.fly_turns += 1;
+        }
+        while flight.turn_acc <= -1.0 {
+            heading = (heading + AHEAD_RIGHT) % 8;
+            flight.turn_acc += 1.0;
+            world.creature_stats.fly_turns += 1;
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.heading = heading;
+        }
+
+        // **Thrust along the heading, against a drag -- and the thrust is
+        // deliberately NOT applied along the current velocity.** Both terms
+        // are scaled by `fly`, so one number is the lift, the drag and the
+        // throttle, the equilibrium speed is exactly `flight_speed`
+        // (`target * fly / fly`), and a weak lift converges to it slowly
+        // while a strong one snaps to it. The design report asks for a
+        // horizontal drag active only while flying and a thrust toward a
+        // species speed; this is both, in one term, with no new constant --
+        // and at `fly == 0.0` none of it runs, so the ballistic hop is
+        // byte-identical.
+        //
+        // **Scaling the velocity to `flight_speed` instead was built first,
+        // and it is a rocket.** A direction-preserving renormalisation
+        // cancels exactly the part of gravity that is *along* the velocity,
+        // so a body pointed straight up had its whole weight erased every
+        // tick and climbed until it hit the roof of the world: measured,
+        // `head_max_rows` **156 on all three seeds** -- which is `ground_y`,
+        // i.e. the top of the box, and three identical numbers is
+        // `CLAUDE.md`'s tidiness tell for an artifact rather than an effect.
+        // Thrusting along the heading leaves gravity a component of its own
+        // to bend the path with, which is what makes a level flier sink
+        // slightly and a weak one sink a lot.
+        let target = flight_speed();
+        let (dx, dy) = DIRS[heading as usize];
+        let len = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+        flight.vx = flight.vx * (1.0 - fly) + target * fly * dx as f32 / len;
+        flight.vy = flight.vy * (1.0 - fly) + target * fly * dy as f32 / len;
+    }
+
+    // Charged at the ground's own rates and booked to the ground's own
+    // sinks, so the conservation identity needs no new term. See
+    // `creature_tick` for each fraction's derivation.
+    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
+    world.energy_ledger.synapse_tax += synapse_tax as f64;
+    world.energy_ledger.metabolized += (sight_tax + curvature_tax) as f64;
+    world.creature_stats.curvature_cells_read += curvature_reads;
+    world.creature_stats.curvature_energy += curvature_tax as f64;
+    synapse_tax + sight_tax + curvature_tax
+}
+
 fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
     let (Some(mut flight), Some(mut cells)) =
         (world.organism(organism).and_then(|s| s.flight), world.organism(organism).map(|s| s.chain.clone()))
@@ -7663,10 +7905,34 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         return Vec::new();
     }
 
+    // --- decide, then integrate ----------------------------------------
+    // **Once per `tick_interval`, at the same rate a walking animal
+    // decides.** Every frame would think six times harder for being in the
+    // air, which is a cost coming from the scheduler rather than from the
+    // design -- the same argument the pro-rated idle charge below makes.
+    //
+    // **Gated on the species having priced flight, at the call site that
+    // already holds the def** (`CLAUDE.md`). A species with no
+    // `fly_cost_in_moves` pays not even the `f32` compare's worth of extra
+    // work, takes no brain evaluation aloft, moves no hidden state and draws
+    // no RNG -- so `hopper.ron`'s arc, and every other shipped animal's, is
+    // what it was before this existed.
+    let interval = organism_tick_interval(world, organism, def);
+    let mut thinking = 0.0f32;
+    if def.fly_cost_in_moves > 0.0 && float_enabled() && world.frame.is_multiple_of(interval) {
+        thinking = fly_brain_tick(world, organism, def, &mut flight, &cells);
+    }
+
     let shape = body_drag(world, &cells);
     let fluid = surrounding_density(world, &cells);
     let carried = buoyant_share(shape.density, fluid);
-    let gravity_effective = GRAVITY * (1.0 - carried);
+    // **The float, and it is not new physics** (design §1). `carried` is the
+    // share of the weight the surrounding fluid takes and `fly` is the share
+    // the animal takes on its own wings; a body that is both submerged and
+    // flying is holding up nothing, which is the arithmetic saying what it
+    // should. `fly` is 0.0 for every ballistic arc, so this line is the
+    // identity it was for a species that does not float.
+    let gravity_effective = GRAVITY * (1.0 - carried) * (1.0 - flight.fly);
     let terminal = terminal_speed(&shape, fluid, gravity_effective);
 
     flight.vy += gravity_effective;
@@ -7763,8 +8029,30 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         break;
     }
 
+    // **§Z9 closes here, in one predicate.** A creature material is exactly
+    // as dense as `water.ron`, so a hop that comes down on a pond has
+    // `carried == 1.0`, `g_eff == 0.0` and `terminal == 0.0`: it never
+    // accumulates a downward step, `landed` is only ever set on a *blocked*
+    // step while descending, and the animal hangs there being charged the
+    // airborne rate and the every-frame schedule until it dies
+    // `STARVED ALOFT` -- 57-87% of every flitter and hopper death on the
+    // played bed (`open-bugs-handoff.md` §Z9's own table).
+    //
+    // **Weightless and not flying is standing on water, not flying over
+    // it.** The buoyancy model is right and its own doc says what it does;
+    // what was missing is that hanging and flying were indistinguishable,
+    // because there was no state for floating. Now there is one, and it is
+    // `fly`. `LAND_AFLOAT=0` puts the defect back.
+    if !landed && land_afloat_enabled() && gravity_effective <= 0.0 && flight.fly == 0.0 {
+        landed = true;
+        world.creature_stats.landed_afloat += 1;
+    }
+
     world.creature_stats.flight_frames += 1;
     world.creature_stats.flight_moves += moves;
+    if flight.fly > 0.0 {
+        world.creature_stats.fly_frames += 1;
+    }
 
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
     // **`since_nest` counts ticks, and a flight frame is not a tick.**
@@ -7785,7 +8073,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // the reset in `line_burrow` for the standing case that this field
     // should probably go entirely.
     let frame = world.frame;
-    let interval = organism_tick_interval(world, organism, def);
+    let fly_now = flight.fly;
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
         // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
@@ -7815,14 +8103,42 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // thing the verb actually charges for.
     let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / interval as f32;
     world.energy_ledger.metabolized += idle as f64;
+    // **What staying up costs, per airborne frame the verb was holding the
+    // body** (design §1/§3). Charged here rather than inside the brain tick
+    // because the lift is held between decisions exactly as a velocity is:
+    // one tick's `Fly` buys `tick_interval` frames of air and is billed for
+    // all of them.
+    //
+    // **Zero for a ballistic arc, and that is the whole byte-identity
+    // guard** -- `fly` is 0.0 for a species that authors no weight, so the
+    // multiply never happens and the hop pays exactly what it paid before.
+    // Booked to `moved` beside the launch rather than to `metabolized`: it
+    // is locomotion, not upkeep, and `CreatureStats::fly_energy` is what
+    // attributes it separately.
+    //
+    // The load rides along, exactly as it does for a walking step and a
+    // launch: a flitter carrying a crop of nectar is a heavier animal to
+    // hold up. The design's 0.0625 J/frame is the unladen figure.
+    let lift = if fly_now > 0.0 {
+        let cost = def.move_cost_per_cell * (live_body_cells(world, organism, def) + carried_cells(world, organism, def)) * def.fly_cost_in_moves;
+        world.energy_ledger.moved += cost as f64;
+        world.creature_stats.fly_energy += cost as f64;
+        cost
+    } else {
+        0.0
+    };
+    // Upkeep, lift and thinking come off the animal as one number, because
+    // they are one animal's bill; each half has already been booked to its
+    // own ledger account above so the attribution survives the addition.
+    let spent = idle + lift + thinking;
     if landed {
         // Back on the normal schedule, and back to deciding things.
-        return apply_creature_energy(world, hx, hy, organism, -idle, def);
+        return apply_creature_energy(world, hx, hy, organism, -spent, def);
     }
     let Some(state) = world.organism_mut(organism) else {
         return Vec::new();
     };
-    state.energy -= idle;
+    state.energy -= spent;
     if state.energy <= 0.0 {
         // **Told apart from the ordinary starvation below, deliberately.**
         // This is the idle charge levied while airborne, so the flight verb
@@ -18075,6 +18391,201 @@ mod tests {
         );
         assert_eq!(w.creature_stats.flight_frames, airborne_frames as u64);
         assert!(w.creature_stats.flight_moves > 0, "the counter that says the arc went somewhere");
+    }
+
+    /// **The float's positive control, and the fault it is named for is
+    /// already watched red** -- round 28 followed exactly this animal for
+    /// 2,000 frames on the played bed and it "never came closer than nine"
+    /// to a flower it could see the whole time
+    /// (`Reports/evolution-lab-flight-design-2026-09-11.md` §5).
+    ///
+    /// A flitter on a flat floor with a flower **twelve rows above it**. A
+    /// walker on level ground cannot rise at all, and a ballistic hop tops
+    /// out at `v^2 / 2g` = 2.0^2 / (2 x 0.138) = **7.2 rows** for this
+    /// two-cell body -- so the flower is out of reach of everything this
+    /// engine could do before the float, by a margin the arithmetic settles
+    /// rather than the seed.
+    ///
+    /// **The control is the species' own price, not an env var**, so both
+    /// arms run in one process and one test: `fly_cost_in_moves` is the gate
+    /// as well as the bill (`BrainOutput::Fly`), so zeroing it is exactly
+    /// `main` -- no brain aloft, no lift, no steering, the same ballistic arc
+    /// the engine has always had. Put the float back and the same scene must
+    /// close the gap.
+    ///
+    /// Asserted on **distance closed**, not on a bite. A nectar-only mouth
+    /// needs a plant organ with a filled nectar pool to swallow anything,
+    /// which is the plant line's machinery and not what this guard is about:
+    /// what failed was *reaching*, and reaching is what this measures.
+    #[test]
+    fn a_floating_flitter_closes_on_a_flower_no_walk_or_hop_can_reach() {
+        // (closest approach in cells, airborne frames the verb was paying
+        // for, octant rotations it applied, casts that saw the bloom)
+        let run = |float: bool| -> (i32, u64, u64, u64) {
+            let mut w = test_world();
+            const FLOOR: i32 = 150;
+            const START: i32 = 60;
+            // A long flat floor -- the R4 case, where a walker cannot be
+            // steered at all, only scattered. Nothing here is a ramp.
+            for x in 0..199 {
+                for y in FLOOR..(FLOOR + 4) {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            let site = plant_creature_seed(&mut w, START, FLOOR - 1, "flitter").expect("the flitter fits");
+            let ActiveKind::Creature { organism } = site.kind else { unreachable!() };
+            // One flower head, nine columns east and twelve rows up, made
+            // the way `a_beetle_sees_a_flower_and_not_a_leaf_standing_where_
+            // it_was` makes one: `is_visible_bloom` asks for a `Plant` cell
+            // whose packed cell type is `Flower`, and nothing less counts.
+            //
+            // **A head, not one cell, and the single cell was tried first
+            // and is a scene error** (`CLAUDE.md`: a scene that contradicts
+            // the code looks like a bug in the code). The eye is 16 rays
+            // swept over the full circle, so at thirteen cells the rays are
+            // 5.1 cells apart laterally and a one-cell target falls between
+            // them almost every sweep: the first version of this guard read
+            // **one** octant rotation in 2,000 frames and looked exactly
+            // like steering that does not work. The bed's own flowers are
+            // `organ_cluster` 12 since PR #322, so a 15-cell head is also
+            // the honest size.
+            let (bx, by) = (START + 9, FLOOR - 13);
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+            let plant_id = w.push_organism(herb).expect("an organism slot is free");
+            for dx in -2..=2 {
+                for dy in -1..=1 {
+                    w.set(bx + dx, by + dy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+                }
+            }
+
+            let mut def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("a creature");
+            if !float {
+                def.fly_cost_in_moves = 0.0;
+            }
+            // **Fuel, so the run is about steering rather than about the
+            // energy floor.** `(Energy, Fly, 8.0)` grounds this animal below
+            // 25% of `start_energy` by design, and a guard that ran the tank
+            // dry would be measuring that instead. Below `reproduce_
+            // threshold` (1,100), so nothing buds and the scene stays one
+            // animal.
+            if let Some(state) = w.organism_mut(organism) {
+                state.energy = 1_000.0;
+            }
+
+            let mut closest = i32::MAX;
+            let mut next = 0u64;
+            for _ in 0..2_000 {
+                let Some((hx, hy)) = w.organism(organism).and_then(|s| s.chain.first().copied()) else {
+                    break;
+                };
+                // **To the nearest cell of the head, not to its centre.**
+                // Measured to the centre first and the float read "2 cells
+                // away" while physically standing on the flower -- the head
+                // is 5x3, so a centre distance of 2 is contact. A distance
+                // that cannot reach zero for an animal that has arrived is
+                // the metric-answers-a-different-question failure
+                // `CLAUDE.md` opens its measurement section with.
+                closest = closest.min(((hx - bx).abs() - 2).max(0).max(((hy - by).abs() - 1).max(0)));
+                if w.frame >= next {
+                    let sites = creature_tick(&mut w, hx, hy, organism, &def);
+                    next = sites.first().map_or(u64::MAX, |s| s.next_frame);
+                }
+                w.frame += 1;
+            }
+            (closest, w.creature_stats.fly_frames, w.creature_stats.fly_turns, w.creature_stats.bloom_seen)
+        };
+
+        let (hop_closest, hop_fly_frames, hop_turns, hop_seen) = run(false);
+        assert!(hop_seen > 0, "the animal never saw the flower at all: the scene does not contain the situation this test is about");
+        assert_eq!(hop_fly_frames, 0, "an unpriced species must never be held up: the gate is not the price");
+        assert_eq!(hop_turns, 0, "...and must never steer in the air either -- no brain runs aloft for it");
+        assert!(
+            hop_closest > 1,
+            "the fault this guard is named for is not present: a ballistic hopper reached within {hop_closest} of a flower 12 rows up, \
+             so the scene does not contain the situation the float is for"
+        );
+
+        let (float_closest, float_fly_frames, float_turns, float_seen) = run(true);
+        assert!(float_seen > 0, "the floating animal never saw the flower either");
+        assert!(float_fly_frames > 0, "the verb never fired: no airborne frame was paid for, so nothing below is about the float");
+        assert!(float_turns > 0, "`Turn` never rotated a velocity -- the steering half of the verb is inert and R4 has simply moved into the air");
+        assert!(
+            float_closest <= 1,
+            "a floating flitter must reach the flower it can see: closest approach {float_closest} cells against the hop's {hop_closest} \
+             ({float_fly_frames} paid airborne frames, {float_turns} turns)"
+        );
+    }
+
+    /// **`open-bugs-handoff.md` §Z9, closed, and both halves asserted.**
+    ///
+    /// Every creature material in the box authors `density: 1.0` and so does
+    /// `water.ron`, so a body touching water has `carried == 1.0`,
+    /// `g_eff == 0.0` and `terminal == 0.0`: it never accumulates a downward
+    /// step, `landed` is only ever set on a *blocked* step while descending,
+    /// and the animal hangs there being charged the airborne rate and the
+    /// every-frame schedule until it dies `STARVED ALOFT` -- 57-87% of every
+    /// flitter and hopper death on the played bed.
+    ///
+    /// **The fix is one predicate and it needs both directions, or it is a
+    /// rule that grounds the float.** Weightless and *not flying* is
+    /// standing on water; weightless and *flying* is a bee over a pond and
+    /// must stay up. A one-sided assertion would pass for a version that
+    /// landed everything the moment it crossed water. `LAND_AFLOAT=0` puts
+    /// the defect back at the whole-run scale.
+    #[test]
+    fn a_weightless_body_is_put_down_on_water_unless_it_is_flying() {
+        let float_over_water = |fly: f32| -> (bool, u64) {
+            let mut w = test_world();
+            let water = w.materials.id_of("water").expect("water is compiled in");
+            const SURFACE: i32 = 150;
+            for x in 0..199 {
+                for y in SURFACE..190 {
+                    w.set(x, y, Cell::new(water, 0));
+                }
+            }
+            // A plinth to push off, removed the instant the launch is made:
+            // `launch` refuses a body with nothing under it, and what this
+            // test is about is the frames *after* that.
+            w.set(60, SURFACE, Cell::new(material::STONE, 0).with_attached(true));
+            let site = plant_creature_seed(&mut w, 60, SURFACE - 1, "flitter").expect("the flitter fits");
+            let ActiveKind::Creature { organism } = site.kind else { unreachable!() };
+            let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("a creature");
+            assert!(launch(&mut w, organism, 0), "the flitter can push off the plinth");
+            w.set(60, SURFACE, Cell::new(water, 0));
+            // Hold the lift at the value under test. The brain would
+            // recompute it every `tick_interval`; this guard is about the
+            // ballistics reading it, so it is written directly and the frame
+            // is held off a tick boundary so no brain tick overwrites it.
+            w.frame = 1;
+            if let Some(state) = w.organism_mut(organism) {
+                if let Some(f) = state.flight.as_mut() {
+                    f.fly = fly;
+                }
+                state.energy = 1_000.0;
+            }
+            for _ in 0..400 {
+                if w.organism(organism).and_then(|s| s.flight).is_none() {
+                    break;
+                }
+                step_flight(&mut w, organism, &def);
+                if let Some(state) = w.organism_mut(organism) {
+                    if let Some(f) = state.flight.as_mut() {
+                        f.fly = fly;
+                    }
+                }
+                w.frame += 4;
+            }
+            (w.organism(organism).and_then(|s| s.flight).is_none(), w.creature_stats.landed_afloat)
+        };
+
+        let (grounded, count) = float_over_water(0.0);
+        assert!(grounded, "a weightless body that is not flying must be put down -- this is §Z9, and without the fix it hangs for ever");
+        assert_eq!(count, 1, "and it must be counted, or a whole-run reading of the fix cannot tell it from the animals that never got wet");
+
+        let (still_flying, count) = float_over_water(0.8);
+        assert!(!still_flying, "a body that IS flying must stay up over water -- the fix must not ground the verb it ships beside");
+        assert_eq!(count, 0, "...and must not be counted as having landed on it");
     }
 
     #[test]

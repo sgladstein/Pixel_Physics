@@ -827,6 +827,48 @@ pub struct CreatureStats {
     /// manufactured. `moves` still counts exactly what it counted — one
     /// walking step, decided and paid for — and this counts the other kind.
     pub flight_moves: u64,
+    /// **Brain evaluations made aloft** -- the float's "it was asked at
+    /// all" counter (`Reports/evolution-lab-flight-design-2026-09-11.md`
+    /// §1). Zero on `main` by construction: an airborne animal did not read
+    /// the world, evaluate its brain or act, which is the whole finding the
+    /// float was built on. Zero *here* means either no species has priced
+    /// flight or nothing left the ground, and `impulses` beside it says
+    /// which.
+    pub fly_ticks: u64,
+    /// **Airborne frames on which `BrainOutput::Fly` was actually holding
+    /// the body up** (`fly > 0`), against `flight_frames`' every airborne
+    /// frame including the ballistic ones.
+    ///
+    /// The effect half of `fly_ticks`, and the pair is the readout
+    /// `CLAUDE.md` asks for: a brain that evaluates aloft and never lifts
+    /// reads high ticks against zero frames, which is a wiring problem, and
+    /// is a different fault from a brain that never ran. `fly_frames /
+    /// flight_frames` is the share of the air the verb is paying for.
+    pub fly_frames: u64,
+    /// **Octant rotations `Turn` actually applied to a velocity.**
+    ///
+    /// `Turn`'s own effect counter, and the reason it exists is
+    /// `open-bugs-handoff.md` R4: on the ground this output is nearly inert
+    /// for a walker on level footing -- both outer candidates lose at every
+    /// value -- so "the weight is authored and the animal is steering" has
+    /// been a false inference in this engine once already. In the air there
+    /// is no candidate to veto, and this is the number that says so.
+    pub fly_turns: u64,
+    /// Joules billed by `CreatureDef::fly_cost_in_moves` -- the price of
+    /// staying up, separated from the launch (`moved`) and from metabolism
+    /// so a flight that eats a colony is visible as its own line.
+    pub fly_energy: f64,
+    /// **Landings made because the body was weightless and not flying** --
+    /// `open-bugs-handoff.md` §Z9's own exit firing.
+    ///
+    /// A creature material is exactly as dense as water, so a hop that comes
+    /// down on a pond has `g_eff == 0`, never accumulates a downward step,
+    /// and hangs there being charged the airborne rate until it dies
+    /// `STARVED ALOFT`. Weightless and *not flying* is standing on water,
+    /// and this counts the animals that are now put down on it. Read beside
+    /// `deaths_by`'s `STARVED ALOFT` share, which is the number the bug is
+    /// actually about; `LAND_AFLOAT=0` puts the defect back.
+    pub landed_afloat: u64,
     /// Launches the brain asked for and the body could not make — the
     /// creature was already off the ground.
     ///

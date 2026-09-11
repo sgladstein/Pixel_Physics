@@ -10562,7 +10562,7 @@ moved cleanly on both seeds.
 **Files touched.** `src/sim/rigid.rs` — `settle()`'s landing conversion,
 `place_settled()`'s scheduling, one guard test.
 
-### Z9. A hopping animal that comes down on water never lands: it hangs there, is charged the airborne rate, and dies `STARVED ALOFT` — **REPRODUCED 2026-09-11, not fixed**
+### Z9. A hopping animal that comes down on water never lands: it hangs there, is charged the airborne rate, and dies `STARVED ALOFT` — **FIXED 2026-09-11** (round 29 B1, the flitter's float)
 
 **Every creature material in the box authors `density: 1.0` and so does
 `water.ron`.** `creature::step_flight` computes
@@ -10623,4 +10623,55 @@ animal stand on the water rather than in it; or a genuine floating state that
 stops charging the flight schedule. **Whichever is taken, re-read the aloft
 share above afterwards — it is the number that says whether it worked**, and
 `labforage`'s `deaths_by` prints it split by species.
+
+---
+
+**FIXED 2026-09-11**, and it took the third repair and the second at once. Round
+29's B1 (`Reports/evolution-lab-flight-design-2026-09-11.md`) added a real
+floating state -- `BrainOutput::Fly`, held on `OrganismState::flight` -- which is
+what makes the missing predicate expressible at all. With it, the whole of the
+fix is one line in `creature::step_flight`:
+
+```rust
+if !landed && land_afloat_enabled() && gravity_effective <= 0.0 && flight.fly == 0.0 {
+    landed = true;
+    world.creature_stats.landed_afloat += 1;
+}
+```
+
+**Weightless and not flying is standing on water; weightless and flying is a bee
+over a pond.** Both halves are needed and the second is the one a careless fix
+loses: a rule that landed everything crossing water would ground the verb it
+ships beside. The unit guard
+`a_weightless_body_is_put_down_on_water_unless_it_is_flying` asserts both, and
+`LAND_AFLOAT=0` puts the defect back at whole-run scale.
+
+**The aloft share, re-read as this section asks.** `played_bed`, `creature=flitter`,
+`RAYON_NUM_THREADS=4`, one binary per arm; the ballistic arm is the same build
+with the float switched off (`FLY=0`), so it is this bug in isolation:
+
+| 120,000 frames, seeds 1/2/3 | `STARVED ALOFT` share of deaths | frames per launch |
+|---|---|---|
+| **on `main`** (the table above) | 63% / 57% / 87% | 60 / 96 / 387 |
+| ballistic arm, this fix | **3% / 0% / 6%** | 7 / 7 / 6 |
+| floating arm, this fix | 46% / 38% / 26% | 25 / 16 / 11 |
+| floating arm, `LAND_AFLOAT=0` (12,000 frames) | 48% / 76% / 78% | 58 / 70 / 152 |
+
+`landed_afloat` -- the fix's own "it fired" counter -- reads 1,790 / 982 / 1,726
+on the ballistic arm and **0** with the switch off. Its specificity control is a
+water-free bed (`scenario=the_floor`), where it reads **0** while 3,635 launches
+are made.
+
+**Read the two live arms apart.** The ballistic arm is the bug closed. The
+floating arm's 26-46% is **not this bug returning** -- it is the new verb's own
+bill, an animal spending its last joules crossing to a flower, which is what
+`DeathCause::StarvedInFlight` was split out to make visible. A floating colony's
+aloft deaths are supposed to be non-zero; zero would mean the verb is unused.
+
+**And the free-field arc is 15 frames, not the 22 the design derived** -- worth
+recording because every "how much of this air is not an arc" reading is against
+it. 22 is the heading-0 arc; `launch` adds a fixed `LAUNCH_LIFT` to the heading
+vector, so of the eight launch directions **three carry no upward component at
+all** (headings 5, 6 and 7 normalise to a purely horizontal or zero vector) and
+the mean over the eight is 15.2. Measured on the water-free bed: **15**.
 
