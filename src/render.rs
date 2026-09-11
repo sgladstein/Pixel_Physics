@@ -9024,7 +9024,6 @@ mod tests {
         // The positive control: before this fix, the height-only rule left
         // zoom_out_stride at 1 for a box shorter than one screen, whatever its
         // width, so span_x would sit at 512 regardless of world_w.
-        let world = Rect::new(0, 0, 4095, 127);
         let mut old_rule = Renderer::new();
         for _ in 0..10 {
             old_rule.adjust_zoom(-1);
