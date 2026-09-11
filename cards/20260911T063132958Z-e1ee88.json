@@ -1,0 +1,67 @@
+{
+  "id": "20260911T063132958Z-e1ee88",
+  "created": "2026-09-11T06:31:32Z",
+  "board": "lab-flowers",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a45d1b36830f949a2",
+    "branch": "claude/lab-flowers-size-r28",
+    "commit": "d325134e",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a45d1b36830f949a2"
+  },
+  "title": "Bigger flowers with more variety (updated)",
+  "question": "Which bed has the flowers you asked for, at a plant count you would accept?",
+  "context_md": "Supersedes card 20260911T051258362Z-83eaba (a two-way A/B) -- the coordinator's follow-up asked for the size that actually holds the played bed's population, not just the biggest-looking head. Three panes, same frame (6,000), same seed (1): **A** is `main` (organ_cluster 9, fixed, no variety, two petal bands). **B** is what shipped this PR (organ_cluster 12, +33%, per-individual spread 0.3x-1.7x, three petal bands). **C** is 16 (+78%), tried first and not shipped.\n\n**The term found**: every organ cell pays `MAINTENANCE_PER_CELL` like any other living tissue, continuously, for as long as it stands -- measured in isolation (a hand-placed head, one `organism_upkeep` tick) as an exact `MAINTENANCE_PER_CELL x extra-cells` delta, not a guess. That charge is separate from and untouched by the `Ripen`-cost re-derivation (which only reaches the one-off flower-set/fruit-ripen charges).\n\n**Honest finding, not fully resolved**: none of 9, 12 or 16 reliably holds plant count within -25% of `main` on all three seeds -- `labforage scenario=played_bed frames=120000`: main 464/574/303; size 16: 322/170/259; size 12: 356/93/158; size 9 (variety+colour only, no size change): 348/299/248. Seed 2 is the outlier at every size and gets *worse* from 16 to 12 before partly recovering at 9 -- not the clean relationship the maintenance term alone predicts, which points at the slot-9 size *variance* itself as a second live effect, untested for want of time. 12 ships as the middle ground with the open question on record.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "main (organ_cluster 9)",
+      "files": [
+        "20260911T063132958Z-e1ee88/000-main_labshot_6000_crop.png"
+      ],
+      "caption": "fixed size, no variety, two petal bands",
+      "meta": {
+        "standing flowers (f6000, seed1)": 38,
+        "plants alive @120k (seed1)": 464,
+        "plants @120k, 3 seeds": "464/574/303"
+      },
+      "focus": null
+    },
+    {
+      "label": "shipped (organ_cluster 12)",
+      "files": [
+        "20260911T063132958Z-e1ee88/001-shipped12_labshot_6000_crop.png"
+      ],
+      "caption": "+33%, per-individual 0.3x-1.7x spread, three petal bands",
+      "meta": {
+        "standing flowers (f6000, seed1)": 91,
+        "plants alive @120k (seed1)": 356,
+        "plants @120k, 3 seeds": "356/93/158"
+      },
+      "focus": null
+    },
+    {
+      "label": "tried, not shipped (organ_cluster 16)",
+      "files": [
+        "20260911T063132958Z-e1ee88/002-size16_labshot_6000_crop.png"
+      ],
+      "caption": "+78%, same variety mechanism, three petal bands",
+      "meta": {
+        "standing flowers (f6000, seed1)": 90,
+        "plants alive @120k (seed1)": 322,
+        "plants @120k, 3 seeds": "322/170/259"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
