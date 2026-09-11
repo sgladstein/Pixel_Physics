@@ -1,0 +1,56 @@
+{
+  "id": "20260911T040711020Z-1e2285",
+  "created": "2026-09-11T04:07:11Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/confident-galileo-68ljjw",
+    "commit": "e6c18c02",
+    "agent": null,
+    "session_id": "f1fc4424-6ad6-55e1-93cb-149538c665e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Rain on a low plant bed: sheet on the leaves vs soaked away",
+  "question": "Is the water going where you expect now -- or does the bed now drink it too eagerly, so a downpour never shows as a puddle?",
+  "context_md": "Your report: *water pools on top of the plants instead of going through and soaking into the soil*.\n\nThe canopy-drip rule looks for **open air** on the far side of the leaf. A tree has some. A grass tussock, a herb, a shrub or a scrambler lying on the floor has the **bed** under its tissue, so the scan found soil, refused, and the drop stayed on the leaf for ever. Ground that can still hold water now counts as somewhere to go.\n\nSame bed, same seed, same 24,000 frames, mister at its shipped LIGHT -- and it is not a rain-rate problem: with the mister **off**, on dew alone, it was 408 drops stuck on leaves with 3 able to move.\n\n**What I am unsure of and want your eye on:** ground already full still refuses, so a soaked bed puddles. Below is what 24,000 frames looks like; I have not watched a heavy downpour land on a dry bed.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- before",
+      "files": [
+        "20260911T040711020Z-1e2285/000-before.png"
+      ],
+      "caption": "the sheet lying across the plants",
+      "meta": {
+        "water standing above the ground": "1222 cells",
+        "water held up by a leaf": "523 cells",
+        "of those, able to get down": 6,
+        "held up over ground that had room to spare": 242
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- after",
+      "files": [
+        "20260911T040711020Z-1e2285/001-after.png"
+      ],
+      "caption": "the same bed, water reaching the soil",
+      "meta": {
+        "water standing above the ground": "401 cells",
+        "water held up by a leaf": "234 cells",
+        "of those, able to get down": 5,
+        "held up over ground that had room to spare": 11
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
