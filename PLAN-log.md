@@ -4459,3 +4459,43 @@ writes a tick and ~10% of the lab's median tick, so it ships inert and the
 default is the owner's to rule on. Account:
 `Reports/soil-water-columns-2026-09-11.md`, and
 `Reports/canopy-throughfall-2026-09-07.md` §7.
+
+## 2026-09-11 — the soil-column lever becomes a dial, and the downstream question gets swept
+
+Owner's ruling on the soil-column card, verbatim: *"Let me test it in a
+playtest. Are there any downstream affects of the change? Ship off by
+default"*. Three things, and the default was already right.
+
+**A playtest needs a dial.** `PIXEL_PHYSICS_SOIL_CAPILLARY` was a `OnceLock`
+read once per process — a measurement instrument that cannot be reached from
+inside a running box, so testing it would have meant relaunching and
+comparing two boxes rather than one box before and after. It is
+`World::soil_capillary_levels` now, with a row on the parameters page (`the
+bed / water_levels_sideways`), felt on the next tick and lasting the session:
+`plant_load_failure`'s own shape, for the reason that field's doc already
+records. It reaches a saved scenario through `resolve_setting` and `Dials`
+carries it.
+
+**Downstream, twelve seeds, paired per seed on the played bed at the shipped
+rain rate.** Only two things move consistently: the columns go (widest
+standing gap 380 → **0 on 12 of 12**) and the bed does **1.84x the
+soil-moisture writes a tick** (higher on 12 of 12), which is the churn the
+wide threshold was holding down. One unpredicted and welcome effect: standing
+water above the ground falls to a median **0.69**, lower on 10 of 12 — a bed
+that levels sideways keeps room near the surface, so rain infiltrates rather
+than pooling, which compounds with the drip fix that landed the same day.
+**The biology is a null** — plant cells 1.001, plants 1.026, animals 0.986,
+every sign split 6/12 or 7/12, against per-seed spreads of 0.71–1.40,
+0.73–1.42 and **0.21–2.22**. That last spread is why the null is about the
+measurement's power as much as about the world.
+
+**Two more ways the measurement nearly lied**, both from wiring the dial. A
+`CellSurface` default body returning the shipped value left the new guard
+green with `World`'s override deleted, because the moisture phase runs under
+`MoistureView` and `World` is the surface only in a control arm no test
+exercises — the trait method has no body now, so an unanswering surface does
+not compile. And the guard's first version asserted a bed-wide claim a
+four-cell scene cannot make: the moisture pass is change-driven, so in a
+sealed scene the levelling wave **strands** once a pass makes no writes. The
+guard asserts the rule; the sweep owns the bed.
+`Reports/soil-water-columns-2026-09-11.md` §7–§8.

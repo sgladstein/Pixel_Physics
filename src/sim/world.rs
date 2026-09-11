@@ -3001,6 +3001,43 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether soil levels its water sideways as readily as it does when
+    /// it is dry.** `update::update_soil_water`'s capillary exchange, and
+    /// the reason the bed stands in visible columns under the moisture
+    /// overlay.
+    ///
+    /// Capillary rests on a threshold, and there are two: above field
+    /// capacity a pair of neighbouring cells is declared level if it differs
+    /// by less than the drainable band (380 of 1000), below it by 60. The
+    /// wide one exists to stop a **pump** — drainage empties a cell in the
+    /// drainable band, capillary refills it from the saturated side, for
+    /// ever, keeping every chunk at every water-table boundary awake. That
+    /// argument is about two rules disagreeing over the *same* pair, and
+    /// **drainage only ever moves water down**, so the face it can fight
+    /// over is the vertical one. Applied to the sideways face as well, the
+    /// wide threshold lets two neighbouring columns stand a third of the
+    /// whole scale apart for ever.
+    ///
+    /// On, the sideways face uses the narrow threshold instead and the
+    /// columns go: over twelve seeds on the played bed, the widest standing
+    /// gap between neighbouring columns is **380 on every seed off and 0 on
+    /// every seed on**, and the water table stops being a comb of spikes.
+    ///
+    /// **Defaults off, which is the owner's ruling** (2026-09-11, on the
+    /// review card that put both beds in front of them): *"Let me test it in
+    /// a playtest… ship off by default."* A field on the world rather than
+    /// the `env::var` it started as, for exactly `plant_load_failure`'s
+    /// reason — a `OnceLock` read once per process is a measurement
+    /// instrument and cannot be reached from inside a running box, and a
+    /// playtest is the thing it was asked for. The lab's parameters panel
+    /// writes it; see `lab::params::Knob::Rule`.
+    ///
+    /// What it costs is the churn the wide threshold was holding down:
+    /// **1.84x the soil-moisture writes a tick, higher on 12 of 12 seeds**.
+    /// What it does *not* appear to cost is the biology — stand, plants and
+    /// animals all sit at a paired median of ~1.0 with the sign split down
+    /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
+    pub soil_capillary_levels: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -3952,6 +3989,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
@@ -7878,6 +7916,10 @@ impl CellSurface for World {
         self.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -8197,6 +8239,10 @@ impl CellSurface for MoistureView<'_> {
     #[inline]
     fn frame(&self) -> u64 {
         self.world.frame
+    }
+
+    fn soil_capillary_levels(&self) -> bool {
+        self.world.soil_capillary_levels
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {
