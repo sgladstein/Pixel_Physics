@@ -329,15 +329,19 @@ by somebody about to try it on creatures.
   the scale — applied to the **sideways** face, where the pump it was
   derived against cannot happen, since drainage only moves water down. Every
   pair in the bed at rest and the widest standing gap sitting **exactly on
-  the constant** is the tell. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
-  the sideways face and removes the columns outright (widest gap 380 → 0),
-  at **+44% to +67% soil-moisture writes a tick** and ~10% of the lab's
-  median tick — so it ships inert and the default is the owner's to rule on.
-  Recommendation: leave it, because the striping is invisible in the shipped
-  material colours and has no reach below field capacity; reopen it the day
-  the water table becomes something the game reads. §6 carries a cost A/B
-  that came back bit-identical because the bed was degenerate for the
-  question.
+  the constant** is the tell. The lever is `World::soil_capillary_levels`, a
+  dial on the lab's parameters page (`the bed / water_levels_sideways`): it
+  removes the columns outright, widest gap **380 → 0 on all twelve seeds**,
+  at **1.84x the soil-moisture writes a tick** (higher on 12 of 12) and ~10%
+  of the median tick on an empty box. **Owner's ruling, 2026-09-11: off by
+  default, and give me the dial.** §7 is the downstream sweep that ruling
+  asked for — the columns and the write count are the only consistent
+  effects, standing water falls to a median 0.69, and **the biology is a
+  null**: stand, plants and animals all within 3% of 1.0 with the sign split
+  down the middle and per-seed spreads up to 2.22x. §6 and §8 carry four
+  ways the measurement nearly lied, including a cost A/B that came back
+  bit-identical because the bed was degenerate for the question, and a guard
+  that could not see a missing trait implementer.
 
 ## Plants and trees  ·  `engine`
 

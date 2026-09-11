@@ -621,6 +621,14 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         world.plant_size_cadence,
         "WHETHER A BIG PLANT RUNS ON A SLOWER CLOCK THAN A SEEDLING. OFF, EVERY PLANT TICKS AT THE SAME RATE WHATEVER ITS SIZE, WHICH IS THE SHIPPED BEHAVIOUR. ON, A PLANT WAITS LONGER BETWEEN TICKS THE BIGGER IT IS -- A SEEDLING EVERY TICK, A GROWN TREE EVERY FIFTH. THIS IS THE ONE DIAL ON THIS PAGE THAT BUYS REAL SPEED IN A FULL BOX, BECAUSE A HANDFUL OF LARGE TREES IS ALMOST ALL OF THE WORK. IT IS ALSO NOT FREE: THE TICK IS THE PLANT'S ECONOMY, SO A SLOWED TREE DOES NOT MERELY UPDATE LESS, IT LIVES SLOWER WHILE THE SEEDS AROUND IT DO NOT -- WHICH CHANGES WHO WINS. LASTS THE SESSION.",
     ));
+    out.push(toggle(
+        Group::Box,
+        Knob::Rule { field: "soil_capillary_levels" },
+        "the bed",
+        "water_levels_sideways",
+        world.soil_capillary_levels,
+        "WHETHER WET SOIL EVENS ITSELF OUT SIDEWAYS. OFF IS THE SHIPPED BEHAVIOUR AND IS WHY THE BED STANDS IN VISIBLE COLUMNS WITH THE SOIL OVERLAY ON: ONCE GROUND IS WETTER THAN IT CAN HOLD AGAINST GRAVITY, TWO COLUMNS SIDE BY SIDE ARE ALLOWED TO SIT A THIRD OF THE WHOLE SCALE APART FOR EVER, SO EACH PATCH OF RAIN SOAKS STRAIGHT DOWN AS A STRIPE AND NEVER SPREADS INTO ITS NEIGHBOURS. ON, THEY LEVEL, AND THE WATER TABLE ON THE FLOOR GOES FROM A COMB OF SPIKES TO A FLAT SHEET -- MEASURED ON AN EMPTY BOX, WIDEST STANDING DIFFERENCE BETWEEN NEIGHBOURING COLUMNS 380 OF 1000 DOWN TO 0. IT IS OFF BY DEFAULT BECAUSE IT IS NOT FREE: THE RULE IT RELAXES EXISTS TO STOP THE BED SHUFFLING WATER BACK AND FORTH FOR EVER, AND TURNING IT ON COSTS ABOUT HALF AS MANY SOIL WRITES AGAIN EVERY TICK. NOTHING ABOVE FIELD CAPACITY IS WATER A PLANT CAN USE, SO THIS IS MOSTLY ABOUT WHAT THE OVERLAY LOOKS LIKE AND ABOUT HOW DEEP A TUNNEL FLOODS. IT IS FELT ON THE NEXT TICK AND IT LASTS THE SESSION.",
+    ));
     out.push(float(
         Group::Heredity,
         Knob::Heredity { field: "mutation_sigma" },
@@ -1052,6 +1060,15 @@ fn shipped_alarm_decay() -> f32 {
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dials {
+    /// `World::soil_capillary_levels`. **A plain `#[serde(default)]` is
+    /// correct here, unlike the three named defaults below**, and the
+    /// difference is worth stating because this file makes a point of it:
+    /// those load `0.0` as a *control arm* rather than as the shipped bed,
+    /// so a missing key silently changed behaviour. Here `false` **is** the
+    /// shipped bed (owner's ruling, 2026-09-11), so a dials file written
+    /// before this key existed loads exactly the box it was saved from.
+    #[serde(default)]
+    pub soil_capillary_levels: bool,
     pub plant_load_failure: bool,
     pub plant_bending: bool,
     pub plant_size_cadence: bool,
@@ -1102,6 +1119,7 @@ impl Dials {
     /// Read the current value of every dial off a live `World`.
     pub fn from_world(world: &World) -> Self {
         Self {
+            soil_capillary_levels: world.soil_capillary_levels,
             plant_load_failure: world.plant_load_failure,
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
@@ -1133,6 +1151,7 @@ impl Dials {
     /// [`write`]'s `Knob::Rule`/`Knob::Heredity` arms make, so a restored
     /// session cannot mean something a live edit could not also reach.
     pub fn apply_to(&self, world: &mut World) {
+        world.soil_capillary_levels = self.soil_capillary_levels;
         world.plant_load_failure = self.plant_load_failure;
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
@@ -1365,6 +1384,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_load_failure" => world.plant_load_failure = on,
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
+                "soil_capillary_levels" => world.soil_capillary_levels = on,
                 _ => return false,
             }
             true
