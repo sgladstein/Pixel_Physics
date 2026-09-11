@@ -145,15 +145,16 @@ the owner asked for or a landing needs; a finished lane resumes by
 contested by every lane — keep `main`'s fields, append yours, `cargo check`
 before pushing.
 
-**Open cards:** the seed deliveries (`…4ec0c3`), the founded bodies
-(`…7f9bac`), the re-bloom A/B (`…3257b2`), the long ant in a tunnel
-(`…9f00a9`).
+**The round's cards are answered (2026-09-11, in the record):** the flip
+is confirmed on sight; **bigger flowers with more variety** is a new ask
+(C2's petal-colour locus and a size lever); a one-cell event cannot be
+judged on a card even at 5x — mark the cell or follow it.
 
 **Round twenty-eight, proposed and not yet ruled:** the flitter (P2, with
 the eye-price control inside it); the garden loop's rate (where windfall
 lands against where ants walk; why a dropped pip never germinates); the
-bodies ruling; sugar water as the first player verb. The wider list of
-offered ideas is the round record's last paragraph.
+bodies ruling; sugar water as the first player verb; the wider list is in
+the record.
 
 ## The earlier rounds
 

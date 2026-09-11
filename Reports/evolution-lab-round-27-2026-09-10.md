@@ -206,10 +206,17 @@ file's mtime is not its last write; read the last timestamp in it.
 **Open at close.** The bodies' ruling across #303 → #311 → #315 + #316 (land
 after greening the two reds, or park and keep the two-cell ant); the flitter
 (P2) before the scent plane (P1b), since scent buys a ground animal
-nothing; the garden loop's rate; plant counts lower under rebloom; and four
-cards unanswered — the seed deliveries (`…4ec0c3`), the founded bodies
-(`…7f9bac`), the re-bloom A/B (`…3257b2`), and the long ant in a tunnel
-(`…9f00a9`). Ideas the owner asked for and did not yet rule on: sugar water
+nothing; the garden loop's rate; plant counts lower under rebloom. **The
+four cards came back at 01:39 UTC on 2026-09-11**: the long ant in a tunnel
+(`…9f00a9`) — *allowed to turn round*, the flip confirmed on sight; the seed
+deliveries (`…4ec0c3`) — *"cannot really tell at this resolution"*, so a
+one-cell event is unreadable even zoomed 5x and the next such card marks
+the cell or follows it; the founded bodies (`…7f9bac`) — *"they mostly seem
+to be on the soil, I can only really identify 12"* against 13 in `meta`; the
+re-bloom A/B (`…3257b2`, blind) — no side chosen, *"still reads as flowers
+but bigger flowers with more variety would be nice"*, which is a new ask
+rather than a verdict on re-bloom: flower size and variety, the petal-colour
+locus (C2) and a size lever. Ideas the owner asked for and did not yet rule on: sugar water
 as the first player verb, a divider that splits the bed into a paired
 experiment, evolving the flitter's brain in the selection arena instead of
 writing it, a lamp schedule, a predator with an alarm plane, death that
