@@ -152,10 +152,30 @@ on the same three seeds:
 than 16 on two seeds, and size 9 with only the spread and the third band
 still reads under main — so either the per-plant *spread* (heads up to 1.7x)
 is a second term, or three seeds are three re-rolled worlds, since main's own
-three span 303–574. Card `…e1ee88`, a blind A/B/C (9 / 12 / 16). A fourth
-lane (D) runs the discriminating sweep — spread on against off at 12, six
-seeds, read as a median — and ships what holds; its result is in *Open at
-close*.
+three span 303–574. Card `…e1ee88`, a blind A/B/C (9 / 12 / 16) — the owner,
+decoded through `blind_was`, preferred 16 and 12 over main's 9 and could
+not tell 16 from 12.
+
+**The six-seed sweep (lane D, no code change) says neither term.**
+`played_bed`, 120,000 frames, seeds 1–6, main and branch rebuilt fresh:
+
+| arm | plants at 60,000 median / worst | plants at 120,000 median / worst |
+|---|---|---|
+| main | 510.5 / 282 | 194.0 / 39 |
+| shipped (12, spread ±70%) | 620.5 / 344 | 574.5 / 31 |
+| 12, spread forced to 0 | 945.0 / 276 | 411.5 / 214 |
+
+Both branch arms clear the −25% bar by a wide margin and the shipped arm's
+median sits *above* main's, so the three-seed shortfall was the bed's own
+spread. **Under it, a real thread for the next round:** main's played bed at
+120,000 frames read 464 / 574 / 303 on seeds 1–3 at d1535c39 and 194 / 39 /
+139 on the same seeds at eafde084 — between them #320 (the bodies; the
+shipped colony forages better, deliveries 9 → 20), #323, #324 and #325
+landed. A bed that thins by an order of magnitude at session length is the
+owner's own "I think they are overgrazing" reading from 2026-09-10; nothing
+was tuned, and the bisect is owed. Shipped: `organ_cluster` 12, the spread
+as it was, three herb bands; the medians beside `organ_cluster` in
+`herb.ron`.
 
 ## Lane C — the garden loop's missing last step (#319, merged c8a9bf99)
 
