@@ -2331,16 +2331,28 @@ pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism
 /// own doc for why that is a real, priced substitution rather than a
 /// conservation gap.
 pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
+    // Read once, before the write below, and reused by both the debug line
+    // and the roll itself -- `Reports/lanes/evolution-lab-garden-rot.md`
+    // asked for the roll's own inputs printed at the point they are used,
+    // not reconstructed from the two callers separately.
+    let half_life = world.organism(passenger.organism_id).map(|s| s.species).map(|sp| world.species.get(sp).seed_half_life);
     // **`A2_DEBUG=1` -- one line per delivery**, the same convention
     // `windfall_probe`'s `WF_DEBUG` uses: free when unset (one env read),
     // and the only way a card-hunting session finds *which* frame and
     // column to zoom a GIF on without adding a one-off print and reverting
-    // it.
+    // it. Extended, round 28's garden-rot lane: the transit roll's own
+    // inputs (span, half-life, computed survival) rather than trusting the
+    // arithmetic by eye -- this is what confirmed the roll itself was
+    // correct and pointed at the missing reschedule below instead.
     if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
-        eprintln!("A2_DEBUG deliver frame={} organism={} at=({x},{y}) carried_frames={}", world.frame, passenger.organism_id, world.frame.saturating_sub(passenger.picked_up_frame));
+        let rot_p = half_life.map(|h| half_life_chance(h, frames_carried));
+        eprintln!(
+            "A2_DEBUG deliver frame={} organism={} at=({x},{y}) carried_frames={frames_carried} half_life={half_life:?} rot_p={rot_p:?}",
+            world.frame, passenger.organism_id
+        );
     }
     world.carried_seed_organisms.remove(&passenger.organism_id);
-    let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
     world.seed_transit_frames.push(frames_carried as u32);
     world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
     world.seeds_delivered += 1;
@@ -2350,6 +2362,29 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
     if let Some(state) = world.organism_mut(passenger.organism_id) {
         state.pip_delivered = true;
     }
+    // **Round 28's garden-rot fix: re-arm the Germinate schedule this
+    // delivery just gave a cell back to.** `organism_tick`'s own "seed
+    // relocated" recovery (`relocated_seed`, this file) can only find a
+    // live cell to reschedule *from* -- while this organism rode as a
+    // passenger it owned zero cells, so if its pre-existing schedule (set
+    // back when it was a windfall, or at the bite that turned it into a
+    // pip) happened to come due mid-transit, `organism_tick` found nothing
+    // to relocate to and returned an empty reschedule, silently dropping
+    // the organism's Germinate schedule for good. That is not an edge
+    // case: `ORGANISM_TICK_INTERVAL` is 45 frames and a real carry runs
+    // into the hundreds (round 28 measured a 175-frame median), so a
+    // schedule coming due mid-carry is closer to certain than rare.
+    // `bear_seed_at` and the germinate-wait reseed both arm a fresh
+    // `CellType::Seed` cell the same way the instant they write it; this
+    // call site wrote the cell and never did, which is why `pip_checks`
+    // read 0 on every seed across two whole rounds -- not the transit roll
+    // below, which is arithmetically exactly what its own doc claims (see
+    // `a_delivered_pips_transit_roll_uses_the_carried_span_and_the_species_
+    // half_life` and `a_delivered_pip_is_still_scheduled_for_its_own_
+    // germinate_check_after_a_long_carry`). Harmless when the roll just
+    // below kills the pip on the spot: `organism_tick` finds the organism
+    // holds no cell by then and no-ops, the same as any other stale site.
+    world.schedule_active_site(reschedule_organism(x, y, passenger.organism_id, 0, 0, world.frame + SEED_TICK_INTERVAL));
     // **The decay clock keeps running while carried** (§2.5) -- a free,
     // graded transit cost, not a free ride. A passenger owns no cell in the
     // grid for `organism_tick`'s own per-tick decay roll to visit while it
@@ -2359,7 +2394,6 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
     // (`1 - 0.5^(interval/half_life)`), so one roll over the whole span is
     // the exact same hazard a seed that never left the ground would have
     // faced tick by tick.
-    let half_life = world.organism(passenger.organism_id).map(|s| s.species).map(|sp| world.species.get(sp).seed_half_life);
     if let Some(half_life) = half_life {
         let mut rng = growth_stream(world, passenger.organism_id, x, y);
         if rng.chance(half_life_chance(half_life, frames_carried)) {
@@ -5553,17 +5587,30 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // **Round 28's garden-loop instrument, read-only and
                 // additive** -- `Reports/lanes/evolution-lab-garden-loop.md`
                 // hypothesis (a): is a pip set down somewhere it can never
-                // clear these two thresholds? One row per pip, on its
-                // first Germinate check only (`deferred_germination` false
-                // on entry -- set true a few lines down if this pip is not
-                // ready), so a pip that sits out a dry spell does not
-                // multiply its own row. Gated on the pip material *and*
-                // "first check" together, so the cost never lands on any
-                // other seed's hot path -- an ordinary `seed`/`windfall`
-                // reaching this arm every tick pays nothing extra.
-                if world.materials.id_of("pip").is_some_and(|id| id == cell.material)
-                    && !world.organism(organism_id).is_some_and(|st| st.deferred_germination)
-                {
+                // clear these two thresholds? Gated on the pip material
+                // alone, so the cost never lands on any other seed's hot
+                // path -- an ordinary `seed`/`windfall` reaching this arm
+                // every tick pays nothing extra, and the volume here is
+                // always a handful of pips a run at most.
+                //
+                // **Not gated on `deferred_germination` any more, and that
+                // was a real undercount, caught by round 28's garden-rot
+                // lane rather than assumed correct.** That flag is the
+                // organism's own "told not-yet at least once, ever" --
+                // round 27/28 measured it can already be `true` from a
+                // windfall-phase evaluation *before the fruit was ever
+                // bitten* (a hanging or freshly-fallen fruit is already
+                // `CellType::Seed` and reaches this same arm, material
+                // check aside), so gating a pip's "first look" on it missed
+                // exactly the individuals that had deferred once already --
+                // one seed's own germinated pip (`plants_from_pip` moved)
+                // logged zero rows here under the old gate, which is the
+                // `CLAUDE.md` "ask what your number counts" failure applied
+                // to this file's own instrument rather than to the game's.
+                // Logging every check a standing pip gets, not only the
+                // first, is what the low volume buys: the full trajectory
+                // rather than one snapshot, for free.
+                if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
                     let diag_light = ambient_light_above(world, x, y);
                     let diag_holds_water = world.materials.get(below.material).water_capacity > 0;
                     let diag_soil_water = if diag_holds_water { update::plant_available_fraction(below) } else { 0.0 };
@@ -22635,6 +22682,108 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let cells = w.organism(id).map_or(0, |st| st.cells.len());
         assert!(cells > 1, "a pip on wet soil under open sky should have germinated within herb's germination budget, got {cells} cell(s)");
         assert_eq!(w.plants_from_pip, 1, "the it-worked counter must move when a pip germinates");
+    }
+
+    /// **Round 28's garden-rot lane: the transit-decay roll's span is the
+    /// carried span, not the organism's whole age.** A zero-frame carry
+    /// (picked up and delivered on the very same tick) must never lose the
+    /// roll -- `half_life_chance(half_life, 0)` is exactly `1 - 0.5^0 = 0`,
+    /// and `Rng::chance` returns `false` at `p <= 0.0` *without drawing*
+    /// (`seed_survives_bite`'s own doc), so this is a deterministic
+    /// assertion, not a seeded coin flip. The organism itself is stamped
+    /// old (`world.frame = 50_000` before the seed is even placed) so that
+    /// a roll reading the wrong clock -- the organism's age since it was
+    /// borne, say, instead of `picked_up_frame` -- would read a huge span
+    /// and almost certainly fail here instead.
+    #[test]
+    fn a_delivered_pips_transit_roll_uses_the_carried_span_not_the_organisms_whole_age() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (50, 50);
+        w.frame = 50_000;
+        place(&mut w, (fx, fy), windfall, id, CellType::Seed, (0.0, 0.0));
+
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, fx, fy, passenger);
+
+        assert_eq!(
+            w.pips_rotted, 0,
+            "a zero-frame carry must never lose the transit roll -- a non-zero rot here means the span fed to half_life_chance was not the carried span"
+        );
+        assert_eq!(w.get(fx, fy).material, pip, "the pip must still be standing after a zero-frame carry");
+    }
+
+    /// **Round 28's garden-rot fix, the positive control.** `pip_checks`
+    /// (`Reports/lanes/evolution-lab-garden-loop.md`'s own instrument) read
+    /// 0 on every seed across two whole rounds -- not because the transit
+    /// roll above was wrong, but because `deliver_seed_passenger` wrote a
+    /// fresh cell into the grid and never re-armed its Germinate schedule
+    /// the way `bear_seed_at` and the germinate-wait reseed both do the
+    /// instant *they* write one. `organism_tick`'s own "seed relocated"
+    /// recovery (`relocated_seed`) can only find a live cell to reschedule
+    /// *from* -- while an organism rides as a passenger it owns zero cells,
+    /// so a pre-existing schedule coming due mid-carry drops silently. A
+    /// carry of 300 frames, well past `ORGANISM_TICK_INTERVAL` (45), is the
+    /// ordinary case (round 28 measured a 175-frame median), not an edge
+    /// one.
+    #[test]
+    fn a_delivered_pip_is_still_scheduled_for_its_own_germinate_check_after_a_long_carry() {
+        let mut w = test_world();
+        w.seed = 1; // a provably rain-free window, same pin the germinate test above uses
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+            for fx in (x - HALF)..=(x + HALF) {
+                w.set(fx, y + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+
+        // A fruit borne elsewhere, bitten, and picked up as a passenger --
+        // the ordinary A1/A2 sequence, away from the bed the delivery lands
+        // on so nothing about the fruit's own site matters here.
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (10, 10);
+        place(&mut w, (fx, fy), windfall, id, CellType::Seed, (0.0, 0.0));
+        let mut rng = Rng::new(7);
+        assert!(seed_survives_bite(&mut w, fx, fy, &mut rng), "test setup: the roll must pass at seed_gut_survival 1.0");
+        let passenger = take_seed_passenger(&mut w, fx, fy).expect("test setup: a pip must yield a passenger");
+
+        // The long carry: delivered 300 frames after pickup, well past
+        // `ORGANISM_TICK_INTERVAL`.
+        w.frame += 300;
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        assert!(w.pip_checks.is_empty(), "test setup: delivery itself must not already count as a Germinate check");
+
+        run_with_fields(&mut w, 200);
+
+        assert!(
+            w.organism(id).is_some(),
+            "test setup: the organism must still exist after a plain 200-frame run on wet soil, or this test proves nothing about scheduling"
+        );
+        assert!(
+            !w.pip_checks.is_empty(),
+            "a delivered pip must still be on the Germinate schedule after a carry longer than ORGANISM_TICK_INTERVAL -- an empty pip_checks means the schedule was silently dropped mid-transit and never re-armed on delivery"
+        );
     }
 
     /// **A2, first hook: a bite that passes the roll loads a passenger and
