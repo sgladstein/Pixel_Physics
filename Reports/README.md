@@ -2037,6 +2037,28 @@ drift that two of these documents still reflect.**
   frames, 2.1 J of a 120 J meal) and the six constants the append reallocates,
   `mutation_rate` 0.0039308 → **0.0037589** across six species files first among
   them.
+- [evolution-lab-flitter-bed-2026-09-11.md](evolution-lab-flitter-bed-2026-09-11.md)
+  — **round 29's bed question, measured; one scenario file shipped and one bug
+  filed.** The float from the design above works and bought almost nothing on
+  `played_bed`, so this asks the design's own §6 — is the bed the lever? It is,
+  and it is not the binding one. Three beds, three seeds, 120,000 frames:
+  `flower_visits` medians **8 → 69 → 74** (about ninefold) and **alive at
+  120,000 is zero on nine of nine bed-seed pairs**, so the ship condition fails
+  and `played_bed_understory.ron` lands as a named scenario rather than as
+  `played_bed`'s new default. **What separates the beds is a distance, not a
+  density**: the standing-flower count predicts nothing across the nine pairs
+  (a 43-flower bed takes 108 visits, a 57-flower bed takes 5) while the
+  nearest flowering clump's distance from the nest — 138 / 84 / 59 columns
+  against a 32-cell eye — lines up exactly. The census then names what does
+  kill them: every visit happens in the colony's first 6,000 frames, the
+  flowers never run out, and **29 of 30 deaths are in mid-air with 55% of the
+  colony's whole burn spent on lift** — the float's gate is *visibility* where
+  it should be *proximity* (`open-bugs-handoff.md` §Z10, with the one-weight
+  control measured: aloft deaths 59 → 8, births 5 → 10). The threshold the
+  brief asked for: **0.22 visits per 1,000 frames per animal against the 1.6
+  the economy needs**, seven times short with the bed as close as the founding
+  rules allow. Also carries B2 (a sense-driven take-off) measured and declined
+  — `moves` per launch 2.2–2.7x, median visits down.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is

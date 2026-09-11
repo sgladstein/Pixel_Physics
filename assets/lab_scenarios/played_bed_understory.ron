@@ -1,0 +1,100 @@
+// The played bed with a flowering understory at the edges of the nest band
+// -- round 29's bed question, 2026-09-11.
+//
+// **Why this file exists.** B1 gave the flitter a float
+// (`Reports/evolution-lab-flight-design-2026-09-11.md`), and the float works:
+// it fires, it steers, it lands on the bloom, and a guard shows it closing on
+// a flower no walk or hop can reach. What it did **not** buy was meals. The
+// measurement that says why is not about the animal at all:
+//
+//   seed   standing flowers on the bare bed   flitter flower_visits   born
+//     1                 23                            76               3
+//     2                  6                             8               0
+//     3                  6                             5               0
+//
+// **The payoff tracks the flower supply, not the animal.** That is the
+// design's own §6 condition -- *"it becomes the right lever after B1"* -- and
+// the owner's own third option, "or we need a better bed for the flitter".
+//
+// **What changes, and it is four lines.** `played_bed.ron` exactly, plus four
+// scramblers -- the only shipped plant that carries a real flower count
+// (round 27: a median 60 standing flowers against `played_bed`'s 16) -- at
+// **140, 170, 340 and 372**.
+//
+// **The columns are the whole design of this file, and they are constrained
+// from both ends.** The colony lands at x=256 at frame 6,000 and
+// `found_colony_of` needs bare footing, so `played_bed.ron`'s header keeps
+// columns **180-330** clear; `played_bed_scrambler.ron` put scramblers at 195
+// and 315 and seated **2 founders of 52**. So the flowers cannot go in the
+// band. But the flitters are founded *in* the band, their eye reaches 32
+// cells, and `played_bed`'s nearest plants to the nest are the shrub at 180
+// and the grass at 330 -- **76 columns from where the animals start**, which
+// is more than twice the eye. Four flowering clumps at 140/170/340/372 are
+// the closest a flower can legally stand to the nest: outside the band by 10
+// and 10, and 86 columns of flowering ground closer than the old nearest
+// bloom.
+//
+// **The founder count is the gate on this file, not a footnote.**
+// `played_bed` seats 33 / 13 / 18 on seeds 1 / 2 / 3 and that spread is a
+// real property of it; a variant that seats materially fewer has bought
+// flowers with the colony and is not the bed the owner plants. Read
+// `labforage`'s founder line at frame 6,100 before reading anything else
+// here.
+//
+// Everything else is `played_bed.ron` unchanged, including the tree, so a
+// difference between the two files is the understory and nothing else.
+(
+    name: "played_bed_understory",
+    title: "THE PLAYED BED WITH A FLOWERING UNDERSTORY",
+    question: "The owner's mix with four flowering clumps just outside the nest band -- can a flitter make a living on it, and does the colony still seat?",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "grass", x: 25),
+        Plant(species: "herb",  x: 50),
+        Plant(species: "shrub", x: 75),
+        Plant(species: "grass", x: 105),
+        Plant(species: "herb",  x: 130),
+        Plant(species: "grass", x: 155),
+        Plant(species: "shrub", x: 180),
+        Plant(species: "grass", x: 330),
+        Plant(species: "herb",  x: 355),
+        Plant(species: "shrub", x: 380),
+        Plant(species: "grass", x: 410),
+        Plant(species: "herb",  x: 435),
+        Plant(species: "grass", x: 465),
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 118),
+        Plant(species: "scrambler", x: 395),
+        Plant(species: "scrambler", x: 490),
+        Plant(species: "tree",      x: 455),
+        // The four this file is for. Outside 180-330 by ten columns at each
+        // end -- see the header for why that margin is the whole design.
+        Plant(species: "scrambler", x: 140),
+        Plant(species: "scrambler", x: 170),
+        Plant(species: "scrambler", x: 340),
+        Plant(species: "scrambler", x: 372),
+    ],
+    timeline: [
+        // Identical to `played_bed.ron`'s own entry -- see that file's header
+        // for why the band must stay bare rather than being swept with an
+        // explicit `Clear`.
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+    ],
+    horizon: 120000,
+)

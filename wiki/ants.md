@@ -1,6 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-11, later the same day, when **the flitter learned
+*Current as of: 2026-09-11, evening, when **a bed was built for the flitter
+and it still could not live on one** -- four flowering clumps beside the nest
+multiply the flowers it drinks from about ninefold and change nothing about
+whether it survives, because on a bed that rich it barely comes down. See "The
+flitter" below. Earlier the same day, when **the flitter learned
 to stay up**: an animal that can see a flower now holds itself on the air,
 turns while it is up there and settles on the bloom, instead of being thrown
 in an arc it cannot steer. The same change stopped anything that lands on
@@ -1024,12 +1028,32 @@ flowers standing and on the ones where it does badly there are six. A flower
 head is a handful of cells and a whole bed holds a few dozen; arriving at one
 turns out not to be the same as there being enough of them.
 
-**So the honest state of it is: the animal works and its food is too thin on
-the ground.** It flies, it steers, it reaches the canopy, it will not touch
-anything but nectar, and it cannot yet make a living. **The thing that is
-missing is no longer the animal — it is the bed.** A thicket in flower, more
-flowers, or something that leads an animal from one to the next are all the
-same problem from different sides.
+**A bed was then built for it, and here is what that settled.** Take the
+owner's own mix and add four flowering clumps just outside the bare band the
+nest needs: the flitter drinks from **about nine times as many flowers**, young
+are born on more seeds than before, and the colony empties by the same point it
+always did — with the flowers still standing at the end. **What separates a bed
+it can work from one it cannot is a distance, not a number of flowers.** The
+plain bed's nearest flowering clump stands 138 columns from where the animals
+land and a flitter can see 32; bring the nearest bloom inside about ninety
+columns and the whole ninefold arrives, and bringing it closer than that buys
+nothing and starts costing the nest its footing.
+
+**And the richer bed exposed something the poor one was hiding.** A flitter
+only stops flying when there is no flower in sight — so on a bed full of
+flowers it hardly ever stops. Watched over a long session there, **fifty-five
+per cent of everything the colony eats goes on staying in the air**, and
+twenty-nine of its thirty deaths happen in mid-air with a full bed underneath
+it. That is a wiring number rather than a fact about the world, and it is the
+next thing to change: the animal should hold itself up for the last few cells
+to a flower, not for the whole day because it can see one somewhere.
+
+**So the honest state of it is: the animal works, the bed has given what a bed
+can give, and it is still about seven times short of feeding itself.** It
+flies, it steers, it reaches the canopy, it will not touch anything but nectar,
+and it cannot yet make a living. What is left is the animal's own economy — how
+long its founding grant lasts, how much a flower is worth, and how much of its
+day it spends aloft.
 
 **And it carries no pollen.** Visiting a flower feeds the flitter and does
 nothing for the plant. That is the next piece.
