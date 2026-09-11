@@ -6293,7 +6293,7 @@ fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
 /// already in the engine as authored per-species constants; making them
 /// heritable alleles is what lets the simulation find combinations nobody
 /// wrote down.
-pub const DISCRETE_LOCI: usize = 6;
+pub const DISCRETE_LOCI: usize = 7;
 
 /// **Leaf construction economics** — the acquisitive↔conservative axis,
 /// and the foliage band the individual wears; one allele, both meanings.
@@ -6325,6 +6325,31 @@ pub const LOCUS_TROPISM: usize = 4;
 /// allele (`bark_band_for_density`), so bark tone is a readout of a real
 /// gene, exactly as foliage tone is.
 pub const LOCUS_WOOD_DENSITY: usize = 5;
+/// **Petal colour** — which band of the species' `flower_bands` range an
+/// individual's flowers take. Until this locus existed, petal colour was
+/// the loudest single-pixel channel the plant owns and the one channel
+/// that was *not* heritable: `bear_seed_at` drew it fresh per individual
+/// from `ORGAN_BAND_STREAM`, so a cross's petals looked random rather than
+/// a blend of its parents (Brief C2, `Reports/evolution-lab-pollinator-
+/// design-2026-09-10.md` §3.4-3.5).
+///
+/// **Founded like `LOCUS_WOOD_DENSITY`, not like `LOCUS_LEAF_ECONOMY`.**
+/// Every species declares foliage bands, so founding foliage tone by
+/// drawing the band and backing the allele out of it never starves the
+/// locus of variance. Not every species flowers — `tree`, `conifer`,
+/// `creeper` and `grass` declare no `flower_bands` at all — so the same
+/// trick here would found every one of their individuals on allele 0
+/// always, which is the exact frozen-locus defect `FOUNDER_VARIANT_CHANCE`
+/// exists to avoid. `seed_genotype` instead draws the allele first, on its
+/// own positional stream, and derives the band from it, so every species
+/// gets real per-founder diversity on this locus even where it drives
+/// nothing on screen. Once founded it is fully heritable: a bred seed
+/// derives `flower_band` from this allele in `bear_seed_at`, the direct
+/// clamp `foliage_band` already uses
+/// (`flower_bands.first + allele.min(count - 1)`), rather than taking a
+/// fresh draw. Fruit colour still has no locus; that gap is recorded, not
+/// fixed, where `bear_seed_at` sets `fruit_band`.
+pub const LOCUS_FLOWER_COLOUR: usize = 6;
 
 /// How many alleles each locus has.
 ///
@@ -6335,7 +6360,15 @@ pub const LOCUS_WOOD_DENSITY: usize = 5;
 /// two bands, so a jump landed on the top band five times as often as
 /// the bottom one. Two alleles for two strategies removes the bias by
 /// construction.
-pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3];
+///
+/// `LOCUS_FLOWER_COLOUR` is 2 for the identical reason: every flowering
+/// species shipped today (`herb`, `scrambler`, `shrub`) declares exactly
+/// two flower bands. A non-flowering species (`tree`, `conifer`,
+/// `creeper`, `grass`) still carries the locus and jumps it like any
+/// other — it just drives nothing visible there, the same free ride
+/// `LOCUS_WOOD_DENSITY`'s bark-band mapping already gives a species with
+/// `bark_bands.count == 0`.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3, 2];
 
 /// Multipliers on the species' `branch_angle`, one per allele of
 /// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*

@@ -3,17 +3,22 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (**a seed can leave in an animal's mouth instead
-of only in the wind.** An ant that bites a fallen fruit sometimes finds the
-seed inside survives the bite, and sometimes carries it home instead of
-leaving it where it fell — see **Seeds carry provisions** and **The forest
-floor**. It is a real path, not a decoration: measured over three long
-sessions on the mixed bed the owner actually plants, it has carried a seed
-home a handful of times and none has yet come up as a plant — the seed
-usually does not outlive the trip, most fallen fruit lies where no animal's
-own daily round ever reaches it, and the one seed that did survive to be set
-down was eaten again within moments of arriving. So this is the shape of a
-mutualism that has not yet closed, not one that has.)*
+*Current as of: 2026-09-11 (two independent changes landed the same day.
+**Petal colour passes from parent to seedling** — see "Colour is a
+readout, not decoration" below; it used to be the one channel a cross
+could not carry, and a bred stand's flowers now track their parents'
+shade the way foliage and bark already did. **A seed can leave in an
+animal's mouth instead of only in the wind** — an ant that bites a fallen
+fruit sometimes finds the seed inside survives, and sometimes carries it
+home instead of leaving it where it fell; see **Seeds carry provisions**
+and **The forest floor**. It is a real path, not a decoration: measured
+over three long sessions on the mixed bed the owner actually plants, it
+has carried a seed home a handful of times and none has yet come up as a
+plant — the seed usually does not outlive the trip, most fallen fruit
+lies where no animal's own daily round ever reaches it, and the one seed
+that did survive to be set down was eaten again within moments of
+arriving. So this is the shape of a mutualism that has not yet closed,
+not one that has.)*
 
 *Before that: 2026-09-10 (**a spent flower is not the last one.** A herb,
 a scrambler and — new on this date — a shrub used to flower an axis exactly
@@ -677,9 +682,21 @@ above the soil line means a root flare and nothing more.
 It matters past appearance: root tissue holds loose soil against falling, and
 a plant made of the wrong stuff was gripping the air.
 
-A freshly seeded stand is mixed on both axes from the first frame, so this is
-visible immediately rather than only after generations. What selection then
-does to those proportions is the thing worth watching over a long run.
+**New on 2026-09-11: petal colour passes from parent to seedling.** It used
+to be the one part of a flowering plant that did not inherit — a bred
+seedling's petals landed on a fresh shade drawn for it alone, so a cross's
+children looked no more like their parent's flowers than a stranger's would.
+Petal colour now works exactly like foliage tone and bark tone: a seedling's
+flowers wear its parent's shade, drifting only on the same rare jump that
+occasionally moves any of a plant's other inherited traits to a neighbouring
+value. Fruit colour is the one channel this still does not reach — it is
+still redrawn fresh at every flowering, on every plant, with no memory of
+the parent.
+
+A freshly seeded stand is mixed on all three colour axes from the first
+frame, so this is visible immediately rather than only after generations.
+What selection then does to those proportions is the thing worth watching
+over a long run.
 
 ## Seeds carry provisions
 

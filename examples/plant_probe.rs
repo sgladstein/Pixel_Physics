@@ -707,7 +707,16 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         // sheet can show it, and a column that never moves across a long
         // breeding run is a lever selection is not pulling. Loci in slot
         // order (organism::LOCUS_*): economy, angle, internode, sympody,
-        // tropism, density.
+        // tropism, density, petal.
+        //
+        // **The name list is hand-kept beside `DISCRETE_LOCI` and is exactly
+        // the kind of thing that goes silently wrong on a widening**: `zip`
+        // stops at the shorter iterator, so a widened locus table with no
+        // matching name here would drop that locus from the printed line
+        // with no error at all -- caught only by noticing the report was one
+        // column short of `DISCRETE_LOCI`. Widened for `LOCUS_FLOWER_COLOUR`
+        // (round 28, Brief C2) when this is exactly the counter the round
+        // uses to prove a founder stand is not all one petal allele.
         let mut allele_counts = [[0u32; 3]; organism::DISCRETE_LOCI];
         for id in per_organism.keys() {
             if let Some(s) = w.organism_state(*id) {
@@ -718,7 +727,7 @@ population: {} organisms -- {grown} established (>= {ESTABLISHED} cells), {seeds
         }
         let census: Vec<String> = allele_counts
             .iter()
-            .zip(["economy", "angle", "internode", "sympody", "tropism", "density"])
+            .zip(["economy", "angle", "internode", "sympody", "tropism", "density", "petal"])
             .map(|(c, name)| format!("{name} {}/{}/{}", c[0], c[1], c[2]))
             .collect();
         println!("  alleles: {}", census.join("  "));
