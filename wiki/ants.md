@@ -1,7 +1,21 @@
 # Ants
 
-*Current as of: 2026-09-11: a colony can carry a seed home instead of only
-a meal, documented rather than shipped new — the mechanism landed
+*Current as of: 2026-09-11, when the articulated body landed as a species
+you place rather than the one your colony starts with. The shipped ant is
+still two cells nose-to-tail -- every gate that leans on that shape (a
+chamber the colony digs and roofs over itself, a bite that closes one
+mouthful at a time) needs it, and nothing about the box's default colony
+changed today. A five-segment **long ant** is now on the shelf as its own
+species, identical to the ant in everything but its body, for anyone who
+wants to see a longer animal forage, found and turn round in a dead end;
+place it the same way you place any other species. On top of that, from
+2026-09-10: **a long ant can now turn round in a dead end** instead of
+standing there stuck -- see "And a long ant can now turn round" below. It
+is the default for any body that has one, not an experiment: the one
+thing it had to be taught not to do is turn a laden forager away from a
+nest door that only looked blocked because another ant was passing
+through it, which it no longer does. The same day, **a colony can carry a seed home instead of only
+a meal**, documented rather than shipped new — the mechanism landed
 2026-09-10 and this is the honest read of what it does. See "What is not
 finished": a seed has ridden home and been set down alive a handful of
 times across three long sessions, and none has yet grown, because most
@@ -253,6 +267,24 @@ A colony in a wood is a great deal less stuck than it was. Blocked steps
 roughly halve, and where growing plants used to be what stopped an ant on
 two thirds of its failed steps, the handful left are trunks with no far side
 to reach.
+
+**And a long ant can now turn round.** Turning and looking somewhere else
+works for a short body, but a body several cells long cannot back out of a
+dead end the way it walked in — there simply is no way for it to step
+backwards over its own length. Walk one into a blind tunnel, a passage
+that doubles back sharper than its own body can bend, or a burrow it dug
+itself into a corner, and where it used to stand there twitching it now
+turns end for end on the spot — the tail becomes the head, facing back the
+way it came, with nothing about the animal moving to make room for it. The
+next step is an ordinary one, back out the way it arrived. It only does
+this once every heading really is refused, not merely the one it happened
+to be facing, so a length that can simply turn a corner still does.
+
+A carrying ant weighs this differently near the nest, where the colony's own
+comings and goings can make the one open path look blocked for a moment: it
+will wait out a jam from a nestmate rather than turn for home and walk away
+from a door it was about to reach, and only turns end for end when nothing
+in its way is going to move on its own.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than

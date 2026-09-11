@@ -121,9 +121,18 @@
     // burnt *beetle* is therefore under-priced at 120 against its own 200,
     // which is deliberate: fire destroying some of a carcass's worth is the
     // reading that costs nothing to believe, and the alternative is
-    // teaching
-    // a generic burnout path about creature species.
-    food_energy: 480.0,
+    // teaching a generic burnout path about creature species.
+    //
+    // **480 until 2026-09-10, and the comment above described the change
+    // while the number did not carry it.** The articulated bodies re-priced
+    // flesh per cell -- an ant is 7 cells at 137.14 and a hopper 8 at 120,
+    // both still 960 for a whole animal -- and this fallback stayed at the
+    // old whole-cell 480. A burnt seven-cell ant was therefore worth
+    // 7 x 480 = 3,360 against the 960 its flesh cost to build: **3.5x
+    // energy creation on the one path `food_value` documents as live**, in
+    // a ledger `EnergyLedger` asserts closed. Caught by reading the
+    // invariant rather than by any gate -- nothing counts a burnt ant.
+    food_energy: 120.0,
     // In MPa like every other value of this field. Carrion is dead cuticle,
     // and softer than the live cuticle at 0.25 -- which is what keeps the
     // scavenger niche the cheap meal.
