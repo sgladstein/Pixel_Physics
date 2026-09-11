@@ -6520,6 +6520,14 @@ const EMBEDDED: &[&str] = &[
     // that added this line (`material.rs`'s own `include_str!` list is a
     // different file this session does not own).
     include_str!("../../assets/species/hopper.ron"),
+    // **The flitter -- Brief P2, the first animal whose living is flowers.**
+    // Cut from `hopper.ron` (see that file's own header, and this file's),
+    // appended at the end, same convention as everything above it. Its
+    // companion `assets/materials/flitter.ron` lands in the same change --
+    // `hopper.ron`'s own comment above records what shipping one file short
+    // of that produces: the species loads, appears on the COLONY chip, and
+    // places nothing.
+    include_str!("../../assets/species/flitter.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

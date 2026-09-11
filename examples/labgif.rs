@@ -37,11 +37,27 @@ use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::update;
+use pixel_physics::sim::world::World;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
         .skip(1)
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
+}
+
+/// The head cell of the first living animal of `species` (lowest organism id
+/// first) -- **P2's own card knob, `follow=` below.** Reads world state only;
+/// the camera write happens at the call site, which borrows `lab.renderer`
+/// separately, so the two can never conflict.
+fn head_of_first(world: &World, species: &str) -> Option<(i32, i32)> {
+    let sid = world.species.id_of(species)?;
+    world.live_organism_ids().into_iter().find_map(|id| {
+        let state = world.organism(id)?;
+        if state.species != sid {
+            return None;
+        }
+        state.chain.first().copied()
+    })
 }
 
 /// The bed's whole soil-water total, `soil_drawdown.rs`'s own census over
@@ -102,6 +118,17 @@ fn main() {
         assert_eq!(v.len(), 2, "center wants exactly x,y, got {s:?}");
         (v[0], v[1])
     });
+    // **`follow=<species>` -- P2's own card knob**
+    // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` Brief P2).
+    // Reuses `center=`'s zoom machinery below, but re-centres on the head of
+    // the first living animal of `species` every captured frame instead of
+    // on a fixed point, so a card can follow one animal across a hop rather
+    // than watching a column the animal may cross in one frame and leave
+    // the next. **Orthogonal to `center`: leaving `follow` unset takes
+    // neither new branch below and reproduces every existing card
+    // byte-for-byte**, the identical guarantee `center=`'s own doc states
+    // for itself -- the two knobs are additive, not a rewrite of one path.
+    let follow: Option<String> = arg::<String>("follow");
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
     // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
     // relying on `zoom` alone** -- the review skill is explicit that a GIF
@@ -173,10 +200,11 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out}",
         lab.spec.colony_species,
         rain.label(),
-        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}"))
+        crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
+        follow.as_deref().unwrap_or("none")
     );
     println!("  {msg}");
 
@@ -204,14 +232,29 @@ fn main() {
     // decides which world cells `lab.draw` puts into the frame at all;
     // `crop` trims the rendered frame afterward, exactly as `filmstrip`'s
     // own crop does -- a `center` shot can still be cropped tighter.
-    if let Some((ccx, ccy)) = center {
+    // `follow` reuses this same zoom/bounds/span setup -- see its own doc
+    // above. Neither `adjust_zoom` nor the two reads below run at all when
+    // both `center` and `follow` are unset, which is the byte-identity
+    // `center=`'s own doc already promises and `follow=` inherits for free.
+    let camera_mode = center.is_some() || follow.is_some();
+    if camera_mode {
         for _ in 1..zoom {
             lab.renderer.adjust_zoom(1);
         }
-        let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
-        let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    }
+    let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
+    let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    if let Some((ccx, ccy)) = center {
         lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
         println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
+    } else if let Some(species) = &follow {
+        match head_of_first(&lab.world, species) {
+            Some((hx, hy)) => {
+                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+                println!("  camera following {species} at ({hx},{hy}) at frame {start}, {zoom}x -- {span_x}x{span_y} world cells visible");
+            }
+            None => println!("  follow={species}: no live animal of that species at frame {start} -- camera left at default"),
+        }
     }
     // The crop rect, clamped into the real frame so an out-of-bounds request
     // (a flower head near an edge, plus margin) shrinks rather than reading
@@ -227,6 +270,19 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
+            // **`follow=` re-centres every captured frame**, not every
+            // tick -- the animal drifts between captures the same amount
+            // either way, and re-centring only where a frame is actually
+            // drawn is cheaper for no visible difference. If the followed
+            // animal has died or is not found this frame, the camera is
+            // simply left where it last was rather than snapping to the
+            // world origin -- a card that loses its animal mid-run should
+            // show the last place it was, not jump.
+            if let Some(species) = &follow {
+                if let Some((hx, hy)) = head_of_first(&lab.world, species) {
+                    lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+                }
+            }
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);
             let buf = if crop.is_none() {
