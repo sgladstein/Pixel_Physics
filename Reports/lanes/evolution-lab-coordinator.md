@@ -110,8 +110,7 @@ colony that gardens survives.**
 **What binds.** The breeding trade is **graded** (commit `e5792206`); ship
 graded as the default only after `GRADED_MAX_SUPPRESSION` (a provisional
 6.0) is swept. **A question that needs no visual is asked in chat, not the
-queue.** A fourth windfall-ownership path (19 ownerless on one scrambler
-seed) is open and unowned.
+queue.**
 
 ## Round twenty-seven, 2026-09-10 — the flower gets a customer it cannot yet reach
 
