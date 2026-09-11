@@ -171,6 +171,28 @@
         // reads as a sentence: chewing through packed soil costs what
         // walking six cells costs.
         dig_cost_in_moves: 6.0,
+        // **What holding itself up on the air costs, per airborne frame --
+        // and the licence to do it at all.** Round 29 B1,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1/§3. This is
+        // the only file in `assets/species/` that authors this, so it is the
+        // only animal in the box that can float; every other one still
+        // arcs.
+        //
+        // **Derived, not chosen: flying costs half of walking, per cell
+        // covered.** In `move_cost_per_cell` units like `dig_cost_in_moves`
+        // above, so 0.25 on this two-cell body is 0.0625 J per airborne
+        // frame, and with the pro-rated idle beside it **0.0875 J/frame
+        // aloft against 0.025 standing still**. At the default
+        // `flight_speed` of 0.5 cells/frame that is 0.125 J/cell against
+        // walking's 0.25 and the ballistic hop's 0.037 -- **dearer than the
+        // hop or nothing ever comes down, cheaper than walking or nothing
+        // ever goes up.** A full 200 J grant buys 2,286 frames of continuous
+        // flight, or two crossings of the 512-wide bed.
+        //
+        // If founders starve before their first meal this is NOT the first
+        // number to move -- `start_energy` is (§3), and it is held at 200
+        // here so this arm is attributable.
+        fly_cost_in_moves: 0.25,
         // **`emit_cost_in_moves` is gone, not merely zeroed -- Brief P2's
         // own "emit_cost" in the strip list.** `hopper.ron`'s whole comment
         // here priced trail-laying, and this animal lays no trail: `nest:
@@ -719,7 +741,20 @@
         // compound it a second append later. This is also the first file
         // where the new slots are actually wired -- see the bloom pair in
         // `instincts` below.
-        mutation_rate: 0.0039308,
+        //
+        // **0.0037589, re-derived 2026-09-11** when `BrainOutput::Fly`
+        // appended -- the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1/§3. An
+        // OUTPUT row is the expensive append: 37 live slots (29 inputs + 8
+        // hidden) against an input column's 24, so `live_slots` 809 -> 846
+        // and `3.18 / 846 = 0.0037589`. **This is the one file that wires
+        // the new row** -- see the `Fly` block in `instincts` below -- and it
+        // moves for every other species regardless, because the mutable
+        // surface is shared. Every breeding scene's numbers move with it
+        // from birth 1: `brain::mutate` draws one `unit_f32` per live slot,
+        // so this cannot be checked by a diff and the remedy is a seed
+        // sweep.
+        mutation_rate: 0.0037589,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1460,6 +1495,96 @@
             // opposite population silenced." Write this down again at the
             // next site that touches this line, or it reads as the retry.
             (FoodAdjacent, Impulse, -2.0),
+
+            // --- Fly: stay up, and steer ---------------------------------
+            // **The verb this round exists for, and it is where `Turn`
+            // finally works** (round 29 B1,
+            // `Reports/evolution-lab-flight-design-2026-09-11.md` §1).
+            // Until now an airborne animal ran no brain at all, so
+            // `(BloomBearing, Turn, -2.5)` above steered nothing for the
+            // third to a half of this animal's life it spent in the air --
+            // and on the ground bug R4 leaves `Turn` nearly inert on level
+            // footing. In the air there is no candidate cell for the world
+            // to veto, only a velocity to rotate.
+            //
+            // Four wires, and between them they are the lift, the throttle,
+            // the fuel gauge and the brakes. `Fly` is read raw and gated on
+            // strictly positive, exactly as `Impulse` is, so every number
+            // below is summed and squashed and anything at or under zero is
+            // a plain ballistic arc.
+
+            // **Nothing, on its own -- the float is not a way of getting
+            // about, it is the last nine cells to a flower.** The bias and
+            // the fuel gauge below are authored to cancel EXACTLY at full
+            // energy, so an animal with nothing in sight reads
+            // `squash(0.0) == 0.0`, is never lifted, pays nothing, and arcs
+            // exactly as it did before this verb existed. Everything this
+            // animal does in the air it does because it can see a flower.
+            //
+            // **This is not the first wiring, and the first one is worth
+            // recording.** A positive bias (`-2.0` against `(Energy, Fly,
+            // 8.0)`, so 0.857 of the weight carried whenever the animal was
+            // fed) made the float a cruise rather than an approach, and it
+            // read as a rocket: `head_max_rows` **156 on all three seeds**,
+            // which is `ground_y` -- the top of the box -- with the animals
+            // pinned against it, `moves` down 2,644 -> 1,082 and
+            // `flower_visits` 54 -> 34 on seed 1. Two faults, one of them
+            // this file's: the physics erased gravity for a vertical
+            // velocity (fixed in `creature::fly_brain_tick`), and nothing in
+            // the genome said when to stop flying. A verb with no OFF
+            // condition is not a graded outcome, it is a state.
+            (Bias, Fly, -4.0),
+            // **The fuel gauge, and the sign is the thing to check before
+            // copying this line.** `BrainInput::Energy` is
+            // `energy / start_energy` clamped to 0..1, so a FULL animal
+            // reads 1.0 and a starving one reads 0.0 -- the weight is
+            // therefore **positive**, and the design report's `(Energy, Fly,
+            // -w)` is wrong about the sign against the input as it is
+            // actually normalised. A negative weight here would ground every
+            // healthy animal and hold the dying ones up.
+            //
+            // 4.0 against the bias above is a **throttle, not a cut-off**:
+            // it takes 4.0 off the sum as the animal empties, so a hungry
+            // flitter flies only to a flower it is already close to and a
+            // fed one will cross the bed for one. The hard OFF is the bias;
+            // this grades the middle, which is what `CLAUDE.md`'s first law
+            // asks of any outcome.
+            (Energy, Fly, 4.0),
+            // **The whole reason the animal ever leaves the arc.** This is
+            // the only positive term big enough to clear the bias, so
+            // `BloomNear` is what turns the float on: no flower in sight, no
+            // flight. At a flower nine cells off (`BloomNear` 0.72 at
+            // `sight_range` 32) a fed animal carries 0.85 of its weight and
+            // closes the gap at `flight_speed`; at twenty-five cells it
+            // carries 0.64 and sinks as it goes.
+            //
+            // **It is also what keeps the fuel gauge from becoming the
+            // hopper's recorded dead end.** That do-not-retry reads "do not
+            // gate the jump on being short of energy", because it starved
+            // exactly the animal that needed to travel. Read the two terms
+            // together and a starving animal with a flower in view still
+            // flies to it -- only a starving animal with nothing in view
+            // comes down and walks.
+            //
+            // `BloomNear` is `(1.0 - dist/reach).clamp(0, 1)` -- unsigned,
+            // 1.0 close, 0.0 far or none -- so like the `Impulse` wire above
+            // it adds urgency without ever fighting a sign.
+            (BloomNear, Fly, 8.0),
+            // **Settle on the flower you are drinking at.** The `Impulse`
+            // twin of this a few lines up keeps the animal from hopping off
+            // its own meal; this one keeps it from hovering over it. Between
+            // them the animal arrives, comes down, and eats.
+            //
+            // **-12.0, and it is not -2.0 like the `Impulse` wire, for a
+            // reason worth writing down rather than looking like a typo.**
+            // `FoodAdjacent` goes to 1.0 at exactly the moment `BloomNear`
+            // is also saturated -- the flower it is standing on is the
+            // flower it can see -- so this term has to beat the bloom term
+            // AND the fuel gauge at once or the animal hovers one cell above
+            // its meal for ever. At the flower on a full stomach the sum is
+            // -4.0 + 4.0 + ~7.8 - 12.0 = -4.2: firmly off. Raise the bloom
+            // weight and this must move with it.
+            (FoodAdjacent, Fly, -12.0),
         ],
 
         // **The four gate units are gone -- Brief P2's own "the four hidden

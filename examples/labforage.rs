@@ -589,6 +589,20 @@ fn main() {
         spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed, spec.colony_species,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
+    // **Round 29 B1: the float's three switches, echoed with the rest.** A
+    // knob nobody can see the value of is a knob nobody can tell is
+    // disconnected -- `plant_probe`'s 3.5-hour lesson, and `flight_speed` in
+    // particular ships as a *selector* (0.25/0.5/1.0) precisely because
+    // which of them reads as a bee is a judge-by-eye question, so a log that
+    // does not name the active one cannot be read at all. Taken from
+    // `creature::flight_speed()` rather than from the env directly, so the
+    // line reports what the simulation resolved and not what was typed.
+    println!(
+        "labforage: flight -- fly={} flight_speed={} land_afloat={}",
+        if std::env::var("FLY").as_deref() == Ok("0") { "off (ballistic hop, main's arm)" } else { "on" },
+        pixel_physics::sim::creature::flight_speed(),
+        if std::env::var("LAND_AFLOAT").as_deref() == Ok("0") { "off (bug Z9 put back)" } else { "on" }
+    );
 
     // Built bare and founded afterwards, for `windfall_probe`'s reason: a
     // species-level write after the founders are standing reaches nobody,
@@ -1232,7 +1246,9 @@ fn main() {
          windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} dig_diverted_seed={} \
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
          flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={} \
-         pips_set_on_soil={} pips_set_on_nest={}",
+         pips_set_on_soil={} pips_set_on_nest={} \
+         fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
+         moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1369,7 +1385,55 @@ fn main() {
         // above already follows): where a delivered pip's final ground
         // stood, read the same two-part test `Behavior::Germinate` runs.
         // `World::pips_set_on_soil`/`pips_set_on_nest`'s own docs.
-        world.pips_set_on_soil, world.pips_set_on_nest
+        world.pips_set_on_soil, world.pips_set_on_nest,
+        // **Round 29 B1's own counters** (`Reports/evolution-lab-flight-
+        // design-2026-09-11.md` §7), appended rather than woven in, per the
+        // same "keep main's fields, append the branch's" convention the
+        // block above already follows.
+        //
+        // **The pair, in the order `CLAUDE.md` asks them to be read.**
+        // `fly_ticks` is "it was asked at all" -- brain evaluations made
+        // aloft, which is **0 on `main` by construction**, since an airborne
+        // animal there did not read the world or evaluate its brain.
+        // `fly_frames` is the effect from the far side of the call: airborne
+        // frames on which `BrainOutput::Fly` was actually holding the body
+        // up. High ticks against zero frames is a wiring problem; zero ticks
+        // is no species having priced flight, or nothing having left the
+        // ground, and `real_launches` above says which.
+        world.creature_stats.fly_ticks,
+        world.creature_stats.fly_frames,
+        // **`Turn`'s own effect counter, and it exists because of R4.** On
+        // the ground both outer candidates lose at every `Turn` value on
+        // level footing, so "the weight is authored and the animal is
+        // steering" is a false inference this engine has already made once.
+        // This counts octant rotations actually applied to a velocity.
+        world.creature_stats.fly_turns,
+        world.creature_stats.fly_energy,
+        // **§Z9's exit firing**: bodies put down because they were
+        // weightless and not flying -- standing on water rather than
+        // hanging over it. Read beside `deaths_by`'s `STARVED ALOFT` share,
+        // which is the number the bug is about; `LAND_AFLOAT=0` puts the
+        // defect back and this goes to 0.
+        world.creature_stats.landed_afloat,
+        // **Walking steps per real launch -- the design's own headline, and
+        // it reads 0.60 on `main`.** At that rate the animal turns about
+        // once per two hops and each hop carries it ~27 uncontrolled cells,
+        // so a flower nine cells away is a 3x overshoot rather than a near
+        // miss.
+        if world.creature_stats.impulses > 0 { st.moves as f64 / world.creature_stats.impulses as f64 } else { 0.0 },
+        // **Frames per launch, read against the 22-frame ballistic arc** for
+        // a `Chain(2)` body at launch speed 2.0. Anything well above 22 is
+        // airborne time that is not an arc -- §Z9 at the scale the register
+        // does not carry -- and `landed_afloat` beside it says whether the
+        // fix is what closed it.
+        if world.creature_stats.impulses > 0 { world.creature_stats.flight_frames as f64 / world.creature_stats.impulses as f64 } else { 0.0 },
+        // The share of airborne frames the verb was paying for, in percent.
+        if world.creature_stats.flight_frames > 0 {
+            100.0 * world.creature_stats.fly_frames as f64 / world.creature_stats.flight_frames as f64
+        } else {
+            0.0
+        },
+        if std::env::var("FLY").as_deref() == Ok("0") { "off".to_string() } else { pixel_physics::sim::creature::flight_speed().to_string() }
     );
 }
 

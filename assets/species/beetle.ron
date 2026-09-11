@@ -204,7 +204,19 @@
         // largest eye in the tree and wires neither new slot: a beetle is a
         // hunter, not the pollinator (owner's ruling, 2026-09-10), and the
         // same "unwired row costs one comparison" reasoning applies again.
-        mutation_rate: 0.0039308,
+        //
+        // **0.0037589, re-derived 2026-09-11** when `BrainOutput::Fly`
+        // appended (the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1). An OUTPUT
+        // row is 37 live slots -- 29 inputs + 8 hidden, against an input
+        // column's 24 -- so `live_slots` 809 -> 846 and
+        // `3.18 / 846 = 0.0037589`. This animal wires no `Fly` weight and
+        // has no authored `fly_cost_in_moves`, so it never leaves the ground
+        // under power and pays one comparison for the row; the mutable
+        // surface moved for every species on the shared scaffold regardless,
+        // exactly as this file's copy of the comment above already says for
+        // the append before this one.
+        mutation_rate: 0.0037589,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see
