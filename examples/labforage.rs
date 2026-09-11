@@ -194,6 +194,15 @@ struct Sample {
     /// loop that fills `edible` already visits every cell; this rides along
     /// rather than re-sweeping the grid.
     windfall: usize,
+    /// **Standing `flower`/`fruit` cells, raw** -- the rebloom brief's own
+    /// "the effect" pair beside `World::flowers_rebloomed`'s "it fired"
+    /// (`Reports/evolution-lab-pollinator-design-2026-09-10.md`'s rebloom
+    /// extension). A physical material census, same shape as `windfall`
+    /// above and for the same reason: `edible` is gated on the founders'
+    /// gut and would go to zero at a pure-carrion bias while the bed is
+    /// visibly still in flower.
+    standing_flowers: usize,
+    standing_fruit: usize,
 }
 
 /// **What is standing here that this gut would eat, and where.**
@@ -208,7 +217,25 @@ struct Sample {
 /// `windfall_probe`'s: loose litter, corpses, fallen leaves and spoil are not
 /// organism-owned and are exactly the food a walking ant meets. The sweep is
 /// 512x320 per sample and the default interval is 900 frames.
-fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &[i32], windfall_id: Option<MaterialId>) -> Sample {
+///
+/// Eight material-id/behaviour parameters is over clippy's bare threshold;
+/// bundling the three raw material censuses (`windfall`/`flower`/`fruit`)
+/// into a struct for this one caller would cost a name at every call site for
+/// no reader this function has, so the lint is silenced rather than the
+/// signature contorted -- the same call `src/worldgen/cave.rs` and
+/// `src/sky.rs` already make for functions with several independent
+/// per-call parameters.
+#[allow(clippy::too_many_arguments)]
+fn census(
+    world: &World,
+    spec: &LabBox,
+    gut: f32,
+    visited: &[bool],
+    nest_cols: &[i32],
+    windfall_id: Option<MaterialId>,
+    flower_id: Option<MaterialId>,
+    fruit_id: Option<MaterialId>,
+) -> Sample {
     let mut s = Sample {
         ant_high: i32::MIN,
         gen: world.deepest_animal_generation,
@@ -237,6 +264,12 @@ fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &
             let cell = world.get(x, y);
             if windfall_id.is_some_and(|wid| cell.material == wid) {
                 s.windfall += 1;
+            }
+            if flower_id.is_some_and(|fid| cell.material == fid) {
+                s.standing_flowers += 1;
+            }
+            if fruit_id.is_some_and(|fid| cell.material == fid) {
+                s.standing_fruit += 1;
             }
             let yielded = diet_yield(world, cell, gut);
             if yielded <= EAT_YIELD_THRESHOLD {
@@ -274,6 +307,36 @@ fn census(world: &World, spec: &LabBox, gut: f32, visited: &[bool], nest_cols: &
     s
 }
 
+/// **`no_colony=1` — the colony-removed control the rebloom brief's own
+/// paired reading needs**, without touching a scenario file. A scenario's
+/// `Colony`/`Colonies` timeline entries are unconditional
+/// (`lab::scenario::apply_colony` reads nothing off `LabBox::colonies`), so
+/// there is no flag on the scenario side to suppress arrival with; this
+/// clears every creature organism's cells the instant they land instead,
+/// which is public-API-only (no `pub(crate)` reached) and leaves the bed
+/// itself, including whatever the colony would have eaten, untouched.
+///
+/// Cells rather than the organism slot: `World::free_organism` is
+/// `pub(crate)` and not reachable from an example, but an organism whose
+/// cell list has gone empty is reclaimed by the very next `step_organisms`
+/// pass on its own (`push_organism`'s own doc on the reclaim rule) -- so
+/// clearing the grid is both sufficient and the only public lever.
+fn strip_colony(world: &mut World) -> usize {
+    let mut cleared = 0usize;
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        let positions: Vec<(i32, i32)> = state.cells.keys().copied().collect();
+        for (x, y) in positions {
+            world.set(x, y, Cell::EMPTY);
+        }
+        cleared += 1;
+    }
+    cleared
+}
+
 /// Every column any ant head has stood in, ever. Cumulative — the mask is
 /// never cleared, so `unvisited` is a claim about the whole run rather than
 /// about this frame.
@@ -296,6 +359,11 @@ fn main() {
     let frames: u64 = arg("frames").unwrap_or(300_000);
     let sample_every: u64 = arg("sample").unwrap_or(900);
     let handout: u64 = arg("handout").unwrap_or(0);
+    // **`no_colony=1` -- the colony-removed control, on a scenario or off
+    // one alike.** See `strip_colony`'s own doc for why this is a
+    // post-arrival sweep rather than a flag on the founding call: a
+    // scenario's own timeline places its colony unconditionally.
+    let no_colony: bool = arg::<u32>("no_colony").unwrap_or(0) != 0;
     // **Found the colony at frame `ants_at` instead of at frame 0** --
     // `labshot.rs`'s own knob and the same owner framing, 2026-09-09: a bed
     // grown first and stocked later is how the game is actually played. 0
@@ -328,6 +396,25 @@ fn main() {
         // into three runs reported six times.
         if let Some(sd) = arg::<u64>("seed") {
             sc.bed.seed = sd;
+        }
+        // **`creature=<species>` overrides who a scenario's `Colony`/
+        // `Colonies` placements found, the same shape `seed=` above is and
+        // for the same reason: a scenario's `.ron` bakes one species into
+        // its timeline (`played_bed.ron`'s `Colony(species: "ant", ...)`),
+        // so racing a second species on the owner's own played bed needs an
+        // override here rather than a second copy of the file --
+        // `Reports/evolution-lab-pollinator-design-2026-09-10.md` P1's
+        // three-arm measurement is exactly this: the played bed, once with
+        // its own ant and once with a bloom-wired species, same seed, same
+        // everything else.
+        if let Some(species) = arg::<String>("creature") {
+            sc.bed.colony_species = species.clone();
+            for p in sc.placements.iter_mut().chain(sc.timeline.iter_mut().map(|e| &mut e.what)) {
+                match p {
+                    Placement::Colony { species: s, .. } | Placement::Colonies { species: s, .. } => *s = species.clone(),
+                    _ => {}
+                }
+            }
         }
         sc
     });
@@ -366,8 +453,8 @@ fn main() {
     // Echo the parameters. A knob nobody can see the value of is a knob
     // nobody can tell is disconnected -- `plant_probe`'s 3.5-hour lesson.
     println!(
-        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} handout={handout} ants_at={ants_at}{}",
-        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed,
+        "labforage: frames={frames} sample={sample_every} founders={} of {} colonies={} walls={} soil={} seed={} colony={} handout={handout} ants_at={ants_at} no_colony={no_colony}{}",
+        spec.founders, spec.species, spec.colonies, spec.compartments, spec.soil_depth, spec.seed, spec.colony_species,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
@@ -469,6 +556,11 @@ fn main() {
             ants_placed += world.found_colony(x, spec.ground_y - 2);
         }
         gut = ant_gut_bias(&world);
+        if no_colony {
+            let cleared = strip_colony(&mut world);
+            println!("  no_colony=1: cleared {cleared} colony/colonies right back off the bed");
+            ants_placed = 0;
+        }
     }
     println!(
         "  bed: {} of {} founders planted, {}",
@@ -496,16 +588,18 @@ fn main() {
     let tuning = player::Tuning::default();
     let mut visited = vec![false; spec.width as usize];
     let windfall_id = world.materials.id_of("windfall");
+    let flower_id = world.materials.id_of("flower");
+    let fruit_id = world.materials.id_of("fruit");
     let mut handed_out = 0u64;
     let mut first: Option<Sample> = None;
     let mut last = Sample::default();
     let mut peak_edible = 0usize;
 
     println!(
-        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8}",
+        "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8} {:>5}",
         "frame", "ants", "plnts", "edible", "worth(J)", "floor", "low", "aloft", "unvisited",
         "d<16", "d<48", "d<128", "far", "high", "eats", "born", "died",
-        "brdr", "gen", "bgen", "fvis", "necJ"
+        "brdr", "gen", "bgen", "fvis", "necJ", "bseen"
     );
     for f in 0..=frames {
         // **Founding, deferred to here when `ants_at > 0`.** Checked before
@@ -516,7 +610,13 @@ fn main() {
                 ants_placed += world.found_colony(x, spec.ground_y - 2);
             }
             gut = ant_gut_bias(&world);
-            println!("  ants_at {ants_at}: founded {ants_placed} ants at {nest_cols:?}, founder gut_bias {gut}\n");
+            if no_colony {
+                let cleared = strip_colony(&mut world);
+                println!("  ants_at {ants_at}: no_colony=1, cleared {cleared} colony/colonies right back off the bed\n");
+                ants_placed = 0;
+            } else {
+                println!("  ants_at {ants_at}: founded {ants_placed} ants at {nest_cols:?}, founder gut_bias {gut}\n");
+            }
         }
         // **The scenario's timeline, before the census on the same frame**,
         // so the frame a colony lands on already reports it rather than the
@@ -532,12 +632,24 @@ fn main() {
                 // at its initialiser is indistinguishable from a measured
                 // one -- a null wearing a measurement.
                 gut = ant_gut_bias(&world);
-                println!("  frame {f}: {} animal(s) arrived on the timeline, founder gut_bias {gut}\n", arrived.animals);
+                if no_colony {
+                    // **The colony-removed control, on a scenario's own
+                    // timeline.** `apply_colony`/`apply_colonies` read
+                    // nothing off `LabBox::colonies`, so the timeline places
+                    // its colony regardless -- this clears it the instant it
+                    // lands rather than suppressing the placement, which
+                    // needs no edit to the scenario file at all.
+                    let cleared = strip_colony(&mut world);
+                    println!("  frame {f}: no_colony=1, cleared {cleared} colony/colonies right back off the bed\n");
+                    ants_placed -= arrived.animals;
+                } else {
+                    println!("  frame {f}: {} animal(s) arrived on the timeline, founder gut_bias {gut}\n", arrived.animals);
+                }
             }
         }
         mark_visited(&world, &mut visited, spec.width);
         if f % sample_every == 0 {
-            let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id);
+            let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id, flower_id, fruit_id);
             peak_edible = peak_edible.max(s.edible);
             if first.is_none() {
                 first = Some(s);
@@ -547,7 +659,7 @@ fn main() {
             // One line per sample and every column on it, so the whole run is
             // one greppable block rather than a shape that has to be reread.
             println!(
-                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} | wfall={}",
+                "{f:>7} {:>5} {:>6} {:>7} {:>10.0} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8.0} {:>5} | wfall={} flwr={} frt={} rblm={} rblk={}",
                 s.ants, s.plants, s.edible, s.worth, s.floor, s.low, s.aloft, s.unvisited,
                 s.by_dist[0], s.by_dist[1], s.by_dist[2], s.by_dist[3],
                 s.ant_high, st.eats, st.births, st.deaths,
@@ -562,7 +674,27 @@ fn main() {
                 // the whole run while `fvis` keeps climbing. Divide `necJ`
                 // by `f / 1000.0` for "joules paid per 1,000 frames" at any
                 // sampled frame.
-                world.flower_visits, world.nectar_paid, s.windfall
+                //
+                // **P1's own pair, beside it**: `bseen` is `bloom_seen`, the
+                // bloom sense's own "did it fire at all" -- an eyed animal
+                // that read `BloomNear > 0` this tick, cumulative over the
+                // whole run so far. Read it against `fvis`: a bloom sense
+                // that fires while `fvis` stays flat found flowers and did
+                // not reach one; a `fvis` that climbs with `bseen` at 0 is a
+                // bite that arrived by chance, not by sight.
+                world.flower_visits, world.nectar_paid, world.creature_stats.bloom_seen, s.windfall,
+                // **The rebloom extension, 2026-09-10** (this PR). `flwr`/
+                // `frt` are the standing counts -- the effect a picture would
+                // show, read at every stop rather than only at the run's end.
+                // `rblm` is `World::flowers_rebloomed`, cumulative -- the "did
+                // it fire at all" counter, since a bed that merely takes
+                // longer to run dry would read identically on `flwr` alone
+                // until this run is long enough to tell the two apart.
+                // `rblk` is the reproductive-account refusal
+                // (`organ_ripening_blocked`), the same counter the rest of
+                // the organ pipeline uses -- a rebloom that keeps the flower
+                // count up by exploding this instead is not the fix.
+                s.standing_flowers, s.standing_fruit, world.flowers_rebloomed, world.organ_ripening_blocked
             );
         }
         if handout > 0 && f > 0 && f % handout == 0 {
@@ -627,11 +759,41 @@ fn main() {
     // `false` for ever without one, so a run on `ancestor` reads 0 here by
     // construction rather than by failure.
     println!("  round trips: deliveries {} nest visits {}", st.deliveries, st.nest_visits);
+    // **A2 -- the seed rides home.** `Reports/evolution-lab-ecology-design-
+    // 2026-09-10.md` §2.6/§2.7, Brief A2. `nest_cols` is already computed
+    // above (scenario `Colony` entries or `LabBox::colony_columns`) for the
+    // food-distance bands, so the headline reuses it rather than asking the
+    // engine to have an opinion about where a nest is -- see
+    // `World::pip_germination_x`'s own doc for why that split is
+    // deliberate.
+    const NEAR_NEST_REACH: i32 = 32;
+    let plants_from_pip_near_nest =
+        world.pip_germination_x.iter().filter(|&&x| nest_cols.iter().any(|&c| (c - x).abs() <= NEAR_NEST_REACH)).count();
+    // Median, not mean: `seed_transit_frames` is exactly the kind of
+    // long-tailed sample (one lucky seed dropped a step from the bite, one
+    // unlucky one carried the length of the bed) a mean would let the tail
+    // dominate. `CLAUDE.md`'s own worked cases are about the same shape.
+    let seed_transit_median = {
+        let mut v = world.seed_transit_frames.clone();
+        v.sort_unstable();
+        v.get(v.len() / 2).copied()
+    };
+    println!(
+        "  A2 -- the seed rides home: seeds_carried {} seeds_delivered {} | plants_from_pip {} of which within {NEAR_NEST_REACH} cols of a nest {plants_from_pip_near_nest} | \
+         median carry {} frames over {} completed deliveries (herb.seed_half_life is 14,000; this becomes a live knob only if the median nears four figures)",
+        world.seeds_carried,
+        world.seeds_delivered,
+        world.plants_from_pip,
+        seed_transit_median.map_or_else(|| "n/a".to_string(), |m| m.to_string()),
+        world.seed_transit_frames.len()
+    );
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
-         windfall_bitten_ownerless={} lookup={} visits={} flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={}",
+         windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
+         flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
+         standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -655,6 +817,14 @@ fn main() {
         // retuning `seed_gut_survival`. See `World::
         // windfall_bitten_ownerless`.
         world.windfall_bitten_ownerless,
+        // **A2's own counters** -- "it fired" (`seeds_carried`), "it worked"
+        // (`seeds_delivered`), the headline (`plants_from_pip_near_nest`),
+        // and the transit-cost check, all computed just above.
+        // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6/§2.7.
+        world.seeds_carried,
+        world.seeds_delivered,
+        plants_from_pip_near_nest,
+        seed_transit_median.map_or_else(|| "n/a".to_string(), |m| m.to_string()),
         // **`visits` is the whole point of the breeder-index change, and
         // `lookup` says which arm produced it.** Organisms the breeding rule
         // had to look at over the run: the full-slot scan walks every
@@ -683,7 +853,26 @@ fn main() {
         // of the same seed.
         world.flower_visits, world.nectar_paid,
         if frames > 0 { world.nectar_paid / (frames as f64 / 1000.0) } else { 0.0 },
-        world.organs_built
+        world.organs_built,
+        // **P1 (the bloom sense)** -- the "it fired" half beside B1's
+        // "it worked" half above: an eyed animal reading `BloomNear > 0`,
+        // cumulative over the run. See `World::CreatureStats::bloom_seen`.
+        world.creature_stats.bloom_seen,
+        // **The rebloom extension, 2026-09-10** (this PR,
+        // `Reports/evolution-lab-pollinator-design-2026-09-10.md`'s rebloom
+        // brief). `standing_flowers`/`standing_fruit` are the last sample's
+        // raw material census -- the effect a picture of the bed would show.
+        // `flowers_rebloomed` is `World::flowers_rebloomed`, the "did it
+        // fire at all" counter: a bed that merely ran the ordinary
+        // once-per-axis route slower would still move `standing_flowers`,
+        // and only this says the axes are actually being reused.
+        // `organ_ripening_blocked`/`organ_ripening_paid` are the whole
+        // organ pipeline's shared refusal/success pair (fruit-set,
+        // seed-drop and rebloom all count against the same two lines) --
+        // read against the pre-rebloom baseline for whether keeping the
+        // flower count up also exploded the refusal rate.
+        last.standing_flowers, last.standing_fruit, world.flowers_rebloomed,
+        world.organ_ripening_blocked, world.organ_ripening_paid
     );
 }
 
@@ -707,7 +896,7 @@ fn selftest(spec: LabBox) {
     let visited_none = vec![false; spec.width as usize];
     let mut visited_all = vec![true; spec.width as usize];
 
-    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid));
+    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None);
     println!("labforage selftest: empty bed reads edible {} (must be 0)", base.edible);
     assert_eq!(base.edible, 0, "an unplanted bed is not food; the census is counting something it should not");
     assert_eq!(base.windfall, 0, "an unplanted bed has no fallen fruit either; the raw windfall count is counting something it should not");
@@ -720,7 +909,7 @@ fn selftest(spec: LabBox) {
     world.set(near.0, near.1, Cell::new(wid, 0));
     world.set(far.0, far.1, Cell::new(wid, 0));
 
-    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid));
+    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None);
     println!(
         "  planted 2 cells (one at the nest on the floor, one {} columns out and 40 rows up): \
          edible {} floor {} low {} aloft {} unvisited {} by_dist {:?} worth {:.0} J windfall {}",
@@ -738,14 +927,14 @@ fn selftest(spec: LabBox) {
     // ...and the mask has to be able to go the other way, or `unvisited`
     // would be a constant wearing a measurement's clothes.
     visited_all[..].fill(true);
-    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols, Some(wid));
+    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols, Some(wid), None, None);
     println!("  same bed with every column marked visited: unvisited {} (must be 0)", s2.unvisited);
     assert_eq!(s2.unvisited, 0, "the visited mask does not reach the census");
     assert_eq!(s2.edible, 2, "the mask must not change what is counted as food");
 
     // A gut that cannot digest plants must stop seeing them -- the predicate
     // is the mouth's, so this is the check that the census asks the mouth.
-    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols, Some(wid));
+    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols, Some(wid), None, None);
     println!("  same bed read at a pure-flesh gut (bias +1.0): edible {} (must be 0)", s3.edible);
     assert_eq!(s3.edible, 0, "a carnivore's census must not count plants; the gut is not reaching diet_yield");
     assert_eq!(s3.windfall, 2, "the raw windfall count must NOT depend on the gut -- unlike edible, it is a material census");

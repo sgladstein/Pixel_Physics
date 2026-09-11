@@ -1,0 +1,41 @@
+// The long ant's body -- `assets/species/longant.ron`'s own material,
+// resolved by `place_creature` off the species' own name exactly the way
+// `hopper.ron`'s comment describes: without this file the species loads,
+// sits on the shelf, and places zero animals. Same physics and the same
+// colours as `ant.ron` above it in the list, on purpose: this is the same
+// animal wearing a longer body, not a different one, and `assets/species/
+// longant.ron`'s own header comment says why.
+//
+// Dark, and deliberately not red: an ant is one or two cells at play zoom
+// against soil and sand, and the readable signal at that size is contrast
+// against the ground rather than hue. Three shades so a column of them does
+// not read as a drawn line.
+(
+    name: "longant",
+    display: "Long ant",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (38, 30, 28),
+        (52, 42, 38),
+        (28, 22, 20),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+
+    // Live flesh, for whatever eats a long ant. One number wearing two
+    // names with `longant.ron`'s own `body_energy`, exactly the pairing
+    // `ant.ron`'s comment on this same field describes: 960 / 7 =
+    // 137.1428571, the flesh value of a two-cell ant's 480 * 2 = 960
+    // total, divided across this body's own seven cells instead.
+    food_energy: 137.1428571,
+    // In MPa like every other value of this field. **Live insect cuticle,
+    // and the number `beetle.ron`'s `dig_force: 0.3` was chosen against**
+    // -- with headroom, because a knife-edge `0.3 <= 0.3` is a bar sitting
+    // on its own measurement.
+    penetration_resistance: 0.25,
+    food_class: 1.0,
+)

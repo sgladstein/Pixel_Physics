@@ -173,6 +173,7 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         nectar_refill: parent.nectar_refill,
         flower_bands: parent.flower_bands,
         fruit_bands: parent.fruit_bands,
+        rebloom_after: parent.rebloom_after,
         seed_half_life: parent.seed_half_life,
         remains_half_life: parent.remains_half_life,
         life_half_life: parent.life_half_life,

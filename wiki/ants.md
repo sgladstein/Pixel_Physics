@@ -1,12 +1,29 @@
 # Ants
 
-*Current as of: 2026-09-10. **A long ant can now turn round in a dead end**
-instead of standing there stuck — see "And a long ant can now turn round"
-below. It is the default, not an experiment: the one thing it had to be
-taught not to do is turn a laden forager away from a nest door that only
-looked blocked because another ant was passing through it, which it no
-longer does. The previous day's note, kept below for the rest of what it
-covers, opens with 2026-09-09, evening, when four things changed at once and
+*Current as of: 2026-09-11, when the articulated body landed as a species
+you place rather than the one your colony starts with. The shipped ant is
+still two cells nose-to-tail -- every gate that leans on that shape (a
+chamber the colony digs and roofs over itself, a bite that closes one
+mouthful at a time) needs it, and nothing about the box's default colony
+changed today. A five-segment **long ant** is now on the shelf as its own
+species, identical to the ant in everything but its body, for anyone who
+wants to see a longer animal forage, found and turn round in a dead end;
+place it the same way you place any other species. On top of that, from
+2026-09-10: **a long ant can now turn round in a dead end** instead of
+standing there stuck -- see "And a long ant can now turn round" below. It
+is the default for any body that has one, not an experiment: the one
+thing it had to be taught not to do is turn a laden forager away from a
+nest door that only looked blocked because another ant was passing
+through it, which it no longer does. The same day, separately, **a flower
+stopped being invisible at a distance** -- an animal with eyes can now
+see a bloom the way it sees another animal, from across the room, not
+only once it is standing on one, and the hopper is the one animal born
+reaching for it: it turns toward the nearest flower it can see and hops
+harder to close the gap, on top of the jump it already had. Nothing else
+changed about what a flower pays or how an animal feeds at one; what
+changed is whether an animal that could already afford the visit ever
+found it. Before that, 2026-09-09, evening, when four things changed at
+once and
 one of the morning's own claims was overturned. **An ant can feel hunger
 now**: a well-fed ant mostly rests and a hungry one walks, and the colony
 digs when its nest is crowded rather than tunnelling the world out of
@@ -422,13 +439,17 @@ zero, every animal is exactly its genes whatever its line finds. The number
 is not inherited and a jar does not keep it, so a released animal is made
 of nothing.
 
-**They can see what hunts them, if they can see at all.** An animal with
-eyes used to see two things at a distance: something it could eat, and its
-own kind. Since 2026-09-06 it sees a third — the nearest animal whose
-stomach would take *it* — and knows how near it is and which way to turn to
-face it or to put it behind. Nothing tells the animal what to do about that;
-whether it runs, freezes, digs in, keeps eating or lays a scent is decided
-by its inheritance, and an animal born today does none of them. The ants
+**They can see what hunts them, and now what feeds them, if they can see at
+all.** An animal with eyes used to see two things at a distance: something
+it could eat, and its own kind. Since 2026-09-06 it sees a third — the
+nearest animal whose stomach would take *it* — and since 2026-09-10 a
+fourth: the nearest flower, whether or not its own gut can use one, on the
+same look that finds everything else. For each of these it knows how near
+the thing is and which way to turn to face it or to put it behind. Nothing
+tells the animal what to do about that; whether it runs, freezes, digs in,
+keeps eating, lays a scent or turns toward a bloom is decided by its
+inheritance, and an animal born today does none of them by default except
+the hopper, which is born turning toward a flower it can see. The ants
 that ship are blind, so for them this begins the day a lineage grows eyes.
 It is the same rule the hunter uses, read from the other end: a beetle is a
 threat to an ant because a beetle would eat an ant, and an ant is a threat

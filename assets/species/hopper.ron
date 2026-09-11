@@ -29,90 +29,22 @@
 // this is that.
 (
     name: "hopper",
-    // **`Leg` and `Gut` added 2026-09-09 alongside the articulated body
-    // below**, same reasoning as `ant.ron`'s own comment on this list: no
-    // `Behavior` of their own, named here so the file lists every cell
-    // type its `fates` table actually produces. `Armour` is not listed --
-    // this hopper's fates table never produces one.
     cell_types: [
         (Head, []),
         (Segment, []),
-        (Leg, []),
-        (Gut, []),
-    ],
-    // **The production rule the body below unfolds from — a species-level
-    // field, sibling to `cell_types` and `creature`, never a `creature:`
-    // field.** See `ant.ron`'s own comment on this exact field for why
-    // that distinction is stated this bluntly: it is a mistake this
-    // file's shape invites, not a stylistic choice, and it cost a whole
-    // test run to notice the first time.
-    //
-    // Walked exactly the way `ant.ron`'s own comment traces its own
-    // unfold, starting at `Head`, `metamers = 0`:
-    //
-    //   step  owner     metamers  becomes  lateral  child      -> segment
-    //   1     Head      0         Head     --       Leg        head
-    //   2     Leg       1         Leg      Leg      Gut        legs (2-wide)
-    //   3     Gut       2         Gut      --       Segment    gut
-    //   4     Segment   3         Segment  --       Segment    abdomen 1
-    //   5     Segment   4         Segment  --       Segment    abdomen 2
-    //   6     Segment   5         Segment  --       Segment    abdomen 3
-    //   7     Segment   6         Segment  --       (none)     tail, stop
-    //
-    // **`Segment` needs two rules for one owner, not the ant's three**,
-    // because it is only ever asked one question twice over: "keep
-    // going, or stop" -- the `after_metamers: Some(6)` rule (listed
-    // first, since first-match-wins needs the higher threshold ahead
-    // of the general one) claims the seventh segment and ends the
-    // axis; the unconditional rule below it carries every step before
-    // that. Unlike the ant, `Leg` and `Gut` here are each asked their
-    // own question exactly once, so neither needs an `after_metamers`
-    // tier of its own.
-    fates: [
-        (Head, [
-            (when: Grew, becomes: Head, child: Some(Leg)),
-        ]),
-        (Leg, [
-            (when: Grew, becomes: Leg, lateral: Some(Leg), child: Some(Gut)),
-        ]),
-        (Gut, [
-            (when: Grew, becomes: Gut, child: Some(Segment)),
-        ]),
-        (Segment, [
-            (when: Grew, becomes: Segment, after_metamers: Some(6)),
-            (when: Grew, becomes: Segment, child: Some(Segment)),
-        ]),
     ],
     creature: Some((
-        // **Longer and thinner than the ant, not an L, 2026-09-09.** The
-        // three-cell `Rigid` "L" this replaces was chosen so a *hunched
-        // rear end over a short front foot* would read as a jumping body
-        // against the ant's flat line -- but a silhouette a `Rigid` body
-        // sets by shape alone is exactly the lever `Reports/plant-
-        // appearance-design.md`'s tropism finding says does not read on
-        // its own (`ant_long.ron`'s comment above makes the same point for
-        // length); `organism::BodyPlan::Segmented` is what lets shape carry
-        // the difference this time, because now there is a role riding on
-        // it too.
-        //
-        // Head, one 2-wide `Leg` segment, a `Gut` segment, four plain
-        // abdomen segments (the last one the tail): 1 + 2 + 1 + 1+1+1+1 =
-        // **8 cells** against the ant's 7, over **seven** segments against
-        // the ant's five -- genuinely longer, and only one of those seven
-        // segments is 2-wide against the ant's two of five, genuinely
-        // thinner. `fates` above (a species-level field, not this block's)
-        // is the heritable copy this shape is grown from; `body` is the
-        // literal fallback, and the two must agree for the same reason
-        // `ant.ron`'s own comment gives.
-        body: Segmented([
-            (cell: Head),
-            (cell: Leg, lateral: Some(Leg)),
-            (cell: Gut),
-            (cell: Segment),
-            (cell: Segment),
-            (cell: Segment),
-            (cell: Segment),
-        ]),
+        // **An L, not a line.** `ant.ron`'s `Chain(2)` is two cells in a
+        // row; a body plan that differs only in length (`ant_long.ron`,
+        // `Reports/plant-appearance-design.md`'s finding on tropism) does
+        // not move a silhouette that shape did not already set. Three
+        // cells, rigid, with the third stacked above the rear one rather
+        // than in line -- a hunched rear end over a short front foot,
+        // which is what a jumping body actually looks like at this scale,
+        // against the ant's flat two-cell line. The head sits at the
+        // implicit `(0, 0)`, same convention `ant_block.ron`'s `Rigid` list
+        // uses; the two entries below are the rest of the body.
+        body: Rigid([(-1, 0), (-1, -1)]),
         // **4, not 6.** A snappier decision clock for an animal whose whole
         // point is a sudden motion. `ant.ron`'s own derivation ties
         // `tick_interval` directly to the energy clock: an idle life is
@@ -173,21 +105,23 @@
         // re-derived, and it is, below.
         start_energy: 200.0,
 
-        // **Per body cell, since 2026-08-30, and re-derived again 2026-09-09
-        // for the eight-cell articulated body above**, exactly as `ant.ron`'s
-        // own comment re-derives the same two flat rates for its own new
-        // cell count -- see that file for the full identity this leans on
-        // (`idle_cost_per_cell * cells` cancels the count out of every
-        // downstream `*_fraction`, so nothing past this pair had to move):
+        // **Per body cell, since 2026-08-30, and this ant is the number
+        // both rates were calibrated from.** They were flat per *animal*
+        // and nothing in the cost path read `chain.len()`, so a longer body
+        // was free -- see `organism.rs`'s `idle_cost_per_cell`. The two
+        // values below are the old 0.10 and 0.25 divided by this body's two
+        // cells, so **a two-cell ant's bill is arithmetically unchanged**
+        // (0.05 x 2 = 0.10, 0.125 x 2 = 0.25) and E14's horizon is not
+        // disturbed. The 2.5:1 worm ratio the block above defends survives
+        // the division, because dividing both operands by the same 2 cannot
+        // move their ratio.
         //
-        //   idle_cost_per_cell = 0.10 / 8 = 0.0125
-        //   move_cost_per_cell = 0.25 / 8 = 0.03125
-        //
-        // Leaving the old 0.05/0.125 here would have billed this hopper 4x
-        // its own idle and move cost purely because it now has more cells,
-        // which is the same unpriced appearance-change `ant.ron` names.
-        idle_cost_per_cell: 0.0125,
-        move_cost_per_cell: 0.03125,
+        // What *does* move is every body that is not two cells: `ant_long`
+        // at six now pays 3x and the nine-cell probe bodies 4.5x, which is
+        // the whole point of the change and is measured in
+        // `Reports/creature-body-extent-2026-08-30.md`.
+        idle_cost_per_cell: 0.05,
+        move_cost_per_cell: 0.125,
 
         // --- the verb prices -------------------------------------------
         //
@@ -388,6 +322,22 @@
         // for itself twice. Nobody wrote that rule; it falls out of pricing
         // the work honestly.
         sight_fraction: 0.000000081168831,
+        // **P1 tried spending this price and put it back.** `BloomNear`/
+        // `BloomBearing` (`src/sim/brain.rs`) were wired to this species --
+        // `sight_range: 32` and `(BloomNear, Move, 1.0)` +
+        // `(BloomBearing, Turn, -2.5)`, the same shape `PreyBearing` uses on
+        // the beetle -- and measured on `played_bed`, three seeds, 60,000
+        // frames: `flower_visits` stayed **0 on every run, wired or not**.
+        // The sense fired (`bloom_seen` 27/56 on two of three wired seeds)
+        // and pulled the animal upward -- highest head 21 rows against
+        // 0/0/6 unwired -- but the flower B1' measured stands ~22 rows up
+        // its own stem, one row past what any run reached. Not a blind eye,
+        // a short reach. Full measurement and the re-test condition:
+        // `dead-ends.md`, creatures section, 2026-09-10.
+        //
+        // `sight_fraction` stays anyway, same reason it always has: the
+        // price is set the day a range is worth authoring again, on this
+        // species or its successor.
         // **The price of the curvature disc, and it is the same number as
         // the eye's on purpose.** Owner's ruling, 2026-09-05: *everything
         // should be priced*. `curvature_radius` was the sensory ratchet
@@ -417,22 +367,12 @@
         // 288 reads (4.7% of an idle life) and r=16 is 1,088 (17.6%). No
         // hand-written cap is needed to make a broad sense expensive.
         curvature_fraction: 0.000000081168831,
-        // **Per body cell, exactly like `idle_cost_per_cell`/`move_cost_
-        // per_cell` above, re-derived with them 2026-09-09.** Same identity
-        // `ant.ron`'s own comment states: `creature::place_creature`'s
-        // stamp is `body_energy * body_cells`, so the whole-animal meat
-        // value has to hold at 480 * 2 = 960 the way this file's idle and
-        // move bills hold, or a predator is paid a different amount for
-        // eating the same animal purely because it grew more cells:
-        //
-        //   body_energy = 960 / 8 = 120.0
-        //
-        // **`food_energy` on `assets/materials/hopper.ron` moves by the
-        // same factor, in the same change** — see `ant.ron`'s own comment
-        // for why the two are one number wearing two names and why
-        // `corpse.ron`'s shared unstamped-corpse fallback is deliberately
-        // left alone rather than guessed at.
-        body_energy: 120.0,
+        // **120, which is exactly what a corpse cell was worth before.**
+        // Under `eat_energy` any mouthful paid the eater 120, so pricing an
+        // ant's own meat at 120 a cell leaves scavenging worth precisely
+        // what it was worth yesterday -- the pump closes because the value
+        // is now finite and booked at spawn, not because meat got cheaper.
+        body_energy: 480.0,
         // **The crop, which replaced `hunger_fraction`.** An ant no longer
         // decides between eating and carrying: it takes what it finds and
         // digests it as it walks, so what reaches the nest is what has not
@@ -770,7 +710,19 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0039308, re-derived 2026-09-10.** This line had gone stale --
+        // `ant.ron`/`ancestor.ron`/`beetle.ron` were carried forward to
+        // `live_slots` 763 (`KinNeed`/`Share`, 2026-09-09) and this file was
+        // not, so it sat one append behind at the 706-slot figure through
+        // that whole change. P1's `BloomNear`/`BloomBearing` append moves
+        // every species again regardless (`live_slots` -> 809, `3.18 / 809
+        // = 0.0039308`, the same target value every other file gets in this
+        // change), so this is the point to catch the drift up rather than
+        // compound it a second append later. This is also the first file
+        // where the new slots are actually wired -- see the bloom pair in
+        // `instincts` below.
+        mutation_rate: 0.0039308,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1414,6 +1366,14 @@
             // retry a gate that suppresses the jump when the animal is short
             // of energy; if the hopper's death is to be fixed, it is not here.
             (Bias, Impulse, 0.5),
+
+            // **No bloom pair here.** `BloomNear`/`BloomBearing` were built
+            // (P1) and wired onto exactly this species, at `sight_range: 32`
+            // above -- see that comment for the measurement. The sense
+            // fired and the animal climbed toward what it saw; `flower_
+            // visits` stayed 0 regardless, because the reach the wiring
+            // needs is one row past what this body gets to. Left unwired
+            // rather than shipped for a behaviour that cannot land.
         ],
 
         // **The gate a single layer cannot express**, authored as weights

@@ -1060,6 +1060,16 @@ pub struct CreatureStats {
     /// beside any cost claim: a sense that timed as free while probing
     /// nothing would read here as a bargain and be a bug.
     pub sight_cells_read: u64,
+    /// **An animal read `BloomNear > 0` this tick** — "did the sense fire at
+    /// all", the pair `flower_visits`/`nectar_paid` needed on the other
+    /// side: those say a bite reached a flower, this says an eye found one
+    /// first. `CLAUDE.md`'s "did it fire at all needs a counter, not a
+    /// picture" — a `labgif` of an animal arriving at a flower cannot say
+    /// whether the sense is what got it there. Zero for every species that
+    /// has not authored `sight_range`, exactly as `sight_casts` is.
+    /// See `BrainInput::BloomNear`,
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    pub bloom_seen: u64,
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -2351,6 +2361,18 @@ pub struct World {
     /// `organ_ripening_blocked`.
     pub organ_ripening_paid: u64,
 
+    /// **A rebloom actually fired** — `plant::process_rebloom` converting a
+    /// stem cell back into a fresh `CellType::Flower` once its
+    /// `SpeciesDef::rebloom_after` timer ran out and the reproductive
+    /// account could cover it. The "did it fire at all" counter for the
+    /// mechanism PR #307 asked for: a bed that reads as flowering in a
+    /// picture could still be doing it entirely through the ordinary
+    /// once-per-axis route, and only this number says the axes are actually
+    /// being reused rather than merely slow to run out. Zero on a run with
+    /// no species authoring `rebloom_after > 0`, by construction — nothing
+    /// else pushes onto `OrganismState::rebloom_pending`.
+    pub flowers_rebloomed: u64,
+
     /// **Ripe fruit that let go**, each one a seed carried to the ground
     /// inside a `windfall` powder. The far-side effect counter for the drop:
     /// `organs_built` says fruit were made, and only this says any of them
@@ -2527,6 +2549,53 @@ pub struct World {
     /// (hundreds over a 120,000-frame bed, per `plant.rs`'s own figures),
     /// so an unbounded `Vec` costs nothing worth capping.
     pub windfall_germination_x: Vec<i32>,
+
+    /// **A2 -- a passenger was loaded into a crop**, the *it fired* half of
+    /// `plant::take_seed_passenger` (`Reports/evolution-lab-ecology-design-
+    /// 2026-09-10.md` §2.6, `seeds_carried`). Counted once per pickup, not
+    /// once per bite: a second surviving seed while a passenger is already
+    /// aboard leaves its `pip` standing instead and does not touch this.
+    pub seeds_carried: u64,
+    /// **A2 -- a passenger was put down as a live pip organism**, the *it
+    /// worked* half of `seeds_carried` -- `plant::deliver_seed_passenger`.
+    /// The two need not be equal within a window (a passenger can still be
+    /// mid-carry, or its carrier can have died -- see
+    /// `carried_seed_organisms`), but every delivery is a pickup, so this
+    /// can never exceed `seeds_carried` over the life of a run.
+    pub seeds_delivered: u64,
+    /// **A2's germination-side headline's raw material.** The x-coordinate
+    /// of every germination whose seed cell was `pip` -- both A1's in-place
+    /// spills and A2's carried deliveries, which converge on the same
+    /// `CellType::Seed` and the same `germinate()` call, so the two cannot
+    /// be told apart from this alone. Positions rather than a pre-bucketed
+    /// histogram, for the same reason `windfall_germination_x` is: the
+    /// engine has no opinion about where a nest column is, and only the
+    /// caller (`labforage`) knows the nest it wants distance measured from
+    /// -- see `World::plants_from_pip` for the plain count this refines.
+    pub pip_germination_x: Vec<i32>,
+    /// **How long a passenger actually rode**, in frames from
+    /// `plant::take_seed_passenger` to `plant::deliver_seed_passenger` --
+    /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.5's check on
+    /// `herb.seed_half_life` (14,000): transit costs approximately nothing
+    /// only while its median stays well under four figures, and nothing
+    /// before this measured it. One entry per completed delivery; bounded
+    /// by how many a run produces, same reasoning as
+    /// `windfall_germination_x`.
+    pub seed_transit_frames: Vec<u32>,
+    /// **Organisms currently riding in a crop, with no cell in the grid.**
+    /// `plant::take_seed_passenger` inserts an id here in the same call that
+    /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
+    /// removes it in the same call that gives the organism a cell again.
+    ///
+    /// **The reason this has to exist at all**: `step_organisms` reclaims
+    /// the slot of any organism whose `cells` map is empty, unconditionally,
+    /// on the very next organism tick -- that rule is what returns a dead
+    /// plant's slot, and it cannot tell "dead" from "between the bite and
+    /// the drop" on its own. A passenger's carry runs to hundreds of frames
+    /// (§2.5), so without this set the organism -- alleles, lineage,
+    /// endowment and all -- would be freed and its id handed to the next
+    /// `push_organism` call before the ant ever put it down.
+    pub(crate) carried_seed_organisms: std::collections::HashSet<u16>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -3806,6 +3875,7 @@ impl World {
             organ_cells_unaffordable: 0,
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
+            flowers_rebloomed: 0,
             fruit_dropped: 0,
             organ_shattered_to_windfall: 0,
             seeds_borne: 0,
@@ -3819,6 +3889,11 @@ impl World {
             flower_visits: 0,
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
+            seeds_carried: 0,
+            seeds_delivered: 0,
+            pip_germination_x: Vec::new(),
+            seed_transit_frames: Vec::new(),
+            carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
@@ -4446,6 +4521,8 @@ impl World {
             cells: crate::sim::fxhash::PosMap::default(),
             root_cells: 0,
             contact_root_cells: 0,
+            // No terminal has finished yet -- see `OrganismState::rebloom_pending`.
+            rebloom_pending: Vec::new(),
             // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.

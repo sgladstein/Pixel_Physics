@@ -15,95 +15,16 @@
 // this is that.
 (
     name: "ant",
-    // **`Leg` and `Gut` added 2026-09-09 alongside the articulated body
-    // below.** Same convention as `Head`/`Segment`: no `Behavior` of their
-    // own, because movement, sensing and the four verbs stay creature.rs's
-    // code -- these are here so the file names every cell type its own
-    // `fates` table actually produces, the way `Head`/`Segment` always
-    // have. `Armour` is not listed: this ant's fates table never produces
-    // one (see the comment there), so there is nothing to name.
     cell_types: [
         (Head, []),
         (Segment, []),
-        (Leg, []),
-        (Gut, []),
-    ],
-    // **The production rule the body below unfolds from — a species-level
-    // field, sibling to `cell_types` and `creature`, not a `creature:`
-    // field.** (It was authored inside `creature: Some((...))` for one
-    // draft and silently parsed there anyway, since an unrecognised RON
-    // key is dropped rather than refused: `SpeciesDef::fates` stayed at
-    // its empty default, `def.body` still read the literal `Segmented`
-    // list below and every placement test kept passing, and only a test
-    // that reads `fate_table()` directly noticed. Left here as the
-    // record of a mistake this file's own shape invites — the field
-    // reads as though it belongs beside `body`, and it does not.)
-    //
-    // `organism::grow_body` walks this exactly the way a plant's `Grow`
-    // behaviour walks its own `fates` table -- first-match-wins,
-    // `after_metamers` regions and all -- starting at `Head`,
-    // `metamers = 0`:
-    //
-    //   step  owner     metamers  becomes  lateral  child      -> segment
-    //   1     Head      0         Head     --       Segment    head
-    //   2     Segment   1         Segment  Leg      Segment    thorax 1
-    //   3     Segment   2         Segment  Leg      Gut        thorax 2
-    //   4     Gut       3         Gut      --       Segment    gut
-    //   5     Segment   4         Segment  --       (none)     tail, stop
-    //
-    // **`Segment` needs three rules for one owner because it is asked
-    // three different questions at three points in the walk**, and
-    // `after_metamers` is what tells them apart: listed highest
-    // threshold first (first-match-wins demands it), the `after_
-    // metamers: Some(4)` rule claims the tail the moment the walk
-    // reaches it, `Some(2)` claims the second thorax segment and hands
-    // off to `Gut`, and the unconditional rule left last catches
-    // metamers 0-1, the first thorax segment, before either threshold
-    // is reached. A mutation that retargets, reconditions, inserts or
-    // deletes a rule here changes which of the five things above an
-    // ant's own cells turn into, which is the whole of what makes this
-    // body heritable rather than merely authored.
-    fates: [
-        (Head, [
-            (when: Grew, becomes: Head, child: Some(Segment)),
-        ]),
-        (Segment, [
-            (when: Grew, becomes: Segment, after_metamers: Some(4)),
-            (when: Grew, becomes: Segment, lateral: Some(Leg), child: Some(Gut), after_metamers: Some(2)),
-            (when: Grew, becomes: Segment, lateral: Some(Leg), child: Some(Segment)),
-        ]),
-        (Gut, [
-            (when: Grew, becomes: Gut, child: Some(Segment)),
-        ]),
     ],
     creature: Some((
-        // **Seven cells, articulated, 2026-09-09 -- owner open question #1
-        // answered.** The two-cell `Chain` this replaces was itself the
-        // answer to "does an ant need more than one cell to read as a body
-        // with a front"; this is the next turn of the same question, now
-        // that a body can be more than a one-cell-wide path at all
-        // (`organism::BodyPlan::Segmented`).
-        //
-        // Head, two 2-wide thorax segments each carrying a `Leg` lateral,
-        // a `Gut` segment, a plain tail: 1 + 2 + 2 + 1 + 1 = **7 cells**,
-        // inside the spec's 6-8 band. `fates` above (a species-level field,
-        // not this block's) is the heritable copy this same shape is grown
-        // from -- a lineage that mutates its fates table can evolve a
-        // different one, the same way a plant's silhouette can -- and
-        // `body` stays the literal fallback so a reader can see the shape
-        // here without running the unfold, and so `place_creature` has
-        // something to place a founder from before any organism (and
-        // therefore any `FateGenome`) exists to read.  The two must
-        // describe the same body or the species file and its own genome
-        // would disagree about what this animal looks like;
-        // `a_species_body_matches_its_own_fates_unfold` guards that they do.
-        body: Segmented([
-            (cell: Head),
-            (cell: Segment, lateral: Some(Leg)),
-            (cell: Segment, lateral: Some(Leg)),
-            (cell: Gut),
-            (cell: Segment),
-        ]),
+        // Two cells. Owner open question #1 is whether an ant reads at one
+        // cell or needs a chain at play zoom; two is the cheapest thing
+        // that is unambiguously a *body* with a front, and it is one
+        // number here to change once that has been looked at.
+        body: Chain(2),
         tick_interval: 6,
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*
@@ -160,45 +81,23 @@
         // default to the recommended setting rather than off.
         founder_reserve_spread: 0.5,
 
-        // **Per body cell, since 2026-08-30, and re-derived again 2026-09-09
-        // for the seven-cell articulated body above.** The two values below
-        // are the same flat 0.10/0.25 this file has always derived from --
-        // see `organism.rs`'s `idle_cost_per_cell` -- now divided by *seven*
-        // cells instead of two, so the flat totals, and everything derived
-        // from them, are unmoved by the appearance change:
+        // **Per body cell, since 2026-08-30, and this ant is the number
+        // both rates were calibrated from.** They were flat per *animal*
+        // and nothing in the cost path read `chain.len()`, so a longer body
+        // was free -- see `organism.rs`'s `idle_cost_per_cell`. The two
+        // values below are the old 0.10 and 0.25 divided by this body's two
+        // cells, so **a two-cell ant's bill is arithmetically unchanged**
+        // (0.05 x 2 = 0.10, 0.125 x 2 = 0.25) and E14's horizon is not
+        // disturbed. The 2.5:1 worm ratio the block above defends survives
+        // the division, because dividing both operands by the same 2 cannot
+        // move their ratio.
         //
-        //   idle_cost_per_cell = 0.10 / 7 = 0.0142857143
-        //   move_cost_per_cell = 0.25 / 7 = 0.0357142857
-        //
-        // **This is the whole of what keeps a 3.5x body from being a 3.5x
-        // metabolic change riding silently on it** (`CLAUDE.md`'s standing
-        // rule on a shared budget: name the constants calibrated against
-        // the old behaviour and re-derive them in the same change). Leaving
-        // the old 0.05/0.125 in place would have billed this ant 3.5x its
-        // own idle and move cost for no behavioural reason at all, and the
-        // two changes -- looks different, costs more to live -- could not
-        // have been told apart on screen.
-        //
-        // The identity that makes this safe is `idle_cost_per_cell * cells`
-        // -- every quantity derived from "idle ticks" below cancels the
-        // cell count out by construction, so **nothing past this point
-        // needed to move**: `idle ticks = start_energy / (idle_cost_per_cell
-        // * cells) = 200 / (0.0142857143 * 7) = 200 / 0.10 = 2,000`,
-        // identical to the two-cell figure, so `sight_fraction`,
-        // `curvature_fraction`, `force_fraction`, `armour_fraction` and
-        // `synapse_fraction` below are all still correct at their existing
-        // values without touching one of them. The 2.5:1 worm ratio the
-        // block above defends survives the same way: dividing both operands
-        // by the same 7 cannot move their ratio.
-        //
-        // What *does* move, deliberately, is `dig_cost_in_moves`, `emit_
-        // cost_in_moves` and `spoil_weight_cells`'s own totals: each of
-        // those already reads as `move_cost_per_cell * body_cells * price`,
-        // so the cell-count factor they multiply against is the same
-        // cancelling identity, and their *shares of the burn* (the table
-        // measured just below) are unmoved for the same reason.
-        idle_cost_per_cell: 0.0142857143,
-        move_cost_per_cell: 0.0357142857,
+        // What *does* move is every body that is not two cells: `ant_long`
+        // at six now pays 3x and the nine-cell probe bodies 4.5x, which is
+        // the whole point of the change and is measured in
+        // `Reports/creature-body-extent-2026-08-30.md`.
+        idle_cost_per_cell: 0.05,
+        move_cost_per_cell: 0.125,
 
         // --- the verb prices -------------------------------------------
         //
@@ -428,40 +327,12 @@
         // 288 reads (4.7% of an idle life) and r=16 is 1,088 (17.6%). No
         // hand-written cap is needed to make a broad sense expensive.
         curvature_fraction: 0.000000081168831,
-        // **Per body cell, exactly like `idle_cost_per_cell`/`move_cost_
-        // per_cell` above, and re-derived with them 2026-09-09 for the
-        // same reason.** `creature::place_creature`'s stamp is `body_energy
-        // * body_cells`, so this ant's own *whole-animal* meat value has to
-        // hold at 480 * 2 = 960 the way its idle and move bills hold, or a
-        // predator that eats this ant would be paid a different amount for
-        // the identical animal purely because it grew more cells:
-        //
-        //   body_energy = 960 / 7 = 137.1428571
-        //
-        // **`food_energy` on `assets/materials/ant.ron` moves by the same
-        // factor, in the same change, and it has to.** The two are one
-        // number wearing two names -- `Reports/dead-ends.md`'s 2026-08-30
-        // entry names this pairing directly: cutting `body_energy` alone
-        // while `food_energy` stayed at 480 would let a predator eat one
-        // cell of this ant for more energy than the whole animal's flesh
-        // cost to build, which is energy created inside `EnergyLedger`'s
-        // closed identity. `hopper.ron`'s matching material moves the same
-        // way for its own new cell count.
-        //
-        // **`corpse.ron`'s own fallback `food_energy: 480.0` is left
-        // alone, and that is a real gap rather than an oversight.** It is
-        // the price of a corpse that arrived with no stamp in `aux` (a
-        // burnt animal, mostly) and it is shared by every creature species
-        // that burns into `corpse` -- `beetle` and `worm` among them,
-        // neither of which changed cell count here. There is no single
-        // factor that re-derives it correctly for all of them at once, and
-        // picking one anyway would just move which species' unstamped
-        // corpse reads wrong. It no longer holds this file's own "smallest
-        // real stamp in the game" property once this ant's per-cell value
-        // drops below it -- flagged here rather than silently fixed, per
-        // this build's own instruction to say so plainly instead of
-        // working around it.
-        body_energy: 137.1428571,
+        // **120, which is exactly what a corpse cell was worth before.**
+        // Under `eat_energy` any mouthful paid the eater 120, so pricing an
+        // ant's own meat at 120 a cell leaves scavenging worth precisely
+        // what it was worth yesterday -- the pump closes because the value
+        // is now finite and booked at spawn, not because meat got cheaper.
+        body_energy: 480.0,
         // **The crop, which replaced `hunger_fraction`.** An ant no longer
         // decides between eating and carrying: it takes what it finds and
         // digests it as it walks, so what reaches the nest is what has not
@@ -804,7 +675,16 @@
         // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
         // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
         // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
-        mutation_rate: 0.0041678,
+        //
+        // **0.0039308, re-derived 2026-09-10** when `BloomNear`/
+        // `BloomBearing` appended (P1, the bloom sense -- two input columns,
+        // 23 slots each: 15 outputs + 8 hidden). `live_slots` 763 -> 809,
+        // `3.18 / 809 = 0.0039308`. The ant wires neither slot -- it has no
+        // eyes and is not the pollinator (owner's ruling, 2026-09-10) -- but
+        // the mutable surface moved for every species on the shared
+        // scaffold regardless, exactly as `beetle.ron`'s own copy of this
+        // comment already says for the append before this one.
+        mutation_rate: 0.0039308,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

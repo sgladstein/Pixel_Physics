@@ -2058,6 +2058,72 @@ fn drop_organ(world: &mut World, x: i32, y: i32, parent_id: u16, cost: f32, rng:
     true
 }
 
+/// **The stem cell a departing organ leaves behind** — the site
+/// `SpeciesDef::rebloom_after` schedules the axis's next flower on.
+///
+/// **Must be read before the organ cell changes hands**, not after: the
+/// instant `drop_organ` succeeds this position belongs to a fresh child
+/// organism (its own doc: "the cell stops being the parent's"), so the
+/// *parent's* sidecar for it — and with it `path_len`, the quantity this
+/// reads — is gone. The collar is a property of the parent's stem and has
+/// to be found while the organ is still standing on it.
+///
+/// The plant keeps no explicit parent pointer anywhere (`OrganismCell`'s own
+/// doc on `order`: a tip reads only its own value), so this recovers the one
+/// step back the same way every other basipetal read in this file does —
+/// off `path_len`. Among same-organism neighbours, the collar is whichever
+/// one sits closer to the plant's own collar than this cell does (a lower
+/// `path_len`) and closest among those — the proximal step in the vascular
+/// graph, found without a traversal of the whole organism.
+///
+/// Restricted to `MatureBody`/`DormantBud`: an organ cannot be another
+/// organ's collar, and a still-growing tip is live tissue building itself,
+/// not settled stem to relabel out from under it.
+///
+/// `None` when the cell has no sidecar at all (not reachable for a real
+/// organ, but a mutated fate table reaching this code is not a crash) or no
+/// neighbour qualifies — a terminal grown straight off the germinating seed
+/// with nothing behind it, which simply does not rebloom.
+fn rebloom_collar(world: &World, organism_id: u16, x: i32, y: i32) -> Option<(i32, i32)> {
+    let path_len = world.organism_cell(x, y)?.path_len;
+    let mut best: Option<((i32, i32), u16)> = None;
+    for (dx, dy) in NEIGHBOURS_8 {
+        let (nx, ny) = (x + dx, y + dy);
+        let cell = world.get(nx, ny);
+        if cell.organism_id() != organism_id {
+            continue;
+        }
+        if !matches!(organism::cell_type(cell.aux()), Some(CellType::MatureBody | CellType::DormantBud)) {
+            continue;
+        }
+        let Some(oc) = world.organism_cell(nx, ny) else { continue };
+        if oc.path_len >= path_len {
+            continue; // not proximal -- as far from the collar as the organ itself, or further
+        }
+        if best.is_none_or(|(_, best_path)| oc.path_len > best_path) {
+            best = Some(((nx, ny), oc.path_len));
+        }
+    }
+    best.map(|(site, _)| site)
+}
+
+/// Queue a fresh flower at `collar`, `SpeciesDef::rebloom_after` frames from
+/// now — the timer `process_rebloom` drains. A no-op for a determinate
+/// species (`rebloom_after: 0`, every species that does not author it —
+/// today's behaviour exactly) or where `rebloom_collar` found nowhere to
+/// grow from.
+fn schedule_rebloom(world: &mut World, organism_id: u16, species_id: organism::SpeciesId, collar: Option<(i32, i32)>) {
+    let rebloom_after = world.species.get(species_id).rebloom_after;
+    if rebloom_after == 0 {
+        return;
+    }
+    let Some((cx, cy)) = collar else { return };
+    let due = world.frame + rebloom_after as u64;
+    if let Some(state) = world.organism_mut(organism_id) {
+        state.rebloom_pending.push((cx, cy, due));
+    }
+}
+
 /// **The mouth-side half of "the seed survives being eaten."** The one
 /// caller is the bite site in `creature.rs` (`:5001`), which replaces an
 /// unconditional `world.set(fxx, fyy, Cell::EMPTY)` with "clear it only if
@@ -2182,6 +2248,95 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     world.set(x, y, Cell::new(pip_id, shade).with_organism_id(organism_id).with_aux(cell.aux()));
     world.seeds_spilled += 1;
     true
+}
+
+/// **A2 -- the crop-side half of "the seed rides home."**
+/// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.2, Brief A2. The
+/// one caller is the bite site in `creature.rs`, immediately after
+/// `seed_survives_bite` has returned `true` and converted the bitten cell
+/// to `pip` **in place** -- called only when the biting animal's crop does
+/// not already carry a passenger (one seed per crop; a second survivor
+/// leaves its pip standing exactly as A1 always has, and never reaches
+/// here).
+///
+/// **No new organism.** The pip cell `seed_survives_bite` just wrote is
+/// still owned by the fruit's own child organism -- this reads that id
+/// (and the cell's material/shade/aux) back out, marks the organism
+/// `carried` so `step_organisms` does not reclaim its now-empty slot, and
+/// clears the cell. `World::set`'s `reindex_organism_cell` seam does the
+/// bookkeeping: the organism's `cells` map loses its one entry here, and
+/// `deliver_seed_passenger` below gives it a fresh one at the drop
+/// position under the same id.
+///
+/// Returns `None` only if `(x, y)` turns out to own no organism -- should
+/// not happen given the caller's own guard, but a passenger with no seed
+/// behind it is a worse bug than a silently skipped pickup.
+pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism::SeedPassenger> {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 {
+        return None;
+    }
+    let passenger = organism::SeedPassenger { organism_id, material: cell.material, shade: cell.shade, aux: cell.aux(), picked_up_frame: world.frame };
+    // Marked carried *before* the clear: both happen inside this one call
+    // with nothing else running between them, but this is the order that
+    // stays correct if that ever stops being true.
+    world.carried_seed_organisms.insert(organism_id);
+    world.set(x, y, Cell::EMPTY);
+    world.seeds_carried += 1;
+    Some(passenger)
+}
+
+/// **The other end of `take_seed_passenger`.** Writes the passenger back as
+/// a live, organism-owned `pip` cell at `(x, y)` -- the same organism id it
+/// has carried since the bite, so the delivered plant germinates through
+/// the ordinary `Behavior::Germinate` path with its real genome, lineage
+/// and endowment rather than a freshly rolled individual.
+///
+/// Two callers, both in `creature.rs`: the ordinary per-frame drop, and the
+/// spill an ant's own death writes its crop out as. Either way this is
+/// called *instead of* `Carried::into_cell` for the one flesh cell the
+/// passenger rides with, not in addition to it -- see `Crop::passenger`'s
+/// own doc for why that is a real, priced substitution rather than a
+/// conservation gap.
+pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    // **`A2_DEBUG=1` -- one line per delivery**, the same convention
+    // `windfall_probe`'s `WF_DEBUG` uses: free when unset (one env read),
+    // and the only way a card-hunting session finds *which* frame and
+    // column to zoom a GIF on without adding a one-off print and reverting
+    // it.
+    if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
+        eprintln!("A2_DEBUG deliver frame={} organism={} at=({x},{y}) carried_frames={}", world.frame, passenger.organism_id, world.frame.saturating_sub(passenger.picked_up_frame));
+    }
+    world.carried_seed_organisms.remove(&passenger.organism_id);
+    let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
+    world.seed_transit_frames.push(frames_carried as u32);
+    world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
+    world.seeds_delivered += 1;
+    // **The decay clock keeps running while carried** (§2.5) -- a free,
+    // graded transit cost, not a free ride. A passenger owns no cell in the
+    // grid for `organism_tick`'s own per-tick decay roll to visit while it
+    // rides, so the whole carried span is settled in one roll here instead
+    // of accruing incrementally. That is not an approximation:
+    // `half_life_chance` is already closed-form in the interval
+    // (`1 - 0.5^(interval/half_life)`), so one roll over the whole span is
+    // the exact same hazard a seed that never left the ground would have
+    // faced tick by tick.
+    let half_life = world.organism(passenger.organism_id).map(|s| s.species).map(|sp| world.species.get(sp).seed_half_life);
+    if let Some(half_life) = half_life {
+        let mut rng = growth_stream(world, passenger.organism_id, x, y);
+        if rng.chance(half_life_chance(half_life, frames_carried)) {
+            // One of `pips_rotted`'s exits, same as the standing case --
+            // see `World::seeds_spilled` for how the four are meant to sum.
+            // The write above and this one land in the same call: the pip
+            // was genuinely delivered (`seeds_delivered` already moved) and
+            // then immediately lost the viability race, exactly as a
+            // standing pip can decay on the very tick it could otherwise
+            // have germinated (`organism_tick`'s own seed-decay comment).
+            world.pips_rotted += 1;
+            shed_to_litter(world, x, y);
+        }
+    }
 }
 
 /// **What a flower pays out of the two currencies it holds, in budget
@@ -5427,10 +5582,25 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                         found_candidate = true;
                         continue;
                     }
+                    // **Read before `drop_organ`, not after.** The instant
+                    // that call succeeds this cell belongs to a fresh child
+                    // organism (`drop_organ`'s own doc: "the cell stops
+                    // being the parent's"), so the parent's sidecar for it
+                    // -- and therefore its `path_len` -- is gone. The collar
+                    // is a property of the *parent's* stem, and has to be
+                    // read while this cell is still standing on it.
+                    let collar = rebloom_collar(world, organism_id, x, y);
                     if drop_organ(world, x, y, organism_id, cost, &mut rng) {
                         if let Some(state) = world.organism_mut(organism_id) {
                             state.reproductive_budget -= cost;
                         }
+                        // **The axis is not finished just because this
+                        // terminal is gone.** See `SpeciesDef::rebloom_after`
+                        // for the whole account of why the determinate
+                        // habit ships as a *timer on the axis' collar*
+                        // rather than a property of the departing cell --
+                        // the departing cell is, from this line on, seed.
+                        schedule_rebloom(world, organism_id, species_id, collar);
                         // The cell now belongs to the child. Nothing this
                         // tick may touch it again, and there is no site to
                         // reschedule -- `drop_organ` scheduled the child's.
@@ -6047,6 +6217,11 @@ pub fn step_organisms(world: &mut World) {
             // `GrowingTip` when `thicken` runs and can be counted as frontier
             // rather than thickened over on the same tick it woke up.
             timing.time(4, || break_buds(world, organism_id));
+            // Beside `break_buds`, the same "one whole-plant decision, one
+            // pass" shape -- see `process_rebloom`'s own doc. After
+            // `allocate_to_frontier` so it spends this tick's freshest
+            // `reproductive_budget`, not last tick's.
+            process_rebloom(world, organism_id);
             // After `break_buds`, so a tick's single shoot flush is decided
             // before the roots ask -- and after `organism_upkeep` has set
             // `water_status`, which is what this gates on.
@@ -6130,7 +6305,13 @@ pub fn step_organisms(world: &mut World) {
         if world.organism(organism_id).is_some_and(|s| s.senescent) {
             rot_remains(world, organism_id);
         }
-        if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) {
+        // **A2's exemption.** An organism riding in a crop as a
+        // `SeedPassenger` owns no cell in the grid for exactly the same
+        // reason a dead one does not -- `take_seed_passenger` clears its
+        // one cell -- so without this check its slot would be reclaimed,
+        // and possibly reissued to something else entirely, before the
+        // carrying ant ever puts it down. See `World::carried_seed_organisms`.
+        if world.organism(organism_id).is_some_and(|s| s.cells.is_empty()) && !world.carried_seed_organisms.contains(&organism_id) {
             world.free_organism(organism_id);
         }
     }
@@ -8606,6 +8787,103 @@ fn break_buds(world: &mut World, organism_id: u16) {
     }
     let site = reschedule_organism(bx, by, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
     world.schedule_active_site(site);
+}
+
+/// **The axis a dropped fruit left behind gets its flower back.**
+///
+/// Same shape as `break_buds` beside it, and for the same reason: which
+/// site gets the plant's next commitment, and whether the reproductive
+/// account can cover it, are whole-plant questions, not something a single
+/// settled stem cell decides on its own — so this runs once per organism
+/// tick rather than off the active-site schedule. See
+/// `SpeciesDef::rebloom_after` for why the account is `reproductive_budget`
+/// and the amount is the species' own `Flower` `Ripen.cost`.
+///
+/// **A stale pending site is simply dropped, not hunted for.** If the
+/// collar burned, snapped off, or was grown over between being queued and
+/// its timer running out, `cell.organism_id() != organism_id` reads exactly
+/// like `organism_tick`'s own check on a relocated seed: nothing to grow
+/// from, so the entry is quietly discarded rather than retried forever.
+fn process_rebloom(world: &mut World, organism_id: u16) {
+    let Some(state) = world.organism(organism_id) else { return };
+    if state.rebloom_pending.is_empty() {
+        return;
+    }
+    let species_id = state.species;
+    let frame = world.frame;
+    // Taken out rather than borrowed across the loop -- the conversion
+    // below needs `&mut World`, which a live borrow of this `Vec` would
+    // conflict with. Whatever does not fire this tick goes back at the end.
+    let pending = std::mem::take(&mut world.organism_mut(organism_id).expect("checked live above").rebloom_pending);
+    // **The going rate for a flower's own lifecycle stage, reused rather
+    // than a fourth authored cost** — see `SpeciesDef::rebloom_after`'s own
+    // doc for why this account and this amount, against what the first
+    // flower on a growing axis actually pays.
+    let flower_cost = individual_behavior(world, organism_id, CellType::Flower, |b| match b {
+        Behavior::Ripen { cost, .. } => Some(*cost),
+        _ => None,
+    });
+    let mut remaining = Vec::with_capacity(pending.len());
+    for (x, y, due) in pending {
+        if frame < due {
+            remaining.push((x, y, due));
+            continue;
+        }
+        let cell = world.get(x, y);
+        if cell.organism_id() != organism_id {
+            continue; // the collar is no longer this plant's -- nothing to grow from
+        }
+        if !matches!(organism::cell_type(cell.aux()), Some(CellType::MatureBody | CellType::DormantBud)) {
+            continue; // already something else by the time the timer ran out
+        }
+        let Some(cost) = flower_cost else { continue }; // no `Flower` `Ripen` authored at all
+        let budget = world.organism(organism_id).map_or(0.0, |s| s.reproductive_budget);
+        if budget < cost {
+            // Graded, not a refusal -- exactly `Behavior::Ripen`'s own
+            // reading of the same shortfall, and counted in the same place:
+            // this is the identical question, "did the reproductive account
+            // cover this organ's price," asked from a different call site.
+            world.organ_ripening_blocked += 1;
+            remaining.push((x, y, due));
+            continue;
+        }
+        if let Some(s) = world.organism_mut(organism_id) {
+            s.reproductive_budget -= cost;
+        }
+        let mut rng = growth_stream(world, organism_id, x, y);
+        let (organ_mat, organ_shade) =
+            tissue_appearance(world, organism_id, species_id, CellType::Flower, cell.material, Band::Bark, &mut rng);
+        let (keep_order, keep_path) = world.organism_cell(x, y).map_or((0, 0), |c| (c.order, c.path_len));
+        world.set(
+            x,
+            y,
+            Cell::new(organ_mat, organ_shade).with_organism_id(organism_id).with_aux(organism::pack_cell_type(CellType::Flower)),
+        );
+        // Same-organism write, so the sidecar survives it -- restated
+        // defensively anyway, mirroring `Behavior::Ripen`'s own fruit-set
+        // arm, which gives the reason: cheap, and a silent 0 here would put
+        // a rebloomed flower at the collar for every rule that reads
+        // position.
+        write_order(world, x, y, keep_order);
+        if let Some(slot) = world.organism_cell_mut(x, y) {
+            slot.path_len = keep_path;
+            slot.ripeness = 0.0;
+            slot.nectar = 0.0;
+        }
+        world.organs_built += 1;
+        world.organ_ripening_paid += 1;
+        world.flowers_rebloomed += 1;
+        // Without this the new flower leaves the active-site schedule the
+        // moment this pass returns and `Behavior::Ripen` never runs on it
+        // again -- the same "an organ stays scheduled only while its clock
+        // is running" trap that arm's own comment records for a freshly
+        // created organ.
+        let site = reschedule_organism(x, y, organism_id, 0, 0, world.organism_due(ORGANISM_TICK_INTERVAL));
+        world.schedule_active_site(site);
+    }
+    if let Some(s) = world.organism_mut(organism_id) {
+        s.rebloom_pending = remaining;
+    }
 }
 
 fn allocate_to_frontier(world: &mut World, organism_id: u16) {
@@ -11165,6 +11443,11 @@ fn germinate(world: &mut World, x: i32, y: i32, organism_id: u16, cell: Cell, rn
     // mouth and grew anyway. See `plant::seed_survives_bite`.
     if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
         world.plants_from_pip += 1;
+        // **A2's raw material for "plants established near the nest."** The
+        // engine still has no opinion about where a nest column is (see
+        // `windfall_germination_x` just below); `labforage` buckets this
+        // against `LabBox::colony_columns` itself.
+        world.pip_germination_x.push(x);
     }
     // **Did this seedling arrive by parcel or by scatter?** `cell` is the
     // seed cell as it stood before this function relabels it into a shoot,
@@ -14668,20 +14951,24 @@ they are the same world. Got {median}, which means something other than the leve
         let w = test_world();
         let mut authored_species = 0usize;
         let mut authored_answers = 0usize;
-        // **`herb` and `scrambler` are deliberately not in this list**, and
-        // the omission is the point of the change that added them. Their
+        // **`herb`, `scrambler` and `shrub` are deliberately not in this
+        // list**, and the omission is the point of the change that added
+        // the first two and, on 2026-09-10, extended to the third. Their
         // whole purpose is to *disagree* with the built-in rule: a
         // determinate axis terminating in a flower is exactly a production
-        // rule the built-in one cannot express. Adding them here would make
-        // this guard fail for the right reason, and dropping the guard to
-        // accommodate them would lose the proof that the five indeterminate
+        // rule the built-in one cannot express, and `shrub` gained that same
+        // rule the day it became a flowering species
+        // (`Reports/evolution-lab-pollinator-design-2026-09-10.md`, the
+        // rebloom brief). Adding any of them here would make this guard
+        // fail for the right reason, and dropping the guard to accommodate
+        // them would lose the proof that the four genuinely indeterminate
         // species still behave as they did before the fate table existed.
         //
         // The guard that covers *them* is
-        // `a_determinate_species_terminates_its_axis_in_an_organ`, which
-        // checks the property they exist for rather than agreement with a
-        // rule they contradict.
-        for name in ["tree", "conifer", "shrub", "creeper", "grass", "moss"] {
+        // `a_determinate_species_terminates_its_axes_in_organs_and_an_indeterminate_one_does_not`,
+        // which checks the property they exist for rather than agreement
+        // with a rule they contradict.
+        for name in ["tree", "conifer", "creeper", "grass", "moss"] {
             let Some(id) = w.species.id_of(name) else { continue };
             if w.species.get(id).has_fates() {
                 authored_species += 1;
@@ -14713,8 +15000,13 @@ they are the same world. Got {median}, which means something other than the leve
             }
         }
 
+        // **4, not 5** -- `shrub` moved to the excluded set above on
+        // 2026-09-10 alongside `herb`/`scrambler`, so of the five species
+        // left in this list only `tree`, `conifer`, `creeper` and `grass`
+        // declare a table; `moss` is the one that authors none at all
+        // (its own doc, a few lines up).
         assert!(
-            authored_species >= 5,
+            authored_species >= 4,
             "only {authored_species} species declare a fate table -- with none declared this test \
              compares `builtin_fate` against itself and proves nothing"
         );
@@ -21911,6 +22203,75 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         assert_eq!(w.plants_from_pip, 1, "the it-worked counter must move when a pip germinates");
     }
 
+    /// **A2, first hook: a bite that passes the roll loads a passenger and
+    /// leaves no pip behind.** `Reports/evolution-lab-ecology-design-2026-
+    /// 09-10.md` §2.2, Brief A2. Exercises the two calls in the exact order
+    /// `creature.rs`'s bite site makes them: `seed_survives_bite` converts
+    /// the cell to `pip` in place, then -- because nothing is carrying a
+    /// passenger yet -- `take_seed_passenger` lifts that same cell back out.
+    #[test]
+    fn a_surviving_seed_is_taken_as_a_passenger_and_leaves_no_pip_standing() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        assert!(seed_survives_bite(&mut w, x, y, &mut rng), "test setup: the roll must pass at seed_gut_survival 1.0");
+
+        let passenger = take_seed_passenger(&mut w, x, y).expect("a pip the bite just converted in place must yield a passenger");
+        assert_eq!(passenger.organism_id, id, "the passenger must carry the seed's own organism id, not a fresh one");
+
+        let cell = w.get(x, y);
+        assert_eq!(cell.material, material::EMPTY, "no pip may stand where the fruit was bitten once it is riding in a crop");
+        assert_eq!(w.organism(id).map_or(1, |s| s.cells.len()), 0, "the organism owns no cell while carried -- that is the whole reason it needs the carried-set guard");
+        assert!(w.organism(id).is_some(), "the organism itself must still be standing, just cell-less");
+        assert!(w.carried_seed_organisms.contains(&id), "World::carried_seed_organisms must protect a mid-carry organism from step_organisms' empty-cell-list reclaim");
+        assert_eq!(w.seeds_carried, 1, "the it-fired counter must move when a passenger is loaded");
+    }
+
+    /// **A2, the one-seed-per-crop rule: a second bite with a passenger
+    /// already aboard leaves its pip on the spot.** Brief A2's own words:
+    /// "one seed per crop... a second surviving seed leaves its pip
+    /// standing where it was bitten instead". `take_seed_passenger` is
+    /// simply never called for the second seed -- this proves that when it
+    /// is not called, `seed_survives_bite`'s own in-place conversion is
+    /// exactly what is left standing, unchanged.
+    #[test]
+    fn a_second_surviving_seed_with_a_passenger_already_aboard_stays_on_the_spot() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let first_id = w.push_organism(herb).expect("an organism slot is free");
+        let second_id = w.push_organism(herb).expect("an organism slot is free");
+        let (x1, y1) = (50, 50);
+        let (x2, y2) = (60, 50);
+        place(&mut w, (x1, y1), windfall, first_id, CellType::Seed, (0.0, 0.0));
+        place(&mut w, (x2, y2), windfall, second_id, CellType::Seed, (0.0, 0.0));
+
+        let mut rng = Rng::new(7);
+        assert!(seed_survives_bite(&mut w, x1, y1, &mut rng), "test setup: the first roll must pass");
+        let passenger = take_seed_passenger(&mut w, x1, y1).expect("test setup: the first pip must be taken as a passenger");
+
+        // The crop now carries a passenger -- exactly the condition
+        // `creature.rs`'s gate checks (`crop.is_none_or(|c| c.passenger.is_none())`)
+        // -- so the caller must not call `take_seed_passenger` again. This
+        // second bite converts the cell to `pip` in place and is left there.
+        assert!(seed_survives_bite(&mut w, x2, y2, &mut rng), "test setup: the second roll must also pass");
+
+        let second_cell = w.get(x2, y2);
+        assert_eq!(second_cell.material, pip, "the second surviving seed must still be standing as a pip, not vanished");
+        assert_eq!(second_cell.organism_id(), second_id, "the second pip must still belong to its own organism");
+        assert!(!w.carried_seed_organisms.contains(&second_id), "the second organism was never taken as a passenger and must not be in the carried set");
+        assert_eq!(w.seeds_carried, 1, "only the first surviving seed may be taken -- the counter must not move a second time");
+        assert_eq!(passenger.organism_id, first_id, "sanity: the one passenger that was taken is still the first seed");
+    }
+
     /// **The arithmetic in §2.3, as a guard that can fail.** Change
     /// `pip.ron`'s `food_energy` and this must go red before it goes
     /// green -- watched by hand at 500.0 (both arms clear the bar, both
@@ -22144,5 +22505,269 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
 
         assert_eq!(w.nectar_paid, 0.0, "the effect counter must read exactly zero at nectar_refill: 0.0");
         assert_eq!(w.flower_visits, 25, "the sensitivity counter must still have moved on every reach -- a zero nectar_paid must not read as a blind probe");
+    }
+
+    // --- rebloom: an axis that keeps flowering -----------------------------
+    // `SpeciesDef::rebloom_after`'s own doc has the full mechanism. Four
+    // guards, watched red first against a build with no `process_rebloom`
+    // call and no `schedule_rebloom` call at the fruit-drop site: all four
+    // failed (three on a `flowers_rebloomed` that never moved off 0, the
+    // determinate one vacuously since nothing ever fires there either --
+    // which is why it also drives the counter through `process_rebloom`
+    // directly rather than only asserting on a `Vec` staying empty).
+
+    /// **A determinate species (`rebloom_after: 0`) never reblooms.** The
+    /// negative control every positive result below needs, and it exercises
+    /// the real call sites (`schedule_rebloom`, then `process_rebloom` over
+    /// many ticks) rather than only checking the field reads back as 0.
+    #[test]
+    fn a_determinate_species_never_reblooms() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        assert!(
+            w.species.get(herb).rebloom_after > 0,
+            "test premise: herb must ship as rebloom-capable, or forcing it to 0 below proves nothing \
+             about the field actually gating the mechanism"
+        );
+        w.species.get_mut(herb).rebloom_after = 0; // today's behaviour: a determinate axis, once
+
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (cx, cy) = (50, 50);
+        let (fx, fy) = (51, 50);
+        place(&mut w, (cx, cy), wood, id, CellType::MatureBody, (1.0, 0.0));
+        place(&mut w, (fx, fy), flower, id, CellType::Flower, (0.0, 0.0));
+        if let Some(slot) = w.organism_cell_mut(cx, cy) {
+            slot.path_len = 5;
+        }
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.path_len = 6;
+        }
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP;
+        }
+
+        let collar = rebloom_collar(&w, id, fx, fy);
+        assert_eq!(collar, Some((cx, cy)), "test setup: the collar lookup must find the proximal neighbour");
+        schedule_rebloom(&mut w, id, herb, collar);
+        assert!(
+            w.organism(id).expect("live").rebloom_pending.is_empty(),
+            "rebloom_after: 0 must never queue a pending site at all"
+        );
+
+        for _ in 0..200 {
+            w.frame += ORGANISM_TICK_INTERVAL;
+            process_rebloom(&mut w, id);
+        }
+        assert_eq!(w.flowers_rebloomed, 0, "a determinate species must never rebloom, over any number of ticks");
+        assert_eq!(
+            organism::cell_type(w.get(cx, cy).aux()),
+            Some(CellType::MatureBody),
+            "the collar must be untouched -- nothing was ever queued to relabel it"
+        );
+    }
+
+    /// **The axis re-blooms after its fruit drops, and not before.** Drives
+    /// the real fruit-drop site in `Behavior::Ripen` (via `organism_tick`) so
+    /// the queueing is exercised end to end, then `process_rebloom` on
+    /// either side of the timer.
+    #[test]
+    fn a_rebloom_fires_after_the_fruit_drops_and_not_before() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).rebloom_after = 100; // short, so the test does not wait real ticks out
+
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (cx, cy) = (50, 50); // the collar: settled stem, still standing after the drop
+        let (fx, fy) = (51, 50); // the ripe fruit, about to detach
+        place(&mut w, (cx, cy), wood, id, CellType::MatureBody, (1.0, 0.0));
+        place(&mut w, (fx, fy), fruit, id, CellType::Fruit, (0.0, 0.0));
+        if let Some(slot) = w.organism_cell_mut(cx, cy) {
+            slot.path_len = 5;
+        }
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.path_len = 6;
+            slot.ripeness = 0.999; // one tick's `rate` (0.012) crosses 1.0
+        }
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP; // covers both the drop and the rebloom
+        }
+
+        w.frame += ORGANISM_TICK_INTERVAL;
+        organism_tick(&mut w, fx, fy, id, 0, 0);
+        assert_eq!(w.fruit_dropped, 1, "test setup: the fruit must have dropped for this test to say anything");
+        assert_eq!(
+            organism::cell_type(w.get(cx, cy).aux()),
+            Some(CellType::MatureBody),
+            "not before: the collar must still be plain stem the instant the fruit drops, before its timer runs out"
+        );
+        let pending = w.organism(id).expect("the parent survives the drop").rebloom_pending.clone();
+        assert_eq!(pending.len(), 1, "the drop must queue exactly one pending site");
+        assert_eq!((pending[0].0, pending[0].1), (cx, cy), "the queued site must be the collar, not the departed fruit's own position");
+        let due = pending[0].2;
+
+        // Short of the timer: `process_rebloom` must decline to act.
+        w.frame = due - 1;
+        process_rebloom(&mut w, id);
+        assert_eq!(w.flowers_rebloomed, 0, "not yet: the timer has not run out");
+        assert_eq!(organism::cell_type(w.get(cx, cy).aux()), Some(CellType::MatureBody), "the collar must still be plain stem short of the timer");
+
+        // At the timer: it must fire.
+        w.frame = due;
+        process_rebloom(&mut w, id);
+        assert_eq!(w.flowers_rebloomed, 1, "after: the timer running out must produce exactly one rebloom");
+        assert_eq!(
+            organism::cell_type(w.get(cx, cy).aux()),
+            Some(CellType::Flower),
+            "the collar must now be a fresh Flower -- the same terminal, one metamer shorter"
+        );
+        assert!(
+            w.organism(id).expect("live").rebloom_pending.is_empty(),
+            "a fired site must leave the pending queue, not sit there re-firing every tick"
+        );
+    }
+
+    /// **A plant too poor to pay waits, gradedly, rather than either minting
+    /// carbon or losing the site.** The refusal is counted on the same line
+    /// the rest of the organ pipeline uses (`organ_ripening_blocked`), and a
+    /// later top-up lets the same queued site fire.
+    #[test]
+    fn a_plant_that_cannot_pay_does_not_rebloom() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        w.species.get_mut(herb).rebloom_after = 100;
+
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (cx, cy) = (50, 50);
+        let (fx, fy) = (51, 50);
+        place(&mut w, (cx, cy), wood, id, CellType::MatureBody, (1.0, 0.0));
+        place(&mut w, (fx, fy), fruit, id, CellType::Fruit, (0.0, 0.0));
+        if let Some(slot) = w.organism_cell_mut(cx, cy) {
+            slot.path_len = 5;
+        }
+        let fruit_cost = w
+            .species
+            .get(herb)
+            .behaviors(CellType::Fruit)
+            .iter()
+            .find_map(|b| match b {
+                Behavior::Ripen { cost, .. } => Some(*cost),
+                _ => None,
+            })
+            .expect("test premise: herb must author a Fruit Ripen cost");
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.path_len = 6;
+            slot.ripeness = 0.999;
+        }
+        // Just enough to cover the drop and not one unit more -- so the
+        // rebloom that follows is provably unfunded, not merely untested.
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = fruit_cost;
+        }
+
+        w.frame += ORGANISM_TICK_INTERVAL;
+        organism_tick(&mut w, fx, fy, id, 0, 0);
+        assert_eq!(w.fruit_dropped, 1, "test setup: the fruit must have dropped");
+        let due = w.organism(id).expect("live").rebloom_pending.first().expect("one pending site").2;
+        let blocked_before = w.organ_ripening_blocked;
+
+        w.frame = due;
+        process_rebloom(&mut w, id);
+        assert_eq!(w.flowers_rebloomed, 0, "an unfunded rebloom must not fire");
+        assert_eq!(organism::cell_type(w.get(cx, cy).aux()), Some(CellType::MatureBody), "an unfunded rebloom must leave the collar untouched");
+        assert_eq!(w.organ_ripening_blocked, blocked_before + 1, "the refusal must be counted on the same line the rest of the organ pipeline uses");
+        assert_eq!(
+            w.organism(id).expect("live").rebloom_pending.len(),
+            1,
+            "a refused site must stay queued to retry -- graded, not lost"
+        );
+
+        // Top up, past the flower's own price, and the same site must fire.
+        if let Some(state) = w.organism_mut(id) {
+            state.reproductive_budget = REPRODUCTIVE_BUDGET_CAP;
+        }
+        process_rebloom(&mut w, id);
+        assert_eq!(w.flowers_rebloomed, 1, "once affordable, the retried site must fire");
+        assert_eq!(organism::cell_type(w.get(cx, cy).aux()), Some(CellType::Flower));
+    }
+
+    // --- shrub: a flowering shrub -------------------------------------------
+
+    /// **`shrub`'s organ rules parse, and behave exactly like the other two
+    /// organ species' shape**: below its metamer count the ordinary rule
+    /// answers, at and past it the determinate one does. Mirrors
+    /// `after_metamers_gates_a_determinate_rule_and_leaves_the_ordinary_one_answering`,
+    /// which already covers `herb` -- this is the same property for the
+    /// third species that now carries it.
+    #[test]
+    fn shrub_after_metamers_gates_its_determinate_rule() {
+        use organism::FateWhen::Node;
+        let w = test_world();
+        let id = w.species.id_of("shrub").expect("shrub is compiled in");
+        let sp = w.species.get(id);
+
+        let below = sp.fate(CellType::GrowingTip, Node, 3).expect("some Node rule must always answer");
+        assert_eq!(below.becomes, CellType::DormantBud, "below its metamer count shrub must take the ordinary node rule, not flower early");
+
+        let at = sp.fate(CellType::GrowingTip, Node, 4).expect("the determinate rule must answer at its own count");
+        assert_eq!(at.becomes, CellType::Flower, "at its metamer count a shrub axis must terminate in a flower");
+        assert_eq!(at.after_metamers, Some(4));
+
+        assert_eq!(
+            sp.fate(CellType::GrowingTip, Node, 40).map(|f| f.becomes),
+            Some(CellType::Flower),
+            "the determinate rule must stay in force past its own count"
+        );
+    }
+
+    /// **A shrub grown from a seed reaches a flower** — the same
+    /// "did it fire at all" shape as `a_determinate_species_terminates_
+    /// its_axes_in_organs_and_an_indeterminate_one_does_not`'s `herb` arm,
+    /// scoped to one species and one counter rather than duplicating that
+    /// test's three-arm structure and its 30,000-frame budget: `shrub`'s
+    /// determinate count (4, against `herb`'s 8) and its short internodes
+    /// mean the terminal is reached sooner, and `organs_built` is what says
+    /// "did it fire" regardless of whether any one organ is still standing
+    /// at the instant the run stops.
+    #[test]
+    fn a_shrub_builds_a_flower_in_a_grown_scene() {
+        const GROUND: i32 = 150;
+        const WIDTH: i32 = 176;
+        let mut w = World::new(Rect::new(0, 0, WIDTH - 1, GROUND + 60));
+        w.fate_mutation_chance = 0.0; // this is about what the species authors, not what a genome drifts to
+        let soil = w.materials.id_of("soil").expect("soil is a compiled-in material");
+        for x in 0..WIDTH {
+            for y in (GROUND + 34)..(GROUND + 40) {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+            for y in GROUND..(GROUND + 34) {
+                w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+        }
+        let plants = 3;
+        let spacing = WIDTH / (plants + 1);
+        for i in 1..=plants {
+            w.plant_tree_species(i * spacing, GROUND - 25, "shrub");
+        }
+        for _ in 0..25_000 {
+            super::super::parallel::step(&mut w);
+            w.step_active_sites();
+            field::step(&mut w);
+        }
+        let tissue = (0..WIDTH)
+            .flat_map(|x| (0..(GROUND + 40)).map(move |y| (x, y)))
+            .filter(|&(x, y)| w.get(x, y).organism_id() != 0)
+            .count();
+        assert!(tissue > 0, "the shrub stand did not grow at all in 25,000 frames, so a zero organ count would prove nothing");
+        assert!(
+            w.organs_built > 0,
+            "a shrub stand grown for 25,000 frames ({tissue} cells of tissue standing) built no organ \
+             at all -- the determinate rule added to shrub.ron's GrowingTip fate table never fired"
+        );
     }
 }

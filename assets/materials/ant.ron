@@ -33,15 +33,7 @@
     // cell-type packing and cannot also carry a worth -- and predation has
     // never once fired (13o), so this number is close to unreachable today.
     // Flagged rather than dressed up.
-    //
-    // **One number wearing two names with `ant.ron`'s own `body_energy`,
-    // and it moved with it, 2026-09-09.** The two are the same flesh
-    // priced from two files with two different owners, so cutting one
-    // without the other lets a predator eat a cell of this ant for more
-    // energy than the whole animal cost to build -- energy created inside
-    // `EnergyLedger`'s closed identity. `ant.ron`'s own comment has the
-    // 960 / 7 = 137.1428571 arithmetic; this is that same number.
-    food_energy: 137.1428571,
+    food_energy: 480.0,
     // In MPa like every other value of this field. **Live insect cuticle,
     // and the number `beetle.ron`'s `dig_force: 0.3` was chosen against**
     // -- with headroom, because a knife-edge `0.3 <= 0.3` is a bar sitting

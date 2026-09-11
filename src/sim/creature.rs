@@ -3135,6 +3135,16 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         if seen.threat.is_some() {
             world.creature_stats.threat_sightings += 1;
         }
+        // **"Did it fire at all" needs a counter, not a picture**
+        // (`CLAUDE.md`). A `labgif` of an animal arriving at a flower
+        // cannot say whether the bloom sense is what got it there or
+        // whether it stumbled in exactly as every animal in the box did
+        // before this input existed -- this is the counter that answers
+        // it, read beside `flower_visits`/`nectar_paid` on the far side of
+        // the bite.
+        if inputs[brain::BrainInput::BloomNear as usize] > 0.0 {
+            world.creature_stats.bloom_seen += 1;
+        }
         if let Some(seen) = sighting {
             world.creature_stats.sightings += 1;
             world.creature_stats.sight_dist_sum += seen.dist as u64;
@@ -3938,6 +3948,28 @@ fn sense(
             error -= std::f32::consts::TAU;
         }
         inputs[I::ThreatBearing as usize] = error / std::f32::consts::PI;
+    }
+
+    // **The bloom pair, from the same cast again.** P1 of
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md`: nothing in
+    // this suite pointed at a flower before this input existed, so a
+    // flower that pays nectar to whatever feeds at it (B1') had no way to
+    // be found except by walking into one by chance. Same nearness and
+    // bearing arithmetic as prey/kin/threat, so a genome that learned one
+    // has learned the other's scale. Reads a constant 0.0 for a species
+    // with no `sight_range`, which is every shipped species until one
+    // authors it -- so appending this pair is byte-identical for the
+    // shipped ant.
+    if let Some(bloom) = seen_all.bloom {
+        inputs[I::BloomNear as usize] = (1.0 - bloom.dist / reach as f32).clamp(0.0, 1.0);
+        let bearing = ((bloom.y - y) as f32).atan2((bloom.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::BloomBearing as usize] = error / std::f32::consts::PI;
     }
 
     (inputs, seen_all, sight_reads, curvature_reads)
@@ -4789,6 +4821,13 @@ pub struct Sightings {
     /// `is_visible_threat` and `BrainInput::ThreatNear`. Recorded on the
     /// same rays, never breaking one.
     pub threat: Option<Sighting>,
+    /// The nearest visible flower -- see `is_visible_bloom` and
+    /// `BrainInput::BloomNear`. Recorded on the same rays, never breaking
+    /// one, for the reason every other passenger on this cast is not
+    /// allowed to break one: `reads` is what `sight_fraction` bills, and an
+    /// animal standing in a field of flowers must not look cheaper to feed
+    /// than one standing in a field of nothing.
+    pub bloom: Option<Sighting>,
 }
 
 /// What stops a sight line: **rock and soil, and nothing else.**
@@ -4861,6 +4900,26 @@ fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bo
     other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, gut)
 }
 
+/// Is this cell a flower?
+///
+/// **Not gut-filtered, the same asymmetry `is_visible_kin` documents.** A
+/// prey sense has to stop seeing what the mouth cannot use or the gene is
+/// nutritional bookkeeping rather than behaviour (`is_visible_prey`'s own
+/// doc); a bloom sense is not that -- an animal that cannot digest nectar
+/// still benefits from knowing where a flower is, because `FoodAdjacent`
+/// and the existing diet filter at the bite site are what decide whether
+/// reaching one pays. Filtering here would ask one predicate to do the
+/// nutrition question's job twice, and disagree with it the moment a gut
+/// gene changes.
+///
+/// `MaterialKind::Plant` rather than any material by name, exactly as the
+/// rest of this file reads a plant cell: `organism::cell_type` decodes
+/// which cell of the organism this is from `aux`, and `CellType::Flower`
+/// is the one answer that counts.
+fn is_visible_bloom(world: &World, cell: Cell) -> bool {
+    world.materials.kind(cell.material) == MaterialKind::Plant && organism::cell_type(cell.aux()) == Some(CellType::Flower)
+}
+
 /// **The distal sense: cast `SIGHT_RAYS` rays all round and return the
 /// nearest prey any of them reached.**
 ///
@@ -4914,6 +4973,8 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
     let mut kin_d2 = i32::MAX;
     let mut threat: Option<Sighting> = None;
     let mut threat_d2 = i32::MAX;
+    let mut bloom: Option<Sighting> = None;
+    let mut bloom_d2 = i32::MAX;
     // My own head, which is what a hunter's gut is asked about. Read once:
     // the question "would that animal eat this cell" is about *this* cell
     // for every ray.
@@ -4954,6 +5015,19 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
                     threat = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
                 }
             }
+            // **Blooms are recorded and never break the ray**, exactly as
+            // kin and threats are and for the same reason: `reads` is the
+            // bill, and an animal in a bed thick with flowers must not
+            // read as cheaper to feed than the same animal in a bed with
+            // none. `is_visible_bloom` is not gut-filtered -- see its own
+            // doc -- so this fires for any eyed species regardless of diet.
+            if is_visible_bloom(world, target) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < bloom_d2 {
+                    bloom_d2 = d2;
+                    bloom = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+            }
             if is_visible_prey(world, target, gut, organism) {
                 let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
                 if d2 < best_d2 {
@@ -4974,7 +5048,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             }
         }
     }
-    Sightings { prey: best, kin, threat }
+    Sightings { prey: best, kin, threat, bloom }
 }
 
 /// Is this cell **a living animal that would eat me**?
@@ -5567,9 +5641,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // ecology-design-2026-09-10.md` §2). `false` for anything
                 // that is not a windfall's seed, so this changes nothing
                 // else the bite verb does.
-                if !plant::seed_survives_bite(world, fxx, fyy, draw) {
+                let seed_saved = plant::seed_survives_bite(world, fxx, fyy, draw);
+                if !seed_saved {
                     world.set(fxx, fyy, Cell::EMPTY);
                 }
+                // **A2 -- ride home instead of standing.** `seed_saved` just
+                // converted the bitten cell to `pip` *in place*; if this
+                // crop is not already carrying a passenger, lift that same
+                // pip back out as one before it is ever seen standing there.
+                // One seed per crop (`crop`, read at function entry, is
+                // still accurate here -- nothing between then and now
+                // touches `state.crop`): a second survivor with a
+                // passenger already aboard is left exactly where A1 always
+                // left it.
+                let passenger =
+                    (seed_saved && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
@@ -5603,8 +5689,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         // went in -- a small pump, one-directional, and
                         // exactly the kind evolution finds. Taking the min
                         // makes the leak run the safe way.
-                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), ..c },
-                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0 },
+                        // `c.passenger.or(passenger)`: keeps whatever was
+                        // already aboard, and the two can never both be
+                        // `Some` given the guard above (`passenger` is only
+                        // ever computed when `c.passenger` was `None`).
+                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
+                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0, passenger },
                     });
                 }
                 world.creature_stats.pickups += 1;
@@ -5705,14 +5795,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                    world.set(dx, dy, unit.into_cell(world));
+                    // **A2 -- popped by the first cell dropped.** A
+                    // passenger rides *in place of* this one flesh cell,
+                    // not beside it -- see `Crop::passenger`'s own doc for
+                    // why that is a priced substitution rather than a
+                    // conservation gap. Wherever the ant happens to be, not
+                    // only at the nest: "put down" is one verb.
+                    if let Some(passenger) = held.passenger {
+                        plant::deliver_seed_passenger(world, dx, dy, passenger);
+                    } else {
+                        world.set(dx, dy, unit.into_cell(world));
+                    }
                     if let Some(state) = world.organism_mut(organism) {
                         // The cell leaves whole; the maturing remainder stays,
                         // because it is progress toward eating the *next* one
                         // and clearing it would hand the animal a free restart.
+                        // `passenger: None` unconditionally: either it was
+                        // already empty, or it was just delivered above and
+                        // must not be popped a second time by a later drop.
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
-                            (left > 0).then_some(Crop { cells: left, ..c })
+                            (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
                         });
                     }
                     world.creature_stats.drops += 1;
@@ -9451,13 +9554,36 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
     }
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
         let unit = held.unit_cell(quantise_worth);
+        // **A2 -- an ant that dies mid-carry still delivers**, on the same
+        // "put down where it fell" rule the rest of this spill already
+        // uses. Popped by the loop's first iteration, exactly as the
+        // living drop pops it by its own first cell -- without this the
+        // passenger's organism would sit forever in
+        // `World::carried_seed_organisms`, alive but owning no cell and
+        // with no other path back to one: a real slot leak, the same shape
+        // `World::free_organism`'s own doc says this allocator exists to
+        // close.
+        let mut passenger = held.passenger;
         let mut left = held.cells;
         while left > 0 {
             let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) else {
                 break;
             };
-            world.set(dx, dy, unit.into_cell(world));
+            if let Some(p) = passenger.take() {
+                plant::deliver_seed_passenger(world, dx, dy, p);
+            } else {
+                world.set(dx, dy, unit.into_cell(world));
+            }
             left -= 1;
+        }
+        // **No empty cell was ever found for it.** Rare -- a death packed
+        // tightly enough to refuse every flesh cell too -- but leaving the
+        // id in `carried_seed_organisms` would hold its slot for the life
+        // of the process. Releasing the guard here lets the ordinary
+        // empty-cell-list rule reclaim it on the next organism tick, same
+        // as any other seed that never found ground.
+        if let Some(p) = passenger {
+            world.carried_seed_organisms.remove(&p.organism_id);
         }
         // Cells that had nowhere to go are gone from the world; book them if
         // they were meat, so the bound stays sound. The maturing remainder is
@@ -14888,7 +15014,7 @@ mod tests {
     }
 
     /// **The species file and its own genome must agree on what the animal
-    /// looks like** — `ant.ron`'s own comment states this as the reason
+    /// looks like** — `longant.ron`'s own comment states this as the reason
     /// `body:` and `fates:` are both authored rather than one derived from
     /// the other at load time. Grows each shipped articulated species'
     /// `fates` table with the same `grow_body` a founder is placed from and
@@ -14896,10 +15022,17 @@ mod tests {
     /// arithmetic error in either table (an `after_metamers` threshold one
     /// off, a `child` pointed at the wrong type) is caught here rather than
     /// by a silhouette nobody was looking at.
+    ///
+    /// **Only `longant` as of 2026-09-11.** The owner's ruling that landed
+    /// the articulated body kept the shipped `ant` and `hopper` at their
+    /// original `Chain(2)`/`Rigid` bodies with no `fates` table at all
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §13) and moved
+    /// the seven-cell body this test was written for onto `longant`, the
+    /// species a player places rather than the one a colony starts with.
     #[test]
     fn a_species_body_matches_its_own_fates_unfold() {
         let w = test_world();
-        for name in ["ant", "hopper"] {
+        for name in ["longant"] {
             let id = w.species.id_of(name).expect(name);
             let species = w.species.get(id);
             let def = species.creature.as_ref().expect("creature");
@@ -16341,7 +16474,7 @@ mod tests {
         let corpse = w.materials.id_of("corpse").expect("corpse");
         let ant = spawn(&mut w, "ant", 100, 100);
         assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
-        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit: 640.0, shade: 3 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit: 640.0, shade: 3, passenger: None });
 
         creature_dies(&mut w, ant, organism::DeathCause::Killed);
 
@@ -16355,6 +16488,134 @@ mod tests {
             .collect();
         assert_eq!(dropped.len(), 1, "a corpse cell worth 640 was being carried and exactly one should have landed, found {}", dropped.len());
         assert_eq!(dropped[0].shade, 3, "the cargo's shade travels with it, or a fat corpse is put down looking like a picked-over one");
+    }
+
+    /// **A2 -- the first cell an ant with a passenger aboard puts down
+    /// writes a live pip organism**, not a bare cell: organism id
+    /// non-zero, resolves, still `CellType::Seed` so it can germinate on
+    /// the ordinary path. `Reports/evolution-lab-ecology-design-2026-09-
+    /// 10.md` §2.2, Brief A2.
+    ///
+    /// Exercised through the death-spill drop (`creature_dies`) rather
+    /// than the living per-frame one -- both call the identical
+    /// `plant::deliver_seed_passenger`, and this is the one reachable
+    /// directly in a unit test, exactly as `a_carried_corpse_keeps_its_
+    /// worth_when_it_is_put_down` above already does for an ordinary
+    /// cargo. `picked_up_frame` equals the current `world.frame`, so the
+    /// transit-decay roll (§2.5, tested on its own below) has zero span to
+    /// act on and cannot make this test flaky.
+    #[test]
+    fn a_dying_carrier_still_delivers_its_passenger_as_a_live_organism() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 120.0, shade: 0, passenger: Some(passenger) });
+
+        creature_dies(&mut w, ant, organism::DeathCause::Killed);
+
+        let delivered: Vec<Cell> =
+            (92..112).flat_map(|x| (95..102).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger's organism must own exactly one cell after delivery, found {}", delivered.len());
+        assert_eq!(delivered[0].material, pip, "a delivered passenger must be wearing pip");
+        assert_eq!(
+            organism::cell_type(delivered[0].aux()),
+            Some(CellType::Seed),
+            "a delivered passenger must still read as a Seed, or it cannot germinate on the ordinary path"
+        );
+        assert!(w.organism(seed_id).is_some(), "the organism must resolve after delivery");
+        assert_eq!(w.organism(seed_id).map_or(0, |s| s.cells.len()), 1, "the organism must own its one delivered cell");
+        assert_eq!(w.seeds_delivered, 1, "the it-worked counter must move on delivery");
+        assert!(
+            !w.carried_seed_organisms.contains(&seed_id),
+            "delivery must release the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
+        );
+    }
+
+    /// **A2 -- digestion must not consume a passenger.** `creature_tick`'s
+    /// digest block spends `cells`/`digesting`/`unit` and rebuilds the crop
+    /// with `..c`, which already carries `passenger` forward unchanged --
+    /// this is the guard that would catch a future edit which stopped
+    /// doing that. `unit: 1.0` against the ant's own `digest_rate` (3.3,
+    /// `ant.ron`) guarantees one cell matures and is spent inside a single
+    /// tick, so `cells` moving from 2 to 1 is the positive control that
+    /// digestion genuinely ran.
+    #[test]
+    fn digestion_does_not_consume_a_passenger() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 2, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        let crop = w.organism(ant).expect("live").crop.expect("digesting one of two cells must leave the crop standing, not empty it");
+        assert_eq!(crop.cells, 1, "test setup: digestion must actually have consumed a cell, or this proves nothing about the passenger");
+        assert!(crop.passenger.is_some(), "digestion must not consume the passenger riding alongside the food it digests");
+        assert_eq!(crop.passenger.map(|p| p.organism_id), Some(seed_id), "the surviving passenger must still be the same seed");
+    }
+
+    /// **A2 -- a carried seed still decays on its own clock** (§2.5): the
+    /// decay clock keeps running while riding in a crop, settled as one
+    /// roll at delivery over the whole carried span rather than accruing
+    /// per tick (`plant::deliver_seed_passenger`'s own doc says why that is
+    /// the exact same hazard, not an approximation). `picked_up_frame: 0`
+    /// against a delivery at `frame` ten million puts the span at roughly
+    /// 714 herb half-lives (14,000 each) -- `half_life_chance` saturates
+    /// long before that, so decay is not merely likely, it is as close to
+    /// certain as floating point gets. The paired short-carry case is
+    /// already covered above: `a_dying_carrier_still_delivers_its_
+    /// passenger_as_a_live_organism` picks up and delivers on the same
+    /// frame and gets a live organism every time.
+    #[test]
+    fn a_carried_seed_with_a_long_enough_transit_decays_before_delivery() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let half_life = w.species.get(herb).seed_half_life;
+        assert!(half_life > 0.0 && half_life < 1_000_000.0, "test premise: herb.seed_half_life must be small next to the ten-million-frame span this test carries a seed over, or the decay roll proves nothing");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        let passenger = organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: 0 };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 120.0, shade: 0, passenger: Some(passenger) });
+        w.frame = 10_000_000;
+
+        let pips_rotted_before = w.pips_rotted;
+        creature_dies(&mut w, ant, organism::DeathCause::Killed);
+
+        let live_delivery = (92..112).flat_map(|x| (95..102).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).any(|c| c.organism_id() == seed_id);
+        assert!(!live_delivery, "a seed carried across ~714 half-lives must not still resolve to a live organism at delivery");
+        assert_eq!(w.pips_rotted, pips_rotted_before + 1, "a seed that lost the transit viability race must be counted on the same exit a standing pip's decay uses");
+        assert_eq!(w.seeds_delivered, 1, "the passenger was still genuinely put down -- seeds_delivered counts the delivery event, not survival past it");
+        assert!(!w.carried_seed_organisms.contains(&seed_id), "the carried-set guard must be released either way, or the slot leaks even on the decay exit");
     }
 
     /// **The `aux` convention is a property of the material, not of the
@@ -16396,7 +16657,7 @@ mod tests {
         // arise from the ingest path -- nothing under `EAT_YIELD_THRESHOLD` is
         // taken at all -- so the fixture is what was unrealistic.
         let leaf_face = w.materials.get(leaf).food_energy;
-        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: leaf_face, shade: 0 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: leaf_face, shade: 0, passenger: None });
         let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
 
         creature_dies(&mut w, ant, organism::DeathCause::Killed);
@@ -16651,7 +16912,7 @@ mod tests {
             if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
                 // The material is never put down in this scene, so what it
                 // is does not matter -- only its worth, which is the mass.
-                state.crop = Some(Crop { material: material::EMPTY, cells: 1, digesting: 0.0, unit: worth as f32, shade: 0 });
+                state.crop = Some(Crop { material: material::EMPTY, cells: 1, digesting: 0.0, unit: worth as f32, shade: 0, passenger: None });
             }
             // Long enough to take many steps; the ratio is what is read, so
             // the absolute frame count is not load-bearing.
@@ -18960,12 +19221,18 @@ mod tests {
         let ant = w.species.id_of("ant").expect("ant species");
         let def = w.species.get(ant).creature.as_ref().expect("ant is a creature");
         assert_eq!(def.shade_rule, ShadeRule::Random);
-        // **7, not 2, since 2026-09-09.** `ShadeRule` is E10's decision and
-        // is untouched by the articulated-body change; the cell count is
-        // not the thing this guard is protecting and is allowed to move --
-        // this line just has to say what it actually is now, or a future
-        // shade-rule regression could hide behind a stale number here too.
-        assert_eq!(def.body.len(), 7, "the shipped ant's own cell count");
+        // **Back to 2, 2026-09-11.** It was 7 for one day, while the
+        // articulated body was the shipped ant's own
+        // (`Reports/creature-articulated-body-2026-09-09.md`); the owner's
+        // ruling that landed that body kept the shipped ant at `Chain(2)`
+        // and moved the seven-cell body onto `longant`, a species the
+        // player places rather than the one a colony starts with.
+        // `ShadeRule` is E10's decision and is untouched either way; the
+        // cell count is not the thing this guard is protecting and is
+        // allowed to move -- this line just has to say what it actually is
+        // now, or a future shade-rule regression could hide behind a stale
+        // number here too.
+        assert_eq!(def.body.len(), 2, "the shipped ant's own cell count");
     }
 
     #[test]
@@ -19138,6 +19405,95 @@ mod tests {
             ledger_gap_before, ledger_gap_after,
             "crediting nectar must not open a gap between the live identity's two sides: {ledger_gap_before} -> {ledger_gap_after}"
         );
+    }
+
+    // --- P1: the bloom sense ---------------------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3, Brief
+    // P1. `BloomNear`/`BloomBearing` are new inputs; the gate the brief
+    // names is that every shipped species stays bit-identical, which a unit
+    // test cannot show (see `ascii`/`labstats` before/after in the PR
+    // description) -- what belongs here is the sense's own positive
+    // control, watched red both ways before it is believed either way.
+
+    /// **The positive control, and it has to fail for a leaf as well as
+    /// succeed for a flower, or it proves nothing.** A beetle already ships
+    /// with an eye (`sight_range: 64`), so this needs no hypothetical range
+    /// the way the blind ant would: place one flower on a bare floor within
+    /// reach and the sense must fire; swap it for a leaf at the same cell
+    /// and it must read exactly zero, because a leaf is food but is not a
+    /// bloom -- the same "is this a flower, not merely a plant" question
+    /// `is_visible_bloom` exists to answer.
+    #[test]
+    fn a_beetle_sees_a_flower_and_not_a_leaf_standing_where_it_was() {
+        let bloom_bed = |flower: bool| -> f32 {
+            let mut w = test_world();
+            for cx in 0..200 {
+                w.set(cx, 101, Cell::new(material::STONE, 0));
+            }
+            let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+            assert_ne!(beetle, 0, "the beetle was not placed; the scene does not contain the situation this test is about");
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let (fx, fy) = (90, 100);
+            if flower {
+                let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+                let plant_id = w.push_organism(herb).expect("an organism slot is free");
+                w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+            } else {
+                let leaf_mat = w.materials.id_of("leaf").expect("leaf is compiled in");
+                w.set(fx, fy, Cell::new(leaf_mat, 0));
+            }
+            let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+            let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+            inputs[brain::BrainInput::BloomNear as usize]
+        };
+
+        let near = bloom_bed(true);
+        assert!(near > 0.0, "an eyed animal with a flower on a bare floor within reach must read BloomNear > 0; read {near}");
+
+        let leaf_near = bloom_bed(false);
+        assert_eq!(leaf_near, 0.0, "the same scene with a leaf standing where the flower was must read exactly 0 -- a leaf is food, not a bloom");
+    }
+
+    /// **`BloomNear`/`BloomBearing` read zero for the shipped ant, exactly
+    /// as `PreyNear`/`PreyBearing` do** -- `a_species_with_no_eye_reads_
+    /// every_distal_slot_as_zero`'s own claim, extended to the pair P1
+    /// appended. `sight_range: 0` is what every shipped ant carries; this
+    /// is what keeps appending the pair byte-identical for it.
+    #[test]
+    fn the_bloom_pair_reads_zero_for_a_species_with_no_eye() {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        assert_eq!(def.sight_range, 0, "test setup: the shipped ant must be blind, or this proves nothing about the shipped animal");
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::BloomNear as usize], 0.0);
+        assert_eq!(inputs[brain::BrainInput::BloomBearing as usize], 0.0);
+    }
+
+    /// **A bloom must not break the ray it is recorded on.** Placed behind
+    /// the flower, on the far side, is prey the beetle can also eat; if
+    /// recording the bloom broke the ray the way finding prey does, the
+    /// beetle would see the flower and never the ant standing past it. The
+    /// brief's whole gate is that this sense is free because it changes no
+    /// existing count -- this is what would fail first if it were not.
+    #[test]
+    fn a_bloom_does_not_block_the_ray_from_reaching_prey_past_it() {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+        assert_ne!(beetle, 0);
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        w.set(75, 100, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        w.plant_ant(90, 100); // past the flower, from the beetle's side
+        assert_ne!(w.get(90, 100).organism_id(), 0, "the ant was not placed; there is nothing to see past the flower");
+        let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+        let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+        assert!(inputs[brain::BrainInput::BloomNear as usize] > 0.0, "the flower must still be seen");
+        assert!(inputs[brain::BrainInput::PreyNear as usize] > 0.0, "the ant past the flower must still be seen -- the bloom must not have stopped the ray");
     }
 
     // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and
