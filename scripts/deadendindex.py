@@ -261,13 +261,31 @@ def build(section, line, body, dates, flags):
     }
 
 
-COLUMNS = ["id", "section", "line", "family", "grade", "effective", "written", "stated_date",
+COLUMNS = ["id", "key", "section", "line", "family", "grade", "effective", "written", "stated_date",
            "pre_cluster", "condition_met", "numbers", "chars", "target", "live_flags",
            "dead_flags", "scenes", "noisy_instruments", "cross", "address", "retest"]
 
 
 def ident(e, n):
     return f"{e['section']}:{n:03d}"
+
+
+def stable_key(e):
+    """A content-derived id, because the positional one silently corrupts.
+
+    `section:ordinal` reads well and is wrong: two entries landed mid-`other`
+    when `main` was merged on 2026-09-11 and **eight already-labelled ids
+    silently changed which entry they pointed at**, among them two revival
+    candidates. A triage keyed on ordinals is one merge away from attaching
+    every verdict to the wrong entry, and nothing about the file would look
+    different afterwards.
+
+    So the durable handle hashes the entry's own address. It survives
+    insertion, deletion and reordering, and it changes only when the address
+    itself is edited -- which is the case where a human should look anyway.
+    The ordinal stays as the readable label; this is what joins data to it."""
+    import hashlib
+    return hashlib.sha1(e["address"].encode("utf-8")).hexdigest()[:10]
 
 
 def write_outputs(entries):
@@ -284,8 +302,9 @@ def write_outputs(entries):
     for e in entries:
         per[e["section"]] += 1
         eid = ident(e, per[e["section"]])
-        rows.append("\t".join([eid] + [str(e.get(c, "")).replace("\t", " ")
-                                        for c in COLUMNS[1:]]))
+        rows.append("\t".join([eid, stable_key(e)]
+                              + [str(e.get(c, "")).replace("\t", " ")
+                                 for c in COLUMNS[2:]]))
         if e["section"] != current:
             current = e["section"]
             skel += ["", f"## {current}", ""]
