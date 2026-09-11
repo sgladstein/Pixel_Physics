@@ -1,0 +1,71 @@
+{
+  "id": "20260911T063740333Z-f83e2b",
+  "created": "2026-09-11T06:37:40Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f",
+    "branch": "claude/lab-garden-rot-r28",
+    "commit": "c397c2d5",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f"
+  },
+  "title": "A pip becomes a seedling",
+  "question": "Does this read as a pip settling in, sprouting, and growing -- not just a colour change?",
+  "context_md": "Round 28's own garden loop, closing: the delivered pip was dying the same tick it was set down because `deliver_seed_passenger` never re-armed the organism's Germinate schedule -- the ordinary seed-relocation recovery in `organism_tick` silently dropped it (the organism owns zero cells while riding as a passenger, so the recovery that finds a *relocated* seed has nothing to find). Fixed with the same `schedule_active_site` call `bear_seed_at` already uses.\n\nWith the schedule re-armed, `pip_checks` (round 28's own diagnostic) went from 0 on every seed to 213 and 241 on the two seeds with deliveries -- and among those checks, `resting` and `light` are never the blocker (100% pass both), `soil_water` is: only 2 of 454 checks ever read enough water against herb's 0.15 threshold. This organism (id 4656, seed=2) is one of the 2 that did.\n\nRinged cell is the delivery site (347,157), rolled to (347,161) before resting. Frame 0 is 18 frames before delivery; delivery is frame 45348; germination (1 cell -> 2, `GrowingTip` + `RootTip`) is frame 45356; by frames 45539-46339 it stands at 5 cells.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "organism 4656 -- delivery to seedling",
+      "files": [
+        "20260911T063740333Z-f83e2b/000-frame_0000_f0.png",
+        "20260911T063740333Z-f83e2b/001-frame_0001_f40.png",
+        "20260911T063740333Z-f83e2b/002-frame_0002_f80.png",
+        "20260911T063740333Z-f83e2b/003-frame_0003_f120.png",
+        "20260911T063740333Z-f83e2b/004-frame_0004_f160.png",
+        "20260911T063740333Z-f83e2b/005-frame_0005_f200.png",
+        "20260911T063740333Z-f83e2b/006-frame_0006_f240.png",
+        "20260911T063740333Z-f83e2b/007-frame_0007_f280.png",
+        "20260911T063740333Z-f83e2b/008-frame_0008_f320.png",
+        "20260911T063740333Z-f83e2b/009-frame_0009_f360.png",
+        "20260911T063740333Z-f83e2b/010-frame_0010_f400.png",
+        "20260911T063740333Z-f83e2b/011-frame_0011_f440.png",
+        "20260911T063740333Z-f83e2b/012-frame_0012_f480.png",
+        "20260911T063740333Z-f83e2b/013-frame_0013_f520.png",
+        "20260911T063740333Z-f83e2b/014-frame_0014_f560.png",
+        "20260911T063740333Z-f83e2b/015-frame_0015_f600.png",
+        "20260911T063740333Z-f83e2b/016-frame_0016_f640.png",
+        "20260911T063740333Z-f83e2b/017-frame_0017_f680.png",
+        "20260911T063740333Z-f83e2b/018-frame_0018_f720.png",
+        "20260911T063740333Z-f83e2b/019-frame_0019_f760.png",
+        "20260911T063740333Z-f83e2b/020-frame_0020_f800.png",
+        "20260911T063740333Z-f83e2b/021-frame_0021_f840.png",
+        "20260911T063740333Z-f83e2b/022-frame_0022_f880.png",
+        "20260911T063740333Z-f83e2b/023-frame_0023_f920.png",
+        "20260911T063740333Z-f83e2b/024-frame_0024_f960.png",
+        "20260911T063740333Z-f83e2b/025-frame_0025_f1000.png",
+        "20260911T063740333Z-f83e2b/026-frame_0026_f1040.png",
+        "20260911T063740333Z-f83e2b/027-frame_0027_f1080.png"
+      ],
+      "caption": "played_bed, seed=2, real frames 45330-46410, every 40th frame, ring fixed at (347,161)",
+      "meta": {
+        "plants_from_pip (this seed)": 2,
+        "pip_checks total, this seed": 213,
+        "pip_checks passing soil_water, all 3 seeds": "2 of 454",
+        "delivery frame": 45348,
+        "germination frame (1 cell -> 2)": 45356,
+        "cell count by frame 45539-46339": 5
+      },
+      "focus": "center"
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
