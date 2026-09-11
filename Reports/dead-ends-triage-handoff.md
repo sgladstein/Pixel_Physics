@@ -20,59 +20,49 @@ The question, in the owner's words: how many of these were rejected because the
 was **confounded** (a creature test that failed because plants reacted), or the
 **condition has since changed**.
 
-## Landed so far
+## Landed so far — **screening is complete**
 
-| commit | what |
-|---|---|
-| `a09227ca` | `scripts/deadendindex.py` + index TSV + skeleton |
-| `3459b009` | the live-flag-is-not-a-live-arm finding |
-| `88fd2fd0` | first 306 screened entries, rubric, calibration record, two checks |
-| `eb05951b` | this handoff, mirrored into the repo |
-| `e2b6c362` | content-derived `stable_key` — positional ids were corrupting labels |
-| `34ac713b` | the creature slice; 473 of 779 screened |
-
-**556 of 779 screened (71%).**
+All 779 register rows now carry a verdict (758 distinct dead ends; twelve
+addresses are listed twice within a section and share one).
 
 | label | n | | label | n |
 |---|--:|---|---|--:|
-| DEAD | 289 | | UNBUILT | 25 |
-| META | 77 | | COSTED | 16 |
-| CONFOUNDED | 39 | | EXPIRED | 14 |
-| RE-TESTED | 6 | | SUSPECT-INSTRUMENT | 5 |
-| UNWIRED | 1 | | LANDED | 1 |
+| DEAD | 495 | | UNBUILT | 41 |
+| META | 93 | | COSTED | 26 |
+| CONFOUNDED | 57 | | EXPIRED | 21 |
+| SUSPECT-INSTRUMENT | 9 | | RE-TESTED | 8 |
+| LANDED | 6 | | UNWIRED | 2 |
 
-**75 revival candidates (16%).** The register is mostly right; the value is in
-locating the minority precisely.
+**118 revival candidates (15%).** The register is right about roughly two thirds
+of what it holds, and the value of the sweep is in locating the rest precisely.
 
-| section | screened | total |
-|---|--:|--:|
-| plants | 165 | 165 |
-| creatures | 77 | 77 |
-| other | 105 | 107 |
-| liquids | 59 | 59 |
-| field | 36 | 36 |
-| weather | 24 | 24 |
-| character | 16 | 16 |
-| **destruction** | **0** | **99** |
-| **structural** | **0** | **90** |
-| **rendering** | **0** | **42** |
-| **worldgen** | **0** | **23** |
-| **powders** | **0** | **18** |
-| **scheduler** | **0** | **13** |
-| **parallelism** | **0** | **10** |
+By section: plants 25, structural 22, other 15, creatures 13, liquids 9,
+weather 8, destruction 6, field 5, powders 4, rendering 4, worldgen 4,
+scheduler 2, character 1.
 
-The creature slice carried the owner's own hypothesis and confirmed it: **23 of
-176 came back `CONFOUNDED`**, the highest rate of any slice. Two entries worth
-naming, both turning on the 2026-09-06 rebuild — `creatures:039`, lateral
-sensors kept but unwired, whose re-test clause names *"a flier"* as the
-reopening trigger and `flitter` now exists with the sensors still unwired; and
-`creatures:066`, a `reproduce_threshold` proven arithmetically unreachable under
-an economy that has since been rebuilt in exactly the variables the proof rests
-on.
+The creature slice carried the owner's own hypothesis — a creature result failing
+because a neighbouring subsystem reacted — and confirmed it: **23 of 176 came
+back `CONFOUNDED`**, the highest rate of any slice.
+
+### Checks run so far
+
+- **`creatures:039` — verified EXPIRED** (`check-creatures-039.md`). The entry
+  parks the Jones/Physarum lateral pheromone sensors because both land in open
+  air for a side-view walker (0.000 over a cell holding A=27) and names its own
+  reopening condition: *"Correct for anything moving in open space (a flier, a
+  swimmer)."* `flitter` now exists and is airborne; the slots survive at
+  `brain.rs:515,517`; **no species carries a lateral weight** — ten `.ron` files
+  match the names and every match is a comment. The condition arrived and nobody
+  rewired the sensors.
+- **`structural:005`'s named replacement** (`check-structural-005.md`). Two of
+  its three claims hold at the shipped 8192×2560 over three seeds; **the packing
+  claim fails** — max offset 258 against the 239 quoted, needing a ninth bit.
+- **A live flag is not a runnable arm** (`finding-live-flag.md`). `GROUND_ROOT`
+  is correctly wired to a branch its own scene never reaches.
 
 ## Remaining work, in order — push after every step
 
-### 1. Finish screening (223 entries left)
+### 1. Finish screening — DONE
 
 **structural is complete (90/90)**: 58 DEAD, 13 CONFOUNDED, 4 EXPIRED, 4 COSTED,
 3 UNBUILT, 3 META, **3 LANDED**, 1 UNWIRED, 1 RE-TESTED. The screener died on a

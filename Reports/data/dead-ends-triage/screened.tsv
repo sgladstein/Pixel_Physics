@@ -555,3 +555,205 @@ e5237b3dce	structural:087	DEAD	3	nothing within geometry can decide this; only n
 ea6dbc207d	structural:088	DEAD	1	module-doc rationale for direction-dependent step cost, defending against an isotropic-cost alternative; thin evidence beyond the heading.
 c6bde6156c	structural:089	RE-TESTED	2	the specific aliasing became impossible once aux and the burn timer split into separate fields, but the defer-while-burning behaviour was re-confirmed as still needed.
 60cd9442f7	structural:090	DEAD	2	holds while C1 keying and universal destructive-verb intactness-revocation remain the design, both still true.
+0fab536561	powders:001	CONFOUNDED	3	measured only inside a sealed lab box with an impermeable floor and no drainage sink, so the water table can only ever rise -- the scene, not the graded mechanic, produces the binary-looking failure
+9fcec3f43b	powders:002	CONFOUNDED	3	same sealed-box no-drainage confound as the entry above; the constant's siting, not the mechanic, is what a change to the water model could fix
+b00bf7ad39	powders:003	COSTED	3	full MPM measured as far too slow for a 16ms CPU frame budget; named reopening condition is a GPU compute path or a different budget
+263b5071b1	powders:004	UNBUILT	2	naive void-walk hole propagation deferred pending a hopper/silo use case that does not exist, argued from literature rather than an in-engine build
+77f7db17ce	powders:005	DEAD	2	real 2D sandpiles contradict BTW's power-law prediction per cited primary literature (Jaeger/Liu/Nagel, Oslo) -- a counterexample, and explicitly not a cost argument
+179aea03c6	powders:006	DEAD	3	fresh RNG draw combined with chunk sleep freezes a mid-roll grain forever -- a concrete counterexample bug
+685d7eca0c	powders:007	UNBUILT	2	README status-summary framing ("not planned at all"/"on hold pending" a hopper-silo use case) -- design-time deferral, not itself an engine build-and-measure
+820f312672	powders:008	DEAD	3	explicitly "not a cheaper one" -- rejected on accuracy grounds, contradicted by experimental record across five bead types plus rice-grain SOC exception
+bc38f6f77f	powders:009	DEAD	2	void-walk over-predicts diffusion against experimental data, turning a drained layered pile to mush -- a literature counterexample
+79e0ba6d4c	powders:010	UNBUILT	3	rejected on architecture mismatch (powder cells have no velocity or stress field); explicit unmet reopening condition (Report C concluding a stress field is needed)
+dd05ba523e	powders:011	DEAD	3	single-angle repose cannot reproduce real avalanche hysteresis; superseded by the two-angle model
+0ed032c4c1	powders:012	DEAD	3	a deferral that writes nothing lets the chunk sleep, freezing the grain in mid-water forever -- concrete bug
+e3fa6f1dc9	powders:013	EXPIRED	2	condition was "re-measure if cell access at that site becomes free"; the 2026-09-06 cost-baseline rebuild replaced chunk-map hash+probe with ChunkGrid and no re-test of this specific site is recorded
+acdc121c8e	powders:014	DEAD	3	the saturation gate made soil waterproof above half saturation and let the conservation test pass over dead code -- a real mechanism bug, not just the incidental blind-test finding
+484688b88b	powders:015	DEAD	3	any threshold narrower than the drainable band creates a perpetual two-cell pump -- an arithmetic argument
+a4a086d961	powders:016	META	3	rejects two ways of reproducing/measuring seam cliffs (spreading-front census, single contiguous block) -- matches the 'measure the face not the spreading front' metric trap directly
+00374f68e2	powders:017	DEAD	3	duplicate framing of the BTW rejection: real sandpiles do not match BTW's predicted avalanche statistics
+e7d42e40af	powders:018	DEAD	3	flagging any straight-fall hole would stretch every falling column by one cell per frame -- an arithmetic argument
+43b6c823f2	destruction:001	LANDED	3	register's own annotation: "Condition met, retried, and LANDED" -- the sink was bounded (PR #189/#191) and the capillary line shipped with it
+90e3a714d1	destruction:002	DEAD	3	grey read as ash/stone (dying tissue) rather than wood per owner's direct playtest quote -- a counterexample
+426c9e4046	destruction:003	DEAD	3	warm mid-brown lands in litter's hue/value range and the piece vanished into the foliage it lay in, measured by eye at 4x
+5610e010fd	destruction:004	DEAD	3	wide palette spread produces speckle that hides fragment shape -- measured 572 cells of log invisible in one settled pile
+ecae32212e	destruction:005	UNBUILT	2	current Solid choice is a scaffold accepted until real falling/coming-to-rest pieces exist; no measurement, a design-time placeholder pending prerequisite work
+0189736735	destruction:006	DEAD	3	conflates two distinct properties (falling vs. running out); wrong axis, not wrong tuning value
+bbd9c23a98	destruction:007	DEAD	3	the stated requirement is already satisfied by deadwood/litter staying off wood's colour range -- redundant, not needed
+cc67769884	destruction:008	DEAD	2	the predicate needs a topple/rotation consequence that does not exist; tested without it (see :077) and crushes pieces instead of tipping them
+72ea028433	destruction:009	COSTED	2	the cost is the exemption check firing every evaluation, not the conversion itself; named reopening condition (a true evaluation-exempt flag) not yet built
+f358fb3e08	destruction:010	META	2	withdrawn inference -- smoke was blamed for the complaint, but the real cause was a third rests_on_ground predicate version elsewhere; the smoke fixes themselves are unrelated and fine
+9ae4db8f56	destruction:011	META	3	rejects a containment metric that counts every changed cell -- names the instrument's own flaw (counts blast appearance, not its cost), the CLAUDE.md whisker rule in a new place
+e2e0e67db7	destruction:012	DEAD	2	a smooth spatial gradient is structurally incompatible with an identity-test-between-neighbours severing rule
+62198527b9	destruction:013	META	1?	warns that single-seed evaluation would have picked the wrong BAND_PITCH value twice; the entry's substance is a seed-sweep methodology requirement, not a mechanism verdict
+ad942119a7	destruction:014	DEAD	2	owner playtest verdict ("I want to see sand flying") -- a lack-of-visible-debris failure, matches the ethos's verb-must-deliver law
+cd62d2702b	destruction:015	DEAD	2	playtest-driven rejection of the prior, under-satisfying explosion state
+fd825ead28	destruction:016	DEAD	2	documents a real frame-ordering bug; stated as a permanent constraint for any future rewrite
+0c0be74697	destruction:017	DEAD	1	uniform particles do not read as a scatter; per-particle variation kept for that reason (thin detail, addr-only)
+aa4717ca52	destruction:018	DEAD	1	unclamped particle velocity produced a visual defect fixed by MAX_SPEED_PER_AXIS (thin detail, addr-only)
+3ccc6a15eb	destruction:019	DEAD	2	pre-rebuild explosion approach superseded by the diagnosis-report rebuild, which is now the bar any replacement must meet
+80889e45e5	destruction:020	DEAD	1	architectural dependency on OUT_OF_BOUNDS-as-bedrock trick (thin detail, addr-only)
+3e8f2bb1c2	destruction:021	DEAD	2	marching squares is the wrong tool for binary (not continuous) occupancy input
+e9bd04902e	destruction:022	DEAD	2	promotion ordering requires structural distances to already exist -- an architectural sequencing constraint
+5a554238eb	destruction:023	DEAD	2	the rejected start-only pinch-point guard was proven to hang; a correct resolution is separate future work
+c8a4130d8d	destruction:024	DEAD	2	a cell grid cannot represent arbitrary-angle rotation without resampling leaks -- an arithmetic/representation impossibility (matches :093)
+f0cb0fca79	destruction:025	UNBUILT	2	explicitly "still not built," deferred pending resolution of the determinism-vs-parallel feature conflict
+327c96255e	destruction:026	DEAD	1	step-count bound argued as the current condition; a disturbance-anchored alternative is named but untried (thin)
+000b375c0e	destruction:027	CONFOUNDED	3	DETACH_DEPTH/CRACK_DETACH_DEPTH were sized under the pre-load-model rationale ("pieces as thick as loosened rock"), which the load model has since changed -- constants calibrated for superseded behaviour
+3bbc91abfa	destruction:028	META	3	rejects an outcome-only acceptance-harness method (a scene passing at N==0 is the vacuous case) -- names the instrument's own blind spot, not an engine mechanism
+be6da099bd	destruction:029	DEAD	2	unconditional for look and cost; particle counts during a blast are named as the number to watch instead
+272b5a3f75	destruction:030	DEAD	2	the fireball is explicitly a debug-only stamped ring, never the player-facing effect
+d939fa13fc	destruction:031	DEAD	3	the M15 single-frame detonation was an identical motionless orange donut for 2.5 seconds across six samples -- rejected by eye at play, a genuine visual counterexample, not on the strength of its (inadequate) signoff test
+780bf781c3	destruction:032	DEAD	2	exchange-based piercing lost on look (riddled the pile with static-looking holes, tripled disturbance while leaving material-thrown-clear at zero) despite better local mass conservation
+00d00dd69c	destruction:033	DEAD	3	measured 113-cell crater invisible on a 512x320 screen -- the brush-radius coupling was the error, not the constant's value
+d1a51e908f	destruction:034	DEAD	2	holds until all materials ship finite ignition_temperature values; a guard test pins both halves of the fix
+a7cd1d02e8	destruction:035	DEAD	2	superseded once the root fails on its own -- ordinary connectivity replaces the whole-appendage flood, changed in the same commit as :081
+8d0c7e48ee	destruction:036	META	2	frames its own value as a verification-methodology lesson ("which cell a rule actually evaluates") rather than a mechanism verdict -- the reach-criterion detail it cites is itself superseded
+3c6f54f88d	destruction:037	DEAD	2	the 'if too_big return' failure-path pattern is proven backwards (biggest cases get least correct behaviour) -- the CLAUDE.md size-cap rule by name
+80f5bd459c	destruction:038	META	2	withdrawn inference -- the prior 'unzip' diagnosis was disproved by direct three-command reproduction, no mechanism attached
+595b54e9cb	destruction:039	CONFOUNDED	2	tunnel= mode's row-of-circles geometry invalidated the earlier envelope measurement; fixed by defaulting step= to dig, a scene/mode mismatch
+8d5927d3e1	destruction:040	SUSPECT-INSTRUMENT	3	"the conflation is structural to the metric" -- names the metric itself as wrongly combining roof cover with the real governing quantity
+ec685377b6	destruction:041	DEAD	2	historical: mine_swept's capsule corridor (see :086) already fixed the disc-wedging this entry was about
+8fdebfb0ca	destruction:042	DEAD	2	ruled out by measurement for the specific big-strike magnitude question
+671009a2d2	destruction:044	DEAD	2	integer-stepped walkers quantize; sub-cell positions required (matches the staircasing argument at :097)
+c7946a5194	destruction:049	DEAD	2	the conservation contract and roomcut's bar already express vanish; hardcoding is never needed
+be51f8bc19	destruction:050	EXPIRED	3	measured only while the column-moment defect dominated; that defect was fixed in 0b5b175 and the entry's own §1b names re-running on worldcrack/flat as worthwhile, but no re-run is recorded
+9ed3c3b957	destruction:051	DEAD	1	architectural dependency: unconditional while liquids hold continuous fill in aux (thin)
+23131b098d	destruction:052	DEAD	2	truncation-inverts-safety size-cap argument, same class as :037/:080; supported_subtree and subtree_sum are shown to test different bounds
+0669b09b69	destruction:053	DEAD	1	architectural separation of concerns: fire.rs alone owns ignition decisions (thin)
+cc43fae5ec	destruction:054	META	3	rejects a world-wide census method (severed_islands), replaced by a charge-local instrument (largest_severed_piece_near) -- the CLAUDE.md 'measure on a world with no blast in it first' rule by name
+b8fb419c0e	destruction:055	SUSPECT-INSTRUMENT	3	cost measured at only 12 runs under the sweep's own stated 'only 12 runs' insufficiency warning, and only for one seam-width setting
+bb2d778bd2	destruction:056	META	2	the debris-count test's particle-only scope needs updating now that crater-wall fracture exists as a new debris source -- an instrument completeness gap
+d4626c7b34	destruction:057	DEAD	1	silent-negative RNG-chance rounding caution for probabilities built from geometry (thin)
+72c0f5e6fe	destruction:058	DEAD	1	is_empty's managed-aware design is an architectural constraint every new destruction path must respect (thin)
+0961ce6376	destruction:059	DEAD	2	launch velocity is tied to a FIELD_SCALE-quantized gradient's resolution -- an architectural ceiling, not a bug to tune away
+a88117f6f9	destruction:060	DEAD	1	ordering constraint between the cavity-clear and heat-write stages (thin)
+8b0bb2d869	destruction:061	DEAD	1	debris fraction tuned against current particle-lifetime/velocity models, with first-frame landings as the measured waste (thin)
+2cbecde839	destruction:062	DEAD	2	one constant serving two verbs (radius) conflates two independently-needed values -- a general design argument
+23eb75834a	destruction:063	DEAD	1	area-weighting caution for any radial-falloff destruction chance (thin)
+8508b11b4a	destruction:064	DEAD	2	exchange-based piercing rejected for carry/pierce on a look-vs-local-conservation tradeoff, mirroring :032
+d9fc76aa05	destruction:065	DEAD	2	spoil must be displaced rather than deleted; an architectural invariant that a bad aim would recreate the eraser bug
+94c60d6fcc	destruction:066	DEAD	2	companion to :065 -- holds while digging displaces spoil into the bore rather than removing it
+6ca643030f	destruction:067	DEAD	3	a held button would produce only a single stroke without advancing past the previous one -- a concrete logic bug
+56ec559869	destruction:068	DEAD	2	the two-level face rule holds while mining leaves spoil in the bore, matching :066
+6d4088ab9d	destruction:069	DEAD	1	architectural note: the slide holds while the cursor supplies only a direction, not a point (thin)
+8d446034bd	destruction:070	DEAD	2	must move together with face_toward's predicate (:065) or the two dig styles aim inconsistently
+8c7c30fd92	destruction:071	DEAD	3	two independent per-tool timers create a strike-switch-strike exploit with no cost -- a concrete contradiction, guarded by a named test
+efe55b5da7	destruction:072	DEAD	3	both yield extremes fail for stated structural reasons (1.0: no caves possible; 0.0: no debris at all) -- contradictory requirements bound the middle
+bc7bb78b17	destruction:073	DEAD	3	rejected twice on sight by the owner: an imposed velocity field has no causal source in the world, superseded by a causal detach-topple-impact model
+14c2654fd6	destruction:074	DEAD	3	measured: hinging about an arbitrary failure cell produced no visible difference from no hinge at all (58.5-cell offset, only a debug probe showed it)
+f5eb3a2fc1	destruction:075	DEAD	3	floored-mean pivot proven to drift by an explicit turn sequence that never returns to its start -- an arithmetic counterexample
+d01ac3b83d	destruction:076	DEAD	3	held spin_accel wound a raft to max spin rate and stuck it on a pond surface for 3,000 frames -- reproducing a known bug by a new route
+c7ba2b9d4e	destruction:077	DEAD	3	reinstating the clamp measurably crushes pieces instead of toppling them (settled counts and cell totals moved the wrong way) -- stays rejected until a topple outcome exists
+9afe4169e5	destruction:078	DEAD	2	per-call HashSet build is strictly dominated by building the set once and lending it downward -- an O(n^2) vs O(n) argument, not a case where costs could tip back
+7d1432bb26	destruction:079	DEAD	3	owner playtest: binary promote-or-dust outcome had no middle ("there needs to be more rubble") -- the ethos's own graded-outcome law, replaced by a power-of-two ladder
+fb1262ac8e	destruction:080	DEAD	3	size cap gated whether breakage happens at all rather than bounding a fragment -- bigger events produced less, backwards; the CLAUDE.md size-cap rule's named source
+b565b86e77	destruction:081	DEAD	2	superseded once load::failing_region made roots fail directly, changed in the same commit -- ordinary connectivity replaces the flood
+f7033757ec	destruction:082	DEAD	3	whole-disc scanning pre-converts material the blast front has not reached yet, starving later stages -- a concrete counterexample
+74cd388647	destruction:083	DEAD	3	single-cell debris rejected specifically for rock per owner quote ("pieces should crack"); still correct for sand
+1839ae12bd	destruction:084	DEAD	3	impulse sized off region cell count left a measured 22-cell cantilever's own tip unaffected -- a concrete counterexample
+4eb9b28446	destruction:085	DEAD	3	a blanket vanish contradicts the existing yield=1.0-no-deletion contract, guarded by a named test
+1c32b6b194	destruction:086	DEAD	3	stamped discs measured a 13-cell pinch against a 14-cell gnome height, wedging the player at his own bore's mouth
+551ee49731	destruction:087	DEAD	3	counting the current call's own cracks lets every strike max its bonus immediately, leaving nothing for the next blow to build on -- self-defeating by construction
+66534c1da5	destruction:088	DEAD	3	fresh per-call jitter scatters new fissures beside old ones instead of deepening them -- damage repeats instead of accumulating
+100fcb0ce2	destruction:089	DEAD	2	reversed edge orientation cuts rings instead of wedges -- a topology counterexample recorded as a shared trap with structural.rs
+d92bcb9dbf	destruction:090	DEAD	3	unfloored low end was invisible on a cliff face, reported directly from play ("striking a cliff does nothing")
+7cc7f8a99d	destruction:091	DEAD	3	random-subset thinning clumps visually and consumes RNG draws that break determinism -- two independent structural reasons
+3d355e2292	destruction:092	DEAD	3	particles write themselves back into the grid on landing, undoing the removal they represent -- measured 941 dusted, only 119 actually gone
+34e3bdf9ea	destruction:093	DEAD	3	a cell grid cannot represent arbitrary rotation without resampling leaks -- an arithmetic/representation impossibility (matches :024)
+04884db77d	destruction:094	DEAD	3	single-check ('n==start') termination hangs on corner-touching pinch cells -- a concrete algorithmic bug found by independent review
+7ba230ce90	destruction:095	DEAD	3	near-no-op result (189 failures, 29 fissure cells) is mechanically explained by sparse subtree-union geometry, not an unexplained vacuous null -- a genuine finding, exempt from the bit-identical trap
+3c8eb6766f	destruction:096	DEAD	3	owner playtest rejected scattered-origin criss-cross scribble in favour of single-trunk branching ("doesn't look like a spreading crack")
+d716c65e68	destruction:097	DEAD	3	axis-snapped stepping produces staircasing from quantisation alone -- no amount of tuning fixes it, an arithmetic argument
+a75ace6547	destruction:098	DEAD	3	the same scoring mechanism is right for a blow and wrong for a confined crush (unbraces rock and schedules checks inappropriately) -- a scope-mismatch contradiction
+56c29199f5	destruction:099	DEAD	3	fixed world-coordinate lattice read as a wireframe mesh on a contact sheet -- caught by eye, not by any metric
+b75eac9eed	rendering:001	DEAD	2	the 0-1px bar-slack finding is tied to a specific HUD layout (top-left readout, lamp-carrying ceiling) not yet changed
+4409ae90ce	rendering:002	DEAD	3	RGB-space posterization cannot preserve hue -- a colour-space structural argument; a perceptual/hue-preserving ladder is untested and different
+5c7027b8e3	rendering:003	DEAD	2	a constant threshold level is structurally wrong for anything grown, right only for smooth-edged surfaces like liquid or bubbles
+7d8b679117	rendering:004	DEAD	2	a normalised surface normal is wrong for an interior; only valid restricted to a band around an isosurface, a different mechanism
+9fa602d518	rendering:005	DEAD	2	only relevant past a kernel radius of ~2 cells, and normalisation there is nearly free -- no practical reason to ever drop it
+80ea61aff9	rendering:006	DEAD	2	holds while materials carry a deliberate per-cell palette spread; a flat-interior material has nothing to lose from blending
+ce8670d709	rendering:007	DEAD	3	pixel-art upscalers assume flat regions, which conflicts with the deliberately grained palettes used here -- a structural mismatch
+30d6a6e508	rendering:008	DEAD	1	glow path still assumes a dark, stationary-emitter cavity; holds until daylight/moving sources are handled (thin)
+239ac02343	rendering:009	DEAD	2	widening HEAT_GLOW_RANGE alone always mixes fuel colour into the flame -- needs a compositing change (replace not blend), not just a wider range
+60d28dc99a	rendering:010	DEAD	2	tied to the pixels 0.17.2 crate's architecture; a different presentation crate or partial-upload support would reopen it
+f8b543d397	rendering:011	DEAD	1	playtest-driven fire-tint change; real emissive/bloom remains separate future work (thin)
+3b56909b37	rendering:012	EXPIRED	3	named its own condition ("worth re-checking as possibly machine-specific"); CLAUDE.md now documents headless screenshotting working via xvfb-run+lavapipe, and no re-test of this specific entry is recorded
+5851516f15	rendering:013	DEAD	2	tied to the renderer being built on the pixels crate; a renderer swap would reopen the GPU route
+1edec79804	rendering:014	DEAD	1	re-opens only with a per-glyph verification method beyond the existing every-character-lights-a-pixel test (thin)
+2824c87b1b	rendering:015	META	2	cites 'house law in CLAUDE.md' -- a debug-overlay/probe design principle (the readout must not be a function of what it debugs), an instrument-construction rule
+a6ff4d41b6	rendering:016	UNBUILT	2	live per-cell strain tint never built: needs both free per-cell storage and a render path that preserves the settled-world dirty-rect skip, an explicit design-time deferral
+4535631ceb	rendering:017	SUSPECT-INSTRUMENT	3	any pixel-difference count over grain-jittered rendering is defeated by the dithering noise -- the CLAUDE.md metric-trap pattern named directly
+dc4214af46	rendering:018	UNBUILT	2	strain-before-failure feedback never built: Cell has no spare storage and dirty-rect skipping is the settled-world optimisation it would defeat
+f7e7e08190	rendering:019	DEAD	3	geometry alone cannot distinguish a cell alone in the air from four other cases; only stored history can -- a structural counterexample (inference permanently rejected, though storing more history later succeeded by a different route)
+9d6f4489c4	rendering:020	DEAD	2	same geometric-inference family as :019/:022; a threshold-bearing repair rule breaks precisely while a shaft is being widened
+ee7061e256	rendering:021	DEAD	1	load-bearing exclusions pinned by two named guard tests (thin, no clear counterexample text)
+e4405d8385	rendering:022	DEAD	3	a hill, a dug shaft, a built roof and a mid-air grain are identical from cells alone -- a clean geometric-ambiguity argument
+0df088c303	rendering:023	LANDED	3	entry's own text: "now resolved" -- storing history was revived in World::sky_surface (rather than the renderer) and the guard test passes unchanged
+1048e47a73	rendering:024	DEAD	2	the specific renderer-resident-history approach remains rejected; the entry itself notes storing history in the World instead (as sky_surface later did) is what succeeded, a different placement
+a4a1739e41	rendering:025	COSTED	3	measured cost of a World::get per neighbour; explicit named reopening condition is PLAN.md M19 giving direct chunk-array neighbour access, not yet confirmed done
+5cfa04aa5f	rendering:026	DEAD	1	architectural dependency: holds while Cell::aux carries continuous liquid fill (thin)
+3d6839b7f6	rendering:027	DEAD	2	the ramp must stay a pure function of position so a fresh renderer agrees with one carrying history -- tied to the dirty-rect pixel-identity requirement
+52e4e88b41	rendering:028	META	2	states a general before/after redraw guard design rule (the state under test must actually change between draws) -- an instrument-construction principle
+77bb853045	rendering:029	DEAD	1	holds while collapses promote many bodies; the dirty-rectangle trick is reused rather than a full redraw (thin)
+733a91b2e8	rendering:030	DEAD	1	holds while more than one world tick can run per draw (MAX_TICKS_PER_FRAME catch-up) (thin)
+2c3048fc1b	rendering:031	DEAD	1	holds while field ramps have saturated zero-points; blend/replace split is per channel kind (thin)
+736c98c0ff	rendering:032	META	2	general debug-overlay design principle -- a channel only looked fine because green sits far from brown, the canopy-density blend example from CLAUDE.md
+ae6ca6ff2e	rendering:033	DEAD	2	same geometric-inference family as :019/:022/:020; holds while the sky surface is frozen at first step
+37ceaaf783	rendering:034	DEAD	1	holds while draw_lightning and other consumers read the sky-floor row (thin)
+dac57bbc8c	rendering:035	DEAD	1	exact split re-derived whenever a drawn channel moves between Cell::aux and out-of-grid state (thin)
+b46a49bf72	rendering:036	DEAD	2	a static colour mapping for burning cells reads as a decal; holds while burn rendering derives from a slowly-varying scalar
+97b21e25d9	rendering:037	DEAD	1	holds while out-of-sweep writes only set pending_dirty and promotion happens in end_sweep (thin)
+9e2341c936	rendering:038	DEAD	1	holds while a full redraw costs ~10ms; the moon must stay out of the SKY_QUANTUM key-change count (thin)
+bb26afa915	rendering:039	COSTED	2	measured repaint cost with a grown canopy covering most of the viewport; named reopening condition is a cell-granular repaint list, not yet built
+ef0652e3b4	rendering:040	DEAD	2	three of four causes are architectural, not tuning; reopens only if plant cells move in the CA sweep, which wood.ron's own doc says they deliberately do not
+b5dcf5581a	rendering:041	DEAD	2	rejection is scoped to variable-content panels; a genuinely fixed-content panel (the help page) already demonstrates the exception
+c59850d01e	rendering:042	DEAD	3	measured finding: the tunnel interior is the only class in the scene with no colour of its own (p5-p95 spanning 119/255, overlapping both soil and sky) -- not a resolution question
+3f3d8f8990	worldgen:001	DEAD	3	census shows about half of all cliff rims already have a hollow behind them (canyon 49/92, rolling 33/70, terraced 29/63) -- a counterexample invalidating the search premise at any tuning
+303ebca5a1	worldgen:002	DEAD	2	rejection is of the wrong lever (a global thinning axis), not the goal; correct levers named as FORMATION_BARREN/FLOOR/PEAK instead
+e56054958e	worldgen:003	CONFOUNDED	2	the rejection depended only on regions being small relative to the viewport, not on the formation mechanism itself -- a scale/context confound, condition (region >= screen width) not yet met
+0f45753c0d	worldgen:004	CONFOUNDED	2	the review card showed only a surface strip while the underground half of the argument (cave shape against bedding) was never tested -- the owner's verdict answered a different question than the one needing testing
+277e9e2a94	worldgen:005	COSTED	3	change is safe and bit-identical but bought nothing at this scale; named reopening conditions are region count past 80 or Terrain::character reaching the hot path
+48989c09d3	worldgen:006	DEAD	1	holds for any explicit shallow-water/virtual-pipes solver (thin)
+feed824e25	worldgen:007	UNBUILT	2	explicitly "Unknown -- recorded at design time"; a streaming design guaranteeing neighbour existence before reveal is named but not built
+bbc6f77bff	worldgen:008	UNBUILT	2	explicitly "no engine measurement recorded" -- a literature-informed design preference, not a measured rejection
+14f1c49419	worldgen:009	DEAD	1	structural-span constraint: a noise-defined ceiling has no bounded thickness against stone's max_unsupported_span (thin)
+179885be57	worldgen:010	DEAD	1	ridged noise's derivative discontinuity at the ridge is an arithmetic fact, a trap only if the field is sampled as a gradient-followed channel (thin)
+01fd3b58c5	worldgen:011	DEAD	2	rejected for streamed/unbounded terrain specifically; remains plausible for a bounded non-streamed use case that does not currently exist
+6708cb5852	worldgen:012	DEAD	2	unconditional for the simulation; the coarse planar layer is kept only because it is one value per chunk-column and never simulated
+8e60e0f0fb	worldgen:013	DEAD	2	known cost of side view (foraging is natively top-down, double-bridge scenarios harder to stage) confirmed later the hard way in creature-direction work
+9ac78c7c6c	worldgen:014	DEAD	3	geometry alone cannot tell dug from built from hill at any reach or threshold; explicitly still true post-M10 streaming, which re-keys storage, not the model
+bd3d733733	worldgen:015	DEAD	2	general design principle: a compositional guarantee implemented by fixing shape rather than constraining it will recur wherever this pattern is repeated
+91af430136	worldgen:016	DEAD	2	holds while terrain can undercut an apron in unenumerated ways -- stated as "always", a permanent structural claim
+e4d3135a4b	worldgen:017	DEAD	1	holds while ponds can sit above the smoothed water table (thin)
+d82659f543	worldgen:018	DEAD	1	holds while bed thickness is a single constant per preset; would double up with a future thickness distribution (thin)
+598dab7891	worldgen:019	DEAD	1	holds while a rock unit is more than one bed thick; rejection is about granularity, not probabilities (thin)
+852c735532	worldgen:020	DEAD	2	current bed-rock painting makes a boulder unfindable once painted; a per-cell identifying bit would fix it but doesn't exist yet
+9f68730af1	worldgen:021	DEAD	2	measured via viewshot (not the small filmstrip worldgen scene), so not subject to the boulders-can't-fire confound; ablation stays wrong only if determinism breaks
+0c16310c2b	worldgen:022	CONFOUNDED	2	vaults reorder was built, measured and withdrawn using a scene where vaults are among the mechanisms that cannot fire at 512x320 -- a scene-contradicts-code confound per the slice's own worldgen caveat
+77377689a8	worldgen:023	UNBUILT	3	growing the scene to shipped size was declined for lane contention over a heavily-contested file, not for difficulty or a negative measurement -- an explicit scope/process deferral
+c4c602ceb6	scheduler:001	CONFOUNDED	3	the converged relaxation pass rooted its box-shaped region flat, so the queue disappeared because the system stopped asking rather than because it converged -- the 'cost that vanishes may be work that vanished' trap by name
+ccd5cb85b8	scheduler:002	UNBUILT	2	stated as "an accepted limitation" (no re-wake mechanism for dormant tips) rather than a measured negative -- future organism site kinds are told to build their own bound from the start
+1ea7f84bd6	scheduler:003	DEAD	2	same-build determinism is a committed structural requirement any scheduler storage change must preserve
+03b21c83e2	scheduler:004	META	2	the heap-scan approach to counting/verifying enforcement has a structural blind spot; the correct instrument (the sidecar route) already shipped
+9c8bbad8ab	scheduler:005	DEAD	3	measured slower (1.37ms vs 1.23ms); the premise ("most of a marked region is not soil") was assumed rather than measured and is false here (88% soil) -- superseded by naming ChunkView as the real fix
+c7605a82ab	scheduler:006	RE-TESTED	3	register's own annotation: "CONDITION MET AND THE ANSWER IS NO, 2026-09-05" -- the positional-draw condition was built and measured, and per-row spans still diverge at frame 4,330 with no net cost gain
+025d3fd41f	scheduler:007	COSTED	3	measured end-to-end: +0.149ms/tick eats the whole of what per-row spans save, net change 2.631->2.636ms with overlapping ranges; two explicit named reopening conditions given
+bef2bcab56	scheduler:008	DEAD	2	fixes the awake-forever chunk but discards the issue #3 optimisation -- a genuine tradeoff/contradiction, holds while both properties are wanted
+3e487084e9	scheduler:009	DEAD	1	holds while touch_neighbours marks out-of-bounds positions and per-chunk reach can undershoot the wake distance (thin)
+49edeca1c2	scheduler:010	DEAD	1	doc-comment rationale: schedule_from_sweep depends on the sweep's visits being the scarce resource (chunk sleep) (thin)
+3d5c832d41	scheduler:011	DEAD	2	positional dedup is load-bearing (not optional) precisely because any rate that scales with time-awake recreates the problem it prevents -- holds while chunk sleeping exists
+e1c23b20e6	scheduler:012	DEAD	3	any dispatch loop must keep the live heap writable for mid-tick scheduling -- a clear structural constraint
+179ef1ff06	scheduler:013	DEAD	2	dual-justified: holds under the determinism requirement, and the entry notes the performance argument stands alone regardless
+ed7ce52070	parallelism:001	DEAD	3	ChunkView::set silently dropped a falling seed from its organism's cell list because the guard test only ran the serial driver -- a concrete counterexample fixed by queue-and-replay, general lesson for any single-write-seam hook
+984e41f4b2	parallelism:002	UNBUILT	2	the single-unsafe-function sketch was abandoned during planning in favour of a different design, not built and measured itself
+3728ff51e7	parallelism:003	DEAD	2	a shared mutable RNG generator cannot be safely read across parallel threads -- a correctness constraint, not a cost call
+ee42ae3a81	parallelism:004	UNBUILT	2	rejected before build: needed a second, harder safety proof that "does not announce itself as missing" -- a design-time preference for the provably-safe alternative
+a2df21ec80	parallelism:005	DEAD	2	rapier's parallel constraint solver conflicts with the same-build determinism requirement (PLAN.md); the engine's own sweep already delivers the speedup
+b5491b5b68	parallelism:006	DEAD	2	the four-group checkerboard silently breaks the bottom-to-top row invariant, reproducing the predicted seam-thinning bug live; replaced by row-then-parity grouping
+3be40f207f	parallelism:007	DEAD	2	permanent while run_pass owns take/put of chunks -- an ownership-model constraint
+a032893c28	parallelism:008	DEAD	3	penalising the crossing cell moves the seam artifact rather than removing it; the banding bar exists specifically to catch this class of fix
+4a6d9b760b	parallelism:009	DEAD	2	companion to :004 -- re-evaluate only with that second safety proof actually in hand; the current no-unsafe design needs none
+48fd51992d	parallelism:010	DEAD	2	chunk-decomposition (not movement rules) explained a settling-location artifact in seam_cliffs, confirmed by the monolithic-sweep control
+957aeeacd3	other:098	DEAD	3	measured directly against the flip and lost decisively (809 fires still 49.0% refused vs. flip's 136 fires at 7.6%); replaced by reversal-in-place -- a quantified counterexample
+7a7f50e1a2	other:107	SUSPECT-INSTRUMENT	2	only 3 seeds at a 30,000-frame budget (a quarter of the round's own 120,000-frame standard); entry explicitly invokes CLAUDE.md's noise caution and names a longer run as needed before trusting either reading
