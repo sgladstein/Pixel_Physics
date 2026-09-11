@@ -2466,6 +2466,17 @@ pub struct World {
     /// exactly as it does for any other food. See `seeds_spilled`.
     pub pips_eaten: u64,
 
+    /// **The garden-fix round's own counter, "it fired."** `creature.rs`'s
+    /// dig verb was clearing a standing `pip`/`windfall` (a `Powder`,
+    /// materially indistinguishable from dirt at the dig verb's own
+    /// `ground` test) as ordinary spoil, with no call to `seed_survives_
+    /// bite` and so no counter anywhere seeing it happen -- round 28 traced
+    /// one delivered pip dead five frames after set-down and the bite verb
+    /// could not have taken it (`Reports/lanes/evolution-lab-garden-loop.md`
+    /// / `-garden-fix.md`). Counted at the dig dispatch site, before the
+    /// skip that now routes the animal around it instead.
+    pub dig_diverted_seed: u64,
+
     /// **A bite met a `windfall` cell with `organism_id == 0`** -- no
     /// organism to ask which species' `seed_gut_survival` applies, so
     /// `seed_survives_bite` could not roll and returned `false` without
@@ -3947,6 +3958,7 @@ impl World {
             plants_from_pip: 0,
             pips_rotted: 0,
             pips_eaten: 0,
+            dig_diverted_seed: 0,
             windfall_bitten_ownerless: 0,
             windfall_bitten: 0,
             flower_visits: 0,

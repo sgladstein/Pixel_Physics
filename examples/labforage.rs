@@ -1172,13 +1172,15 @@ fn main() {
     let pip_eaten_x = &world.pip_eaten_x;
     println!(
         "  round 28 -- pip exits: seeds_spilled {} = seeds_carried {} (rode home) + {} (stood at the bite) | \
-         plants_from_pip {} + pips_rotted {} (at {pip_rot_x:?}) + pips_eaten {} (at {pip_eaten_x:?}) should not exceed seeds_spilled, the rest still standing",
+         plants_from_pip {} + pips_rotted {} (at {pip_rot_x:?}) + pips_eaten {} (at {pip_eaten_x:?}) should not exceed seeds_spilled, the rest still standing | \
+         dig_diverted_seed {} (garden-fix: the dig verb routed around a live seed instead of clearing it)",
         world.seeds_spilled,
         world.seeds_carried,
         world.seeds_spilled.saturating_sub(world.seeds_carried),
         world.plants_from_pip,
         world.pips_rotted,
-        world.pips_eaten
+        world.pips_eaten,
+        world.dig_diverted_seed
     );
 
     // Hypothesis (b): where fruit lands against where the colony walks.
@@ -1227,7 +1229,7 @@ fn main() {
          pip_checks={pip_checks_n} pip_checks_delivered={pip_checks_delivered} pip_checks_resting={pip_checks_resting} \
          pip_checks_light_ok={pip_checks_light_ok} pip_checks_water_ok={pip_checks_water_ok} pip_checks_ready={pip_checks_ready} \
          windfall_col_stops={total_wf_heat} windfall_dead_zone_stops={wf_dead_zone} windfall_dead_zone_pct={wf_dead_zone_pct:.0} \
-         windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} \
+         windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} dig_diverted_seed={} \
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
          flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
@@ -1314,6 +1316,10 @@ fn main() {
         // (`Reports/evolution-lab-round-27-2026-09-10.md`'s own environment
         // note): keep main's fields and append the branch's.
         garden.windfall_floor, garden.windfall_low, garden.windfall_aloft, garden.windfall_shaded, garden.windfall_open,
+        // Round 28 garden-fix: the dig verb's own "it fired" counter for
+        // routing around a live seed instead of clearing it as spoil --
+        // see `World::dig_diverted_seed`'s own doc.
+        world.dig_diverted_seed,
         // **P2 (the flitter)** -- the hop's own pair and the two
         // per-species splits.
         //

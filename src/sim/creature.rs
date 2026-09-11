@@ -6089,7 +6089,34 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             world.materials.kind(target.material),
             MaterialKind::Creature | MaterialKind::Plant
         );
-        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
+        // **A live seed is not spoil.** Round 28 traced a delivered pip's
+        // whole life end-to-end (`Reports/lanes/evolution-lab-garden-
+        // loop.md`): bitten, survived the gut roll, carried home, dead five
+        // frames after being set down -- and the bite verb could not have
+        // taken it. A neutral gut's `diet_yield` on a `pip` is 40 * 0.25 =
+        // 10, under `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
+        // own gate (`gain <= EAT_YIELD_THRESHOLD { continue }`) never lets
+        // the bite verb's target scan select one -- confirmed by reading
+        // that gate, not assumed. `pip` and `windfall` are `Powder`-kind
+        // with a low `penetration_resistance` (so a gut that *can* afford
+        // one can still eat it, deliberately), which is exactly what the
+        // `ground` test above cannot tell apart from ordinary dirt -- so
+        // this dig branch was clearing a living organism's one cell as
+        // spoil with no call to `seed_survives_bite` at all, and no
+        // counter anywhere saw it happen. Distinct from the bite path on
+        // purpose: `is_living_kin`-style exclusion is about *this animal's
+        // own kind*, and a pip is not a creature at all, so nothing already
+        // written excluded it.
+        //
+        // Skipped here rather than at `adjacent_food_counted`'s scan
+        // because that scan is the *bite* verb's, and never reaches a
+        // standing pip either way (the gate above already stops it) --
+        // this is a second, independent verb reading the same cell.
+        let live_seed = target.organism_id() != 0 && organism::cell_type(target.aux()) == Some(CellType::Seed);
+        if live_seed {
+            world.dig_diverted_seed += 1;
+        }
+        if ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -13439,6 +13466,58 @@ mod tests {
         assert_eq!(digs_when_feeding, 0, "Feed must not dig: that is the coupling this split removed");
         assert!(digs_only > 0, "a Dig weight with no Feed weight must still let the animal excavate");
         assert_eq!(eats_when_digging, 0, "Dig must no longer feed the animal -- one weight moving both is the bug");
+    }
+
+    /// **Round 28's garden-fix positive control.** A dig-only ant (same
+    /// wiring `verbs_scene(0.0, 2.0)` uses to prove digging fires at all)
+    /// with a live pip standing exactly where it would otherwise excavate.
+    /// `Reports/lanes/evolution-lab-garden-loop.md` traced a delivered pip
+    /// dead five frames after being set down and the bite verb could not
+    /// have taken it (a neutral gut's `diet_yield` on `pip` is under
+    /// `EAT_YIELD_THRESHOLD`, so `adjacent_food_counted` never offers one) --
+    /// this is the dig verb's own `ground` test failing to tell a live seed
+    /// from ordinary dirt, fixed at the dig dispatch site in `act`.
+    #[test]
+    fn a_dig_only_ant_does_not_clear_a_live_seed_standing_in_its_path() {
+        let mut w = test_world();
+        for cx in 90..130 {
+            w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        // Same position `verbs_scene`'s soil occupies -- directly in the
+        // dig heading (east of spawn), resting on the stone floor beneath
+        // it so it does not fall during the run.
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip material must be loaded");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.set(101, 100, Cell::new(pip, 0).with_organism_id(seed_id).with_aux(organism::pack_cell_type(CellType::Seed)));
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 2.0),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+                &def.recurrence,
+            ),
+        );
+        let _ = def;
+
+        w.plant_ant(100, 100);
+        let ant = w.get(100, 100).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+
+        run(&mut w, 400);
+
+        assert_eq!(w.creature_stats.digs, 0, "a dig-only ant standing beside nothing else diggable must not have logged a dig -- the pip is the only target and it must be skipped, not excavated");
+        assert!(w.dig_diverted_seed > 0, "the it-fired counter must move: a dig-only ant beside nothing but a live seed must have been diverted from it at least once in 400 frames");
+        let after = w.get(101, 100);
+        assert_eq!(after.material, pip, "the pip must still be standing -- the dig verb must not have cleared it");
+        assert_eq!(after.organism_id(), seed_id, "the pip's organism must still own its own cell -- not merely a coincidentally-matching material left by a different write");
     }
 
     // --- the sight sense (E15) ------------------------------------------
