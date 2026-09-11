@@ -2015,6 +2015,28 @@ drift that two of these documents still reflect.**
   census reads a mixture it cannot distinguish from two clusters. Prices the
   **petal-colour locus** separately, because its real cost is one more draw per
   plant birth from a shared `Rng` — every seeded plant figure in the lab moves.
+- [evolution-lab-flight-design-2026-09-11.md](evolution-lab-flight-design-2026-09-11.md)
+  — **design of record for round 29's first build, the flitter floats; nothing
+  built.** Sits beside the pollinator design above and answers the owner's
+  verdict on it — *"jumping like a frog, not flying or floating like a butterfly
+  or bee"*. **The gap is not the eye and not the reach: it is that the flitter
+  has no rudder anywhere.** `step_flight` runs no brain (`creature.rs:3132`), so
+  an airborne animal cannot read the world or steer; `launch` takes the heading
+  the last *walk* left behind, never a fresh one; and on the ground bug **R4**
+  already has `Turn` nearly inert for a walker on level footing. Measured here,
+  three seeds paired in one binary against the same species with the hop switched
+  off by one weight: **0.60 walking steps per launch**, **29–46% of every
+  animal-frame aloft and blind**, and the *walking* arm sees more blooms, visits
+  **34 flowers against 0** on seed 3 and is the only arm of six that breeds — so
+  the hop is a net negative for encounter today. Also: at **60–387 frames per
+  launch** against a ~22-frame ballistic arc, **63–94% of airborne time is §Z9's
+  buoyancy hang**, not flight. Proposes `BrainOutput::Fly` as a lawful output
+  append that scales gravity while it is held, runs the brain every tick aloft and
+  rotates the *velocity* rather than a candidate cell — with the price
+  (0.0875 J/frame aloft against 0.025), the nine-cell closing arithmetic (34
+  frames, 2.1 J of a 120 J meal) and the six constants the append reallocates,
+  `mutation_rate` 0.0039308 → **0.0037589** across six species files first among
+  them.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is
