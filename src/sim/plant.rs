@@ -16796,6 +16796,78 @@ they are the same world. Got {median}, which means something other than the leve
         );
     }
 
+    /// **Which term actually scales with head size — the coordinator's
+    /// own question on round 28 PR2, answered by reading rather than
+    /// guessing again.** Three candidates named: per-cell upkeep
+    /// (`organism_upkeep`'s `MAINTENANCE_PER_CELL`), the head shading its
+    /// own plant or a neighbour (light attenuation is column-depth, no
+    /// material exemption -- `field.rs`'s own doc), or the head's cells
+    /// counting toward a mass/span cap.
+    ///
+    /// **The span/mass candidate is eliminated by reading the code, not by
+    /// measuring**: `organism_upkeep`'s own comment at the `organ_cells`
+    /// counter states organs are deliberately kept out of `crown_moment`
+    /// and the collar/top span ("a change to the anchorage economy
+    /// wearing an organ's clothes"). Nothing to measure there.
+    ///
+    /// **Upkeep is not eliminated, and this is the number**: every organ
+    /// cell reaches `organism_upkeep`'s maintenance charge exactly like any
+    /// other non-frontier cell (`Behavior::Ripen` is explicitly excluded
+    /// from the *behaviour* loop, but the maintenance charge below it is
+    /// unconditional on cell type), paying `MAINTENANCE_PER_CELL` flat
+    /// every tick for as long as it stands -- roughly 133 organism ticks
+    /// for a full flower-then-fruit cycle at `herb`'s authored rates. That
+    /// bill was **not** touched by this PR's `Ripen`-cost re-derivation,
+    /// which only reaches the two one-off charges at the flower-set and
+    /// fruit-ripen instants. A bigger head is strictly more standing
+    /// upkeep for as long as any of it is up, continuously, against the
+    /// same whole-plant carbon pool that funds vegetative growth.
+    /// **Driven through `organism_upkeep` on a hand-placed head, exactly
+    /// as `organs_are_counted_apart_from_shoot_cells` above does** — this
+    /// asks for the marginal bill a head of a given size carries *right
+    /// now*, not whether some particular grown stand reached one. A first
+    /// version of this readout grew a stand from seed instead and was
+    /// vacuous: 20,000 frames across 8 crowded founders left only 3 organ
+    /// cells standing in *either* arm, so both read byte-identical
+    /// (`CLAUDE.md`'s "check a guard's inputs actually vary what it
+    /// guards" — a positive control that never reaches the mechanism is
+    /// not a control).
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test --release -- --ignored --nocapture organ_size_and_the_maintenance_bill"]
+    fn organ_size_and_the_maintenance_bill() {
+        fn head_bill(n: usize) -> f32 {
+            let mut w = test_world();
+            let id = w.species.id_of("herb").expect("herb is compiled in");
+            let wood = w.materials.id_of("wood").expect("wood");
+            let flower = w.materials.id_of("flower").expect("flower");
+            let organism = w.push_organism(id).expect("an organism slot is free");
+            for x in 40..60 {
+                w.set(x, 60, Cell::new(material::STONE, 0));
+            }
+            place(&mut w, (50, 59), wood, organism, CellType::MatureBody, (1.0, 0.0));
+            // `n` flower cells in a row off the stem top, matching how a
+            // real head sits: newly created cells, no accumulated `q_peak`
+            // below them, so `MAINTENANCE_PER_NODE`'s term reads near zero
+            // and the flat `MAINTENANCE_PER_CELL` term is what is on trial.
+            for i in 0..n {
+                place(&mut w, (50 + i as i32, 58), flower, organism, CellType::Flower, (0.0, 0.0));
+            }
+            organism_upkeep(&mut w, organism);
+            w.organism(organism).expect("still live").maintenance
+        }
+
+        let bill_9 = head_bill(9);
+        let bill_16 = head_bill(16);
+        println!(
+            "organ_cluster=9:  maintenance/tick={bill_9:.6}\n\
+             organ_cluster=16: maintenance/tick={bill_16:.6}\n\
+             delta={:.6} ({:.1}%), MAINTENANCE_PER_CELL x 7 extra cells = {:.6}",
+            bill_16 - bill_9,
+            (bill_16 / bill_9 - 1.0) * 100.0,
+            MAINTENANCE_PER_CELL * 7.0
+        );
+    }
+
     /// **The breeding half of the append-only guard**, and the one the
     /// stand fingerprint above cannot reach.
     ///
