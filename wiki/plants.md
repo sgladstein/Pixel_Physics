@@ -3,11 +3,16 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (two independent changes landed the same day.
+*Current as of: 2026-09-11 (three independent changes landed the same day.
 **Petal colour passes from parent to seedling** — see "Colour is a
 readout, not decoration" below; it used to be the one channel a cross
 could not carry, and a bred stand's flowers now track their parents'
-shade the way foliage and bark already did. **A seed can leave in an
+shade the way foliage and bark already did. **Flower heads are bigger
+and now vary in size, per individual and heritably** — see "Plants that
+stop, and what they stop in" below; an erect herb's head in particular
+is visibly larger, and how big a head *tries* to be is no longer one
+number per species but a real spread a stand shows and a seedling
+inherits. **A seed can leave in an
 animal's mouth instead of only in the wind** — an ant that bites a fallen
 fruit sometimes finds the seed inside survives, and sometimes carries it
 home instead of leaving it where it fell; see **Seeds carry provisions**
