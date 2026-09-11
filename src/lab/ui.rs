@@ -431,14 +431,26 @@ pub enum Action {
     /// Write the highlighted parameter back to its asset file.
     ParamSave,
     /// **Show one group of the cell page's specimen rows**, closing whichever
-    /// was open. The index is into `params::specimen_sections`' own order,
-    /// which is fixed and the same for every species.
+    /// was open -- or, clicked on the group already open, fold it back up
+    /// and return the page to its collapsed state. The index is into
+    /// `params::specimen_sections`' own order, which is fixed and the same
+    /// for every species.
     SpecimenSection(usize),
     /// **Put the individual the cell page is open on into a jar.** The
     /// button that replaced the `KEEP` tool: the page is already pointed at
     /// one organism, so the second click the tool needed was a click at
     /// something the interface already knew.
     KeepInspected,
+    /// **Put the cell page away, unconditionally.** The page's own
+    /// put-it-away gesture (click the same cell, or the same organism again)
+    /// depends on being able to click that cell — and the page is drawn
+    /// *over* the world, anchored at the screen's left margin when nothing
+    /// else is open, so a cell clicked near there is exactly the cell the
+    /// page then covers. `Ui::covers` refuses to let a click on the page
+    /// reach the world behind it, so that click closes nothing and there is
+    /// no other way to put the page away. Owner: "there is no easy way to
+    /// make the CELL info box close."
+    CloseInspected,
     /// **Arm the armed jar for placing**, and get the rack out of the way so
     /// there is a box to place it in. The button that replaced the `FREE`
     /// tool.
@@ -2631,13 +2643,23 @@ pub struct Ui {
     /// button, which is only there while the page is pointed at something
     /// alive. A `Bar` for `params_bar`'s reason.
     inspect_bar: Bar,
-    /// **Which specimen group the cell page is showing, while it is folded.**
-    /// Kept on the interface rather than per cell, so clicking from one plant
-    /// to the next leaves you looking at the same group -- which is what you
-    /// want when the reason you are clicking around is to compare them.
-    /// Index 1 (`STATE`) is the default: it is the block that moves while the
-    /// box runs, and it is what a player opened the page to watch.
-    specimen_section: usize,
+    /// **Which specimen group the cell page is showing, while it is folded**
+    /// -- `None` while none is: the page's starting state, and the state a
+    /// click on the open group's own heading returns it to. Kept on the
+    /// interface rather than per cell, so clicking from one plant to the
+    /// next leaves you looking at the same group -- which is what you want
+    /// when the reason you are clicking around is to compare them.
+    ///
+    /// **Was a bare `usize` defaulting to 0 (`WORDS`), which meant the page
+    /// always opened on a group and there was no click that closed the last
+    /// one -- toggling `SpecimenSection(i)` while already on `i` just set it
+    /// to `i` again.** Owner: "all the subinformation in the cell box
+    /// should start minimized, right now you cannot even do that manually,
+    /// something always has to be expanded." `None` is a real third state
+    /// rather than an unreachable index, so both halves of that hold: a
+    /// freshly inspected cell shows only the five fixed rows, and clicking
+    /// an open heading a second time is how a player folds it back up.
+    specimen_section: Option<usize>,
     /// **The individual the interface is holding on to**, across frames and
     /// across the thing moving.
     ///
@@ -2807,19 +2829,14 @@ impl Ui {
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
             brush: 6,
-            // **`WORDS`, and this reverses an argued decision.** It used to
-            // be `STATE` -- the group that moves while the box runs, and what
-            // a player opened the page to watch -- against `Default`'s own 0,
-            // which was then `LIFE`, three rows that never change.
-            //
-            // `WORDS` is now 0, and it answers the question the page is most
-            // often opened with: *what kind of thing is this*. The old
-            // reasoning still holds for the second page you open and every
-            // one after, and it does not have to be paid for -- the field is
-            // sticky, so one click on `STATE` puts every later page there and
-            // leaves it there. Defaulting to the summary costs a returning
-            // player one click and costs a new one nothing.
-            specimen_section: 0,
+            // **Minimised, not `WORDS`.** This used to default to `0`
+            // (`WORDS`) on the reasoning that a first-time page should
+            // answer "what kind of thing is this" without a click -- see
+            // `specimen_section`'s own doc for why that reasoning lost to a
+            // direct owner complaint that the page could never be folded
+            // shut at all. The field is still sticky: one click on any
+            // group puts every later page there, exactly as before.
+            specimen_section: None,
             // The shipped colony for `COLONY` and a single individual for a
             // release, so both verbs do for an untouched dial exactly what
             // they have always done.
@@ -2988,19 +3005,22 @@ impl Ui {
         self.inspect_box
     }
 
-    /// Show one group of the cell page's specimen rows.
+    /// Show one group of the cell page's specimen rows, or fold it back up
+    /// if it is the group already showing.
     ///
-    /// **Not a toggle**, unlike `set_tool`: the page shows exactly one group
-    /// while it is folded, so clicking the open heading again would leave the
-    /// page with no group on it at all -- which reads as the page having
-    /// broken rather than as having been put away. Clicking the *cell* again
-    /// is how the page closes, and that has not changed.
+    /// **A toggle**, like `set_tool` -- reversed from the earlier rule here,
+    /// which read "clicking the open heading again would leave the page
+    /// with no group on it at all, which reads as the page having broken."
+    /// The headings themselves never disappear (`paint_page` draws every
+    /// one, open or shut, with a `+`/`-` and a row count), so "no group
+    /// open" reads as a folded page, not a broken one -- and it is now the
+    /// page's own starting state, not a state nothing could reach.
     pub fn show_specimen_section(&mut self, i: usize) {
-        self.specimen_section = i;
+        self.specimen_section = if self.specimen_section == Some(i) { None } else { Some(i) };
     }
 
-    /// Which group the cell page is showing.
-    pub fn specimen_section(&self) -> usize {
+    /// Which group the cell page is showing, if any is open.
+    pub fn specimen_section(&self) -> Option<usize> {
         self.specimen_section
     }
 
@@ -3012,6 +3032,14 @@ impl Ui {
     /// needs the box back — `PLACE` is the only one so far.
     pub fn close_panel(&mut self) {
         self.panel = None;
+    }
+
+    /// Put the cell page away from its own header button, rather than by
+    /// re-clicking the cell or organism it is pinned to -- see
+    /// [`Action::CloseInspected`] for why that gesture can be unreachable.
+    pub fn close_inspected(&mut self) {
+        self.inspect = None;
+        self.inspect_organism = None;
     }
 
     pub fn tool(&self) -> Tool {
@@ -4378,8 +4406,33 @@ impl Ui {
         rows
     }
 
-    /// **The cell page's one button**, or `None` when the cell it is open on
-    /// holds nothing alive.
+    /// **The cell page's always-present button**: put the page away without
+    /// having to re-click the cell or organism it is pinned to. Right-most
+    /// in the header so it sits at a fixed spot regardless of whether `KEEP`
+    /// is beside it.
+    ///
+    /// See [`Action::CloseInspected`] for why the page's own toggle gesture
+    /// is not always reachable: the page is drawn over the world and can end
+    /// up sitting on top of the very cell that would close it, and
+    /// [`Ui::covers`] refuses to pass a click on the page through to the
+    /// world behind it.
+    fn close_inspect_button(rect: Rect) -> Widget {
+        let w = cell_width(hud::text_width("CLOSE"), "", PAD);
+        Widget {
+            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
+            line1: "CLOSE".into(),
+            line2: String::new(),
+            action: Some(Action::CloseInspected),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "PUT THE CELL PAGE AWAY. CLICKING THE SAME CELL OR ANIMAL AGAIN STILL WORKS TOO -- THIS IS THE BUTTON FOR WHEN THE PAGE ITSELF IS SITTING ON TOP OF WHAT YOU CLICKED, WHICH A CLICK CANNOT REACH THROUGH.".into(),
+        }
+    }
+
+    /// **The cell page's other button**, or `None` when the cell it is open
+    /// on holds nothing alive. Sits left of `CLOSE`, which is why its own `x`
+    /// is offset by `close_w` rather than anchored to the page's right edge.
     ///
     /// Sited in the page header beside the title, which is the only band on
     /// the page that is not a row: the rows are re-read from the world every
@@ -4387,13 +4440,13 @@ impl Ui {
     /// a button among them would move while the player was reaching for it.
     /// The shelf's `RELOAD` sits in its header for the same reason and this
     /// matches it deliberately — one place on a page is where its verbs are.
-    fn keep_button(&self, world: &World, at: (i32, i32), rect: Rect) -> Option<Widget> {
+    fn keep_button(&self, world: &World, at: (i32, i32), rect: Rect, close_w: i32) -> Option<Widget> {
         let id = world.get(at.0, at.1).organism_id();
         let state = world.organism(id)?;
         let species = world.species.get(state.species).name.to_uppercase();
         let w = cell_width(hud::text_width("KEEP"), "", PAD);
         Some(Widget {
-            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
+            rect: Rect { x: rect.right() - PAGE_PAD - close_w - 4 - w, y: rect.y + 3, w, h: 11 },
             line1: "KEEP".into(),
             line2: String::new(),
             action: Some(Action::KeepInspected),
@@ -4524,7 +4577,14 @@ impl Ui {
         // can never be crowded out by a group the player did not ask for), and
         // a page whose groups all fit -- an ant's -- never folds at all, so
         // that page is exactly what it always was.
-        let chosen = self.specimen_section.min(sections.len() - 1);
+        // `None` while nothing is chosen yet -- the page's starting state,
+        // and the state `show_specimen_section` returns to when the open
+        // group's own heading is clicked again. Nothing auto-opens in that
+        // state: the fill loop below only runs once a group has been
+        // explicitly asked for, so a freshly inspected cell shows the five
+        // fixed rows and four shut headings, not whichever groups happened
+        // to fit.
+        let chosen = self.specimen_section.filter(|&i| i < sections.len());
         // **The chosen group opens whether or not it fits, and that is a
         // change.** The rule used to be `cost <= room` for every group
         // including the chosen one, which reads as "serve it first" and is
@@ -4548,17 +4608,19 @@ impl Ui {
         let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
         let spark_h: i32 = sparks.iter().map(Row::height).sum();
 
-        open[chosen] = true;
-        room -= sections[chosen].2.len() as i32 * LINE;
-        if state_at == Some(chosen) {
-            room -= spark_h;
-        }
-        for i in 0..sections.len() {
-            let cost = sections[i].2.len() as i32 * LINE
-                + if state_at == Some(i) { spark_h } else { 0 };
-            if !open[i] && cost <= room {
-                open[i] = true;
-                room -= cost;
+        if let Some(chosen) = chosen {
+            open[chosen] = true;
+            room -= sections[chosen].2.len() as i32 * LINE;
+            if state_at == Some(chosen) {
+                room -= spark_h;
+            }
+            for i in 0..sections.len() {
+                let cost = sections[i].2.len() as i32 * LINE
+                    + if state_at == Some(i) { spark_h } else { 0 };
+                if !open[i] && cost <= room {
+                    open[i] = true;
+                    room -= cost;
+                }
             }
         }
         for (i, (label, note, section)) in sections.iter().enumerate() {
@@ -8151,14 +8213,18 @@ impl Ui {
             // list does), and without this the cell page fell back to
             // `MARGIN` -- the same left edge HISTORY itself starts at --
             // and the two panels painted directly on top of each other.
-            // `rack_box` has the identical omission and is not this lane's
-            // file to fix; `history_box` is.
+            // **`rack_box` had the identical omission.** Left for a later
+            // lane when `history_box` was added; closed now, same fix,
+            // same reason -- a cell pinned before RACK is opened otherwise
+            // falls back to `MARGIN` and draws directly under the rack's
+            // own left edge. Owner: "menus overlap regularly."
             let anchor = self
                 .panel_box
                 .or(self.params_box)
                 .or(self.shelf_box)
                 .or(self.roster_box)
                 .or(self.history_box)
+                .or(self.rack_box)
                 .map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
@@ -8180,7 +8246,23 @@ impl Ui {
             // rather than present and refusing, because the page is re-read
             // every frame and a permanently-greyed control on a page that
             // changes under you reads as broken.
-            if let Some(button) = self.keep_button(world, at, rect) {
+            //
+            // **`CLOSE` is unconditional**, unlike `KEEP`: the page's own
+            // put-it-away click can be unreachable when the page is drawn
+            // over the cell it is inspecting (`Action::CloseInspected`'s own
+            // doc), so this is the one button that must always be there.
+            let close = Self::close_inspect_button(rect);
+            let close_w = close.rect.w;
+            {
+                let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+                let down = hover && self.pressed == Some(Action::CloseInspected);
+                if hover && !close.note.is_empty() {
+                    note = Some((close.note.clone(), rect, rect.y, Note::BesidePage));
+                }
+                paint_widget(frame, &close, hover, down);
+                taps.push(close);
+            }
+            if let Some(button) = self.keep_button(world, at, rect, close_w) {
                 let hover = self.cursor.is_some_and(|(x, y)| button.rect.contains(x, y));
                 let down = hover && self.pressed == Some(Action::KeepInspected);
                 if hover && !button.note.is_empty() {
@@ -10102,7 +10184,7 @@ mod tests {
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
             assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
-            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
+            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads -- group 0 is WORDS");
             assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
             // **Both kingdoms overflow now, where only the plant did.** The
@@ -10114,7 +10196,16 @@ mod tests {
             let over = flat > page_content_budget();
             assert!(over, "{name}: flat page is {flat}px against a {}px budget -- it fits without folding, so the fold is not being tested at all", page_content_budget());
 
+            // **Starts collapsed.** Owner complaint that shaped this: "all
+            // the subinformation in the cell box should start minimized,
+            // right now you cannot even do that manually, something always
+            // has to be expanded." A freshly inspected cell -- nothing
+            // clicked yet -- shows the five fixed rows and every group
+            // heading shut, regardless of how many groups would actually
+            // fit together.
             let rows = ui.inspect_rows(&world, (10, 10));
+            let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
+            assert_eq!(shut, sections.len(), "{name}: the cell page did not start with every group folded shut");
             for anchor in [0, 200, W as i32 - 10] {
                 let r = page_rect(&rows, anchor, bar_top() - 4);
                 assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
@@ -10122,6 +10213,19 @@ mod tests {
                 assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
             }
 
+            // **Choosing a group is what makes the fold matter**, and this is
+            // the positive control the `over` assertion above set up: with
+            // `flat` already proven too tall for the budget, a chosen group
+            // has to fold the rest away rather than overflow the screen.
+            let mut ui = Ui::new();
+            ui.show_specimen_section(0);
+            let rows = ui.inspect_rows(&world, (10, 10));
+            for anchor in [0, 200, W as i32 - 10] {
+                let r = page_rect(&rows, anchor, bar_top() - 4);
+                assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
+                assert!(r.bottom() <= bar_top(), "the {kingdom} cell page runs into the bar");
+                assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
+            }
             // **The fold is what fits it, not the backstop.** `fit_rows` will
             // trim anything to size, so a page that fits only because rows
             // were dropped is a page that has quietly stopped saying things.
@@ -10136,10 +10240,12 @@ mod tests {
             // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
             assert!(shut >= 1, "{name}: nothing folded, so the fold is not being tested on this kingdom");
-            assert!(shut < sections.len(), "{name}: every group is shut, so the page shows no rows at all");
+            assert!(shut < sections.len(), "{name}: every group is shut, so choosing one did not open it");
 
-            // **A click opens what it says, whichever group it is.** The half
-            // the fit assertions cannot reach: a rule that served the groups
+            // **A click opens what it says, whichever group it is, and a
+            // second click on the group it just opened folds the page back
+            // to its starting, fully-collapsed state.** The half the fit
+            // assertions cannot reach: a rule that served the groups
             // strictly from the top would fit the page perfectly and ignore
             // the player, and every assertion above would still be green.
             for chosen in 0..sections.len() {
@@ -10155,6 +10261,20 @@ mod tests {
                     .collect();
                 assert_eq!(heads.len(), sections.len(), "{name}: the page lost a group heading");
                 assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
+
+                ui.show_specimen_section(chosen);
+                let folded: Vec<bool> = ui
+                    .inspect_rows(&world, (10, 10))
+                    .iter()
+                    .filter_map(|row| match row.body {
+                        Body::Head { open, .. } => Some(open),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    !folded.iter().any(|&open| open),
+                    "{name}: clicking open group {chosen} a second time did not fold it back up"
+                );
             }
         }
     }
