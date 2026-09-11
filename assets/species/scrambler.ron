@@ -159,11 +159,16 @@
                 branch_angle: [65.0, 60.0],
                 internode: [2, 2],
                 leaf_cluster: 5,
-                // **A truss, not a head**: four cells, and there are many
-                // of them. Against `herb`'s one nine-cell head, this is the
+                // **A truss, not a head**: several cells, and there are
+                // many of them. Against `herb`'s one head, this is the
                 // same organ machinery producing an entirely different
-                // distribution over the plant.
-                organ_cluster: 5,
+                // distribution over the plant. Raised 5 -> 8 in round 28
+                // alongside `herb`'s bump, at a smaller ratio (1.6x
+                // against 1.78x) so the many-small-trusses habit stays
+                // legibly different from `herb`'s one big head; slot 9
+                // below scales this per individual exactly as it does for
+                // `herb`.
+                organ_cluster: 8,
                 juvenile_size: 10,
                 juvenile_plastochron: 0.7,
                 juvenile_branch: 1.2,
@@ -226,10 +231,19 @@
             // trusses continuously where an erect determinate herb spends its
             // whole season on one head, and that difference is visible on a
             // sheet: a scrambler carries flowers and fruit at once.
-            Ripen(rate: 0.035, cost: 0.22),
+            //
+            // **Both this cost and Fruit's below are divided by 1.6 in
+            // round 28** -- `organ_cluster` (5 -> 8) grew by the same
+            // ratio, and every cell of a truss pays this independently out
+            // of the one shared `reproductive_budget`. `herb.ron`'s
+            // matching `Fruit` comment has the measurement: holding the
+            // fruit cost at its original value (to protect seed
+            // `endowment`) was tried and did not come out ahead on
+            // aggregate, so both costs scale the same simple way here too.
+            Ripen(rate: 0.035, cost: 0.14),
         ]),
         (Fruit, [
-            Ripen(rate: 0.011, cost: 0.28),
+            Ripen(rate: 0.011, cost: 0.18),
         ]),
     ],
 )

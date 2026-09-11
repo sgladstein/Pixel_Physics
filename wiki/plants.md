@@ -611,6 +611,18 @@ never gets ahead makes a bare stalk with nothing on top. A plant that fills
 fruit sets fewer loose seeds that season, because both come out of the same
 pocket.
 
+**New on 2026-09-11: how big a head *tries* to be is now itself a heritable
+trait, not just a species constant that carbon then trims.** Two equally
+well-fed plants of the same species can still build to different targets — one
+aiming for a small handful of cells, another for a large head — and a
+seedling's target tracks its parent's, drifting a little at each generation
+the way every other inherited shape does. So a bed no longer shows one size of
+head truncated by circumstance; it shows a real spread of sizes even among
+plants that never went short of carbon at all. Heads are also bigger across
+the board this round — an erect herb's head most of all, since size is the
+one lever that has ever read as "this is a flower" rather than a coloured
+mark on a stalk.
+
 **A spent stem does not stay bare for good.** Once a fruit lets go (or a
 flower is lost before it ever sets one), the stem it grew from waits and then
 puts up a fresh flower in the same place, paid for out of the same account as

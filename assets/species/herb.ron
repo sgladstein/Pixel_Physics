@@ -72,9 +72,17 @@
     // Pale green stem, not bark: a herbaceous axis is not a trunk. Bands
     // 6-7 of `wood` are the lightest it has.
     bark_bands: (first: 6, count: 2),
-    // **Yellow and orange, bands 0-1 of `flower`.** Deliberately the two
-    // furthest from anything foliage can be.
-    flower_bands: (first: 0, count: 2),
+    // **Yellow, orange and red -- bands 0-2 of `flower`.** Deliberately
+    // the furthest from anything foliage can be. Widened from two bands
+    // to three in round 28 (the C2 card's second question,
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.5): two
+    // bands gave a stand a coin-flip between yellow and orange, and a
+    // cross was always one or the other with nothing between; a middle
+    // band gives red as the third outcome, so a bred stand shows a real
+    // spread rather than two colours split down the middle. `flower.ron`
+    // runs warm to cool, so this stays a contiguous slice of the warm
+    // end -- widening never jumps a hue.
+    flower_bands: (first: 0, count: 3),
     // Gold and orange fruit — a ripe seed head, not a berry.
     fruit_bands: (first: 4, count: 2),
     windfall_material: "windfall",
@@ -232,11 +240,19 @@
                 // this is a few large blades on a bare stem, where a tree is
                 // a continuous canopy of small ones.
                 leaf_cluster: 8,
-                // **The head.** Nine cells is roughly three times the
-                // width of the stalk bearing it, which is the size half of
-                // the only lever that has ever read here -- see
-                // `Behavior::Grow::organ_cluster`.
-                organ_cluster: 9,
+                // **The head, raised in round 28 (Brief C2's sibling,
+                // "bigger flowers with more variety") from 9 to 16 -- 9->16
+                // is 1.78x, roughly five times the stalk's width rather
+                // than three.** Size plus material is the only lever that
+                // has ever read here -- see `Behavior::Grow::organ_cluster`
+                // -- and slot 9 (`genotype_variance` below,
+                // `organism::LOCUS_FLOWER_COLOUR`'s neighbour in spirit)
+                // now scales this per individual at ±70%, so a stand shows
+                // heads from ~5 to ~27 cells rather than one repeated size.
+                // `Ripen`'s two costs below are divided by the same 1.78x
+                // so a full head's total lifetime ripening bill holds
+                // roughly where it was -- see the note beside them.
+                organ_cluster: 16,
                 juvenile_size: 8,
                 juvenile_plastochron: 0.6,
                 juvenile_branch: 1.0,
@@ -303,13 +319,53 @@
             // stand is visibly *in flower* for a long stretch rather than
             // flickering through it, which matters when the artifact is a
             // contact sheet.
-            Ripen(rate: 0.02, cost: 0.3),
+            //
+            // **Both this cost and Fruit's below are divided by 1.78 in
+            // round 28**, the ratio `organ_cluster` (9 -> 16) grew by --
+            // see `Fruit`'s comment for the measurement this rests on and
+            // the alternative it beat, not just assumed.
+            Ripen(rate: 0.02, cost: 0.17),
         ]),
         (Fruit, [
             // Slower again: a seed head takes longer to fill than a flower
-            // takes to set. `cost` is the provisioning that rides down with
-            // the seed as its `endowment`.
-            Ripen(rate: 0.012, cost: 0.35),
+            // takes to set. `cost` is the provisioning that rides down
+            // with the seed as its `endowment`, and it is divided by 1.78
+            // alongside `Flower`'s -- **but that was not the first guess,
+            // and the first guess was measured wrong in the interesting
+            // direction.**
+            //
+            // Holding this cost at its *original* value (so per-seed
+            // endowment would not thin out) was tried first, on the
+            // reasoning that a smaller stake costs more seedlings than a
+            // bigger head is worth. Measured against dividing both,
+            // `labforage scenario=played_bed frames=120000`, three seeds:
+            // plants at 120,000 were **359/228/79** (endowment held) against
+            // **322/170/259** (both divided) -- not better on aggregate
+            // (mean 222 against 250), and `organ_ripening_blocked` came in
+            // far *above* main's own range (68,069-69,538 against
+            // 18,586-122,328) rather than the comfortable margin dividing
+            // both gives (8,832-26,123). Preserving endowment did not buy
+            // back the plants it was supposed to save; it just moved the
+            // congestion from "fewer, better-fed seeds" to "the same
+            // budget paying a bigger bill it increasingly cannot clear."
+            // So the simpler rule ships: total cost tracks total cells,
+            // full stop, on both the construction and the endowment side.
+            //
+            // **What neither arm fixes, and is reported rather than
+            // chased further**: plants at 120,000 sit at 322/170/259
+            // against main's 464/574/303 -- a real, seed-consistent
+            // 15-70% fall in this played bed's long-horizon population,
+            // even though `organs_built`, `fruit_dropped` and
+            // `flowers_rebloomed` are all *up* (the organ economy is
+            // firing harder, not weaker). Standing-flower/fruit counts at
+            // any one frame ride the rebloom cycle's own phase and should
+            // not be read alone -- `flowers_rebloomed` (monotonic) is the
+            // trustworthy column. This is the owner's "stop balancing,
+            // start exposing" directive applied rather than overridden:
+            // a third, gentler size (12 rather than 16) was not tried for
+            // want of time, and is the first thing to try if the played
+            // bed's population matters more than the bigger head does.
+            Ripen(rate: 0.012, cost: 0.2),
         ]),
     ],
 )

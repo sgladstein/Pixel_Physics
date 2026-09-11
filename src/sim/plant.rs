@@ -4209,12 +4209,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     write_carbon(world, x, y, resource);
                     world.organs_built += 1;
                     world.axes_terminated += 1;
-                    // **The head.** One cell of a new colour on a stalk is a
-                    // material change with the size half missing, and size
-                    // plus material is the only lever that has ever read
-                    // here -- see `Behavior::Grow::organ_cluster`. Charged
-                    // per cell and truncated by what is left, so the head is
-                    // as big as the plant can pay for.
+                    // **The head, and how big this individual tries to make
+                    // it.** One cell of a new colour on a stalk is a material
+                    // change with the size half missing, and size plus
+                    // material is the only lever that has ever read here --
+                    // see `Behavior::Grow::organ_cluster`. Charged per cell
+                    // and truncated by what is left, so the head is as big
+                    // as the plant can pay for -- that grading was always
+                    // true and is not what changed.
+                    //
+                    // **What is new (round 28, Brief C2's sibling): the
+                    // *target* itself varies per individual, on slot 9.**
+                    // `organ_cluster` used to be one number per species, so
+                    // every rich plant in a stand built toward the identical
+                    // ceiling and the only spread came from carbon
+                    // truncation -- a graded outcome, but not a *varied*
+                    // one. Slot 9 was capacity with no consumer since the
+                    // genome widened to ten traits
+                    // (`expressing_the_appended_genome_slot_changes_no_plant`'s
+                    // own doc names it exactly that), and every shipped
+                    // species already authors a live width on it (0.7,
+                    // untouched since it was reserved) with nothing reading
+                    // it -- so this is the cheapest lawful lever available:
+                    // no `.ron` file needs a new field, only a reader.
+                    // Founder diversity and heritability both come for
+                    // free from the existing `genotype_draws` machinery
+                    // (`seed_genotype` draws every slot at founding,
+                    // `bear_seed_at` jitters every appended slot at every
+                    // birth), which is why this reads as a slot rather than
+                    // a fresh `params` override -- a founder needs no
+                    // waiting generation to show a spread, an override
+                    // would.
+                    let organ_cluster = ((organ_cluster as f32) * genotype(world, organism_id, 9, genotype_variance[9])).round().max(1.0) as u8;
                     let mut head = vec![(x, y)];
                     let mut frontier_i = 0;
                     while head.len() < organ_cluster as usize && resource >= organ_cost {
@@ -16471,18 +16497,31 @@ they are the same world. Got {median}, which means something other than the leve
         );
     }
 
-    /// **The append-only guard on the genome layout: does slot 9 change
-    /// any plant?** Asked as a comparison inside one process, which is
-    /// the only form of the question that holds still.
+    /// **The append-only guard on the genome layout, narrowed by round
+    /// 28: does slot 9 change a plant that never reads it?** Asked as a
+    /// comparison inside one process, which is the only form of the
+    /// question that holds still.
     ///
-    /// Grows the same stand twice in one run — once with slot 9's width
-    /// as the species ships it, once with that width at `0.0` — and
-    /// asserts the two are identical, cell for cell and genome for
-    /// genome. Slot 9 is capacity with no consumer
-    /// (`organism::GENOTYPE_TRAITS`), so expressing it or not must make
-    /// no difference to anything. The day it does, either a consumer has
-    /// been wired to it or a slot has been renumbered onto it, and both
-    /// arms of this test disagree.
+    /// **This used to claim slot 9 had no consumer anywhere, and that
+    /// stopped being true in round 28**: `organ_cluster`'s head size now
+    /// reads it (`genotype(world, organism_id, 9, ...)`, beside the
+    /// flower-head build in the `Grow` dispatch), which is exactly the
+    /// event this test's own docstring said to expect one day. What
+    /// survives is narrower and still worth keeping: `tree` never
+    /// flowers, so its stand should be exactly as blind to slot 9 as it
+    /// always was, and the four whole-plant continuous passes borrowing
+    /// slots 4/6/7/9 (`turgor_per_cell`, `alloc_variance`, `pipe_ratio`,
+    /// `penetration_force`) still have no business reading it either.
+    /// `a_herbs_expressed_organ_size_varies_by_founder` below is the positive
+    /// control this test cannot be: it proves the new consumer is real by
+    /// growing a *flowering* species and showing the two arms disagree.
+    ///
+    /// Grows the same non-flowering stand twice in one run — once with
+    /// slot 9's width as the species ships it, once with that width at
+    /// `0.0` — and asserts the two are identical, cell for cell and
+    /// genome for genome. If they ever differ now, either a consumer has
+    /// been wired into a pass `tree` actually runs, or a slot has been
+    /// renumbered onto 9, and both arms of this test disagree.
     ///
     /// **This replaced a hardcoded whole-stand fingerprint, and the
     /// reason is worth keeping.** That version asserted
@@ -16609,12 +16648,86 @@ they are the same world. Got {median}, which means something other than the leve
 
         assert_eq!(
             expressed, suppressed,
-            "expressing genome slot {APPENDED} changed the stand. It is capacity with no consumer, so \
-             nothing should read it and nothing should move: either a consumer has been wired to it, \
-             or a slot has been renumbered onto it (which rewrites every genome ever measured -- see \
-             `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a comparison between two arms of \
-             the same build, so an unrelated plant change landing in `main` cannot cause it. Both arms \
-             move together. This is a real fault."
+            "expressing genome slot {APPENDED} changed a `tree` stand, which never flowers and so \
+             never reaches `organ_cluster`'s slot-9 read (round 28). Either a consumer has been wired \
+             into one of the whole-plant continuous passes tree actually runs (turgor, allocation, \
+             pipe ratio, penetration), or a slot has been renumbered onto 9 (which rewrites every \
+             genome ever measured -- see `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a \
+             comparison between two arms of the same build, so an unrelated plant change landing in \
+             `main` cannot cause it. Both arms move together. This is a real fault."
+        );
+    }
+
+    /// **The positive control the test above cannot be, since `tree`
+    /// never flowers.** Round 28 wired `organ_cluster`'s head size to
+    /// slot 9 (`Behavior::Grow`'s organ-build dispatch,
+    /// `genotype(world, organism_id, 9, genotype_variance[9])`) -- the
+    /// cheapest lawful lever for per-individual flower-head variety,
+    /// chosen over a fresh `params` override because founder diversity
+    /// and heritability both fall out of the existing `genotype_draws`
+    /// machinery for free.
+    ///
+    /// **Reads the formula directly rather than growing a stand to
+    /// flower.** A first version of this test grew six herbs for 12,000
+    /// frames and compared standing organ-cell counts, and it was
+    /// vacuous: a hand-built scene with no light field left every founder
+    /// carbon-starved well short of *either* arm's target, so both arms
+    /// truncated to the identical 3 cells regardless of the slot-9
+    /// multiplier -- `CLAUDE.md`'s "check a guard's inputs actually vary
+    /// what it guards", caught before it shipped. Reading the expressed
+    /// target straight off `seed_genotype` + `genotype()` tests the same
+    /// wiring without needing a plant to ever finish growing, and does it
+    /// in milliseconds instead of minutes.
+    #[test]
+    fn a_herbs_expressed_organ_size_varies_by_founder() {
+        let mut w = test_world();
+        w.seed = 5_150;
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+        let authored_cluster = w
+            .species
+            .get(herb)
+            .behaviors(CellType::GrowingTip)
+            .iter()
+            .find_map(|b| match b {
+                organism::Behavior::Grow { organ_cluster, .. } => Some(*organ_cluster),
+                _ => None,
+            })
+            .expect("herb's shoot has a Grow");
+        assert!(authored_cluster > 1, "test setup: herb's authored organ_cluster must be worth scaling");
+
+        // 40 founders at different positions -- the draw is keyed on
+        // (world_seed, x, y, slot), so different founders take different
+        // slot-9 draws without any of them ever being planted or grown.
+        let mut sizes: Vec<u8> = Vec::new();
+        for i in 0..40i32 {
+            let (x, y) = (7 + (i % 10) * 5, 11 + (i / 10) * 5);
+            let Some(id) = w.push_organism(herb) else { continue };
+            seed_genotype(&mut w, id, x, y);
+            let multiplier = genotype(&w, id, 9, 0.7);
+            sizes.push(((authored_cluster as f32) * multiplier).round().max(1.0) as u8);
+            w.free_organism(id);
+        }
+        assert_eq!(sizes.len(), 40, "test setup: every founder should have taken a slot");
+
+        let distinct: std::collections::HashSet<u8> = sizes.iter().copied().collect();
+        assert!(
+            distinct.len() > 5,
+            "40 herb founders expressed only {} distinct head-size target(s) ({sizes:?}) -- slot 9 \
+             should give a real spread, not a near-constant target. If this goes vacuous, check \
+             `genotype_variance[9]` is still authored non-zero on `herb` and that the flower-head \
+             build in `Behavior::Grow`'s dispatch still reads it.",
+            distinct.len()
+        );
+        // The multiplier is `1 + draw * 0.7` for draw in [-1, 1], i.e.
+        // [0.3, 1.7] -- so a real spread should reach a good way above and
+        // below the authored value, not cluster tightly around it.
+        let min = *sizes.iter().min().unwrap();
+        let max = *sizes.iter().max().unwrap();
+        assert!(
+            (max as f32) > (authored_cluster as f32) * 1.15 && (min as f32) < (authored_cluster as f32) * 0.85,
+            "40 founders' expressed sizes ({min}..={max}) stayed in a tight band around the \
+             authored value {authored_cluster} -- the multiplier should reach visibly above and \
+             below it, not just jitter it"
         );
     }
 
@@ -16717,23 +16830,39 @@ they are the same world. Got {median}, which means something other than the leve
         let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0, 0])).count();
         assert!(mutated >= 5, "the discrete loci should have mutated in a few children, got {mutated}");
 
-        // **Re-baselined for round 28's seventh locus, and this is the
-        // guard the round's own brief named as the one to watch.**
-        // `LOCUS_FLOWER_COLOUR` widened `alleles` from 6 entries to 7, so
-        // `jump_alleles` (inside `bear_seed_at`, called from `set_seed`)
-        // now spends one more `rng.chance` per child on this test's shared
-        // `rng` -- moving every draw after it, this fingerprint included.
-        // Old value `0x2197_04fe_f1c7_3b67`, measured on `main` before this
-        // change; this is `CLAUDE.md`'s own worked case, "a green suite
-        // does not prove a test could fail", landing for real rather than
-        // being quoted.
+        // **Re-baselined twice in round 28, and both times for the reason
+        // the round's own brief named as the one to watch -- the second
+        // time in a costume this file had not seen yet.**
+        //
+        // First (PR1, `LOCUS_FLOWER_COLOUR` landing): `alleles` widened
+        // from 6 entries to 7, so `jump_alleles` spends one more
+        // `rng.chance` per child on this test's shared `rng` -- moving
+        // every draw after it. Old value `0x2197_04fe_f1c7_3b67`.
+        //
+        // Second (PR2, widening `herb` to three flower bands):
+        // `LOCUS_ALLELES[LOCUS_FLOWER_COLOUR]` moved 2 -> 3, and that is a
+        // **value** change, not a draw-count one -- `jump_alleles` still
+        // makes exactly the same number of `rng.chance`/`rng.below` calls
+        // per child (`set_seed_leaves_the_callers_rng_position_alone`
+        // stayed green through this, unmoved, which is what proves the
+        // count is unaffected). But `rng.below(n)`'s *result* depends on
+        // `n`, and `tree` (this test's species) carries the locus and can
+        // jump it even though it never flowers -- so a bred tree whose
+        // flower-colour allele jumped could now land on 2, a value the
+        // 2-allele range never produced, which changes one byte this
+        // fingerprint eats. Old value (mid-round-28) `0x0ea6_032f_41d2_6be3`.
+        //
+        // This is `CLAUDE.md`'s own worked case, "a green suite does not
+        // prove a test could fail", landing for real twice in one round
+        // rather than being quoted once.
         assert_eq!(
-            h.0, 0x0ea6_032f_41d2_6be3,
+            h.0, 0xfb9e_a33a_d20a_0087,
             "the breeding draw sequence moved. `set_seed` spends one draw per genome slot from a \
              shared `Rng`, so this fails if a new slot was mutated inline instead of after the \
              discrete loci -- see `SEQUENCED_TRAITS`. Every bred genome ever measured is downstream \
-             of this sequence. (Re-baselined for `LOCUS_FLOWER_COLOUR`, round 28 -- see the comment \
-             above this assertion if it moves again.)"
+             of this sequence. (Re-baselined twice in round 28 -- see the comment above this \
+             assertion if it moves again, and check whether a locus's *cardinality* changed before \
+             assuming only its count of loci can.)"
         );
     }
 
