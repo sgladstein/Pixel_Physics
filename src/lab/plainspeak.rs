@@ -602,7 +602,7 @@ fn trait_word(slot: usize) -> &'static str {
     }
 }
 
-/// One of the six discrete plant loci, named -- see `organism::DISCRETE_LOCI`.
+/// One of the seven discrete plant loci, named -- see `organism::DISCRETE_LOCI`.
 fn locus_word(locus: usize) -> &'static str {
     match locus {
         organism::LOCUS_LEAF_ECONOMY => "LEAF ECONOMY",
@@ -611,6 +611,7 @@ fn locus_word(locus: usize) -> &'static str {
         organism::LOCUS_SYMPODIAL => "SYMPODIAL",
         organism::LOCUS_TROPISM => "TROPISM",
         organism::LOCUS_WOOD_DENSITY => "WOOD DENSITY",
+        organism::LOCUS_FLOWER_COLOUR => "PETAL COLOUR",
         _ => "A LOCUS",
     }
 }
@@ -988,10 +989,10 @@ fn dig_word(force: f32) -> &'static str {
 fn plant(world: &World, species: SpeciesId, alleles: &[u8], draws: &[f32]) -> Vec<Phrase> {
     let mut out = Vec::new();
 
-    // -- the six jumping genes. **Categorical, not scalar**: two plants that
-    //    differ here are different shapes, not the same shape at different
-    //    sizes, which is exactly what a sentence can say and a multiplier
-    //    cannot.
+    // -- the seven jumping genes. **Categorical, not scalar**: two plants
+    //    that differ here are different shapes, not the same shape at
+    //    different sizes, which is exactly what a sentence can say and a
+    //    multiplier cannot.
     for (locus, table, note) in [
         (
             organism::LOCUS_LEAF_ECONOMY,
@@ -1022,6 +1023,11 @@ fn plant(world: &World, species: SpeciesId, alleles: &[u8], draws: &[f32]) -> Ve
             organism::LOCUS_WOOD_DENSITY,
             &["PIONEER WOOD: CHEAP, WEAK", "WOOD AT ITS OWN DENSITY", "DENSE WOOD: STRONG, DEAR"][..],
             "WOOD DENSITY: IT SCALES BOTH WHAT A CANTILEVER CAN CARRY AND WHAT A CELL COSTS TO BUILD, SO IT IS A REAL TRADE AND NOT A FREE STRENGTH KNOB.",
+        ),
+        (
+            organism::LOCUS_FLOWER_COLOUR,
+            &["WARMER-END PETALS", "COOLER-END PETALS"][..],
+            "PETAL COLOUR: WHICH END OF ITS SPECIES' PETAL RANGE ITS FLOWERS TAKE. THE RANGE RUNS WARM TO COOL, SO THE LOWER ALLELE IS ALWAYS THE WARMER OF THE TWO. PASSED FROM PARENT TO SEEDLING LIKE EVERY OTHER SHAPE GENE HERE, UNLIKE FRUIT COLOUR, WHICH STILL REDRAWS EVERY GENERATION.",
         ),
     ] {
         let a = alleles.get(locus).copied().unwrap_or(0) as usize;
@@ -1718,7 +1724,7 @@ mod tests {
         );
     }
 
-    /// **A plant's shape genes each say something, and the six are distinct.**
+    /// **A plant's shape genes each say something, and the seven are distinct.**
     ///
     /// A phrasebook that mapped two loci to the same sentence would produce a
     /// page that reads fine and tells you nothing, which is the failure mode

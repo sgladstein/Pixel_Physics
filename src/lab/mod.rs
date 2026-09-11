@@ -4562,7 +4562,7 @@ mod tests {
         assert!(lab.world.plant_tree_species(fx + 10, fy, "herb"), "the harness planted nothing");
         let id = lab.world.get(fx + 10, fy).organism_id();
         if let Some(st) = lab.world.organism_mut(id) {
-            st.alleles = [1, 2, 1, 1, 1, 2];
+            st.alleles = [1, 2, 1, 1, 1, 2, 1];
         }
         let draws = lab.world.organism(id).expect("live plant").genotype_draws;
 
@@ -4576,7 +4576,7 @@ mod tests {
         assert_ne!(sown, 0, "nothing was sown: {:?}", lab.ui.notice_text());
         let state = lab.world.organism(sown).expect("the sown seed");
         assert_eq!(state.genotype_draws, draws, "the sown seed is not carrying the kept genome");
-        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2], "the discrete loci did not survive the jar");
+        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2, 1], "the discrete loci did not survive the jar");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

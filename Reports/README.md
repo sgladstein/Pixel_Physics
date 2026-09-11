@@ -2355,6 +2355,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   immobility was entirely their side cells, and the tuck rule takes the ant
   from 43.9% / 96.8% blocked to 1.9% / 22.1%. Also the rulings the round
   depended on and the questions it put to the owner.
+- [evolution-lab-round-27-2026-09-10.md](evolution-lab-round-27-2026-09-10.md)
+  — **record, 2026-09-11.** The coordinator's account of round twenty-seven,
+  moved out of the lane note at the round's close: nine lanes in ten hours,
+  seven landed, two stacked on the bodies branch. What the round overturned,
+  with the numbers: "flower sense" is the eye and the eye is heritable; a
+  ground animal that sees a flower still cannot reach one (21 rows against
+  22); the long body's whole immobility was length and the flip's foraging
+  collapse a traffic misread; every mechanism of the garden loop is in and
+  its rate is zero; a colony guard moved through shared procedural terrain
+  while every foraging counter improved.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
