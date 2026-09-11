@@ -1412,7 +1412,22 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 /// **The one definition of a group's colour**, read by the renderer for the
 /// animal and by the lab's ANTS page for the graph line and legend swatch.
 /// `None` under `Off`, where the animal wears its material.
-pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32) -> Option<[f32; 3]> {
+pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32, homeless: bool) -> Option<[f32; 3]> {
+    // **An animal whose species declares no nest wears its own colour, even
+    // in BY COLONY.** It has no colony to wear: `found_colony_of` paints no
+    // home for such a species (its own doc: *"a species with an empty `nest`
+    // gets animals on the ground and nothing else"*), so the label it carries
+    // is bookkeeping rather than a home, and colouring by it hides the only
+    // thing that tells the animal apart on screen.
+    //
+    // Found by looking rather than by reading: the flitter authors a pale
+    // blue-white body precisely so it reads in flight, and every card of it
+    // came back with the body drawn in a group hue, because `Lab::new` opens
+    // on `CreatureColour::Colony`. A species field that never reaches the
+    // screen is a species field nobody can judge.
+    if homeless && matches!(mode, CreatureColour::Colony) {
+        return None;
+    }
     match mode {
         CreatureColour::Off => None,
         CreatureColour::Species => Some(group_palette(species.0 as usize)),
@@ -5382,7 +5397,8 @@ impl Renderer {
             )
         {
             if let Some(state) = world.organism(cell.organism_id()) {
-                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony) {
+                let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -8114,9 +8130,11 @@ mod tests {
             let luma = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
             assert!(luma > 90.0, "a group colour must stand off dark soil: {c:?} has luma {luma:.0}");
         }
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0), Some(GROUP_NONE));
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
-        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1), None);
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, false), Some(GROUP_NONE));
+        // The nestless case: no colony to wear, so it wears itself.
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, true), None, "a species with no nest keeps its own colour in BY COLONY");
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1, false), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
+        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1, false), None);
     }
 
     #[test]

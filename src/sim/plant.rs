@@ -2437,6 +2437,39 @@ pub(crate) const NECTAR_COST: f32 = 0.01;
 /// `aux` changes, only the sidecar's `nectar` pool and the owning
 /// organism's `reproductive_budget`, so there is no `reindex_organism_cell`
 /// seam to reason about.
+/// **Is this cell a flower with a sip in it right now?** Read-only, no
+/// counter, no draw — `nectar_offer` below is the paying half and calls this
+/// for its own decision, so the two can never disagree about what "there is
+/// nectar here" means.
+///
+/// **It exists because a nectar-only mouth has to ask the question without
+/// taking the drink.** `creature::adjacent_food_counted` filters a
+/// `nectar_only` animal's whole menu down to cells this returns true for
+/// (P2, the flitter), and that scan runs on every candidate in the ring
+/// every tick — it cannot be the mutating call. Writing the preconditions
+/// out a second time there was the obvious alternative and is exactly the
+/// second-copy-of-a-placement-rule failure `open-bugs-handoff.md` §R2 cost:
+/// a dry flower that the mouth thinks is full is an animal fixating on
+/// nothing, and a full flower the mouth thinks is dry is an animal starving
+/// beside its dinner.
+///
+/// **A dry flower is not food, it is a flower that is not ready** — the
+/// graded-by-the-clock reading `nectar_offer` records for the same test.
+pub fn nectar_available(world: &World, x: i32, y: i32) -> bool {
+    let cell = world.get(x, y);
+    let organism_id = cell.organism_id();
+    if organism_id == 0 || organism::cell_type(cell.aux()) != Some(CellType::Flower) {
+        return false;
+    }
+    if world.organism_cell(x, y).map_or(0.0, |c| c.nectar) < 1.0 {
+        return false;
+    }
+    let Some(state) = world.organism(organism_id) else {
+        return false;
+    };
+    state.reproductive_budget >= NECTAR_COST && world.species.get(state.species).nectar_yield > 0.0
+}
+
 pub fn nectar_offer(world: &mut World, x: i32, y: i32) -> f32 {
     let cell = world.get(x, y);
     let organism_id = cell.organism_id();
@@ -2450,6 +2483,12 @@ pub fn nectar_offer(world: &mut World, x: i32, y: i32) -> f32 {
     // see this function's own doc on why the pairing with `nectar_paid`
     // is load-bearing rather than a nicety.
     world.flower_visits += 1;
+    // **The three preconditions live in `nectar_available` above**, which
+    // this calls rather than restates -- the split landed with the
+    // nectar-only mouth, which has to ask the same question without paying.
+    // The early returns below are kept as themselves so each still carries
+    // the reason it refuses; they are a commentary on the same tests, not a
+    // second copy of them.
     let pool = world.organism_cell(x, y).map_or(0.0, |c| c.nectar);
     if pool < 1.0 {
         return 0.0; // not yet refilled -- graded by the clock, not a refusal

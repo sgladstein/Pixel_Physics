@@ -811,6 +811,32 @@
         // earlier card without checking whether anyone had already answered
         // it: a verdict is not a standing instruction, and the queue is
         // shared.
+        // **Nothing but nectar. The one field that makes this a pollinator
+        // rather than a hopper with a taste for flowers.**
+        //
+        // Authored after the first measurement, not before it, and the
+        // measurement is why: at this file's gut of `-1.0` a leaf still pays
+        // 480 J and a whole flower cell 1,440, so `adjacent_food`'s ranking
+        // handed the animal a leaf wherever it stood and a flower CELL where
+        // it could reach one. Over 120,000 frames on the played bed that bred
+        // hundreds of flitters off foliage and took the bed from **960 plant
+        // cells to 566 and 34 standing flowers to 4** against the same bed
+        // with no flitter in it, while `flower_visits` read 1-15. The design
+        // predicted exactly this and named its counter
+        // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.2, and
+        // `World::flowers_bitten_by_species`).
+        //
+        // **No setting of `gut` fixes it**, which is why this is a switch and
+        // not a weight: `diet_quality` scales yields and every yield in the
+        // box is positive, so a gut that makes nectar worth more also leaves
+        // a leaf worth something. See `CreatureDef::nectar_only`.
+        //
+        // What it costs this animal, deliberately: carrion pays 0, fruit pays
+        // 0, leaf pays 0, and a **dry** flower pays 0 -- it must find one that
+        // has refilled. The flitter now appears where the bed is flowering and
+        // starves where it is not, which is the visible consequence §2.6 asks
+        // this species to produce.
+        nectar_only: true,
         climbs_over_kin: true,
 
         // **No home, per Brief P2 and design doc §2.6.** `nest: ""` is

@@ -960,38 +960,55 @@ stem, plants hold an animal up exactly as ground does — and throw
 themselves again. It is the only thing in the box that leaves the ground
 because it decided to.
 
-**A flower is worth four times as much to it as to an ant**, and that is
-the whole of its trade. An ant is a generalist; the flitter's stomach is
-tuned to nectar, so the same sip that pays an ant a mouthful pays a flitter
-a meal. What it gives up is the dead: to a flitter a corpse is worth
-exactly nothing, where an ant will happily eat one.
+**Nectar is the only thing it eats, and that is the whole of its trade.**
+Not "prefers" -- only. Leaf, fruit, seed, a corpse, and a flower that has
+already been drained all pay it exactly nothing; it lives on flowers that
+have refilled and starves between them. An ant beside a leaf has a meal; a
+flitter beside the same leaf has scenery.
+
+**That was not the first attempt, and the first attempt is worth knowing
+about**, because it is what you get if you try to make a specialist by taste
+alone. Given a strong liking for nectar and nothing else, the flitter ate
+leaves all day, bred into the hundreds off them, and stripped the bed of the
+flowers it was supposed to be serving -- 960 cells of plant down to 566, and
+34 standing flowers down to 4, against the same bed with no flitter in it. A
+liking for one food is not the same thing as being unable to eat the rest.
 
 **It can see flowers, and it goes to them.** It turns toward the nearest
 bloom it can see, hops harder when there is one in view, and — the one wire
 that keeps it alive — stops hopping while it is standing at one. An animal
 that jumps off its own dinner never eats.
 
-**What it does, and it is worth watching.** It gets high. Its head reaches
-**eighty-odd rows** above the soil where an ant manages a dozen, so where
-ants are a line on the floor a bed of flitters is busy all the way up
-through the canopy. It breeds fast and dies fast: on a grown bed it goes
-tens of generations deep in a session, where the hopper — the older
-jumping animal, which has no eyes and no taste for nectar — barely gets
-past its founders.
+**What it does, and it is worth watching.** It gets high — its head reaches
+tens of rows above the soil where an ant manages a dozen — and it leaves
+the bed alone. Put flitters on a bed and the plants and the flowers come
+through a long session in the same shape as on a bed with no flitter in it,
+or better. Nothing it does costs the plants anything.
 
-**What it does not do yet, and you will see this before you see anything
-else.** It does not really live on flowers. Over a long session a flitter
-drinks at a bloom a handful of times, or not at all, and spends the rest of
-its life eating ordinary leaf like everything else — a flower is a single
-cell, there are a few dozen of them in a whole bed, and finding one by
-flying at it is mostly luck. Released beside the plants on a played bed
-they breed into the hundreds and eat the bed back: the shrub and the tree
-go thin and the flower count falls with them. That is a real outcome rather
-than a bug — a bed of poor plants gets stripped by its own pollinators —
-but it is not yet the animal the name promises.
+**And it dies out. Every time, so far, on every bed we have tried.** It
+does not find enough flowers. Over a whole session a flitter reaches a bloom
+a handful of times where it would need to do so constantly, and in between
+it does what you would do looking for something you cannot smell: it wanders
+sideways along the ground, hops, and lands somewhere else. Watching one for
+two thousand frames with a full flower nine cells away, it never came closer
+than nine, drifted away as often as toward, and spent the last eight hundred
+of those frames stuck in the air over one cell until it starved. A flower is
+a single cell and a whole bed holds a few dozen; seeing one from across the
+room turns out not to be the same as arriving at it.
+
+**So the honest state of it is: the animal works and its food is too hard to
+find.** It flies, it reaches the canopy, it will not touch anything but
+nectar, and it cannot yet make a living. Bigger flowers, more of them, or
+something that leads an animal to one are all the same problem from
+different sides.
 
 **And it carries no pollen.** Visiting a flower feeds the flitter and does
 nothing for the plant. That is the next piece.
+
+**One thing about the air, and it is not only about flitters.** Water is
+exactly as heavy as an animal here, so anything that hops and comes down on
+water does not land -- it hangs there and starves in mid-air. It is most of
+how a flitter dies, and most of how the older hopper dies too.
 
 **One thing to press.** The lab opens with animals wearing their *colony's*
 colour rather than their own, so the flitter's own pale blue-white body

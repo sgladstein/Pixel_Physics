@@ -757,6 +757,14 @@ fn main() {
     let mut handed_out = 0u64;
     let mut first: Option<Sample> = None;
     let mut last = Sample::default();
+    // See `trace=`'s own block in the loop for what these four do. The scan
+    // is over the whole bed once per traced frame, which is why it is off
+    // unless asked for and why `traceevery` defaults to a round number
+    // rather than to 1.
+    let trace_species: Option<String> = arg::<String>("trace");
+    let trace_every: u64 = arg("traceevery").unwrap_or(50).max(1);
+    let trace_from: u64 = arg("tracefrom").unwrap_or(0);
+    let trace_to: u64 = arg("traceto").unwrap_or(u64::MAX);
     // See the census in the loop below for why this is sampled at 10 frames.
     let mut head_max: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut peak_edible = 0usize;
@@ -810,6 +818,78 @@ fn main() {
                     ants_placed -= arrived.animals;
                 } else {
                     println!("  frame {f}: {} animal(s) arrived on the timeline, founder gut_bias {gut}\n", arrived.animals);
+                }
+            }
+        }
+        // **`trace=<species> [traceevery=N] [tracefrom=F] [traceto=T]` --
+        // follow ONE animal and print what it is doing.** Round 28's own
+        // question, and it is not one a counter can answer: the flitter's
+        // `flower_visits` reads 3-20 over 120,000 frames with the eye firing
+        // constantly, and "turns toward the flower and overshoots", "lands
+        // beside it and does not bite", "never gets within a cell of one"
+        // and "sits on a leaf" are four different repairs that produce the
+        // same small number.
+        //
+        // The first living animal of the species by organism id, the same
+        // rule `labgif`'s `follow=` picks its subject by, so a trace and a
+        // card of the same run are of the same animal. One line per
+        // `traceevery` frames: where its head is, how high, whether it is
+        // in the air, where the nearest flower is and whether that flower
+        // is actually paying, whether it is close enough to drink, and the
+        // running visit count. **`visits` is the effect column** -- the
+        // other five say what the animal did and only that one says whether
+        // it fed.
+        if let Some(sp_name) = &trace_species {
+            if f >= trace_from && f <= trace_to && f % trace_every == 0 {
+                if let Some(sid) = world.species.id_of(sp_name) {
+                    let subject = world
+                        .live_organism_ids()
+                        .into_iter()
+                        .find(|id| world.organism(*id).is_some_and(|st| st.species == sid));
+                    if let Some(id) = subject {
+                        if let Some(st) = world.organism(id) {
+                            let (hx, hy) = st.chain.first().copied().unwrap_or((0, 0));
+                            let aloft = st.flight.is_some();
+                            let energy = st.energy;
+                            // Nearest flower cell in the whole bed, by
+                            // Chebyshev -- the same distance the 8-ring the
+                            // mouth uses is a radius of, so "d 1" reads as
+                            // "could drink right now" with no arithmetic.
+                            let mut best: Option<(i32, i32, i32, bool)> = None;
+                            for y in 0..spec.height {
+                                for x in 0..spec.width {
+                                    let c = world.get(x, y);
+                                    if c.organism_id() == 0
+                                        || pixel_physics::sim::organism::cell_type(c.aux())
+                                            != Some(pixel_physics::sim::organism::CellType::Flower)
+                                    {
+                                        continue;
+                                    }
+                                    let d = (x - hx).abs().max((y - hy).abs());
+                                    if best.is_none_or(|(bd, _, _, _)| d < bd) {
+                                        best = Some((d, x, y, pixel_physics::sim::plant::nectar_available(&world, x, y)));
+                                    }
+                                }
+                            }
+                            let visits = world.flower_visits_by_species.get(&sid.0).copied().unwrap_or(0);
+                            match best {
+                                Some((d, fx, fy, wet)) => println!(
+                                    "  trace {sp_name} f{f}: head ({hx},{hy}) {} rows up, {} | nearest flower ({fx},{fy}) d {d} {} | adjacent {} | energy {energy:.0} | visits {visits}",
+                                    spec.ground_y - hy,
+                                    if aloft { "IN THE AIR" } else { "standing" },
+                                    if wet { "PAYING" } else { "dry" },
+                                    if d <= 1 { "YES" } else { "no" }
+                                ),
+                                None => println!(
+                                    "  trace {sp_name} f{f}: head ({hx},{hy}) {} rows up, {} | no flower standing in the bed | energy {energy:.0} | visits {visits}",
+                                    spec.ground_y - hy,
+                                    if aloft { "IN THE AIR" } else { "standing" }
+                                ),
+                            }
+                        }
+                    } else {
+                        println!("  trace {sp_name} f{f}: no living {sp_name} left");
+                    }
                 }
             }
         }
@@ -1004,6 +1084,17 @@ fn main() {
         .map(|(sp, n)| format!("{}:{n}", world.species.get(pixel_physics::sim::organism::SpeciesId(*sp)).name))
         .collect::<Vec<_>>()
         .join(",");
+    // **The effect half, and it points the other way.** A visit is an animal
+    // drinking and the flower surviving; a bite is the flower coming off. The
+    // pair is the design's own §2.2 instrument, and a nectar-only species must
+    // read 0 here while an ordinary one still moves -- which is the positive
+    // control that says this is a fact about the mouth and not a blind row.
+    let fmt_bitten = world
+        .flowers_bitten_by_species
+        .iter()
+        .map(|(sp, n)| format!("{}:{n}", world.species.get(pixel_physics::sim::organism::SpeciesId(*sp)).name))
+        .collect::<Vec<_>>()
+        .join(",");
     // The death-cause histogram, per species -- the cost fork's own
     // deliverable ("report the death-cause histogram and stop") and the only
     // place `starved aloft` can be told from ordinary starvation for ONE of
@@ -1138,7 +1229,7 @@ fn main() {
          windfall_col_stops={total_wf_heat} windfall_dead_zone_stops={wf_dead_zone} windfall_dead_zone_pct={wf_dead_zone_pct:.0} \
          windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} \
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
-         flower_visits_by={} alive_by={} deaths_by={} head_max_rows={}",
+         flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1253,6 +1344,7 @@ fn main() {
         starved_aloft,
         world.creature_stats.flight_frames,
         if fmt_visits.is_empty() { "none".to_string() } else { fmt_visits },
+        if fmt_bitten.is_empty() { "none".to_string() } else { fmt_bitten },
         if fmt_alive.is_empty() { "none".to_string() } else { fmt_alive },
         if fmt_deaths.is_empty() { "none".to_string() } else { fmt_deaths },
         // **Rows above the soil, the highest any animal of that species

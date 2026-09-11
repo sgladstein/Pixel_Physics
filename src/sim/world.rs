@@ -2544,6 +2544,26 @@ pub struct World {
     /// under another lane's hand.
     pub flower_visits_by_species: std::collections::BTreeMap<u16, u64>,
 
+    /// **Flower cells taken off a plant by a mouth, split by which species'
+    /// mouth** — the design's own named counter for the failure it predicted
+    /// before the pollinator was built (`Reports/evolution-lab-pollinator-
+    /// design-2026-09-10.md` §2.2: *"a bed of poor plants gets stripped by
+    /// its own pollinators"*).
+    ///
+    /// **It is the effect half of `flower_visits_by_species` above, and they
+    /// point opposite ways.** A visit is an animal drinking and the flower
+    /// surviving; this is an animal eating the flower. A pollinator whose
+    /// visit count rises while this stays at zero is feeding; one where both
+    /// rise is grazing its own larder, and the two are indistinguishable in
+    /// `eats`.
+    ///
+    /// Written at the same bite site, past the nectar hook and past the
+    /// nectar-only refusal, so **a `CreatureDef::nectar_only` species reads
+    /// exactly 0 here for ever** — that zero is a claim about the mouth, and
+    /// an ordinary animal's row still moving is what says the counter is not
+    /// blind.
+    pub flowers_bitten_by_species: std::collections::BTreeMap<u16, u64>,
+
     /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
     /// `nectar_yield` returns, summed every time one is non-zero. The
     /// effect half of `flower_visits`' pair, and the plant's own side of
@@ -3931,6 +3951,7 @@ impl World {
             windfall_bitten: 0,
             flower_visits: 0,
             flower_visits_by_species: std::collections::BTreeMap::new(),
+            flowers_bitten_by_species: std::collections::BTreeMap::new(),
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
             seeds_carried: 0,
