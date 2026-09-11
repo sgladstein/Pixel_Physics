@@ -76,13 +76,13 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Soil nutrient status — ground is worth something water is not](#soil-nutrient-status--ground-is-worth-something-water-is-not) | 7188 |
 | [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 7231 |
 | [Chronicle status — the box tells you who did what, at any population](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) | 7388 |
-| [Event reaction status — the box calls you back](#event-reaction-status--the-box-calls-you-back) | 7446 |
-| [Life marks status — a pause-time mark, and what the owner rejected](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) | 7482 |
-| [Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) | 7517 |
-| [Hopper status — the jump has a species, and it hops itself to death](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) | 7597 |
-| [Creature tools status — a hand in the box: scent, alarm, fling, lamp](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) | 7628 |
-| [Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) | 7685 |
-| [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 7743 |
+| [Event reaction status — the box calls you back](#event-reaction-status--the-box-calls-you-back) | 7456 |
+| [Life marks status — a pause-time mark, and what the owner rejected](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) | 7492 |
+| [Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) | 7527 |
+| [Hopper status — the jump has a species, and it hops itself to death](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) | 7607 |
+| [Creature tools status — a hand in the box: scent, alarm, fling, lamp](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) | 7638 |
+| [Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) | 7695 |
+| [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 7753 |
 
 ### Milestones, in numeric order
 
@@ -128,7 +128,7 @@ about what you may read.
 | Topic | Game | Sections, primary first |
 |---|---|---|
 | **plants, trees and moss** | engine | [M16 status](#m16-status) 1787, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7188, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1307, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4272, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4375, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1429, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1719, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1377, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1637, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4555, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4792, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4869, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6330, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5189, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5237, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5468, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6222 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2200, [The ant colony](#the-ant-colony--status) 3480, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6330, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5237, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5468, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6392, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6222, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7231, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7517, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7597, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 7685, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 7743 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2200, [The ant colony](#the-ant-colony--status) 3480, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6330, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5237, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5468, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6392, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6222, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7231, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7527, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7607, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 7695, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 7753 |
 | **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 1973, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4555, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4792, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4869, [M8 status](#m8-status--started-not-complete) 2740 |
 | **fire, heat and phase change** | engine | [M14 status](#m14-status) 894, [Materials](#materials) 273 |
 | **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1071, [M7 status](#m7-status) 1042 |
@@ -152,8 +152,8 @@ about what you may read.
 | **which founding line is winning** | lab | [Lineage overlay status](#lineage-overlay-status--which-founding-line-is-taking-the-bed) 5720 |
 | **who is who in the box, colonies and the rivalry rule** | lab | [Creature groups status](#creature-groups-status--who-is-who-in-the-box-and-who-is-family) 5800 |
 | **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6392 |
-| **the chronicle: names, line events, and a clock that reacts** | lab | [Chronicle status](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) 7388, [Event reaction status](#event-reaction-status--the-box-calls-you-back) 7446, [Life marks status](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) 7482 |
-| **a hand in the box: scent, alarm, fling, lamp** | lab | [Creature tools status](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) 7628 |
+| **the chronicle: names, line events, and a clock that reacts** | lab | [Chronicle status](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) 7388, [Event reaction status](#event-reaction-status--the-box-calls-you-back) 7456, [Life marks status](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) 7492 |
+| **a hand in the box: scent, alarm, fling, lamp** | lab | [Creature tools status](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) 7638 |
 | **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 6945 |
 | **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 6480 |
 | **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7102 |
@@ -7442,6 +7442,16 @@ formatter that always writes passes); a width guard that fails the moment a
 sentence passes 42 characters, which is the widest the LOG page can be and
 still leave room for the CELL page beside it; and the stem table inside the
 existing drawable-glyph guard.
+
+**The chronicle now leaves the box, and the graveyard the owner rated a 5
+does not exist.** `Lab::write_chronicle` exports the same sentences, through
+the identical `format_log_line`, to a text file on every `REBUILD` and on
+quit: a header naming the bed and seed, the LINES view oldest first, then a
+LEGENDS section — one paragraph per founding line that has ended, with its
+generations, peak population and cause. The new HISTORY page (`F5`, or the
+LOG page's own row) reads the same `ended_lines` the export does, so a line
+that ends is on screen and in the file from the same tick — never a second
+census, and never a list of the dead.
 
 ## Event reaction status — the box calls you back
 

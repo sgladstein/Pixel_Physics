@@ -6,8 +6,8 @@ grow lights where the shipped plants and ants live. Design of record:
 with [`../evolution-lab-feasibility-2026-08-30.md`](../evolution-lab-feasibility-2026-08-30.md)
 under it.*
 
-**Read this before picking the lab up.** Twenty-five rounds have been run here
-since 2026-08-30. One to twenty-four are history and moved (2026-09-08, 2026-09-09) to
+**Read this before picking the lab up.** Twenty-six rounds have been run here
+since 2026-08-30. One to twenty-five are history and moved (2026-09-08, 2026-09-09, 2026-09-10) to
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md) —
 verbatim, with a priced contents table and a per-round map of which round belongs
 to which of the three concurrent lines. What stays here is what still binds.
@@ -80,16 +80,15 @@ behaviour-free. `step_organisms`' three pure levers were priced at under 1%
 between them and are closed. **Rebuild the baseline binary after every merge** —
 a hash gate is worthless against a stale one.
 
-## Round twenty-five, 2026-09-09 — the instrument turned toward the player, and two standing claims overturned
+## Round twenty-five, 2026-09-09 — the instrument turned toward the player
 
-*The design of record from here is
-[`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md);
-this round is its pointer. Five lanes landed with it: line names and a
-chronicle bounded per lineage, the clock reacting to line events, a hand in
-the box (`I` scent, `J` alarm, `Q` fling, `U` lamp), the hunger sense wired
-at last with the dig drive gated on a crowded nest, the jump given a species,
-trophallaxis as a brain output with staggered founder reserves, and
-`chronicle`, the run log as text.*
+*Verbatim in [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md)
+(moved 2026-09-10); its design of record is
+[`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md).
+What still binds from it is the rulings paragraph below; the two claims it
+overturned (the frame-0 bed is the harness talking; the trail circuit is
+wired and inert, §Z7) are in the archive, and its open list has been worked
+by round twenty-six.*
 
 **Owner's rulings, all the same day, all binding here:** trophallaxis is a
 brain output the genome can evolve, shipped on, never a rule; **rest is the
@@ -104,35 +103,74 @@ feature; staggered founder reserves are approved; the marker overlay was
 rejected on sight; and **movement, not stills, is how animals are seen** —
 a visibility claim is judged on a moving sequence, never a contact sheet.
 
-**Two claims this note carried are overturned by measurement.** *"Every
-shipped bed starves its ant colony"* was the frame-0 harness bed: founded
-at frame 6,000 on grown plants (`labshot`/`labforage ants_at=`), the same
-colony holds 31 through 30,000 frames where the frame-0 bed holds 4 — take
-every earlier §Z6 figure as the frame-0 bed, on eight herbs. And round
-twenty-four's *"the trail circuit is live end to end"* is true and the
-circuit is inert: the laden gate parks its unit at 30 on the squash curve,
-where the `±6` trail term moves the chance of a step by about ±0.003 — a
-laid trail moved a colony's near-target count by exactly zero, twice
-(§Z7). The cold-start hypothesis sits upstream of a reader that cannot
-read.
+## Round twenty-six, 2026-09-10 — the box gets its first relationship
 
-**Open, in order:** the trail-gate race (§Z7 carries the bar); the hunger
-and sharing wires on the *played* bed at six seeds or more with the
-composed Move row (`KinNeed` now exists) — on three seeds at 6,000 frames
-the sharing arm ended with half the survivors of the arm without, inside
-an eight-fold seed spread, and sharing undoes the stagger it shares down;
-the hopper's jump rate (a bias of 2.0 is a hop on two ticks in three, and
-it kills the animal in a session); then appearance and the eusociality
-measurement.
+*Coordinator `session_01NGdywxc1ACg3L5scK7xBTc`. The full record, with every
+number, is [`../evolution-lab-round-26-2026-09-10.md`](../evolution-lab-round-26-2026-09-10.md);
+the ecology design of record is
+[`../evolution-lab-ecology-design-2026-09-10.md`](../evolution-lab-ecology-design-2026-09-10.md).
+This is the pointer and what still binds.*
 
-**Environment, learned this round:** a sub-agent that "waits for a build
-notification" has ended its turn and will wait for ever — a message
-resumes it with its context intact; and six worktrees' `target/` filled
-the disk — delete a merged lane's `target/` the moment it lands.
+**The direction.** Phase one made the box legible; it still had no
+*relationship* — one organism eating another was the entire ecology. Close
+the loop fruit → animal → nest → seedling and the colony becomes the plants'
+distribution network and the plants the colony's renewable larder: **the
+colony that gardens survives.** Graded by construction, visible at play
+zoom, and the patchy larder §Z7's recruitment finding said no bed had.
+
+**Landed on `main` (#296, #297, #295, #298, #300, #301, #302, #304), in one
+line each:** the ecology design (fruit is budget-limited, not
+pollinator-limited; nothing has ever eaten a flower; `labshot` ignored
+`seed=` in scenario mode); the fruit loop censused (2 of 3,089 germinations
+from windfall; windfall arrived ownerless); the breeder index and the
+recycled-slot fix (the breeding rule was blind to every animal in a reused
+slot); rain, OFF by measurement, on key `8`; the severed fruit keeps its seed
+(§Z8); the pip (a bitten fruit leaves its seed at 0.6 — and an ant bites a
+fallen fruit about twice in 360,000 frames on the played bed); the thicket
+bed (fruit on the floor 9.6x, bites 5 → 32 across the sweep, no pip yet a
+plant); the chronicle exported and a HISTORY page on F5.
+
+**Not landed, ruled on next:** the articulated bodies (PR #303, CI red).
+The tuck rule walks (ant 43.9% / 96.8% → 1.9% / 22.1% blocked) and
+founding is now the spine-only rule, and three costs of the body remain
+that are design decisions, not defects — **a 5-segment ant seats 12 of 52
+on the played bed where a 2-cell ant seats 39**; one long body opens the
+plate the swarm test needs closed (the whole-body bite scan); a width-2
+colony cannot dig a roofed chamber and starves. The owner picks: re-derive
+founding, bite and dig for long bodies as a programme, or ship the design
+and keep the two-cell ant. Report §10–§12 on the branch carry the numbers.
+
+**What binds from this round.** The breeding trade is **graded**, ruled in
+chat and recorded in commit `e5792206`; **a question that needs no visual is
+asked in chat, not the queue** — the owner's standing instruction. Ship
+graded as the default only after `GRADED_MAX_SUPPRESSION` (a provisional
+6.0) is swept; the breeder lookup now scales. The ecology's next lever is
+the owner's to pick with the numbers in hand: fruit residence (expose the
+windfall's rot half-life on the parameters page) or fruit production (B2,
+pollination as a ripening-price discount) — not A2 (the seed rides home),
+which builds on an event that happens twice a session. A fourth
+windfall-ownership path (19 ownerless on one scrambler seed) is open and
+unowned. Open cards: pollen as gene flow (`…6dfed9`, the design recommends
+the player's BRUSH first), the dispersal form (`…cba50c`), the thicket in
+the default bed (`…c8709b`), the rain rate (`…f2fb5b`), the HISTORY page
+(`…c0b68b`), the moving bodies (`…0180fc`), and from round twenty-five the
+tree, the marks and *is the box empty*.
+
+**Offered and not started:** BRUSH (pollinate by hand); sound (needs a
+ruling on the dependency); a nectar-feeding hopper up the stems; palatability
+co-evolution in colour; the bed as a record; wild collection.
+
+**Environment, learned this round:** a poke's fire response names where it
+landed (`cse_<lane id>`); a trigger's prompt cannot be edited once bound, so
+each message is a new trigger, deleted after it fires; **a sub-agent that
+ends its turn to wait for a build never resumes** — one hung two hours with
+861 lines uncommitted and was salvaged by committing its worktree and
+killing it; the container suspends while the coordinator idles, so keep a
+check-in armed.
 
 ## The earlier rounds
 
-All twenty-four are verbatim in
+All twenty-five are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
 which prices each one and maps it to its owning report. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
@@ -140,9 +178,9 @@ knowing which is yours is most of the saving:
 
 | line | rounds | design of record |
 |---|---|---|
-| the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21 | `evolution-lab-gui-physics-2026-08-30.md` |
+| the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21, 25 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
-| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23, 24 | `creature-signature-and-castes-2026-09-06.md` |
+| creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23, 24, 25 | `creature-signature-and-castes-2026-09-06.md` |
 
 ## Environment notes that cost time here
 

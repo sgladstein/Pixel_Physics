@@ -1835,3 +1835,132 @@ the open face rather than tunnelling into it, which is §12's crater and not
 this movement rule's to fix. `filmstrip scene=colony` founds **5 of 52**
 asked (28 viable), matching §13f exactly -- a placement-time footprint check
 this movement rule never reaches, unaffected by any of the above.
+
+### 13h. Founding along the surface (2026-09-10, lane G, branch `claude/creature-founding-r27`)
+
+**Built as proposed.** `founding_spine_walk` replaces the straight-line spine
+with a per-segment walk behind the previous cell, tried in this order: the
+flat cell if it has a foothold (`head_has_foothold`, the same ground-contact
+test a step's own footing check uses -- "along the surface"); the up-diagonal
+then the down-diagonal, each also requiring a foothold ("the diagonals" --
+climbing a rise or curling down a ledge); and finally the flat cell again with
+no foothold requirement at all, the original rule kept as the last resort so
+a segment over open ground is never refused *more* often than before. The
+walk **is** the viability check now -- a site is refused the moment any
+segment finds nothing placeable in any tier, in place of the old "all `n`
+cells empty in a row" scan. Laterals are unchanged: still `lateral_for`, over
+whatever spine the walk lays, exactly as the movement rule computes one for a
+live step.
+
+**Verified byte-identical to the old straight line wherever the old line was
+ever asked to work at all** -- tier 1 requires the flat cell to have a
+foothold, which on any bed the old rule already founded on (flat ground under
+every segment) it always does, so the walk never reaches tiers 2 or 3 there.
+Direct comparison on `a_swarm_gets_through_what_one_mouth_cannot`'s own scene
+(a 100-column stone floor) gave the identical chain under both the pre-fix
+inline straight line and `founding_spine_walk`: `[(96,119), (95,119),
+(95,118), (94,119), (94,118), (93,119), (92,119)]`, groups `[1,2,2,1,1]`.
+That test's own failure (median frame 60 alone against 79 for eight, over 8
+seeds) reproduces identically on the unmodified base branch and is unrelated
+to this change -- confirmed by running it alone against both binaries before
+touching anything.
+
+**The measured counts, one binary each arm, `RAYON_NUM_THREADS=4`.** Three
+bodies on two scenes: the articulated ant with the contour lay (this build),
+the same species with the straight lay (this build's Segmented arm reverted
+to the old formula, nothing else), and `ancestor` -- the shipped `Chain(2)`
+body (`assets/species/ancestor.ron`), which never reaches
+`founding_spine_walk` at all and is therefore the control for "how many sites
+exist for *any* body" on this same terrain, independent of this build.
+
+`labshot scenario=played_bed frames=6100,30000` (the bed merged from
+`origin/main`, with its thicket and tree; `colony_species=` swaps who the
+timeline's `Colony` event founds, added to `labshot`/`filmstrip` this build):
+
+| seed | straight lay (before) | contour lay (after) | `ancestor` (two-cell) |
+|---|---|---|---|
+| 1, frame 6,100 | 11 | **13** | 29 |
+| 2, frame 6,100 | 13 | **15** | 26 |
+| 3, frame 6,100 | 13 | **14** | 19 |
+| 1, frame 30,000 | 23 | 12 | 41 |
+| 2, frame 30,000 | 31 | 28 | 60 |
+| 3, frame 30,000 | 37 | 39 | 32 |
+
+(Frame 30,000 moves with births and deaths on top of the founding count, not
+with founding alone -- read the 6,100 row for what this build changed. Seed
+1's 30,000 figure for the contour arm reads lower than its own 6,100 figure,
+which is deaths outpacing births on that one seed rather than anything about
+founding; included for completeness and not leaned on.)
+
+`filmstrip scene=colony` (generated wetland, seed 1, `origin/main`'s wetland
+preset, matching §10's own scene exactly):
+
+| arm | founded of 28 viable sites (of 52 asked) |
+|---|---|
+| straight lay (before) | 5 -- matches §10's own recorded number exactly |
+| contour lay (after) | **9** |
+| `ancestor` (two-cell) | 18 |
+
+**The contour lay is a real, repeatable, attributable gain -- nearly doubling
+the bare-terrain count (5 -> 9) and adding 1-2 seats on every played-bed seed
+(11/13/13 -> 13/15/14) -- and it does not reach the two-cell ant's count on
+either scene.** The bar this task set was "within a few of the two-cell
+ant"; on `played_bed` the gap closes from 15-16 down to 5-16 depending on
+seed, and on the bare colony scene it closes from 13 (of 28) down to 9 --
+better, and still short.
+
+**What still refuses a site, so far as the numbers say without a per-cell
+classifier: mostly not body length.** The `ancestor` control is the tell --
+a genuinely two-cell body, spine-only, laid exactly the way it always was,
+still only seats 18 of 28 "viable" columns on the bare scene and 19-29 of 52
+asked on the played bed. `colony_ant_site`'s own "viable" count is a
+single-column probe (is there a floor cell and one empty cell above it) that
+neither body actually has to honour once `colony_stations`' spacing --
+derived from `body_span`, which widens for a longer authored footprint -- has
+moved the candidate columns to match a wider corridor. So part of the
+remaining gap between `ancestor` (18-29) and the contour ant (9-15) is
+consistent with §10's own reading: the played bed's grown vegetation, its
+seed litter, and a spacing corridor sized for a longer body **are already
+present in the `ancestor` arm's own shortfall against 28/52**, and are not
+this task's defect to close. The narrower gap this build owns is between the
+straight lay and the contour lay at the *same* spacing and the *same* bed --
+5->9 and 11-13->13-15 -- which is the whole of what `founding_spine_walk`
+can move, and it moved it in the right direction on every seed measured, on
+both scenes, never fewer.
+
+**No placement observed to overlap bodies or interpenetrate.** The
+`founding_laterals_match_lateral_for` guard (below) and the x-monotonic
+construction of `founding_spine_walk` (every candidate a tier considers
+shares `prev.x + back.x`, so no two spine cells can ever land on the same
+cell) rule this out by construction rather than by sampling; the review card
+below is the eyes-on check `CLAUDE.md` asks for on top of that.
+
+**Four tests, watched red first** (`src/sim/creature.rs`, beside
+`a_founding_site_with_a_blocked_lateral_still_founds_tucked`):
+`a_two_segment_founder_walks_exactly_as_the_old_straight_lay_did` (direct
+equality against the old formula on flat ground);
+`a_five_segment_body_founds_curled_over_a_step` (a two-cell-wide flat under
+the head then a one-row drop; asserts the walk descends onto the lower level
+rather than hanging over the drop in a straight line -- watched red against a
+build with tiers 1/2 disabled: it fails exactly there, spine
+`[(50,119)..(46,119)]`, flat all the way over the step, while the other three
+new tests stay green under the same disabled build, since they test
+reduction and refusal rather than the curl itself);
+`a_single_free_cell_refuses_a_multi_segment_founder` (a site with one open
+cell refuses a five-segment body); `founding_laterals_match_lateral_for`
+(reconstructs the spine from a founded ant's own `(chain, segment_groups)`
+and asserts each widened segment's lateral equals `lateral_for` recomputed
+against the *pre-spawn* world -- caught by watching its own first draft red:
+recomputing against the post-spawn world sees the organism's own
+already-placed lateral cell as occupied and reports a tuck that never
+happened).
+
+`cargo test --lib -- sim::creature::`: **170 passed, 1 failed (pre-existing,
+unrelated -- see above), 10 ignored**. `cargo clippy --all-targets --release
+--locked -- -D warnings`: clean.
+
+**Review card**: `20260910T225153157Z-7f9bac` (board `lab`) -- the played
+bed's nest band at frame 6,100, seed 1, 13 ants founded of 52, asking whether
+the founded bodies lie flat and separate on the soil. Posted, not yet
+answered as of this writing; `python3 scripts/review.py inbox` picks up the
+verdict.

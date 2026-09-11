@@ -15,7 +15,22 @@
 //! cargo run --release --example soil_drawdown -- founders=0   # the control: nothing alive
 //! cargo run --release --example soil_drawdown -- frames=24000 every=4000
 //! cargo run --release --example soil_drawdown -- png=after zoom=2   # the owner's own overlay
+//! cargo run --release --example soil_drawdown -- scenario=played_bed rain=1   # the mister at LIGHT
 //! ```
+//!
+//! # `rain=<0-3>`, added for the rain lane's own default measurement
+//!
+//! Overrides `spec.rain` (`Rain::from_index`, the same 0/1/2/3 ->
+//! Off/Light/Steady/Heavy table every other route onto this field uses)
+//! after the box is built -- scenario or manual -- so this harness can
+//! measure a rate the scenario file itself does not carry, without editing
+//! that file: `played_bed.ron` ships `rain` unset (`#[serde(default)]`,
+//! `Rain::default()` -- this lane's own re-measurement, below, is what
+//! moved that default from `Off` to `Light`), and `rain=` on the command
+//! line is how a sweep across rates re-uses the one scenario file rather
+//! than needing one per rate. Applied to `lab.spec` (what `Lab::tick`
+//! actually reads every frame, per `rain.rs`'s own header) rather than only
+//! the local `spec` copy this file takes census measurements through.
 //!
 //! `png=` writes the bed through the shipped renderer with
 //! `OrganismOverlay::SoilMoisture` switched on -- **the same picture the
@@ -46,6 +61,7 @@
 //! something: if the bed drifts with nothing alive in it, the plant is not
 //! the cause and the rest of the run is measuring the wrong thing.
 
+use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
@@ -120,6 +136,11 @@ fn main() {
     let seed: u64 = arg("seed").unwrap_or(1);
     let png: Option<String> = arg("png");
     let fine: bool = arg::<u32>("fine").unwrap_or(0) > 0;
+    // **`rain=<0-3>` overrides the mister after the box is built.** See this
+    // file's header for why: it lets one scenario file (`played_bed.ron`,
+    // which ships `rain` unset) be measured at every rate without editing
+    // the scenario.
+    let rain_idx: Option<u8> = arg("rain");
     // **`species=` because the answer is not the same for every plant.** This
     // was built against the bed's default and the drying question has since
     // become a `grass` question: grass now carries the floor at hundreds of
@@ -149,10 +170,11 @@ fn main() {
             sc.bed.seed = seed;
             let mut lab = Lab::new(sc.bed.clone());
             let msg = lab.load_scenario(sc);
-            println!("soil_drawdown: scenario={} seed={seed} frames={frames} every={every} png={} fine={fine} \
+            println!("soil_drawdown: scenario={} seed={seed} frames={frames} every={every} png={} fine={fine} rain={} \
                        (field capacity {}, wilting point {}, saturated {})",
                 name.as_str(),
                 png.as_deref().unwrap_or("-"),
+                rain_idx.map_or_else(|| "-".to_string(), |v| Rain::from_index(v).label().to_string()),
                 material::SOIL_FIELD_CAPACITY,
                 material::SOIL_WILTING_POINT,
                 material::SOIL_SATURATED
@@ -169,9 +191,10 @@ fn main() {
             // 3 populations.
             println!(
                 "soil_drawdown: species={species} founders={founders} soil={} frames={frames} every={every} seed={seed} \
-                 png={} fine={fine} (field capacity {}, wilting point {}, saturated {})",
+                 png={} fine={fine} rain={} (field capacity {}, wilting point {}, saturated {})",
                 spec.soil_depth,
                 png.as_deref().unwrap_or("-"),
+                rain_idx.map_or_else(|| "-".to_string(), |v| Rain::from_index(v).label().to_string()),
                 material::SOIL_FIELD_CAPACITY,
                 material::SOIL_WILTING_POINT,
                 material::SOIL_SATURATED
@@ -180,6 +203,9 @@ fn main() {
             (lab, spec)
         }
     };
+    if let Some(idx) = rain_idx {
+        lab.spec.rain = Rain::from_index(idx);
+    }
     let start_bank = lab.world.atmospheric_bank;
     let start_total = {
         let w = &lab.world;
@@ -294,6 +320,26 @@ fn main() {
                 "           plant cells {plant_cells} (below ground {roots}), organisms {}",
                 w.live_organism_ids().len(),
             );
+            // **Standing water above the soil line -- pooling on the bed,
+            // which is the failure the owner would actually see and which
+            // `labshot` prints nothing for.** Every cell strictly above
+            // `ground_y` still carrying the `water` material: rain in
+            // transit counts here for one tick same as a puddle sitting on
+            // bare soil or on a leaf, but a rate that is *holding* (rather
+            // than pooling) reads near-zero here at every stop, because a
+            // falling drop lands and infiltrates within a handful of ticks.
+            // A number that climbs stop over stop, rather than sitting flat,
+            // is the accumulation the owner would see on screen.
+            let surface_water: u64 = w
+                .materials
+                .id_of("water")
+                .map(|water_id| {
+                    (0..spec.ground_y)
+                        .map(|y| (0..spec.width).filter(|&x| w.get(x, y).material == water_id).count() as u64)
+                        .sum()
+                })
+                .unwrap_or(0);
+            println!("           standing water above the soil line: {surface_water} cells");
             println!(
                 "           driest surface column {} at x={} (founder at {:?});                  columns under the wilting point {}, under half capacity {}",
                 worst.0,

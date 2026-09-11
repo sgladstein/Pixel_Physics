@@ -1278,18 +1278,24 @@ fn place_creature(
     // scene=colony` founded 4 of 52 asked. `lateral_for` is the exact
     // function the movement rule calls for a live step; reused here rather
     // than re-derived, so the two placeability rules cannot drift apart.
+    //
+    // **The spine itself no longer assumes flat ground either** (§13f/§13h).
+    // It used to be a straight line trailing the head along the facing --
+    // the exact formula `BodyPlan::offsets` still uses for a fresh
+    // `Segmented` body's shape before it has ever taken a step -- which is a
+    // shape a walking body only has on flat ground: demanding `n` empty
+    // cells in a row at one height refused sites a two-cell body stands on
+    // fine, which is why a colony seated 12 of 52 on the played bed where a
+    // bare, width-free spine hit the identical ceiling (§13f's own control,
+    // §10) -- not body width doing the refusing. `founding_spine_walk`
+    // replaces the straight line with a walk that curls the spine to the
+    // ground the way a body lying down actually would, and **is now the
+    // viability check itself**: there is no separate `.any(|c| !is_empty)`
+    // scan after it, because the walk already returns `None` the moment any
+    // segment has nowhere placeable to go.
     let (positions, segment_groups, cell_types): (Vec<(i32, i32)>, Vec<u8>, Vec<CellType>) = if let BodyPlan::Segmented(segments) = body {
-        // The body's shape at the moment it is placed is a straight line
-        // trailing the head along the facing -- the exact formula
-        // `BodyPlan::offsets` uses for a `Segmented` body's spine before it
-        // has taken a step to bend around anything.
-        let spines: Vec<(i32, i32)> = (0..segments.len() as i32).map(|i| (x + if facing_west { i } else { -i }, y)).collect();
-        // **Unconditional**, exactly as `segmented_body_after_step`'s own
-        // spine landing: if the spine itself does not fit, there is no site
-        // here regardless of what either lateral could do.
-        if spines.iter().any(|&(px, py)| !world.is_empty(px, py)) {
-            return None;
-        }
+        let back = if facing_west { (1, 0) } else { (-1, 0) };
+        let spines = founding_spine_walk(world, (x, y), segments.len(), back)?;
         let mut placed: Vec<(i32, i32)> = Vec::with_capacity(body.len());
         let mut groups: Vec<u8> = Vec::with_capacity(segments.len());
         let mut types: Vec<CellType> = Vec::with_capacity(body.len());
@@ -4007,6 +4013,28 @@ pub fn diet_quality(world: &World, material: material::MaterialId, gut_bias: f32
 /// instruments land — a threshold set from an argument is exactly the shape
 /// this project has been bitten by, and it is recorded as such here rather
 /// than presented as measured.
+///
+/// **Checked again, not re-derived, against `nectar_yield`'s 120 J — the
+/// first sub-100-J-credit-adjacent figure in the box, and the one this
+/// threshold's own comment above asked to be checked against the next time
+/// something new landed here.** Unlike every earlier addition to this
+/// table, nectar's credit genuinely is run through `diet_quality` at the
+/// bite site (`plant::nectar_offer`'s own doc explains why it has to be —
+/// two different currencies meet there and this filter is what converts
+/// one into the other), so this is the real number an animal receives, not
+/// a forward check on one that is not yet filtered:
+///
+/// ```text
+/// gut     nectar credit = 120 * diet_quality   reads as
+/// 0.0     120 * (1 - 1/2)^2       = 30 > 12    clearly visible
+/// -1.0    120 * (1 - 0/2)^2       = 120 > 12   clearly visible
+/// +1.0    120 * (1 - 2/2)^2       = 0 < 12     invisible, as any plant food is
+/// ```
+///
+/// 2.5x headroom at the shipped neutral gut, the same margin `pip.ron`
+/// reasons about for its own 40 J against the same bar. If `nectar_yield`
+/// is ever authored below ~48 J on some species this arithmetic is the
+/// first place to recheck.
 pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
 
 /// **Trophallaxis's one constant, and it is doing three jobs at once** —
@@ -4370,19 +4398,29 @@ fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
 ///
 /// **Best, not first, and the difference is Gate 0.** This used to
 /// short-circuit on the first neighbour over the threshold, in `NEIGHBOURS_8`
-/// order — so an animal standing on a stem between a leaf and a flower ate
+/// order — so an animal standing on a stem between a leaf and a fruit ate
 /// whichever the array happened to reach first. That is not a preference, it
 /// is an artifact of a loop, and it is expensive here in a way it would not
 /// be in most engines: what decides whether an ant can ever afford a child is
 /// `hunger_fraction * start_energy + one mouthful` against the birth bar, so
 /// **which** mouthful is the whole of the arithmetic. A leaf pays 480 and a
-/// flower pays 1,440; taking the leaf because it sorts earlier costs the
-/// animal two thirds of the best meal it will ever be offered.
+/// fruit pays 960; taking the leaf because it sorts earlier costs the animal
+/// half the best whole-cell meal it will ever be offered.
 ///
-/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`: the largest
-/// mouthful any ant swallowed over 24,000 frames was **480** — a leaf —
-/// while flowers and fruit stood in the bed throughout and ants climbed 28
-/// rows up the stems. First-match is why.
+/// **The example used to be a flower (1,440), and it was rewritten rather
+/// than corrected in place** (`Reports/evolution-lab-pollinator-design-
+/// 2026-09-10.md` §3.1-§3.2): a flower is no longer only a destroyed
+/// 1,440 J mouthful, `plant::nectar_offer` lets an animal reach a flower
+/// whose own nectar pool is full and take a small credited sip while it
+/// stays standing, so "which cell scores highest" is no longer the whole
+/// story for a flower the way it still is for a fruit or a leaf. The rule
+/// this doc describes — score every neighbour, take the best — is
+/// untouched; only the number that used to illustrate it moved.
+///
+/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`, before nectar
+/// existed: the largest mouthful any ant swallowed over 24,000 frames was
+/// **480** — a leaf — while flowers and fruit stood in the bed throughout
+/// and ants climbed 28 rows up the stems. First-match is why.
 ///
 /// It costs eight `World::get` and eight `diet_yield` per creature tick
 /// instead of a short-circuit. `diet_yield` is a multiply and an absolute
@@ -5462,6 +5500,38 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **A flower an animal can afford to feed at pays nectar and
+                // stays standing** -- the box's first renewable food, and the
+                // mechanism the pollinator design needs before an animal can
+                // carry pollen at all (`Reports/evolution-lab-pollinator-
+                // design-2026-09-10.md` §3.1-§3.2, Brief B1', owner's ruling
+                // 2026-09-10). Tried before anything below reads or clears
+                // the cell, exactly where `seed_survives_bite` sits: `0.0`
+                // for anything that is not a flower, or a flower whose pool
+                // is not full, or whose plant cannot cover the charge, and
+                // the caller falls through to today's behaviour -- a dry
+                // flower is bitten off whole, same as before this hook
+                // existed (deliberate, `plant::nectar_offer`'s own doc).
+                //
+                // **Two currencies, filtered at the one place they meet.**
+                // `nectar_offer` pays the plant's side in budget units and
+                // hands back `nectar_yield` in joules; this gut has never
+                // seen either number, so the credit is priced through
+                // `diet_quality` exactly like every other mouthful -- unlike
+                // `worth`/`gain` below, there is no crop in between to hold
+                // the face value, so this is the whole of the credit in one
+                // step, booked to `harvested_plant` the same way the brood
+                // path (`try_bud`'s own shortfall loop, `:1384`) already
+                // books a bite taken to cover a birth.
+                let nectar_yield = plant::nectar_offer(world, fxx, fyy);
+                if nectar_yield > 0.0 {
+                    let credit = nectar_yield * diet_quality(world, bite.material, gut.bias);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.energy += credit;
+                    }
+                    world.energy_ledger.harvested_plant += credit as f64;
+                    return did;
+                }
                 // **Two numbers, and conflating them is a bug in both
                 // directions.** `worth` is what the mouthful is worth to
                 // anybody -- it is what goes back into the world if this
@@ -8326,6 +8396,92 @@ fn segmented_body_after_step(world: &World, body: BodyShape, head: (i32, i32), p
 /// laterals can never be asked to share a cell. `spines` is the *whole* new
 /// spine, not just the cells placed so far, because a lateral must not land
 /// on a spine cell that belongs to a segment later in walk order either.
+/// **The founding walk (`Reports/creature-articulated-body-2026-09-09.md`
+/// §13f/§13h): lay the spine cell by cell, following the ground the way a
+/// walking body would lie, instead of demanding `n` empty cells in a row at
+/// one height.** §13f's own case for it: a straight line is a shape a
+/// walking body only has on flat ground, so on any real terrain the founder
+/// was being asked to fit somewhere it would never stand anyway -- and §10's
+/// own control proved this was never a width problem: a bare, width-free
+/// spine hit the identical 12-of-52 ceiling the widened body did on the
+/// played bed.
+///
+/// Each segment after the head is placed adjacent to the one before it,
+/// preferred in this order:
+///
+/// 1. **Along the surface** -- the flat cell directly behind, if it has a
+///    foothold (`head_has_foothold`, the same ground-contact test a step
+///    asks of the head, `kin: None` -- founding does not reason about
+///    climbing over kin). The common case, and where the walk reduces to
+///    the old rule: on flat ground this is every segment's first and only
+///    try.
+/// 2. **The diagonals** -- behind-and-up, then behind-and-down, each also
+///    requiring a foothold: the body climbing over a rise or curling down
+///    over a ledge, following whichever way the ground actually goes
+///    instead of assuming flat. Up before down is an arbitrary but fixed
+///    preference, the same shape as `lateral_for`'s own "up first, then
+///    left" -- chosen so the same terrain always lays the same way
+///    (`CLAUDE.md`'s tie-order rule), not because either slope direction is
+///    more likely.
+/// 3. **Straight back** -- the flat cell behind again, this time with no
+///    foothold requirement at all. The original rule, kept as the last
+///    resort so a segment hanging over open ground (a gap contour cannot
+///    find purchase on) is refused no more often than it was before this
+///    existed, never more.
+///
+/// Returns `None` the moment any segment finds nothing placeable in any
+/// tier: the walk **is** the viability check now, in place of the old "all
+/// `n` cells empty in a row" scan it replaces -- a site is viable exactly
+/// when the head is placeable and the walk can lay every remaining segment.
+///
+/// `back` is `(1, 0)` or `(-1, 0)`, the same step direction the old
+/// straight-line formula used (`x + if facing_west { i } else { -i }`), so a
+/// two-segment body's one step is the identical candidate the old code
+/// computed whenever tier 1 hits -- which is the only ground the old rule
+/// ever founded a two-segment body on anyway, since it demanded the whole
+/// spine be flat. `a_two_segment_founder_walks_exactly_as_the_old_straight_
+/// lay_did` pins the equality on such ground, watched red against the
+/// straight-line predecessor.
+///
+/// Every candidate this walk ever considers shares `prev.0 + back.0` for its
+/// x -- tier 1 and tier 3 by construction, tier 2 by only ever moving in y --
+/// so the spine's x is strictly monotonic along its whole length and no two
+/// spine cells can ever land on the same cell. Laterals are derived
+/// afterwards, from the finished spine, exactly as before.
+fn founding_spine_walk(world: &World, head: (i32, i32), n: usize, back: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+    let mut spine = Vec::with_capacity(n);
+    if n == 0 {
+        return Some(spine);
+    }
+    if !world.is_empty(head.0, head.1) {
+        return None;
+    }
+    spine.push(head);
+    let mut prev = head;
+    for _ in 1..n {
+        let flat = (prev.0 + back.0, prev.1 + back.1);
+        let grounded = |cell: (i32, i32)| world.is_empty(cell.0, cell.1) && head_has_foothold(world, cell, None);
+        let next = if grounded(flat) {
+            flat
+        } else {
+            let up = (flat.0, flat.1 - 1);
+            let down = (flat.0, flat.1 + 1);
+            if grounded(up) {
+                up
+            } else if grounded(down) {
+                down
+            } else if world.is_empty(flat.0, flat.1) {
+                flat
+            } else {
+                return None;
+            }
+        };
+        spine.push(next);
+        prev = next;
+    }
+    Some(spine)
+}
+
 fn lateral_for(world: &World, chain: &[(i32, i32)], placed: &[(i32, i32)], spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32), push: bool) -> Option<(i32, i32)> {
     // The direction of the segment ahead; for the head, the one behind,
     // reversed, so a lead segment's lateral sits the same side as the rest.
@@ -9784,6 +9940,145 @@ mod tests {
         assert_eq!(cells, groups.len(), "a fully tucked founding is exactly one cell per segment: {cells} cells against {} segments", groups.len());
         let open_cells = open.organism(open_id).map(|s| s.chain.len()).unwrap_or(0);
         assert!(cells < open_cells, "a founding with every lateral tucked must be physically smaller than the open control: {cells} against {open_cells}");
+    }
+
+    /// **Founding along the surface contour, task built for
+    /// `Reports/creature-articulated-body-2026-09-09.md` §13f/§13h.** The
+    /// guard §10 could not write, because `founding_spine_walk` did not
+    /// exist yet -- watched red by hand against a version of this function
+    /// that always took the "straight back, no foothold required" tier
+    /// first (the pre-fix behaviour re-created inline): that arm reproduces
+    /// this exact equality by construction, but tier 1 firing when it
+    /// should not is exactly the fault a `founding_spine_walk` regression
+    /// would introduce, so it was watched failing there before being
+    /// trusted here.
+    ///
+    /// **On flat ground a two-segment walk must be byte-identical to the old
+    /// straight-line formula** (`x + if facing_west { i } else { -i }`, here
+    /// at `facing_west = false`, the only value `place_creature` ever founds
+    /// with): this is where the walk reduces to the rule it replaces, and
+    /// flat ground is the only ground the old rule ever founded *any* body
+    /// on, since it demanded the whole spine be flat.
+    #[test]
+    fn a_two_segment_founder_walks_exactly_as_the_old_straight_lay_did() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        let head = (50, 119);
+        let back = (-1, 0);
+        let spine = founding_spine_walk(&w, head, 2, back).expect("flat ground must found a two-segment body");
+        let old_lay: Vec<(i32, i32)> = (0..2i32).map(|i| (head.0 - i, head.1)).collect();
+        assert_eq!(spine, old_lay, "on flat ground a two-segment walk must reduce exactly to the old straight-line lay: {spine:?} against {old_lay:?}");
+    }
+
+    /// **A longer body curls over a step instead of refusing the site.**
+    /// §13f's own case: a site the old rule refused outright -- it demanded
+    /// `n` empty cells in a row at one height -- is exactly the shape a
+    /// walking body lies on rough ground anyway. Two cells of flat under the
+    /// head, then the ground drops one row and stays flat at the new level:
+    /// asserted as properties (which row each end of the spine is on, that
+    /// it walks one column per segment) rather than as hand-computed
+    /// coordinates, because the corner-touch case in `founding_spine_walk`'s
+    /// own doc (a cell diagonally against the shelf's own edge reads as
+    /// grounded) makes the exact column the drop lands on an implementation
+    /// detail this test should not pin.
+    #[test]
+    fn a_five_segment_body_founds_curled_over_a_step() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 49..=50 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        for x in 30..49 {
+            w.set(x, 121, Cell::new(floor, 0).with_attached(true));
+        }
+        let head = (50, 119);
+        let spine = founding_spine_walk(&w, head, 5, (-1, 0)).expect("a body that fits a flat-then-step site must found");
+        assert_eq!(spine.len(), 5, "every segment must be laid: {spine:?}");
+        for i in 1..spine.len() {
+            assert_eq!(spine[i].0, spine[i - 1].0 - 1, "the walk must move exactly one column behind per segment: {spine:?}");
+        }
+        assert_eq!(spine[0].1, head.1, "the head's own row");
+        assert_eq!(spine[1].1, head.1, "the second segment must still be the two-cell-wide flat under the head, not curling before it has to");
+        assert!(spine[4].1 > head.1, "the body must curl DOWN onto the lower step rather than hang over the drop in a straight line: {spine:?}");
+    }
+
+    /// **The viability half of the same rule: a site with only one free cell
+    /// refuses a multi-segment body**, the same way the old "all n cells
+    /// empty in a row" scan did -- `founding_spine_walk` is now the
+    /// viability check itself, so this is a property of the walk, not a
+    /// separate scan layered over it (see the doc on `place_creature`'s
+    /// Segmented arm).
+    #[test]
+    fn a_single_free_cell_refuses_a_multi_segment_founder() {
+        let mut w = test_world();
+        let rock = material::STONE;
+        for x in 40..60 {
+            for y in 110..130 {
+                w.set(x, y, Cell::new(rock, 0).with_attached(true));
+            }
+        }
+        w.set(50, 119, Cell::EMPTY);
+        let spine = founding_spine_walk(&w, (50, 119), 5, (-1, 0));
+        assert!(spine.is_none(), "a site with only one free cell must refuse a multi-segment body: {spine:?}");
+    }
+
+    /// **Laterals at founding obey `lateral_for` exactly** -- founding must
+    /// not derive a lateral's position any other way than the movement rule
+    /// does (§10's own invariant), which this build's contour spine must not
+    /// have disturbed. Reconstructs the spine `segmented_body_after_step`
+    /// itself pulls out of `(chain, segment_groups)` -- group `g`'s first
+    /// cell, in `groups` order -- so the test does not have to trust the
+    /// code under test to have kept the two in step, then re-derives each
+    /// widened segment's lateral independently and checks it against what
+    /// was actually placed.
+    #[test]
+    fn founding_laterals_match_lateral_for() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        // **Cloned before the spawn, not read back after it.** `place_creature`
+        // calls `lateral_for` entirely inside its first loop, before its
+        // second loop writes a single cell into the world -- every one of
+        // those calls sees the pristine floor. Recomputing against `w`
+        // *after* `spawn` would see the ant's own already-placed body
+        // occupying the very cells `lateral_for` is being asked whether it
+        // could still choose, which is a different question and not the one
+        // this test asks -- caught by watching this test red once, against
+        // exactly that mistake, before landing it.
+        let pristine = w.clone();
+        let id = spawn(&mut w, "ant", 50, 119);
+        let (chain, groups) = {
+            let state = w.organism(id).expect("live");
+            (state.chain.clone(), state.segment_groups.clone())
+        };
+        assert!(groups.contains(&2), "the ant must have at least one widened segment on open ground, or this test cannot check anything: {groups:?}");
+        let mut spines = Vec::with_capacity(groups.len());
+        let mut idx = 0usize;
+        for &g in &groups {
+            spines.push(chain[idx]);
+            idx += g as usize;
+        }
+        let mut placed: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+        let mut idx = 0usize;
+        for (i, &g) in groups.iter().enumerate() {
+            let spine = chain[idx];
+            placed.push(spine);
+            if g == 2 {
+                let lateral = chain[idx + 1];
+                assert_eq!(
+                    lateral_for(&pristine, &[], &placed, &spines, i, spine, false),
+                    Some(lateral),
+                    "segment {i}'s founded lateral must be exactly what `lateral_for` computes for this spine -- founding must not derive it any other way"
+                );
+                placed.push(lateral);
+            }
+            idx += g as usize;
+        }
     }
 
     /// The canopy half of `open-bugs-handoff.md` §R. A downward scan from
@@ -18734,6 +19029,117 @@ mod tests {
         assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
         assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
     }
+
+    // --- B1': nectar, in two currencies ---------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    // Brief B1'. The plant-side pocket tests (full, dry, poor, the zero-
+    // refill positive control) are in `plant.rs`'s own test module, beside
+    // `nectar_offer`.
+
+    /// **`EAT_YIELD_THRESHOLD`'s own doc says to check this here, and it is
+    /// now a live number, not a forward check** — `plant::nectar_offer`'s
+    /// own doc explains why the credit genuinely is run through
+    /// `diet_quality` at the bite site (two currencies meet there), so this
+    /// is exactly what an animal receives, not a hypothetical.
+    #[test]
+    fn the_neutral_guts_credit_on_a_nectar_visit_clears_the_threshold() {
+        let w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+
+        let neutral_quality = diet_quality(&w, flower, 0.0);
+        let credit = yield_j * neutral_quality;
+        assert!(
+            credit > EAT_YIELD_THRESHOLD,
+            "a {yield_j} J nectar payout credits {credit} J at the neutral gut against a bar of {EAT_YIELD_THRESHOLD} -- \
+             below this and no animal could ever be offered it under the box's usual filter"
+        );
+    }
+
+    /// **Driven through `act` itself rather than through `nectar_offer` and
+    /// the credit by hand**, so this is a test of the wiring at the bite
+    /// site, not only of the function it calls. Two currencies, two
+    /// separate checks: the plant's pocket must fall by exactly
+    /// `NECTAR_COST` (budget units) and the animal's bank must rise by
+    /// exactly `nectar_yield * diet_quality` (joules) — not the same
+    /// number, deliberately (§3.1's whole correction) — and both sides of
+    /// `EnergyLedger`'s live identity must still agree afterwards.
+    #[test]
+    fn a_nectar_visit_through_act_debits_budget_units_and_credits_filtered_joules() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("ant must be a creature");
+        let gut = gut_of(&w, ant, &def);
+
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (101, 100);
+        w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        if let Some(state) = w.organism_mut(plant_id) {
+            // `organism::RESOURCE_SCALE`, the same cap `plant::
+            // REPRODUCTIVE_BUDGET_CAP` is defined from -- that constant is
+            // private to `plant.rs`, so the value is restated rather than
+            // named.
+            state.reproductive_budget = organism::RESOURCE_SCALE;
+        }
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.nectar = 1.0; // full, or the scene proves nothing
+        }
+
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        assert_eq!((hx, hy), (100, 100), "test setup: the scene must put the ant's head where the flower is adjacent to it");
+
+        let expected_credit = yield_j * diet_quality(&w, flower_mat, gut.bias);
+        assert!(expected_credit > 0.0, "test setup: this gut must actually value plant matter or the scene proves nothing");
+
+        let ant_energy_before = w.organism(ant).expect("live").energy;
+        let plant_budget_before = w.organism(plant_id).expect("live").reproductive_budget;
+        let ledger_gap_before = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+
+        // Feed only -- dig and drop stay at 0 so the scene can only take the
+        // one verb this test is about, and a crop-less fresh ant cannot
+        // prefer the drop branch regardless.
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, ant, &def, &outputs, &mut draw);
+
+        let cell = w.get(fx, fy);
+        assert_eq!(cell.material, flower_mat, "a paid visit must leave the flower material standing");
+        assert_eq!(cell.organism_id(), plant_id, "the plant must still own the cell");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Flower), "still a Flower, not bitten off");
+        assert_eq!(w.organism_cell(fx, fy).expect("live").nectar, 0.0, "a paid visit must drain the flower's own pool");
+
+        let ant_energy_after = w.organism(ant).expect("live").energy;
+        let plant_budget_after = w.organism(plant_id).expect("live").reproductive_budget;
+        let credit = ant_energy_after - ant_energy_before;
+        let debit = plant_budget_before - plant_budget_after;
+        // `abs_diff` rather than `assert_eq!`: `RESOURCE_SCALE - NECTAR_COST`
+        // through f32 subtraction is `0.00999999...`, not the bit-exact
+        // `0.01` a literal parses to -- an f32 rounding artifact, not a
+        // pricing bug.
+        assert!(
+            (debit - plant::NECTAR_COST).abs() < 1e-6,
+            "the pocket must be debited NECTAR_COST (0.01 budget units), not a joule figure: got {debit}"
+        );
+        assert_eq!(credit, expected_credit, "the animal must be credited exactly yield * diet_quality, the filtered joule figure");
+        assert_ne!(credit, debit, "two currencies: the credit and the debit must NOT be the same number -- if they are, the units error is back");
+
+        assert_eq!(w.flower_visits, 1, "exactly one reach happened");
+        assert_eq!(w.nectar_paid, yield_j as f64, "the plant-side joule sum must record the raw nectar_yield, not the gut-filtered credit");
+
+        let ledger_gap_after = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+        assert_eq!(
+            ledger_gap_before, ledger_gap_after,
+            "crediting nectar must not open a gap between the live identity's two sides: {ledger_gap_before} -> {ledger_gap_after}"
+        );
+    }
+
     // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and
     // is deleted rather than ported.** All three of its arms were stated
     // against `roof = hunger_fraction * start_energy + one mouthful`, and a

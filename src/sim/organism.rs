@@ -2792,6 +2792,43 @@ pub struct SpeciesDef {
     /// so here rather than let the next session re-derive it from scratch.
     #[serde(default)]
     pub seed_gut_survival: f32,
+    /// **What a fully-charged flower pays a feeding animal, in joules** —
+    /// `plant::nectar_offer`, credited through `diet_quality` exactly like
+    /// every other mouthful
+    /// (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    /// the correction to the ecology design's original §3.2, which named
+    /// this a debit against `reproductive_budget` directly and was a units
+    /// error: the budget is plant carbon capped at
+    /// `REPRODUCTIVE_BUDGET_CAP` (4.0), not joules). `0.0` (the default) is
+    /// today's behaviour exactly: paired with `nectar_refill: 0.0`, the
+    /// per-cell pool never climbs off zero, `nectar_offer` always reads it
+    /// dry, and every bite falls through to the destroyed-flower path
+    /// (`flower.food_energy`, 1,440 J) exactly as before either field
+    /// existed.
+    ///
+    /// **120.0 on the two fruiting species, the design's own figure** — a
+    /// quarter of a leaf's 480 J (`leaf.ron`), the richest thing a plant
+    /// offers *without* ending itself. Checked against `EAT_YIELD_THRESHOLD`
+    /// (12.0, `creature.rs`) the way `pip.ron` checks its own value: at the
+    /// shipped neutral gut (bias 0.0) against the flower's `food_class`
+    /// (-1.0, `flower.ron`), `diet_quality` reads `(1 - 1/2)^2 = 0.25`, so
+    /// the credited `120 * 0.25 = 30 > 12` — clear with 2.5x headroom, the
+    /// same margin `pip.ron` reasons about for its own 40 J food value.
+    #[serde(default)]
+    pub nectar_yield: f32,
+    /// **How much a flower's nectar pool (`OrganismCell::nectar`) climbs
+    /// per organism tick, capped at 1.0** — `Behavior::Ripen`'s `Flower`
+    /// arm. `0.0` (the default) means the pool never fills, so
+    /// `nectar_offer` always finds it dry regardless of `nectar_yield`; a
+    /// species must author both to offer nectar at all.
+    ///
+    /// **0.25 on the two fruiting species: full in four organism ticks.**
+    /// `herb`'s `Ripen(rate: 0.02)` gives a flower a ~50-tick career before
+    /// it sets fruit (`herb.ron`'s own comment), so at this rate it pays
+    /// roughly twelve visits across its whole life as a flower — the
+    /// design's own figure.
+    #[serde(default)]
+    pub nectar_refill: f32,
     #[serde(default = "default_fruit_material")]
     pub fruit_material: String,
     /// **What a ripe fruit becomes on the way down** — the powder that
@@ -4251,6 +4288,10 @@ pub struct Species {
     pub windfall_material: String,
     /// See `SpeciesDef::seed_gut_survival`.
     pub seed_gut_survival: f32,
+    /// See `SpeciesDef::nectar_yield`.
+    pub nectar_yield: f32,
+    /// See `SpeciesDef::nectar_refill`.
+    pub nectar_refill: f32,
     pub flower_bands: PaletteBands,
     pub fruit_bands: PaletteBands,
     /// See `SpeciesDef::seed_half_life`.
@@ -4451,6 +4492,8 @@ impl From<SpeciesDef> for Species {
             fruit_material: def.fruit_material,
             windfall_material: def.windfall_material,
             seed_gut_survival: def.seed_gut_survival,
+            nectar_yield: def.nectar_yield,
+            nectar_refill: def.nectar_refill,
             flower_bands: def.flower_bands,
             fruit_bands: def.fruit_bands,
             seed_half_life: def.seed_half_life,
@@ -7469,6 +7512,26 @@ pub struct OrganismCell {
     /// behaviour, so it costs four bytes on a struct that already holds
     /// eleven fields and no work anywhere else.
     pub ripeness: f32,
+    /// **A flower's own standing nectar, `0..=1`** — refilled by
+    /// `Behavior::Ripen` at the species' `nectar_refill` each organism tick
+    /// and drained to 0 by a paid visit (`plant::nectar_offer`).
+    ///
+    /// **Its own field rather than reusing `ripeness`, and that reuse was
+    /// considered and rejected rather than simply not tried.**
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1:
+    /// `ripeness` is a *one-way clock toward fruit-set* —
+    /// `Behavior::Ripen` only ever adds to it — so draining it on a visit
+    /// would make feeding an animal *delay* fruiting, exactly backwards
+    /// from what a pollination bonus (B2, a different field, not built
+    /// here) is supposed to do, and leaving it undrained says nothing
+    /// about nectar at all. Nectar has to go up *and* down on its own
+    /// clock, which `ripeness`'s contract forbids.
+    ///
+    /// Zero on every non-`Flower` organ cell, and on a `Flower` whose
+    /// species authors no `nectar_refill` (the default, `0.0`) — such a
+    /// cell never climbs off zero and `nectar_offer` always reads it dry,
+    /// which is today's behaviour exactly.
+    pub nectar: f32,
 }
 
 impl Default for OrganismCell {
@@ -7513,6 +7576,7 @@ impl Default for OrganismCell {
             path_len: 0,
             primed: false,
             ripeness: 0.0,
+            nectar: 0.0,
         }
     }
 }

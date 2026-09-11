@@ -63,6 +63,14 @@
     // today -- and when it is wired in, a probability's `[0, 1]` range sits
     // inside `[-4, 4]` with room to spare, unlike `seed_launch`.
     seed_gut_survival: 0.6,
+    // See `herb.ron`'s own comment for the full account: nectar in two
+    // currencies (`plant::nectar_offer`,
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1). Same
+    // figures as `herb` -- both trusses and the big terminal head offer the
+    // same sip at the same refill rate, only the frequency of heads to
+    // visit differs between them.
+    nectar_yield: 120.0,
+    nectar_refill: 0.25,
     stomatal_reserve: 0.15,
     seed_half_life: 16000.0,
     remains_half_life: 600.0,

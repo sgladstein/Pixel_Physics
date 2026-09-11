@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import shutil
 import struct
 import subprocess
@@ -338,6 +339,131 @@ def test_offline_is_reported_as_offline(base: Path, art: Path) -> None:
                    cwd=str(c), check=True, capture_output=True)
     res = json.loads(_clone_run(c, "sync").stdout)
     check(res["ok"] and res["pushed"], "reconnecting flushes the parked card")
+
+
+def test_missing_credentials_never_prompt(base: Path) -> None:
+    """A remote that wants a login must fail fast, say what to do, and never put
+    a `Username:` prompt on the owner's terminal.
+
+    Measured 2026-09-10: the owner's Mac had no stored GitHub credential, so
+    `serve` -- whose sync runs on a timer -- asked for a username four times per
+    sync and again every minute, and the verdicts it was trying to push stayed
+    local. `capture_output` never stood a chance: git prompts on /dev/tty, not
+    stdin. So this check gives the sync a real pseudo-terminal, the one thing a
+    plain subprocess test cannot, and reads what git wrote to it.
+
+    Positive controls, run 2026-09-10. Both belts taken off `_git` (the
+    `GIT_TERMINAL_PROMPT=0` env and the new session): the terminal carries
+    `Username for 'http://127.0.0.1:43791': ` and the sync hangs on it until
+    the deadline kills it -- the owner's symptom, reproduced. The auth
+    short-circuit taken out of `sync_now`: the 401 server logs four attempts
+    instead of one. And the first version of this check was blind to the
+    first control, because the container it ran in sets GIT_TERMINAL_PROMPT=0
+    for everything; hence the env strip below.
+    """
+    print("\nmissing credentials never prompt")
+    if sys.platform == "win32":
+        print("  skipped: needs a pseudo-terminal")
+        return
+    import pty
+    import select
+    import threading
+    from http.server import BaseHTTPRequestHandler, HTTPServer
+
+    hits = []
+
+    class WantsLogin(BaseHTTPRequestHandler):
+        def do_GET(self):
+            hits.append(self.path)
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Basic realm="review-selftest"')
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        do_POST = do_GET
+
+        def log_message(self, *args):
+            pass
+
+    srv = HTTPServer(("127.0.0.1", 0), WantsLogin)
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    c = base / "cloneD"
+    r = subprocess.run(["git", "clone", "-q", str(base / "origin.git"), str(c)],
+                       capture_output=True, text=True)
+    if r.returncode != 0:
+        srv.shutdown()
+        return check(False, "clone for the credential check", r.stderr.strip()[:120])
+    subprocess.run(["git", "remote", "set-url", "origin",
+                    "http://127.0.0.1:%d/locked.git" % srv.server_address[1]],
+                   cwd=str(c), check=True, capture_output=True)
+
+    # A box that already forbids git prompts (a CI runner, a cloud container
+    # with GIT_TERMINAL_PROMPT=0 or an askpass helper) would make this check
+    # pass with the belts taken off `_git`. Strip those so the script's own
+    # guards are the only thing standing between git and the terminal.
+    env = {k: v for k, v in os.environ.items()
+           if k not in (rl.ROOT_ENV, rl.NO_SYNC_ENV, "GIT_TERMINAL_PROMPT",
+                        "GIT_ASKPASS", "SSH_ASKPASS")}
+    master, slave = pty.openpty()
+    # A session leader with no controlling terminal acquires the first one it
+    # opens. That hands git a /dev/tty to prompt on -- the owner's situation,
+    # which a headless subprocess never reproduces.
+    wrapper = ("import os, sys\n"
+               "fd = os.open(sys.argv[1], os.O_RDWR)\n"
+               "for i in (0, 1, 2):\n"
+               "    os.dup2(fd, i)\n"
+               "os.execv(sys.executable, [sys.executable] + sys.argv[2:])\n")
+    proc = subprocess.Popen(
+        [sys.executable, "-c", wrapper, os.ttyname(slave), str(HERE / "review.py"), "sync"],
+        cwd=str(c), env=env, start_new_session=True,
+        stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    # The parent keeps its slave handle until the child is done. Closing it
+    # here raced the child's open: with no slave open the master reads EOF at
+    # once, the loop broke, and the check killed a sync that had not started.
+    out = b""
+    deadline = time.time() + 60
+    while time.time() < deadline:
+        ready, _, _ = select.select([master], [], [], 0.25)
+        if ready:
+            try:
+                chunk = os.read(master, 4096)
+            except OSError:
+                break      # the far end closed: the child is gone
+            if not chunk:
+                break
+            out += chunk
+            continue
+        if proc.poll() is not None:
+            break
+    finished = proc.poll() is not None
+    if not finished:
+        proc.kill()
+    proc.wait()
+    os.close(slave)
+    os.close(master)
+    srv.shutdown()
+
+    text = out.decode("utf-8", "replace").replace("\r\n", "\n")
+    # A prompt is `Username for 'http://...':` at the start of a line. Git's
+    # refusal -- `could not read Username for 'http://...'` -- carries the
+    # same words and is printed inside the JSON, so match the prompt's shape.
+    prompted = re.search(r"^(Username|Password) for '", text, re.MULTILINE)
+    check(not prompted, "sync never asks the terminal for a login",
+          prompted.group(0) if prompted else "")
+    check(finished, "and gives up instead of waiting for an answer")
+    res = None
+    try:
+        res = json.loads(text[text.index("{"):text.rindex("}") + 1])
+    except ValueError:
+        pass
+    check(bool(res) and res.get("ok") is False and "hint" in res,
+          "and says the login is missing and how to fix it",
+          "" if res else text[:200])
+    check(bool(res) and "credential.helper" in res.get("hint", ""),
+          "naming this machine's git and helpers")
+    check(len(hits) < 4,
+          "and stops after one attempt, not the four of the push-race loop -- got %d"
+          % len(hits))
 
 
 def test_concurrent_push(base: Path, art: Path) -> None:
@@ -902,6 +1028,7 @@ def main() -> int:
             test_cross_machine_transport(transport, art_a)
             test_concurrent_push(transport, art_a)
             test_offline_is_reported_as_offline(transport, art_a)
+            test_missing_credentials_never_prompt(transport)
         finally:
             shutil.rmtree(transport, ignore_errors=True)
     finally:

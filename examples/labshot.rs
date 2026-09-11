@@ -143,6 +143,34 @@ fn main() {
         if let Some(sd) = arg::<u64>("seed") {
             sc.bed.seed = sd;
         }
+        // **`colony_species=` swaps who a scenario's own `Colony`/`Colonies`
+        // timeline events found, without touching the scenario file.**
+        // `played_bed.ron`'s founding is baked into its timeline
+        // (`Colony(species: "ant", ...)` at frame 6,000), which is exactly
+        // right for playing the bed and exactly wrong for asking "how many
+        // would a *different* body have seated on this same ground" --
+        // `Reports/creature-articulated-body-2026-09-09.md` §13h's paired
+        // reading needs the identical bed and frame under two bodies, one
+        // binary, one flag. `ancestor` (`assets/species/ancestor.ron`,
+        // `Chain(2)`) is the shipped two-cell body this measures against:
+        // it never reaches `founding_spine_walk` at all, so it is §13h's
+        // control for "how many sites exist for *any* body", independent of
+        // this build's own contour lay. Placements (frame-0 founding, no
+        // scenario here uses it for `Colony` yet) are swapped too, for the
+        // harness's own future use rather than any shipped scenario today.
+        if let Some(species) = arg::<String>("colony_species") {
+            use pixel_physics::lab::scenario::Placement;
+            let swap = |p: &mut Placement| match p {
+                Placement::Colony { species: s, .. } | Placement::Colonies { species: s, .. } => *s = species.clone(),
+                _ => {}
+            };
+            for p in &mut sc.placements {
+                swap(p);
+            }
+            for e in &mut sc.timeline {
+                swap(&mut e.what);
+            }
+        }
         sc
     });
     let spec = match &scenario {
