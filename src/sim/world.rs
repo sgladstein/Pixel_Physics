@@ -2280,6 +2280,18 @@ pub struct World {
     /// `organ_ripening_blocked`.
     pub organ_ripening_paid: u64,
 
+    /// **A rebloom actually fired** — `plant::process_rebloom` converting a
+    /// stem cell back into a fresh `CellType::Flower` once its
+    /// `SpeciesDef::rebloom_after` timer ran out and the reproductive
+    /// account could cover it. The "did it fire at all" counter for the
+    /// mechanism PR #307 asked for: a bed that reads as flowering in a
+    /// picture could still be doing it entirely through the ordinary
+    /// once-per-axis route, and only this number says the axes are actually
+    /// being reused rather than merely slow to run out. Zero on a run with
+    /// no species authoring `rebloom_after > 0`, by construction — nothing
+    /// else pushes onto `OrganismState::rebloom_pending`.
+    pub flowers_rebloomed: u64,
+
     /// **Ripe fruit that let go**, each one a seed carried to the ground
     /// inside a `windfall` powder. The far-side effect counter for the drop:
     /// `organs_built` says fruit were made, and only this says any of them
@@ -3782,6 +3794,7 @@ impl World {
             organ_cells_unaffordable: 0,
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
+            flowers_rebloomed: 0,
             fruit_dropped: 0,
             organ_shattered_to_windfall: 0,
             seeds_borne: 0,
@@ -4427,6 +4440,8 @@ impl World {
             cells: crate::sim::fxhash::PosMap::default(),
             root_cells: 0,
             contact_root_cells: 0,
+            // No terminal has finished yet -- see `OrganismState::rebloom_pending`.
+            rebloom_pending: Vec::new(),
             // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.
