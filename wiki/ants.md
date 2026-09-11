@@ -4,8 +4,15 @@
 the first one in the box that lives off flowers and the first that leaves
 the ground on purpose. It is two cells, it hops rather than walks, it has
 eyes, and a flower is worth four times as much to it as to an ant. See
-"The flitter" below for what it does and what it does not do yet. Before
-that, 2026-09-10, when a flower stopped being invisible at a
+"The flitter" below for what it does and what it does not do yet. The same
+day: a colony can carry a seed home instead of only
+a meal, documented rather than shipped new — the mechanism landed
+2026-09-10 and this is the honest read of what it does. See "What is not
+finished": a seed has ridden home and been set down alive a handful of
+times across three long sessions, and none has yet grown, because most
+fallen fruit sits outside the colony's own daily round and the one seed
+that made the whole trip was eaten again within moments of arriving.
+Before that, 2026-09-10, when a flower stopped being invisible at a
 distance. An animal with eyes can now see a bloom the way it sees another
 animal — from across the room, not only once it is standing on one. (This
 note said that day that the hopper was born reaching for one; it was not.
@@ -1092,6 +1099,22 @@ What a colony is still not especially good at is **finding food in the first
 place**. A pile a long way off may take a while to be discovered, and one
 right across the map may never be. Put food within reach of the colony and
 the whole loop runs.
+
+**An ant can carry a seed home instead of just a meal, and the garden that
+would make has not grown yet.** Biting a fallen fruit sometimes leaves the
+seed inside it whole rather than destroying it, and a whole seed can ride
+home in the same mouth a meal would, to be set down wherever the ant happens
+to be when it lets go — at the nest most often, but not only there. That is
+the shape of a colony that plants as a side effect of eating: a nest ringed
+by the offspring of whatever it has been feeding on. On the mixed bed the
+owner actually plants, across three long sessions, it has happened — a seed
+has ridden home and been set down alive — but nothing has come up from one
+yet. The seed that got furthest was found and eaten again within moments of
+being put down, by the same kind of animal that carried it. The rest of the
+chain barely runs at all: most fallen fruit sits in ground the colony's own
+daily round never reaches, so a bitten fruit is already the rare case. A
+colony that gardens is the idea; a colony that occasionally carries a seed a
+short way before something eats it again is what is actually there.
 
 They are better at it than they were, though, and the reason is worth
 knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —

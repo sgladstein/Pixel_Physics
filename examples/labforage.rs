@@ -69,11 +69,13 @@ use pixel_physics::sim::brain;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::creature::{diet_yield, EAT_YIELD_THRESHOLD};
 use pixel_physics::sim::explosion::Blasts;
+use pixel_physics::sim::field;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::material::MaterialId;
 use pixel_physics::sim::organism::TRAIT_GUT_BIAS;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::pheromone::Channel;
+use pixel_physics::sim::plant;
 use pixel_physics::sim::player;
 use pixel_physics::sim::world::World;
 
@@ -244,6 +246,60 @@ struct Sample {
     standing_fruit: usize,
 }
 
+/// **Round 28's garden-loop instrument** — the fruit → animal → nest →
+/// seedling brief's hypothesis (b): does windfall land somewhere the
+/// colony's own foot traffic never reaches? `Reports/lanes/evolution-lab-
+/// garden-loop.md`.
+///
+/// Accumulated across every stop and never cleared, the same convention
+/// `visited` uses — so `windfall_heat`/`ant_heat` are a whole-run exposure,
+/// not one frame's snapshot, and the two can be read against each other
+/// column by column without a second grid sweep: `census`'s own loop
+/// already visits every cell once per stop, so the windfall side rides
+/// along with it instead of duplicating it (`mark_visited` gets the ant
+/// side the same way, since it already walks every ant's chain once a
+/// frame). One `Garden` per run, not per stop.
+struct Garden {
+    /// Per-column: how many stops found a standing `windfall` cell there.
+    windfall_heat: Vec<u32>,
+    /// Per-column: how many frames found any part of an ant's body there
+    /// -- `mark_visited`'s own boolean turned into a count over the same
+    /// loop, so this is exposure-time, not a distinct census.
+    ant_heat: Vec<u32>,
+    /// Standing windfall by height band, same thresholds `Sample::floor`/
+    /// `low`/`aloft` use, but un-gated by diet -- a windfall census, not
+    /// an edibility one.
+    windfall_floor: u64,
+    windfall_low: u64,
+    windfall_aloft: u64,
+    /// Standing windfall by distance from the nearest nest column, same
+    /// bands `Sample::by_dist` uses.
+    windfall_by_dist: [u64; DIST_BANDS.len()],
+    /// **A light-based "under canopy" rather than the played bed's four
+    /// scrambler columns hardcoded** — `plant::ambient_light_above` below
+    /// half of open-sky noon-equivalent (`field::MAX_LIGHT`), so the same
+    /// instrument reads any bed rather than only this one. Counts of
+    /// stop-samples, not of distinct fruit (a fruit standing through ten
+    /// stops is counted ten times, same as `windfall_heat`).
+    windfall_shaded: u64,
+    windfall_open: u64,
+}
+
+impl Garden {
+    fn new(width: usize) -> Self {
+        Garden {
+            windfall_heat: vec![0; width],
+            ant_heat: vec![0; width],
+            windfall_floor: 0,
+            windfall_low: 0,
+            windfall_aloft: 0,
+            windfall_by_dist: [0; DIST_BANDS.len()],
+            windfall_shaded: 0,
+            windfall_open: 0,
+        }
+    }
+}
+
 /// **What is standing here that this gut would eat, and where.**
 ///
 /// Priced through `creature::diet_yield` and gated on
@@ -274,6 +330,7 @@ fn census(
     windfall_id: Option<MaterialId>,
     flower_id: Option<MaterialId>,
     fruit_id: Option<MaterialId>,
+    garden: &mut Garden,
 ) -> Sample {
     let mut s = Sample {
         ant_high: i32::MIN,
@@ -303,6 +360,32 @@ fn census(
             let cell = world.get(x, y);
             if windfall_id.is_some_and(|wid| cell.material == wid) {
                 s.windfall += 1;
+                // **Round 28's garden-loop instrument, riding this same
+                // sweep rather than a second one.** `Reports/lanes/
+                // evolution-lab-garden-loop.md` hypothesis (b): where does
+                // fruit actually land, against where the colony actually
+                // walks (`garden.ant_heat`, filled by `mark_visited`)?
+                garden.windfall_heat[x.clamp(0, spec.width - 1) as usize] += 1;
+                let wf_above = spec.ground_y - y;
+                if wf_above <= FLOOR_BAND {
+                    garden.windfall_floor += 1;
+                } else if wf_above <= LOW_BAND {
+                    garden.windfall_low += 1;
+                } else {
+                    garden.windfall_aloft += 1;
+                }
+                let wf_d = nest_cols.iter().map(|c| (c - x).abs()).min().unwrap_or(i32::MAX);
+                for (b, &edge) in DIST_BANDS.iter().enumerate() {
+                    if wf_d <= edge {
+                        garden.windfall_by_dist[b] += 1;
+                        break;
+                    }
+                }
+                if plant::ambient_light_above(world, x, y) < field::MAX_LIGHT / 2.0 {
+                    garden.windfall_shaded += 1;
+                } else {
+                    garden.windfall_open += 1;
+                }
             }
             if flower_id.is_some_and(|fid| cell.material == fid) {
                 s.standing_flowers += 1;
@@ -379,7 +462,16 @@ fn strip_colony(world: &mut World) -> usize {
 /// Every column any ant head has stood in, ever. Cumulative — the mask is
 /// never cleared, so `unvisited` is a claim about the whole run rather than
 /// about this frame.
-fn mark_visited(world: &World, visited: &mut [bool], width: i32) {
+///
+/// **`heat` rides the same loop** (round 28's garden-loop instrument,
+/// `Garden::ant_heat`) rather than a second walk of `live_organism_ids`:
+/// every column any part of any ant's body occupies this frame gets one
+/// count, so a column's total is exposure-time in frames, comparable
+/// column-by-column against `census`'s `windfall_heat` at the stop
+/// cadence. Called every frame (not gated by `sample_every`), so this is a
+/// *finer* census than "sampled every N frames" asks for, not a coarser
+/// one.
+fn mark_visited(world: &World, visited: &mut [bool], heat: &mut [u32], width: i32) {
     for id in world.live_organism_ids() {
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_none() {
@@ -388,6 +480,7 @@ fn mark_visited(world: &World, visited: &mut [bool], width: i32) {
         for &(x, _) in &state.chain {
             if (0..width).contains(&x) {
                 visited[x as usize] = true;
+                heat[x as usize] += 1;
             }
         }
     }
@@ -656,6 +749,8 @@ fn main() {
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
     let mut visited = vec![false; spec.width as usize];
+    // Round 28's garden-loop instrument -- see `Garden`'s own doc.
+    let mut garden = Garden::new(spec.width as usize);
     let windfall_id = world.materials.id_of("windfall");
     let flower_id = world.materials.id_of("flower");
     let fruit_id = world.materials.id_of("fruit");
@@ -718,7 +813,7 @@ fn main() {
                 }
             }
         }
-        mark_visited(&world, &mut visited, spec.width);
+        mark_visited(&world, &mut visited, &mut garden.ant_heat, spec.width);
         // **How high any animal of each species has ever got, in rows above
         // the soil surface** -- P2's reach census, and the one number that
         // separates the two readings of a zero `flower_visits`. The flower
@@ -751,7 +846,7 @@ fn main() {
             }
         }
         if f % sample_every == 0 {
-            let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id, flower_id, fruit_id);
+            let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id, flower_id, fruit_id, &mut garden);
             peak_edible = peak_edible.max(s.edible);
             if first.is_none() {
                 first = Some(s);
@@ -939,6 +1034,98 @@ fn main() {
         .collect::<Vec<_>>()
         .join(",");
     let starved_aloft = world.deaths_by_cause[pixel_physics::sim::organism::DeathCause::StarvedInFlight.index()];
+
+    // **Round 28 -- the garden-loop instrument.** `Reports/lanes/
+    // evolution-lab-garden-loop.md`. Two questions the A2 line above
+    // cannot answer: given a pip *was* delivered (or stood at the bite
+    // site), does its drop cell actually meet the species' own Germinate
+    // thresholds (hypothesis a), and does windfall land somewhere the
+    // colony's own foot traffic reaches at all (hypothesis b)?
+    let pip_checks_n = world.pip_checks.len();
+    let pip_checks_delivered = world.pip_checks.iter().filter(|c| c.delivered).count();
+    let pip_checks_resting = world.pip_checks.iter().filter(|c| c.resting).count();
+    let pip_checks_light_ok = world.pip_checks.iter().filter(|c| c.light >= c.light_threshold).count();
+    let pip_checks_water_ok = world.pip_checks.iter().filter(|c| c.soil_water >= c.soil_water_threshold).count();
+    let pip_checks_ready = world
+        .pip_checks
+        .iter()
+        .filter(|c| c.resting && c.light >= c.light_threshold && c.soil_water >= c.soil_water_threshold)
+        .count();
+    println!(
+        "\n  round 28 -- garden loop, hypothesis (a): first Germinate check per pip \
+         ({pip_checks_n} pips checked, {pip_checks_delivered} rode home/A2, {} stood at the bite/A1):",
+        pip_checks_n - pip_checks_delivered
+    );
+    println!(
+        "    resting {pip_checks_resting}/{pip_checks_n} | light>=threshold {pip_checks_light_ok}/{pip_checks_n} | \
+         soil_water>=threshold {pip_checks_water_ok}/{pip_checks_n} | all three (would germinate now) {pip_checks_ready}/{pip_checks_n}"
+    );
+    for c in &world.pip_checks {
+        println!(
+            "      frame {:>7} x={:>4} y={:>4} {} resting={:<5} light {:>5.2}/{:<5.2} ({}) water {:>4.2}/{:<4.2} ({}) overburden={}",
+            c.frame,
+            c.x,
+            c.y,
+            if c.delivered { "A2" } else { "A1" },
+            c.resting,
+            c.light,
+            c.light_threshold,
+            if c.light >= c.light_threshold { "OK " } else { "LOW" },
+            c.soil_water,
+            c.soil_water_threshold,
+            if c.soil_water >= c.soil_water_threshold { "OK " } else { "DRY" },
+            c.overburden
+        );
+    }
+    let pip_rot_x = &world.pip_rot_x;
+    let pip_eaten_x = &world.pip_eaten_x;
+    println!(
+        "  round 28 -- pip exits: seeds_spilled {} = seeds_carried {} (rode home) + {} (stood at the bite) | \
+         plants_from_pip {} + pips_rotted {} (at {pip_rot_x:?}) + pips_eaten {} (at {pip_eaten_x:?}) should not exceed seeds_spilled, the rest still standing",
+        world.seeds_spilled,
+        world.seeds_carried,
+        world.seeds_spilled.saturating_sub(world.seeds_carried),
+        world.plants_from_pip,
+        world.pips_rotted,
+        world.pips_eaten
+    );
+
+    // Hypothesis (b): where fruit lands against where the colony walks.
+    let total_wf_heat: u64 = garden.windfall_heat.iter().map(|&v| u64::from(v)).sum();
+    let wf_dead_zone: u64 =
+        garden.windfall_heat.iter().zip(garden.ant_heat.iter()).filter(|&(_, &ah)| ah == 0).map(|(&wh, _)| u64::from(wh)).sum();
+    let wf_dead_zone_pct = if total_wf_heat > 0 { 100.0 * wf_dead_zone as f64 / total_wf_heat as f64 } else { 0.0 };
+    println!(
+        "\n  round 28 -- garden loop, hypothesis (b): windfall landing vs the colony's own foot traffic:"
+    );
+    println!(
+        "    standing-windfall height bands: floor {} low {} aloft {} | distance bands {:?} | \
+         under canopy (<{:.1} noon-equiv light) {} of {} column-stops",
+        garden.windfall_floor,
+        garden.windfall_low,
+        garden.windfall_aloft,
+        garden.windfall_by_dist,
+        field::MAX_LIGHT / 2.0,
+        garden.windfall_shaded,
+        garden.windfall_shaded + garden.windfall_open
+    );
+    println!(
+        "    windfall column-stops {total_wf_heat}, of which {wf_dead_zone} ({wf_dead_zone_pct:.0}%) sit in a column \
+         the colony's own heat map never touched all run (ant_heat==0 there)"
+    );
+    const HEAT_BUCKET: usize = 32;
+    let nbuckets = (spec.width as usize).div_ceil(HEAT_BUCKET);
+    let mut wf_buckets = vec![0u64; nbuckets];
+    let mut ant_buckets = vec![0u64; nbuckets];
+    for (i, (&wh, &ah)) in garden.windfall_heat.iter().zip(garden.ant_heat.iter()).enumerate() {
+        wf_buckets[i / HEAT_BUCKET] += u64::from(wh);
+        ant_buckets[i / HEAT_BUCKET] += u64::from(ah);
+    }
+    println!("    by {HEAT_BUCKET}-column band, col_start: windfall column-stops / ant body-frames (nest at {nest_cols:?}):");
+    for b in 0..nbuckets {
+        println!("      {:>4}: {:>7} / {:>10}", b * HEAT_BUCKET, wf_buckets[b], ant_buckets[b]);
+    }
+
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
@@ -946,6 +1133,10 @@ fn main() {
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
          standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
+         pip_checks={pip_checks_n} pip_checks_delivered={pip_checks_delivered} pip_checks_resting={pip_checks_resting} \
+         pip_checks_light_ok={pip_checks_light_ok} pip_checks_water_ok={pip_checks_water_ok} pip_checks_ready={pip_checks_ready} \
+         windfall_col_stops={total_wf_heat} windfall_dead_zone_stops={wf_dead_zone} windfall_dead_zone_pct={wf_dead_zone_pct:.0} \
+         windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} \
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
          flower_visits_by={} alive_by={} deaths_by={} head_max_rows={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
@@ -1027,6 +1218,11 @@ fn main() {
         // flower count up also exploded the refusal rate.
         last.standing_flowers, last.standing_fruit, world.flowers_rebloomed,
         world.organ_ripening_blocked, world.organ_ripening_paid,
+        // Round 28's garden-loop instrument, appended rather than woven in
+        // -- `labforage`'s SUMMARY line is contested by every lane
+        // (`Reports/evolution-lab-round-27-2026-09-10.md`'s own environment
+        // note): keep main's fields and append the branch's.
+        garden.windfall_floor, garden.windfall_low, garden.windfall_aloft, garden.windfall_shaded, garden.windfall_open,
         // **P2 (the flitter)** -- the hop's own pair and the two
         // per-species splits.
         //
@@ -1092,10 +1288,15 @@ fn selftest(spec: LabBox) {
     let visited_none = vec![false; spec.width as usize];
     let mut visited_all = vec![true; spec.width as usize];
 
-    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None);
+    let mut garden0 = Garden::new(spec.width as usize);
+    let base = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None, &mut garden0);
     println!("labforage selftest: empty bed reads edible {} (must be 0)", base.edible);
     assert_eq!(base.edible, 0, "an unplanted bed is not food; the census is counting something it should not");
     assert_eq!(base.windfall, 0, "an unplanted bed has no fallen fruit either; the raw windfall count is counting something it should not");
+    // Round 28's garden-loop instrument, same shape: nothing planted means
+    // nothing in any of `Garden`'s windfall bands either.
+    assert_eq!(garden0.windfall_heat.iter().sum::<u32>(), 0, "an unplanted bed must not heat any column");
+    assert_eq!(garden0.windfall_floor + garden0.windfall_low + garden0.windfall_aloft, 0, "an unplanted bed has no windfall to band by height");
 
     // One cell on the floor beside the nest, one 40 rows up and 200 columns
     // away. The two differ in every band the run's finding turns on.
@@ -1105,7 +1306,8 @@ fn selftest(spec: LabBox) {
     world.set(near.0, near.1, Cell::new(wid, 0));
     world.set(far.0, far.1, Cell::new(wid, 0));
 
-    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None);
+    let mut garden1 = Garden::new(spec.width as usize);
+    let s = census(&world, &spec, 0.0, &visited_none, &nest_cols, Some(wid), None, None, &mut garden1);
     println!(
         "  planted 2 cells (one at the nest on the floor, one {} columns out and 40 rows up): \
          edible {} floor {} low {} aloft {} unvisited {} by_dist {:?} worth {:.0} J windfall {}",
@@ -1119,21 +1321,53 @@ fn selftest(spec: LabBox) {
     assert!(s.by_dist[2] >= 1 || s.by_dist[3] >= 1, "the far cell must land in a far distance band, not the near one");
     assert!(s.worth > 0.0, "food priced at zero is not food; diet_yield is not reaching the census");
     assert_eq!(s.windfall, 2, "the raw windfall count must see both planted cells regardless of the gut -- it is a material census, not a diet_yield one");
+    // **Round 28's garden-loop instrument, the same positive control
+    // applied to `Garden`.** Two known cells at known columns, heights and
+    // distances must move every one of its bands, or a zero on the played
+    // bed would be indistinguishable from blind.
+    println!(
+        "  garden: windfall_heat[near]={} windfall_heat[far]={} floor {} low {} aloft {} by_dist {:?} shaded {} open {}",
+        garden1.windfall_heat[near.0 as usize], garden1.windfall_heat[far.0 as usize],
+        garden1.windfall_floor, garden1.windfall_low, garden1.windfall_aloft, garden1.windfall_by_dist,
+        garden1.windfall_shaded, garden1.windfall_open
+    );
+    assert_eq!(garden1.windfall_heat[near.0 as usize], 1, "the near cell's own column must heat by exactly one stop's worth");
+    assert_eq!(garden1.windfall_heat[far.0 as usize], 1, "the far cell's own column must heat too, independently of the near one");
+    assert_eq!(garden1.windfall_floor, 1, "garden's height band must agree with Sample's: the floor cell is the only floor windfall");
+    assert_eq!(garden1.windfall_aloft, 1, "garden's height band must agree with Sample's: the far cell is the only aloft windfall");
+    assert_eq!(garden1.windfall_low, 0, "neither planted cell sits in the low band");
+    assert!(garden1.windfall_by_dist[0] >= 1, "garden's distance band must agree with Sample's: the near cell is within d<16");
+    assert!(
+        garden1.windfall_by_dist[2] >= 1 || garden1.windfall_by_dist[3] >= 1,
+        "garden's distance band must agree with Sample's: the far cell lands in a far band"
+    );
+    assert_eq!(
+        garden1.windfall_shaded + garden1.windfall_open,
+        2,
+        "every standing windfall cell must land in exactly one of shaded/open -- a light read that silently drops a cell would show up as a sum under 2"
+    );
 
     // ...and the mask has to be able to go the other way, or `unvisited`
     // would be a constant wearing a measurement's clothes.
     visited_all[..].fill(true);
-    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols, Some(wid), None, None);
+    let mut garden2 = Garden::new(spec.width as usize);
+    let s2 = census(&world, &spec, 0.0, &visited_all, &nest_cols, Some(wid), None, None, &mut garden2);
     println!("  same bed with every column marked visited: unvisited {} (must be 0)", s2.unvisited);
     assert_eq!(s2.unvisited, 0, "the visited mask does not reach the census");
     assert_eq!(s2.edible, 2, "the mask must not change what is counted as food");
 
     // A gut that cannot digest plants must stop seeing them -- the predicate
     // is the mouth's, so this is the check that the census asks the mouth.
-    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols, Some(wid), None, None);
+    let mut garden3 = Garden::new(spec.width as usize);
+    let s3 = census(&world, &spec, 1.0, &visited_none, &nest_cols, Some(wid), None, None, &mut garden3);
     println!("  same bed read at a pure-flesh gut (bias +1.0): edible {} (must be 0)", s3.edible);
     assert_eq!(s3.edible, 0, "a carnivore's census must not count plants; the gut is not reaching diet_yield");
     assert_eq!(s3.windfall, 2, "the raw windfall count must NOT depend on the gut -- unlike edible, it is a material census");
+    assert_eq!(
+        garden3.windfall_heat.iter().sum::<u32>(),
+        2,
+        "garden's windfall census must NOT depend on the gut either, same reasoning as s3.windfall"
+    );
 
     println!("labforage selftest: PASS -- every band moves for a case whose answer is known");
 }

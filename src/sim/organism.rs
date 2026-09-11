@@ -4468,6 +4468,38 @@ pub struct SeedPassenger {
     pub picked_up_frame: u64,
 }
 
+/// **Round 28's garden-loop instrument** — one row per pip, read straight
+/// off the exact site `plant.rs`'s own `Behavior::Germinate` arm reads
+/// `light`/`soil_water` from, not reconstructed after the fact. Pushed to
+/// `World::pip_checks` on a pip's *first* Germinate evaluation only
+/// (`OrganismState::deferred_germination` false on entry), so a pip that
+/// waits out a dry spell does not multiply its own row.
+///
+/// `Reports/lanes/evolution-lab-garden-loop.md` hypothesis (a): is the pip
+/// set down somewhere it structurally cannot clear these two thresholds —
+/// buried, in shade, or on dry ground? `light`/`soil_water` against their
+/// own `_threshold` twin say pass or fail against the mechanism's own bar,
+/// `resting` says whether it even has ground under it yet, and `overburden`
+/// is a cheap non-zero-cost-elsewhere proxy for "how buried" (see
+/// `plant::overburden_depth` — it is diagnostic-only, not the engine's own
+/// notion of depth, because there isn't one).
+#[derive(Clone, Copy, Debug)]
+pub struct PipCheck {
+    pub x: i32,
+    pub y: i32,
+    pub frame: u64,
+    /// A2 (rode home in a crop, set down by `plant::deliver_seed_passenger`)
+    /// against A1 (stands where the fruit was bitten) — see
+    /// `OrganismState::pip_delivered`.
+    pub delivered: bool,
+    pub resting: bool,
+    pub light: f32,
+    pub light_threshold: f32,
+    pub soil_water: f32,
+    pub soil_water_threshold: f32,
+    pub overburden: i32,
+}
+
 /// **What an animal dug out and has not put down yet.**
 ///
 /// The whole `Cell`, not just its material, and that is the conservation
@@ -5516,6 +5548,17 @@ pub struct OrganismState {
     /// dormancy do anything here. The count of *deferrals* would be a
     /// property of the polling interval, not of the mechanic.
     pub deferred_germination: bool,
+    /// **This pip rode home in a crop and was set down (A2), rather than
+    /// standing where the fruit was bitten (A1).** Round 28's garden-loop
+    /// instrument (`Reports/lanes/evolution-lab-garden-loop.md`): set by
+    /// `plant::deliver_seed_passenger` the instant a passenger is written
+    /// back as a live cell, and read once, at the pip's first `Behavior::
+    /// Germinate` check, into `PipCheck::delivered` -- so the diagnostic
+    /// table can tell a crop delivery from an in-place spill without
+    /// re-deriving it from position. Never cleared, but only ever read
+    /// before the cell relabels away from `Seed`, so a stale `true` on a
+    /// later, unrelated organism (slots are reused) cannot be observed.
+    pub pip_delivered: bool,
     /// **This individual is dead and what is left of it is rotting.** Set
     /// by `plant::organism_upkeep` the tick an organism is found holding no
     /// vital cell (see `Species::is_vital`), and never cleared.
@@ -6250,7 +6293,7 @@ fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
 /// already in the engine as authored per-species constants; making them
 /// heritable alleles is what lets the simulation find combinations nobody
 /// wrote down.
-pub const DISCRETE_LOCI: usize = 6;
+pub const DISCRETE_LOCI: usize = 7;
 
 /// **Leaf construction economics** — the acquisitive↔conservative axis,
 /// and the foliage band the individual wears; one allele, both meanings.
@@ -6282,6 +6325,31 @@ pub const LOCUS_TROPISM: usize = 4;
 /// allele (`bark_band_for_density`), so bark tone is a readout of a real
 /// gene, exactly as foliage tone is.
 pub const LOCUS_WOOD_DENSITY: usize = 5;
+/// **Petal colour** — which band of the species' `flower_bands` range an
+/// individual's flowers take. Until this locus existed, petal colour was
+/// the loudest single-pixel channel the plant owns and the one channel
+/// that was *not* heritable: `bear_seed_at` drew it fresh per individual
+/// from `ORGAN_BAND_STREAM`, so a cross's petals looked random rather than
+/// a blend of its parents (Brief C2, `Reports/evolution-lab-pollinator-
+/// design-2026-09-10.md` §3.4-3.5).
+///
+/// **Founded like `LOCUS_WOOD_DENSITY`, not like `LOCUS_LEAF_ECONOMY`.**
+/// Every species declares foliage bands, so founding foliage tone by
+/// drawing the band and backing the allele out of it never starves the
+/// locus of variance. Not every species flowers — `tree`, `conifer`,
+/// `creeper` and `grass` declare no `flower_bands` at all — so the same
+/// trick here would found every one of their individuals on allele 0
+/// always, which is the exact frozen-locus defect `FOUNDER_VARIANT_CHANCE`
+/// exists to avoid. `seed_genotype` instead draws the allele first, on its
+/// own positional stream, and derives the band from it, so every species
+/// gets real per-founder diversity on this locus even where it drives
+/// nothing on screen. Once founded it is fully heritable: a bred seed
+/// derives `flower_band` from this allele in `bear_seed_at`, the direct
+/// clamp `foliage_band` already uses
+/// (`flower_bands.first + allele.min(count - 1)`), rather than taking a
+/// fresh draw. Fruit colour still has no locus; that gap is recorded, not
+/// fixed, where `bear_seed_at` sets `fruit_band`.
+pub const LOCUS_FLOWER_COLOUR: usize = 6;
 
 /// How many alleles each locus has.
 ///
@@ -6292,7 +6360,15 @@ pub const LOCUS_WOOD_DENSITY: usize = 5;
 /// two bands, so a jump landed on the top band five times as often as
 /// the bottom one. Two alleles for two strategies removes the bias by
 /// construction.
-pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3];
+///
+/// `LOCUS_FLOWER_COLOUR` is 2 for the identical reason: every flowering
+/// species shipped today (`herb`, `scrambler`, `shrub`) declares exactly
+/// two flower bands. A non-flowering species (`tree`, `conifer`,
+/// `creeper`, `grass`) still carries the locus and jumps it like any
+/// other — it just drives nothing visible there, the same free ride
+/// `LOCUS_WOOD_DENSITY`'s bark-band mapping already gives a species with
+/// `bark_bands.count == 0`.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3, 2];
 
 /// Multipliers on the species' `branch_angle`, one per allele of
 /// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*

@@ -1736,18 +1736,41 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         bands.first + rng.below(bands.count as u32) as u8
     };
     let foliage_band = pick(foliage, 64);
-    // **Streams 70 and 71**, appended after the four `vary` streams below
-    // (66-69) rather than spliced among them. Each `pick`/`vary` builds its
-    // own keyed stream rather than sharing one, so appending here cannot
-    // shift any existing draw -- which is the property that made adding
-    // these two safe where widening `GENOTYPE_TRAITS` was not.
-    let flower_band = pick(flower, 70);
+    // **Stream 71**, appended after the four `vary` streams below (66-69)
+    // rather than spliced among them. Each `pick`/`vary` builds its own
+    // keyed stream rather than sharing one, so appending here cannot shift
+    // any existing draw -- which is the property that made adding these
+    // safe where widening `GENOTYPE_TRAITS` was not.
     let fruit_band = pick(fruit, 71);
     let density_allele = {
         let mut rng = rng::stream(world_seed, x as u64, y as u64, 65);
         rng.below(organism::LOCUS_ALLELES[organism::LOCUS_WOOD_DENSITY] as u32) as u8
     };
     let bark_band = organism::bark_band_for_density(bark, density_allele);
+    // **Stream 70 used to pick the flower band directly; it now draws the
+    // petal-colour allele, with the band deriving from it** -- the exact
+    // transformation `LOCUS_WOOD_DENSITY`/`bark_band` made above, and for
+    // the identical reason. `foliage_band`'s reverse trick (draw the band,
+    // back the allele out of it) only works because every shipped species
+    // declares foliage bands; `tree`/`conifer`/`creeper`/`grass` declare
+    // none for `flower`, and the reverse trick would have pinned every one
+    // of their founders at allele 0 -- the exact frozen-locus defect
+    // `FOUNDER_VARIANT_CHANCE` exists to avoid, and
+    // `every_discrete_locus_varies_between_founders` (which sweeps `tree`,
+    // a non-flowering species, across every locus) is the guard that would
+    // have caught it. Drawing the allele first, like density, gives every
+    // species real per-founder diversity on this locus even where it drives
+    // nothing visible.
+    let flower_allele = {
+        let mut rng = rng::stream(world_seed, x as u64, y as u64, 70);
+        rng.below(organism::LOCUS_ALLELES[organism::LOCUS_FLOWER_COLOUR] as u32) as u8
+    };
+    // The direct clamp Brief C2 specifies (`flower_bands.first +
+    // slot_value.min(count - 1)`), not `bark_band_for_density`'s
+    // proportional spread -- `flower.count == 0` (no flowering) already
+    // falls out of the `min` as band 0, matching `pick`'s old
+    // `count == 0 => 0` fallback exactly.
+    let flower_band = if flower.count == 0 { 0 } else { flower.first + flower_allele.min(flower.count - 1) };
     // **Discrete alleles are centred on what the species file declares**, so
     // an authored species is the point a population diverges *from* rather
     // than an identity it is stuck with. The scaled loci centre on mid-range
@@ -1780,13 +1803,18 @@ pub fn seed_genotype(world: &mut World, organism_id: u16, x: i32, y: i32) {
         }
         (base + 1 + rng.below(n as u32 - 1) as u8) % n
     };
-    // (Density and economy are *not* varied here: both are founded from the
-    // positional draws above, which already keeps a first generation a
-    // mixed stand on both strategy axes and both colour bands from frame
-    // one -- `Reports/plant-genome-design.md` §5.)
+    // (Density, economy and petal colour are *not* varied here: all three
+    // are founded from the positional draws above, which already keeps a
+    // first generation a mixed stand on every strategy axis and every
+    // colour band from frame one -- `Reports/plant-genome-design.md` §5.)
     alleles[organism::LOCUS_BRANCH_ANGLE] = vary(organism::LOCUS_BRANCH_ANGLE, 1, 66);
     alleles[organism::LOCUS_INTERNODE] = vary(organism::LOCUS_INTERNODE, 1, 67);
     alleles[organism::LOCUS_WOOD_DENSITY] = density_allele;
+    // **From here on petal colour is heritable**: a bred seed derives
+    // `flower_band` from this allele in `bear_seed_at` rather than taking a
+    // fresh draw off `ORGAN_BAND_STREAM`, which is the whole of Brief C2
+    // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.4-3.5).
+    alleles[organism::LOCUS_FLOWER_COLOUR] = flower_allele;
     if let Some(id) = species_id {
         let sp = world.species.get(id);
         // Clamped to the *locus'* range, not the palette's. The band and
@@ -2201,6 +2229,9 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     if let Some(pip_id) = world.materials.id_of("pip") {
         if cell.material == pip_id {
             world.pips_eaten += 1;
+            // Round 28's garden-loop instrument: "where" for the eaten
+            // exit, same convention as `pip_rot_x` beside it.
+            world.pip_eaten_x.push(x);
             return false;
         }
     }
@@ -2313,6 +2344,12 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
     world.seed_transit_frames.push(frames_carried as u32);
     world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
     world.seeds_delivered += 1;
+    // **Round 28's garden-loop instrument** -- flags this organism's pip
+    // as an A2 delivery, read once at its first `Behavior::Germinate`
+    // check into `PipCheck::delivered`. See `OrganismState::pip_delivered`.
+    if let Some(state) = world.organism_mut(passenger.organism_id) {
+        state.pip_delivered = true;
+    }
     // **The decay clock keeps running while carried** (§2.5) -- a free,
     // graded transit cost, not a free ride. A passenger owns no cell in the
     // grid for `organism_tick`'s own per-tick decay roll to visit while it
@@ -2334,6 +2371,9 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
             // standing pip can decay on the very tick it could otherwise
             // have germinated (`organism_tick`'s own seed-decay comment).
             world.pips_rotted += 1;
+            // Round 28's garden-loop instrument: "where" -- see
+            // `World::pip_rot_x`'s own doc.
+            world.pip_rot_x.push(x);
             shed_to_litter(world, x, y);
         }
     }
@@ -3070,29 +3110,44 @@ fn bear_seed_at(world: &mut World, sx: i32, sy: i32, parent_id: u16, seed_cost: 
             let mut jrng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | slot as u64);
             *dst = (*src + genotype_jitter(&mut jrng, sigma)).clamp(-1.0, 1.0);
         }
-        // Both colours derive from the (possibly just-mutated) alleles.
-        // Foliage has worked this way since the discrete-loci change;
-        // bark used to be copied from the parent and frozen forever --
-        // heritable but immutable, a channel evolution could not move.
+        // Three colours derive from the (possibly just-mutated) alleles now,
+        // not two. Foliage has worked this way since the discrete-loci
+        // change; bark used to be copied from the parent and frozen forever
+        // -- heritable but immutable, a channel evolution could not move.
         // Deriving it from the density allele is what lets bark tone
-        // change when the wood underneath it does.
+        // change when the wood underneath it does. Petal colour joins them
+        // here (`LOCUS_FLOWER_COLOUR`, Brief C2,
+        // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.4-3.5)
+        // -- until this change it was the third thing the comment below
+        // named as ungoverned, and a cross's petals read as random because
+        // they were: this line used to be a fresh draw with no connection
+        // to either parent.
         state.foliage_band = foliage_first + state.alleles[organism::LOCUS_LEAF_ECONOMY].min(foliage_count.saturating_sub(1));
         state.bark_band = organism::bark_band_for_density(bark_bands, state.alleles[organism::LOCUS_WOOD_DENSITY]);
-        // **Organ colour is redrawn per individual, not inherited**, and the
-        // gap is stated rather than papered over. There is no locus for
-        // petal or fruit colour yet, so there is nothing for `alleles` to
-        // carry and nothing for a mutation to move; copying the parent's
-        // byte would make it heritable-but-immutable, which is exactly the
-        // defect the bark band above was fixed *out* of ("heritable but
-        // immutable, a channel evolution could not move"). Giving it a real
-        // locus is a genome change and belongs with the heritability survey.
+        state.flower_band =
+            flower_bands.first + state.alleles[organism::LOCUS_FLOWER_COLOUR].min(flower_bands.count.saturating_sub(1));
+        // **Fruit colour is still redrawn per individual, not inherited**,
+        // and the gap is stated rather than papered over -- petal colour
+        // carried this identical comment until the line above gave it a
+        // real locus. There is no locus for fruit colour yet, so there is
+        // nothing for `alleles` to carry and nothing for a mutation to
+        // move; copying the parent's byte would make it heritable-but-
+        // immutable, which is exactly the defect the bark band above was
+        // fixed *out* of ("heritable but immutable, a channel evolution
+        // could not move"). Giving fruit a real locus is a genome change
+        // and belongs with the heritability survey, same as petal colour
+        // was until now.
         //
         // From the appended-jitter substream keyed on the landing cell and
         // the parent's generation, never from `rng`: this function's
         // caller keeps using that stream, and its position on return is
-        // asserted by a guard.
+        // asserted by a guard. Only the fruit draw is left on this
+        // substream -- the flower draw that used to share it is gone, so a
+        // bred plant's fruit colour now lands on the substream's first draw
+        // rather than its second. Harmless: `band_rng` is fresh per call and
+        // nothing outside this function ever reads its position, unlike the
+        // caller's shared `rng` below.
         let mut band_rng = rng::stream(world_seed ^ APPENDED_JITTER_SALT, sx as u64, sy as u64, (generation as u64) << 8 | ORGAN_BAND_STREAM);
-        state.flower_band = draw_band(flower_bands, &mut band_rng);
         state.fruit_band = draw_band(fruit_bands, &mut band_rng);
         // **From its own keyed substream, never from `rng`.** The caller's
         // stream position on return is a measured property with a guard over
@@ -3644,6 +3699,24 @@ pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
     super::field::noon_equivalent_light(world.field_at(x, y).light, world.sky_frame())
 }
 
+/// **Round 28's garden-loop instrument, diagnostic only** — not the
+/// engine's own notion of depth, because there isn't one. Counts non-empty
+/// cells directly above `(x, y)` before the first open-sky (`material ==
+/// EMPTY`, the raw material test `Cell::is_empty()` cannot stand in for —
+/// see `.claude/rules/src-sim-cells.md`) cell, capped at 64 so a pip buried
+/// under a whole worldgen column cannot make this loop unbounded. Cheap
+/// because its one caller gates on "pip material, first Germinate check
+/// only" — see `organism::PipCheck`'s own doc.
+fn overburden_depth(world: &World, x: i32, y: i32) -> i32 {
+    let mut depth = 0;
+    let mut yy = y - 1;
+    while depth < 64 && world.get(x, yy).material != material::EMPTY {
+        depth += 1;
+        yy -= 1;
+    }
+    depth
+}
+
 /// Lower ambient light reads as more shaded, which favours spreading —
 /// real moss's actual preference (shade slows evaporation), not a made-up
 /// bonus. Floored rather than let hit zero, since total darkness isn't a
@@ -3839,6 +3912,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // seeds_spilled` for how the four exits are meant to sum.
             if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
                 world.pips_rotted += 1;
+                // Round 28's garden-loop instrument: "where".
+                world.pip_rot_x.push(x);
             }
             shed_to_litter(world, x, y);
             // No reschedule: the organism now owns no cells, and
@@ -5449,6 +5524,39 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // separate the cases.)
                 let below = world.get(x, y + 1);
                 let resting = below.material != material::EMPTY;
+                // **Round 28's garden-loop instrument, read-only and
+                // additive** -- `Reports/lanes/evolution-lab-garden-loop.md`
+                // hypothesis (a): is a pip set down somewhere it can never
+                // clear these two thresholds? One row per pip, on its
+                // first Germinate check only (`deferred_germination` false
+                // on entry -- set true a few lines down if this pip is not
+                // ready), so a pip that sits out a dry spell does not
+                // multiply its own row. Gated on the pip material *and*
+                // "first check" together, so the cost never lands on any
+                // other seed's hot path -- an ordinary `seed`/`windfall`
+                // reaching this arm every tick pays nothing extra.
+                if world.materials.id_of("pip").is_some_and(|id| id == cell.material)
+                    && !world.organism(organism_id).is_some_and(|st| st.deferred_germination)
+                {
+                    let diag_light = ambient_light_above(world, x, y);
+                    let diag_holds_water = world.materials.get(below.material).water_capacity > 0;
+                    let diag_soil_water = if diag_holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let delivered = world.organism(organism_id).is_some_and(|st| st.pip_delivered);
+                    let overburden = overburden_depth(world, x, y);
+                    let frame = world.frame;
+                    world.pip_checks.push(organism::PipCheck {
+                        x,
+                        y,
+                        frame,
+                        delivered,
+                        resting,
+                        light: diag_light,
+                        light_threshold,
+                        soil_water: diag_soil_water,
+                        soil_water_threshold,
+                        overburden,
+                    });
+                }
                 let ready = resting
                     && (instant || {
                     let light = ambient_light_above(world, x, y);
@@ -16146,6 +16254,113 @@ they are the same world. Got {median}, which means something other than the leve
         }
     }
 
+    /// **A founder stand is not all one petal colour** -- Brief C2's own
+    /// named counter, over `herb`, the species the card renders. Positioned
+    /// beside `every_discrete_locus_varies_between_founders` because it is
+    /// the same property read the other way: that test sweeps every locus
+    /// on a non-flowering species and would have caught the founder path
+    /// pinning `LOCUS_FLOWER_COLOUR` at 0 (the bug the forward-allele-draw
+    /// rewrite in `seed_genotype` exists to avoid, see that constant's own
+    /// doc); this one checks the locus that actually paints a screen.
+    #[test]
+    fn a_founder_stand_of_herbs_is_not_all_one_petal_band() {
+        let mut w = test_world();
+        w.seed = 7_331;
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+
+        let mut bands: std::collections::HashSet<u8> = std::collections::HashSet::new();
+        for i in 0..60i32 {
+            let (x, y) = (7 + (i % 15) * 5, 11 + (i / 15) * 5);
+            let Some(id) = w.push_organism(herb) else { continue };
+            seed_genotype(&mut w, id, x, y);
+            bands.insert(w.organism(id).expect("live organism").flower_band);
+            w.free_organism(id);
+        }
+        assert!(
+            bands.len() > 1,
+            "60 herb founders wore only {} distinct petal band(s) -- a stand should be a spread \
+             of related colours, not one repeated swatch (`wiki/plants.md`, \"Colour is a \
+             readout\").",
+            bands.len()
+        );
+    }
+
+    /// **Petal colour passes from parent to seedling — Brief C2's actual
+    /// deliverable, asserted directly rather than inferred from a jar
+    /// round-trip.** Before `LOCUS_FLOWER_COLOUR` existed, `bear_seed_at`
+    /// drew `flower_band` fresh off `ORGAN_BAND_STREAM` for every child,
+    /// independent of the parent — with two flower bands that is a coin
+    /// flip, so roughly half of a parent's children would land on the
+    /// *other* colour by chance alone even though nothing evolved.
+    ///
+    /// **Put the fault back and this goes red**: revert `bear_seed_at`'s
+    /// `state.flower_band` line to a fresh `draw_band(flower_bands,
+    /// &mut band_rng)` call and the matched fraction below falls from
+    /// ~97% to ~50%, well under the 80% bar.
+    #[test]
+    fn a_bred_seeds_petal_colour_matches_its_parent_allele() {
+        let mut w = test_world();
+        w.seed = 9_009;
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+        let parent = w.push_organism(herb).expect("an organism slot is free");
+        let (parent_allele, parent_band) = {
+            let sp = w.species.get(herb);
+            let allele = 0u8;
+            (allele, sp.flower_bands.first + allele.min(sp.flower_bands.count.saturating_sub(1)))
+        };
+        if let Some(s) = w.organism_mut(parent) {
+            s.alleles[organism::LOCUS_FLOWER_COLOUR] = parent_allele;
+            s.flower_band = parent_band;
+        }
+
+        const CHILDREN: usize = 200;
+        let mut rng = rng::stream(3, 1, 4, 1);
+        let mut born = 0usize;
+        for i in 0..CHILDREN {
+            // Spread 4 cells apart so no two seeds' 8-neighbourhoods
+            // overlap -- the same spacing `set_seed_leaves_the_callers_rng_
+            // position_alone` uses and for the same reason.
+            let (x, y) = (4 + (i as i32 % 40) * 4, 4 + (i as i32 / 40) * 4);
+            if set_seed(&mut w, x, y, parent, 1.0, 0.0, &mut rng) {
+                born += 1;
+            }
+        }
+        assert!(born >= CHILDREN - 4, "test setup: too few seeds landed ({born}/{CHILDREN}) to say anything about the rate");
+
+        let b = w.bounds().expect("the test world has bounds");
+        let mut matched = 0usize;
+        let mut checked = 0usize;
+        for y in b.min_y..=b.max_y {
+            for x in b.min_x..=b.max_x {
+                let id = w.get(x, y).organism_id();
+                if id == 0 || id == parent {
+                    continue;
+                }
+                let Some(child) = w.organism(id) else { continue };
+                checked += 1;
+                if child.alleles[organism::LOCUS_FLOWER_COLOUR] == parent_allele {
+                    assert_eq!(
+                        child.flower_band, parent_band,
+                        "a seedling whose flower-colour allele did not jump must wear its parent's petal band"
+                    );
+                    matched += 1;
+                }
+            }
+        }
+        assert_eq!(checked, born, "every bred seed should own exactly one cell");
+        // Not vacuous: at `DISCRETE_MUTATION_CHANCE` 0.03 the unmatched
+        // remainder should be a small minority, not the near-half a
+        // free-draw mechanism would produce.
+        assert!(
+            matched as f32 / checked as f32 > 0.8,
+            "only {matched}/{checked} children carried their parent's petal band -- at \
+             `DISCRETE_MUTATION_CHANCE` 0.03 essentially all of them should. This is the \
+             regression Brief C2 exists to fix: without a locus, `bear_seed_at` drew petal \
+             colour fresh per child, independent of the parent, and with two flower bands that \
+             is a coin flip."
+        );
+    }
+
     /// **The property, rather than two instants fitted to one trajectory**
     /// (`CLAUDE.md`) — and the reason appending a genome slot is safe at
     /// all, asserted directly instead of inferred from a grown stand.
@@ -16518,7 +16733,7 @@ they are the same world. Got {median}, which means something other than the leve
             for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
                 *d = (slot as f32) / 9.0 - 0.5;
             }
-            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.alleles = [0, 1, 0, 1, 1, 0, 0];
             s.generation = 3;
         }
 
@@ -16564,15 +16779,26 @@ they are the same world. Got {median}, which means something other than the leve
         // Not vacuous: the loci have to have actually mutated somewhere,
         // or this fingerprint is 200 copies of the parent's alleles and
         // is blind to exactly the shift it exists to catch.
-        let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0])).count();
+        let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0, 0])).count();
         assert!(mutated >= 5, "the discrete loci should have mutated in a few children, got {mutated}");
 
+        // **Re-baselined for round 28's seventh locus, and this is the
+        // guard the round's own brief named as the one to watch.**
+        // `LOCUS_FLOWER_COLOUR` widened `alleles` from 6 entries to 7, so
+        // `jump_alleles` (inside `bear_seed_at`, called from `set_seed`)
+        // now spends one more `rng.chance` per child on this test's shared
+        // `rng` -- moving every draw after it, this fingerprint included.
+        // Old value `0x2197_04fe_f1c7_3b67`, measured on `main` before this
+        // change; this is `CLAUDE.md`'s own worked case, "a green suite
+        // does not prove a test could fail", landing for real rather than
+        // being quoted.
         assert_eq!(
-            h.0, 0x2197_04fe_f1c7_3b67,
+            h.0, 0x0ea6_032f_41d2_6be3,
             "the breeding draw sequence moved. `set_seed` spends one draw per genome slot from a \
              shared `Rng`, so this fails if a new slot was mutated inline instead of after the \
              discrete loci -- see `SEQUENCED_TRAITS`. Every bred genome ever measured is downstream \
-             of this sequence."
+             of this sequence. (Re-baselined for `LOCUS_FLOWER_COLOUR`, round 28 -- see the comment \
+             above this assertion if it moves again.)"
         );
     }
 
@@ -16771,7 +16997,7 @@ they are the same world. Got {median}, which means something other than the leve
             for (slot, d) in s.genotype_draws.iter_mut().enumerate() {
                 *d = (slot as f32) / 9.0 - 0.5;
             }
-            s.alleles = [0, 1, 0, 1, 1, 0];
+            s.alleles = [0, 1, 0, 1, 1, 0, 0];
             s.generation = 2;
         }
 
@@ -16792,13 +17018,20 @@ they are the same world. Got {median}, which means something other than the leve
         // draws `set_seed` took, so it pins the consumption count
         // without needing to observe it directly.
         let next = rng.below(1_000_000);
+        // **Re-baselined for round 28's seventh locus** -- the identical
+        // cause as the fingerprint guard above: `jump_alleles` now walks 7
+        // slots of `alleles` instead of 6, and every one of those draws
+        // comes off this test's shared `rng`, `SEQUENCED_TRAITS` is
+        // untouched. Old value `471_168`, measured on `main` before
+        // `LOCUS_FLOWER_COLOUR` existed.
         assert_eq!(
-            next, 471_168,
+            next, 939_699,
             "`set_seed` consumed a different number of draws from the caller's `Rng` than it used \
              to, so every draw the caller makes after it now differs. Almost certainly a new genome \
              slot being mutated from the shared `rng` instead of its own substream -- see \
              `SEQUENCED_TRAITS` and `APPENDED_JITTER_SALT`. This value was taken on `main` at \
-             `GENOTYPE_TRAITS = 9` and must not move when the genome widens."
+             `DISCRETE_LOCI = 7` (round 28, `LOCUS_FLOWER_COLOUR`) and must not move again when the \
+             genome widens further."
         );
     }
 

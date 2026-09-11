@@ -157,6 +157,9 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // seeds_spilled` for how the four exits are meant to sum.
     if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
         world.pips_rotted += 1;
+        // Round 28's garden-loop instrument: "where" -- see
+        // `World::pip_rot_x`'s own doc.
+        world.pip_rot_x.push(x);
     }
 
     // `base_shades`, not `palette.len()`: soil ships three region families
