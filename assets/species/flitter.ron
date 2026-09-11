@@ -271,36 +271,57 @@
         // and pulled the animal up to head-height 21 against a flower
         // standing ~22 rows up its own stem -- one row short, on the body
         // it had (`Reports/dead-ends.md`, hopper.ron entry, 2026-09-10).
-        // This species does not need a long-range forager's eye: it lives
-        // beside the bed it feeds from and the question its eye has to
-        // answer is "which way is the nearest bloom from here", not "is
-        // there one across the box" -- so **8, not 32**, a cap set for this
-        // niche rather than inherited from the ant's forager (the owner's
-        // own bound on this trait, `TRAIT_SIGHT_RANGE`'s cap). The reach
-        // that closes hopper's one-row gap is the body below (`Chain(2)`'s
-        // lighter arc, §2.1), not a longer sight line.
-        sight_range: 8,
-        // **Derived exactly as `hopper.ron`'s own (unused) figure was**,
-        // at this species' identical energy budget:
+        // **The eye is hopper's own figure, 32, and this file shipped 8
+        // first -- the number below is why it moved.** A lane read the
+        // coordinator note's *"the eye is heritable (`TRAIT_SIGHT_RANGE`,
+        // cap 8)"* as a bound on what a species may author; it is not --
+        // `sight_range_of` clamps an evolved eye at `SIGHT_MAX` 128 and
+        // nothing caps the authored field. What settles it is the bed: a
+        // flower in this box stands **~22 rows up its own stem** (the
+        // nectar PR's own figure, and the row the hopper's climb fell
+        // short of), so an 8-cell eye cannot see the thing this animal
+        // eats from the ground it stands on, at any seed, by
+        // construction -- an eye that cannot reach the only food this gut
+        // digests is a sense wired to a constant zero.
+        //
+        // **What IS measured, at 32**, `played_bed` seed 1,
+        // `creature=flitter`, 12,000 frames: `bloom_seen` **6,438**, against
+        // **0** on the same bed and the same binary with `creature=hopper`
+        // (hopper authors no eye, so that is the negative control -- the
+        // sense reads a constant zero for a blind species and this says the
+        // counter is not merely always-on). `flower_visits` **5** on the
+        // same run, the first non-zero this box has ever recorded for the
+        // pair. **The r=8 arm was not run**: a species file is
+        // `include_str!`-embedded, so changing this one line is an 18-minute
+        // rebuild of the whole crate, and the arithmetic above does not need
+        // a run to settle. Left as the cheap open check for whoever next
+        // rebuilds this crate anyway.
+        //
+        // 32 is `ancestor.ron`'s figure and the one P1 measured the bloom
+        // pair on (`hopper.ron`, 2026-09-10: `bloom_seen` 27 and 56 on two
+        // seeds of three -- sparse even then). Kept identical so this run
+        // re-tests the sense with the **body** changed and nothing else,
+        // which is `CLAUDE.md`'s sweep-control rule applied to a species
+        // file. The reach that closes hopper's one-row gap is the body
+        // below (`Chain(2)`'s lighter arc, §2.1), never a longer sight
+        // line; the eye's only job is to say which way the bed is
+        // flowering, and it has to be able to reach a flower to say it.
+        sight_range: 32,
+        // **`hopper.ron`'s own figure, unchanged, because the reach is
+        // unchanged** -- that file derived it at exactly this radius:
         //
         //   idle ticks = start_energy / (idle_cost_per_cell * cells) = 200 / 0.10 = 2,000
         //   share S of an idle lifetime  =>  sight_fraction = S / (ticks * reads)
+        //   one r=32 cast reads 616 cells  =>  0.10 / (2,000 * 616) = 8.1169e-8
         //
-        // Measured with `field_sense_probe mode=control eye=8`, one cast on
-        // bare open floor reads **184 cells** (against 328 at r16, 616 at
-        // r32, 1,186 at r64 on the same instrument -- the scaling is close
-        // to linear in radius, not quadratic, because a ray-cast reads its
-        // *length* rather than a disc's area). At S = 0.10, matching the
-        // brain's own share (`synapse_fraction` above):
-        //
-        //   0.10 / (2,000 * 184) = 2.7174e-7
-        //
-        // An eye an order of magnitude cheaper per tick than the ant's own
-        // 32-cell figure, because it reads an order of magnitude fewer
-        // cells -- the price follows the range down with it, exactly as
-        // `hopper.ron`'s own doc says it must ("nothing balances the range
-        // ... selection is left to settle where the eye lands").
-        sight_fraction: 0.00000027173913,
+        // An earlier draft of this file authored 2.7174e-7, the same
+        // arithmetic re-derived at the 184 cells an r=8 cast reads. That
+        // number is correct for an eye this species no longer has, and
+        // leaving it beside `sight_range: 32` would have quietly charged
+        // a flitter **3.3x** what the ant pays per cell looked at -- the
+        // shape `CLAUDE.md` calls re-deriving the constants that read a
+        // quantity whose meaning moved, arriving in the other direction.
+        sight_fraction: 0.000000081168831,
         // **The price of the curvature disc, and it is the same number as
         // the eye's on purpose.** Owner's ruling, 2026-09-05: *everything
         // should be priced*. `curvature_radius` was the sensory ratchet
@@ -887,15 +908,21 @@
             // should be chased less decisively than prey.
             (BloomBearing, Turn, -2.5),
             // `BloomNear` is unsigned (`(1 - dist/reach).clamp(0,1)`, the
-            // same shape `PreyNear` uses), so a weight on it alone cannot
-            // reverse a turn -- it can only sharpen one already under way
-            // from `BloomBearing` above. Small and same-signed on purpose:
-            // as the bloom is passed nearly overhead the turn commits
-            // harder to the final approach, rather than staying at the
-            // same gentle pull it needed from across the bed. Unauthored
-            // (`hopper.ron`'s own P1 test did not have this line either),
-            // so this is this file's own addition and its own thing to
-            // watch in the measurement below.
+            // same shape `PreyNear` uses), so a weight on it is a CONSTANT
+            // term in the turn sum -- **not a multiplier on the line
+            // above**. An earlier draft of this comment called it a
+            // sharpening of the bearing turn and that is arithmetically
+            // wrong: the sum is `w_bearing * bearing + w_near * near`, so
+            // while any bloom is in sight this leans the animal one way
+            // (negative is toward the right, `BrainOutput::Turn`'s own
+            // convention) whichever side the bloom is actually on. It is a
+            // veer. Kept, and kept at a fifth of the bearing weight, for
+            // what a veer is good for here: an animal that has overshot a
+            // bloom curls back toward it instead of running straight on,
+            // and at 0.5 against 2.5 it can never reverse the term that
+            // points at the flower. Unauthored anywhere else
+            // (`hopper.ron`'s own P1 test did not have this line), so it is
+            // this file's own addition and its own thing to watch.
             (BloomNear, Turn, -0.5),
             // Flee heat. The worm's thermotaxis, kept, because it is the
             // same animal problem and it costs one connection.

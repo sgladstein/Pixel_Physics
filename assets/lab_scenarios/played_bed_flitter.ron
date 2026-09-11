@@ -1,0 +1,78 @@
+// **The played bed, with flitters in it** -- `played_bed.ron` unchanged in
+// every other respect, plus eight flitters released the moment the ant
+// colony lands.
+//
+// It exists because the two ways of getting a flitter onto this bed answer
+// different questions and only one of them is the bed the owner plays.
+// `labforage`'s `creature=flitter` overrides who the scenario's `Colony`
+// placement founds, which is the right *control* -- one bed, two arms,
+// nothing differing but the species -- and it is a bed with no ants in it at
+// all. The owner's bed has both, and the flitter's whole visible claim is
+// where it goes relative to a colony that stays on the floor. So: the ants
+// found at x=256 exactly as before, and the flitters arrive beside the
+// flowering plants rather than in the bare middle with them.
+//
+// **Why beside the plants and not at the colony.** The bed's flowers stand
+// ~22 rows up plants at x=50-180 and x=330-465, and the colony lands in the
+// gap at x=256 -- some 50 columns from the nearest stem, which is further
+// than a flitter's authored 32-cell eye reaches. A flitter founded in the
+// middle can only find the bed by wandering, and a card following one would
+// be a card of an animal looking for the subject. Released at the plants it
+// is looking at flowers from its first tick, which is what the card is of.
+// The measurement arms do NOT use this file, deliberately: a placement
+// chosen to favour the animal is exactly the scene error `CLAUDE.md` warns
+// a measurement inherits without noticing.
+(
+    name: "played_bed_flitter",
+    title: "THE PLAYED BED, WITH FLITTERS",
+    question: "The owner's own mix, grown for 6,000 frames, then a colony lands on it -- and eight flitters land at the flowers.",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "grass", x: 25),
+        Plant(species: "herb",  x: 50),
+        Plant(species: "shrub", x: 75),
+        Plant(species: "grass", x: 105),
+        Plant(species: "herb",  x: 130),
+        Plant(species: "grass", x: 155),
+        Plant(species: "shrub", x: 180),
+        Plant(species: "grass", x: 330),
+        Plant(species: "herb",  x: 355),
+        Plant(species: "shrub", x: 380),
+        Plant(species: "grass", x: 410),
+        Plant(species: "herb",  x: 435),
+        Plant(species: "grass", x: 465),
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 118),
+        Plant(species: "scrambler", x: 395),
+        Plant(species: "scrambler", x: 490),
+        Plant(species: "tree",      x: 455),
+    ],
+    timeline: [
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 50)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 75)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 130)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 180)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 355)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 380)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 435)),
+        (at: 6000, every: 0, until: 0, what: Animal(species: "flitter", x: 460)),
+    ],
+    horizon: 120000,
+)

@@ -130,6 +130,17 @@ fn main() {
     // for itself -- the two knobs are additive, not a rewrite of one path.
     let follow: Option<String> = arg::<String>("follow");
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
+    // **`pngdir=<dir>` writes the same captures as numbered PNGs beside the
+    // GIF**, because the review queue's own skill says to prefer a frame
+    // sequence to a GIF and this file could only make the thing it says not
+    // to prefer: *"Tested head to head on one card, with the same motion
+    // posted both ways: the sequence played and the GIF did not"* -- a GIF
+    // valid by every check on the posting side still showed the owner one
+    // static frame, because the page's frame view runs on its own timer
+    // rather than on the browser's GIF decoder. The GIF is still written
+    // either way, so nothing that already calls this file changes; unset,
+    // not one line below runs.
+    let pngdir: Option<String> = arg::<String>("pngdir");
     // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
     // relying on `zoom` alone** -- the review skill is explicit that a GIF
     // should never carry `zoom` into the queue (`image-rendering: pixelated`
@@ -200,11 +211,12 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} pngdir={} out={out}",
         lab.spec.colony_species,
         rain.label(),
         crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
-        follow.as_deref().unwrap_or("none")
+        follow.as_deref().unwrap_or("none"),
+        pngdir.as_deref().unwrap_or("none")
     );
     println!("  {msg}");
 
@@ -347,6 +359,25 @@ fn main() {
     // hand: the log read `2560x1600` over an image that was genuinely
     // `512x320`, `CLAUDE.md`'s own "ask what your number counts" shape.
     let (shot_w, shot_h) = shots.first().map_or((w, h), |img| (img.width(), img.height()));
+    // **Written before the encoder consumes the shots.** Zero-padded so a
+    // plain glob sorts into capture order -- `review.py` takes the files in
+    // the order it is handed them, and a card whose frames are shuffled
+    // reads as a broken animation rather than as a listing mistake.
+    if let Some(dir) = &pngdir {
+        if let Err(e) = std::fs::create_dir_all(dir) {
+            eprintln!("labgif: could not create {dir}: {e}");
+        } else {
+            let mut written = 0usize;
+            for (i, img) in shots.iter().enumerate() {
+                let path = format!("{dir}/frame{i:03}.png");
+                match img.save(&path) {
+                    Ok(()) => written += 1,
+                    Err(e) => eprintln!("labgif: could not write {path}: {e}"),
+                }
+            }
+            println!("  wrote {written} PNG frames to {dir}/frameNNN.png ({shot_w}x{shot_h} each)");
+        }
+    }
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
     let n = gif_frames.len();
     match std::fs::File::create(&out) {

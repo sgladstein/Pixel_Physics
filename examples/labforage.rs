@@ -104,6 +104,45 @@ fn hidden_rider() -> Vec<(brain::BrainInput, usize, f32)> {
         .collect()
 }
 
+/// `wire=<Input>:<Output>:<weight>[,...]` -- the input-to-**output** half of
+/// the rider above, `labstats`' and `creature_arena`'s own syntax, added here
+/// for P2's control arm.
+///
+/// **It exists because the alternative is the `include_str!` trap.** P2 needs
+/// the shipped hopper raced at `(Bias, Impulse, 2.0)` against the flitter,
+/// and `hopper.ron` ships 0.5. A species *file* copy carrying the other
+/// weight is not "the same binary two arms": species files are
+/// `include_str!`-embedded, so the arm is a different build, and this repo
+/// has three bit-identical sweeps on record from exactly that. `instruments.
+/// md` names this case by name -- *"The hopper's entire reason to exist is a
+/// single instinct row, `(Bias, Impulse, 2.0)`, and there was no way to move
+/// it without editing `hopper.ron` and rebuilding between arms"* -- and the
+/// fix it records is this knob, which `labstats` and `creature_arena`
+/// already carry. This is the third harness, deliberately with the same
+/// spelling so the three race one set of numbers rather than three
+/// transcriptions.
+fn wire_rider() -> Vec<(brain::BrainInput, brain::BrainOutput, f32)> {
+    let Some(spec) = arg::<String>("wire") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=Bias:Impulse:2.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            (input, output, w)
+        })
+        .collect()
+}
+
 /// The gut bias off a live founder, never off the species table -- the run
 /// has to be measuring the gut it says it is. `0.0` (neutral) before any
 /// ant exists to read one off, which only happens between the bed being
@@ -504,6 +543,36 @@ fn main() {
             println!("  {key}= {rho} (shipped {})", pixel_physics::sim::pheromone::DECAY_RHO);
         }
     }
+    // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
+    // before founding, because `place_creature` copies the genome at
+    // placement -- and it asserts that the write actually moved a slot,
+    // because an arm that matched nothing is the control wearing a label,
+    // which reads as a clean null rather than as a broken run.
+    let wires = wire_rider();
+    if !wires.is_empty() {
+        let sid = world.species.id_of(&spec.colony_species).expect("the colony species is compiled in");
+        let mut genome = world.species.get(sid).genome.clone();
+        let mut moved = 0;
+        for &(input, output, w) in &wires {
+            let i = brain::io_slot(input, output);
+            if genome[i] != w {
+                genome[i] = w;
+                moved += 1;
+            }
+        }
+        assert!(moved > 0, "wire= matched no slot the species did not already carry; this arm is the control wearing a label");
+        world.species.set_genome(sid, genome);
+        println!(
+            "  wire= set {moved} of {} input->output weights on {}: {}",
+            wires.len(),
+            spec.colony_species,
+            wires
+                .iter()
+                .map(|&(i, o, w)| format!("{}:{}:{w}", brain::INPUT_NAMES[i as usize], brain::OUTPUT_NAMES[o as usize]))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
     let hidden = hidden_rider();
     if !hidden.is_empty() {
         let sid = world.species.id_of(&spec.colony_species).expect("the colony species is compiled in");
@@ -787,13 +856,65 @@ fn main() {
         seed_transit_median.map_or_else(|| "n/a".to_string(), |m| m.to_string()),
         world.seed_transit_frames.len()
     );
+    // **P2's own roll-ups (the flitter, Brief P2).** Three per-species
+    // lines, because every one of them reads a single number on a bed that
+    // holds two animals and the whole question is which animal it belongs
+    // to. `CLAUDE.md`'s effect-counter rule is why they come in pairs here:
+    // `impulses` says the verb fired and `impulses_refused` says how much of
+    // that firing was into thin air (a launch called while already airborne
+    // is refused, `creature::launch`), so the number that means anything is
+    // the difference, printed as `real_launches` rather than left to be
+    // subtracted by eye.
+    let mut alive_by: std::collections::BTreeMap<String, u32> = std::collections::BTreeMap::new();
+    for g in world.live_creature_groups() {
+        *alive_by.entry(world.species.get(g.species).name.clone()).or_insert(0) += g.alive;
+    }
+    let fmt_alive = alive_by.iter().map(|(k, v)| format!("{k}:{v}")).collect::<Vec<_>>().join(",");
+    let fmt_visits = world
+        .flower_visits_by_species
+        .iter()
+        .map(|(sp, n)| format!("{}:{n}", world.species.get(pixel_physics::sim::organism::SpeciesId(*sp)).name))
+        .collect::<Vec<_>>()
+        .join(",");
+    // The death-cause histogram, per species -- the cost fork's own
+    // deliverable ("report the death-cause histogram and stop") and the only
+    // place `starved aloft` can be told from ordinary starvation for ONE of
+    // two animals in a bed. `World::group_deaths` is already split by
+    // `(species, colony)`; this rolls the colonies up.
+    let mut deaths_by: std::collections::BTreeMap<String, [u64; pixel_physics::sim::organism::DEATH_CAUSES]> =
+        std::collections::BTreeMap::new();
+    for g in &world.group_deaths {
+        let row = deaths_by
+            .entry(world.species.get(g.species).name.clone())
+            .or_insert([0; pixel_physics::sim::organism::DEATH_CAUSES]);
+        for (i, n) in g.by_cause.iter().enumerate() {
+            row[i] += n;
+        }
+    }
+    let fmt_deaths = deaths_by
+        .iter()
+        .map(|(name, row)| {
+            let causes = pixel_physics::sim::organism::DEATH_CAUSE_LIST
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| row[*i] > 0)
+                .map(|(i, c)| format!("{}:{}", c.label().replace(' ', "_"), row[i]))
+                .collect::<Vec<_>>()
+                .join("/");
+            format!("{name}[{}]", if causes.is_empty() { "none".to_string() } else { causes })
+        })
+        .collect::<Vec<_>>()
+        .join(",");
+    let starved_aloft = world.deaths_by_cause[pixel_physics::sim::organism::DeathCause::StarvedInFlight.index()];
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
          regime={} breeders={} gen={} bgen={} windfall_bitten={} seeds_spilled={} plants_from_pip={} pips_rotted={} pips_eaten={} \
          windfall_bitten_ownerless={} seeds_carried={} seeds_delivered={} plants_from_pip_near_nest={} seed_transit_median={} lookup={} visits={} \
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
-         standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={}",
+         standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
+         launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
+         flower_visits_by={} alive_by={} deaths_by={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -872,7 +993,39 @@ fn main() {
         // read against the pre-rebloom baseline for whether keeping the
         // flower count up also exploded the refusal rate.
         last.standing_flowers, last.standing_fruit, world.flowers_rebloomed,
-        world.organ_ripening_blocked, world.organ_ripening_paid
+        world.organ_ripening_blocked, world.organ_ripening_paid,
+        // **P2 (the flitter)** -- the hop's own pair and the two
+        // per-species splits.
+        //
+        // **`CreatureStats::impulses` is already the real launches**, not
+        // the attempts: `creature::launch` increments it only on the branch
+        // that puts a body in the air and increments `impulses_refused` on
+        // the branch that returns false. So the design report's `launches`
+        // column is the SUM of the two, and it is printed here as
+        // `launch_attempts` rather than left to be reconstructed -- a first
+        // draft of this line printed `impulses - refused` as the real
+        // launches and read **0 real launches** on an arm whose animals were
+        // visibly hopping, the counter-means-what-you-assumed failure
+        // `CLAUDE.md` opens its measurement section with.
+        //
+        // `refused_pct` is printed beside the raw counts because the raw
+        // counts are not comparable between arms of different population:
+        // an arm with twenty times the animals asks for the verb twenty
+        // times as often. The design's own prediction is about the share
+        // (*"at 2.0, 60% of every launch is one"*). `starved_aloft` is the
+        // verb's own bill (`DeathCause::StarvedInFlight`).
+        world.creature_stats.impulses + world.creature_stats.impulses_refused,
+        world.creature_stats.impulses,
+        world.creature_stats.impulses_refused,
+        {
+            let asked = world.creature_stats.impulses + world.creature_stats.impulses_refused;
+            if asked > 0 { 100.0 * world.creature_stats.impulses_refused as f64 / asked as f64 } else { 0.0 }
+        },
+        starved_aloft,
+        world.creature_stats.flight_frames,
+        if fmt_visits.is_empty() { "none".to_string() } else { fmt_visits },
+        if fmt_alive.is_empty() { "none".to_string() } else { fmt_alive },
+        if fmt_deaths.is_empty() { "none".to_string() } else { fmt_deaths }
     );
 }
 

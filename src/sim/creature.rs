@@ -5151,7 +5151,25 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // step, booked to `harvested_plant` the same way the brood
                 // path (`try_bud`'s own shortfall loop, `:1384`) already
                 // books a bite taken to cover a birth.
+                //
+                // **Bracketed, because this is the only place that knows
+                // WHO reached the flower.** `nectar_offer` increments
+                // `World::flower_visits` itself and is deliberately never
+                // told the visitor's species; P2 needs the split (an ant
+                // and a flitter in one bed report one number otherwise, and
+                // the flitter's whole claim is that the number is its own).
+                // Reading the total across the call attributes exactly what
+                // that call counted, paid or dry -- the dry reach is
+                // counted too, which is the half the sensitivity control
+                // rests on (`World::flower_visits`' own doc).
+                let visits_before = world.flower_visits;
                 let nectar_yield = plant::nectar_offer(world, fxx, fyy);
+                if world.flower_visits > visits_before {
+                    if let Some(sp) = world.organism(organism).map(|s| s.species) {
+                        let delta = world.flower_visits - visits_before;
+                        *world.flower_visits_by_species.entry(sp.0).or_insert(0) += delta;
+                    }
+                }
                 if nectar_yield > 0.0 {
                     let credit = nectar_yield * diet_quality(world, bite.material, gut.bias);
                     if let Some(state) = world.organism_mut(organism) {
