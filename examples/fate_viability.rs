@@ -159,6 +159,9 @@ fn type_name(t: CellType) -> &'static str {
         CellType::Segment => "Segment",
         CellType::Flower => "Flower",
         CellType::Fruit => "Fruit",
+        CellType::Leg => "Leg",
+        CellType::Gut => "Gut",
+        CellType::Armour => "Armour",
     }
 }
 

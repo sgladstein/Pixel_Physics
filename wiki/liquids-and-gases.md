@@ -1,7 +1,9 @@
 # Liquids & Gases
 
-*Current as of: 2026-09-07 (rain drips through a canopy instead of sitting
-on it). Before that, 2026-08-22 (steam joins the weather; rock sinks in
+*Current as of: 2026-09-11 (water on a low plant soaks into the ground
+under it, not just off a branch into open air). Before that, 2026-09-07
+(rain drips through a canopy instead of sitting
+on it), and 2026-08-22 (steam joins the weather; rock sinks in
 water; a boulder entering a pool throws a crown; smoke and steam are
 see-through; smoke thins out and goes, and an explosion leaves some
 behind).*
@@ -23,9 +25,22 @@ ground: nine tenths of all the water in the world would be standing in the
 canopy, some of it a hundred rows up, and it stayed there. The water was not
 lost, but it was not going anywhere either.
 
-A drop still needs somewhere to go. Water on a branch with solid ground
-directly beneath it stays where it is, the same way a drift of fallen leaves
-piled against a trunk stays put rather than sinking into the roots.
+**And a plant that is not a tree soaks the water away.** Grass, herbs,
+shrubs and creepers lie on the ground rather than holding a crown in the air,
+so there is no open space under their leaves for a drop to fall into -- there
+is the bed itself. Water landing on them goes down through the leaves and
+into the soil, which is where it was going anyway. Before this it stayed on
+them: a watered patch of low planting would carry a sheet of standing water
+across the top of it that never went anywhere, while the ground an inch
+underneath stayed thirsty.
+
+A drop still needs somewhere to go, and there are two ways for it not to
+have anywhere. Water on a branch with **bare rock or a fallen log** directly
+beneath it stays where it is, the same way a drift of fallen leaves piled
+against a trunk stays put rather than sinking into the roots. And ground
+that has already taken all the water it can hold turns the next drop away,
+so a bed you keep watering does eventually puddle -- that is the difference
+between damp ground and a waterlogged one, and you can see it happen.
 
 **Moving water runs white.** Water in motion — falling, pouring, spreading,
 splashing — draws pale and foamy, and goes back to its deep still colour

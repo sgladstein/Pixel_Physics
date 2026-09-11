@@ -320,13 +320,40 @@ by somebody about to try it on creatures.
 - [coupling-research.md](coupling-research.md) — **research (Report C of
   four).** Rigid body ↔ grid coupling for M8; §4 is why chunk bodies run
   serially.
+- [soil-water-columns-2026-09-11.md](soil-water-columns-2026-09-11.md) —
+  **measured and diagnosed, nothing changed, 2026-09-11.** Why the bed's
+  water stands in vertical columns under the soil-moisture overlay. It is
+  **not** biology: an empty box with nothing alive in it reproduces the
+  picture exactly, and the same box with the mister off holds flat at field
+  capacity. It is capillary's wide rest threshold — 380 units, a third of
+  the scale — applied to the **sideways** face, where the pump it was
+  derived against cannot happen, since drainage only moves water down. Every
+  pair in the bed at rest and the widest standing gap sitting **exactly on
+  the constant** is the tell. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
+  the sideways face and removes the columns outright (widest gap 380 → 0),
+  at **+44% to +67% soil-moisture writes a tick** and ~10% of the lab's
+  median tick — so it ships inert and the default is the owner's to rule on.
+  Recommendation: leave it, because the striping is invisible in the shipped
+  material colours and has no reach below field capacity; reopen it the day
+  the water table becomes something the game reads. §6 carries a cost A/B
+  that came back bit-identical because the bed was degenerate for the
+  question.
 
 ## Plants and trees  ·  `engine`
 
 - [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
-  — **built and measured, 2026-09-07.** The owner's *"water also pools on the
-  top of our plants; it should drip through"*, answered — and the rule
-  already existed. `update_powder` has `fall_through_organism` (litter, seed,
+  — **built and measured, 2026-09-07; §7 added 2026-09-11.** The owner's
+  *"water also pools on the top of our plants; it should drip through"*,
+  answered — and the rule already existed. **§7 is the half it missed**: the
+  scan looks for open *air* on the far side of the leaf, which a tree has and
+  a grass tussock, herb, shrub or scrambler never does — under their tissue
+  is the bed. Measured by replaying the scan over every standing drop, 876
+  liquid cells resting on tissue with **8** able to drip, 276 of them over
+  ground with room to spare, and the same failure at the mister OFF, so not a
+  rain-rate artifact. Ground that can hold water is a landing now; ground at
+  capacity still refuses, which is what keeps it graded. §7.4 is a guard that
+  was **blind on its first writing** and only the put-the-fault-back check
+  found it. `update_powder` has `fall_through_organism` (litter, seed,
   windfall) on the 2D-slice argument that *a branch one cell wide is not a
   shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
   so water landing on a crown simply sat. Measured before the fix,
@@ -1212,6 +1239,44 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  — **design 2026-09-09, built 2026-09-10, and the bodies do not walk.**
+  §7 is the measurement: an articulated ant is blocked on **43.9%** of its
+  moves on dead-flat ground and **96.8%** on `rolling`, against a six-cell
+  plain chain's **2.5%** and **12.4%** on the same seed — length controlled,
+  so it is the body plan. `ascii` fails outright (*"the colony has gone
+  sessile"*, 172 moves against 9,586 blocked) and `scene=colony` founds 4
+  ants of 52. §7b is a real defect found and fixed on the way (a lateral
+  fixed in world space deadlocks a spine that has gone vertical) which moved
+  the number barely at all, and §7c is three hypotheses that moved nothing,
+  recorded so they are not retried. The design below stands; the movement
+  rule does not. Can a creature's body come out of a
+  genome instead of a species file? Yes, and the reason is that
+  `World::push_organism` already seeds **every** organism, creature included,
+  with a `FateGenome` from its species table — an ant has had a body genome
+  since the plant line landed one and it has been empty. So the heritable
+  body costs **zero new bytes of per-organism state**; `CellType` has 6 of 16
+  slots free in both places it is stored; and the whole economy re-derives on
+  **one factor over four `*_per_cell` fields**, because the birth stamp and
+  the meat value are the same product `body_energy × cells` — every
+  whole-animal quantity is invariant and only the per-bite value moves, which
+  grades the bite. The one new piece of code is a third arm in
+  `body_after_step`: the spine follows the chain rule that already ships and a
+  segment's lateral cell sits directly above it, so the body **bends** and a
+  footprint ≥3 wide is unrepresentable rather than discouraged. Reads roles
+  (head/leg/gut/armour) as a **fraction** of the live body, never a count,
+  which is what keeps size priced. Records the honest limits: it is not
+  growth, a body is an axis rather than a tree, and **palette is untouched**,
+  so `creature-appearance-design.md` §7 is half closed and not closed.
+  Carries the owner's 2026-09-03 verdict on the six-silhouette card.
+  **§13 (2026-09-10) fixes the movement finding above** — the lateral tuck,
+  a length-not-width founding walk, and a flip that turns a boxed body
+  round in a dead end, shipped as the default. **Landed 2026-09-11 per the
+  owner's ruling in §13, "go with A, but the long ant should be an option
+  that I can place": the shipped ant stays `Chain(2)`, and the seven-cell
+  articulated body moves to `longant`, a species a player places rather
+  than the one a colony starts with** — `assets/species/longant.ron`,
+  `assets/materials/longant.ron`, `assets/lab_scenarios/played_bed_longant.ron`.
 - [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
   — **measurement only, no body plan built.** Three pre-checks for
   `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
@@ -1234,8 +1299,12 @@ drift that two of these documents still reflect.**
   `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
   than being a small-size artifact. The blind gallery card of six candidate
   silhouettes (`20260902T194120383Z-3860b1`) was answered on 2026-09-03:
-  *"These are decent starts, depends on how they look in action"* — the bar
-  moved to motion.
+  *"These are decent starts, depends on how they look in action"* — a positive
+  verdict on the silhouettes and a refusal to settle the question on stills,
+  which is that report's own §3 correction arriving from the owner rather than
+  from review. The bar moved to motion, and
+  [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  is what carries it.
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks
