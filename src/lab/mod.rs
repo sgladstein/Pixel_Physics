@@ -5489,7 +5489,7 @@ mod tests {
         None
     }
 
-    /// **The default arm reacts; `Off` does not.** `CLAUDE.md`: put the
+    /// **An armed reaction reacts; `Off` does not.** `CLAUDE.md`: put the
     /// fault back and watch it go red -- without the `Off` half, a build
     /// that reacts to *every* `LogKind` regardless of `react_on` would pass
     /// this test exactly as well as the real gate does, because nothing
@@ -5506,7 +5506,11 @@ mod tests {
     fn a_notable_event_reacts_when_armed() {
         let mut lab = Lab::new(scene::LabBox::default());
         lab.time.set_preset(time::PRESETS.len() - 1); // 1024x, and Running
-        assert_eq!(lab.time.react, time::Reaction::Linger, "the shipped default");
+        // `Off` is the shipped default now (owner: the camera cut was "really
+        // annoying"), so this test arms `Linger` itself rather than relying
+        // on it -- it is proving the reaction mechanism fires when armed, not
+        // what ships armed.
+        lab.time.react = time::Reaction::Linger;
         let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1).expect(
             "no LineEnded fired inside the call budget -- see this test's doc comment \
              for the expected horizon; a change to founder starvation may have moved it",
@@ -5539,6 +5543,10 @@ mod tests {
     fn the_reaction_is_checked_inside_the_tick_loop() {
         let mut lab = Lab::new(scene::LabBox::default());
         lab.time.set_preset(time::PRESETS.len() - 1); // 1024x
+        // `Off` ships now (see `a_notable_event_reacts_when_armed`'s own
+        // note); arm `Linger` so this test can still watch the reaction
+        // fire.
+        lab.time.react = time::Reaction::Linger;
         let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1)
             .expect("no LineEnded fired inside the call budget");
         let event_frame = lab
@@ -5564,6 +5572,8 @@ mod tests {
     fn an_auto_reaction_pins_the_subject() {
         let mut lab = Lab::new(scene::LabBox::default());
         lab.time.set_preset(time::PRESETS.len() - 1);
+        // `Off` ships now; arm `Linger` so the reaction (and its pin) fires.
+        lab.time.react = time::Reaction::Linger;
         run_advance_until(&mut lab, |lab| lab.time.requested == 1)
             .expect("no LineEnded fired inside the call budget");
         let who = lab.ui.pinned().expect("the reaction did not pin anyone");

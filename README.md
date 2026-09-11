@@ -7503,19 +7503,23 @@ census, and never a list of the dead.
 
 ## Event reaction status — the box calls you back
 
-**Running is no longer uniform time.** When a line-bounded event fires
-(`LogKind::is_line_event` — the same predicate the LOG page's `LINES` filter
-reads, so the clock and the chronicle cannot disagree about what counts),
-the dial drops to 1x for three seconds of wall clock, the camera hard-cuts
-to the subject — or to its grave, via `Graveyard::about`, when the subject is
-the thing that ended — the pin moves to it, FOLLOW comes on, and the notice
-is the chronicle's own sentence. Then the dial climbs back to what was
-requested. A new `EVENTS` row on the BOX page, and the `T` key, cycle
-`LINGER / STOP / OFF`: `STOP` holds the box paused until the player resumes
-by hand, `OFF` logs the event and never touches the clock. `LINGER` ships,
-per the standing ruling to default to the recommended setting rather than
-off — and because a linger is a *graded* interruption where a stop is a
-binary one, which is the ethos' first law applied to time.
+**Running is no longer uniform time — when armed.** When a line-bounded
+event fires (`LogKind::is_line_event` — the same predicate the LOG page's
+`LINES` filter reads, so the clock and the chronicle cannot disagree about
+what counts) and a reaction is armed, the dial drops to 1x for three seconds
+of wall clock, the camera hard-cuts to the subject — or to its grave, via
+`Graveyard::about`, when the subject is the thing that ended — the pin moves
+to it, FOLLOW comes on, and the notice is the chronicle's own sentence. Then
+the dial climbs back to what was requested. A new `EVENTS` row on the BOX
+page, and the `T` key, cycle `LINGER / STOP / OFF`: `STOP` holds the box
+paused until the player resumes by hand, `OFF` logs the event and never
+touches the clock. **`OFF` ships** — reversed from the original ruling
+("`LINGER` ships, per the standing ruling to default to the recommended
+setting rather than off") after playtest: *"When events happen the screen
+moves to that spot and it is really annoying. Stop that."* `Linger` cuts the
+camera exactly like `Stop` does, so no armed setting avoids the complaint —
+only `Off` does, and a player who wants the graded interruption arms `Linger`
+by hand.
 
 **The check is inside the tick loop, not after it.** At 1024x one displayed
 frame is up to 1,024 ticks, so a check placed after the loop would compile,
