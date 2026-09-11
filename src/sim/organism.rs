@@ -3819,6 +3819,42 @@ pub struct CreatureDef {
     /// trait exists" was one trait short, not one stage short.
     #[serde(default)]
     pub eats_kin: bool,
+    /// **This animal drinks nectar and eats nothing else.** Default `false`,
+    /// so every species that does not author it is bit-identical -- proved
+    /// with `examples/ascii` before and after, digit for digit, when this
+    /// landed.
+    ///
+    /// **It is a switch on the menu, not a weight on it, and that is the
+    /// point.** `TRAIT_GUT_BIAS` already tunes *what a mouthful is worth*
+    /// through `diet_quality`, and it cannot express this: at the flitter's
+    /// authored gut of `-1.0` a leaf still pays 480 J and a whole flower
+    /// cell 1,440, so `adjacent_food`'s ranking made the box's first
+    /// pollinator a leaf-and-flower eater that bred off foliage and ate the
+    /// flowers it was built to serve. Measured before this field existed,
+    /// 120,000 frames on the played bed: **plant cells 960 -> 566 and
+    /// standing flowers 34 -> 4** against the same bed with no flitter in
+    /// it, while `flower_visits` read 1-15. The design named this failure
+    /// before it was built (`Reports/evolution-lab-pollinator-design-2026-
+    /// 09-10.md` §2.2, *"a bed of poor plants gets stripped by its own
+    /// pollinators"*) and no setting of the gut avoids it, because the gut
+    /// scales yields and every yield here is positive.
+    ///
+    /// **Read at three places, all of which have to agree or the animal
+    /// starves beside food**: `creature::adjacent_food_counted` (the menu,
+    /// which for such an animal is only `plant::nectar_available` cells),
+    /// `BrainInput::FoodAdjacent` (the same scan, so the brain's "there is
+    /// food here" means nectar for it), and the swallow block, which for
+    /// such an animal takes the nectar hook or takes nothing -- it never
+    /// clears a cell, so `World::flowers_bitten_by_species` reads exactly
+    /// zero for it while the ant's row still moves.
+    ///
+    /// **Not consulted by the fight.** `nearest_foe` and `BrainOutput::
+    /// Attack` are about what an animal will strike, not what it will
+    /// swallow -- the same separation `eats_kin`'s own doc draws -- so a
+    /// nectar drinker still defends itself and still gets nothing to eat
+    /// for it.
+    #[serde(default)]
+    pub nectar_only: bool,
     /// **How far apart two colonies of this kind start, in scent.** Every
     /// colony label draws one offset at founding, uniform in
     /// `-spread..=spread` on each of the three signature slots
@@ -4100,6 +4136,7 @@ impl CreatureDef {
             trait_variance,
             climbs_over_kin,
             eats_kin,
+            nectar_only,
             scent_spread,
             scent_drift,
             kin_crosses_kinds,
@@ -4212,6 +4249,9 @@ impl CreatureDef {
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
             eats_kin: *eats_kin,
+            // A switch, not a length: scaling a body does not change what
+            // its mouth will open.
+            nectar_only: *nectar_only,
             scent_spread: *scent_spread,
             scent_drift: *scent_drift,
             kin_crosses_kinds: *kin_crosses_kinds,
@@ -6917,6 +6957,14 @@ const EMBEDDED: &[&str] = &[
     // its own species instead. Appended at the end, same convention as
     // everything above it. See `assets/species/longant.ron`'s own header.
     include_str!("../../assets/species/longant.ron"),
+    // **The flitter -- Brief P2, the first animal whose living is flowers.**
+    // Cut from `hopper.ron` (see that file's own header, and this file's),
+    // appended at the end, same convention as everything above it. Its
+    // companion `assets/materials/flitter.ron` lands in the same change --
+    // `hopper.ron`'s own comment above records what shipping one file short
+    // of that produces: the species loads, appears on the COLONY chip, and
+    // places nothing.
+    include_str!("../../assets/species/flitter.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working

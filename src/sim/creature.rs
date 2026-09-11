@@ -4138,6 +4138,12 @@ struct Gut {
     /// `CreatureDef::kin_crosses_kinds`: whether species is consulted at all.
     crosses_kinds: bool,
     eats_kin: bool,
+    /// `CreatureDef::nectar_only` — see that field's doc for why this is a
+    /// switch on the menu rather than a weight on it. In the gut for the
+    /// identical reason `bite` is: it has to change what the animal
+    /// **chooses**, not only what it succeeds at, or `adjacent_food` keeps
+    /// offering a leaf every tick to a mouth that will not take one.
+    nectar_only: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
     ///
@@ -4284,6 +4290,7 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
         tolerance_sq: radius * radius,
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
+        nectar_only: def.nectar_only,
         bite: bite_force_of(def, &traits, world.trait_reach),
     }
 }
@@ -4515,6 +4522,28 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
         if !gut.eats_kin && is_living_kin(world, cell, gut) {
             return None;
         }
+        // **The same rule as the mouth, because THIS IS A SECOND MOUTH** --
+        // and it cost a measurement to notice. `try_bud`'s shortfall loop
+        // consumes these cells outright ("exactly as if the parent had
+        // eaten them"), so a species filtered at `adjacent_food_counted`
+        // and not here eats nothing all day and strips the bed to pay for
+        // its children. Measured, before this line, on the nectar-only
+        // flitter: `eats` **0** and `flowers_bitten` **0** -- both exactly
+        // as designed -- beside `intake` **3,278,831 J** against a
+        // `nectar_paid` of **2,760**, 2,976 births, and the bed's plant
+        // count down to 593 where the same bed with no animal in it holds
+        // 960. The gate was real and there were two gates to fit.
+        //
+        // **A nectar-only animal therefore has no provisions in reach at
+        // all**, which is the right economics rather than a convenience:
+        // nectar is drunk, not carried, so such an animal must BANK a whole
+        // birth out of flowers rather than top one up off the ground it is
+        // standing on. `reproduce_threshold` is the whole price, exactly as
+        // the pollinator design's §2.2 arithmetic assumed when it costed a
+        // bud at "about ten flowers above upkeep".
+        if gut.nectar_only {
+            return None;
+        }
         let yielded = diet_yield(world, cell, gut.bias);
         (yielded > EAT_YIELD_THRESHOLD).then_some((yielded, px, py))
     })
@@ -4728,6 +4757,30 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
             if !gut.eats_kin {
                 continue;
             }
+        }
+        // **A nectar-only mouth has one thing on its menu and this is the
+        // line that says so** (`CreatureDef::nectar_only`). Placed before
+        // `diet_yield` rather than after it, because the whole defect it
+        // exists to fix is in the *ranking*: at the flitter's gut of -1.0
+        // every leaf in the bed scores well above `EAT_YIELD_THRESHOLD`, so
+        // a filter further down would still leave the animal choosing
+        // between a leaf and a flower and taking whichever scored higher.
+        // There is nothing to rank here — it is a flower with a sip in it,
+        // or it is not food.
+        //
+        // **`nectar_available` and not "is a flower"**, so a drained flower
+        // is not food either: the animal leaves it and looks for another
+        // rather than standing on a dry one until the clock refills it. That
+        // is also what makes `(FoodAdjacent, Impulse, -2.0)` mean what its
+        // comment says for this species — it now stills the animal only at a
+        // flower that is actually paying.
+        //
+        // Costs a nectar-capable species one `bool` test per candidate and
+        // every other species one `bool` test per candidate; `ascii` is
+        // byte-identical across this change, which is the check `CLAUDE.md`
+        // asks for when a gate lands in the sweep's neighbourhood.
+        if gut.nectar_only && !crate::sim::plant::nectar_available(world, nx, ny) {
+            continue;
         }
         let gain = diet_yield(world, cell, gut.bias);
         if gain <= EAT_YIELD_THRESHOLD {
@@ -5626,7 +5679,25 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // step, booked to `harvested_plant` the same way the brood
                 // path (`try_bud`'s own shortfall loop, `:1384`) already
                 // books a bite taken to cover a birth.
+                //
+                // **Bracketed, because this is the only place that knows
+                // WHO reached the flower.** `nectar_offer` increments
+                // `World::flower_visits` itself and is deliberately never
+                // told the visitor's species; P2 needs the split (an ant
+                // and a flitter in one bed report one number otherwise, and
+                // the flitter's whole claim is that the number is its own).
+                // Reading the total across the call attributes exactly what
+                // that call counted, paid or dry -- the dry reach is
+                // counted too, which is the half the sensitivity control
+                // rests on (`World::flower_visits`' own doc).
+                let visits_before = world.flower_visits;
                 let nectar_yield = plant::nectar_offer(world, fxx, fyy);
+                if world.flower_visits > visits_before {
+                    if let Some(sp) = world.organism(organism).map(|s| s.species) {
+                        let delta = world.flower_visits - visits_before;
+                        *world.flower_visits_by_species.entry(sp.0).or_insert(0) += delta;
+                    }
+                }
                 if nectar_yield > 0.0 {
                     let credit = nectar_yield * diet_quality(world, bite.material, gut.bias);
                     if let Some(state) = world.organism_mut(organism) {
@@ -5634,6 +5705,35 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     }
                     world.energy_ledger.harvested_plant += credit as f64;
                     return did;
+                }
+                // **A nectar-only mouth takes the hook or it takes nothing.**
+                // The menu filter above already means this line is nearly
+                // unreachable -- `adjacent_food_counted` offers such an
+                // animal only cells `plant::nectar_available` accepted --
+                // but "nearly" is the whole reason it is here: the scan and
+                // the bite are two reads of a world that other animals are
+                // writing to in the same tick, and the one cell that can
+                // slip between them is a flower somebody else just drank.
+                // Falling through would take the flower off instead, which
+                // is precisely the failure this species field exists to
+                // stop, arriving once in a thousand ticks and therefore
+                // invisible.
+                if gut.nectar_only {
+                    return did;
+                }
+                // **`flowers_bitten`, split by species -- the effect counter
+                // the pollinator design asks for by name** (§2.2, *"the
+                // counter that sees it is `flowers_bitten` split by species,
+                // beside `flower_visits`"*). Counted HERE, past the nectar
+                // hook and past the refusal above, so it counts exactly the
+                // event it is named for: a flower cell about to be taken off
+                // the plant by a mouth. A nectar-only species must read 0 on
+                // this row for ever; an ant's row moving is the positive
+                // control that says the counter is not simply blind.
+                if organism::cell_type(bite.aux()) == Some(CellType::Flower) && bite.organism_id() != 0 {
+                    if let Some(sp) = world.organism(organism).map(|s| s.species) {
+                        *world.flowers_bitten_by_species.entry(sp.0).or_insert(0) += 1;
+                    }
                 }
                 // **Two numbers, and conflating them is a bug in both
                 // directions.** `worth` is what the mouthful is worth to
