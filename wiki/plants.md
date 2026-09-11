@@ -3,7 +3,17 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-06 (**ground is now worth something on its own, not
+*Current as of: 2026-09-10 (**a spent flower is not the last one.** A herb,
+a scrambler and — new on this date — a shrub used to flower an axis exactly
+once: the fruit fell and that stem was finished for good, so a bed of
+flowering plants necessarily thinned out and eventually stopped flowering
+altogether, whether or not anything was feeding at the flowers. Now the
+stem waits and puts up a fresh flower in the same place, paid for the same
+way the first one was, and a shrub joins the flowering plants for the first
+time — its own colours, its own many-small-flowers-across-a-mound habit,
+its own much longer wait between blooms.)*
+
+*Before that: 2026-09-06 (**ground is now worth something on its own, not
 just as somewhere to find water.** A plant living on a drip or on rain, with
 its roots in no soil at all, used to be able to grow indefinitely — light and
 water were the whole economy and standing water supplied the water. Soil now
@@ -553,18 +563,23 @@ of carbon, or water, or room, or it simply cannot lift water any higher. None
 of them ever *finishes*. That is why they all read as versions of one thing:
 a shoot that only ever ends by failing has nowhere else to go.
 
-**Two kinds of plant now finish on purpose.** An axis counts the leaf-and-bud
-units it has made, and at its own number it stops making shoot and makes a
-**flower** instead. The growing tip is used up doing it — there is no
-continuation, because the flower *is* what the tip became. That is the whole
-of it, and it is what the two look like:
+**Three kinds of plant now finish an axis on purpose.** An axis counts the
+leaf-and-bud units it has made, and at its own number it stops making shoot
+and makes a **flower** instead. The growing tip is used up doing it — there
+is no continuation, because the flower *is* what the tip became. That is the
+whole of it, and it is what the three look like:
 
 - an **erect herb** puts everything into one stem that goes straight up on a
   bare stalk with a few large leaves widely spaced along it, and finishes in a
   single flower head several cells across at the top;
 - a **scrambler** makes a short run, stops, throws a side shoot that takes over
   and does the same, over and over — so it sprawls into a low thicket studded
-  with small clusters of flowers and fruit at every place an axis ended.
+  with small clusters of flowers and fruit at every place an axis ended;
+- a **shrub** does the same short-run-and-relay trick at its own, larger
+  scale — every one of its many woody branch tips is a short axis that ends
+  in a flower, so a mature shrub carries its flowers and fruit scattered
+  right across its own mounded shape rather than at one head or in trusses
+  low down.
 
 **A flower is not a green cell with a label on it.** Petals are their own
 material, in colours nothing else in the world has: yellows, oranges, reds,
@@ -592,8 +607,27 @@ never gets ahead makes a bare stalk with nothing on top. A plant that fills
 fruit sets fewer loose seeds that season, because both come out of the same
 pocket.
 
-The older plants are unchanged: a tree, a conifer, a shrub, a creeper and
-grass all still grow until something stops them, and none of them flowers.
+**A spent stem does not stay bare for good.** Once a fruit lets go (or a
+flower is lost before it ever sets one), the stem it grew from waits and then
+puts up a fresh flower in the same place, paid for out of the same account as
+the first one — a plant too poor at the moment its turn comes simply waits
+longer, rather than being skipped for ever. How long the wait runs is a real
+difference between the three: an erect herb and a scrambler pick back up
+within the same season a first flower would, while a shrub waits much longer
+and keeps only a slow trickle of new blooms going at any one time. That
+trickle, spread over a shrub's whole mounded shape and its much longer life,
+is what keeps a bed of flowering plants looking like it is actually in flower
+over the long run — a standing larder for anything that feeds at a flower —
+rather than blooming in one flush and falling silent for good once every
+stem has fruited once.
+
+The older plants are unchanged: a tree, a conifer, a creeper and grass all
+still grow until something stops them, and none of them flowers. A shrub no
+longer belongs on that list — it keeps its own slow, gnarled, mounded habit,
+but it is a flowering plant now, in colours no other flowering plant here
+wears: magenta and violet petals over purple and blue-black fruit, against an
+erect herb's yellow-and-orange over gold and a scrambler's blue-and-white
+over red and crimson.
 
 ## Colour is a readout, not decoration
 

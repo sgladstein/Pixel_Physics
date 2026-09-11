@@ -71,6 +71,13 @@
     // visit differs between them.
     nectar_yield: 120.0,
     nectar_refill: 0.25,
+    // See `herb.ron`'s own comment for the full argument -- this species'
+    // own cycle is `Ripen(rate: 0.035)` to set (~29 ticks) plus
+    // `Ripen(rate: 0.011)` to ripen and drop (~91 ticks), ~120 ticks x 45
+    // frames ~= 5,400 frames collar-to-collar. 3,000 sits under that at
+    // roughly the same 2/3 fraction, for the same reason: a rebloom should
+    // not outrun the cycle it is following.
+    rebloom_after: 3000,
     stomatal_reserve: 0.15,
     seed_half_life: 16000.0,
     remains_half_life: 600.0,
