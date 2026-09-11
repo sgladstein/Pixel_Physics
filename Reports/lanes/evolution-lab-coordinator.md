@@ -150,12 +150,11 @@ before pushing.
 (`…7f9bac`), the re-bloom A/B (`…3257b2`), the long ant in a tunnel
 (`…9f00a9`).
 
-**Round twenty-eight, proposed to the owner and not yet ruled:** the flitter
-(P2) with the eye-price control inside it; the garden loop's rate (where
-windfall lands against where ants walk, and why a dropped pip never
-germinates); the bodies ruling; and, offered as the first player verb, sugar
-water — a drop the trail system recruits to. The wider list of offered ideas
-is the round record's last paragraph.
+**Round twenty-eight, proposed and not yet ruled:** the flitter (P2, with
+the eye-price control inside it); the garden loop's rate (where windfall
+lands against where ants walk; why a dropped pip never germinates); the
+bodies ruling; sugar water as the first player verb. The wider list of
+offered ideas is the round record's last paragraph.
 
 ## The earlier rounds
 
