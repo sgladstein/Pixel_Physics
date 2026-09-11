@@ -1,0 +1,43 @@
+{
+  "id": "20260911T040310035Z-727116",
+  "created": "2026-09-11T04:03:10Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a408888674b8ae283",
+    "branch": "claude/creature-bodies-land-r27",
+    "commit": "5a20fa5a",
+    "agent": null,
+    "session_id": "8c32772e-b245-5ad3-a6c0-b17a0f4d8512",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a408888674b8ae283"
+  },
+  "title": "Long ant, placed on the played bed",
+  "question": "Does the long-bodied ant (the articulated body, now a species you place rather than the shipped ant) read as one animal with a long body -- forage, wander, and turn round -- rather than a smear of loose cells?",
+  "context_md": "The shipped colony still starts as the two-cell ant. This is `longant`, placed on the owner's own played bed (`played_bed_longant.ron`) via the same `Colony` timeline event, with the flip (turn round in a dead end) on by default. Camera centred near the nest at (265,145), zoom 5x, frames 8,300-9,500.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260911T040310035Z-727116/000-longant_final.gif"
+      ],
+      "caption": "",
+      "meta": {
+        "founded of 52 asked": 19,
+        "deliveries by frame 30,000": 54,
+        "alive at frame 30,000": 34,
+        "born": 24
+      },
+      "focus": null,
+      "gif_frames": 201
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
