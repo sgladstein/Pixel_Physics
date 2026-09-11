@@ -2433,6 +2433,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   collapse a traffic misread; every mechanism of the garden loop is in and
   its rate is zero; a colony guard moved through shared procedural terrain
   while every foraging counter improved.
+- [evolution-lab-round-28-2026-09-11.md](evolution-lab-round-28-2026-09-11.md)
+  — **record, 2026-09-11.** The coordinator's account of round twenty-eight:
+  three lanes on two passes each, the bodies landed beside them by the
+  round-27 session. What the round overturned, with the numbers: the
+  pollinator's gap was never the eye and is no longer the reach (a flitter
+  reaches 106 rows) — a plant specialist's mouth eats the plant, and with
+  nectar its only meal the bed is safe and the animal starves for want of
+  finding a flower; the garden loop's last steps were the dig verb shovelling
+  a pip as dirt and a germination schedule never re-armed, and the first two
+  plants ever grew from a pip; windfall lies 67–100% where no ant walks;
+  petal colour became heritable and moved every seeded plant figure twice;
+  a bigger flower head pays per-cell upkeep for as long as it stands.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
