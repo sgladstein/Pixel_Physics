@@ -16,11 +16,14 @@ thing it had to be taught not to do is turn a laden forager away from a
 nest door that only looked blocked because another ant was passing
 through it, which it no longer does. The same day, **a colony can carry a seed home instead of only
 a meal**, documented rather than shipped new — the mechanism landed
-2026-09-10 and this is the honest read of what it does. See "What is not
-finished": a seed has ridden home and been set down alive a handful of
-times across three long sessions, and none has yet grown, because most
-fallen fruit sits outside the colony's own daily round and the one seed
-that made the whole trip was eaten again within moments of arriving.
+2026-09-10. **Updated the same day, later:** the seed has now grown, more
+than once, on the mixed bed — a digging ant clearing a set-down seed as
+spoil and a carried seed's own waiting clock silently stopping partway
+home were both fixed, and dry ground rather than predation is now what
+mostly stops it. See "An ant can carry a seed home" below for the honest
+read of what it does and does not do yet — the plants it produces so far
+stand out in the bed, not ringed around the nest, because an ant sets its
+cargo down wherever it happens to be, not only at the door.
 Before that, 2026-09-10, when a flower stopped being invisible at a
 distance. An animal with eyes can now see a bloom the way it sees another
 animal — from across the room, not only once it is standing on one — and
@@ -1077,21 +1080,31 @@ place**. A pile a long way off may take a while to be discovered, and one
 right across the map may never be. Put food within reach of the colony and
 the whole loop runs.
 
-**An ant can carry a seed home instead of just a meal, and the garden that
-would make has not grown yet.** Biting a fallen fruit sometimes leaves the
-seed inside it whole rather than destroying it, and a whole seed can ride
-home in the same mouth a meal would, to be set down wherever the ant happens
-to be when it lets go — at the nest most often, but not only there. That is
-the shape of a colony that plants as a side effect of eating: a nest ringed
-by the offspring of whatever it has been feeding on. On the mixed bed the
-owner actually plants, across three long sessions, it has happened — a seed
-has ridden home and been set down alive — but nothing has come up from one
-yet. The seed that got furthest was found and eaten again within moments of
-being put down, by the same kind of animal that carried it. The rest of the
-chain barely runs at all: most fallen fruit sits in ground the colony's own
-daily round never reaches, so a bitten fruit is already the rare case. A
-colony that gardens is the idea; a colony that occasionally carries a seed a
-short way before something eats it again is what is actually there.
+**An ant can carry a seed home instead of just a meal, and now, sometimes, it
+grows.** Biting a fallen fruit sometimes leaves the seed inside it whole
+rather than destroying it, and a whole seed can ride home in the same mouth a
+meal would, to be set down wherever the ant happens to be when it lets go —
+at the nest most often, but not only there. On the mixed bed the owner
+actually plants, a set-down seed has now grown into a standing plant more
+than once — the first time this loop has closed end to end. Two things had
+to be fixed to get there, neither visible from outside the box: a digging
+ant used to clear a set-down seed as ordinary spoil before it ever got the
+chance, and a carried seed's own waiting clock could silently stop counting
+partway home. With both closed, what decides whether a set-down seed
+germinates is almost entirely whether the ground under it is wet enough —
+dry ground, not predation, is now the real bottleneck, and a seed set down
+on ground that cannot hold water at all is moved a short way to the nearest
+patch that can, the way real ants heap refuse at a midden rather than on the
+doorstep itself.
+
+**It is not yet a ring of seedlings around the door, though, and that is a
+real finding rather than a bug.** An ant puts its cargo down wherever it
+happens to be when it lets go, not only at the nest, so the plants this loop
+has produced so far stand well out in the bed, not clustered at the colony's
+own threshold. The next piece of this loop is not germination any more — it
+is getting more of what an ant carries home to actually reach home before it
+lets go. A colony that gardens is closer to real than it was; a colony that
+gardens *at its own door* still is not.
 
 They are better at it than they were, though, and the reason is worth
 knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —

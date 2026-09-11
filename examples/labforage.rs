@@ -986,7 +986,8 @@ fn main() {
          pip_checks={pip_checks_n} pip_checks_delivered={pip_checks_delivered} pip_checks_resting={pip_checks_resting} \
          pip_checks_light_ok={pip_checks_light_ok} pip_checks_water_ok={pip_checks_water_ok} pip_checks_ready={pip_checks_ready} \
          windfall_col_stops={total_wf_heat} windfall_dead_zone_stops={wf_dead_zone} windfall_dead_zone_pct={wf_dead_zone_pct:.0} \
-         windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} dig_diverted_seed={}",
+         windfall_floor={} windfall_low={} windfall_aloft={} windfall_shaded={} windfall_open={} dig_diverted_seed={} \
+         pips_set_on_soil={} pips_set_on_nest={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1074,7 +1075,14 @@ fn main() {
         // Round 28 garden-fix: the dig verb's own "it fired" counter for
         // routing around a live seed instead of clearing it as spoil --
         // see `World::dig_diverted_seed`'s own doc.
-        world.dig_diverted_seed
+        world.dig_diverted_seed,
+        // Round 28's garden-midden build (this lane, appended per the same
+        // "keep main's fields, append the branch's" convention the line
+        // above already follows): where a delivered pip's final ground
+        // stood, read the same `water_capacity > 0` way `Behavior::
+        // Germinate` does. `World::pips_set_on_soil`/`pips_set_on_nest`'s
+        // own docs.
+        world.pips_set_on_soil, world.pips_set_on_nest
     );
 }
 
