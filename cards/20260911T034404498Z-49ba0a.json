@@ -1,0 +1,64 @@
+{
+  "id": "20260911T034404498Z-49ba0a",
+  "created": "2026-09-11T03:44:04Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f",
+    "branch": "claude/lab-garden-loop-r28",
+    "commit": "230628f5",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f"
+  },
+  "title": "The garden loop's missing last step",
+  "question": "The ringed cell is a pip an ant just carried home. It goes pale-tan, then vanishes 5 frames later, eaten -- does that read as the reason no pip has ever grown into a plant?",
+  "context_md": "Round 28, the fruit -> animal -> nest -> seedling loop (`Reports/lanes/evolution-lab-garden-loop.md`). Measured over 3 seeds x 120,000 frames on the played bed: `plants_from_pip` is **0 in every seed**, and this is the *only* seed where a pip survived long enough to be delivered at all (6 of 6 delivered pips were eaten; the other two seeds' bites never survived the gut roll, so no pip existed to test).\n\nThis sequence is seed 2, world frames 55,925-55,945: an ant carries a pip home, sets it down at (342,154) frame 55,932 (ringed), it settles two rows down as a `Powder` falls, and by frame 55,937 the cell reads empty again -- a second ant bit it. No pip in any of the three seeds has ever reached even its first scheduled germination check.\n\nThe upstream cause measured separately: standing windfall (fallen fruit) sits in columns the colony's own foot traffic never reaches on 67-100% of column-stops across the three seeds -- the fruiting understory (scramblers) stands outside the band the colony forages and founds in, which `played_bed.ron`'s own comments say was a deliberate, separately-measured trade for founder count. Full tables in the lane note.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed=2, frames 55,925-55,945, ringed on the pip's own cell",
+      "files": [
+        "20260911T034404498Z-49ba0a/000-00.png",
+        "20260911T034404498Z-49ba0a/001-01.png",
+        "20260911T034404498Z-49ba0a/002-02.png",
+        "20260911T034404498Z-49ba0a/003-03.png",
+        "20260911T034404498Z-49ba0a/004-04.png",
+        "20260911T034404498Z-49ba0a/005-05.png",
+        "20260911T034404498Z-49ba0a/006-06.png",
+        "20260911T034404498Z-49ba0a/007-07.png",
+        "20260911T034404498Z-49ba0a/008-08.png",
+        "20260911T034404498Z-49ba0a/009-09.png",
+        "20260911T034404498Z-49ba0a/010-10.png",
+        "20260911T034404498Z-49ba0a/011-11.png",
+        "20260911T034404498Z-49ba0a/012-12.png",
+        "20260911T034404498Z-49ba0a/013-13.png",
+        "20260911T034404498Z-49ba0a/014-14.png",
+        "20260911T034404498Z-49ba0a/015-15.png",
+        "20260911T034404498Z-49ba0a/016-16.png",
+        "20260911T034404498Z-49ba0a/017-17.png",
+        "20260911T034404498Z-49ba0a/018-18.png",
+        "20260911T034404498Z-49ba0a/019-19.png",
+        "20260911T034404498Z-49ba0a/020-20.png"
+      ],
+      "caption": "delivered frame 55,932 -> gone frame 55,937 (5 frames)",
+      "meta": {
+        "plants_from_pip, 3 seeds x 120,000 frames": 0,
+        "seeds_delivered, this seed": 6,
+        "pips_eaten, this seed": 6,
+        "pip_checks (ever reached a Germinate evaluation)": 0,
+        "frames from set-down to gone, this pip": 5,
+        "windfall column-stops in a column ants never walked, 3 seeds": "92% / 67% / 100%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
