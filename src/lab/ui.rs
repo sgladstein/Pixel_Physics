@@ -2730,7 +2730,7 @@ pub struct Ui {
     /// is armed. `Lab::act`'s `CycleReaction` handler is the one writer.
     ///
     /// **No `Option` wrapper needed, unlike `creature_colour`.**
-    /// `time::Reaction` derives `Default` (`Linger`), which is also
+    /// `time::Reaction` derives `Default` (`Off`), which is also
     /// `TimeControl`'s own starting value, so there is no window where the
     /// mirror could disagree with the thing it mirrors before the first
     /// write -- both start at the same value for the same reason.

@@ -105,17 +105,27 @@ pub enum Phase {
 /// middle the law asks for, a dip and a recovery rather than an on/off
 /// switch, and `Stop` is the strong end for a player who wants to actually
 /// look rather than glance.
+///
+/// **`Off` is the shipped default, reversing the original ruling.** This
+/// shipped with `Linger` as the default on the owner's own instruction,
+/// *"default to your recommended settings, not off."* Playing it: *"When
+/// events happen the screen moves to that spot and it is really
+/// annoying. Stop that."* `Linger` still pulls the camera to the subject
+/// every time it fires (`Lab::take_camera_to`), which is exactly the
+/// annoyance -- there is no reaction that keeps the dial's "notice"
+/// behaviour without the camera cut, because `take_camera_to` is not
+/// gated separately from `react()`. So the whole mechanism now starts
+/// off; `T` (or the BOX page's `EVENTS` row) arms it for a player who
+/// wants it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Reaction {
     /// No automatic reaction. The event still reaches `World::run_log`
     /// exactly as it always did -- this only decides whether the clock and
-    /// the camera notice on their own.
+    /// the camera notice on their own. The shipped default.
+    #[default]
     Off,
     /// The dial drops to `1X` for [`LINGER_HOLD`] of wall clock, camera on
-    /// the subject, then climbs back to what was requested. The shipped
-    /// default -- owner: *"default to your recommended settings, not
-    /// off."*
-    #[default]
+    /// the subject, then climbs back to what was requested.
     Linger,
     /// A full stop -- [`Phase::Paused`] -- until the player resumes by
     /// hand. The stronger setting.
@@ -1498,13 +1508,17 @@ mod tests {
 
     // ------------------------------------------------- the box's own "look at this"
 
-    /// **Owner: "default to your recommended settings, not off."** Put the
-    /// fault back: shipping `Reaction::Off` as the default would pass every
-    /// other test in this file and fail only this one.
+    /// **Owner, reversing the original "default to Linger" ruling:** *"When
+    /// events happen the screen moves to that spot and it is really
+    /// annoying. Stop that."* `Linger` cuts the camera to the subject every
+    /// time it fires, same as `Stop`, so no non-`Off` setting avoids the
+    /// annoyance -- shipping arms it off. Put the fault back: shipping
+    /// `Reaction::Linger` (or `Stop`) as the default would pass every other
+    /// test in this file and fail only this one.
     #[test]
-    fn the_default_reaction_is_linger_not_off() {
-        assert_eq!(TimeControl::new().react, Reaction::Linger);
-        assert_eq!(Reaction::default(), Reaction::Linger);
+    fn the_default_reaction_is_off_not_linger() {
+        assert_eq!(TimeControl::new().react, Reaction::Off);
+        assert_eq!(Reaction::default(), Reaction::Off);
     }
 
     /// **The mask starts exactly where `notable` says it should.** Put the
@@ -1524,7 +1538,8 @@ mod tests {
     #[test]
     fn cycle_reaction_steps_linger_stop_off_and_back() {
         let mut t = TimeControl::new();
-        assert_eq!(t.react, Reaction::Linger, "the default the ladder starts from");
+        assert_eq!(t.react, Reaction::Off, "the default the ladder starts from");
+        t.react = Reaction::Linger; // arm it, as the BOX page's row or `T` would
         t.cycle_reaction();
         assert_eq!(t.react, Reaction::Stop);
         t.cycle_reaction();
