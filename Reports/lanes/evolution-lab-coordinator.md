@@ -82,229 +82,92 @@ a hash gate is worthless against a stale one.
 
 ## Round twenty-five, 2026-09-09 — the instrument turned toward the player
 
-*Verbatim in [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md)
-(moved 2026-09-10); its design of record is
+*Verbatim in [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md);
+design of record
 [`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md).
-What still binds from it is the rulings paragraph below; the two claims it
-overturned (the frame-0 bed is the harness talking; the trail circuit is
-wired and inert, §Z7) are in the archive, and its open list has been worked
-by round twenty-six.*
+What still binds:*
 
-**Owner's rulings, all the same day, all binding here:** trophallaxis is a
-brain output the genome can evolve, shipped on, never a rule; **rest is the
-absence of a reason to act, not the presence of a full stomach** — the ant
-must not become an animal that only acts when hungry, so the bias comes
-down and never off, and digging is conditioned on a crowded nest; a queen
-is built as three authored values over mechanisms that exist (a founding
-rule, a founder who rests because she is full, sterile workers through the
-caste channel), **never as a type the engine knows**, and the eusociality
-lane's first deliverable is the generation-clock measurement, not a
-feature; staggered founder reserves are approved; the marker overlay was
-rejected on sight; and **movement, not stills, is how animals are seen** —
-a visibility claim is judged on a moving sequence, never a contact sheet.
+**Owner's rulings:** trophallaxis is a brain output the genome can evolve,
+shipped on, never a rule; **rest is the absence of a reason to act, not the
+presence of a full stomach** (the bias comes down and never off; digging is
+conditioned on a crowded nest); a queen is three authored values over
+mechanisms that exist, **never a type the engine knows**, and the
+eusociality lane's first deliverable is the generation-clock measurement;
+staggered founder reserves are approved; the marker overlay was rejected on
+sight; **movement, not stills, is how animals are seen** — a visibility
+claim is judged on a moving sequence, never a contact sheet.
 
 ## Round twenty-six, 2026-09-10 — the box gets its first relationship
 
-*Coordinator `session_01NGdywxc1ACg3L5scK7xBTc`. The full record, with every
-number, is [`../evolution-lab-round-26-2026-09-10.md`](../evolution-lab-round-26-2026-09-10.md);
-the ecology design of record is
+*Record: [`../evolution-lab-round-26-2026-09-10.md`](../evolution-lab-round-26-2026-09-10.md);
+design of record
 [`../evolution-lab-ecology-design-2026-09-10.md`](../evolution-lab-ecology-design-2026-09-10.md).
-This is the pointer and what still binds.*
+Pointer and what binds.*
 
 **The direction.** Phase one made the box legible; it still had no
 *relationship* — one organism eating another was the entire ecology. Close
 the loop fruit → animal → nest → seedling and the colony becomes the plants'
 distribution network and the plants the colony's renewable larder: **the
-colony that gardens survives.** Graded by construction, visible at play
-zoom, and the patchy larder §Z7's recruitment finding said no bed had.
+colony that gardens survives.**
 
-**Landed on `main` (#296, #297, #295, #298, #300, #301, #302, #304), in one
-line each:** the ecology design (fruit is budget-limited, not
-pollinator-limited; nothing has ever eaten a flower; `labshot` ignored
-`seed=` in scenario mode); the fruit loop censused (2 of 3,089 germinations
-from windfall; windfall arrived ownerless); the breeder index and the
-recycled-slot fix (the breeding rule was blind to every animal in a reused
-slot); rain, OFF by measurement, on key `8`; the severed fruit keeps its seed
-(§Z8); the pip (a bitten fruit leaves its seed at 0.6 — and an ant bites a
-fallen fruit about twice in 360,000 frames on the played bed); the thicket
-bed (fruit on the floor 9.6x, bites 5 → 32 across the sweep, no pip yet a
-plant); the chronicle exported and a HISTORY page on F5.
-
-**Ruled 2026-09-10, after the verdicts: the bodies are a MECHANICAL problem
-and are to be fixed.** The owner: *"You are examining a lot how many survive
-and how much they dig... this seems more like a mechanical issue that these
-larger ants get stuck or cannot move easily in more complicated terrain.
-Let's fix that."* The record agrees: the 1-wide 5-cell spine is blocked on
-**54%** of moves underground against the 2-wide body's 63%, so length, not
-width, is what sticks in terrain; the card's ants did not move in 30 frames
-(checked frame by frame) and their laterals blinked (the tuck rule has no
-memory). Survival and dig counts are out as bars; **the blocked fraction per
-scene, by cause, is the bar**. **Answered the same evening (PR #311,
-stacked on the tuck branch): a body longer than two cells cannot turn
-round, and that is the whole of it — length, not width.** A body follows
-its head and a landing may not put two cells in one place, so the only
-own-cell a head may land on is the tail; for a two-cell ant that is its
-neighbour and reversing is one step, for a five-cell body it is four cells
-away and unreachable, so in a dead end it is stuck for ever. The
-classifier's histogram (one binary, four scenes): two-cell ant 0.6 / 4.0 /
-5.1 / 8.6% blocked on flat / rolling / tunnel / chamber, the 2-wide
-articulated ant 1.9 / 22.1 / 87.1 / 23.0%, and **`boxed_self` equals
-`boxed` in all sixteen rows**; the wide body is no worse than the 6-cell
-chain (23.0 against 26.4% in the chamber), so §12's width story does not
-reproduce. **The owner's flip — reversal in place, the chain's order swaps
-and no cell moves — brings the wide body to 2.3 / 7.1 / 7.6 / 11.5%**,
-within a few points of the two-cell ant on every scene; backing out was
-built and rejected (49% still blocked). The flip is behind
-`PIXEL_PHYSICS_REVERSE=flip`, **default off for one reason: foraging
-collapses with it on** (deliveries 23 → 0, round trips 32 → 19) — the trail
-and homing constants were calibrated against a colony that could not
-reverse, the shared-budget trap again. Two lanes now: **F** (Sonnet) makes
-the flip the default and finds why deliveries vanish (state the flip drops,
-a flip fired on a passing ant, or a blocked tick read downstream) and
-restores them, and **G** (Sonnet) founds a long body along the surface
-contour (§13f) so a colony seats near the two-cell ant's 39 of 52 instead
-of 12. The chamber's `roofed > 0` stays red with the flip on (blocked
-1,000 → 206 and still no roofed void) — what a colony chooses to dig, not
-whether it can move. Card `…9f00a9`: one long ant in a tunnel.
-
-**Not landed:** the articulated bodies (PR #303, CI red; un-parked by the
-ruling above).
-The tuck rule walks (ant 43.9% / 96.8% → 1.9% / 22.1% blocked) and
-founding is now the spine-only rule, and three costs of the body remain
-that are design decisions, not defects — **a 5-segment ant seats 12 of 52
-on the played bed where a 2-cell ant seats 39**; one long body opens the
-plate the swarm test needs closed (the whole-body bite scan); a width-2
-colony cannot dig a roofed chamber and starves. The owner picks: re-derive
-founding, bite and dig for long bodies as a programme, or ship the design
-and keep the two-cell ant. Report §10–§12 on the branch carry the numbers.
-
-**What binds from this round.** The breeding trade is **graded**, ruled in
-chat and recorded in commit `e5792206`; **a question that needs no visual is
-asked in chat, not the queue** — the owner's standing instruction. Ship
+**What binds.** The breeding trade is **graded** (commit `e5792206`); ship
 graded as the default only after `GRADED_MAX_SUPPRESSION` (a provisional
-6.0) is swept; the breeder lookup now scales. The ecology's next lever is
-the owner's to pick with the numbers in hand: fruit residence (expose the
-windfall's rot half-life on the parameters page) or fruit production (B2,
-pollination as a ripening-price discount) — not A2 (the seed rides home),
-which builds on an event that happens twice a session. A fourth
-windfall-ownership path (19 ownerless on one scrambler seed) is open and
-unowned. Open cards: pollen as gene flow (`…6dfed9`, the design recommends
-the player's BRUSH first), the dispersal form (`…cba50c`), the thicket in
-the default bed (`…c8709b`), the rain rate (`…f2fb5b`), the HISTORY page
-(`…c0b68b`), the moving bodies (`…0180fc`), and from round twenty-five the
-tree, the marks and *is the box empty*.
+6.0) is swept. **A question that needs no visual is asked in chat, not the
+queue.** A fourth windfall-ownership path (19 ownerless on one scrambler
+seed) is open and unowned.
 
-**Round twenty-seven, opened on the verdicts (2026-09-10, 16:00 UTC).**
-Landed: **#306**, the played bed with four scramblers and a tree — and the
-thicket kept out of columns 180–330, because copied from the measurement
-bed it seated **2 ants of 52** at founding (6 by 30,000) against 29 / 38
-once moved: looking before committing caught it. Landed: **#307**, the
-pollinator design (`evolution-lab-pollinator-design-2026-09-10.md`; the
-species is `flitter`): its three measurements move the build — **the
-thicket is the pollinator's larder** (standing flowers at frame 6,000,
-median 60 on the thicket bed against 16 on herbs); **the bed stops
-flowering on its own and the colony is not the cause** (81 → 10 → 3 flowers
-by 40,000 with the colony *removed*: herb and scrambler are determinate,
-an axis ends in a flower and stops), so the first build is **a flower that
-renews (B1′)**, not a rule keeping ants off flowers; and **"nectar out of
-the reproductive budget" was a units error in the ecology design** (plant
-carbon capped at 4.0 where a fruit costs 0.3, against creature joules) —
-nectar is two numbers and an exchange rate. Build order **B1′ → (P1 the
-bloom sense ∥ B2) → P2 the flitter → C1 animals carry pollen → C2 the
-petal-colour locus (lands alone: it moves every seeded plant figure) → I
-the instruments** (`selection_arena` attributes hybrids wholly to the
-mother's arm and must change). Also: the 2.0 hop makes *fewer* real
-launches than 0.5 (60% of its launches fire mid-air); what it buys is
-longer flights and what it costs is starving aloft, and the repair is one
-wire, `(FoodAdjacent, Impulse, −2.0)`, not the recorded dead end. Landed since: **#309** (HISTORY opens on a summary per colony — "43
-STARVED, 1 CULLED, 1 KILLED" — click to expand, BACK returns; the CELL
-inspector overlapping wide bar pages found as a pre-existing layout gap),
-**#310** (rain ships **LIGHT**: the bed as it now is, with the tree, loses
-**16%** of its soil water on seed 1 unwatered, so OFF no longer holds; LIGHT
-holds both seeds within 7%; STEADY overshoots 15–19% and pools), **#312** (nectar in two currencies — `OrganismCell::nectar` refilled per tick,
-`NECTAR_COST` 0.01 budget units, `nectar_yield` 120 J through
-`diet_quality`, the flower stands; `flower.food_energy` 1,440 stays for a
-gut that cannot take nectar — and **`flower_visits = 0` over a full session
-on the played bed**: no ant reaches a flower 22 rows up a stem, dead-ends
-line 1636 holding under the new mechanism, five unit tests including the
-positive control prove the zero is the world's, and closing it is the
-flitter's job), **#313** (the seed rides home: a bite's surviving pip
-rides in the crop under its own organism id and is set down at the first
-drop, median carry 175 frames against a 14,000-frame half-life; over
-120,000 frames on three seeds, 6 carried and 4 delivered on the one seed
-that bit fruit at all, and **no pip has yet become a plant** in any arm —
-the form is in, the rate is the thicket's and the rot clock's). **The
-bloom sense (P1, PR #314) is built and it moved the hopper, not the
-outcome**: two brain inputs on the rays the eye already casts, no ant
-wired to them per the owner's ruling; the hopper saw a flower 27 and 56
-times on two of three seeds and climbed to 21 rows where the unwired
-control reached 6, and **the flower stands at 22** — `flower_visits` 0
-on every run, so the hopper wiring is not shipped and is in dead-ends
-with its re-test condition. A ground animal with eyes is still not a
-pollinator; the flitter is the only planned creature that can reach a
-flower. **Founding along the surface (G, PR #315, stacked on the mobility
-branch)**: each segment tries flat-with-foothold, then up, then down,
-then the old straight lay; viable sites 5→9 on the colony scene and
-11/13/13→13/15/14 on the played bed, never fewer — but the *two-cell*
-control founds only 18–29 of 52 on the same bed, so most of the remaining
-gap is the bed's litter and the span-scaled spacing, not spine shape.
-Card `…7f9bac` asks whether the founded bodies lie flat. **#314 landed**
-(the sense, no species wired). **The flip is on by default with foraging
-restored (F, PR #316, stacked on the mobility branch)**: the ungated flip
-had cost deliveries because a boxed animal cannot tell a dead end from
-another ant standing in the one open heading, and it turned laden
-foragers round beside the nest; a laden animal now defers the flip one
-tick when only another body is in the way. Foraging scene, 12,000
-frames: deliveries 297 off / 233 ungated / **290** shipped, round trips
-14 / 7 / **25**; mobility on the four walk presets bit-identical to the
-flip arm. Two broader gates were built and rejected (they cost 16% and
-78% blocked on `tunnel`). The three bodies reds are unchanged: the §9
-swarm guard, the chamber roof, founding 5 of 52 on the colony scene
-(#315 makes it 9). **The bodies stack is #303 → #311 → #315 + #316, all
-waiting on the owner.** Lane running: **S** (shrubs flower and axes
-re-bloom, cut from the nectar branch: the coordinator's recommendation on
-the flowering question, which the owner did not overrule; the tree stays
-and does not flower yet).
+## Round twenty-seven, 2026-09-10 — the flower gets a customer it cannot yet reach
 
-**The owner's verdicts, 2026-09-10 (synced 15:31 UTC), and what each sets
-in motion:** the thicket goes in the default played bed (*"Sure"*) and so
-does a tree (*"a mix is best"*); **rain ships ON with the control kept**
-(*"You can ship on, but give me control over it"*); the HISTORY page
-*"looks good"* and wants **a summary per colony as the default — x
-starved, x killed by y — expanding into individuals**; **pollen: the
-animals carry it**, and *"we will probably need creatures that are more
-pollination motivated (like a bee/butterfly)"* — a pollinator species is
-now the direction, over the design's BRUSH-first recommendation; **the
-seed rides home** (dispersal form 2); the pip card could not be read
-(*"cannot tell what I am supposed to be looking at"* — a still of a
-one-cell event; the next card is a zoomed moving sequence); **the
-articulated ants read as stuck and flashing** (*"I don't see anything
-moving"*) — with the three body costs, the bodies are parked on their
-branch until re-ruled; marks stay as shipped; the box is not empty (*"I
-can see the ants"*); the jump the owner wants is the 2.0 hop (card
-`…e1b18f`), which kills the animal in a session — the creature line owes
-a hop that reads like that and survives; the colony *"is overgrazing"*;
-fights *"would need a playtest"*; the two soil-wetness rules *"look the
-same"* (take the cheaper); a beetle *"should never be an ant's family"*;
-an ant should go *through* a trunk, disappearing and reappearing.
+*Record: [`../evolution-lab-round-27-2026-09-10.md`](../evolution-lab-round-27-2026-09-10.md);
+design of record
+[`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).
+Pointer and what binds.*
 
-**Offered and not started:** BRUSH (pollinate by hand — superseded by the
-animal ruling); sound (needs a ruling on the dependency); palatability
-co-evolution in colour; the bed as a record; wild collection.
+**Landed on `main`:** #306 (the bed: four scramblers and a tree), #307 (the
+pollinator design; the species is `flitter`), #309 (HISTORY opens on a
+summary per colony), #310 (rain ships LIGHT, control kept), #312 (nectar in
+two currencies), #313 (the seed rides home), #314 (the bloom sense — two
+brain inputs on the eye's rays, no species wired), #317 (herb and scrambler
+re-bloom, shrub flowers). **Stacked on the bodies branch and waiting on the
+owner:** #303 (the tuck) → #311 (length, not width; the flip) → #315
+(founding along the surface) + #316 (the flip on by default, foraging
+restored: deliveries 297 off / 290 on).
 
-**Environment, learned this round:** a poke's fire response names where it
-landed (`cse_<lane id>`); a trigger's prompt cannot be edited once bound, so
-each message is a new trigger, deleted after it fires; **a sub-agent that
-ends its turn to wait for a build never resumes** — one hung two hours with
-861 lines uncommitted and was salvaged by committing its worktree and
-killing it; the container suspends while the coordinator idles, so keep a
-check-in armed.
+**What binds.** **Ants are not the pollinators** — nothing wires the ant to
+the bloom sense, and the flitter (P2) comes before the scent plane (P1b),
+because a ground animal with eyes and a pull tops out one row under the
+flower (21 against 22). **The eye is heritable** (`TRAIT_SIGHT_RANGE`, cap
+8); whether selection would pay for it against nectar is a control
+measurement inside the flitter lane, not a lane. **Every mechanism of the
+garden loop is in and its rate is zero** (bites in single digits per
+120,000 frames; no pip has ever become a plant): the next lever is where
+windfall lands and why a pip never germinates, not another mechanism. The
+bodies' two reds — the §9 swarm guard and the chamber's `roofed > 0` — are
+the owner's ruling: green them and land the stack, or park it and keep the
+two-cell ant. Plant counts run lower under re-bloom in all six pairs: watch
+it. **Conserve tokens** (owner, 2026-09-10): spawn a lane only for a build
+the owner asked for or a landing needs; a finished lane resumes by
+`SendMessage` with its context intact. `labforage`'s SUMMARY line is
+contested by every lane — keep `main`'s fields, append yours, `cargo check`
+before pushing.
+
+**Open cards:** the seed deliveries (`…4ec0c3`), the founded bodies
+(`…7f9bac`), the re-bloom A/B (`…3257b2`), the long ant in a tunnel
+(`…9f00a9`).
+
+**Round twenty-eight, proposed to the owner and not yet ruled:** the flitter
+(P2) with the eye-price control inside it; the garden loop's rate (where
+windfall lands against where ants walk, and why a dropped pip never
+germinates); the bodies ruling; and, offered as the first player verb, sugar
+water — a drop the trail system recruits to. The wider list of offered ideas
+is the round record's last paragraph.
 
 ## The earlier rounds
 
-All twenty-five are verbatim in
+Rounds one to twenty-five are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
-which prices each one and maps it to its owning report. **Read the one round,
+which prices each one and maps it to its owning report; twenty-six and
+twenty-seven have their own records, linked above. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
 knowing which is yours is most of the saving:
 
@@ -313,6 +176,7 @@ knowing which is yours is most of the saving:
 | the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21, 25 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
 | creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23, 24, 25 | `creature-signature-and-castes-2026-09-06.md` |
+| the ecology — fruit, seed, nectar, flowers, the pollinator | 26, 27 | `evolution-lab-ecology-design-2026-09-10.md`, `evolution-lab-pollinator-design-2026-09-10.md` |
 
 ## Environment notes that cost time here
 
