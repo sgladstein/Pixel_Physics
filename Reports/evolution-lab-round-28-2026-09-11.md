@@ -109,7 +109,7 @@ parent's allele in >80% of 200 children (the free-draw mechanism gives ~50%).
 Petal census on sixteen herb founders at frame 6,000: 67 / 22 / 0 across the
 three palette bands under two alleles.
 
-## Lane B — size and spread (#322, open at the time of writing)
+## Lane B — size and spread (#322, second pass shipped at 12; a third lane measures the term)
 
 `organ_cluster` raised (herb 9 → 16, scrambler and shrub in proportion), head
 size scaled per individual by genotype slot 9 so a stand shows a spread, and
@@ -132,11 +132,30 @@ Holding the per-head `Ripen` cost fixed by dividing both costs by the
 cluster's growth ratio did not hold the stand, and protecting the seed's
 endowment measured worse on aggregate (both in `dead-ends.md`). A default that
 thins the bed 15–70% is a regression the owner sees as dying plants whatever
-the flowers look like, so the PR waits on a second pass: **name the term that
-scales with head cells when the per-head cost is fixed** (per-cell upkeep,
-since every organ cell is a donor in `allocate_to_frontier`; the head shading
-its own leaves; a mass or span cap), and ship the largest head that holds
-every seed within −25% of main's count, with 9 / shipped / 16 on the card.
+the flowers look like, so the PR waited on a second pass. **The term is per-cell upkeep**: every
+organ cell reaches `organism_upkeep`'s maintenance charge and pays
+`MAINTENANCE_PER_CELL` flat for as long as it stands, untouched by the
+`Ripen`-cost re-derivation, which reaches only the two one-off charges;
+organs are excluded from `crown_moment` and the span cap by the code's own
+comment; measured in isolation (`organ_size_and_the_maintenance_bill`), seven
+extra cells bill exactly seven times the constant. Sized against a −25% bar
+on the same three seeds:
+
+| head | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| main (9) | 464 | 574 | 303 |
+| 16 | 322 | 170 | 259 |
+| 12 (shipped) | 356 | 93 | 158 |
+| 9, spread and colours only | 348 | 299 | 248 |
+
+**None holds on every seed, and the table cannot say why**: 12 reads worse
+than 16 on two seeds, and size 9 with only the spread and the third band
+still reads under main — so either the per-plant *spread* (heads up to 1.7x)
+is a second term, or three seeds are three re-rolled worlds, since main's own
+three span 303–574. Card `…e1ee88`, a blind A/B/C (9 / 12 / 16). A fourth
+lane (D) runs the discriminating sweep — spread on against off at 12, six
+seeds, read as a median — and ships what holds; its result is in *Open at
+close*.
 
 ## Lane C — the garden loop's missing last step (#319, merged c8a9bf99)
 
@@ -160,7 +179,7 @@ code (`paint_nest_patch` lays nest as surface material). Card `…49ba0a`, a
 21-frame sequence with the pip ringed — the outcome is *eaten*, not *grown*,
 and the card says so.
 
-## Lane C — a live seed is not spoil (#323, open at the time of writing)
+## Lane C — a live seed is not spoil (#323, merged f0c8999c)
 
 The taker was **the dig verb**, not the bite: a neutral gut cannot eat a pip
 (40 J × 0.25 = 10 < `EAT_YIELD_THRESHOLD` 12), but `dig`'s ground test could
@@ -185,7 +204,36 @@ band) was built and rejected: founders fell on all three seeds (40/31/23 →
 three. Kept as `played_bed_windfall_reach.ron` for reference, rejection in
 `dead-ends.md`, `played_bed.ron` untouched.
 
-## Lane A — the flitter (#324, open at the time of writing)
+## Lane C — the pip's clock was never re-armed (#325, merged b977af67)
+
+The decay roll the brief suspected was already right (carried span, not
+organism age — confirmed by reading and by a deterministic test). **The taker
+this time was a schedule**: `deliver_seed_passenger` wrote a fresh `Seed`
+cell on delivery and never called `schedule_active_site`, unlike
+`bear_seed_at` and the germinate-wait reseed, and `organism_tick`'s own
+"seed relocated" recovery can only reschedule from a cell the organism still
+owns — a passenger-riding organism owns none — so a schedule coming due
+mid-transit (carries of 50–1,000+ frames against a 45-frame tick) was dropped
+for ever. One call fixes it. The instrument had also under-counted itself:
+`pip_checks` was gated on `deferred_germination`, which an unrelated pre-bite
+evaluation can already have set.
+
+| seed | delivered | `pip_checks` | resting ok | light ok | water ok | `plants_from_pip` |
+|---|---|---|---|---|---|---|
+| 1 | 0 | 0 | — | — | — | 0 |
+| 2 | 8 | 213 | 100% | 100% | 2 (0.9%) | **2** |
+| 3 | 4 | 241 | 100% | 100% | 0 | 0 |
+
+**The first two plants ever grown from a pip, across three rounds of this
+line**, and the last blocker named to the digit: resting and light never
+block, soil water blocks 452 of 454 checks, with readings at exactly 0.00 —
+the pip is set down on the nest patch and the nest's material holds no
+water. Card `…f83e2b`: organism 4656, delivered at frame 45,348, a standing
+five-cell seedling by 46,339, ringed. A fifth lane (E) builds the midden the
+ecology design promised — the pip set down on watered soil at the nest door —
+and its result is in *Open at close*.
+
+## Lane A — the flitter (#324)
 
 `flitter.ron` cut from `hopper.ron`: `Chain(2)`, gut −1.0, `nest: ""`, the
 pheromone steering and the four gate units stripped, the bloom pair and
@@ -222,10 +270,38 @@ closed; encounter is the gap now, and the mouth is the reason encounter
 never mattered.** The eye-price control read the *blind* arm ahead (median
 59.9% with `BloomNear` ablated, 84.2% with `BloomBearing`, 6 seeds, inside the
 arena's 2.4–3.1x noise) — unsigned, and meaningless for an animal that lives
-on leaves. Second pass in flight: a nectar-only mouth as a species field
-(default off, every other animal bit-identical), `flowers_bitten` by species,
-the bed's own plant and flower counts as the bar, the arena re-run on the
-animal whose only meal is nectar.
+on leaves. **Second pass: nectar and nothing else.** `CreatureDef::nectar_only`, a
+species field, default false — a switch on the menu rather than a weight on
+it, because every yield through `diet_quality` is positive and no gut setting
+avoids the leaf. For that animal `adjacent_food_counted`'s whole menu is
+`plant::nectar_available` cells, a read-only split of `nectar_offer`'s own
+preconditions, and the swallow block takes the hook or nothing; `try_bud`'s
+shortfall loop turned out to be a second mouth ("exactly as if the parent had
+eaten them" — 3,278,831 J of `intake` against 2,760 of `nectar_paid` and
+2,976 births on the first gate) and is gated too, so `intake` and
+`nectar_paid` now agree to the joule. Bit-identity on every shipped animal:
+1,096 non-timing `ascii` lines byte-identical. `flowers_bitten_by_species`
+built; a nestless species wears its own colour under ANIMALS WEAR BY COLONY.
+
+| arm | born | alive | flitter flower visits | flowers bitten | plant cells | flowers standing |
+|---|---|---|---|---|---|---|
+| flitter alone | 0 / 0 / 0 | 0 / 0 / 0 | 3 / 12 / 0 | 0 / 0 / 0 | 1,021 / 780 / 1,296 | 5 / 38 / 33 |
+| ants only | 197 / 110 / 663 | 84 / 15 / 511 | — | ant 1 / 0 / 9 | 290 / 116 / 87 | 10 / 0 / 11 |
+| ants + flitters | 101 / 359 / 320 | 35 / 241 / 164 | 3 / 5 / 20 | ant 9 / 3 / 7 | 320 / 173 / 534 | 11 / 11 / 7 |
+
+**The bed's bar is cleared and the animal's is not.** Plant cells with
+flitters sit above the no-flitter band on all three seeds, flowers eaten by a
+flitter are 0 everywhere; and the flitter never breeds and dies out, 3–20
+visits per 120,000 frames against 0.025 J a frame of upkeep. **Finding a
+flower, not reaching one, is now what it cannot do** — a followed animal with
+a paying flower nine cells away never came closer than nine in 2,000 frames
+and drifted as often away as toward. Two findings on the way: 57–87% of its
+deaths are `STARVED ALOFT`, traced to every creature material and `water.ron`
+authoring `density: 1.0`, so a hop that comes down on water hangs in the air
+paying the airborne rate for ever (§Z9, reproduced, not fixed here); and the
+eye-price control is unanswerable at 24,000 frames — 0 alive on both arms on
+all 6 seeds. Card `…aa6091` replaces `…cec12a` (the queue's transport copies a
+card only if absent, so a posted card cannot be edited).
 
 ## The bodies (#320, merged c16ffff0 by the round-27 session)
 
