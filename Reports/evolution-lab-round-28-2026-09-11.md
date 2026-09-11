@@ -249,9 +249,33 @@ line**, and the last blocker named to the digit: resting and light never
 block, soil water blocks 452 of 454 checks, with readings at exactly 0.00 —
 the pip is set down on the nest patch and the nest's material holds no
 water. Card `…f83e2b`: organism 4656, delivered at frame 45,348, a standing
-five-cell seedling by 46,339, ringed. A fifth lane (E) builds the midden the
-ecology design promised — the pip set down on watered soil at the nest door —
-and its result is in *Open at close*.
+five-cell seedling by 46,339, ringed — and the owner could not read it.
+
+## Lane E — the midden (#328)
+
+`nest.ron` carries no `water_capacity` (it defaults to 0), so the nest patch
+is dry by construction; every pre-fix delivery landed on it (8 of 8, 4 of 4
+on seeds 2 and 3, reproduced byte-for-byte against #325's table through a
+`PIXEL_PHYSICS_MIDDEN=0` switch). **The brief's literal build did nothing**:
+relocating the pip to the nearest ground with `water_capacity > 0` within six
+columns put 67–100% of pips on capable soil and moved `plants_from_pip` not
+at all, because capable soil was not *currently* wet enough. The shipped
+criterion is the two-part test `Behavior::Germinate` itself runs — capacity
+and live `plant_available_fraction` at or above the delivering species' own
+threshold — with a bounded search that never gates the set-down. Seed 2:
+germination among deliveries **25% → 67%** (2 of 3, both on their first
+check). Seed 3: 3 of 3 pips set on ground that read wet at delivery, 0
+germinated — both checked pips read 0.00 a few frames later, most plausibly
+the powder settling off the tested cell; reported, not chased. Two findings
+outrank the build. **Nothing lands near the nest**: `plants_from_pip_near_
+nest` is 0 on every run, because the drop verb sets cargo down wherever the
+ant happens to be, so the garden that comes up is bed-wide and the door-side
+garden needs the ant to carry the pip *home* first. And **`labgif` does not
+reproduce `labforage`'s trajectory** on the same seed and rain setting
+(zero deliveries in 140,000 frames where `labforage` had 3–8), so a measured
+event cannot be rendered by the card harness; recorded on `labgif`'s row in
+`instruments.md`, cause unchased. No card, by ruling: two seedlings scattered
+across a bed is the one-cell card the owner cannot read.
 
 ## Lane A — the flitter (#324)
 
@@ -352,6 +376,45 @@ swarm test), and the moisture-gradient scene's pickups 416 → 78, not chased.
   there; `creature=` already founded a nestless species. Reading the code
   before building saved three mechanisms this round.
 
+## The owner's verdicts (2026-09-11, after the round's cards)
+
+Decoded through `blind_was` where the card was blind. **The flitter**:
+*"jumping like a frog, not flying or floating like a butterfly or bee"*, and
+*"flowers should be easier to find or the flitter should be better at
+finding it or we need a better bed for the flitter."* **The flowers**: 16 and
+12 both better than main's 9, and indistinguishable from each other; on the
+earlier two-way card, the bigger arm. **Every pip card** — the delivery eaten
+in five frames, the pip surviving the dig, the pip becoming a seedling —
+*"not sure what I am looking at"*, even ringed and zoomed. Two other sessions'
+cards were answered in the same batch (the soil overlay's columns: *"ship off
+by default"*, and the long ant: *"I need to playtest"*) and belong to them.
+
 ## Open at close
 
-*(Filled in when the second passes land — see the note for what binds.)*
+- **Round twenty-nine's first build: the flitter floats.** Sustained,
+  steerable flight toward a bloom — a bee, not a frog — on top of
+  `nectar_only`, which stays. Reach is closed (106 rows) and encounter is
+  the gap; the owner's own words say the locomotion is the wrong shape. The
+  eye-price control is unanswerable until the animal persists (0 alive on
+  both arms at 24,000 frames). §Z9 (an animal that comes down on water hangs
+  in the air for ever at `density 1.0`) is filed and unfixed.
+- **The garden comes up at the door only when the ant carries the pip
+  home.** `seeds_delivered` today means "dropped anywhere"; the midden makes
+  the drop cell wet enough, and the drop still happens bed-wide. The verb to
+  build is the laden ant's walk home with a seed as cargo. Also owed: why a
+  pip's ground reads 0.00 a few frames after testing wet (seed 3), and
+  windfall out of the colony's reach (67–100%), which no scene move within
+  the founding rules has fixed.
+- **Main's played bed thins by an order of magnitude at session length on
+  some seeds** (574 → 39 on seed 2 between d1535c39 and eafde084, with #320,
+  #323, #324 and #325 in between). The owner read the colony as overgrazing
+  a day earlier. Bisect it before trusting any plant count on the bed.
+- **Cards of one cell do not work; nor can a posted card be edited or
+  withdrawn**, so two superseded cards (`…83eaba`, `…cec12a`) sit in the
+  queue beside their replacements. Show the stand, the door or the colony
+  over a long span, or let the playtest judge — and post once.
+- **Pollen (C1) and the instruments (I)** wait behind the flitter: a cross
+  is only visible once petal colour is heritable (it is now) and only
+  happens once a pollinator persists (it does not yet).
+- `labgif` and `labforage` diverge on one seed; the card harness cannot
+  render a measured event until that is understood.
