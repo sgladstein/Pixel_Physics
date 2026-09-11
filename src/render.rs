@@ -1412,7 +1412,22 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 /// **The one definition of a group's colour**, read by the renderer for the
 /// animal and by the lab's ANTS page for the graph line and legend swatch.
 /// `None` under `Off`, where the animal wears its material.
-pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32) -> Option<[f32; 3]> {
+pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32, homeless: bool) -> Option<[f32; 3]> {
+    // **An animal whose species declares no nest wears its own colour, even
+    // in BY COLONY.** It has no colony to wear: `found_colony_of` paints no
+    // home for such a species (its own doc: *"a species with an empty `nest`
+    // gets animals on the ground and nothing else"*), so the label it carries
+    // is bookkeeping rather than a home, and colouring by it hides the only
+    // thing that tells the animal apart on screen.
+    //
+    // Found by looking rather than by reading: the flitter authors a pale
+    // blue-white body precisely so it reads in flight, and every card of it
+    // came back with the body drawn in a group hue, because `Lab::new` opens
+    // on `CreatureColour::Colony`. A species field that never reaches the
+    // screen is a species field nobody can judge.
+    if homeless && matches!(mode, CreatureColour::Colony) {
+        return None;
+    }
     match mode {
         CreatureColour::Off => None,
         CreatureColour::Species => Some(group_palette(species.0 as usize)),
@@ -1485,6 +1500,14 @@ const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
 /// which is a matter of telling a flower from the bud beside it at a glance.
 const CELL_TYPE_FLOWER: [f32; 3] = [255.0, 240.0, 60.0];
 const CELL_TYPE_FRUIT: [f32; 3] = [255.0, 60.0, 90.0];
+/// The three roled creature cell types added for `BodyPlan::Segmented`.
+/// Far from `CELL_TYPE_HEAD`/`CELL_TYPE_SEGMENT` and from each other, same
+/// reasoning as the pair above: the question this overlay answers about an
+/// articulated body is which role each of its few cells carries, at a size
+/// where colours a shade apart would read as one blob.
+const CELL_TYPE_LEG: [f32; 3] = [80.0, 200.0, 255.0];
+const CELL_TYPE_GUT: [f32; 3] = [255.0, 150.0, 220.0];
+const CELL_TYPE_ARMOUR: [f32; 3] = [180.0, 180.0, 60.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -5360,9 +5383,22 @@ impl Renderer {
         // nonsense cell type), and only then the organism lookup. A tree is
         // thousands of cells and pays the two bit tests; the ~150 creature
         // cells in a colony pay the lookup.
-        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+        // **Every roled body cell, not only `Head`/`Segment`.** `Leg`,
+        // `Gut` and `Armour` are the same creature's own flesh, stamped
+        // from the same material -- excluding them here would leave an
+        // articulated body two-toned, colony-coloured at some cells and
+        // raw material colour at others, which is a rendering defect this
+        // change introduces if left ungated rather than a pre-existing
+        // fact about the two original types.
+        if cell.organism_id() != 0
+            && matches!(
+                organism::cell_type(cell.aux()),
+                Some(organism::CellType::Head | organism::CellType::Segment | organism::CellType::Leg | organism::CellType::Gut | organism::CellType::Armour)
+            )
+        {
             if let Some(state) = world.organism(cell.organism_id()) {
-                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony) {
+                let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -6108,6 +6144,9 @@ impl Renderer {
                     Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
                     Some(organism::CellType::Flower) => CELL_TYPE_FLOWER,
                     Some(organism::CellType::Fruit) => CELL_TYPE_FRUIT,
+                    Some(organism::CellType::Leg) => CELL_TYPE_LEG,
+                    Some(organism::CellType::Gut) => CELL_TYPE_GUT,
+                    Some(organism::CellType::Armour) => CELL_TYPE_ARMOUR,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
@@ -8091,9 +8130,11 @@ mod tests {
             let luma = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
             assert!(luma > 90.0, "a group colour must stand off dark soil: {c:?} has luma {luma:.0}");
         }
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0), Some(GROUP_NONE));
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
-        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1), None);
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, false), Some(GROUP_NONE));
+        // The nestless case: no colony to wear, so it wears itself.
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, true), None, "a species with no nest keeps its own colour in BY COLONY");
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1, false), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
+        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1, false), None);
     }
 
     #[test]

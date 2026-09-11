@@ -4562,7 +4562,7 @@ mod tests {
         assert!(lab.world.plant_tree_species(fx + 10, fy, "herb"), "the harness planted nothing");
         let id = lab.world.get(fx + 10, fy).organism_id();
         if let Some(st) = lab.world.organism_mut(id) {
-            st.alleles = [1, 2, 1, 1, 1, 2];
+            st.alleles = [1, 2, 1, 1, 1, 2, 1];
         }
         let draws = lab.world.organism(id).expect("live plant").genotype_draws;
 
@@ -4576,7 +4576,7 @@ mod tests {
         assert_ne!(sown, 0, "nothing was sown: {:?}", lab.ui.notice_text());
         let state = lab.world.organism(sown).expect("the sown seed");
         assert_eq!(state.genotype_draws, draws, "the sown seed is not carrying the kept genome");
-        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2], "the discrete loci did not survive the jar");
+        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2, 1], "the discrete loci did not survive the jar");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4966,6 +4966,19 @@ mod tests {
         // left margin -- 4..181 of a 512-wide screen, measured. The first run
         // of this guard stocked at the centre, put every ant at x=153, and
         // asserted `PANEL_BG` against a lineage colour.
+        //
+        // **The stock dial, turned down from the shipped 52.** `colony_
+        // stations` spaces a colony at `body_span * 2`, and the shipped
+        // ant's articulated body raised that span from roughly one cell to
+        // five -- so a 52-ant colony now spans 510 cells, ten times what it
+        // did, and stocking one at 4/5 of a 512-wide bed puts its *first*
+        // station (the lowest slot, which `mine` below picks) back at the
+        // left edge of that spread, x~154 -- inside the panel's 4..181 the
+        // comment above was written to avoid. Turning the dial down three
+        // stops to 8 keeps the colony (span 70) comfortably clear of the
+        // panel at this same click point, with "two lines" just as true of
+        // 8 independently-founded ants as of 52.
+        lab.act(ui::Action::Stock(-3));
         let x = lab.spec.width * 4 / 5;
         let surface = lab.spec.ground_y;
         lab.act(ui::Action::Tool(ui::Tool::Colony));

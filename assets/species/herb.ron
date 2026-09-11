@@ -108,6 +108,30 @@
     // twelve visits paid across its whole life, the design's own figure.
     nectar_yield: 120.0,
     nectar_refill: 0.25,
+    // **A determinate axis re-blooms rather than finishing for good** --
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §1.2 measured
+    // the played bed running out of standing flowers on its own, colony or
+    // no colony (81 -> 25 -> 8 at frames 6,000 / 20,000 / 40,000), which
+    // nectar needs a supply of flowers to keep paying against.
+    // `SpeciesDef::rebloom_after`'s own doc has the full mechanism and cost
+    // account; the number here is the argued-then-measured one.
+    //
+    // **Argued**: one full flower cycle -- `Ripen(rate: 0.02)` to set fruit
+    // (~50 organism ticks) plus `Ripen(rate: 0.012)` to ripen and drop it
+    // (~83 ticks) -- is ~133 ticks, `ORGANISM_TICK_INTERVAL` (45) apart, so
+    // ~5,985 frames collar-to-collar. A rebloom timer shorter than that
+    // would have every axis re-flowering before its own fruit has even
+    // finished ripening, which is a plant flowering faster once it has lost
+    // a flower than while it is growing one -- the wrong direction. 4,000
+    // sits under that floor (roughly 2/3 of it), so at most axes are
+    // reflushing while the *previous* cycle's neighbours are still mid-ripen,
+    // which is what keeps the bed's standing count from ever hitting zero
+    // between cycles rather than only refilling it in bursts.
+    //
+    // **Measured** against `rebloom_after: 0` on `labforage
+    // scenario=played_bed frames=120000`, four arms (colony present/absent x
+    // shipped/off): see this PR's commit message for the table.
+    rebloom_after: 4000,
     stomatal_reserve: 0.2,
     // A ruderal's bank: short-lived seed, fast-rotting remains. Both an
     // order of magnitude below `tree`'s, which is what a herb *is* on the

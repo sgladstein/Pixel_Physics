@@ -3,7 +3,34 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-06 (**ground is now worth something on its own, not
+*Current as of: 2026-09-11 (two independent changes landed the same day.
+**Petal colour passes from parent to seedling** — see "Colour is a
+readout, not decoration" below; it used to be the one channel a cross
+could not carry, and a bred stand's flowers now track their parents'
+shade the way foliage and bark already did. **A seed can leave in an
+animal's mouth instead of only in the wind** — an ant that bites a fallen
+fruit sometimes finds the seed inside survives, and sometimes carries it
+home instead of leaving it where it fell; see **Seeds carry provisions**
+and **The forest floor**. It is a real path, not a decoration: measured
+over three long sessions on the mixed bed the owner actually plants, it
+has carried a seed home a handful of times and none has yet come up as a
+plant — the seed usually does not outlive the trip, most fallen fruit
+lies where no animal's own daily round ever reaches it, and the one seed
+that did survive to be set down was eaten again within moments of
+arriving. So this is the shape of a mutualism that has not yet closed,
+not one that has.)*
+
+*Before that: 2026-09-10 (**a spent flower is not the last one.** A herb,
+a scrambler and — new on this date — a shrub used to flower an axis exactly
+once: the fruit fell and that stem was finished for good, so a bed of
+flowering plants necessarily thinned out and eventually stopped flowering
+altogether, whether or not anything was feeding at the flowers. Now the
+stem waits and puts up a fresh flower in the same place, paid for the same
+way the first one was, and a shrub joins the flowering plants for the first
+time — its own colours, its own many-small-flowers-across-a-mound habit,
+its own much longer wait between blooms.)*
+
+*Before that: 2026-09-06 (**ground is now worth something on its own, not
 just as somewhere to find water.** A plant living on a drip or on rain, with
 its roots in no soil at all, used to be able to grow indefinitely — light and
 water were the whole economy and standing water supplied the water. Soil now
@@ -553,18 +580,23 @@ of carbon, or water, or room, or it simply cannot lift water any higher. None
 of them ever *finishes*. That is why they all read as versions of one thing:
 a shoot that only ever ends by failing has nowhere else to go.
 
-**Two kinds of plant now finish on purpose.** An axis counts the leaf-and-bud
-units it has made, and at its own number it stops making shoot and makes a
-**flower** instead. The growing tip is used up doing it — there is no
-continuation, because the flower *is* what the tip became. That is the whole
-of it, and it is what the two look like:
+**Three kinds of plant now finish an axis on purpose.** An axis counts the
+leaf-and-bud units it has made, and at its own number it stops making shoot
+and makes a **flower** instead. The growing tip is used up doing it — there
+is no continuation, because the flower *is* what the tip became. That is the
+whole of it, and it is what the three look like:
 
 - an **erect herb** puts everything into one stem that goes straight up on a
   bare stalk with a few large leaves widely spaced along it, and finishes in a
   single flower head several cells across at the top;
 - a **scrambler** makes a short run, stops, throws a side shoot that takes over
   and does the same, over and over — so it sprawls into a low thicket studded
-  with small clusters of flowers and fruit at every place an axis ended.
+  with small clusters of flowers and fruit at every place an axis ended;
+- a **shrub** does the same short-run-and-relay trick at its own, larger
+  scale — every one of its many woody branch tips is a short axis that ends
+  in a flower, so a mature shrub carries its flowers and fruit scattered
+  right across its own mounded shape rather than at one head or in trusses
+  low down.
 
 **A flower is not a green cell with a label on it.** Petals are their own
 material, in colours nothing else in the world has: yellows, oranges, reds,
@@ -592,8 +624,27 @@ never gets ahead makes a bare stalk with nothing on top. A plant that fills
 fruit sets fewer loose seeds that season, because both come out of the same
 pocket.
 
-The older plants are unchanged: a tree, a conifer, a shrub, a creeper and
-grass all still grow until something stops them, and none of them flowers.
+**A spent stem does not stay bare for good.** Once a fruit lets go (or a
+flower is lost before it ever sets one), the stem it grew from waits and then
+puts up a fresh flower in the same place, paid for out of the same account as
+the first one — a plant too poor at the moment its turn comes simply waits
+longer, rather than being skipped for ever. How long the wait runs is a real
+difference between the three: an erect herb and a scrambler pick back up
+within the same season a first flower would, while a shrub waits much longer
+and keeps only a slow trickle of new blooms going at any one time. That
+trickle, spread over a shrub's whole mounded shape and its much longer life,
+is what keeps a bed of flowering plants looking like it is actually in flower
+over the long run — a standing larder for anything that feeds at a flower —
+rather than blooming in one flush and falling silent for good once every
+stem has fruited once.
+
+The older plants are unchanged: a tree, a conifer, a creeper and grass all
+still grow until something stops them, and none of them flowers. A shrub no
+longer belongs on that list — it keeps its own slow, gnarled, mounded habit,
+but it is a flowering plant now, in colours no other flowering plant here
+wears: magenta and violet petals over purple and blue-black fruit, against an
+erect herb's yellow-and-orange over gold and a scrambler's blue-and-white
+over red and crimson.
 
 ## Colour is a readout, not decoration
 
@@ -631,9 +682,21 @@ above the soil line means a root flare and nothing more.
 It matters past appearance: root tissue holds loose soil against falling, and
 a plant made of the wrong stuff was gripping the air.
 
-A freshly seeded stand is mixed on both axes from the first frame, so this is
-visible immediately rather than only after generations. What selection then
-does to those proportions is the thing worth watching over a long run.
+**New on 2026-09-11: petal colour passes from parent to seedling.** It used
+to be the one part of a flowering plant that did not inherit — a bred
+seedling's petals landed on a fresh shade drawn for it alone, so a cross's
+children looked no more like their parent's flowers than a stranger's would.
+Petal colour now works exactly like foliage tone and bark tone: a seedling's
+flowers wear its parent's shade, drifting only on the same rare jump that
+occasionally moves any of a plant's other inherited traits to a neighbouring
+value. Fruit colour is the one channel this still does not reach — it is
+still redrawn fresh at every flowering, on every plant, with no memory of
+the parent.
+
+A freshly seeded stand is mixed on all three colour axes from the first
+frame, so this is visible immediately rather than only after generations.
+What selection then does to those proportions is the thing worth watching
+over a long run.
 
 ## Seeds carry provisions
 
@@ -646,6 +709,16 @@ That matters because the first moments after germination are when most
 seedlings are lost: a fresh shoot has to afford its first growth step before
 any income has arrived. Where a stand is dense enough that establishment
 actually fails, the provisioned ones are the ones that make it.
+
+**A seed that rode in an animal's mouth keeps its provisions too.** Biting a
+fallen fruit does not always destroy what is inside it — the seed can survive
+the mouth and be left standing where the fruit was, pale and small, or carried
+off and set down somewhere else entirely, still the same seed with the same
+stake its parent paid, not a fresh one drawn from nothing. Either way it takes
+root through the ordinary path above once conditions allow. What it does not
+get is any bonus for the trip: the ground an animal happens to set it down on
+is not necessarily better ground, and a seed that has changed hands has spent
+longer exposed to being eaten again than one that never left the plant.
 
 ## The forest floor
 
@@ -714,6 +787,18 @@ Litter is also the fastest fuel in the world: it is the layer that carries a
 ground fire between two stands across open ground. And it is **food** — the
 one part of a canopy's production that ends up where a walking animal can
 reach it. See `ants.md`.
+
+**Fallen fruit is a second kind of floor food, and it does not fall evenly.**
+A fruiting plant that grows low and spreads sideways rather than climbing —
+the kind a colony is likely to share ground with — drops its fruit right at
+the surface instead of up a stem an animal on the ground can never reach.
+Whether anything ever bites it is a different question from whether it is
+reachable at all: a colony forages over its own home range, and fruit lying
+outside that range is on the floor and still untouched, the same way a leaf
+drift standing in a corner nobody walks through just accumulates. The two
+have to be read together — where the fruit is, and where the animals
+actually go — to know whether a stand beside a nest is a garden or just a
+neighbour.
 
 ## Cutting a plant down
 

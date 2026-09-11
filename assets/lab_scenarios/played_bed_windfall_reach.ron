@@ -1,0 +1,158 @@
+// **A measurement scene, kept as a reference the way `played_bed_
+// scrambler.ron` is -- NOT merged into `played_bed.ron`, and measured
+// negative.** Round 28's garden-fix lane
+// (`Reports/lanes/evolution-lab-garden-fix.md`): standing windfall sits
+// 67-100% of the time in a column the colony's own foot traffic never
+// touches (`Reports/lanes/evolution-lab-garden-loop.md` hypothesis b),
+// because the two inner scramblers (columns 118, 395) sit well outside the
+// colony's founding/foraging band (180-330). This variant moves them to
+// 170 and 340 -- just outside the band rather than inside it, on the
+// reasoning that `played_bed.ron`'s own comment gives for keeping fruit out
+// of 180-330 at all (a scrambler there cost founders: 2 of 52 against 31).
+//
+// **The ship condition failed on both halves, 3 seeds, frames 6,100 and
+// 30,000.** Founders at colony arrival: main 40/31/23, this variant
+// 27/23/22 -- lower on all three seeds, and 22 sits one below main's own
+// floor of 23, so "holds within main's range" does not hold even at the
+// edges. `windfall_bitten` at frame 30,000: main 1/0/0, variant 0/2/0 --
+// rose on 1 of 3 seeds, not a majority. Even ten columns outside the
+// nominal 180-330 band, a scrambler still reaches far enough into the
+// colony's actual founding/foraging footprint (which is not a hard
+// rectangle) to cost what `played_bed.ron` already paid to avoid. Full
+// numbers in the lane note; `played_bed.ron` is unchanged.
+//
+// The played bed -- the mix the owner actually plants, 2026-09-09.
+//
+// Every headless figure in the lab's reports before this was taken on the
+// harness default: eight herb founders of one species, and (until `ants_at`)
+// a colony dropped on seedlings at frame 0. The owner does not play that
+// box. They grow a mixed bed first and then add ants, and the difference is
+// not cosmetic -- same binary, same seed, a colony founded at frame 0 holds
+// 4-13 animals at 30,000 frames where one founded at 6,000 holds 31.
+//
+// **The mix is the owner's own, given 2026-09-09: grass, herb and shrub.**
+// Each does a different job, which is the whole reason a mix is not just a
+// denser lawn:
+//
+//   grass  -- the fast ground staple. No separate leaves, matures in 10, and
+//             it keeps the bench lit: measured over 120,000 frames a grass
+//             bed holds 0.562 of lamp light at the soil where herb falls to
+//             0.240 and shrub to 0.110.
+//   herb   -- the only shipped plant that sets fruit, matures in 60.
+//   shrub  -- slow woody clumps, matures in 250. These are what make the bed
+//             patchy rather than uniform, so distance to food is a real
+//             quantity in it.
+//
+// **No tree, and that was measured rather than assumed.** A tree was in the
+// first reading of the owner's answer, so it was rendered before anything
+// was run on it: one tree founder becomes 79 plants and shades the bench to
+// **0.008** of lamp light by frame 30,000 -- thirty times darker than the
+// herb bed, with the low plants that actually feed a colony shaded out. A
+// long run on a bed with a tree in it measures the canopy closing, not
+// whatever else it was pointed at. Review card
+// `20260909T232116894Z-2b3661` puts the choice to the owner; if the answer
+// is "tree anyway", it is one more `Plant` line here and every figure taken
+// on this file has to be retaken.
+//
+// **Thirteen plants, and a bare band in the middle, both measured rather
+// than chosen.** A grown bed physically refuses a colony: `found_colony_of`
+// needs bare footing, and by frame 6,000 the vegetation and its seed litter
+// have taken the surface. Measured at frame 6,000, founders seated out of
+// the 52 asked for:
+//
+//   bare bed, no plants at all                     52
+//   22 plants spread evenly across the bed          8
+//   13 plants spread evenly across the bed         23
+//   13 plants with none in the nest band 210..310  33
+//
+// So the band is not decoration. A colony dropped on a full bed is a colony
+// of eight, and a run of it reads as a breeding rule that does not fire --
+// `CLAUDE.md`'s "a scene that contradicts the code will look like a bug in
+// the code", and the founder count is the only line in the output that says
+// so. A player does this by eye anyway: you place a nest on bare ground.
+//
+// A `Clear` sweeping the band immediately before founding was tried and is
+// NOT here: it bought 3 more founders (36 against 33) and cost three grown
+// plants, so it is a worse bed for a rounding error.
+//
+// Seating still varies a lot with the seed -- 33, 13 and 18 on seeds 1, 2
+// and 3 -- because where the seed litter falls is where the nest cannot go.
+// That spread is a real property of the played bed and belongs in any
+// figure taken on it.
+//
+// **The colony arrives at frame 6,000, on the timeline.** That is the whole
+// point of the file -- `Colony` in `timeline` rather than `placements` is
+// what makes this the played bed instead of the harness one, and it is why
+// `ants_at=` is ignored in scenario mode: the timeline decides.
+(
+    name: "played_bed_windfall_reach",
+    title: "WINDFALL IN REACH OF THE COLONY",
+    question: "The mix the owner plants -- grass, herb, shrub, a fruiting thicket and one tree, grown for 6,000 frames, then a colony lands on it.",
+    bed: (
+        width: 512,
+        height: 320,
+        soil_depth: 80,
+        ground_y: 160,
+        compartments: 1,
+        founders: 0,
+        species: "grass",
+        colonies: 0,
+        colony_ants: 52,
+        colony_species: "ant",
+        predators: 0,
+        lamp_spacing: 33,
+        seed: 1,
+        extra_walls: [],
+    ),
+    settings: [],
+    placements: [
+        Plant(species: "grass", x: 25),
+        Plant(species: "herb",  x: 50),
+        Plant(species: "shrub", x: 75),
+        Plant(species: "grass", x: 105),
+        Plant(species: "herb",  x: 130),
+        Plant(species: "grass", x: 155),
+        Plant(species: "shrub", x: 180),
+        Plant(species: "grass", x: 330),
+        Plant(species: "herb",  x: 355),
+        Plant(species: "shrub", x: 380),
+        Plant(species: "grass", x: 410),
+        Plant(species: "herb",  x: 435),
+        Plant(species: "grass", x: 465),
+        // 2026-09-10, owner's rulings on two cards: the low fruiting thicket
+        // goes in ("Sure" -- fruit on the floor 9.6x, ant bites of a fallen
+        // fruit 5 -> 32 across a three-seed sweep, PR #302), and so does a
+        // tree ("Both are fine. I think a mix is best" -- one tree shades
+        // the bench under it to under 1% of lamp light, and the owner took
+        // that trade). Four scramblers spread across the bed, the tree at
+        // the far right so the shaded floor is one end, not the middle.
+        // NOT in columns 180-330: that open ground is where the colony
+        // founds at frame 6,000, and the measurement bed's scramblers at
+        // 215 and 300 (played_bed_scrambler.ron) seated 2 ants of 52
+        // there against 31 on the bare gap -- caught by looking before
+        // committing (labshot frames=6000,30000).
+        Plant(species: "scrambler", x: 15),
+        Plant(species: "scrambler", x: 170),
+        Plant(species: "scrambler", x: 340),
+        Plant(species: "scrambler", x: 490),
+        Plant(species: "tree",      x: 455),
+    ],
+    timeline: [
+        // **Clear the nest site one frame before the colony lands.**
+        //
+        // Without this the scenario asks for 52 founders and `found_colony_of`
+        // seats **8**: by frame 6,000 a grown grass bed has laid ~750
+        // ungerminated seeds across the surface, every one of them an
+        // occupied cell, and a colony needs bare footing. The run then reads
+        // as a colony that will not breed, which looks exactly like a broken
+        // breeding rule and is nothing of the kind -- `CLAUDE.md`'s "a scene
+        // that contradicts the code will look like a bug in the code",
+        // caught by the founder count and by nothing else in the output.
+        //
+        // A player does this by eye: you click bare ground. The band is 112
+        // columns of the bed's middle, cleared to 8 rows above the soil,
+        // which is where the seed litter sits.
+        (at: 6000, every: 0, until: 0, what: Colony(species: "ant", x: 256, count: 52)),
+    ],
+    horizon: 120000,
+)

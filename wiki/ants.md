@@ -1,6 +1,41 @@
 # Ants
 
-*Current as of: 2026-09-09, evening, when four things changed at once and
+*Current as of: 2026-09-11, when a third animal arrived: **the flitter**,
+the first one in the box that lives off flowers and the first that leaves
+the ground on purpose. It is two cells, it hops rather than walks, it has
+eyes, and nothing but nectar will feed it. See "The flitter" below for what
+it does and what it does not do yet. The same day, the articulated body
+landed as a species
+you place rather than the one your colony starts with. The shipped ant is
+still two cells nose-to-tail -- every gate that leans on that shape (a
+chamber the colony digs and roofs over itself, a bite that closes one
+mouthful at a time) needs it, and nothing about the box's default colony
+changed today. A five-segment **long ant** is now on the shelf as its own
+species, identical to the ant in everything but its body, for anyone who
+wants to see a longer animal forage, found and turn round in a dead end;
+place it the same way you place any other species. On top of that, from
+2026-09-10: **a long ant can now turn round in a dead end** instead of
+standing there stuck -- see "And a long ant can now turn round" below. It
+is the default for any body that has one, not an experiment: the one
+thing it had to be taught not to do is turn a laden forager away from a
+nest door that only looked blocked because another ant was passing
+through it, which it no longer does. The same day, **a colony can carry a seed home instead of only
+a meal**, documented rather than shipped new — the mechanism landed
+2026-09-10 and this is the honest read of what it does. See "What is not
+finished": a seed has ridden home and been set down alive a handful of
+times across three long sessions, and none has yet grown, because most
+fallen fruit sits outside the colony's own daily round and the one seed
+that made the whole trip was eaten again within moments of arriving.
+Before that, 2026-09-10, when a flower stopped being invisible at a
+distance. An animal with eyes can now see a bloom the way it sees another
+animal — from across the room, not only once it is standing on one. (This
+note said that day that the hopper was born reaching for one; it was not.
+The wiring was tried on the hopper, measured, and left out, because the
+hopper's body cannot reach a flower whatever its eyes say — that is the
+gap the flitter exists to close.) Nothing else changed about what a flower
+pays or how an animal feeds at one; what changed is whether an animal that
+could already afford the visit ever found it. Before that, 2026-09-09, evening,
+when four things changed at once and
 one of the morning's own claims was overturned. **An ant can feel hunger
 now**: a well-fed ant mostly rests and a hungry one walks, and the colony
 digs when its nest is crowded rather than tunnelling the world out of
@@ -239,6 +274,24 @@ roughly halve, and where growing plants used to be what stopped an ant on
 two thirds of its failed steps, the handful left are trunks with no far side
 to reach.
 
+**And a long ant can now turn round.** Turning and looking somewhere else
+works for a short body, but a body several cells long cannot back out of a
+dead end the way it walked in — there simply is no way for it to step
+backwards over its own length. Walk one into a blind tunnel, a passage
+that doubles back sharper than its own body can bend, or a burrow it dug
+itself into a corner, and where it used to stand there twitching it now
+turns end for end on the spot — the tail becomes the head, facing back the
+way it came, with nothing about the animal moving to make room for it. The
+next step is an ordinary one, back out the way it arrived. It only does
+this once every heading really is refused, not merely the one it happened
+to be facing, so a length that can simply turn a corner still does.
+
+A carrying ant weighs this differently near the nest, where the colony's own
+comings and goings can make the one open path look blocked for a moment: it
+will wait out a jam from a nestmate rather than turn for home and walk away
+from a door it was about to reach, and only turns end for end when nothing
+in its way is going to move on its own.
+
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
 something the game does for it, and the ants that come with the game have
@@ -398,14 +451,20 @@ zero, every animal is exactly its genes whatever its line finds. The number
 is not inherited and a jar does not keep it, so a released animal is made
 of nothing.
 
-**They can see what hunts them, if they can see at all.** An animal with
-eyes used to see two things at a distance: something it could eat, and its
-own kind. Since 2026-09-06 it sees a third — the nearest animal whose
-stomach would take *it* — and knows how near it is and which way to turn to
-face it or to put it behind. Nothing tells the animal what to do about that;
-whether it runs, freezes, digs in, keeps eating or lays a scent is decided
-by its inheritance, and an animal born today does none of them. The ants
-that ship are blind, so for them this begins the day a lineage grows eyes.
+**They can see what hunts them, and now what feeds them, if they can see at
+all.** An animal with eyes used to see two things at a distance: something
+it could eat, and its own kind. Since 2026-09-06 it sees a third — the
+nearest animal whose stomach would take *it* — and since 2026-09-10 a
+fourth: the nearest flower, whether or not its own gut can use one, on the
+same look that finds everything else. For each of these it knows how near
+the thing is and which way to turn to face it or to put it behind. Nothing
+tells the animal what to do about that; whether it runs, freezes, digs in,
+keeps eating, lays a scent or turns toward a bloom is decided by its
+inheritance, and an animal born today does none of them by default except
+the flitter, which is born turning toward a flower it can see, hopping
+harder when there is one to reach, and sitting still when it is already
+standing at one. The ants that ship are blind, and so is the hopper, so
+for them this begins the day a lineage grows eyes.
 It is the same rule the hunter uses, read from the other end: a beetle is a
 threat to an ant because a beetle would eat an ant, and an ant is a threat
 to a beetle for the same reason, since an ant standing beside one will bite
@@ -892,6 +951,70 @@ refuses a beetle, purely because a beetle is a solid two-by-two block and has
 to fit; nobody wrote a rule about hiding. What it does not yet have is a
 predator that makes using it pay.
 
+## The flitter
+
+**A third animal, and the first one that is not a walker.** An ant is a
+line along the floor. A flitter is two pale cells that throw themselves
+into the air, land wherever they come down — on the soil, on a leaf, on a
+stem, plants hold an animal up exactly as ground does — and throw
+themselves again. It is the only thing in the box that leaves the ground
+because it decided to.
+
+**Nectar is the only thing it eats, and that is the whole of its trade.**
+Not "prefers" -- only. Leaf, fruit, seed, a corpse, and a flower that has
+already been drained all pay it exactly nothing; it lives on flowers that
+have refilled and starves between them. An ant beside a leaf has a meal; a
+flitter beside the same leaf has scenery.
+
+**That was not the first attempt, and the first attempt is worth knowing
+about**, because it is what you get if you try to make a specialist by taste
+alone. Given a strong liking for nectar and nothing else, the flitter ate
+leaves all day, bred into the hundreds off them, and stripped the bed of the
+flowers it was supposed to be serving -- 960 cells of plant down to 566, and
+34 standing flowers down to 4, against the same bed with no flitter in it. A
+liking for one food is not the same thing as being unable to eat the rest.
+
+**It can see flowers, and it goes to them.** It turns toward the nearest
+bloom it can see, hops harder when there is one in view, and — the one wire
+that keeps it alive — stops hopping while it is standing at one. An animal
+that jumps off its own dinner never eats.
+
+**What it does, and it is worth watching.** It gets high — its head reaches
+tens of rows above the soil where an ant manages a dozen — and it leaves
+the bed alone. Put flitters on a bed and the plants and the flowers come
+through a long session in the same shape as on a bed with no flitter in it,
+or better. Nothing it does costs the plants anything.
+
+**And it dies out. Every time, so far, on every bed we have tried.** It
+does not find enough flowers. Over a whole session a flitter reaches a bloom
+a handful of times where it would need to do so constantly, and in between
+it does what you would do looking for something you cannot smell: it wanders
+sideways along the ground, hops, and lands somewhere else. Watching one for
+two thousand frames with a full flower nine cells away, it never came closer
+than nine, drifted away as often as toward, and spent the last eight hundred
+of those frames stuck in the air over one cell until it starved. A flower is
+a single cell and a whole bed holds a few dozen; seeing one from across the
+room turns out not to be the same as arriving at it.
+
+**So the honest state of it is: the animal works and its food is too hard to
+find.** It flies, it reaches the canopy, it will not touch anything but
+nectar, and it cannot yet make a living. Bigger flowers, more of them, or
+something that leads an animal to one are all the same problem from
+different sides.
+
+**And it carries no pollen.** Visiting a flower feeds the flitter and does
+nothing for the plant. That is the next piece.
+
+**One thing about the air, and it is not only about flitters.** Water is
+exactly as heavy as an animal here, so anything that hops and comes down on
+water does not land -- it hangs there and starves in mid-air. It is most of
+how a flitter dies, and most of how the older hopper dies too.
+
+**One thing to press.** The lab opens with animals wearing their *colony's*
+colour rather than their own, so the flitter's own pale blue-white body
+does not show until you cycle the animal colour to OWN COLOUR. In colony
+colours an ant and a flitter look much alike.
+
 ## Placing a colony, and watching what they smell
 
 Press **Y** to found a colony on the ground under the cursor: it lays a nest
@@ -1025,6 +1148,22 @@ What a colony is still not especially good at is **finding food in the first
 place**. A pile a long way off may take a while to be discovered, and one
 right across the map may never be. Put food within reach of the colony and
 the whole loop runs.
+
+**An ant can carry a seed home instead of just a meal, and the garden that
+would make has not grown yet.** Biting a fallen fruit sometimes leaves the
+seed inside it whole rather than destroying it, and a whole seed can ride
+home in the same mouth a meal would, to be set down wherever the ant happens
+to be when it lets go — at the nest most often, but not only there. That is
+the shape of a colony that plants as a side effect of eating: a nest ringed
+by the offspring of whatever it has been feeding on. On the mixed bed the
+owner actually plants, across three long sessions, it has happened — a seed
+has ridden home and been set down alive — but nothing has come up from one
+yet. The seed that got furthest was found and eaten again within moments of
+being put down, by the same kind of animal that carried it. The rest of the
+chain barely runs at all: most fallen fruit sits in ground the colony's own
+daily round never reaches, so a bitten fruit is already the rare case. A
+colony that gardens is the idea; a colony that occasionally carries a seed a
+short way before something eats it again is what is actually there.
 
 They are better at it than they were, though, and the reason is worth
 knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —

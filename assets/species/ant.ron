@@ -675,7 +675,16 @@
         // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
         // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
         // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
-        mutation_rate: 0.0041678,
+        //
+        // **0.0039308, re-derived 2026-09-10** when `BloomNear`/
+        // `BloomBearing` appended (P1, the bloom sense -- two input columns,
+        // 23 slots each: 15 outputs + 8 hidden). `live_slots` 763 -> 809,
+        // `3.18 / 809 = 0.0039308`. The ant wires neither slot -- it has no
+        // eyes and is not the pollinator (owner's ruling, 2026-09-10) -- but
+        // the mutable surface moved for every species on the shared
+        // scaffold regardless, exactly as `beetle.ron`'s own copy of this
+        // comment already says for the append before this one.
+        mutation_rate: 0.0039308,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --

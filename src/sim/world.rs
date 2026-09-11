@@ -1060,6 +1060,16 @@ pub struct CreatureStats {
     /// beside any cost claim: a sense that timed as free while probing
     /// nothing would read here as a bargain and be a bug.
     pub sight_cells_read: u64,
+    /// **An animal read `BloomNear > 0` this tick** — "did the sense fire at
+    /// all", the pair `flower_visits`/`nectar_paid` needed on the other
+    /// side: those say a bite reached a flower, this says an eye found one
+    /// first. `CLAUDE.md`'s "did it fire at all needs a counter, not a
+    /// picture" — a `labgif` of an animal arriving at a flower cannot say
+    /// whether the sense is what got it there. Zero for every species that
+    /// has not authored `sight_range`, exactly as `sight_casts` is.
+    /// See `BrainInput::BloomNear`,
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    pub bloom_seen: u64,
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -1267,6 +1277,87 @@ pub struct CreatureStats {
     /// What the handling cost, booked into `metabolized`. `shared_j /
     /// share_energy` is whether the verb is paying for itself.
     pub share_energy: f64,
+
+    // --- the blocked-step census (§13) ---------------------------------
+    //
+    // **Off unless `PIXEL_PHYSICS_BLOCKED_CENSUS=1`**, and every field
+    // below stays zero without it -- these run an extra eight-direction
+    // scan on a tick that has already given up, which is cheap but is not
+    // free, and nothing in the shipped game reads them.
+    //
+    /// **Why a refused candidate was refused**, indexed by
+    /// `creature::BlockedWhy`. Three entries per blocked tick: exactly the
+    /// three forward candidates `step_chain` scored and declined, so the
+    /// column sums to `3 * moves_blocked` when the census is on.
+    ///
+    /// `moves_blocked` alone says an animal did not move and cannot say
+    /// whether a wall, its own body, or a missing foothold is what stopped
+    /// it -- and those want completely different fixes.
+    pub blocked_why: [u64; crate::sim::creature::BLOCKED_WHY_N],
+    /// **Ticks on which no direction of the eight could be walked** --
+    /// the animal is not "facing the wrong way", it is stuck.
+    ///
+    /// This is the distinction `moves_blocked` cannot draw and the one the
+    /// mechanics of a long body turn on: a blocked tick that `tumble` can
+    /// fix by re-aiming costs one tick, and a blocked tick where every
+    /// heading is refused costs the rest of the animal's life.
+    pub boxed_ticks: u64,
+    /// ...of which: **boxed, and at least one of the eight directions is
+    /// refused by nothing but this body's own cells.**
+    ///
+    /// The signature of a body that cannot reverse. A two-cell animal can
+    /// never score here -- its tail is adjacent to its head, it vacates on
+    /// the same tick, and stepping into it is legal -- so a non-zero count
+    /// is length, not terrain, and the paired zero on the two-cell arm is
+    /// the specificity control.
+    pub boxed_self_ticks: u64,
+    /// **Segment width transitions across a committed move** -- a lateral
+    /// tucking or re-emerging. Divided by `moves` this is the flicker rate:
+    /// a squeeze through a gap is two transitions for the whole passage, a
+    /// strobe is one every step.
+    pub width_changes: u64,
+    /// Tucked segments summed over committed moves, the denominator that
+    /// says whether `width_changes` is a lot or a little.
+    pub tucked_segment_steps: u64,
+    /// **Reversals committed** -- an animal that was refused in all eight
+    /// headings for `creature::REVERSAL_BOX_STREAK` consecutive ticks
+    /// turning round rather than staying there. `PIXEL_PHYSICS_REVERSE=flip`
+    /// is the default since §13g; `=off` is the ablation, at which this
+    /// reads zero. Zero for a two-cell body under any rule, which cannot
+    /// get boxed in the first place.
+    pub reversals: u64,
+    /// ...and the effect counter from the far side of the call
+    /// (`CLAUDE.md` asks for it by name): reversals the rule was offered
+    /// and declined, because the body could not be laid down or because
+    /// the reversed animal would still have been boxed. A `reversals`
+    /// count climbing with this one climbing beside it is an animal
+    /// thrashing at a dead end, not one getting out of it.
+    pub reversals_refused: u64,
+    /// **Reversals committed by a laden animal** (`OrganismState::crop`
+    /// `is_some()` at the moment of the flip) -- the "where" breakdown
+    /// §13g's diagnosis needed and `reversals` alone cannot give. A flip is
+    /// mirroring the very animal that has something to lose by it: the head
+    /// that was one step from the nest becomes the tail, and the new head
+    /// is the body's farthest point from home, facing away from it. High
+    /// against `reversals` says the rule is firing on exactly the animals a
+    /// foraging colony can least afford it to.
+    pub reversals_carrying: u64,
+    /// **Reversals committed while the (pre-flip) head was nest-adjacent**
+    /// -- the worst timing `reversals_carrying` can name a coordinate for.
+    /// A colony's nest mouth is the one place in the world every laden ant
+    /// is trying to reach and every outbound ant is leaving from at once,
+    /// so it is also the one place `is_boxed` is most likely to be true for
+    /// a reason that has nothing to do with terrain: another ant standing
+    /// in the one open heading. §13g's gate exists because of this count.
+    pub reversals_at_nest: u64,
+    /// **Ticks `is_boxed` read true where `creature::boxed_by_traffic` also
+    /// read true** -- the flip was withheld because at least one of the
+    /// eight headings is refused only by another creature's body, not by
+    /// terrain. The animal falls through to `tumble` and re-tries next
+    /// tick, exactly as an ordinary blocked tick with a bad heading does.
+    /// High against `reversals` says most of what `is_boxed` alone would
+    /// have flipped for was a jam, not a dead end.
+    pub reversals_traffic_deferred: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -2270,6 +2361,18 @@ pub struct World {
     /// `organ_ripening_blocked`.
     pub organ_ripening_paid: u64,
 
+    /// **A rebloom actually fired** — `plant::process_rebloom` converting a
+    /// stem cell back into a fresh `CellType::Flower` once its
+    /// `SpeciesDef::rebloom_after` timer ran out and the reproductive
+    /// account could cover it. The "did it fire at all" counter for the
+    /// mechanism PR #307 asked for: a bed that reads as flowering in a
+    /// picture could still be doing it entirely through the ordinary
+    /// once-per-axis route, and only this number says the axes are actually
+    /// being reused rather than merely slow to run out. Zero on a run with
+    /// no species authoring `rebloom_after > 0`, by construction — nothing
+    /// else pushes onto `OrganismState::rebloom_pending`.
+    pub flowers_rebloomed: u64,
+
     /// **Ripe fruit that let go**, each one a seed carried to the ground
     /// inside a `windfall` powder. The far-side effect counter for the drop:
     /// `organs_built` says fruit were made, and only this says any of them
@@ -2363,6 +2466,17 @@ pub struct World {
     /// exactly as it does for any other food. See `seeds_spilled`.
     pub pips_eaten: u64,
 
+    /// **The garden-fix round's own counter, "it fired."** `creature.rs`'s
+    /// dig verb was clearing a standing `pip`/`windfall` (a `Powder`,
+    /// materially indistinguishable from dirt at the dig verb's own
+    /// `ground` test) as ordinary spoil, with no call to `seed_survives_
+    /// bite` and so no counter anywhere seeing it happen -- round 28 traced
+    /// one delivered pip dead five frames after set-down and the bite verb
+    /// could not have taken it (`Reports/lanes/evolution-lab-garden-loop.md`
+    /// / `-garden-fix.md`). Counted at the dig dispatch site, before the
+    /// skip that now routes the animal around it instead.
+    pub dig_diverted_seed: u64,
+
     /// **A bite met a `windfall` cell with `organism_id == 0`** -- no
     /// organism to ask which species' `seed_gut_survival` applies, so
     /// `seed_survives_bite` could not roll and returned `false` without
@@ -2416,6 +2530,51 @@ pub struct World {
     /// construction: nothing else sets an organism-owned `CellType::Flower`.
     pub flower_visits: u64,
 
+    /// **`flower_visits`, split by which species did the reaching** — Brief
+    /// P2's own counter, and the one that answers the question the total
+    /// cannot: *is the bed's pollinator feeding, or is the ant colony
+    /// walking over the low flowers while the flitter starves?* A bed with
+    /// two animals in it reports one number today, and P2's whole claim is
+    /// about which of them it belongs to.
+    ///
+    /// **Written at the bite site, not at the counter.**
+    /// `plant::nectar_offer` is the only writer of `flower_visits` above and
+    /// is deliberately not told who is visiting (its own doc: the plant's
+    /// side of the exchange knows nothing about the gut). So the attribution
+    /// happens at the one call site that holds the organism — see
+    /// `creature.rs`'s nectar hook, which brackets the call and credits the
+    /// difference. Keep the two in step: a second caller of `nectar_offer`
+    /// that does not bracket it will move the total and not this map, and
+    /// the tell is `flower_visits > sum(values)`.
+    ///
+    /// A `BTreeMap` rather than a `Vec` indexed by species id because a box
+    /// holds a handful of species and the ordering makes the printed line
+    /// deterministic, which a `HashMap` would not. **Keyed on the raw
+    /// `SpeciesId.0`**, not on `SpeciesId` itself, which is deliberately not
+    /// `Ord` -- a counter map is not a reason to widen a core type's derives
+    /// under another lane's hand.
+    pub flower_visits_by_species: std::collections::BTreeMap<u16, u64>,
+
+    /// **Flower cells taken off a plant by a mouth, split by which species'
+    /// mouth** — the design's own named counter for the failure it predicted
+    /// before the pollinator was built (`Reports/evolution-lab-pollinator-
+    /// design-2026-09-10.md` §2.2: *"a bed of poor plants gets stripped by
+    /// its own pollinators"*).
+    ///
+    /// **It is the effect half of `flower_visits_by_species` above, and they
+    /// point opposite ways.** A visit is an animal drinking and the flower
+    /// surviving; this is an animal eating the flower. A pollinator whose
+    /// visit count rises while this stays at zero is feeding; one where both
+    /// rise is grazing its own larder, and the two are indistinguishable in
+    /// `eats`.
+    ///
+    /// Written at the same bite site, past the nectar hook and past the
+    /// nectar-only refusal, so **a `CreatureDef::nectar_only` species reads
+    /// exactly 0 here for ever** — that zero is a claim about the mouth, and
+    /// an ordinary animal's row still moving is what says the counter is not
+    /// blind.
+    pub flowers_bitten_by_species: std::collections::BTreeMap<u16, u64>,
+
     /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
     /// `nectar_yield` returns, summed every time one is non-zero. The
     /// effect half of `flower_visits`' pair, and the plant's own side of
@@ -2446,6 +2605,71 @@ pub struct World {
     /// (hundreds over a 120,000-frame bed, per `plant.rs`'s own figures),
     /// so an unbounded `Vec` costs nothing worth capping.
     pub windfall_germination_x: Vec<i32>,
+
+    /// **A2 -- a passenger was loaded into a crop**, the *it fired* half of
+    /// `plant::take_seed_passenger` (`Reports/evolution-lab-ecology-design-
+    /// 2026-09-10.md` §2.6, `seeds_carried`). Counted once per pickup, not
+    /// once per bite: a second surviving seed while a passenger is already
+    /// aboard leaves its `pip` standing instead and does not touch this.
+    pub seeds_carried: u64,
+    /// **A2 -- a passenger was put down as a live pip organism**, the *it
+    /// worked* half of `seeds_carried` -- `plant::deliver_seed_passenger`.
+    /// The two need not be equal within a window (a passenger can still be
+    /// mid-carry, or its carrier can have died -- see
+    /// `carried_seed_organisms`), but every delivery is a pickup, so this
+    /// can never exceed `seeds_carried` over the life of a run.
+    pub seeds_delivered: u64,
+    /// **A2's germination-side headline's raw material.** The x-coordinate
+    /// of every germination whose seed cell was `pip` -- both A1's in-place
+    /// spills and A2's carried deliveries, which converge on the same
+    /// `CellType::Seed` and the same `germinate()` call, so the two cannot
+    /// be told apart from this alone. Positions rather than a pre-bucketed
+    /// histogram, for the same reason `windfall_germination_x` is: the
+    /// engine has no opinion about where a nest column is, and only the
+    /// caller (`labforage`) knows the nest it wants distance measured from
+    /// -- see `World::plants_from_pip` for the plain count this refines.
+    pub pip_germination_x: Vec<i32>,
+    /// **How long a passenger actually rode**, in frames from
+    /// `plant::take_seed_passenger` to `plant::deliver_seed_passenger` --
+    /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.5's check on
+    /// `herb.seed_half_life` (14,000): transit costs approximately nothing
+    /// only while its median stays well under four figures, and nothing
+    /// before this measured it. One entry per completed delivery; bounded
+    /// by how many a run produces, same reasoning as
+    /// `windfall_germination_x`.
+    pub seed_transit_frames: Vec<u32>,
+    /// **Round 28's garden-loop instrument** — see `organism::PipCheck`'s
+    /// own doc. One row per pip, on its first `Behavior::Germinate`
+    /// evaluation only, so bounded the same way `seed_transit_frames` is:
+    /// by how many pips a run produces, not by how many times each is
+    /// rechecked. `Reports/lanes/evolution-lab-garden-loop.md`.
+    pub pip_checks: Vec<organism::PipCheck>,
+    /// **Where a pip was standing when it lost the viability race** — the
+    /// x-coordinate, at each of `pips_rotted`'s three exit sites
+    /// (`decay.rs`'s material channel, and `plant.rs`'s two half-life
+    /// rolls). Positions rather than a pre-bucketed histogram, the same
+    /// convention `windfall_germination_x` uses: the engine has no opinion
+    /// about where a nest column is. `Reports/lanes/evolution-lab-garden-
+    /// loop.md` hypothesis (a)'s "for each pip that rotted, where".
+    pub pip_rot_x: Vec<i32>,
+    /// **Where a standing pip was when a second bite took it** —
+    /// `plant::seed_survives_bite`'s `pips_eaten` exit, same convention as
+    /// `pip_rot_x` beside it.
+    pub pip_eaten_x: Vec<i32>,
+    /// **Organisms currently riding in a crop, with no cell in the grid.**
+    /// `plant::take_seed_passenger` inserts an id here in the same call that
+    /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
+    /// removes it in the same call that gives the organism a cell again.
+    ///
+    /// **The reason this has to exist at all**: `step_organisms` reclaims
+    /// the slot of any organism whose `cells` map is empty, unconditionally,
+    /// on the very next organism tick -- that rule is what returns a dead
+    /// plant's slot, and it cannot tell "dead" from "between the bite and
+    /// the drop" on its own. A passenger's carry runs to hundreds of frames
+    /// (§2.5), so without this set the organism -- alleles, lineage,
+    /// endowment and all -- would be freed and its id handed to the next
+    /// `push_organism` call before the ant ever put it down.
+    pub(crate) carried_seed_organisms: std::collections::HashSet<u16>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -3725,6 +3949,7 @@ impl World {
             organ_cells_unaffordable: 0,
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
+            flowers_rebloomed: 0,
             fruit_dropped: 0,
             organ_shattered_to_windfall: 0,
             seeds_borne: 0,
@@ -3733,11 +3958,22 @@ impl World {
             plants_from_pip: 0,
             pips_rotted: 0,
             pips_eaten: 0,
+            dig_diverted_seed: 0,
             windfall_bitten_ownerless: 0,
             windfall_bitten: 0,
             flower_visits: 0,
+            flower_visits_by_species: std::collections::BTreeMap::new(),
+            flowers_bitten_by_species: std::collections::BTreeMap::new(),
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
+            seeds_carried: 0,
+            seeds_delivered: 0,
+            pip_germination_x: Vec::new(),
+            seed_transit_frames: Vec::new(),
+            pip_checks: Vec::new(),
+            pip_rot_x: Vec::new(),
+            pip_eaten_x: Vec::new(),
+            carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
@@ -4365,6 +4601,8 @@ impl World {
             cells: crate::sim::fxhash::PosMap::default(),
             root_cells: 0,
             contact_root_cells: 0,
+            // No terminal has finished yet -- see `OrganismState::rebloom_pending`.
+            rebloom_pending: Vec::new(),
             // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.
@@ -4410,6 +4648,11 @@ impl World {
             // prefer.
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
+            // Set for real by `creature::place_creature` for a `Segmented`
+            // body; a plant never reads it and every other creature body
+            // plan leaves it empty by design -- see `OrganismState::
+            // segment_groups`'s own doc.
+            segment_groups: Vec::new(),
             heading: 0,
             // Nothing is born in the air. Only `creature::launch` sets this.
             flight: None,
@@ -4449,6 +4692,7 @@ impl World {
             born_with: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            pip_delivered: false,
             senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
