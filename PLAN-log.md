@@ -4419,3 +4419,43 @@ condition, and `rebuild_blocked` rescanning only written blocks. Paired,
 alternating, whole-frame: full box 6.6 → 2.7 ms, one small plant 2.8 →
 0.5. Account: `Reports/evolution-lab-frame-cost-2026-09-01.md` §16;
 coordinator note round seventeen.
+
+## 2026-09-11 — water reaches the ground under a plant that is not a tree
+
+Owner's report, on the evolution lab: *"water pools on top of the plants
+instead of going through and soaking into the soil. We fixed this earlier
+with trees, but we are having this issue with other types of plants."* The
+canopy drip (2026-09-07) looks for open **air** on the far side of the leaf,
+which is a tree's situation and nothing else's — grass, herb, shrub and
+scrambler lie on the bed, so the scan found soil, refused, and the drop
+stayed on the leaf for ever. `examples/waterstand` (new) replays that scan
+over every standing drop and names the material that refused it: **876
+liquid cells resting on tissue with 8 able to drip**, 308 stopped by the
+soil under the mat with 276 of those over ground that had room, 500 by water
+already trapped in the mat. Not a rain-rate artifact — at the mister OFF it
+is 408 resting with 3 able to move.
+
+`update::soak_into_ground` makes ground that can still hold water a landing,
+on `update_soil_water`'s own infiltration arithmetic. Ground at capacity
+still refuses, so a soaked bed puddles and the outcome stays graded. Paired
+at the shipped LIGHT rate: standing water above the soil line **1,222 → 401
+cells**, fill **932,589 → 159,148**, drops held over ground with room **242
+→ 11**; `ascii` mean frame flat at 0.695 → 0.689 ms over three alternating
+paired runs. Four-arm guard, every arm confirmed red for its own fault —
+and two of them were **blind on the first writing** (79% of a puddle went
+into stone and 11% into a full bed with all three controls green), which
+only putting the fault back found.
+
+**Second half, measured and deliberately not changed:** the columns of
+standing water in the soil under the moisture overlay are **not** biology —
+an empty box with nothing alive reproduces them exactly, and the same box
+with the mister off holds flat at field capacity. They are capillary's wide
+rest threshold (380, the drainable band) applied to the **sideways** face,
+where the drainage/capillary pump it was derived against cannot happen since
+drainage only moves water down. Every pair in the bed at rest, widest
+standing gap **exactly 380**. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
+that face and removes the columns outright (380 → 0) at +44–67% soil-moisture
+writes a tick and ~10% of the lab's median tick, so it ships inert and the
+default is the owner's to rule on. Account:
+`Reports/soil-water-columns-2026-09-11.md`, and
+`Reports/canopy-throughfall-2026-09-07.md` §7.

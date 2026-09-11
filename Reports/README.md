@@ -320,13 +320,40 @@ by somebody about to try it on creatures.
 - [coupling-research.md](coupling-research.md) — **research (Report C of
   four).** Rigid body ↔ grid coupling for M8; §4 is why chunk bodies run
   serially.
+- [soil-water-columns-2026-09-11.md](soil-water-columns-2026-09-11.md) —
+  **measured and diagnosed, nothing changed, 2026-09-11.** Why the bed's
+  water stands in vertical columns under the soil-moisture overlay. It is
+  **not** biology: an empty box with nothing alive in it reproduces the
+  picture exactly, and the same box with the mister off holds flat at field
+  capacity. It is capillary's wide rest threshold — 380 units, a third of
+  the scale — applied to the **sideways** face, where the pump it was
+  derived against cannot happen, since drainage only moves water down. Every
+  pair in the bed at rest and the widest standing gap sitting **exactly on
+  the constant** is the tell. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
+  the sideways face and removes the columns outright (widest gap 380 → 0),
+  at **+44% to +67% soil-moisture writes a tick** and ~10% of the lab's
+  median tick — so it ships inert and the default is the owner's to rule on.
+  Recommendation: leave it, because the striping is invisible in the shipped
+  material colours and has no reach below field capacity; reopen it the day
+  the water table becomes something the game reads. §6 carries a cost A/B
+  that came back bit-identical because the bed was degenerate for the
+  question.
 
 ## Plants and trees  ·  `engine`
 
 - [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
-  — **built and measured, 2026-09-07.** The owner's *"water also pools on the
-  top of our plants; it should drip through"*, answered — and the rule
-  already existed. `update_powder` has `fall_through_organism` (litter, seed,
+  — **built and measured, 2026-09-07; §7 added 2026-09-11.** The owner's
+  *"water also pools on the top of our plants; it should drip through"*,
+  answered — and the rule already existed. **§7 is the half it missed**: the
+  scan looks for open *air* on the far side of the leaf, which a tree has and
+  a grass tussock, herb, shrub or scrambler never does — under their tissue
+  is the bed. Measured by replaying the scan over every standing drop, 876
+  liquid cells resting on tissue with **8** able to drip, 276 of them over
+  ground with room to spare, and the same failure at the mister OFF, so not a
+  rain-rate artifact. Ground that can hold water is a landing now; ground at
+  capacity still refuses, which is what keeps it graded. §7.4 is a guard that
+  was **blind on its first writing** and only the put-the-fault-back check
+  found it. `update_powder` has `fall_through_organism` (litter, seed,
   windfall) on the 2D-slice argument that *a branch one cell wide is not a
   shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
   so water landing on a crown simply sat. Measured before the fix,
