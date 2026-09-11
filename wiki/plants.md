@@ -3,22 +3,28 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (two independent changes landed the same day.
+*Current as of: 2026-09-11 (three independent changes landed the same day.
 **Petal colour passes from parent to seedling** — see "Colour is a
 readout, not decoration" below; it used to be the one channel a cross
 could not carry, and a bred stand's flowers now track their parents'
-shade the way foliage and bark already did. **A seed can leave in an
+shade the way foliage and bark already did. **Flower heads are bigger
+and now vary in size, per individual and heritably** — see "Plants that
+stop, and what they stop in" below; an erect herb's head in particular
+is visibly larger, and how big a head *tries* to be is no longer one
+number per species but a real spread a stand shows and a seedling
+inherits. **A seed can leave in an
 animal's mouth instead of only in the wind** — an ant that bites a fallen
 fruit sometimes finds the seed inside survives, and sometimes carries it
 home instead of leaving it where it fell; see **Seeds carry provisions**
-and **The forest floor**. It is a real path, not a decoration: measured
-over three long sessions on the mixed bed the owner actually plants, it
-has carried a seed home a handful of times and none has yet come up as a
-plant — the seed usually does not outlive the trip, most fallen fruit
-lies where no animal's own daily round ever reaches it, and the one seed
-that did survive to be set down was eaten again within moments of
-arriving. So this is the shape of a mutualism that has not yet closed,
-not one that has.)*
+and **The forest floor**. **Updated later the same day: it has now come up
+as a plant, more than once**, on the mixed bed the owner actually plants —
+two fixes closed the path (a digging ant no longer clears a set-down seed
+as ordinary spoil, and a carried seed's own waiting clock no longer stops
+silently partway home), and a set-down seed that lands on ground too dry
+to ever hold water is now moved a short way to the nearest ground that
+can. What still is not true: the plants this produces stand wherever the
+carrying ant happened to be, not ringed around the nest, so this is a
+mutualism that has closed once, not one that gardens at the door yet.)*
 
 *Before that: 2026-09-10 (**a spent flower is not the last one.** A herb,
 a scrambler and — new on this date — a shrub used to flower an axis exactly
@@ -624,6 +630,18 @@ never gets ahead makes a bare stalk with nothing on top. A plant that fills
 fruit sets fewer loose seeds that season, because both come out of the same
 pocket.
 
+**New on 2026-09-11: how big a head *tries* to be is now itself a heritable
+trait, not just a species constant that carbon then trims.** Two equally
+well-fed plants of the same species can still build to different targets — one
+aiming for a small handful of cells, another for a large head — and a
+seedling's target tracks its parent's, drifting a little at each generation
+the way every other inherited shape does. So a bed no longer shows one size of
+head truncated by circumstance; it shows a real spread of sizes even among
+plants that never went short of carbon at all. Heads are also bigger across
+the board this round — an erect herb's head most of all, since size is the
+one lever that has ever read as "this is a flower" rather than a coloured
+mark on a stalk.
+
 **A spent stem does not stay bare for good.** Once a fruit lets go (or a
 flower is lost before it ever sets one), the stem it grew from waits and then
 puts up a fresh flower in the same place, paid for out of the same account as
@@ -799,6 +817,21 @@ drift standing in a corner nobody walks through just accumulates. The two
 have to be read together — where the fruit is, and where the animals
 actually go — to know whether a stand beside a nest is a garden or just a
 neighbour.
+
+**And a bitten fruit's seed can end the story as a second plant, now that
+it has ground to land on.** An ant that bites a fallen fruit sometimes
+leaves the seed inside whole, and a whole seed can ride home in the mouth
+that carried it, to be set down wherever the ant happens to be when it
+lets go. Whether that seed goes on to grow used to come down to bad luck
+almost every time: the ground a set-down seed lands on has to be able to
+hold water at all before it can ever be wet enough to sprout, and a seed
+set down on bare rock or on a colony's own hard-packed floor cannot. A
+set-down seed that lands somewhere too dry to ever hold water is now moved
+a short way to the nearest ground that can — a real patch of soil, not a
+puddle — the way real refuse ends up at a midden rather than on the bare
+doorstep. What is still true, and still worth knowing: the plants this
+produces stand wherever an ant happened to be carrying its meal, not
+ringed around the nest — see `ants.md` for the honest read.
 
 ## Cutting a plant down
 

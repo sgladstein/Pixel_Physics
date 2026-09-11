@@ -2318,6 +2318,109 @@ pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism
     Some(passenger)
 }
 
+/// **How far the midden search reaches, in columns either side of the
+/// original set-down site.** Round 28's garden-midden build
+/// (`Reports/lanes/evolution-lab-garden-midden.md`): the drop-cell census
+/// this lane ran before writing a line of fix found the nest patch
+/// (`creature::paint_nest_patch`) dry *by construction* -- `nest.ron`
+/// authors no `water_capacity` field at all -- while soil that holds it
+/// stood within a handful of columns of every traced delivery. A bound on
+/// work, never a gate on whether the pip is set down (`CLAUDE.md`'s "a
+/// size cap must bound work, never gate whether something happens"):
+/// `find_midden_site` returns `None` past this reach and the pip lands
+/// exactly where it always has, no worse off than any pip in the three
+/// rounds before this one.
+///
+/// Started at 6, per the round's own instruction. Not yet re-derived
+/// against a bed wider than `played_bed` -- if a future bed ever puts real
+/// soil further than this from every nest door, re-run this lane's own
+/// drop-cell census before retuning it rather than guessing a bigger
+/// number.
+const MIDDEN_SEARCH_COLUMNS: i32 = 6;
+
+/// **Would `ground` let a pip clear `Behavior::Germinate`'s own soil-water
+/// gate right now?** The identical two-part test that check runs
+/// (`plant.rs`'s `Germinate` arm): `water_capacity > 0` first -- a
+/// `Liquid`'s `aux` means *fill*, not moisture, on the same 1000 scale as
+/// saturated soil, so skipping this guard would read a pip bobbing on a
+/// full pond as bone dry, per that check's own comment -- then
+/// `update::plant_available_fraction(ground) >= threshold`.
+///
+/// **Round 28's garden-midden build, revised from its first pass**: the
+/// first version of this function accepted any material with
+/// `water_capacity > 0`, on the brief's own literal wording. Measured on
+/// `played_bed` before shipping it, that version relocated 100% of one
+/// seed's deliveries and 67% of another's onto material that *could* hold
+/// water and still moved `plants_from_pip` from 2 to 2 and 0 to 0 -- the
+/// redirected ground was capable of holding water and was not currently
+/// holding enough of it, the same "dry by circumstance" reading the
+/// coordinator's own brief named as the *other* possibility and asked to be
+/// ruled out before deciding the build. A material check cannot tell "can
+/// hold water" from "is holding water", and only the second one is what
+/// `Germinate` actually asks. `threshold` is `None` only when this lane
+/// could not find the delivering organism's own `Germinate` threshold (a
+/// stripped asset set, or a species with no seed-bearing behaviour at all)
+/// -- degrading to the material-only test there, since capable ground is
+/// still a strictly better landing than none even unconfirmed.
+fn site_holds_enough_water(world: &World, ground: Cell, threshold: Option<f32>) -> bool {
+    let holds_water = world.materials.get(ground.material).water_capacity > 0;
+    match threshold {
+        Some(t) => holds_water && update::plant_available_fraction(ground) >= t,
+        None => holds_water,
+    }
+}
+
+/// **The delivering organism's own `Germinate` soil-water threshold for a
+/// `CellType::Seed` cell** -- read live off its species rather than a
+/// constant, since `herb` and any future fruiting species need not agree
+/// (`herb.ron` ships 0.15; nothing enforces a second species matches it).
+/// `None` when the organism is gone (should not happen at delivery, but a
+/// stale id is a worse bug than a degraded search) or its species defines
+/// no `Germinate` behaviour for a seed cell at all.
+fn seed_water_threshold(world: &World, organism_id: u16) -> Option<f32> {
+    let species_id = world.organism(organism_id)?.species;
+    world.species.get(species_id).behaviors(CellType::Seed).iter().find_map(|b| match b {
+        Behavior::Germinate { soil_water_threshold, .. } => Some(*soil_water_threshold),
+        _ => None,
+    })
+}
+
+/// **The midden.** Real ants dump refuse outside the door, not on the
+/// threshold -- `Reports/evolution-lab-ecology-design-2026-09-10.md`'s own
+/// framing of the loop this closes: "an ant walking home with a fruit puts
+/// it down at the nest and a plant comes up out of the midden."
+/// `deliver_seed_passenger`'s drop site is wherever `NEIGHBOURS_8` finds
+/// the first empty cell from the ant's own position (`creature.rs`'s drop
+/// verb), and `AtNest` biases every drop toward exactly the ground
+/// `creature::paint_nest_patch` lays -- a bare `Solid` with no
+/// `water_capacity` at all, dry by construction and not by circumstance.
+///
+/// Searches outward from `(x, y)` at the surface `creature::colony_surface`
+/// already defines -- reused rather than re-derived, per that function's
+/// own doc ("Anything that wants to know where a colony can go calls
+/// these") -- nearest column first and alternating sides, out to
+/// `MIDDEN_SEARCH_COLUMNS`. A candidate qualifies only if the surface cell
+/// itself is empty (there is room to stand a pip there) and
+/// `site_holds_enough_water` passes on the ground immediately below it --
+/// so a site this function accepts is one `Behavior::Germinate` would
+/// itself call wet enough, not merely a different material.
+fn find_midden_site(world: &World, x: i32, y: i32, threshold: Option<f32>) -> Option<(i32, i32)> {
+    for dc in 1..=MIDDEN_SEARCH_COLUMNS {
+        for &cx in &[x - dc, x + dc] {
+            let Some(sy) = super::creature::colony_surface(world, cx, y) else { continue };
+            let py = sy - 1;
+            if !world.is_empty(cx, py) {
+                continue;
+            }
+            let ground = world.get(cx, sy);
+            if site_holds_enough_water(world, ground, threshold) {
+                return Some((cx, py));
+            }
+        }
+    }
+    None
+}
+
 /// **The other end of `take_seed_passenger`.** Writes the passenger back as
 /// a live, organism-owned `pip` cell at `(x, y)` -- the same organism id it
 /// has carried since the bite, so the delivered plant germinates through
@@ -2331,6 +2434,43 @@ pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism
 /// own doc for why that is a real, priced substitution rather than a
 /// conservation gap.
 pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    // **Round 28's garden-midden build: redirect before anything else runs,
+    // so the debug line and every counter below already see the real
+    // landing site.** Checked against `site_holds_enough_water`, the
+    // identical two-part test `Behavior::Germinate` runs off the cell
+    // below -- see that function's own doc for why "capable of holding
+    // water" turned out not to be enough, and `find_midden_site`'s for why
+    // the ordinary drop site fails it by construction at a colony's own
+    // door. Only ever *relocates* the pip: the ant's drop verb in
+    // `creature.rs` is unchanged, and a search that finds nothing within
+    // `MIDDEN_SEARCH_COLUMNS` leaves the pip exactly where it landed before
+    // this build.
+    // **`PIXEL_PHYSICS_MIDDEN=0` -- a runtime kill switch, not a design
+    // knob.** `CLAUDE.md`'s "for 'does this look right', ship a runtime
+    // selector rather than choosing": this lets a before/after card and
+    // the before/after measurement both come from the *same* binary and
+    // the *same* seed, one env var apart, rather than from two git
+    // checkouts that risk the "stale binary" gotcha the moment one side
+    // is rebuilt and the other is not. Default is on (the fix).
+    let midden_disabled = std::env::var("PIXEL_PHYSICS_MIDDEN").as_deref() == Ok("0");
+    let threshold = seed_water_threshold(world, passenger.organism_id);
+    let (x, y) = {
+        let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
+        if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
+    };
+    // **Counts the outcome, not only the redirect firing** -- a pip whose
+    // original site already qualified never touches `find_midden_site` at
+    // all and still counts as `pips_set_on_soil`. See both fields' own docs
+    // (`World::pips_set_on_soil`/`pips_set_on_nest`) for why that is the
+    // reading the round's own drop-cell census asked for. Same predicate as
+    // the search itself, so this counter answers "would this pip pass
+    // Germinate's water gate right now", not merely "is the material
+    // capable" -- the distinction this build's own revision exists for.
+    if site_holds_enough_water(world, world.get(x, y + 1), threshold) {
+        world.pips_set_on_soil += 1;
+    } else {
+        world.pips_set_on_nest += 1;
+    }
     let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
     // Read once, before the write below, and reused by both the debug line
     // and the roll itself -- `Reports/lanes/evolution-lab-garden-rot.md`
@@ -4314,12 +4454,38 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                     write_carbon(world, x, y, resource);
                     world.organs_built += 1;
                     world.axes_terminated += 1;
-                    // **The head.** One cell of a new colour on a stalk is a
-                    // material change with the size half missing, and size
-                    // plus material is the only lever that has ever read
-                    // here -- see `Behavior::Grow::organ_cluster`. Charged
-                    // per cell and truncated by what is left, so the head is
-                    // as big as the plant can pay for.
+                    // **The head, and how big this individual tries to make
+                    // it.** One cell of a new colour on a stalk is a material
+                    // change with the size half missing, and size plus
+                    // material is the only lever that has ever read here --
+                    // see `Behavior::Grow::organ_cluster`. Charged per cell
+                    // and truncated by what is left, so the head is as big
+                    // as the plant can pay for -- that grading was always
+                    // true and is not what changed.
+                    //
+                    // **What is new (round 28, Brief C2's sibling): the
+                    // *target* itself varies per individual, on slot 9.**
+                    // `organ_cluster` used to be one number per species, so
+                    // every rich plant in a stand built toward the identical
+                    // ceiling and the only spread came from carbon
+                    // truncation -- a graded outcome, but not a *varied*
+                    // one. Slot 9 was capacity with no consumer since the
+                    // genome widened to ten traits
+                    // (`expressing_the_appended_genome_slot_changes_no_plant`'s
+                    // own doc names it exactly that), and every shipped
+                    // species already authors a live width on it (0.7,
+                    // untouched since it was reserved) with nothing reading
+                    // it -- so this is the cheapest lawful lever available:
+                    // no `.ron` file needs a new field, only a reader.
+                    // Founder diversity and heritability both come for
+                    // free from the existing `genotype_draws` machinery
+                    // (`seed_genotype` draws every slot at founding,
+                    // `bear_seed_at` jitters every appended slot at every
+                    // birth), which is why this reads as a slot rather than
+                    // a fresh `params` override -- a founder needs no
+                    // waiting generation to show a spread, an override
+                    // would.
+                    let organ_cluster = ((organ_cluster as f32) * genotype(world, organism_id, 9, genotype_variance[9])).round().max(1.0) as u8;
                     let mut head = vec![(x, y)];
                     let mut frontier_i = 0;
                     while head.len() < organ_cluster as usize && resource >= organ_cost {
@@ -16622,18 +16788,31 @@ they are the same world. Got {median}, which means something other than the leve
         );
     }
 
-    /// **The append-only guard on the genome layout: does slot 9 change
-    /// any plant?** Asked as a comparison inside one process, which is
-    /// the only form of the question that holds still.
+    /// **The append-only guard on the genome layout, narrowed by round
+    /// 28: does slot 9 change a plant that never reads it?** Asked as a
+    /// comparison inside one process, which is the only form of the
+    /// question that holds still.
     ///
-    /// Grows the same stand twice in one run — once with slot 9's width
-    /// as the species ships it, once with that width at `0.0` — and
-    /// asserts the two are identical, cell for cell and genome for
-    /// genome. Slot 9 is capacity with no consumer
-    /// (`organism::GENOTYPE_TRAITS`), so expressing it or not must make
-    /// no difference to anything. The day it does, either a consumer has
-    /// been wired to it or a slot has been renumbered onto it, and both
-    /// arms of this test disagree.
+    /// **This used to claim slot 9 had no consumer anywhere, and that
+    /// stopped being true in round 28**: `organ_cluster`'s head size now
+    /// reads it (`genotype(world, organism_id, 9, ...)`, beside the
+    /// flower-head build in the `Grow` dispatch), which is exactly the
+    /// event this test's own docstring said to expect one day. What
+    /// survives is narrower and still worth keeping: `tree` never
+    /// flowers, so its stand should be exactly as blind to slot 9 as it
+    /// always was, and the four whole-plant continuous passes borrowing
+    /// slots 4/6/7/9 (`turgor_per_cell`, `alloc_variance`, `pipe_ratio`,
+    /// `penetration_force`) still have no business reading it either.
+    /// `a_herbs_expressed_organ_size_varies_by_founder` below is the positive
+    /// control this test cannot be: it proves the new consumer is real by
+    /// growing a *flowering* species and showing the two arms disagree.
+    ///
+    /// Grows the same non-flowering stand twice in one run — once with
+    /// slot 9's width as the species ships it, once with that width at
+    /// `0.0` — and asserts the two are identical, cell for cell and
+    /// genome for genome. If they ever differ now, either a consumer has
+    /// been wired into a pass `tree` actually runs, or a slot has been
+    /// renumbered onto 9, and both arms of this test disagree.
     ///
     /// **This replaced a hardcoded whole-stand fingerprint, and the
     /// reason is worth keeping.** That version asserted
@@ -16760,12 +16939,158 @@ they are the same world. Got {median}, which means something other than the leve
 
         assert_eq!(
             expressed, suppressed,
-            "expressing genome slot {APPENDED} changed the stand. It is capacity with no consumer, so \
-             nothing should read it and nothing should move: either a consumer has been wired to it, \
-             or a slot has been renumbered onto it (which rewrites every genome ever measured -- see \
-             `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a comparison between two arms of \
-             the same build, so an unrelated plant change landing in `main` cannot cause it. Both arms \
-             move together. This is a real fault."
+            "expressing genome slot {APPENDED} changed a `tree` stand, which never flowers and so \
+             never reaches `organ_cluster`'s slot-9 read (round 28). Either a consumer has been wired \
+             into one of the whole-plant continuous passes tree actually runs (turgor, allocation, \
+             pipe ratio, penetration), or a slot has been renumbered onto 9 (which rewrites every \
+             genome ever measured -- see `GENOTYPE_TRAITS`). Note what this does NOT mean: it is a \
+             comparison between two arms of the same build, so an unrelated plant change landing in \
+             `main` cannot cause it. Both arms move together. This is a real fault."
+        );
+    }
+
+    /// **The positive control the test above cannot be, since `tree`
+    /// never flowers.** Round 28 wired `organ_cluster`'s head size to
+    /// slot 9 (`Behavior::Grow`'s organ-build dispatch,
+    /// `genotype(world, organism_id, 9, genotype_variance[9])`) -- the
+    /// cheapest lawful lever for per-individual flower-head variety,
+    /// chosen over a fresh `params` override because founder diversity
+    /// and heritability both fall out of the existing `genotype_draws`
+    /// machinery for free.
+    ///
+    /// **Reads the formula directly rather than growing a stand to
+    /// flower.** A first version of this test grew six herbs for 12,000
+    /// frames and compared standing organ-cell counts, and it was
+    /// vacuous: a hand-built scene with no light field left every founder
+    /// carbon-starved well short of *either* arm's target, so both arms
+    /// truncated to the identical 3 cells regardless of the slot-9
+    /// multiplier -- `CLAUDE.md`'s "check a guard's inputs actually vary
+    /// what it guards", caught before it shipped. Reading the expressed
+    /// target straight off `seed_genotype` + `genotype()` tests the same
+    /// wiring without needing a plant to ever finish growing, and does it
+    /// in milliseconds instead of minutes.
+    #[test]
+    fn a_herbs_expressed_organ_size_varies_by_founder() {
+        let mut w = test_world();
+        w.seed = 5_150;
+        let herb = w.species.id_of("herb").expect("herb species is compiled in");
+        let authored_cluster = w
+            .species
+            .get(herb)
+            .behaviors(CellType::GrowingTip)
+            .iter()
+            .find_map(|b| match b {
+                organism::Behavior::Grow { organ_cluster, .. } => Some(*organ_cluster),
+                _ => None,
+            })
+            .expect("herb's shoot has a Grow");
+        assert!(authored_cluster > 1, "test setup: herb's authored organ_cluster must be worth scaling");
+
+        // 40 founders at different positions -- the draw is keyed on
+        // (world_seed, x, y, slot), so different founders take different
+        // slot-9 draws without any of them ever being planted or grown.
+        let mut sizes: Vec<u8> = Vec::new();
+        for i in 0..40i32 {
+            let (x, y) = (7 + (i % 10) * 5, 11 + (i / 10) * 5);
+            let Some(id) = w.push_organism(herb) else { continue };
+            seed_genotype(&mut w, id, x, y);
+            let multiplier = genotype(&w, id, 9, 0.7);
+            sizes.push(((authored_cluster as f32) * multiplier).round().max(1.0) as u8);
+            w.free_organism(id);
+        }
+        assert_eq!(sizes.len(), 40, "test setup: every founder should have taken a slot");
+
+        let distinct: std::collections::HashSet<u8> = sizes.iter().copied().collect();
+        assert!(
+            distinct.len() > 5,
+            "40 herb founders expressed only {} distinct head-size target(s) ({sizes:?}) -- slot 9 \
+             should give a real spread, not a near-constant target. If this goes vacuous, check \
+             `genotype_variance[9]` is still authored non-zero on `herb` and that the flower-head \
+             build in `Behavior::Grow`'s dispatch still reads it.",
+            distinct.len()
+        );
+        // The multiplier is `1 + draw * 0.7` for draw in [-1, 1], i.e.
+        // [0.3, 1.7] -- so a real spread should reach a good way above and
+        // below the authored value, not cluster tightly around it.
+        let min = *sizes.iter().min().unwrap();
+        let max = *sizes.iter().max().unwrap();
+        assert!(
+            (max as f32) > (authored_cluster as f32) * 1.15 && (min as f32) < (authored_cluster as f32) * 0.85,
+            "40 founders' expressed sizes ({min}..={max}) stayed in a tight band around the \
+             authored value {authored_cluster} -- the multiplier should reach visibly above and \
+             below it, not just jitter it"
+        );
+    }
+
+    /// **Which term actually scales with head size — the coordinator's
+    /// own question on round 28 PR2, answered by reading rather than
+    /// guessing again.** Three candidates named: per-cell upkeep
+    /// (`organism_upkeep`'s `MAINTENANCE_PER_CELL`), the head shading its
+    /// own plant or a neighbour (light attenuation is column-depth, no
+    /// material exemption -- `field.rs`'s own doc), or the head's cells
+    /// counting toward a mass/span cap.
+    ///
+    /// **The span/mass candidate is eliminated by reading the code, not by
+    /// measuring**: `organism_upkeep`'s own comment at the `organ_cells`
+    /// counter states organs are deliberately kept out of `crown_moment`
+    /// and the collar/top span ("a change to the anchorage economy
+    /// wearing an organ's clothes"). Nothing to measure there.
+    ///
+    /// **Upkeep is not eliminated, and this is the number**: every organ
+    /// cell reaches `organism_upkeep`'s maintenance charge exactly like any
+    /// other non-frontier cell (`Behavior::Ripen` is explicitly excluded
+    /// from the *behaviour* loop, but the maintenance charge below it is
+    /// unconditional on cell type), paying `MAINTENANCE_PER_CELL` flat
+    /// every tick for as long as it stands -- roughly 133 organism ticks
+    /// for a full flower-then-fruit cycle at `herb`'s authored rates. That
+    /// bill was **not** touched by this PR's `Ripen`-cost re-derivation,
+    /// which only reaches the two one-off charges at the flower-set and
+    /// fruit-ripen instants. A bigger head is strictly more standing
+    /// upkeep for as long as any of it is up, continuously, against the
+    /// same whole-plant carbon pool that funds vegetative growth.
+    /// **Driven through `organism_upkeep` on a hand-placed head, exactly
+    /// as `organs_are_counted_apart_from_shoot_cells` above does** — this
+    /// asks for the marginal bill a head of a given size carries *right
+    /// now*, not whether some particular grown stand reached one. A first
+    /// version of this readout grew a stand from seed instead and was
+    /// vacuous: 20,000 frames across 8 crowded founders left only 3 organ
+    /// cells standing in *either* arm, so both read byte-identical
+    /// (`CLAUDE.md`'s "check a guard's inputs actually vary what it
+    /// guards" — a positive control that never reaches the mechanism is
+    /// not a control).
+    #[test]
+    #[ignore = "a readout, not an assertion -- cargo test --release -- --ignored --nocapture organ_size_and_the_maintenance_bill"]
+    fn organ_size_and_the_maintenance_bill() {
+        fn head_bill(n: usize) -> f32 {
+            let mut w = test_world();
+            let id = w.species.id_of("herb").expect("herb is compiled in");
+            let wood = w.materials.id_of("wood").expect("wood");
+            let flower = w.materials.id_of("flower").expect("flower");
+            let organism = w.push_organism(id).expect("an organism slot is free");
+            for x in 40..60 {
+                w.set(x, 60, Cell::new(material::STONE, 0));
+            }
+            place(&mut w, (50, 59), wood, organism, CellType::MatureBody, (1.0, 0.0));
+            // `n` flower cells in a row off the stem top, matching how a
+            // real head sits: newly created cells, no accumulated `q_peak`
+            // below them, so `MAINTENANCE_PER_NODE`'s term reads near zero
+            // and the flat `MAINTENANCE_PER_CELL` term is what is on trial.
+            for i in 0..n {
+                place(&mut w, (50 + i as i32, 58), flower, organism, CellType::Flower, (0.0, 0.0));
+            }
+            organism_upkeep(&mut w, organism);
+            w.organism(organism).expect("still live").maintenance
+        }
+
+        let bill_9 = head_bill(9);
+        let bill_16 = head_bill(16);
+        println!(
+            "organ_cluster=9:  maintenance/tick={bill_9:.6}\n\
+             organ_cluster=16: maintenance/tick={bill_16:.6}\n\
+             delta={:.6} ({:.1}%), MAINTENANCE_PER_CELL x 7 extra cells = {:.6}",
+            bill_16 - bill_9,
+            (bill_16 / bill_9 - 1.0) * 100.0,
+            MAINTENANCE_PER_CELL * 7.0
         );
     }
 
@@ -16868,23 +17193,39 @@ they are the same world. Got {median}, which means something other than the leve
         let mutated = ids.iter().filter(|id| w.organism(**id).is_some_and(|s| s.alleles != [0, 1, 0, 1, 1, 0, 0])).count();
         assert!(mutated >= 5, "the discrete loci should have mutated in a few children, got {mutated}");
 
-        // **Re-baselined for round 28's seventh locus, and this is the
-        // guard the round's own brief named as the one to watch.**
-        // `LOCUS_FLOWER_COLOUR` widened `alleles` from 6 entries to 7, so
-        // `jump_alleles` (inside `bear_seed_at`, called from `set_seed`)
-        // now spends one more `rng.chance` per child on this test's shared
-        // `rng` -- moving every draw after it, this fingerprint included.
-        // Old value `0x2197_04fe_f1c7_3b67`, measured on `main` before this
-        // change; this is `CLAUDE.md`'s own worked case, "a green suite
-        // does not prove a test could fail", landing for real rather than
-        // being quoted.
+        // **Re-baselined twice in round 28, and both times for the reason
+        // the round's own brief named as the one to watch -- the second
+        // time in a costume this file had not seen yet.**
+        //
+        // First (PR1, `LOCUS_FLOWER_COLOUR` landing): `alleles` widened
+        // from 6 entries to 7, so `jump_alleles` spends one more
+        // `rng.chance` per child on this test's shared `rng` -- moving
+        // every draw after it. Old value `0x2197_04fe_f1c7_3b67`.
+        //
+        // Second (PR2, widening `herb` to three flower bands):
+        // `LOCUS_ALLELES[LOCUS_FLOWER_COLOUR]` moved 2 -> 3, and that is a
+        // **value** change, not a draw-count one -- `jump_alleles` still
+        // makes exactly the same number of `rng.chance`/`rng.below` calls
+        // per child (`set_seed_leaves_the_callers_rng_position_alone`
+        // stayed green through this, unmoved, which is what proves the
+        // count is unaffected). But `rng.below(n)`'s *result* depends on
+        // `n`, and `tree` (this test's species) carries the locus and can
+        // jump it even though it never flowers -- so a bred tree whose
+        // flower-colour allele jumped could now land on 2, a value the
+        // 2-allele range never produced, which changes one byte this
+        // fingerprint eats. Old value (mid-round-28) `0x0ea6_032f_41d2_6be3`.
+        //
+        // This is `CLAUDE.md`'s own worked case, "a green suite does not
+        // prove a test could fail", landing for real twice in one round
+        // rather than being quoted once.
         assert_eq!(
-            h.0, 0x0ea6_032f_41d2_6be3,
+            h.0, 0xfb9e_a33a_d20a_0087,
             "the breeding draw sequence moved. `set_seed` spends one draw per genome slot from a \
              shared `Rng`, so this fails if a new slot was mutated inline instead of after the \
              discrete loci -- see `SEQUENCED_TRAITS`. Every bred genome ever measured is downstream \
-             of this sequence. (Re-baselined for `LOCUS_FLOWER_COLOUR`, round 28 -- see the comment \
-             above this assertion if it moves again.)"
+             of this sequence. (Re-baselined twice in round 28 -- see the comment above this \
+             assertion if it moves again, and check whether a locus's *cardinality* changed before \
+             assuming only its count of loci can.)"
         );
     }
 
@@ -22622,6 +22963,184 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             !w.pip_checks.is_empty(),
             "a delivered pip must still be on the Germinate schedule after a carry longer than ORGANISM_TICK_INTERVAL -- an empty pip_checks means the schedule was silently dropped mid-transit and never re-armed on delivery"
         );
+    }
+
+    /// **Round 28's garden-midden build, the positive control.** A pip
+    /// delivered directly onto nest ground -- `nest.ron`'s own
+    /// `water_capacity` is the field's default, 0, dry by construction --
+    /// with real wet soil standing four columns to the right (within
+    /// `MIDDEN_SEARCH_COLUMNS`, 6) must be relocated onto it rather than
+    /// left to sit on ground `Behavior::Germinate` can never read as wet.
+    /// Left side of the bed is nest ground the whole `HALF` reach out, so a
+    /// search that found nothing (or found the wrong side) would read as a
+    /// wrong `(px, py)` here rather than merely "still standing" -- the
+    /// bar `CLAUDE.md`'s guard-test rule asks for a fix's own test to meet.
+    ///
+    /// Put the fault back by hand while building this (`MIDDEN_SEARCH_
+    /// COLUMNS` temporarily set to 0): this test failed, reading the pip
+    /// still on dry nest ground at its original site, before the constant
+    /// was restored to 6.
+    #[test]
+    fn a_pip_set_on_dry_nest_ground_is_relocated_to_the_nearest_wet_soil_within_reach() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+        }
+        for fx in (x - HALF)..=(x + HALF) {
+            // The door: nest ground under and to the left of the delivery
+            // site the whole `HALF` reach, exactly what `paint_nest_patch`
+            // would lay. Real, water-holding soil starts four columns to
+            // the right -- inside `MIDDEN_SEARCH_COLUMNS` (6) but far
+            // enough out that a search bug landing on the wrong side, or
+            // stopping at the first ring, cannot pass this test by
+            // accident.
+            let ground = if fx > x + 3 {
+                Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(nest, 0)
+            };
+            w.set(fx, y + 1, ground);
+        }
+        assert_eq!(
+            w.materials.get(w.get(x, y + 1).material).water_capacity,
+            0,
+            "test setup: the original set-down site must be dry nest ground, or this test proves nothing about the redirect"
+        );
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        assert_eq!(w.get(x, y).material, material::EMPTY, "the original dry site must be left empty -- the pip was relocated, not duplicated");
+        let landed = w.organism(id).and_then(|st| st.cells.keys().next().copied()).expect("the delivered organism must own exactly one cell somewhere");
+        assert_eq!(landed, (x + 4, y), "the pip must land on the nearest wet column within reach, at the surface");
+        assert_eq!(w.get(landed.0, landed.1).material, pip, "the relocated cell must still be the pip material, not soil or nest");
+        assert_eq!(
+            w.materials.get(w.get(landed.0, landed.1 + 1).material).water_capacity,
+            1000,
+            "the relocated site's ground must be the wet soil, read the same way Behavior::Germinate reads it"
+        );
+        assert_eq!(w.pips_set_on_soil, 1, "the it-worked counter must move when a delivery lands on water-holding ground");
+        assert_eq!(w.pips_set_on_nest, 0, "the it-failed counter must not move when the redirect succeeded");
+    }
+
+    /// **Capable is not the same as wet, and this is the test that catches
+    /// the difference.** This build's first pass accepted any material with
+    /// `water_capacity > 0` and shipped nothing else -- measured on
+    /// `played_bed` before landing, it relocated pips onto real soil at a
+    /// 100%/67% rate across two seeds and moved `plants_from_pip` not at
+    /// all (2->2, 0->0), because the soil it found was capable of holding
+    /// water and was not currently holding enough of it. Soil at
+    /// `x+2` here is exactly that trap: real `soil` material (capacity
+    /// 1000) with its `aux` left at 0 -- `material::SOIL_SATURATED`'s own
+    /// convention, dry -- so a search that stops at "is this soil" would
+    /// land here and still never germinate. Genuinely wet soil (`aux` at
+    /// field capacity) stands at `x+5`, one ring further out but still
+    /// within `MIDDEN_SEARCH_COLUMNS`.
+    ///
+    /// Put the fault back by hand while building this (reverted
+    /// `site_holds_enough_water` to its material-only predecessor): this
+    /// test failed, landing on the dry `x+2` soil, before the moisture
+    /// check was added.
+    #[test]
+    fn the_midden_skips_soil_that_can_hold_water_but_is_not_holding_enough_of_it() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+        }
+        for fx in (x - HALF)..=(x + HALF) {
+            let ground = if fx == x + 2 {
+                // Capable, not wet: real soil, `aux` left at 0
+                // (`material::SOIL_SATURATED`'s own dry default).
+                Cell::new(soil, 0)
+            } else if fx >= x + 5 {
+                Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(nest, 0)
+            };
+            w.set(fx, y + 1, ground);
+        }
+        assert_eq!(
+            update::plant_available_fraction(w.get(x + 2, y + 1)),
+            0.0,
+            "test setup: the near soil must read bone dry, or this test cannot tell the two predicates apart"
+        );
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        let landed = w.organism(id).and_then(|st| st.cells.keys().next().copied()).expect("the delivered organism must own exactly one cell somewhere");
+        assert_eq!(landed, (x + 5, y), "the search must skip the dry-but-capable soil at x+2 and continue to the genuinely wet soil at x+5");
+        assert_eq!(w.pips_set_on_soil, 1, "the it-worked counter must move only for a site that actually clears the water gate");
+    }
+
+    /// **The redirect's own bound, not merely its reach.** With no wet soil
+    /// anywhere within `MIDDEN_SEARCH_COLUMNS`, the pip is not lost or
+    /// dropped -- it lands exactly where it always has, on the original dry
+    /// site, and `pips_set_on_nest` (not `pips_set_on_soil`) is what moves.
+    /// The sibling of the test above: together they show the search is a
+    /// bound on work rather than a gate on whether the pip is set down
+    /// (`CLAUDE.md`'s size-cap rule).
+    #[test]
+    fn a_pip_with_no_wet_soil_within_reach_still_lands_where_it_was_dropped() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let (x, y) = (100, 60);
+        const HALF: i32 = MIDDEN_SEARCH_COLUMNS + 4; // dry well past the search reach on both sides
+        for fx in (x - HALF)..=(x + HALF) {
+            w.set(fx, y + 1, Cell::new(nest, 0));
+        }
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        assert_eq!(w.get(x, y).material, pip, "with nothing wet in reach the pip must stay exactly where it was dropped, same as before this build");
+        assert_eq!(w.pips_set_on_soil, 0, "no relocation succeeded -- the it-worked counter must not move");
+        assert_eq!(w.pips_set_on_nest, 1, "the it-failed counter must move when the search finds nothing in reach");
     }
 
     /// **A2, first hook: a bite that passes the roll loads a passenger and

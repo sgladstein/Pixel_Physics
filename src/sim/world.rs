@@ -2656,6 +2656,33 @@ pub struct World {
     /// `plant::seed_survives_bite`'s `pips_eaten` exit, same convention as
     /// `pip_rot_x` beside it.
     pub pip_eaten_x: Vec<i32>,
+    /// **Round 28's garden-midden build: a delivered pip's final resting
+    /// ground holds water.** Counted once per `plant::deliver_seed_
+    /// passenger` call, after the midden search below has had its chance
+    /// to relocate the pip — so this counts the *outcome*, not only the
+    /// redirect firing. `pip_checks`'s own `soil_water` measurement is the
+    /// finer-grained sibling (the reading at the first Germinate check,
+    /// which can drift from the set-down reading if the field dries or
+    /// wets between); this is the cheap door-side headline the round's own
+    /// drop-cell census asked for: pips_set_on_soil against pips_set_on_
+    /// nest, over every delivery, not only the ones long-lived enough to
+    /// reach a Germinate check at all. See `pips_set_on_nest` for the
+    /// other exit; the two are exhaustive and mutually exclusive over
+    /// `seeds_delivered` + the A1 in-place spills the same call site
+    /// serves.
+    pub pips_set_on_soil: u64,
+    /// **The redirect had nowhere to send it.** Either the original
+    /// set-down site already held water (no redirect needed — this counts
+    /// the outcome regardless of which arm produced it, see
+    /// `pips_set_on_soil`), or `plant::find_midden_site`'s bounded search
+    /// found no wet ground within `plant::MIDDEN_SEARCH_COLUMNS` and the
+    /// pip stayed on dry nest ground exactly as it would have before this
+    /// build. Not an error either way — the search is a bound on work, not
+    /// a gate on whether the pip is set down (`CLAUDE.md`'s "a size cap
+    /// must bound work, never gate whether something happens"): a pip that
+    /// lands here is no worse off than every pip in the three rounds
+    /// before this one.
+    pub pips_set_on_nest: u64,
     /// **Organisms currently riding in a crop, with no cell in the grid.**
     /// `plant::take_seed_passenger` inserts an id here in the same call that
     /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
@@ -3046,6 +3073,43 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether soil levels its water sideways as readily as it does when
+    /// it is dry.** `update::update_soil_water`'s capillary exchange, and
+    /// the reason the bed stands in visible columns under the moisture
+    /// overlay.
+    ///
+    /// Capillary rests on a threshold, and there are two: above field
+    /// capacity a pair of neighbouring cells is declared level if it differs
+    /// by less than the drainable band (380 of 1000), below it by 60. The
+    /// wide one exists to stop a **pump** — drainage empties a cell in the
+    /// drainable band, capillary refills it from the saturated side, for
+    /// ever, keeping every chunk at every water-table boundary awake. That
+    /// argument is about two rules disagreeing over the *same* pair, and
+    /// **drainage only ever moves water down**, so the face it can fight
+    /// over is the vertical one. Applied to the sideways face as well, the
+    /// wide threshold lets two neighbouring columns stand a third of the
+    /// whole scale apart for ever.
+    ///
+    /// On, the sideways face uses the narrow threshold instead and the
+    /// columns go: over twelve seeds on the played bed, the widest standing
+    /// gap between neighbouring columns is **380 on every seed off and 0 on
+    /// every seed on**, and the water table stops being a comb of spikes.
+    ///
+    /// **Defaults off, which is the owner's ruling** (2026-09-11, on the
+    /// review card that put both beds in front of them): *"Let me test it in
+    /// a playtest… ship off by default."* A field on the world rather than
+    /// the `env::var` it started as, for exactly `plant_load_failure`'s
+    /// reason — a `OnceLock` read once per process is a measurement
+    /// instrument and cannot be reached from inside a running box, and a
+    /// playtest is the thing it was asked for. The lab's parameters panel
+    /// writes it; see `lab::params::Knob::Rule`.
+    ///
+    /// What it costs is the churn the wide threshold was holding down:
+    /// **1.84x the soil-moisture writes a tick, higher on 12 of 12 seeds**.
+    /// What it does *not* appear to cost is the biology — stand, plants and
+    /// animals all sit at a paired median of ~1.0 with the sign split down
+    /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
+    pub soil_capillary_levels: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -3973,6 +4037,8 @@ impl World {
             pip_checks: Vec::new(),
             pip_rot_x: Vec::new(),
             pip_eaten_x: Vec::new(),
+            pips_set_on_soil: 0,
+            pips_set_on_nest: 0,
             carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
@@ -3999,6 +4065,7 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
@@ -7925,6 +7992,10 @@ impl CellSurface for World {
         self.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -8244,6 +8315,10 @@ impl CellSurface for MoistureView<'_> {
     #[inline]
     fn frame(&self) -> u64 {
         self.world.frame
+    }
+
+    fn soil_capillary_levels(&self) -> bool {
+        self.world.soil_capillary_levels
     }
 
     fn organism_due(&self, base_interval: u64) -> u64 {

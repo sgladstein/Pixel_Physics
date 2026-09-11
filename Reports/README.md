@@ -329,15 +329,19 @@ by somebody about to try it on creatures.
   the scale — applied to the **sideways** face, where the pump it was
   derived against cannot happen, since drainage only moves water down. Every
   pair in the bed at rest and the widest standing gap sitting **exactly on
-  the constant** is the tell. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
-  the sideways face and removes the columns outright (widest gap 380 → 0),
-  at **+44% to +67% soil-moisture writes a tick** and ~10% of the lab's
-  median tick — so it ships inert and the default is the owner's to rule on.
-  Recommendation: leave it, because the striping is invisible in the shipped
-  material colours and has no reach below field capacity; reopen it the day
-  the water table becomes something the game reads. §6 carries a cost A/B
-  that came back bit-identical because the bed was degenerate for the
-  question.
+  the constant** is the tell. The lever is `World::soil_capillary_levels`, a
+  dial on the lab's parameters page (`the bed / water_levels_sideways`): it
+  removes the columns outright, widest gap **380 → 0 on all twelve seeds**,
+  at **1.84x the soil-moisture writes a tick** (higher on 12 of 12) and ~10%
+  of the median tick on an empty box. **Owner's ruling, 2026-09-11: off by
+  default, and give me the dial.** §7 is the downstream sweep that ruling
+  asked for — the columns and the write count are the only consistent
+  effects, standing water falls to a median 0.69, and **the biology is a
+  null**: stand, plants and animals all within 3% of 1.0 with the sign split
+  down the middle and per-seed spreads up to 2.22x. §6 and §8 carry four
+  ways the measurement nearly lied, including a cost A/B that came back
+  bit-identical because the bed was degenerate for the question, and a guard
+  that could not see a missing trait implementer.
 
 ## Plants and trees  ·  `engine`
 
@@ -2011,6 +2015,28 @@ drift that two of these documents still reflect.**
   census reads a mixture it cannot distinguish from two clusters. Prices the
   **petal-colour locus** separately, because its real cost is one more draw per
   plant birth from a shared `Rng` — every seeded plant figure in the lab moves.
+- [evolution-lab-flight-design-2026-09-11.md](evolution-lab-flight-design-2026-09-11.md)
+  — **design of record for round 29's first build, the flitter floats; nothing
+  built.** Sits beside the pollinator design above and answers the owner's
+  verdict on it — *"jumping like a frog, not flying or floating like a butterfly
+  or bee"*. **The gap is not the eye and not the reach: it is that the flitter
+  has no rudder anywhere.** `step_flight` runs no brain (`creature.rs:3132`), so
+  an airborne animal cannot read the world or steer; `launch` takes the heading
+  the last *walk* left behind, never a fresh one; and on the ground bug **R4**
+  already has `Turn` nearly inert for a walker on level footing. Measured here,
+  three seeds paired in one binary against the same species with the hop switched
+  off by one weight: **0.60 walking steps per launch**, **29–46% of every
+  animal-frame aloft and blind**, and the *walking* arm sees more blooms, visits
+  **34 flowers against 0** on seed 3 and is the only arm of six that breeds — so
+  the hop is a net negative for encounter today. Also: at **60–387 frames per
+  launch** against a ~22-frame ballistic arc, **63–94% of airborne time is §Z9's
+  buoyancy hang**, not flight. Proposes `BrainOutput::Fly` as a lawful output
+  append that scales gravity while it is held, runs the brain every tick aloft and
+  rotates the *velocity* rather than a candidate cell — with the price
+  (0.0875 J/frame aloft against 0.025), the nine-cell closing arithmetic (34
+  frames, 2.1 J of a 120 J meal) and the six constants the append reallocates,
+  `mutation_rate` 0.0039308 → **0.0037589** across six species files first among
+  them.
 - [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
   — **design of record for the `Share` verb and the `KinNeed` sense; built
   the same day.** Energy rather than crop (a 480 J leaf in one lump is
@@ -2407,6 +2433,18 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   collapse a traffic misread; every mechanism of the garden loop is in and
   its rate is zero; a colony guard moved through shared procedural terrain
   while every foraging counter improved.
+- [evolution-lab-round-28-2026-09-11.md](evolution-lab-round-28-2026-09-11.md)
+  — **record, 2026-09-11.** The coordinator's account of round twenty-eight:
+  three lanes on two passes each, the bodies landed beside them by the
+  round-27 session. What the round overturned, with the numbers: the
+  pollinator's gap was never the eye and is no longer the reach (a flitter
+  reaches 106 rows) — a plant specialist's mouth eats the plant, and with
+  nectar its only meal the bed is safe and the animal starves for want of
+  finding a flower; the garden loop's last steps were the dig verb shovelling
+  a pip as dirt and a germination schedule never re-armed, and the first two
+  plants ever grew from a pip; windfall lies 67–100% where no ant walks;
+  petal colour became heritable and moved every seeded plant figure twice;
+  a bigger flower head pays per-cell upkeep for as long as it stands.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;

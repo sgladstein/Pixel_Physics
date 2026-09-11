@@ -1,8 +1,8 @@
 # Why the bed's water stands in columns
 
-**2026-09-11. Measured, diagnosed, not changed — the default is the owner's
-to rule on and the lever is shipped as a switch.** The owner, with the soil
-moisture overlay on:
+**2026-09-11. Measured, diagnosed, ruled on. The default does not change;
+the lever is a dial on the lab's parameters page and the downstream question
+has been swept.** The owner, with the soil moisture overlay on:
 
 > *"I want you to understand why water in the soil builds up in these
 > columns. Is this by design, or should it be fixed?"*
@@ -86,10 +86,13 @@ code happened to take.
 
 ## 4. What narrowing it would buy, and what it costs
 
-`PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows the **sideways** face back to
-the churn guard (60) and changes nothing else. It ships inert: the default is
-the current rule bit for bit, confirmed by the shipped arm reproducing this
-lane's pre-switch numbers digit for digit.
+`World::soil_capillary_levels` narrows the **sideways** face back to the churn
+guard (60) and changes nothing else. It ships **off**, the current rule bit for
+bit, confirmed by the off arm reproducing this lane's pre-dial numbers digit
+for digit.
+
+It began as `PIXEL_PHYSICS_SOIL_CAPILLARY=level`, a `OnceLock` read once per
+process, and §8 below is why it is not one any more.
 
 Empty box, seed 1, mister LIGHT, 24,000 frames, `RAYON_NUM_THREADS` pinned
 and the arms alternated:
@@ -131,7 +134,8 @@ bed reads 6,844 plant cells shipped against 5,940 narrowed, one seed. That is
 **not** evidence of an effect: `labsoil` measured **2.32x** spread in plant
 cells across twelve seeds at fixed settings with nothing varying but the
 seed, so a 13% difference on a single seed is inside the noise by a wide
-margin. Anyone who wants the biological question answered has to sweep it.
+margin. Anyone who wants the biological question answered has to sweep it —
+which §7 now does, and the answer is a null.
 
 ## 5. The recommendation
 
@@ -187,3 +191,115 @@ answers that nothing else did: **`soil_drawdown`'s horizontal profile is a
 mean over an eighth of the bed, so a stripe one or two cells wide is averaged
 away before it can be seen.** The column read has to be per column, and the
 "is this pair at rest" read has to be per pair.
+
+## 7. The owner's ruling, and the downstream sweep it asked for — 2026-09-11
+
+Both beds went to the owner on review card `20260911T045346536Z-2fc82f`. The
+ruling, verbatim:
+
+> *"Let me test it in a playtest. Are there any downstream affects of the
+> change? Ship off by default"*
+
+Three things follow, and the first two are the work.
+
+### 7.1 A playtest needs a dial, not an environment variable
+
+`PIXEL_PHYSICS_SOIL_CAPILLARY` was a `OnceLock` read once per process. That is
+a measurement instrument: it cannot be reached from inside a running box, so
+"test it in a playtest" would have meant quitting, exporting a variable and
+relaunching — and comparing two boxes rather than one box before and after.
+
+It is `World::soil_capillary_levels` now, with a row on the lab's parameters
+page (`the bed / water_levels_sideways`), felt on the next tick and lasting
+the session. That is exactly the shape `plant_load_failure` already uses and
+for the reason its own doc records: *"the owner asked for it as a control they
+can reach while the box is running."* It also reaches a saved scenario through
+`resolve_setting`, and `Dials` carries it so a saved dials file keeps it.
+
+**A plain `#[serde(default)]` is right on that `Dials` field, where three of
+its neighbours needed named ones.** Those load `0.0` as a *control arm* rather
+than as the shipped bed, so a missing key silently changed behaviour; here
+`false` **is** the shipped bed, so a dials file written before this key existed
+loads exactly the box it was saved from.
+
+### 7.2 Downstream: two things move, and the biology does not
+
+Twelve seeds, `played_bed_scrambler`, 24,000 frames, the mister at its shipped
+LIGHT, `RAYON_NUM_THREADS=1` so the counters are load-independent, each seed's
+two arms run in the same batch. Paired per seed, on / off:
+
+| quantity | median ratio | min … max | higher with it on |
+|---|---|---|---|
+| widest standing gap between columns | **0.000** | 0 … 0 | 0 of 12 |
+| soil-moisture writes per tick | **1.839** | 1.741 … 2.183 | **12 of 12** |
+| standing water above the ground | **0.691** | 0.361 … 1.443 | 2 of 12 |
+| saturated soil cells | 1.044 | 0.838 … 1.311 | 8 of 12 |
+| plant cells | 1.001 | 0.711 … 1.402 | 6 of 12 |
+| plants | 1.026 | 0.728 … 1.421 | 7 of 12 |
+| animals | 0.986 | 0.211 … 2.222 | 6 of 12 |
+| median ms/tick | 1.021 | 0.934 … 1.134 | 7 of 12 |
+
+**Two effects are real, and both are consistent on every seed or nearly so.**
+The columns go, on all twelve — that is the thing it was built for, and it is
+not a tendency, it is total. And the bed does **1.84x the soil-moisture writes
+a tick**, higher on all twelve, which is the churn the wide threshold was
+holding down and is the honest price.
+
+**One effect was not predicted and is worth having: less standing water.**
+Water above the ground falls to a median **0.69**, lower on 10 of 12 seeds.
+A bed that levels sideways keeps room near the surface instead of parking it
+in saturated columns, so rain infiltrates where it lands rather than pooling —
+which compounds with the drip fix that landed the same day rather than
+competing with it.
+
+**The biology is a null, and it is a null about the measurement as much as
+about the world.** Plant cells, plants and animals all sit at a paired median
+within 3% of 1.0 with the sign split down the middle (6/12, 7/12, 6/12), while
+their per-seed spreads run 0.71–1.40, 0.73–1.42 and **0.21–2.22**. That last
+one is the warning: the seed alone moves the colony by more than a factor of
+ten either way, so this sweep could not resolve a small real effect on the
+animals if there were one. What it does license is the negative it was asked
+for — **no effect on the stand or the colony large enough to see at twelve
+seeds and 24,000 frames**.
+
+**The frame timing in that table is not the cost figure.** Four processes share
+four cores in each batch, so it is contended by construction; `CLAUDE.md`'s
+rule is that a timing is only as trustworthy as the box was quiet. The number
+to quote is §4's, taken one process at a time with the arms alternated: about
+**10% of the median tick on an empty box and 1.5% on the played bed**. The
+write count is the load-independent one and it says 1.84x.
+
+### 7.3 Off by default
+
+Unchanged, and now it is a ruling rather than a recommendation.
+
+## 8. Two more things the measurement nearly got wrong
+
+Beside §6's two, both from wiring the dial.
+
+**A guard that could not see a missing implementer.** `CellSurface::
+soil_capillary_levels` was written with a default body returning `false` — the
+shipped rule — on the reasoning that a surface which forgets to override it
+reports the behaviour that ships rather than a silent opt-in. True, and not
+enough: deleting `World`'s override left the new guard **green**, because the
+moisture phase runs under `MoistureView` and `World` is the surface only in
+the `PIXEL_PHYSICS_MOISTURE=sweep` control arm, which no test exercises. The
+default is gone; the trait method has no body, so a surface that does not
+answer the question does not compile. That is
+`liquid-heightfield-design.md` §5a's own remedy — a correctness property
+resting on an enumeration staying complete is a failure mode this repo has hit
+three times, and the fix is to make incompleteness un-compilable.
+
+**A four-cell scene cannot make a bed-wide claim, because the moisture pass is
+change-driven.** The guard's first version put a wet half-row beside a dry one
+and asserted both far ends had levelled. They had not, and the rule was
+working: `Chunk::take_moist_plan` walks what was written last pass, dilated by
+one, so in a sealed scene where nothing else ever wakes the pass, levelling
+propagates only as far as each pass's own writes reach. The pair at the step
+went to 839 against 782 and stopped; the cell one further out still held 1,000
+and was never reconsidered, because the last time it was walked its gap was
+under the narrow threshold and after that no write marked it again. **The wave
+strands.** It is a property of the pass rather than of this dial, and it does
+not reach a played bed, where rain, roots, drainage and the sun re-mark the
+soil continuously — which is precisely what the twelve-seed sweep shows. The
+guard asserts the rule; the sweep owns the bed.

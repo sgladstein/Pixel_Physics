@@ -1,7 +1,8 @@
 # Liquids & Gases
 
 *Current as of: 2026-09-11 (water on a low plant soaks into the ground
-under it, not just off a branch into open air). Before that, 2026-09-07
+under it, not just off a branch into open air; and wet ground can be told to
+even itself out sideways). Before that, 2026-09-07
 (rain drips through a canopy instead of sitting
 on it), and 2026-08-22 (steam joins the weather; rock sinks in
 water; a boulder entering a pool throws a crown; smoke and steam are
@@ -41,6 +42,18 @@ against a trunk stays put rather than sinking into the roots. And ground
 that has already taken all the water it can hold turns the next drop away,
 so a bed you keep watering does eventually puddle -- that is the difference
 between damp ground and a waterlogged one, and you can see it happen.
+
+**Wet ground does not even itself out sideways, and that is a setting.**
+Ground drier than it can hold levels with its neighbours the way you would
+expect — a damp patch spreads into the dry soil beside it. Ground *wetter*
+than it can hold does not: two columns side by side may sit a third of the
+whole range apart for ever, so each patch of rain soaks straight down as a
+stripe. You will only ever notice with the soil overlay on, where the bed
+reads as vertical bands and the water table on the floor as a row of spikes
+rather than a level sheet. The bed has a switch for it (`water_levels_sideways`
+on the parameters page, off as it ships): turn it on and the columns merge and
+the water table goes flat, at the price of the soil doing about twice as much
+bookkeeping every tick.
 
 **Moving water runs white.** Water in motion — falling, pouring, spreading,
 splashing — draws pale and foamy, and goes back to its deep still colour
