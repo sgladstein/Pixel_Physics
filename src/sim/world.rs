@@ -2501,6 +2501,24 @@ pub struct World {
     /// by how many a run produces, same reasoning as
     /// `windfall_germination_x`.
     pub seed_transit_frames: Vec<u32>,
+    /// **Round 28's garden-loop instrument** — see `organism::PipCheck`'s
+    /// own doc. One row per pip, on its first `Behavior::Germinate`
+    /// evaluation only, so bounded the same way `seed_transit_frames` is:
+    /// by how many pips a run produces, not by how many times each is
+    /// rechecked. `Reports/lanes/evolution-lab-garden-loop.md`.
+    pub pip_checks: Vec<organism::PipCheck>,
+    /// **Where a pip was standing when it lost the viability race** — the
+    /// x-coordinate, at each of `pips_rotted`'s three exit sites
+    /// (`decay.rs`'s material channel, and `plant.rs`'s two half-life
+    /// rolls). Positions rather than a pre-bucketed histogram, the same
+    /// convention `windfall_germination_x` uses: the engine has no opinion
+    /// about where a nest column is. `Reports/lanes/evolution-lab-garden-
+    /// loop.md` hypothesis (a)'s "for each pip that rotted, where".
+    pub pip_rot_x: Vec<i32>,
+    /// **Where a standing pip was when a second bite took it** —
+    /// `plant::seed_survives_bite`'s `pips_eaten` exit, same convention as
+    /// `pip_rot_x` beside it.
+    pub pip_eaten_x: Vec<i32>,
     /// **Organisms currently riding in a crop, with no cell in the grid.**
     /// `plant::take_seed_passenger` inserts an id here in the same call that
     /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
@@ -3812,6 +3830,9 @@ impl World {
             seeds_delivered: 0,
             pip_germination_x: Vec::new(),
             seed_transit_frames: Vec::new(),
+            pip_checks: Vec::new(),
+            pip_rot_x: Vec::new(),
+            pip_eaten_x: Vec::new(),
             carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
@@ -4526,6 +4547,7 @@ impl World {
             born_with: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            pip_delivered: false,
             senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
