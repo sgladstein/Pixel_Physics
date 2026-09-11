@@ -141,6 +141,17 @@ fn main() {
     // either way, so nothing that already calls this file changes; unset,
     // not one line below runs.
     let pngdir: Option<String> = arg::<String>("pngdir");
+    // **`up=N` -- a nearest-neighbour integer upscale of the PNG frames
+    // only**, `labstats`' own knob and for its own reason: the review page
+    // scales client-side, and the skill's measured bar is that the stills
+    // the owner has been able to judge are 700-950 px across, against a
+    // 190x130 crop he reported seeing none of the changes in. The lab canvas
+    // is 512x320, so a card of it is under that bar before it starts.
+    // Nearest-neighbour, never a filter: every pixel here IS a world cell
+    // (or an integer block of one) and a smoothed edge would invent
+    // gradients the simulation does not have. Does not touch the GIF, which
+    // the skill says to prefer the sequence over anyway.
+    let up: u32 = arg("up").unwrap_or(1).max(1);
     // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
     // relying on `zoom` alone** -- the review skill is explicit that a GIF
     // should never carry `zoom` into the queue (`image-rendering: pixelated`
@@ -211,7 +222,7 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} pngdir={} out={out}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} pngdir={} up={up} out={out}",
         lab.spec.colony_species,
         rain.label(),
         crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
@@ -308,14 +319,26 @@ fn main() {
                 }
                 cropped
             };
-            // **`center=`'s zoom already happened inside `lab.draw`** -- the
+            // **A camera zoom already happened inside `lab.draw`** -- the
             // renderer put fewer, bigger world cells into `full` (and so
             // into `buf`) itself, so replicating pixels again here would
-            // zoom twice. Without `center`, `zoom` is still this file's
+            // zoom twice. With no camera at all, `zoom` is still this file's
             // original pixel replicate of whatever `crop` left (or the
             // whole frame).
-            let (zw, zh) = if center.is_some() { (w, h) } else { (w * zoom, h * zoom) };
-            let zoomed = if center.is_some() || zoom == 1 {
+            //
+            // **`camera_mode`, not `center.is_some()`, and that was a real
+            // bug for a day.** `follow=` arrived reusing `center=`'s zoom
+            // machinery and claiming to be orthogonal to it, and this one
+            // test was left reading `center` alone -- so a `follow=` card
+            // zoomed twice: `zoom=6` put 85x53 world cells in the 512x320
+            // buffer AND replicated every pixel six times, giving a
+            // 3072x1920 frame, and a `crop=` written in that frame's
+            // coordinates was clamped against the real 512x320 buffer to a
+            // **4x4 image**. The tell was the log line, which prints the
+            // shot's own size rather than a recomputed one -- the same
+            // guard that caught this file's last size lie, two comments up.
+            let (zw, zh) = if camera_mode { (w, h) } else { (w * zoom, h * zoom) };
+            let zoomed = if camera_mode || zoom == 1 {
                 buf
             } else {
                 let mut out_buf = vec![0u8; (zw * zh * 4) as usize];
@@ -370,12 +393,17 @@ fn main() {
             let mut written = 0usize;
             for (i, img) in shots.iter().enumerate() {
                 let path = format!("{dir}/frame{i:03}.png");
-                match img.save(&path) {
+                let scaled = if up == 1 {
+                    img.clone()
+                } else {
+                    image::imageops::resize(img, img.width() * up, img.height() * up, image::imageops::FilterType::Nearest)
+                };
+                match scaled.save(&path) {
                     Ok(()) => written += 1,
                     Err(e) => eprintln!("labgif: could not write {path}: {e}"),
                 }
             }
-            println!("  wrote {written} PNG frames to {dir}/frameNNN.png ({shot_w}x{shot_h} each)");
+            println!("  wrote {written} PNG frames to {dir}/frameNNN.png ({}x{} each, up={up})", shot_w * up, shot_h * up);
         }
     }
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();

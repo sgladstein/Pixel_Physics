@@ -662,6 +662,8 @@ fn main() {
     let mut handed_out = 0u64;
     let mut first: Option<Sample> = None;
     let mut last = Sample::default();
+    // See the census in the loop below for why this is sampled at 10 frames.
+    let mut head_max: std::collections::BTreeMap<String, i32> = std::collections::BTreeMap::new();
     let mut peak_edible = 0usize;
 
     println!(
@@ -717,6 +719,37 @@ fn main() {
             }
         }
         mark_visited(&world, &mut visited, spec.width);
+        // **How high any animal of each species has ever got, in rows above
+        // the soil surface** -- P2's reach census, and the one number that
+        // separates the two readings of a zero `flower_visits`. The flower
+        // this bed's animals live on stands ~22 rows up its own stem, and
+        // `dead-ends.md`'s hopper entry is built on exactly this figure
+        // (*"the wired seed 3 colony's highest head reached 21 rows above
+        // the soil"*), so it is stated in the same units on purpose: a
+        // successor that reads 30 here and still never feeds has a
+        // different problem from one that reads 13.
+        //
+        // **Every 10 frames, not every sample.** A hop lasts tens of frames
+        // and `sample_every` is tens of thousands, so a per-sample reading
+        // would photograph whatever happened to be in the air at six
+        // instants -- the max of a sparse sample of a transient, which is
+        // not a maximum at all. Ten frames is inside the shortest arc and
+        // walks a few dozen live organisms; the cost does not show against
+        // the sweep.
+        if f % 10 == 0 {
+            for id in world.live_organism_ids() {
+                let Some(state) = world.organism(id) else { continue };
+                if world.species.get(state.species).creature.is_none() {
+                    continue;
+                }
+                let Some(&(_, hy)) = state.chain.first() else { continue };
+                let rows = spec.ground_y - hy;
+                if rows > 0 {
+                    let e = head_max.entry(world.species.get(state.species).name.clone()).or_insert(0);
+                    *e = (*e).max(rows);
+                }
+            }
+        }
         if f % sample_every == 0 {
             let s = census(&world, &spec, gut, &visited, &nest_cols, windfall_id, flower_id, fruit_id);
             peak_edible = peak_edible.max(s.edible);
@@ -914,7 +947,7 @@ fn main() {
          flower_visits={} nectar_paid={:.0} nectar_j_per_1000f={:.2} organs_built={} bloom_seen={} \
          standing_flowers={} standing_fruit={} flowers_rebloomed={} organ_ripening_blocked={} organ_ripening_paid={} \
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
-         flower_visits_by={} alive_by={} deaths_by={}",
+         flower_visits_by={} alive_by={} deaths_by={} head_max_rows={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1025,7 +1058,17 @@ fn main() {
         world.creature_stats.flight_frames,
         if fmt_visits.is_empty() { "none".to_string() } else { fmt_visits },
         if fmt_alive.is_empty() { "none".to_string() } else { fmt_alive },
-        if fmt_deaths.is_empty() { "none".to_string() } else { fmt_deaths }
+        if fmt_deaths.is_empty() { "none".to_string() } else { fmt_deaths },
+        // **Rows above the soil, the highest any animal of that species
+        // reached at any sampled frame.** Read it against 22, the height of
+        // the flower: a `flower_visits` of zero beside a `head_max_rows`
+        // short of that is a REACH failure and nothing else, and beside one
+        // well past it is a failure of the mouth, the menu or the refill --
+        // opposite fixes, and the count alone cannot tell them apart.
+        {
+            let v = head_max.iter().map(|(k, r)| format!("{k}:{r}")).collect::<Vec<_>>().join(",");
+            if v.is_empty() { "none".to_string() } else { v }
+        }
     );
 }
 

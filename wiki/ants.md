@@ -1,13 +1,19 @@
 # Ants
 
-*Current as of: 2026-09-10, when a flower stopped being invisible at a
+*Current as of: 2026-09-11, when a third animal arrived: **the flitter**,
+the first one in the box that lives off flowers and the first that leaves
+the ground on purpose. It is two cells, it hops rather than walks, it has
+eyes, and a flower is worth four times as much to it as to an ant. See
+"The flitter" below for what it does and what it does not do yet. Before
+that, 2026-09-10, when a flower stopped being invisible at a
 distance. An animal with eyes can now see a bloom the way it sees another
-animal — from across the room, not only once it is standing on one — and
-the hopper is the one animal born reaching for it: it turns toward the
-nearest flower it can see and hops harder to close the gap, on top of the
-jump it already had. Nothing else changed about what a flower pays or how
-an animal feeds at one; what changed is whether an animal that could
-already afford the visit ever found it. Before that, 2026-09-09, evening,
+animal — from across the room, not only once it is standing on one. (This
+note said that day that the hopper was born reaching for one; it was not.
+The wiring was tried on the hopper, measured, and left out, because the
+hopper's body cannot reach a flower whatever its eyes say — that is the
+gap the flitter exists to close.) Nothing else changed about what a flower
+pays or how an animal feeds at one; what changed is whether an animal that
+could already afford the visit ever found it. Before that, 2026-09-09, evening,
 when four things changed at once and
 one of the morning's own claims was overturned. **An ant can feel hunger
 now**: a well-fed ant mostly rests and a hungry one walks, and the colony
@@ -416,8 +422,10 @@ the thing is and which way to turn to face it or to put it behind. Nothing
 tells the animal what to do about that; whether it runs, freezes, digs in,
 keeps eating, lays a scent or turns toward a bloom is decided by its
 inheritance, and an animal born today does none of them by default except
-the hopper, which is born turning toward a flower it can see. The ants
-that ship are blind, so for them this begins the day a lineage grows eyes.
+the flitter, which is born turning toward a flower it can see, hopping
+harder when there is one to reach, and sitting still when it is already
+standing at one. The ants that ship are blind, and so is the hopper, so
+for them this begins the day a lineage grows eyes.
 It is the same rule the hunter uses, read from the other end: a beetle is a
 threat to an ant because a beetle would eat an ant, and an ant is a threat
 to a beetle for the same reason, since an ant standing beside one will bite
@@ -903,6 +911,53 @@ The engine already has the hiding place. A one-cell tunnel takes an ant and
 refuses a beetle, purely because a beetle is a solid two-by-two block and has
 to fit; nobody wrote a rule about hiding. What it does not yet have is a
 predator that makes using it pay.
+
+## The flitter
+
+**A third animal, and the first one that is not a walker.** An ant is a
+line along the floor. A flitter is two pale cells that throw themselves
+into the air, land wherever they come down — on the soil, on a leaf, on a
+stem, plants hold an animal up exactly as ground does — and throw
+themselves again. It is the only thing in the box that leaves the ground
+because it decided to.
+
+**A flower is worth four times as much to it as to an ant**, and that is
+the whole of its trade. An ant is a generalist; the flitter's stomach is
+tuned to nectar, so the same sip that pays an ant a mouthful pays a flitter
+a meal. What it gives up is the dead: to a flitter a corpse is worth
+exactly nothing, where an ant will happily eat one.
+
+**It can see flowers, and it goes to them.** It turns toward the nearest
+bloom it can see, hops harder when there is one in view, and — the one wire
+that keeps it alive — stops hopping while it is standing at one. An animal
+that jumps off its own dinner never eats.
+
+**What it does, and it is worth watching.** It gets high. Its head reaches
+**eighty-odd rows** above the soil where an ant manages a dozen, so where
+ants are a line on the floor a bed of flitters is busy all the way up
+through the canopy. It breeds fast and dies fast: on a grown bed it goes
+tens of generations deep in a session, where the hopper — the older
+jumping animal, which has no eyes and no taste for nectar — barely gets
+past its founders.
+
+**What it does not do yet, and you will see this before you see anything
+else.** It does not really live on flowers. Over a long session a flitter
+drinks at a bloom a handful of times, or not at all, and spends the rest of
+its life eating ordinary leaf like everything else — a flower is a single
+cell, there are a few dozen of them in a whole bed, and finding one by
+flying at it is mostly luck. Released beside the plants on a played bed
+they breed into the hundreds and eat the bed back: the shrub and the tree
+go thin and the flower count falls with them. That is a real outcome rather
+than a bug — a bed of poor plants gets stripped by its own pollinators —
+but it is not yet the animal the name promises.
+
+**And it carries no pollen.** Visiting a flower feeds the flitter and does
+nothing for the plant. That is the next piece.
+
+**One thing to press.** The lab opens with animals wearing their *colony's*
+colour rather than their own, so the flitter's own pale blue-white body
+does not show until you cycle the animal colour to OWN COLOUR. In colony
+colours an ant and a flitter look much alike.
 
 ## Placing a colony, and watching what they smell
 
