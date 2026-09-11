@@ -8,8 +8,8 @@ Status: **record, not a work order.** Every number here was taken by the lane
 it is credited to and is on `main` or on the branch named; what binds from
 the round stays in the note.*
 
-**Read this if you want to know what the round overturned.** Eight lanes ran
-under one coordinator in about nine hours; six landed on `main`, two are
+**Read this if you want to know what the round overturned.** Nine lanes ran
+under one coordinator in about ten hours; seven landed on `main`, two are
 stacked on the bodies branch waiting on the owner. The design of record for
 the pollinator is
 [`evolution-lab-pollinator-design-2026-09-10.md`](evolution-lab-pollinator-design-2026-09-10.md)

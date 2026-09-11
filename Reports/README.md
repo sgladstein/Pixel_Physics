@@ -2330,8 +2330,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   depended on and the questions it put to the owner.
 - [evolution-lab-round-27-2026-09-10.md](evolution-lab-round-27-2026-09-10.md)
   — **record, 2026-09-11.** The coordinator's account of round twenty-seven,
-  moved out of the lane note at the round's close: eight lanes in nine hours,
-  six landed, two stacked on the bodies branch. What the round overturned,
+  moved out of the lane note at the round's close: nine lanes in ten hours,
+  seven landed, two stacked on the bodies branch. What the round overturned,
   with the numbers: "flower sense" is the eye and the eye is heritable; a
   ground animal that sees a flower still cannot reach one (21 rows against
   22); the long body's whole immobility was length and the flip's foraging
