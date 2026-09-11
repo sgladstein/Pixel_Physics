@@ -37,6 +37,7 @@ commit, so `--check` fails loudly rather than reporting a wrong arc.
     python3 scripts/deadendindex.py            # regenerate TSV + skeleton
     python3 scripts/deadendindex.py --check    # verify counts; gated by docscheck
     python3 scripts/deadendindex.py --skeleton <section>[,<section>]
+    python3 scripts/deadendindex.py --watch      # clauses waiting on an arrival
 
 `--check` also verifies the per-section counts written into the `##` headings.
 They are stale today in nine of fourteen sections -- `## other  (20 entries)`
@@ -100,6 +101,31 @@ QUALIFIER = [
 ]
 
 CONDITION_MET = re.compile(r"CONDITION MET", re.I)
+
+# A clause written as "once X exists" / "when X lands" is *forward-looking*: it
+# names an arrival rather than a standing state, so it can become true without
+# anyone touching the entry. That grammar is the whole signal.
+#
+# **Measured 2026-09-11, and the obvious stronger filter is worse than useless.**
+# The first design asked whether the clause names an identifier that now exists
+# in the tree: 123 entries matched, of which **one** was `EXPIRED` -- 0.8%
+# against a 1.6% base rate, i.e. worse than random. Clauses name identifiers
+# that already existed when they were written ("holds while `X` does Y") far
+# more often than they name a future artifact, so existence tells you nothing.
+# Adding it to the grammar filter narrows 38 entries to 6 at the same rate: all
+# coverage lost, no precision gained. Do not re-add it.
+#
+# What the grammar alone gives: **38 entries, 16% already resolved
+# (EXPIRED/LANDED/RE-TESTED) against a 5% base** -- about 3x enrichment. On
+# n=38 with 6 hits against ~2 expected that is suggestive, not established, and
+# it is offered as a watchlist rather than a verdict. It cannot be more than
+# that: `creatures:039` had its named artifact arrive (a flier) while the
+# condition stayed unmet (that flier has no pheromone economy), which no
+# textual rule can see.
+FORWARD_LOOKING = re.compile(
+    r"\b(once|when|after|if) [^.]{0,80}\b(exists?|lands?|ships?|is built|is available|gains?|becomes)",
+    re.I,
+)
 DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
 ENTRY = re.compile(r"^- \*\*")
 HEADING = re.compile(r"^## (\S+)\s*(?:\((\d+) entries\))?")
@@ -366,6 +392,22 @@ def main():
         actual = per.get(section, 0)
         if claimed is not None and claimed != actual:
             problems.append(f"L{line}: `## {section}` claims {claimed} entries, holds {actual}")
+
+    if "--watch" in args:
+        watch = [e for e in entries
+                 if e["retest"] and FORWARD_LOOKING.search(e["retest"])
+                 and not CONDITION_MET.search(e["retest"])]
+        print(f"deadendindex: {len(watch)} entries whose re-test clause names an *arrival* "
+              f"rather than a standing state.")
+        print("deadendindex: a watchlist, not a verdict -- the named thing arriving is not "
+              "the condition being met.")
+        per = Counter()
+        for e in entries:
+            per[e["section"]] += 1
+            if e in watch:
+                print(f"\n  [{ident(e, per[e['section']])}] L{e['line']}  {e['address'][:110]}")
+                print(f"      {e['retest'][:220]}")
+        return 0
 
     if "--check" in args:
         for p in problems:
