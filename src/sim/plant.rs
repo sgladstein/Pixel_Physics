@@ -2229,6 +2229,9 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     if let Some(pip_id) = world.materials.id_of("pip") {
         if cell.material == pip_id {
             world.pips_eaten += 1;
+            // Round 28's garden-loop instrument: "where" for the eaten
+            // exit, same convention as `pip_rot_x` beside it.
+            world.pip_eaten_x.push(x);
             return false;
         }
     }
@@ -2341,6 +2344,12 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
     world.seed_transit_frames.push(frames_carried as u32);
     world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
     world.seeds_delivered += 1;
+    // **Round 28's garden-loop instrument** -- flags this organism's pip
+    // as an A2 delivery, read once at its first `Behavior::Germinate`
+    // check into `PipCheck::delivered`. See `OrganismState::pip_delivered`.
+    if let Some(state) = world.organism_mut(passenger.organism_id) {
+        state.pip_delivered = true;
+    }
     // **The decay clock keeps running while carried** (§2.5) -- a free,
     // graded transit cost, not a free ride. A passenger owns no cell in the
     // grid for `organism_tick`'s own per-tick decay roll to visit while it
@@ -2362,6 +2371,9 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
             // standing pip can decay on the very tick it could otherwise
             // have germinated (`organism_tick`'s own seed-decay comment).
             world.pips_rotted += 1;
+            // Round 28's garden-loop instrument: "where" -- see
+            // `World::pip_rot_x`'s own doc.
+            world.pip_rot_x.push(x);
             shed_to_litter(world, x, y);
         }
     }
@@ -3687,6 +3699,24 @@ pub fn ambient_light_above(world: &World, x: i32, y: i32) -> f32 {
     super::field::noon_equivalent_light(world.field_at(x, y).light, world.sky_frame())
 }
 
+/// **Round 28's garden-loop instrument, diagnostic only** — not the
+/// engine's own notion of depth, because there isn't one. Counts non-empty
+/// cells directly above `(x, y)` before the first open-sky (`material ==
+/// EMPTY`, the raw material test `Cell::is_empty()` cannot stand in for —
+/// see `.claude/rules/src-sim-cells.md`) cell, capped at 64 so a pip buried
+/// under a whole worldgen column cannot make this loop unbounded. Cheap
+/// because its one caller gates on "pip material, first Germinate check
+/// only" — see `organism::PipCheck`'s own doc.
+fn overburden_depth(world: &World, x: i32, y: i32) -> i32 {
+    let mut depth = 0;
+    let mut yy = y - 1;
+    while depth < 64 && world.get(x, yy).material != material::EMPTY {
+        depth += 1;
+        yy -= 1;
+    }
+    depth
+}
+
 /// Lower ambient light reads as more shaded, which favours spreading —
 /// real moss's actual preference (shade slows evaporation), not a made-up
 /// bonus. Floored rather than let hit zero, since total darkness isn't a
@@ -3882,6 +3912,8 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
             // seeds_spilled` for how the four exits are meant to sum.
             if world.materials.id_of("pip").is_some_and(|id| id == cell.material) {
                 world.pips_rotted += 1;
+                // Round 28's garden-loop instrument: "where".
+                world.pip_rot_x.push(x);
             }
             shed_to_litter(world, x, y);
             // No reschedule: the organism now owns no cells, and
@@ -5518,6 +5550,39 @@ fn organism_tick(world: &mut World, x: i32, y: i32, organism_id: u16, stale_tick
                 // separate the cases.)
                 let below = world.get(x, y + 1);
                 let resting = below.material != material::EMPTY;
+                // **Round 28's garden-loop instrument, read-only and
+                // additive** -- `Reports/lanes/evolution-lab-garden-loop.md`
+                // hypothesis (a): is a pip set down somewhere it can never
+                // clear these two thresholds? One row per pip, on its
+                // first Germinate check only (`deferred_germination` false
+                // on entry -- set true a few lines down if this pip is not
+                // ready), so a pip that sits out a dry spell does not
+                // multiply its own row. Gated on the pip material *and*
+                // "first check" together, so the cost never lands on any
+                // other seed's hot path -- an ordinary `seed`/`windfall`
+                // reaching this arm every tick pays nothing extra.
+                if world.materials.id_of("pip").is_some_and(|id| id == cell.material)
+                    && !world.organism(organism_id).is_some_and(|st| st.deferred_germination)
+                {
+                    let diag_light = ambient_light_above(world, x, y);
+                    let diag_holds_water = world.materials.get(below.material).water_capacity > 0;
+                    let diag_soil_water = if diag_holds_water { update::plant_available_fraction(below) } else { 0.0 };
+                    let delivered = world.organism(organism_id).is_some_and(|st| st.pip_delivered);
+                    let overburden = overburden_depth(world, x, y);
+                    let frame = world.frame;
+                    world.pip_checks.push(organism::PipCheck {
+                        x,
+                        y,
+                        frame,
+                        delivered,
+                        resting,
+                        light: diag_light,
+                        light_threshold,
+                        soil_water: diag_soil_water,
+                        soil_water_threshold,
+                        overburden,
+                    });
+                }
                 let ready = resting
                     && (instant || {
                     let light = ambient_light_above(world, x, y);
