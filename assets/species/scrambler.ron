@@ -168,6 +168,15 @@
                 // legibly different from `herb`'s one big head; slot 9
                 // below scales this per individual exactly as it does for
                 // `herb`.
+                //
+                // **Re-measured round 28, lane D, on `herb` only** (the
+                // species the coordinator's population bar was written
+                // against) -- see `herb.ron`'s own `organ_cluster` comment
+                // for the six-seed table. The finding (a stale `main`
+                // baseline explained the earlier population shortfall, and
+                // slot-9 variance is not an independent cost) is about the
+                // shared mechanism, not about `herb` specifically, so it
+                // carries here without a second sweep.
                 organ_cluster: 8,
                 juvenile_size: 10,
                 juvenile_plastochron: 0.7,

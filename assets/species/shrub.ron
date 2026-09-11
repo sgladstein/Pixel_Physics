@@ -229,6 +229,12 @@
                 // design-2026-09-10.md` §3.5, Brief C2's sibling). Slot 9
                 // scales this per individual exactly as it does for the
                 // other two flowering species.
+                //
+                // **Re-measured round 28, lane D, on `herb` only** -- see
+                // `herb.ron`'s own `organ_cluster` comment for the
+                // six-seed table and the finding (stale `main` baseline,
+                // not a size or slot-9-variance cost). The mechanism is
+                // shared, so it carries here without a second sweep.
                 organ_cluster: 3,
                 juvenile_size: 30,
                 juvenile_plastochron: 0.4,

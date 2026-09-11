@@ -253,45 +253,60 @@
                 // head's total one-off ripening bill holds roughly where
                 // it was -- see the note beside them.
                 //
-                // **16 (1.78x) was tried first and cost the played bed too
-                // much population.** `labforage scenario=played_bed
-                // frames=120000`, three seeds: plants at 120,000 fell
-                // 15-70% against `main` (464/574/303 -> 322/170/259). The
-                // term identified (`organ_size_and_the_maintenance_bill`,
-                // below) is **every organ cell paying `MAINTENANCE_PER_CELL`
-                // like any other living tissue, continuously, for as long
-                // as it stands** -- measured in isolation as an exact
-                // `MAINTENANCE_PER_CELL x (extra cells)` delta, not a
-                // guess. That charge is untouched by the `Ripen`-cost
-                // division below, which only reaches the two one-off
-                // charges at the flower-set and fruit-ripen instants.
+                // **16 (1.78x) was tried first and read as costing the
+                // played bed too much population** against a three-seed
+                // `main` baseline (464/574/303). The term identified
+                // (`organ_size_and_the_maintenance_bill`, below) is real --
+                // **every organ cell pays `MAINTENANCE_PER_CELL` like any
+                // other living tissue, continuously, for as long as it
+                // stands**, untouched by the `Ripen`-cost division below,
+                // which only reaches the two one-off charges at flower-set
+                // and fruit-ripen -- but the three-seed population reading
+                // built on top of it did not survive a proper re-measurement
+                // (below), so 16 was never re-tried at the corrected bar;
+                // this entry no longer argues from it.
                 //
-                // **12 does not fully fix it, and neither does 9 (no size
-                // change at all).** Same bed, same three seeds, holding
-                // everything else (heritable spread, three petal bands):
+                // **Re-measured round 28, lane D: six seeds, `main` rebuilt
+                // fresh in the same session rather than trusted from the
+                // earlier three-seed table** -- `labforage
+                // scenario=played_bed frames=120000 seed=1..6
+                // sample=60000`, `RAYON_NUM_THREADS=4`, plants standing at
+                // 120,000:
                 //
-                //   size  |  seed1  seed2  seed3   (main: 464 574 303)
-                //   16    |   322    170    259
-                //   12    |   356     93    158
-                //   9     |   348    299    248
+                //   arm                           s1   s2   s3   s4   s5   s6  median  worst
+                //   main (fresh rebuild)          544   39  139  138  249  331   194.0     39
+                //   shipped (12, variance ±70%)    974  706   51  903   31  443   574.5     31
+                //   size 12, variance forced 0     974  308  214  870  486  337   411.5    214
                 //
-                // Seed 1 sits near the -25% bar at every size tried; seed 2
-                // is the outlier and gets *worse* going from 16 to 12, then
-                // partly recovers at 9 without ever clearing the bar --
-                // **not the clean "smaller head, smaller cost" relationship
-                // the maintenance term alone predicts**, and a real drop
-                // survives even at 9, where organ_cluster is numerically
-                // identical to `main`'s. So a second effect is live beside
-                // per-cell upkeep, most likely the slot-9 size *variance*
-                // itself (individuals now range up to 1.7x a smaller mean,
-                // not just a bigger fixed one) rather than the mean size —
-                // untested for want of time, and the next thing to try is
-                // this bed's three seeds with `genotype_variance[9]` forced
-                // to `0.0` at each size, to separate "bigger on average"
-                // from "more variable". 12 ships as the middle ground:
-                // bigger than authored, smaller than the size that measured
-                // worst, with the open question on record rather than
-                // papered over by a size that merely looked like it helped.
+                // **Both the shipped arm and the no-variance control clear
+                // the coordinator's bar (shipped median within -25% of
+                // main's median) by a wide margin -- shipped's median comes
+                // out *above* main's, not below it.** The original
+                // three-seed shortfall (464/574/303 -> 356/93/158) was read
+                // against a `main` that has since moved: two of its three
+                // original seeds have independently fallen hard (574->39,
+                // 303->139) while the first roughly held (464->544), most
+                // plausibly from other changes landing on `main` since (at
+                // least the pip/Germinate re-arm fix, PR #325) rather than
+                // from anything this PR touches. `CLAUDE.md`'s "always
+                // re-measure the baseline in the same session" rule applies
+                // exactly here: read against a fresh baseline, the shortfall
+                // this comment used to report was noise, not a size or
+                // variance effect.
+                //
+                // **The variance question this comment used to leave open --
+                // is slot 9's ±70% jitter costing population independently
+                // of mean size -- is answered too, and the answer is no.**
+                // Forcing `genotype_variance[9]` to `0.0` at the identical
+                // size 12 gives a *lower* population than shipped (411.5 vs
+                // 574.5 median), the opposite of what "variance is the
+                // term" predicts. So the spread stays as authored; there is
+                // nothing here for narrowing it to buy back.
+                //
+                // **Owner's call on size stands independently of the above**
+                // (round 28 cards e1ee88/83eaba, blind): 16 and 12 both read
+                // as "bigger" against main's 9 and are indistinguishable
+                // from each other by eye; 9 does not. 12 ships.
                 organ_cluster: 12,
                 juvenile_size: 8,
                 juvenile_plastochron: 0.6,
