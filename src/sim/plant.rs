@@ -2421,19 +2421,88 @@ fn find_midden_site(world: &World, x: i32, y: i32, threshold: Option<f32>) -> Op
     None
 }
 
-/// **The other end of `take_seed_passenger`.** Writes the passenger back as
-/// a live, organism-owned `pip` cell at `(x, y)` -- the same organism id it
-/// has carried since the bite, so the delivered plant germinates through
-/// the ordinary `Behavior::Germinate` path with its real genome, lineage
-/// and endowment rather than a freshly rolled individual.
+/// **The other end of `take_seed_passenger`, eaten.** Writes the passenger
+/// back as a live, organism-owned `pip` cell at `(x, y)` -- the same
+/// organism id it has carried since the bite, so the delivered plant
+/// germinates through the ordinary `Behavior::Germinate` path with its real
+/// genome, lineage and endowment rather than a freshly rolled individual.
 ///
-/// Two callers, both in `creature.rs`: the ordinary per-frame drop, and the
-/// spill an ant's own death writes its crop out as. Either way this is
-/// called *instead of* `Carried::into_cell` for the one flesh cell the
-/// passenger rides with, not in addition to it -- see `Crop::passenger`'s
-/// own doc for why that is a real, priced substitution rather than a
-/// conservation gap.
+/// **The one caller is the digestion exit in `creature.rs`** (`creature_
+/// tick`'s digest block), fired exactly once per passenger, at the tick
+/// that consumes the crop's *last* cell. The owner's rule, 2026-09-11:
+/// *"where should the seed drop when a creature picks up food -- it should
+/// drop where it is eaten, not immediately."* Digestion is where a crop's
+/// food is actually eaten -- see that call site's own comment for why the
+/// last cell rather than the first is the one that counts as "eaten".
+/// Called *instead of* crediting that one flesh cell's worth to a standing
+/// cell, not in addition to it -- see `Crop::passenger`'s own doc for why
+/// that is a real, priced substitution rather than a conservation gap.
+///
+/// **Its sibling is `deliver_seed_passenger_uneaten`.** A fruit *dropped*
+/// rather than eaten never reaches here at all as of the same rule: the
+/// two `creature.rs` sites that used to call this function directly (the
+/// ordinary per-frame drop, and the spill an ant's own death writes its
+/// crop out as) now call the sibling instead, because a dropped fruit
+/// keeps its seed rather than spilling a bare `pip` at the drop site.
 pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    deliver_seed_passenger_with_material(world, x, y, passenger, passenger.material);
+}
+
+/// **Uneaten: the fruit keeps its seed.** The owner's rule, 2026-09-11,
+/// read the other way from `deliver_seed_passenger`'s own doc -- a crop put
+/// down without ever being swallowed is not "eaten", so this does not write
+/// the bare `pip` the digestion exit does. It writes the delivering
+/// organism's own species' `windfall_material` instead -- the same
+/// organism-owned `CellType::Seed` `drop_organ` creates when a fruit
+/// ripens off the plant, with the *same* organism id the passenger has
+/// carried since the bite -- so the seed stands inside its flesh on the
+/// ground exactly as a fruit that fell there naturally would, and whoever
+/// bites it later runs `seed_survives_bite` on it fresh: the seed spills
+/// in place (A1) or rides on in the new biter's crop (A2), same as any
+/// other fallen fruit.
+///
+/// **Falls back to the ordinary pip delivery** -- in the same cell, not
+/// beside it -- when the delivering organism's species cannot be read
+/// (should not happen: the organism is held in `carried_seed_organisms` for
+/// its whole ride and is never reclaimed while there) or this world loads
+/// neither its named `windfall_material` nor the `"seed"` fallback
+/// `drop_organ` itself falls back to. The nearest right thing to "the fruit
+/// keeps its seed" when there is no fruit material to put it in, rather
+/// than losing the seed outright. Not separately counted:
+/// `World::fruit_dropped_with_seed` counts the windfall this function set
+/// out to build, not the degraded case -- `CLAUDE.md`'s "ask what a number
+/// counts when nothing is wrong."
+pub fn deliver_seed_passenger_uneaten(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    // **`PIXEL_PHYSICS_SEED_WHERE_EATEN=0` -- a runtime kill switch, not a
+    // design knob**, the same convention `PIXEL_PHYSICS_MIDDEN` uses just
+    // below: reproduces this round's predecessor exactly (a drop always
+    // wrote the bare pip, whether the meal was finished or not), so a
+    // before/after measurement comes from one binary and one seed rather
+    // than a second checkout risking `CLAUDE.md`'s stale-binary gotcha.
+    // Default is on (the fix).
+    if std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() == Ok("0") {
+        deliver_seed_passenger(world, x, y, passenger);
+        return;
+    }
+    let windfall_material = world.organism(passenger.organism_id).map(|s| s.species).and_then(|species| {
+        let name = world.species.get(species).windfall_material.clone();
+        world.materials.id_of(&name).or_else(|| world.materials.id_of("seed"))
+    });
+    match windfall_material {
+        Some(material) => {
+            deliver_seed_passenger_with_material(world, x, y, passenger, material);
+            world.fruit_dropped_with_seed += 1;
+        }
+        None => deliver_seed_passenger(world, x, y, passenger),
+    }
+}
+
+/// **The shared write.** Everything both exits above do -- the
+/// garden-midden redirect, the set-down counters, the reschedule, the
+/// transit-decay roll -- parameterised only on which material the
+/// delivered cell wears. The two public wrappers decide that; nothing
+/// below reads `passenger.material` at all.
+fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger, material: material::MaterialId) {
     // **Round 28's garden-midden build: redirect before anything else runs,
     // so the debug line and every counter below already see the real
     // landing site.** Checked against `site_holds_enough_water`, the
@@ -2494,7 +2563,7 @@ pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: orga
     }
     world.carried_seed_organisms.remove(&passenger.organism_id);
     world.seed_transit_frames.push(frames_carried as u32);
-    world.set(x, y, Cell::new(passenger.material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
+    world.set(x, y, Cell::new(material, passenger.shade).with_organism_id(passenger.organism_id).with_aux(passenger.aux));
     world.seeds_delivered += 1;
     // **Round 28's garden-loop instrument** -- flags this organism's pip
     // as an A2 delivery, read once at its first `Behavior::Germinate`
@@ -22899,6 +22968,67 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             "a zero-frame carry must never lose the transit roll -- a non-zero rot here means the span fed to half_life_chance was not the carried span"
         );
         assert_eq!(w.get(fx, fy).material, pip, "the pip must still be standing after a zero-frame carry");
+    }
+
+    /// **A2, uneaten -- the owner's 2026-09-11 rule's other half.**
+    /// `Reports/lanes/evolution-lab-seed-where-eaten.md`: a fruit put down
+    /// without ever being swallowed keeps its seed, so
+    /// `deliver_seed_passenger_uneaten` must write the delivering
+    /// organism's own species' `windfall_material` -- herb's `"windfall"`,
+    /// same material `drop_organ` uses for a fruit that ripens off the
+    /// plant -- rather than the bare `pip` its sibling
+    /// `deliver_seed_passenger` writes. `fruit_dropped_with_seed` is this
+    /// exit's own "it worked" counter, beside `seeds_delivered`, which both
+    /// exits share.
+    #[test]
+    fn deliver_seed_passenger_uneaten_writes_the_species_windfall_material() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let windfall = w.materials.id_of("windfall").expect("windfall is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (50, 50);
+        let passenger =
+            organism::SeedPassenger { organism_id: id, material: pip, shade: 2, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+
+        deliver_seed_passenger_uneaten(&mut w, fx, fy, passenger);
+
+        assert_eq!(
+            w.get(fx, fy).material, windfall,
+            "a dropped, uneaten passenger must wear its species' windfall material, not the bare pip its eaten sibling writes"
+        );
+        assert_eq!(w.get(fx, fy).organism_id(), id, "the same organism id must ride through to the windfall cell");
+        assert_eq!(w.seeds_delivered, 1, "the shared A2 delivery counter must move on this exit too");
+        assert_eq!(w.fruit_dropped_with_seed, 1, "the uneaten exit's own counter must move on a successful windfall delivery");
+    }
+
+    /// **The fallback, and its own counter's negative control.** An
+    /// organism id that resolves to nothing (freed, or a stale id) leaves
+    /// `deliver_seed_passenger_uneaten` with no species to read a windfall
+    /// material off of -- the nearest right thing is the ordinary bare-pip
+    /// delivery, in the same cell, rather than losing the seed outright.
+    /// `fruit_dropped_with_seed` must stay at zero: this delivery did not
+    /// build the windfall it counts, and `CLAUDE.md`'s "ask what a number
+    /// counts when nothing is wrong" is exactly the check a counter that
+    /// moved here would fail.
+    #[test]
+    fn deliver_seed_passenger_uneaten_falls_back_to_a_pip_when_the_organism_is_gone() {
+        let mut w = test_world();
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let (fx, fy) = (50, 50);
+        // No `push_organism` call: `organism_id: 9` resolves to nothing in
+        // a freshly built world, which is the scene this fallback exists
+        // for -- see the function's own doc for why this "should not
+        // happen" in practice (the caller's own `carried_seed_organisms`
+        // guard) and is handled anyway.
+        let passenger =
+            organism::SeedPassenger { organism_id: 9, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+
+        deliver_seed_passenger_uneaten(&mut w, fx, fy, passenger);
+
+        assert_eq!(w.get(fx, fy).material, pip, "with no species to read a windfall material off of, the fallback must still deliver a bare pip rather than lose the seed");
+        assert_eq!(w.seeds_delivered, 1, "the shared A2 delivery counter must still move -- the seed genuinely was set down");
+        assert_eq!(w.fruit_dropped_with_seed, 0, "the uneaten exit's own counter must NOT move on the degraded fallback -- it counts the windfall this call could not build");
     }
 
     /// **Round 28's garden-rot fix, the positive control.** `pip_checks`

@@ -1060,6 +1060,31 @@ fn main() {
     const NEAR_NEST_REACH: i32 = 32;
     let plants_from_pip_near_nest =
         world.pip_germination_x.iter().filter(|&&x| nest_cols.iter().any(|&c| (c - x).abs() <= NEAR_NEST_REACH)).count();
+    // **Round 29's seed-where-eaten lane** -- `Reports/lanes/evolution-lab-
+    // seed-where-eaten.md`, the owner's 2026-09-11 rule: "where should the
+    // seed drop when a creature picks up food -- it should drop where it
+    // is eaten, not immediately." This is the distribution the rule is
+    // actually asking about: for each pip digestion released
+    // (`World::pip_digestion_release_x`), the eating animal's column
+    // distance from the nearest nest, bucketed into the same `DIST_BANDS`
+    // every other distance reading in this file already uses rather than
+    // a bespoke scale -- a colony that finishes its food before it gets
+    // home should read differently here than one that always carries a
+    // meal all the way in first.
+    let mut digestion_release_by_dist = [0u64; DIST_BANDS.len()];
+    for &x in &world.pip_digestion_release_x {
+        let d = nest_cols.iter().map(|c| (c - x).abs()).min().unwrap_or(i32::MAX);
+        for (b, &edge) in DIST_BANDS.iter().enumerate() {
+            if d <= edge {
+                digestion_release_by_dist[b] += 1;
+                break;
+            }
+        }
+    }
+    println!(
+        "  A2, eaten -- where the eater stood when digestion released the seed, by distance from the nearest nest {DIST_BANDS:?}: {digestion_release_by_dist:?} (n={})",
+        world.pip_digestion_release_x.len()
+    );
     // Median, not mean: `seed_transit_frames` is exactly the kind of
     // long-tailed sample (one lucky seed dropped a step from the bite, one
     // unlucky one carried the length of the bed) a mean would let the tail
@@ -1248,7 +1273,8 @@ fn main() {
          flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={} \
          pips_set_on_soil={} pips_set_on_nest={} \
          fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
-         moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={}",
+         moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
+         pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1433,7 +1459,17 @@ fn main() {
         } else {
             0.0
         },
-        if std::env::var("FLY").as_deref() == Ok("0") { "off".to_string() } else { pixel_physics::sim::creature::flight_speed().to_string() }
+        if std::env::var("FLY").as_deref() == Ok("0") { "off".to_string() } else { pixel_physics::sim::creature::flight_speed().to_string() },
+        // **Round 29's seed-where-eaten lane's own counters, appended per
+        // the same "keep main's fields, append the branch's" convention
+        // every block above follows.** `pips_released_by_digestion` is
+        // this build's own eaten exit's "it fired"; `fruit_dropped_with_
+        // seed` is the uneaten exit's; `seeds_delivered` above (shared
+        // with A2) is the union of both plus the pre-existing drop path.
+        // The histogram computed just above is the where-eaten
+        // distribution the owner's rule is about.
+        world.pips_released_by_digestion,
+        world.fruit_dropped_with_seed
     );
 }
 
