@@ -44,7 +44,10 @@ use pixel_physics::sim::chunk::Rect;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::world::World;
-use pixel_physics::sim::organism::CreatureDef;
+use pixel_physics::sim::organism::{BodyPlan, CellType, CreatureDef, Segment};
+use pixel_physics::sim::cell::Cell;
+use pixel_physics::sim::creature::BlockedWhy;
+use pixel_physics::sim::material;
 use pixel_physics::sim::{creature, parallel};
 
 /// Where in the day every frame is pinned. Noon, for the reason
@@ -78,6 +81,7 @@ fn main() {
     let mut control = true;
     let mut crop = CROP_DEFAULT;
     let mut zoom = PANEL_ZOOM_DEFAULT;
+    let mut body_override = String::new();
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
         match k {
@@ -92,10 +96,18 @@ fn main() {
             "control" => control = v != "off",
             "crop" => crop = v.parse().unwrap_or(crop),
             "zoom" => zoom = v.parse().unwrap_or(zoom),
+            "body" => body_override = v.to_string(),
             _ => {}
         }
     }
-    println!("creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?}");
+    // Not this harness's own arg -- read by `creature::place_creature`
+    // through its own `OnceLock` -- but echoed here anyway, for the same
+    // reason every other setting on this line is: a log that does not name
+    // its settings was written by a binary that never had them.
+    let body_laterals = std::env::var("PIXEL_PHYSICS_BODY_LATERALS").unwrap_or_else(|_| "1 (default)".to_string());
+    println!(
+        "creature_scale: mode={mode} species={species} scales={scales:?} frames={frames} seed={seed} preset={preset} count={count} control={control} crop={crop} zoom={zoom} out={out:?} body={body_override:?} PIXEL_PHYSICS_BODY_LATERALS={body_laterals}"
+    );
 
     match mode.as_str() {
         "size" => size_mode(&Sheet {
@@ -108,7 +120,7 @@ fn main() {
             crop,
             zoom_px: zoom,
         }),
-        "walk" => walk_mode(&species, &scales, seed, &preset, count, frames),
+        "walk" => walk_mode(&species, &scales, seed, &preset, count, frames, &body_override),
         other => panic!("unknown mode {other}; expected size or walk"),
     }
 }
@@ -130,6 +142,148 @@ fn build(k: i32, seed: u64, preset: &str) -> World {
     let params = presets.get(preset).unwrap_or_else(|| panic!("no worldgen preset {preset:?}")).scaled(k as f32);
     pixel_physics::worldgen::generate(&mut world, pixel_physics::worldgen::Spec::Generated { params: &params, seed });
     world
+}
+
+/// **Is this preset a hand-built scene rather than a worldgen preset?**
+///
+/// `flat` and `rolling` are open ground and answer "can this body walk";
+/// the two below are the terrain the owner's complaint is actually about
+/// -- *"these larger ants get stuck or cannot move easily in more
+/// complicated terrain"* -- and no generated preset contains either. They
+/// are hand-built for the same reason `ascii`'s structural cases are:
+/// the situation has to be *guaranteed present*, and a generated world
+/// that happens not to contain a one-wide tunnel would measure a body's
+/// mobility in a tunnel as excellent (`CLAUDE.md`, "a scene that
+/// contradicts the code will look like a bug in the code").
+fn is_scene(preset: &str) -> bool {
+    matches!(preset, "tunnel" | "chamber")
+}
+
+/// Carve `(x, y)` out to open air.
+fn carve(world: &mut World, x: i32, y: i32) {
+    world.set(x, y, Cell::EMPTY);
+}
+
+fn carve_rect(world: &mut World, x0: i32, x1: i32, y0: i32, y1: i32) {
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            carve(world, x, y);
+        }
+    }
+}
+
+/// **The tunnel scene: solid rock with one-wide passages cut through it.**
+///
+/// Three features, in one world so one run measures all of them:
+///
+/// * a **dead-end tunnel** (row 56, running right from the chamber and
+///   closed at its far end) -- an animal that walks in must come back out
+///   the way it came, and cannot turn round to do it;
+/// * a **one-wide bend** (row 64, then a vertical leg at x=60, then row
+///   40) -- two right-angle corners a body has to flow round;
+/// * a **vertical shaft** (x=20, rising out of the chamber roof and closed
+///   at the top) -- the straight-up case.
+///
+/// Everything is one cell wide deliberately. A two-wide passage would let
+/// a long body turn round inside it and the scene would stop asking the
+/// question. The chamber at the left is the only open ground, so an animal
+/// that gets out of a passage has somewhere to be.
+///
+/// **Half the animals are placed inside the passages, not in the chamber.**
+/// Hoping a wanderer finds a tunnel is how a scene ends up measuring
+/// wandering; starting them in there is the positive control that says the
+/// mechanism under test was actually reached.
+fn tunnel_scene(species: &str, count: i32, body_override: &str) -> (World, i32, Option<usize>) {
+    let (w, h) = (200i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    for y in 0..h {
+        for x in 0..w {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    apply_body_override(&mut world, species, body_override);
+    // The open chamber.
+    carve_rect(&mut world, 10, 30, 48, 66);
+    // A dead-end tunnel, one cell high.
+    carve_rect(&mut world, 30, 90, 56, 56);
+    // A one-wide passage with two right-angle bends, ending blind.
+    carve_rect(&mut world, 30, 60, 64, 64);
+    carve_rect(&mut world, 60, 60, 40, 64);
+    carve_rect(&mut world, 60, 100, 40, 40);
+    // A vertical shaft out of the chamber roof, closed at the top.
+    carve_rect(&mut world, 20, 20, 22, 48);
+
+    let mut placed = 0;
+    // **Read off the world, the same way `walk_mode` does**, so
+    // `PIXEL_PHYSICS_BODY_LATERALS=0` visibly moves this number before any
+    // blocked fraction below it is trusted -- CLAUDE.md's stale-switch
+    // tell is identical output across a change that must have moved
+    // something.
+    let mut first_body_cells = None;
+    // Along the chamber floor, and inside both horizontal passages.
+    let seats: Vec<(i32, i32)> = (0..count)
+        .map(|i| match i % 4 {
+            0 => (14 + (i / 4) * 3, 65),
+            1 => (40 + (i / 4) * 9, 56),
+            2 => (40 + (i / 4) * 9, 64),
+            _ => (70 + (i / 4) * 9, 40),
+        })
+        .collect();
+    for (x, y) in seats {
+        if let Some(site) = creature::plant_creature_seed(&mut world, x, y, species) {
+            world.schedule_active_site(site);
+            placed += 1;
+            if first_body_cells.is_none() {
+                let id = world.get(x, y).organism_id();
+                first_body_cells = Some(body_cells(&world, id).len());
+            }
+        }
+    }
+    (world, placed, first_body_cells)
+}
+
+/// **The chamber scene, lifted from `ascii`'s `nest_dig_scene`** -- a soil
+/// bank on a stone floor with a nest beside it, and the colony digging its
+/// own gallery into the bank.
+///
+/// It is the scene §12 diagnosed and left red, and it is here for one
+/// reason: the passages an animal moves through in it are the ones the
+/// animal itself cut, so the terrain is exactly as wide as the body that
+/// made it. That is the case a hand-built tunnel cannot pose.
+fn chamber_scene(species: &str, count: i32, body_override: &str) -> (World, i32, Option<usize>) {
+    let (w, h) = (200i32, 120i32);
+    let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+    let floor = h - 8;
+    let soil = world.materials.id_of("soil").expect("soil");
+    let nest = world.materials.id_of("nest").expect("nest");
+    for x in 0..w {
+        for y in floor..h {
+            world.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+        }
+    }
+    for x in 40..160 {
+        for y in (floor - 30)..floor {
+            world.set(x, y, Cell::new(soil, 0).with_attached(true));
+        }
+    }
+    for x in 16..40 {
+        world.set(x, floor, Cell::new(nest, 0).with_attached(true));
+    }
+    apply_body_override(&mut world, species, body_override);
+    let mut placed = 0;
+    let mut first_body_cells = None;
+    for i in 0..count.min(6) {
+        let (x, y) = (8 + i * 6, floor - 1);
+        if let Some(site) = creature::plant_creature_seed(&mut world, x, y, species) {
+            world.schedule_active_site(site);
+            placed += 1;
+            if first_body_cells.is_none() {
+                let id = world.get(x, y).organism_id();
+                first_body_cells = Some(body_cells(&world, id).len());
+            }
+        }
+    }
+    (world, placed, first_body_cells)
 }
 
 /// Every cell in the world belonging to organism `id`.
@@ -321,18 +475,114 @@ fn size_mode(sheet: &Sheet) {
 /// A whole colony rather than one animal, because a single body samples one
 /// piece of ground and the spread over terrain here is enormous
 /// (`CLAUDE.md`: compare two runs, not one run against a remembered number).
-fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32, frames: u64) {
+/// **`body_override`, the second ablation §7d asks for.** `"segmented"`
+/// takes `species`'s own authored `Chain(n)` -- so it has to be a plain
+/// chain, and `ant_long`'s `Chain(6)` is the one this project already ships
+/// as its length-matched control (§7a) -- and swaps it, in the live
+/// registry, for a `Segmented` body of the identical length: same head,
+/// same `n - 1` `Segment` cells, zero laterals. `plant_creature_seed` then
+/// places bodies from a species whose *material, economy and name* are
+/// completely unchanged and whose *code path* is not: `body_after_step`
+/// now takes the `Segmented` arm (`segmented_body_after_step`, which
+/// degenerates to the exact `chain_follow` rule when every group is 1 --
+/// see that function's own doc) instead of the plain `Chain` arm. If the
+/// two arms still differ, the difference is the code path, not the length,
+/// the lateral count, or the species' own numbers -- nothing else moved.
+/// **Re-lay `species`'s body plan for an ablation arm, before anything is
+/// placed.**
+///
+/// `body=segmented` turns a plain `Chain(n)` into an `n`-segment
+/// `Segmented` body with no laterals -- the arm whose *numbers* are
+/// unchanged and whose *code path* is not, which is how the cost fork's
+/// hard invariant (a lateral-free `Segmented` body is byte-identical to a
+/// `Chain`) gets measured rather than asserted. `body=chainN` re-lays the
+/// species as a plain `Chain(N)`, varying length alone with no `Segmented`
+/// code in it at all -- and `chain2` is how the **shipped two-cell ant**
+/// is recovered from a binary whose `ant.ron` now grows a five-segment
+/// articulated body.
+///
+/// **It clears the fate table too, and until §13 it did not.** `place_
+/// creature` grows the body from `body_fates` whenever the species carries
+/// a `fates` table and only falls back to `def.body` when it does not, so
+/// an override that writes `def.body` alone is *silently ignored* on `ant`
+/// and `hopper` -- both of which author one. `SpeciesRegistry::set_fates`'s
+/// own doc names this trap in as many words; this call site is the second
+/// place to have walked into it. The tell that catches it is the one
+/// `CLAUDE.md` names: `body_cells=` in the row below must move when the
+/// override does, and it did not.
+fn apply_body_override(world: &mut World, species: &str, body_override: &str) {
+    if body_override.is_empty() {
+        return;
+    }
+    let id = world.species.id_of(species).unwrap_or_else(|| panic!("no species {species}"));
+    let mut def = world.species.get(id).creature.clone().expect("a creature");
+    if body_override == "segmented" {
+        let BodyPlan::Chain(n) = def.body else {
+            panic!("body=segmented expects {species} to author a plain Chain(n); it did not (BodyPlan has no Debug impl to print the shape it got instead)");
+        };
+        let mut segments = vec![Segment { cell: CellType::Head, lateral: None }];
+        for _ in 1..n {
+            segments.push(Segment { cell: CellType::Segment, lateral: None });
+        }
+        def.body = BodyPlan::Segmented(segments);
+    } else if let Some(n) = body_override.strip_prefix("chain") {
+        let n: i32 = n.parse().unwrap_or_else(|_| panic!("body=chainN needs a number, got {body_override:?}"));
+        def.body = BodyPlan::Chain(n as u8);
+    } else {
+        panic!("unknown body override {body_override:?}; expected segmented or chainN");
+    }
+    world.species.set_creature(id, def);
+    world.species.set_fates(id, Vec::new());
+}
+
+fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32, frames: u64, body_override: &str) {
     for &k in scales {
+        // **The scene branch comes first, before `build`.** A hand-built
+        // scene has no worldgen preset of its own name, so generating one
+        // to throw away would panic on the lookup rather than merely waste
+        // the work.
+        if is_scene(preset) {
+            // A hand-built scene owns its own placement: `colony_ant_site`
+            // is a *surface* finder and there is no surface inside a
+            // tunnel, so the generated path below would place nothing and
+            // report a clean `blocked NaN` from a probe that never reached
+            // the mechanism.
+            let (mut scene, placed, first_body_cells) = match preset {
+                "tunnel" => tunnel_scene(species, count, body_override),
+                _ => chamber_scene(species, count, body_override),
+            };
+            for _ in 0..frames {
+                parallel::step(&mut scene);
+                scene.step_active_sites();
+                scene.step_fields();
+            }
+            report(&scene, k, placed, first_body_cells);
+            continue;
+        }
         let mut world = build(k, seed, preset);
+        apply_body_override(&mut world, species, body_override);
         let cols: Vec<i32> = (0..WIDTH as i32 * k).filter(|&x| creature::colony_ant_site(&world, x, 0).is_some()).collect();
         assert!(cols.len() >= count as usize * 2, "only {} viable columns at k={k}", cols.len());
         let mut placed = 0;
+        // **The first placement's own cell count, read off the world the
+        // same way `size_mode` does (`body_cells`'s own doc: off the world,
+        // not off `BodyPlan`).** `PIXEL_PHYSICS_BODY_LATERALS=0` must move
+        // this number for a `Segmented` species and leave it alone for a
+        // plain `Chain` -- CLAUDE.md's stale-switch tell is identical
+        // output across a change that must have moved something, and this
+        // is the cheapest place to catch that before trusting the blocked%
+        // below at all.
+        let mut first_body_cells: Option<usize> = None;
         for i in 0..count {
             let x = cols[(i as usize * cols.len()) / count as usize];
             let Some(sy) = creature::colony_ant_site(&world, x, 0) else { continue };
             if let Some(site) = creature::plant_creature_seed(&mut world, x, sy - 1, species) {
                 world.schedule_active_site(site);
                 placed += 1;
+                if first_body_cells.is_none() {
+                    let id = world.get(x, sy - 1).organism_id();
+                    first_body_cells = Some(body_cells(&world, id).len());
+                }
             }
         }
         // **All three, in `ascii`'s order.** `parallel::step` is the CA
@@ -347,20 +597,76 @@ fn walk_mode(species: &str, scales: &[i32], seed: u64, preset: &str, count: i32,
             world.step_active_sites();
             world.step_fields();
         }
-        let s = world.creature_stats;
-        let attempts = s.moves + s.moves_blocked;
-        let blocked = if attempts == 0 { f64::NAN } else { s.moves_blocked as f64 / attempts as f64 };
-        println!(
-            "  k={k} placed={placed} alive={} ticks={} moves={} blocked={} => blocked {:.1}%  falls={} digs={}",
-            world.live_creature_count(),
-            s.ticks,
-            s.moves,
-            s.moves_blocked,
-            blocked * 100.0,
-            s.falls,
-            s.digs,
-        );
+        report(&world, k, placed, first_body_cells);
     }
+}
+
+/// The row: the blocked fraction this harness has always printed, and --
+/// when `PIXEL_PHYSICS_BLOCKED_CENSUS=1` -- **why** it is what it is.
+///
+/// **`boxed` is the number this instrument was built for, not `blocked`.**
+/// A blocked tick that `tumble` can fix by re-aiming costs one tick; a tick
+/// on which none of the eight headings can be walked costs the animal
+/// everything after it. `blocked%` cannot separate those and has been
+/// asked to for three rounds. `boxed_self` splits the second again: boxed,
+/// with at least one heading refused by nothing but this body's own cells
+/// -- which is the reverse a short animal makes and a long one cannot.
+fn report(world: &World, k: i32, placed: i32, first_body_cells: Option<usize>) {
+    let s = world.creature_stats;
+    let attempts = s.moves + s.moves_blocked;
+    let blocked = if attempts == 0 { f64::NAN } else { s.moves_blocked as f64 / attempts as f64 };
+    println!(
+        "  k={k} placed={placed} body_cells={} alive={} ticks={} moves={} blocked={} => blocked {:.1}%  falls={} digs={} impulses={} flight_moves={}",
+        first_body_cells.map(|n| n.to_string()).unwrap_or_else(|| "?".to_string()),
+        world.live_creature_count(),
+        s.ticks,
+        s.moves,
+        s.moves_blocked,
+        blocked * 100.0,
+        s.falls,
+        s.digs,
+        s.impulses,
+        s.flight_moves,
+    );
+    let total: u64 = s.blocked_why.iter().sum();
+    if total == 0 {
+        println!("    (blocked census off -- set PIXEL_PHYSICS_BLOCKED_CENSUS=1)");
+        return;
+    }
+    let why: Vec<String> = BlockedWhy::NAMES
+        .iter()
+        .zip(s.blocked_why.iter())
+        .map(|(n, &v)| format!("{n} {v} ({:.1}%)", 100.0 * v as f64 / total as f64))
+        .collect();
+    println!("    why: {}", why.join("  "));
+    let bx = |v: u64| if s.moves_blocked == 0 { f64::NAN } else { 100.0 * v as f64 / s.moves_blocked as f64 };
+    // **Deaths by cause, beside the mobility numbers.** A mobility arm
+    // whose animals died is not a mobility measurement, and `alive=` alone
+    // cannot say whether they starved (which a scene with no food does to
+    // everybody) or lost a head (which would be this rule breaking a body).
+    let deaths: Vec<String> = pixel_physics::sim::organism::DEATH_CAUSE_LIST
+        .iter()
+        .filter(|c| world.deaths_by_cause[c.index()] > 0)
+        .map(|c| format!("{c:?} {}", world.deaths_by_cause[c.index()]))
+        .collect();
+    println!("    deaths: {}", if deaths.is_empty() { "none".to_string() } else { deaths.join("  ") });
+    println!(
+        "    reversals={} refused={} traffic_deferred={}  (PIXEL_PHYSICS_REVERSE={})",
+        s.reversals,
+        s.reversals_refused,
+        s.reversals_traffic_deferred,
+        std::env::var("PIXEL_PHYSICS_REVERSE").unwrap_or_else(|_| "flip (default, §13g)".to_string()),
+    );
+    println!(
+        "    boxed={} ({:.1}% of blocked ticks)  boxed_self={} ({:.1}%)  width_changes={} ({:.3}/move)  tucked_segment_steps={}",
+        s.boxed_ticks,
+        bx(s.boxed_ticks),
+        s.boxed_self_ticks,
+        bx(s.boxed_self_ticks),
+        s.width_changes,
+        if s.moves == 0 { f64::NAN } else { s.width_changes as f64 / s.moves as f64 },
+        s.tucked_segment_steps,
+    );
 }
 
 /// A minimal non-interlaced RGBA PNG, stored (uncompressed) deflate blocks

@@ -1695,6 +1695,16 @@ fn forage_loop_scene() {
             st.nest_visits,
             st.deaths
         );
+        // **The reversal breakdown (§13g), printed even at zero.** A flip
+        // that fires on a laden ant, or one adjacent to the nest, is
+        // mirroring the one animal that has something to lose by it -- see
+        // `CreatureStats::reversals_carrying`/`reversals_at_nest`. High
+        // against `reversals` is the signature of the regression §13g
+        // diagnosed; low is the gate working.
+        println!(
+            "  reversals {} (carrying {} at-nest {}) refused {} traffic-deferred {} | boxed ticks {}",
+            st.reversals, st.reversals_carrying, st.reversals_at_nest, st.reversals_refused, st.reversals_traffic_deferred, st.boxed_ticks
+        );
         // **The damage counters, printed even while they are zero, for the
         // reason the reproduction ones below are.** `injuries` counts every
         // survived body-cell loss and has been here in spirit since
@@ -2044,8 +2054,22 @@ fn forage_loop_scene() {
         "no ant got further than {} cells from home (measured 28 here on 2026-08-29 at `f96c08d`, 37 at `ba6fc98`; was 18 on 2026-08-23 -- the bar stays at 8, which is 3.5x headroom and this column is the volatile one)",
         st.forage_depth_max
     );
-    let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
-    assert!(phero_b > 0, "carriers laid no food trail at all");
+    // **The cumulative deposit count, not the standing plane sum, since the
+    // flip landed as the default, 2026-09-11.** Channel B decays when not
+    // reinforced, and the flip's own report (§13g) measures this exact
+    // scene's deliveries as noisy at the single-frame level even though the
+    // mechanism runs the whole time: one paired run at the tip of this
+    // branch read the standing sum **0 with the flip, 1 without it**, with
+    // every other counter -- deliveries 877, nest-visits 737, forage trips
+    // 6 -- identical between the two arms. That is `CLAUDE.md`'s tidy-
+    // looking edge case: a decaying total sampled once, landing on
+    // whichever side of zero the last reinforcement's timing happened to
+    // put it, not a claim that carriers stopped laying trail. `deposits_b`
+    // is the far-side counter that answers what this assertion is actually
+    // for -- did the mechanism fire at all over the run -- and cannot be
+    // zero unless nothing was ever deposited: it is a monotonic count, not
+    // a standing quantity, so it has no sampling-instant to get unlucky on.
+    assert!(world.pheromones.stats.deposits_b > 0, "carriers laid no food trail at all");
     assert!(
         st.deliveries > 0,
         "no ant completed the loop: {} pickups but nothing delivered home. This is report §9a's own criterion",
