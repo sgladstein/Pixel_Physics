@@ -123,9 +123,8 @@ design of record
 flower (21 against 22). Plant counts run lower under re-bloom. **Conserve
 tokens** (owner): a lane only for a build the owner asked for or a landing
 needs. `labforage`'s SUMMARY line is contested by every lane — keep `main`'s
-fields, append yours, `cargo check` before pushing. The landed list (#306,
-#307, #309, #310, #312, #313, #314, #317) and the bodies' landing (#320, the
-two-cell ant stays default, `longant` is placeable) are in the records.
+fields, append yours, `cargo check` before pushing. The landed list is in
+the record.
 
 ## Round twenty-eight, 2026-09-11 — the pollinator arrives and eats the garden
 
