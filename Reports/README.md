@@ -1239,6 +1239,44 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  — **design 2026-09-09, built 2026-09-10, and the bodies do not walk.**
+  §7 is the measurement: an articulated ant is blocked on **43.9%** of its
+  moves on dead-flat ground and **96.8%** on `rolling`, against a six-cell
+  plain chain's **2.5%** and **12.4%** on the same seed — length controlled,
+  so it is the body plan. `ascii` fails outright (*"the colony has gone
+  sessile"*, 172 moves against 9,586 blocked) and `scene=colony` founds 4
+  ants of 52. §7b is a real defect found and fixed on the way (a lateral
+  fixed in world space deadlocks a spine that has gone vertical) which moved
+  the number barely at all, and §7c is three hypotheses that moved nothing,
+  recorded so they are not retried. The design below stands; the movement
+  rule does not. Can a creature's body come out of a
+  genome instead of a species file? Yes, and the reason is that
+  `World::push_organism` already seeds **every** organism, creature included,
+  with a `FateGenome` from its species table — an ant has had a body genome
+  since the plant line landed one and it has been empty. So the heritable
+  body costs **zero new bytes of per-organism state**; `CellType` has 6 of 16
+  slots free in both places it is stored; and the whole economy re-derives on
+  **one factor over four `*_per_cell` fields**, because the birth stamp and
+  the meat value are the same product `body_energy × cells` — every
+  whole-animal quantity is invariant and only the per-bite value moves, which
+  grades the bite. The one new piece of code is a third arm in
+  `body_after_step`: the spine follows the chain rule that already ships and a
+  segment's lateral cell sits directly above it, so the body **bends** and a
+  footprint ≥3 wide is unrepresentable rather than discouraged. Reads roles
+  (head/leg/gut/armour) as a **fraction** of the live body, never a count,
+  which is what keeps size priced. Records the honest limits: it is not
+  growth, a body is an axis rather than a tree, and **palette is untouched**,
+  so `creature-appearance-design.md` §7 is half closed and not closed.
+  Carries the owner's 2026-09-03 verdict on the six-silhouette card.
+  **§13 (2026-09-10) fixes the movement finding above** — the lateral tuck,
+  a length-not-width founding walk, and a flip that turns a boxed body
+  round in a dead end, shipped as the default. **Landed 2026-09-11 per the
+  owner's ruling in §13, "go with A, but the long ant should be an option
+  that I can place": the shipped ant stays `Chain(2)`, and the seven-cell
+  articulated body moves to `longant`, a species a player places rather
+  than the one a colony starts with** — `assets/species/longant.ron`,
+  `assets/materials/longant.ron`, `assets/lab_scenarios/played_bed_longant.ron`.
 - [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
   — **measurement only, no body plan built.** Three pre-checks for
   `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
@@ -1261,8 +1299,12 @@ drift that two of these documents still reflect.**
   `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
   than being a small-size artifact. The blind gallery card of six candidate
   silhouettes (`20260902T194120383Z-3860b1`) was answered on 2026-09-03:
-  *"These are decent starts, depends on how they look in action"* — the bar
-  moved to motion.
+  *"These are decent starts, depends on how they look in action"* — a positive
+  verdict on the silhouettes and a refusal to settle the question on stills,
+  which is that report's own §3 correction arriving from the owner rather than
+  from review. The bar moved to motion, and
+  [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  is what carries it.
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks

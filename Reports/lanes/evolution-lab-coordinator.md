@@ -122,10 +122,16 @@ Pointer and what binds.*
 **Landed on `main`:** #306 (the bed with thicket and tree), #307 (the
 pollinator design; the species is `flitter`), #309 (HISTORY per colony),
 #310 (rain LIGHT, control kept), #312 (nectar), #313 (the seed rides home),
-#314 (the bloom sense, no species wired), #317 (re-bloom; shrub flowers). **Stacked on the bodies branch and waiting on the
-owner:** #303 (the tuck) → #311 (length, not width; the flip) → #315
-(founding along the surface) + #316 (the flip on by default, foraging
-restored: deliveries 297 off / 290 on).
+#314 (the bloom sense, no species wired), #317 (re-bloom; shrub flowers). **The bodies landed as one PR, #320 (2026-09-11), on the
+owner's ruling *"Go with A, but the long ant should be an option that I can
+place"*:** the tuck, the founding walk and the flip ship for every body, the
+shipped ant stays two cells, and the seven-cell body is `longant`, a species
+placed from the COLONY chip or named in a scenario
+(`played_bed_longant.ron`). The shipped colony forages better for it (bed,
+60,000 frames: deliveries 9 → 20 on fewer moves). #303/#311/#315/#316 are
+superseded. Left for the dig-and-bite lane: the long body's founding and
+its whole-body bite; the moisture-gradient scene's pickups fell 416 → 78
+and were not chased.
 
 **What binds.** **Ants are not the pollinators** — nothing wires the ant to
 the bloom sense, and the flitter (P2) comes before the scent plane (P1b),

@@ -2447,6 +2447,11 @@ const EMBEDDED: &[&str] = &[
     // (`plant::seed_survives_bite`), addressed only by `id_of("pip")` --
     // never by number.
     include_str!("../../assets/materials/pip.ron"),
+    // **Appended at the end, per this list's own rule stated throughout.**
+    // `longant`'s own flesh -- see `assets/species/longant.ron`'s header for
+    // why this is a separate placeable species rather than the shipped
+    // ant's own body.
+    include_str!("../../assets/materials/longant.ron"),
 ];
 
 /// Where the loader looks for material files, relative to the working directory.
