@@ -198,6 +198,30 @@ pub enum CellType {
     /// the seed — and it needs no dispersal code at all, because a powder
     /// already does every part of it.
     Fruit = 9,
+    /// **A creature's locomotion cell** — a segment's lateral half wired to
+    /// `creature::organism_tick_interval`, or a spine cell authored the same
+    /// way. More `Leg` cells among an animal's *live* ones means a shorter
+    /// decision interval, i.e. a faster animal — see `creature::body_mix`
+    /// and `composition_mix` for the fraction-of-live-cells arithmetic and
+    /// why it is a fraction and never a raw count.
+    ///
+    /// **10, not a reuse of `Segment`**, for the reason `Flower` above
+    /// already states about this same 4-bit encoding: positional and
+    /// never-renumbered, with room to 15.
+    Leg = 10,
+    /// **A creature's digestive cell** — more of them, as a fraction of the
+    /// live body, means a larger crop (`creature::organism_crop_capacity`).
+    Gut = 11,
+    /// **A creature's plating** — more of them, as a fraction of the live
+    /// body, means a tougher hide at the point something bites it
+    /// (`creature::armour_at`).
+    ///
+    /// **Unused by both shipped bodies on purpose.** Neither `ant.ron` nor
+    /// `hopper.ron` authors one: the wiring has to exist before anything can
+    /// evolve into it, and a species that never grows the cell type simply
+    /// reads its own baseline forever, exactly as `TRAIT_ARMOUR` did before
+    /// any lineage moved it. See `BASELINE_ARMOUR_FRAC`.
+    Armour = 12,
 }
 
 impl CellType {
@@ -1538,10 +1562,25 @@ impl FateGenome {
             1 => f.child.expect("slot 1 is offered only when child is present"),
             _ => f.lateral.expect("slot 2 is offered only when lateral is present"),
         };
+        // **Draw from the rule's own owner's vocabulary, added 2026-09-09
+        // for creature bodies.** `owner()` decodes the same bits `pack()`
+        // wrote and no operator here ever rewrites them (retarget moves
+        // `becomes`/`child`/`lateral`, never the owner slot), so a rule that
+        // reached this point already carries a real owner; the `unwrap_or`
+        // is defence against a corrupted bit pattern; no authored or drawn
+        // rule takes that branch today. For a plant-owned rule this is
+        // `PLANT_CELL_TYPES` at the same length as before the branch
+        // existed, so the draw below is byte-identical to what shipped
+        // before creature bodies could mutate at all.
+        let pool: &[CellType] = if CREATURE_CELL_TYPES.contains(&self.rules[i].owner().unwrap_or(CellType::Seed)) {
+            &CREATURE_CELL_TYPES
+        } else {
+            &PLANT_CELL_TYPES
+        };
         // Bounded rather than `while`: a degenerate draw set would spin here,
         // and declining to move is a silent no-op rather than a hang.
         for _ in 0..8 {
-            let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
+            let pick = pool[rng.below(pool.len() as u32) as usize];
             if pick != current {
                 self.rules[i] = self.rules[i].retarget(slot, pick);
                 return true;
@@ -1594,7 +1633,25 @@ impl FateGenome {
         if self.len as usize >= MAX_FATES {
             return false;
         }
-        let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
+        // **Which vocabulary this genome draws a fresh rule's owner from,
+        // added 2026-09-09 for creature bodies.** There is no existing rule
+        // to read an owner off yet — insert is what creates one — so this
+        // reads rule 0's owner as a proxy for which kingdom the *genome*
+        // belongs to. Safe because a `FateGenome` is founded from exactly
+        // one species' table (`from_table`) and a species is either a plant
+        // or a creature, never both: nothing here ever mixes the two
+        // vocabularies in one genome. `mutate` has already refused an empty
+        // genome before `apply` can reach here, so index 0 always exists.
+        // For a plant genome this resolves to `PLANT_CELL_TYPES` at the same
+        // length as before this branch existed, so the draws below are
+        // byte-identical to what shipped before creature bodies could
+        // mutate at all.
+        let pool: &[CellType] = if CREATURE_CELL_TYPES.contains(&self.rules[0].owner().unwrap_or(CellType::Seed)) {
+            &CREATURE_CELL_TYPES
+        } else {
+            &PLANT_CELL_TYPES
+        };
+        let pick = |r: &mut super::rng::Rng| pool[r.below(pool.len() as u32) as usize];
         let owner = pick(rng);
         let f = Fate {
             when: ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize],
@@ -1626,6 +1683,75 @@ impl FateGenome {
         self.rules[self.len as usize] = PackedFate(0);
         true
     }
+}
+
+/// **Unfold a `FateGenome` into an articulated body** — one axis, walked
+/// deterministically with no RNG, the same production rule
+/// `plant::organism_tick`'s `Grow` behaviour reads for a stem, applied once
+/// at placement time instead of once a tick.
+///
+/// **The whole mechanism a plant already has, reused rather than
+/// reinvented**, per this build's own hard constraint: `BodyPlan::Segmented`
+/// is the one genuinely new *movement* rule
+/// (`creature::body_after_step`), but a body's *shape* is heritable for
+/// free the moment something walks a `FateGenome` — this is that walk.
+///
+/// Starts at `CellType::Head` with zero metamers, exactly as a plant's own
+/// axis starts at its `Seed`/`GrowingTip`. At each step:
+///
+/// - no rule owned by the current type (at this `metamers`) → stop;
+/// - a rule → push `Segment { cell: rule.becomes, lateral: rule.lateral }`
+///   for *this* position, then move on with `current = rule.child` and
+///   `metamers += 1`;
+/// - `rule.child == None` → the segment above is pushed and the axis ends
+///   here, same as a plant's determinate rule ending a shoot.
+///
+/// `after_metamers` is what gives an axial body its regions — a rule listed
+/// above the ordinary one for the same owner, with `after_metamers:
+/// Some(k)`, fires from segment `k` onward and lets one owner type produce
+/// different segments at different points in the walk (`ant.ron`'s own
+/// `fates` comment walks a worked example: `Segment` produces two
+/// `Leg`-bearing thorax segments and then a bare tail, three shapes off one
+/// owner). First-match-wins lookup already does this — `grow_body` adds
+/// nothing to make it work, which is the point.
+///
+/// `cap` bounds the walk regardless of what the rules say, so a mutated
+/// genome that never returns `child: None` (an `insert_one` draw can
+/// produce exactly that) cannot grow an unbounded body; every caller today
+/// passes `creature::SEGMENTED_BODY_CAP`. **A body always has a head**: if
+/// the walk produces nothing at all — an empty genome, or a `cap` of 0 —
+/// this returns one plain `Head` segment rather than an empty `Vec`, which
+/// is the floor that keeps a mutated genome safe to place.
+///
+/// **`laterals` is the ablation `Reports/creature-articulated-body-
+/// 2026-09-09.md` §7d asks for, threaded in rather than read from an env
+/// var here** — this function stays pure so a test can drive both arms
+/// directly, without fighting the once-per-process cache a `OnceLock`
+/// would need. `false` walks exactly the same rules at exactly the same
+/// `metamers` and stops at exactly the same `cap`; the only thing it
+/// changes is dropping `rule.lateral` on the floor, so the spine a caller
+/// gets back is byte-identical either way and only the lateral cells
+/// differ. The env var itself (`PIXEL_PHYSICS_BODY_LATERALS`) is read once
+/// at the one production call site, `creature::place_creature`.
+pub fn grow_body(genome: FateGenome, cap: usize, laterals: bool) -> Vec<Segment> {
+    let mut out = Vec::new();
+    let mut current = CellType::Head;
+    let mut metamers: u8 = 0;
+    while out.len() < cap {
+        let Some(rule) = genome.fate(current, FateWhen::Grew, metamers) else {
+            break;
+        };
+        out.push(Segment { cell: rule.becomes, lateral: if laterals { rule.lateral } else { None } });
+        let Some(child) = rule.child else {
+            break;
+        };
+        current = child;
+        metamers = metamers.saturating_add(1);
+    }
+    if out.is_empty() {
+        out.push(Segment { cell: CellType::Head, lateral: None });
+    }
+    out
 }
 
 /// Which of the four operators [`FateGenome::mutate`] chose.
@@ -1692,6 +1818,24 @@ pub const PLANT_CELL_TYPES: [CellType; 8] = [
     CellType::Flower,
     CellType::Fruit,
 ];
+
+/// **The cell types a creature's own fate mutation may point at** —
+/// `PLANT_CELL_TYPES`' mirror for the vocabulary `grow_body` unfolds, added
+/// alongside `Leg`/`Gut`/`Armour` so a creature's growth program is
+/// evolvable by the same two operators a plant's already is
+/// (`FateGenome::retarget_one`/`insert_one`).
+///
+/// **`Head` and `Segment` are included here and excluded from
+/// `PLANT_CELL_TYPES`'s own doc comment for the same reason stated there**:
+/// each list is the vocabulary its own kingdom actually uses, and a plant
+/// mutation reaching a creature type (or vice versa) would measure the
+/// operator's carelessness rather than the substrate's tolerance. The two
+/// lists are disjoint by construction — a `FateGenome` is founded from one
+/// species' table and a species is either a plant or a creature, never
+/// both, so nothing here ever has to reconcile a genome carrying rules from
+/// both vocabularies at once.
+pub const CREATURE_CELL_TYPES: [CellType; 5] =
+    [CellType::Head, CellType::Segment, CellType::Leg, CellType::Gut, CellType::Armour];
 
 
 // ---------------------------------------------------------------------
@@ -2877,6 +3021,41 @@ pub enum BodyPlan {
     /// form is this mirrored in x. `(0, 0)` is the head and is implicit —
     /// list only the rest. y grows downward, matching the grid.
     Rigid(Vec<(i8, i8)>),
+    /// **A chain of rigid segments, grown rather than authored as a fixed
+    /// offset list.** Segment 0 is the head. Each segment is one spine cell
+    /// plus an optional lateral cell one step above it, so the body is
+    /// never more than two cells wide — the measured mobility-safe bucket
+    /// this module's own doc names above.
+    ///
+    /// **A third movement rule, not a variant on `Chain` or `Rigid`.** The
+    /// spine follows exactly the way a `Chain` does — new spine is `[head]
+    /// ++ old_spine[..m-1]`, so it flows over rough ground the same way —
+    /// but it is not one cell wide, and a lateral is not a `Rigid` offset
+    /// because it has to move *with* its own spine cell rather than by a
+    /// shared translation. `creature::body_after_step`'s own doc has the
+    /// full account; `organism::grow_body` is what produces the `Vec`
+    /// below from a `FateGenome`, which is what makes a body heritable
+    /// rather than only authored.
+    Segmented(Vec<Segment>),
+}
+
+/// One segment of a `BodyPlan::Segmented` body — a spine cell, and
+/// optionally a second cell one step above it (`creature::body_after_step`'s
+/// "directly above, world space, no facing dependence" rule).
+///
+/// **`Copy`, deliberately.** `grow_body` builds these one at a time off a
+/// `Fate`, which is itself `Copy`, and nothing about a segment's *shape*
+/// needs to own anything — the two fields are `CellType` and
+/// `Option<CellType>`, both plain tags.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct Segment {
+    pub cell: CellType,
+    /// `#[serde(default)]` for the same authoring reason `Fate`'s own
+    /// `child`/`lateral` fields have it: most segments in a hand-authored
+    /// `body:` list have no lateral, and spelling `lateral: None` on every
+    /// one of them would be noise on the page.
+    #[serde(default)]
+    pub lateral: Option<CellType>,
 }
 
 impl BodyPlan {
@@ -2897,10 +3076,45 @@ impl BodyPlan {
                     out.push((if facing_west { -(dx as i32) } else { dx as i32 }, dy as i32));
                 }
             }
+            BodyPlan::Segmented(segments) => {
+                // Walk order is spine-then-lateral, per segment
+                // (`[spine0, lat0?, spine1, lat1?, ...]` — `state.chain`'s
+                // own contract, `creature::place_creature`'s doc has why).
+                // `out[0]` is already segment 0's spine cell, seeded above
+                // like every other plan's head, so this appends its lateral
+                // (if any) before moving on to segment 1's spine. Not
+                // folded into one loop over every segment including 0: that
+                // would either duplicate the head push above or special-case
+                // index 0 out of the loop, and this reuses it instead.
+                //
+                // The spine offset is the exact `Chain` formula — a
+                // straight line trailing the head along the facing — because
+                // this is the body's shape at the moment it is *placed*,
+                // before it has taken a step to bend around. The lateral
+                // offset is world-space and never mirrored: the spec this
+                // was built from is explicit that "directly above" does not
+                // depend on facing, unlike every other offset in this
+                // function.
+                if segments.first().is_some_and(|s| s.lateral.is_some()) {
+                    out.push((0, -1));
+                }
+                for (i, seg) in segments.iter().enumerate().skip(1) {
+                    let dx = i as i32;
+                    let spine = (if facing_west { dx } else { -dx }, 0);
+                    out.push(spine);
+                    if seg.lateral.is_some() {
+                        out.push((spine.0, spine.1 - 1));
+                    }
+                }
+            }
         }
         out
     }
 
+    /// **Bends by construction, so `Segmented` is not rigid.** Every segment
+    /// walks the path the one ahead of it left, exactly as a `Chain` cell
+    /// does — see `creature::body_after_step`. Falls out of `matches!`
+    /// without a `Segmented` arm rather than needing one.
     pub fn is_rigid(&self) -> bool {
         matches!(self, BodyPlan::Rigid(_))
     }
@@ -2910,11 +3124,58 @@ impl BodyPlan {
         match self {
             BodyPlan::Chain(n) => *n as usize,
             BodyPlan::Rigid(cells) => cells.len() + 1,
+            BodyPlan::Segmented(segments) => segments.iter().map(|s| 1 + s.lateral.is_some() as usize).sum(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// **The `CellType` at each position `offsets` returns, in the same
+    /// order.** `Chain` and `Rigid` have only ever distinguished the head
+    /// from everything behind it — `CellType::Segment` is the one filler
+    /// type both have needed — so this reproduces that split for them
+    /// rather than reading anything new. A `Segmented` body carries a real
+    /// type per cell instead, walked out spine-then-lateral exactly the way
+    /// `offsets` walks its own positions, so the two vectors always line up
+    /// index for index; `creature::place_creature` zips them to stamp each
+    /// cell once, at the hatch.
+    pub fn cell_types(&self) -> Vec<CellType> {
+        match self {
+            BodyPlan::Chain(n) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, (*n as usize).saturating_sub(1))).collect(),
+            BodyPlan::Rigid(cells) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, cells.len())).collect(),
+            BodyPlan::Segmented(segments) => {
+                let mut out = Vec::with_capacity(self.len());
+                for s in segments {
+                    out.push(s.cell);
+                    if let Some(lateral) = s.lateral {
+                        out.push(lateral);
+                    }
+                }
+                out
+            }
+        }
+    }
+
+    /// **How many physical cells each spine segment contributes, in walk
+    /// order** — 1 for a spine cell alone, 2 for a spine plus its lateral.
+    /// The authored counterpart of `OrganismState::segment_groups`, which
+    /// is the per-*individual* copy an injury can shrink; this is what
+    /// `creature::place_creature` seeds it from at the hatch, before
+    /// anything has had a chance to bite a cell off.
+    ///
+    /// **Empty for `Chain` and `Rigid`.** Every one of their cells is its
+    /// own segment of size 1 — `vec![1; self.len()]` — and
+    /// `OrganismState::segment_groups`'s own doc is why that is spelled as
+    /// "empty" rather than materialised: a `Chain` or `Rigid` body never
+    /// reads this field at all, so there is nothing for the distinction to
+    /// buy.
+    pub fn segment_groups(&self) -> Vec<u8> {
+        match self {
+            BodyPlan::Segmented(segments) => segments.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect(),
+            BodyPlan::Chain(_) | BodyPlan::Rigid(_) => Vec::new(),
+        }
     }
 
     /// **This same body, at the same physical size, in a world built at `k`
@@ -2982,6 +3243,18 @@ impl BodyPlan {
                 }
                 BodyPlan::Rigid(out)
             }
+            // **Not implemented, deliberately.** Supersampling a
+            // `Segmented` body properly would mean scaling each segment
+            // into its own `k`x`k` block the way `Rigid` does above, which
+            // this variant does not need yet — nothing has built a
+            // resolution-scaled world with an articulated creature in it,
+            // and `World::cell_scale` is a whole separate milestone (M10).
+            // Returning the body unscaled is honest about that rather than
+            // pretending a cheap answer is a correct one: at `k=1` (every
+            // world today) `k <= 1` above already returns before this match
+            // is reached, so this arm is unreachable in practice and is
+            // here only so the match stays exhaustive.
+            BodyPlan::Segmented(_) => self.clone(),
         }
     }
 }
@@ -5131,6 +5404,42 @@ pub struct OrganismState {
     /// developmental block; `BrainInput::Made` feeds it back to the brain.
     pub made: f32,
     pub chain: Vec<(i32, i32)>,
+    /// **How `chain` groups into spine segments, for a `BodyPlan::Segmented`
+    /// body only.** Each entry is 1 (a spine cell with no lateral *right
+    /// now*) or 2 (a spine cell followed by its lateral) and the entries
+    /// sum to `chain.len()`, in the same walk order `chain` itself is in
+    /// (`[spine0, lat0?, spine1, lat1?, ...]`). `creature::place_creature`
+    /// seeds it at placement, and **it is rewritten with `chain` on every
+    /// step, not just at birth** — `creature::segmented_body_after_step`
+    /// returns the landing and this grouping together as one value, and
+    /// the caller that commits the move writes both back together. That is
+    /// the lateral tuck rule (`Reports/creature-articulated-body-2026-09-09
+    /// .md` §7f): a widened segment whose lateral has nowhere placeable to
+    /// go this step is not placed, and this field's own entry for it drops
+    /// to 1 until a side clears and it re-emerges. **This is the *live*
+    /// width, describing `chain` as it stands this instant — never whether
+    /// a segment is *allowed* a lateral at all**, which is a different,
+    /// stabler question `creature::segment_authored` answers by re-growing
+    /// the individual's own body from its `FateGenome`; reading this field
+    /// for that question would make a tucked segment permanently tucked,
+    /// because the very code path meant to test whether room has opened up
+    /// would see "1" and skip the test.
+    ///
+    /// Severing (`creature::reconcile_chain`) truncates it alongside
+    /// `chain` on genuine, permanent loss — a segment entirely bitten off
+    /// drops from both lists together — which is a different event from a
+    /// tuck: severing is a separate call, never fused with a step, so the
+    /// two never race, and a bite can only ever remove a cell that is
+    /// currently present (a tucked lateral has no cell there to hit).
+    ///
+    /// **Empty for a `Chain` or `Rigid` body** — every one of their cells is
+    /// its own segment of size 1, which is `chain.len()` copies of `1u8`,
+    /// and materialising that for every plant and worm in the world would
+    /// be a `Vec` nobody reads. `creature::relocate_chain` treats an empty
+    /// `segment_groups` on both the old and new side as exactly that: the
+    /// flat, positional correspondence it always used, unaffected by any of
+    /// the above.
+    pub segment_groups: Vec<u8>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.
     ///
@@ -6596,6 +6905,13 @@ const EMBEDDED: &[&str] = &[
     // that added this line (`material.rs`'s own `include_str!` list is a
     // different file this session does not own).
     include_str!("../../assets/species/hopper.ron"),
+    // **The articulated body, placeable rather than shipped, 2026-09-11.**
+    // `Reports/creature-articulated-body-2026-09-09.md` §13 built this
+    // seven-cell `Segmented` body as the ant's own; the owner's ruling that
+    // landed it kept the shipped `ant` at `Chain(2)` and put this body on
+    // its own species instead. Appended at the end, same convention as
+    // everything above it. See `assets/species/longant.ron`'s own header.
+    include_str!("../../assets/species/longant.ron"),
     // **The flitter -- Brief P2, the first animal whose living is flowers.**
     // Cut from `hopper.ron` (see that file's own header, and this file's),
     // appended at the end, same convention as everything above it. Its
@@ -6887,6 +7203,21 @@ impl SpeciesRegistry {
         self.species[id.0 as usize].creature = Some(def);
     }
 
+    /// Same caveat as `set_genome` and `set_creature`, and the reason this
+    /// one exists is the same shape again: a test that hands a species a
+    /// synthetic `CreatureDef::body` (`creature::priced_ant`'s `Chain(n)`,
+    /// built to isolate the per-cell cost formula from any real species'
+    /// shape) is silently ignored the moment that species also carries a
+    /// `fates` table, because `place_creature` grows the body from
+    /// `body_fates` whenever it is non-empty and only falls back to
+    /// `def.body` when it is not (`grow_body`'s own call site). `ant` and
+    /// `hopper` both author one now, so a caller overriding just `body` gets
+    /// the real shipped shape back instead of the one it asked for. Clearing
+    /// the table here is how a test gets `def.body` honoured again.
+    pub fn set_fates(&mut self, id: SpeciesId, fates: Vec<(CellType, Vec<Fate>)>) {
+        self.species[id.0 as usize].fates = fates;
+    }
+
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {
         self.by_name.get(name).copied()
     }
@@ -7127,6 +7458,9 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         7 => Some(CellType::Segment),
         8 => Some(CellType::Flower),
         9 => Some(CellType::Fruit),
+        10 => Some(CellType::Leg),
+        11 => Some(CellType::Gut),
+        12 => Some(CellType::Armour),
         _ => None,
     }
 }
@@ -8538,24 +8872,124 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-9 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
-        // Segment/Flower/Fruit, so the first unassigned pattern is 10.
-        // Deliberately the *next* one rather than a far-away value: what
-        // this guards is that adding a variant does not silently start
-        // aliasing a stale bit pattern onto it, and the pattern that has
-        // just become valid is the one that proves the boundary moved with
-        // the enum.
+        // 0-12 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment/Flower/Fruit/Leg/Gut/Armour, so the first unassigned
+        // pattern is 13. Deliberately the *next* one rather than a
+        // far-away value: what this guards is that adding a variant does
+        // not silently start aliasing a stale bit pattern onto it, and the
+        // pattern that has just become valid is the one that proves the
+        // boundary moved with the enum.
         //
-        // **It has now done its job once.** The organ package added `Flower`
-        // and `Fruit` at 8 and 9, and this test went red on the `8 => None`
-        // line -- which is exactly the boundary check working, not a
+        // **It has now done its job twice.** The organ package added
+        // `Flower` and `Fruit` at 8 and 9 and this test went red on the
+        // `8 => None` line; the articulated-body package added `Leg`,
+        // `Gut` and `Armour` at 10-12 and it went red on `10 => None` the
+        // same way. Both are exactly the boundary check working, not a
         // breakage. Updating the numbers is the intended maintenance; what
         // would be wrong is widening the assertion so it stops noticing.
         assert_eq!(cell_type(7), Some(CellType::Segment));
         assert_eq!(cell_type(8), Some(CellType::Flower));
         assert_eq!(cell_type(9), Some(CellType::Fruit));
-        assert_eq!(cell_type(10), None);
+        assert_eq!(cell_type(10), Some(CellType::Leg));
+        assert_eq!(cell_type(11), Some(CellType::Gut));
+        assert_eq!(cell_type(12), Some(CellType::Armour));
+        assert_eq!(cell_type(13), None);
         assert_eq!(cell_type(15), None);
+    }
+
+    /// **A terminal rule must be ordered above its general one, or the axis
+    /// never ends — and the failure is silent.** Lookup is first-match-wins
+    /// (`FateGenome::fate`'s own doc), so an unconditional rule listed
+    /// *before* a higher-`after_metamers` one for the same owner shadows it
+    /// completely: the unconditional rule matches every time, the
+    /// conditional one is never reached, and `grow_body` runs to `cap` on
+    /// every animal. Nothing about that reads as broken from the outside —
+    /// bodies are produced, they are the right shape at the cap, and no
+    /// counter goes red. `ant.ron`'s own `fates` table depends on getting
+    /// this ordering right for exactly this reason (its `Segment` owner
+    /// carries three rules, ordered highest threshold first).
+    ///
+    /// **Both orderings are checked in one test, which is this guard's own
+    /// positive control.** A guard that only ever asserts the correct
+    /// ordering produces a body under the cap could pass by coincidence —
+    /// swapping the two rules and confirming the assertion moves is the
+    /// "put the fault back and watch it go red" `CLAUDE.md` asks for,
+    /// folded into the test itself rather than left for someone else to
+    /// remember to do by hand.
+    #[test]
+    fn a_terminal_rule_ordered_below_its_general_one_never_ends_the_axis() {
+        const CAP: usize = 8;
+        let head_rule = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Never stops on its own: every step it fires, it asks for another.
+        let general = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Ends the axis from metamer 2 onward -- reached at step 3 of the
+        // walk (Head, then two `Segment` steps) if it is ever actually
+        // checked.
+        let terminal = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+
+        let correctly_ordered =
+            FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![terminal, general])]);
+        let misordered = FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![general, terminal])]);
+
+        let ordered_body = grow_body(correctly_ordered, CAP, true);
+        let misordered_body = grow_body(misordered, CAP, true);
+
+        assert!(
+            ordered_body.len() < CAP,
+            "the terminal rule listed above the general one must end the axis well short of the cap, got {} segments",
+            ordered_body.len()
+        );
+        assert_eq!(
+            misordered_body.len(),
+            CAP,
+            "the fault put back: swapping the two rules must shadow the terminal one and run the axis to the cap every time"
+        );
+    }
+
+    /// **The ablation `Reports/creature-articulated-body-2026-09-09.md`
+    /// §7d asks for, at the one function that actually produces a
+    /// `Segmented` body's laterals.** `laterals: false` must be a pure
+    /// subtraction: the same owner walked at the same `metamers`, the same
+    /// `child` pointers followed, the same `cap` -- so the spine (`cell`
+    /// per segment, and segment count) is byte-identical between the two
+    /// arms and only `lateral` moves. If this test ever needs to touch the
+    /// spine to make it pass, the switch has stopped being the isolated
+    /// ablation the report calls for.
+    #[test]
+    fn body_laterals_switch_strips_only_the_lateral_field() {
+        const CAP: usize = 8;
+        let head = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Two widened segments (a lateral each) then a bare tail -- small,
+        // but it exercises the same shape `ant.ron`'s own fates table does:
+        // a lateral on an interior segment, none on the terminal one.
+        let widened = Fate {
+            when: FateWhen::Grew,
+            becomes: CellType::Segment,
+            child: Some(CellType::Segment),
+            lateral: Some(CellType::Leg),
+            after_metamers: None,
+        };
+        let tail = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+        let genome = FateGenome::from_table(&[(CellType::Head, vec![head]), (CellType::Segment, vec![tail, widened])]);
+
+        let with_laterals = grow_body(genome, CAP, true);
+        let without_laterals = grow_body(genome, CAP, false);
+
+        assert_eq!(
+            with_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            without_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            "the spine's cell-type sequence must be unmoved by the switch"
+        );
+        assert_eq!(with_laterals.len(), without_laterals.len(), "the switch must not change spine length");
+        assert_eq!(
+            with_laterals.iter().map(|s| s.lateral.is_some()).collect::<Vec<_>>(),
+            vec![false, true, false],
+            "laterals=true must keep the authored rule.lateral: head none, the widened segment Some(Leg), the tail none"
+        );
+        assert!(
+            without_laterals.iter().all(|s| s.lateral.is_none()),
+            "laterals=false must strip every lateral, including the ones the fates table authored: {without_laterals:?}"
+        );
     }
 
     // --- the generational allocator, both ends ------------------------------

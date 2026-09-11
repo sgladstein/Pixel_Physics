@@ -523,6 +523,42 @@ fn build_scene(args: &Args) -> World {
     apply_world_settings(&mut w, args);
     let floor_y = HEIGHT - FLOOR_THICKNESS;
     match args.scene.as_str() {
+        // **One long ant in a one-wide dead-end tunnel** -- the scene §13
+        // was built to answer, reduced to a single animal so the question
+        // is about the body and not about a crowd.
+        //
+        // Deliberately one ant, and deliberately a *dead end*: the whole
+        // claim is that a body longer than two cells walks in and can
+        // never come out, because the only own-cell a head may legally
+        // land on is the tail and the tail is five cells away. Watch the
+        // animal, not the counter: with `PIXEL_PHYSICS_REVERSE=flip` it
+        // turns round and walks back out, and without it, it does not.
+        //
+        // A grid of stills cannot answer this -- a stuck ant and a walking
+        // one are the same photograph -- so this scene exists to be run
+        // with `gif=1`.
+        "anttunnel" => {
+            let stone = pixel_physics::sim::material::STONE;
+            for y in 0..HEIGHT {
+                for x in 0..WIDTH {
+                    w.set(x, y, Cell::new(stone, 0).with_attached(true));
+                }
+            }
+            let carve = |w: &mut World, x0: i32, x1: i32, y0: i32, y1: i32| {
+                for y in y0..=y1 {
+                    for x in x0..=x1 {
+                        w.set(x, y, Cell::EMPTY);
+                    }
+                }
+            };
+            // A room, and a one-wide tunnel out of it closed at the far end.
+            carve(&mut w, 20, 60, 140, 175);
+            carve(&mut w, 60, 190, 158, 158);
+            // The ant starts well inside the tunnel, facing the dead end.
+            if let Some(site) = pixel_physics::sim::creature::plant_creature_seed(&mut w, 150, 158, "ant") {
+                w.schedule_active_site(site);
+            }
+        }
         // A large body released against the left wall, spreading right across
         // seven vertical chunk seams. The terracing/banding reproduction.
         "pour" => {
@@ -1892,7 +1928,7 @@ fn build_scene(args: &Args) -> World {
             let params = presets.get("wetland").expect("the wetland preset");
             pixel_physics::worldgen::generate(&mut w, pixel_physics::worldgen::Spec::Generated { params, seed: args.seed });
 
-            let species = w.species.id_of("ant").expect("ant species");
+            let species = w.species.id_of(&args.colony_species).unwrap_or_else(|| panic!("colony_species={:?}: unknown species", args.colony_species));
             let genome = match args.genome.as_str() {
                 "authored" => w.species.get(species).genome.clone(),
                 "zero" => vec![0.0; pixel_physics::sim::brain::GENOME_LEN],
@@ -2000,16 +2036,17 @@ fn build_scene(args: &Args) -> World {
             // than `placed` on every seed. Arithmetically correct, and an
             // answer to a different question.
             let viable = would_place(&w, cx);
-            let placed = w.found_colony(cx, cy - 2);
+            let placed = w.found_colony_of(cx, cy - 2, &args.colony_species, pixel_physics::sim::creature::COLONY_ANTS);
             assert!(placed > 0, "the colony scene placed no ants -- the scene is not showing what it claims to");
             // **Three numbers, because the two gaps have different causes.**
             // 52 -> viable is the scene losing sites to water or a canopy;
-            // viable -> placed is `found_colony` disagreeing with the scene
-            // about what counts as ground, which is the predicate mismatch
-            // `open-bugs-handoff.md` §R2 flags. One number hides which.
+            // viable -> placed is `found_colony_of` disagreeing with the
+            // scene about what counts as ground, which is the predicate
+            // mismatch `open-bugs-handoff.md` §R2 flags. One number hides
+            // which.
             println!(
-                "scene=colony genome={} seed={} : {placed} ants founded of {viable} viable sites of 52 asked, at x={cx}, surface y={cy}",
-                args.genome, args.seed
+                "scene=colony colony_species={} genome={} seed={} : {placed} ants founded of {viable} viable sites of 52 asked, at x={cx}, surface y={cy}",
+                args.colony_species, args.genome, args.seed
             );
             println!("  suggested crop: crop={},{},240,110", cx - 120, cy - 70);
         }
@@ -3018,6 +3055,15 @@ struct Args {
     /// `genome=` for `scene=colony`: `authored`, `zero`, or `rNNN` naming a
     /// genome from `creature_space`'s sweep by the label it printed.
     genome: String,
+    /// `colony_species=` for `scene=colony` -- which species founds, default
+    /// `ant` (the shipped articulated body). `Reports/creature-articulated-
+    /// body-2026-09-09.md` §13h's paired reading is this scene run twice,
+    /// once at the default and once at `colony_species=ancestor` -- the
+    /// shipped two-cell `Chain(2)` body (`assets/species/ancestor.ron`),
+    /// which never reaches `founding_spine_walk` at all and so is the
+    /// control for "how many sites exist for *any* body" on this same
+    /// terrain, independent of this build's own contour lay.
+    colony_species: String,
     /// `scene=hop`'s impulse weight. **A knob rather than a constant so the
     /// scene can run its own control**: at 0 nothing hops, and four bodies
     /// milling on four shelves is what the engine did before this verb
@@ -3605,6 +3651,7 @@ fn parse() -> Args {
         cols: 3,
         zoom: 1,
         genome: String::from("authored"),
+        colony_species: String::from("ant"),
         blind: false,
         soak: 1500,
         hedge_gut: 1.0,
@@ -3738,6 +3785,7 @@ fn parse() -> Args {
             "cols" => a.cols = v.parse().expect("cols"),
             "zoom" => a.zoom = v.parse().expect("zoom"),
             "genome" => a.genome = v.to_string(),
+            "colony_species" => a.colony_species = v.to_string(),
             "blind" => a.blind = v.parse::<i32>().expect("blind=0|1") != 0,
             "soak" => a.soak = v.parse::<usize>().expect("soak=<frames>"),
             "gut" => a.hedge_gut = v.parse::<f32>().expect("gut=<-1.0..1.0>"),
@@ -6250,6 +6298,12 @@ fn report_colony(world: &World, render: bool) {
         st.deliveries,
         st.deaths
     );
+    // **Turning round -- the "did it fire at all" counter beside the
+    // picture** (`CLAUDE.md`, and the review skill's own house rule). An
+    // animal that walks out of a dead end and one that was never in it are
+    // the same footage; only this says which. Zero unless
+    // `PIXEL_PHYSICS_REVERSE` names a rule.
+    println!("  ...and turned round: {} times ({} refused)", st.reversals, st.reversals_refused);
     // **Digging, beside the moving.** A colony that ranges further also
     // excavates more, and excavation undermines roots -- so a tree count
     // that moves with a mobility change cannot be read as damage from the

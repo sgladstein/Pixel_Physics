@@ -48,20 +48,24 @@ engine, listed in `Reports/instruments.md`) and one existing species
    as extent grown as a compact block — the mobility recommendation and the
    *findability* recommendation are not in tension with each other, provided
    the economics are fixed first (below). Whether either is in tension with
-   the *legibility* question point 3 asks is still open — see the
-   recommendation below, corrected after review.
-3. **Can the owner tell them apart?** Posted, not yet answered. Six body
-   shapes (`ant`, `beetle`, `uniform3`, `uniform5`, `forward_taper`,
-   `backward_taper`) as a blind gallery card, `20260902T194120383Z-3860b1`,
-   board `creatures`. This is the check no metric here can substitute for:
-   whether any of these reads as an animal rather than a smudge.
+   the *legibility* question point 3 asks was open when this was written and
+   is now answered with a condition — see point 3 and the recommendation
+   below, corrected after review.
+3. **Can the owner tell them apart?** **Answered 2026-09-03:** *"decent
+   starts, depends on how they look in action"*. Six body shapes (`ant`,
+   `beetle`, `uniform3`, `uniform5`, `forward_taper`, `backward_taper`) as a
+   blind gallery card, `20260902T194120383Z-3860b1`, board `creatures`. The
+   verdict is positive on the silhouettes and **declines to settle the
+   question on stills** -- which is §3's own correction, arriving from the
+   owner rather than from review. So the answer to "does anyone want these
+   shapes" is *yes, provisionally*, and the bar moved to motion.
 
-**Recommendation:** build the narrow-part case if the goal is a body longer
-than a chain that still reads as an animal once §3 answers whether these
-silhouettes clear that bar — but do not expect it to produce the owner's
-stated insect silhouette (small head, big abdomen), because that specific
-shape is measured to cost the same mobility as a plain rigid block, with or
-without articulation.
+**Recommendation, and §3's verdict has now met its condition:** build the
+narrow-part case — the silhouettes cleared the bar and the owner's condition
+was that they be judged in action — but do not expect it to produce the
+owner's stated insect silhouette (small head, big abdomen), because that
+specific shape is measured to cost the same mobility as a plain rigid block,
+with or without articulation.
 
 **§2's "extent, not architecture" is a claim about findability, and only
 that.** *Findability* is settled: on §2 and §2.1's evidence, being seen at
@@ -69,13 +73,14 @@ all is answered by being bigger, not by being a different shape, whether
 compact or long and narrow. *Whether a body reads as an animal rather than
 a shape merely large enough to notice* is a different question — the
 owner's actual complaint — and is exactly what §2 says no instrument here
-measures and what §3 was built to ask. §3's card is still open, and per its
-own caveat (added below) a "no difference" verdict on it would not settle
-this either, because the card cannot show the one thing articulation adds.
-**So "make it bigger, not differently shaped" is not yet the answer to the
+measures and what §3 was built to ask. §3's card came back **positive with a
+condition** — *"decent starts, depends on how they look in action"* — which
+is the same caveat this report added on review, arriving from the owner: a
+still cannot show the one thing articulation adds.
+**So "make it bigger, not differently shaped" is not the answer to the
 owner's question — it is the answer to a narrower question the owner's
-question contains.** Read §2's findability conclusion and §3's open
-legibility question as separate claims, not one following from the other.
+question contains.** Read §2's findability conclusion and §3's legibility
+verdict as separate claims, not one following from the other.
 
 One prerequisite precedes acting on either:
 `creature-genome-flexibility-2026-09-02.md` §11e/§12d already found that
@@ -388,10 +393,23 @@ Six shapes, one seed (7), at `ant_block`'s economics throughout:
 Posted as a blind gallery card (labels hidden until the owner answers),
 `board=creatures`, id **`20260902T194120383Z-3860b1`**, cell counts in each
 item's `meta`, asking which reads most like an animal and which reads as a
-blob. **Fire-and-forget — not yet answered.** Check `python3 scripts/review.py
-inbox` (or `get 20260902T194120383Z-3860b1`) in a later session for the
-verdict; nothing else in this report depends on it, but the recommendation
-in §0 should be revisited once it lands.
+blob.
+
+**Answered 2026-09-03: *"decent starts, depends on how they look in
+action"*.** Two readings, and both matter:
+
+- **The silhouettes clear the bar.** "Decent starts" is not "I cannot tell
+  these apart", which is the verdict §0's recommendation was hedged against.
+  The lever is not below threshold.
+- **The condition is the correction this section already carried.** The owner
+  independently refused to settle legibility on a still, which is exactly what
+  the review below says a monolithic proxy standing still cannot show. So the
+  re-test named there -- the same kind of body **in motion** -- is not an
+  optional follow-up; it is the owner's stated condition on the verdict.
+
+The card is no longer in the queue (`review.py get` reports no such card), so
+the verdict is recorded here rather than retrievable. `Reports/README.md`'s
+index line, which called it unanswered, is corrected in the same change.
 
 **Correction, from independent review by the session working
 `creature-genome-flexibility-2026-09-02.md` §13/§14: a still render of a
@@ -432,10 +450,10 @@ decoupled (multi-part, each-follows-the-one-ahead) body actually reaches the
 by §1.3's atomic measurements — that needs the real mechanism, which is
 `Reports/creature-genome-flexibility-2026-09-02.md` §13's Track B, explicitly
 out of scope here per §12a (body and metabolism share one budget, and the
-creature session is moving it now). Whether any of these six silhouettes
-reads as an animal to the owner (§3, pending — and per §3's correction, a
-null verdict on the pending card would not settle this on its own; the
-motion re-test would be needed). Whether the width-3 threshold found here
+creature session is moving it now). Whether these silhouettes read as animals
+**in motion** — §3 answered the still question positively on 2026-09-03 and
+made motion the condition on that answer, which
+`creature-articulated-body-2026-09-09.md` is what settles. Whether the width-3 threshold found here
 on `rolling` holds on other outdoor-game presets — and it does not apply to
 the evolution lab at all, whose flat, untextured bed has no terrain-relief
 mechanism for a wide footprint to fail against (§1.3).

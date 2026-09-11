@@ -1485,6 +1485,14 @@ const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
 /// which is a matter of telling a flower from the bud beside it at a glance.
 const CELL_TYPE_FLOWER: [f32; 3] = [255.0, 240.0, 60.0];
 const CELL_TYPE_FRUIT: [f32; 3] = [255.0, 60.0, 90.0];
+/// The three roled creature cell types added for `BodyPlan::Segmented`.
+/// Far from `CELL_TYPE_HEAD`/`CELL_TYPE_SEGMENT` and from each other, same
+/// reasoning as the pair above: the question this overlay answers about an
+/// articulated body is which role each of its few cells carries, at a size
+/// where colours a shade apart would read as one blob.
+const CELL_TYPE_LEG: [f32; 3] = [80.0, 200.0, 255.0];
+const CELL_TYPE_GUT: [f32; 3] = [255.0, 150.0, 220.0];
+const CELL_TYPE_ARMOUR: [f32; 3] = [180.0, 180.0, 60.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -5360,7 +5368,19 @@ impl Renderer {
         // nonsense cell type), and only then the organism lookup. A tree is
         // thousands of cells and pays the two bit tests; the ~150 creature
         // cells in a colony pay the lookup.
-        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+        // **Every roled body cell, not only `Head`/`Segment`.** `Leg`,
+        // `Gut` and `Armour` are the same creature's own flesh, stamped
+        // from the same material -- excluding them here would leave an
+        // articulated body two-toned, colony-coloured at some cells and
+        // raw material colour at others, which is a rendering defect this
+        // change introduces if left ungated rather than a pre-existing
+        // fact about the two original types.
+        if cell.organism_id() != 0
+            && matches!(
+                organism::cell_type(cell.aux()),
+                Some(organism::CellType::Head | organism::CellType::Segment | organism::CellType::Leg | organism::CellType::Gut | organism::CellType::Armour)
+            )
+        {
             if let Some(state) = world.organism(cell.organism_id()) {
                 if let Some(group) = group_colour(self.creature_colour, state.species, state.colony) {
                     // **The group's colour, at this cell's own brightness.**
@@ -6108,6 +6128,9 @@ impl Renderer {
                     Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
                     Some(organism::CellType::Flower) => CELL_TYPE_FLOWER,
                     Some(organism::CellType::Fruit) => CELL_TYPE_FRUIT,
+                    Some(organism::CellType::Leg) => CELL_TYPE_LEG,
+                    Some(organism::CellType::Gut) => CELL_TYPE_GUT,
+                    Some(organism::CellType::Armour) => CELL_TYPE_ARMOUR,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
