@@ -72,9 +72,16 @@ fn census(world: &World, spec: &LabBox, frame: u64) {
                 on_air += 1;
             } else if below.material == water {
                 on_water += 1;
-            } else if below.organism_id() != 0 {
+            } else if below.organism_id() != 0 || world.materials.kind(below.material) == MaterialKind::Plant {
                 on_plant += 1;
                 fill_on_plant += update::liquid_fill(c) as u64;
+                // **Mirrors `update::drip_through_organism` exactly, dead
+                // tissue and the liquid merge included.** It has disagreed
+                // with the rule twice in one session -- once when the rule
+                // learned to drink soil, once when it learned to merge -- and
+                // each time the stale replay reported a blocker the engine no
+                // longer had. `update::dripstat` counts from inside the rule
+                // and is the cross-check on this.
                 let mut verdict = 3; // out of reach
                 for probe in (y + 1)..(y + 1 + REACH) {
                     let here = world.get(x, probe);
@@ -82,20 +89,36 @@ fn census(world: &World, spec: &LabBox, frame: u64) {
                         verdict = 0;
                         break;
                     }
-                    if here.organism_id() == 0 {
-                        if world.materials.get(here.material).water_capacity > 0 {
-                            verdict = 1;
-                            if update::soil_moisture(here) >= world.materials.get(here.material).water_capacity {
-                                soil_blocker_full += 1;
-                            } else {
-                                soil_blocker_room += 1;
-                            }
+                    if here.organism_id() != 0 || world.materials.kind(here.material) == MaterialKind::Plant {
+                        continue;
+                    }
+                    if here.material == c.material {
+                        // The merge the rule now makes: room is the same
+                        // compression-allowing room `transfer_liquid_vertical`
+                        // uses.
+                        let room = (material::LIQUID_FULL + material::LIQUID_MAX_COMPRESS).saturating_sub(update::liquid_fill(here));
+                        if room > 0 && !here.managed() {
+                            verdict = 0;
                         } else {
                             verdict = 2;
-                            *blockers.entry(world.materials.get(here.material).name.clone()).or_default() += 1;
+                            *blockers.entry("water (full)".to_string()).or_default() += 1;
                         }
                         break;
                     }
+                    let cap = world.materials.get(here.material).water_capacity;
+                    if cap > 0 {
+                        verdict = 1;
+                        if update::soil_moisture(here) >= cap {
+                            soil_blocker_full += 1;
+                        } else {
+                            soil_blocker_room += 1;
+                            verdict = 0;
+                        }
+                    } else {
+                        verdict = 2;
+                        *blockers.entry(world.materials.get(here.material).name.clone()).or_default() += 1;
+                    }
+                    break;
                 }
                 match verdict {
                     0 => would_drip += 1,
@@ -142,6 +165,54 @@ fn census(world: &World, spec: &LabBox, frame: u64) {
     }
     let head: Vec<String> = rows.iter().take(14).map(|(y, n)| format!("{y}:{n}")).collect();
     println!("                 rows holding water (row:cells) {}", head.join(" "));
+    // **How high the standing water is, which is the owner's complaint.** A
+    // puddle lying on the ground and a sheet perched in the foliage are the
+    // same standing count and opposite findings: the first is a full bed
+    // behaving correctly, the second is water that never got down.
+    let bands = [1i32, 3, 8, 20, 1000];
+    let mut by_band = vec![0u64; bands.len()];
+    for (y, n) in &rows {
+        let above = spec.ground_y - y;
+        if above <= 0 {
+            continue;
+        }
+        for (i, b) in bands.iter().enumerate() {
+            if above <= *b {
+                by_band[i] += n;
+                break;
+            }
+        }
+    }
+    // **Soil perched over a void, which is what an ant's tunnel leaves.**
+    // `update_soil_water`'s drainage only moves water into another cell that
+    // can *hold* water, so a soil cell with air under it never sheds however
+    // wet it gets -- the owner's own diagnosis, and it makes a roof of the
+    // tunnel that saturates and then turns every further drop away.
+    let (mut perched, mut perched_wet, mut perched_sat) = (0u64, 0u64, 0u64);
+    for y in spec.ground_y..(spec.ground_y + spec.soil_depth) {
+        for x in 0..spec.width {
+            let c = world.get(x, y);
+            if world.materials.get(c.material).water_capacity == 0 {
+                continue;
+            }
+            if world.get(x, y + 1).material != material::EMPTY {
+                continue;
+            }
+            perched += 1;
+            let m = update::soil_moisture(c);
+            if m > material::SOIL_FIELD_CAPACITY {
+                perched_wet += 1;
+            }
+            if m >= material::SOIL_SATURATED {
+                perched_sat += 1;
+            }
+        }
+    }
+    println!("                 soil sitting over open air (a dug roof): {perched} cells, of them over field capacity {perched_wet}, saturated {perched_sat}");
+    println!(
+        "                 standing water by height above the soil line: <=1 row {}, 2-3 {}, 4-8 {}, 9-20 {}, higher {}",
+        by_band[0], by_band[1], by_band[2], by_band[3], by_band[4]
+    );
     let plants = (0..spec.height)
         .map(|y| (0..spec.width).filter(|&x| world.materials.kind(world.get(x, y).material) == MaterialKind::Plant).count() as u64)
         .sum::<u64>();
