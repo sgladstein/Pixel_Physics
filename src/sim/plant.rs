@@ -2318,6 +2318,109 @@ pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism
     Some(passenger)
 }
 
+/// **How far the midden search reaches, in columns either side of the
+/// original set-down site.** Round 28's garden-midden build
+/// (`Reports/lanes/evolution-lab-garden-midden.md`): the drop-cell census
+/// this lane ran before writing a line of fix found the nest patch
+/// (`creature::paint_nest_patch`) dry *by construction* -- `nest.ron`
+/// authors no `water_capacity` field at all -- while soil that holds it
+/// stood within a handful of columns of every traced delivery. A bound on
+/// work, never a gate on whether the pip is set down (`CLAUDE.md`'s "a
+/// size cap must bound work, never gate whether something happens"):
+/// `find_midden_site` returns `None` past this reach and the pip lands
+/// exactly where it always has, no worse off than any pip in the three
+/// rounds before this one.
+///
+/// Started at 6, per the round's own instruction. Not yet re-derived
+/// against a bed wider than `played_bed` -- if a future bed ever puts real
+/// soil further than this from every nest door, re-run this lane's own
+/// drop-cell census before retuning it rather than guessing a bigger
+/// number.
+const MIDDEN_SEARCH_COLUMNS: i32 = 6;
+
+/// **Would `ground` let a pip clear `Behavior::Germinate`'s own soil-water
+/// gate right now?** The identical two-part test that check runs
+/// (`plant.rs`'s `Germinate` arm): `water_capacity > 0` first -- a
+/// `Liquid`'s `aux` means *fill*, not moisture, on the same 1000 scale as
+/// saturated soil, so skipping this guard would read a pip bobbing on a
+/// full pond as bone dry, per that check's own comment -- then
+/// `update::plant_available_fraction(ground) >= threshold`.
+///
+/// **Round 28's garden-midden build, revised from its first pass**: the
+/// first version of this function accepted any material with
+/// `water_capacity > 0`, on the brief's own literal wording. Measured on
+/// `played_bed` before shipping it, that version relocated 100% of one
+/// seed's deliveries and 67% of another's onto material that *could* hold
+/// water and still moved `plants_from_pip` from 2 to 2 and 0 to 0 -- the
+/// redirected ground was capable of holding water and was not currently
+/// holding enough of it, the same "dry by circumstance" reading the
+/// coordinator's own brief named as the *other* possibility and asked to be
+/// ruled out before deciding the build. A material check cannot tell "can
+/// hold water" from "is holding water", and only the second one is what
+/// `Germinate` actually asks. `threshold` is `None` only when this lane
+/// could not find the delivering organism's own `Germinate` threshold (a
+/// stripped asset set, or a species with no seed-bearing behaviour at all)
+/// -- degrading to the material-only test there, since capable ground is
+/// still a strictly better landing than none even unconfirmed.
+fn site_holds_enough_water(world: &World, ground: Cell, threshold: Option<f32>) -> bool {
+    let holds_water = world.materials.get(ground.material).water_capacity > 0;
+    match threshold {
+        Some(t) => holds_water && update::plant_available_fraction(ground) >= t,
+        None => holds_water,
+    }
+}
+
+/// **The delivering organism's own `Germinate` soil-water threshold for a
+/// `CellType::Seed` cell** -- read live off its species rather than a
+/// constant, since `herb` and any future fruiting species need not agree
+/// (`herb.ron` ships 0.15; nothing enforces a second species matches it).
+/// `None` when the organism is gone (should not happen at delivery, but a
+/// stale id is a worse bug than a degraded search) or its species defines
+/// no `Germinate` behaviour for a seed cell at all.
+fn seed_water_threshold(world: &World, organism_id: u16) -> Option<f32> {
+    let species_id = world.organism(organism_id)?.species;
+    world.species.get(species_id).behaviors(CellType::Seed).iter().find_map(|b| match b {
+        Behavior::Germinate { soil_water_threshold, .. } => Some(*soil_water_threshold),
+        _ => None,
+    })
+}
+
+/// **The midden.** Real ants dump refuse outside the door, not on the
+/// threshold -- `Reports/evolution-lab-ecology-design-2026-09-10.md`'s own
+/// framing of the loop this closes: "an ant walking home with a fruit puts
+/// it down at the nest and a plant comes up out of the midden."
+/// `deliver_seed_passenger`'s drop site is wherever `NEIGHBOURS_8` finds
+/// the first empty cell from the ant's own position (`creature.rs`'s drop
+/// verb), and `AtNest` biases every drop toward exactly the ground
+/// `creature::paint_nest_patch` lays -- a bare `Solid` with no
+/// `water_capacity` at all, dry by construction and not by circumstance.
+///
+/// Searches outward from `(x, y)` at the surface `creature::colony_surface`
+/// already defines -- reused rather than re-derived, per that function's
+/// own doc ("Anything that wants to know where a colony can go calls
+/// these") -- nearest column first and alternating sides, out to
+/// `MIDDEN_SEARCH_COLUMNS`. A candidate qualifies only if the surface cell
+/// itself is empty (there is room to stand a pip there) and
+/// `site_holds_enough_water` passes on the ground immediately below it --
+/// so a site this function accepts is one `Behavior::Germinate` would
+/// itself call wet enough, not merely a different material.
+fn find_midden_site(world: &World, x: i32, y: i32, threshold: Option<f32>) -> Option<(i32, i32)> {
+    for dc in 1..=MIDDEN_SEARCH_COLUMNS {
+        for &cx in &[x - dc, x + dc] {
+            let Some(sy) = super::creature::colony_surface(world, cx, y) else { continue };
+            let py = sy - 1;
+            if !world.is_empty(cx, py) {
+                continue;
+            }
+            let ground = world.get(cx, sy);
+            if site_holds_enough_water(world, ground, threshold) {
+                return Some((cx, py));
+            }
+        }
+    }
+    None
+}
+
 /// **The other end of `take_seed_passenger`.** Writes the passenger back as
 /// a live, organism-owned `pip` cell at `(x, y)` -- the same organism id it
 /// has carried since the bite, so the delivered plant germinates through
@@ -2331,6 +2434,43 @@ pub fn take_seed_passenger(world: &mut World, x: i32, y: i32) -> Option<organism
 /// own doc for why that is a real, priced substitution rather than a
 /// conservation gap.
 pub fn deliver_seed_passenger(world: &mut World, x: i32, y: i32, passenger: organism::SeedPassenger) {
+    // **Round 28's garden-midden build: redirect before anything else runs,
+    // so the debug line and every counter below already see the real
+    // landing site.** Checked against `site_holds_enough_water`, the
+    // identical two-part test `Behavior::Germinate` runs off the cell
+    // below -- see that function's own doc for why "capable of holding
+    // water" turned out not to be enough, and `find_midden_site`'s for why
+    // the ordinary drop site fails it by construction at a colony's own
+    // door. Only ever *relocates* the pip: the ant's drop verb in
+    // `creature.rs` is unchanged, and a search that finds nothing within
+    // `MIDDEN_SEARCH_COLUMNS` leaves the pip exactly where it landed before
+    // this build.
+    // **`PIXEL_PHYSICS_MIDDEN=0` -- a runtime kill switch, not a design
+    // knob.** `CLAUDE.md`'s "for 'does this look right', ship a runtime
+    // selector rather than choosing": this lets a before/after card and
+    // the before/after measurement both come from the *same* binary and
+    // the *same* seed, one env var apart, rather than from two git
+    // checkouts that risk the "stale binary" gotcha the moment one side
+    // is rebuilt and the other is not. Default is on (the fix).
+    let midden_disabled = std::env::var("PIXEL_PHYSICS_MIDDEN").as_deref() == Ok("0");
+    let threshold = seed_water_threshold(world, passenger.organism_id);
+    let (x, y) = {
+        let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
+        if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
+    };
+    // **Counts the outcome, not only the redirect firing** -- a pip whose
+    // original site already qualified never touches `find_midden_site` at
+    // all and still counts as `pips_set_on_soil`. See both fields' own docs
+    // (`World::pips_set_on_soil`/`pips_set_on_nest`) for why that is the
+    // reading the round's own drop-cell census asked for. Same predicate as
+    // the search itself, so this counter answers "would this pip pass
+    // Germinate's water gate right now", not merely "is the material
+    // capable" -- the distinction this build's own revision exists for.
+    if site_holds_enough_water(world, world.get(x, y + 1), threshold) {
+        world.pips_set_on_soil += 1;
+    } else {
+        world.pips_set_on_nest += 1;
+    }
     let frames_carried = world.frame.saturating_sub(passenger.picked_up_frame);
     // Read once, before the write below, and reused by both the debug line
     // and the roll itself -- `Reports/lanes/evolution-lab-garden-rot.md`
@@ -22823,6 +22963,184 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             !w.pip_checks.is_empty(),
             "a delivered pip must still be on the Germinate schedule after a carry longer than ORGANISM_TICK_INTERVAL -- an empty pip_checks means the schedule was silently dropped mid-transit and never re-armed on delivery"
         );
+    }
+
+    /// **Round 28's garden-midden build, the positive control.** A pip
+    /// delivered directly onto nest ground -- `nest.ron`'s own
+    /// `water_capacity` is the field's default, 0, dry by construction --
+    /// with real wet soil standing four columns to the right (within
+    /// `MIDDEN_SEARCH_COLUMNS`, 6) must be relocated onto it rather than
+    /// left to sit on ground `Behavior::Germinate` can never read as wet.
+    /// Left side of the bed is nest ground the whole `HALF` reach out, so a
+    /// search that found nothing (or found the wrong side) would read as a
+    /// wrong `(px, py)` here rather than merely "still standing" -- the
+    /// bar `CLAUDE.md`'s guard-test rule asks for a fix's own test to meet.
+    ///
+    /// Put the fault back by hand while building this (`MIDDEN_SEARCH_
+    /// COLUMNS` temporarily set to 0): this test failed, reading the pip
+    /// still on dry nest ground at its original site, before the constant
+    /// was restored to 6.
+    #[test]
+    fn a_pip_set_on_dry_nest_ground_is_relocated_to_the_nearest_wet_soil_within_reach() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+        }
+        for fx in (x - HALF)..=(x + HALF) {
+            // The door: nest ground under and to the left of the delivery
+            // site the whole `HALF` reach, exactly what `paint_nest_patch`
+            // would lay. Real, water-holding soil starts four columns to
+            // the right -- inside `MIDDEN_SEARCH_COLUMNS` (6) but far
+            // enough out that a search bug landing on the wrong side, or
+            // stopping at the first ring, cannot pass this test by
+            // accident.
+            let ground = if fx > x + 3 {
+                Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(nest, 0)
+            };
+            w.set(fx, y + 1, ground);
+        }
+        assert_eq!(
+            w.materials.get(w.get(x, y + 1).material).water_capacity,
+            0,
+            "test setup: the original set-down site must be dry nest ground, or this test proves nothing about the redirect"
+        );
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        assert_eq!(w.get(x, y).material, material::EMPTY, "the original dry site must be left empty -- the pip was relocated, not duplicated");
+        let landed = w.organism(id).and_then(|st| st.cells.keys().next().copied()).expect("the delivered organism must own exactly one cell somewhere");
+        assert_eq!(landed, (x + 4, y), "the pip must land on the nearest wet column within reach, at the surface");
+        assert_eq!(w.get(landed.0, landed.1).material, pip, "the relocated cell must still be the pip material, not soil or nest");
+        assert_eq!(
+            w.materials.get(w.get(landed.0, landed.1 + 1).material).water_capacity,
+            1000,
+            "the relocated site's ground must be the wet soil, read the same way Behavior::Germinate reads it"
+        );
+        assert_eq!(w.pips_set_on_soil, 1, "the it-worked counter must move when a delivery lands on water-holding ground");
+        assert_eq!(w.pips_set_on_nest, 0, "the it-failed counter must not move when the redirect succeeded");
+    }
+
+    /// **Capable is not the same as wet, and this is the test that catches
+    /// the difference.** This build's first pass accepted any material with
+    /// `water_capacity > 0` and shipped nothing else -- measured on
+    /// `played_bed` before landing, it relocated pips onto real soil at a
+    /// 100%/67% rate across two seeds and moved `plants_from_pip` not at
+    /// all (2->2, 0->0), because the soil it found was capable of holding
+    /// water and was not currently holding enough of it. Soil at
+    /// `x+2` here is exactly that trap: real `soil` material (capacity
+    /// 1000) with its `aux` left at 0 -- `material::SOIL_SATURATED`'s own
+    /// convention, dry -- so a search that stops at "is this soil" would
+    /// land here and still never germinate. Genuinely wet soil (`aux` at
+    /// field capacity) stands at `x+5`, one ring further out but still
+    /// within `MIDDEN_SEARCH_COLUMNS`.
+    ///
+    /// Put the fault back by hand while building this (reverted
+    /// `site_holds_enough_water` to its material-only predecessor): this
+    /// test failed, landing on the dry `x+2` soil, before the moisture
+    /// check was added.
+    #[test]
+    fn the_midden_skips_soil_that_can_hold_water_but_is_not_holding_enough_of_it() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let (x, y) = (100, 60);
+        const HALF: i32 = 10;
+        const ROWS: i32 = 6;
+        for fx in (x - HALF - 1)..=(x + HALF + 1) {
+            w.set(fx, y + ROWS + 1, Cell::new(material::STONE, 0));
+        }
+        for dy in 1..=ROWS {
+            w.set(x - HALF - 1, y + dy, Cell::new(material::STONE, 0));
+            w.set(x + HALF + 1, y + dy, Cell::new(material::STONE, 0));
+        }
+        for fx in (x - HALF)..=(x + HALF) {
+            let ground = if fx == x + 2 {
+                // Capable, not wet: real soil, `aux` left at 0
+                // (`material::SOIL_SATURATED`'s own dry default).
+                Cell::new(soil, 0)
+            } else if fx >= x + 5 {
+                Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY)
+            } else {
+                Cell::new(nest, 0)
+            };
+            w.set(fx, y + 1, ground);
+        }
+        assert_eq!(
+            update::plant_available_fraction(w.get(x + 2, y + 1)),
+            0.0,
+            "test setup: the near soil must read bone dry, or this test cannot tell the two predicates apart"
+        );
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        let landed = w.organism(id).and_then(|st| st.cells.keys().next().copied()).expect("the delivered organism must own exactly one cell somewhere");
+        assert_eq!(landed, (x + 5, y), "the search must skip the dry-but-capable soil at x+2 and continue to the genuinely wet soil at x+5");
+        assert_eq!(w.pips_set_on_soil, 1, "the it-worked counter must move only for a site that actually clears the water gate");
+    }
+
+    /// **The redirect's own bound, not merely its reach.** With no wet soil
+    /// anywhere within `MIDDEN_SEARCH_COLUMNS`, the pip is not lost or
+    /// dropped -- it lands exactly where it always has, on the original dry
+    /// site, and `pips_set_on_nest` (not `pips_set_on_soil`) is what moves.
+    /// The sibling of the test above: together they show the search is a
+    /// bound on work rather than a gate on whether the pip is set down
+    /// (`CLAUDE.md`'s size-cap rule).
+    #[test]
+    fn a_pip_with_no_wet_soil_within_reach_still_lands_where_it_was_dropped() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let nest = w.materials.id_of("nest").expect("nest.ron must be registered");
+        let (x, y) = (100, 60);
+        const HALF: i32 = MIDDEN_SEARCH_COLUMNS + 4; // dry well past the search reach on both sides
+        for fx in (x - HALF)..=(x + HALF) {
+            w.set(fx, y + 1, Cell::new(nest, 0));
+        }
+
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let passenger = organism::SeedPassenger {
+            organism_id: id,
+            material: pip,
+            shade: 0,
+            aux: organism::pack_cell_type(CellType::Seed),
+            picked_up_frame: w.frame,
+        };
+        deliver_seed_passenger(&mut w, x, y, passenger);
+
+        assert_eq!(w.get(x, y).material, pip, "with nothing wet in reach the pip must stay exactly where it was dropped, same as before this build");
+        assert_eq!(w.pips_set_on_soil, 0, "no relocation succeeded -- the it-worked counter must not move");
+        assert_eq!(w.pips_set_on_nest, 1, "the it-failed counter must move when the search finds nothing in reach");
     }
 
     /// **A2, first hook: a bite that passes the roll loads a passenger and

@@ -2656,6 +2656,33 @@ pub struct World {
     /// `plant::seed_survives_bite`'s `pips_eaten` exit, same convention as
     /// `pip_rot_x` beside it.
     pub pip_eaten_x: Vec<i32>,
+    /// **Round 28's garden-midden build: a delivered pip's final resting
+    /// ground holds water.** Counted once per `plant::deliver_seed_
+    /// passenger` call, after the midden search below has had its chance
+    /// to relocate the pip — so this counts the *outcome*, not only the
+    /// redirect firing. `pip_checks`'s own `soil_water` measurement is the
+    /// finer-grained sibling (the reading at the first Germinate check,
+    /// which can drift from the set-down reading if the field dries or
+    /// wets between); this is the cheap door-side headline the round's own
+    /// drop-cell census asked for: pips_set_on_soil against pips_set_on_
+    /// nest, over every delivery, not only the ones long-lived enough to
+    /// reach a Germinate check at all. See `pips_set_on_nest` for the
+    /// other exit; the two are exhaustive and mutually exclusive over
+    /// `seeds_delivered` + the A1 in-place spills the same call site
+    /// serves.
+    pub pips_set_on_soil: u64,
+    /// **The redirect had nowhere to send it.** Either the original
+    /// set-down site already held water (no redirect needed — this counts
+    /// the outcome regardless of which arm produced it, see
+    /// `pips_set_on_soil`), or `plant::find_midden_site`'s bounded search
+    /// found no wet ground within `plant::MIDDEN_SEARCH_COLUMNS` and the
+    /// pip stayed on dry nest ground exactly as it would have before this
+    /// build. Not an error either way — the search is a bound on work, not
+    /// a gate on whether the pip is set down (`CLAUDE.md`'s "a size cap
+    /// must bound work, never gate whether something happens"): a pip that
+    /// lands here is no worse off than every pip in the three rounds
+    /// before this one.
+    pub pips_set_on_nest: u64,
     /// **Organisms currently riding in a crop, with no cell in the grid.**
     /// `plant::take_seed_passenger` inserts an id here in the same call that
     /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
@@ -4010,6 +4037,8 @@ impl World {
             pip_checks: Vec::new(),
             pip_rot_x: Vec::new(),
             pip_eaten_x: Vec::new(),
+            pips_set_on_soil: 0,
+            pips_set_on_nest: 0,
             carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
