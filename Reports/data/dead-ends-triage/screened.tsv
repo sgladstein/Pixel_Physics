@@ -7,7 +7,7 @@ f5ab4a1933	plants:004	COSTED	3	Paired over four world seeds: launch_price is 1.8
 5798c52848	plants:006	DEAD	3	Counterexample: an id-keyed genotype makes a plant's character depend on the world's whole event history, and the real coupling (draw order) is already fixed by the live per-organism rng::stream.
 f27a1c190e	plants:007	DEAD	3	Arithmetic: a copy debits no donor, so every rotting litter cell mints a cell of soil water; the entry scopes the rejection to copies and explicitly leaves conserved transfers open.
 aebfa7d1fd	plants:008	DEAD	3	Structural: field moisture is force-written from sources and sits outside the water ledger, so reading it into Powder aux converts unconserved air humidity into ledger-visible soil water.
-9130c92a41	plants:009	EXPIRED	2	The author's own condition is root tips gaining income enough to fund two steps in a tick; roots went on by default 2026-09-05 (root:shoot 7.5% -> 22.4%) and are exempt from the nutrient tax, and no re-test is recorded.
+9130c92a41	plants:009	LANDED	2	The replacement shipped and was swept at landing over 1/2/3/6/12/24, settling at branch_priming: [3]. Verified in source 2026-09-11.
 d2388089b4	plants:010	COSTED	3	Scan cost measured (82,487 primed-cell re-scans at interval 1 against 1,160 at 3); the entry names the condition -- a cheaper primed-site walk -- under which the arithmetic changes.
 876a7f8024	plants:011	DEAD	3	Structural: consecutive steps are drawn independently so sharpening makes the walk super-diffusive and errors add; no exponent exists, and 32 -> 43 / 50 -> 74 is the counterexample.
 e74d2d0f64	plants:012	DEAD	3	Superseded by error diffusion, measured strictly better on the quantity the eye reads (0.41 RMS departure against feedback's 0.65 and baseline's 0.88).
@@ -17,7 +17,7 @@ f75252e774	plants:015	CONFOUNDED	2	The "same plant" / "not that different" verdi
 9c120c2378	plants:016	META	3	What is rejected is the measurement environment (20/40-row-sky scenes and the judgements taken in them), not an engine mechanism.
 47271b381a	plants:017	EXPIRED	2	The author's condition is "a real bound on absolute size, which the engine currently has nowhere"; 2026-09-06 gave soil a per-cell nutrient deficit with a saturating income curve, and no re-test of bud break is recorded.
 7c06ce2efc	plants:018	DEAD	3	Arithmetic: a ratio bound constrains proportion, not magnitude, so roots and shoot both grow without limit while staying in band -- a tax with no benefit (7,484 -> 6,529).
-a1809364d0	plants:019	EXPIRED	2	The entry names thicken()'s geometry ("fix width on diagonal stems") as the real fix and it has since landed as the cross_section_axis repair, so the 10 -> 6 sweep was read against a denominator that no longer exists and nobody re-derived pipe_ratio.
+a1809364d0	plants:019	LANDED	2	cross_section_axis landed and pipe_ratio was re-tuned past the reverted value (5.5/14.0/16.0 against the withdrawn 6.0). Verified in source 2026-09-11.
 bbf92acce9	plants:020	DEAD	3	Arithmetic: the halving decay step is smaller than the 4-bit quantum, so 0.267*0.5 rounds back to 0.267 and every deposited cell keeps a permanent one-quantum floor.
 af35f26e06	plants:021	META	3	The rejected thing is the tuning metric ("rows >1 cell wide"), which is dominated by the basal slab -- reviving it changes a measurement, not the engine.
 ebdf8113db	plants:022	DEAD	3	Counterexample (wet sand and pumice conflate under a density-as-resistance rule) plus a shipped superseding mechanism, per-material penetration_resistance against per-species penetration_force.
@@ -67,12 +67,12 @@ ef86535aeb	plants:065	DEAD	3	Three structural reasons stand independently of the
 38565f762e	plants:066	DEAD	3	Superseded by exactly-conserving pairwise per-face exchange; the in-place symmetric average was only approximately conserved and was sweep-order dependent, making allocation distance-dependent for solver reasons.
 b52ae0e5ef	plants:067	DEAD	3	Arithmetic worked through: hunger is negative feedback, so the tip that grows becomes less hungry and hands the lead back by tick 5 -- nothing accumulates; superseded by flux-ratcheted conductance.
 6884e6dcb2	plants:068	META	2	What is rejected is a sequencing decision (defer polarity past the economy re-tune) -- a process, and the entry says the original reasoning was right and only the sequencing conclusion wrong.
-5011f79578	plants:069	EXPIRED	2	The author's condition -- "revisit once Phase 4 makes allocation explicit" -- is met (allocate_to_frontier ships explicit income shares) and no re-test is recorded; the +32%/-66% two-scene split was never resolved.
+5011f79578	plants:069	LANDED	2	Child provisioning shipped at two sites, floored at max(bud_cost, step_cost) and paid by the richest cell -- better designed than the reverted version. Verified in source 2026-09-11.
 82a5517bdf	plants:070	DEAD	3	Arithmetic: upkeep linear in mass against income linear in leaf count balances at any size, so a flat respiration bounds nothing; superlinear (girth-proportional) upkeep is the named alternative.
-a9fe778d8f	plants:071	EXPIRED	2	The named condition -- a graded light signal feeding the shed rule -- landed with the per-column graded transmission work, and self-pruning has not been re-attempted against it.
+a9fe778d8f	plants:071	LANDED	2	Self-pruning shipped as whole-plant, distal-first die-back; the recorded worry was answered by scope rather than by grading. Verified in source 2026-09-11.
 4d5e5205b5	plants:072	META	3	A withdrawn inference with no mechanism attached: the "canopy_density is dead" claim came from an end-of-run standing readout of a per-tick-decaying channel, and the sweep 0.5 -> 136 vs 20.0 -> 13 proves the knob live.
 66b7177b30	plants:073	DEAD	3	Counterexample at play scale: a 2D cross-section shows every twig, so one-cell leaves render as a bare skeleton with specks; five-cell clusters supersede it with income held per node.
-e4ae6136a0	plants:074	EXPIRED	3	The author's condition -- a running mean over a cycle or the noon-equivalent normalisation -- is met: field::noon_equivalent_light exists, and no shade-abscission threshold has been re-measured against it.
+e4ae6136a0	plants:074	LANDED	3	Shade abscission is built, graded, and reads field::noon_equivalent_light -- the normalisation the clause asked for. Verified in source 2026-09-11.
 2699460ab9	plants:075	META	2	A withdrawn framing rather than a mechanism: the decurrent diagnosis was retracted on the owner's correction before anything was built, so reviving it changes what question gets asked.
 e7d704107c	plants:076	UNBUILT	3	Never implemented -- cut at design time for want of a caller (YAGNI), with the shared DIFFUSION_RATE sufficing through three passes and no measurement taken.
 0cc072b67f	plants:077	META	2	A withdrawn framing rather than a mechanism: "stop the crown filling" was retargeted to composition (wood 12,039 vs 253 leaves) once the 2D-projection reading was adopted.
@@ -367,7 +367,7 @@ fef3289b68	creatures:062	DEAD	1	Holds while sensor offset stays smaller than FIE
 96f9dcefc2	creatures:063	RE-TESTED	2?	Food's energy now books into the ledger (creatures:024's S3 fix) but plants/the sun still sit outside it per that same entry's final 2026-09-06 note, so the "not full conservation" finding narrows rather than reopens.
 7293b73408	creatures:064	DEAD	3	The old parallel creature Vec had no generations, no slot reclamation, and only a debug_assert against u16 overflow; superseded by the shared organism arena.
 514e4bced8	creatures:065	META	3	The mutation-rate guard couldn't fail for the right reason (a blind guard); replaced by a lower-level RNG-stream test plus a dedicated birth stream.
-38b8d907c2	creatures:066	EXPIRED	2?	Unreachability was proven from hf/start_energy/body_energy arithmetic under the pre-rebuild economy; the 2026-09-06 rebuild changed exactly what the retest names (body priced per cell, start_energy 900->200, hunger_fraction replaced by a crop), and no re-test is recorded.
+38b8d907c2	creatures:066	RE-TESTED	2?	Re-test already ran and is recorded in ant.ron with numbers: peak bank 1,601 against a floor of 1,041, colony at generation 13. Verified in source 2026-09-11.
 6be42326bd	creatures:067	DEAD	3	Weighting by buried-neighbour count rewards breaking fresh ground and penalises continuing a tunnel; measured monotonically wrong across a 5-point sweep (roofed void falling the wrong way).
 f1494658b9	creatures:068	DEAD	3	Two independent dig-target rules failed across their whole range because the colony already tunnels; "the approach is wrong, not the tuning."
 b9f59c2c84	creatures:069	UNBUILT	2	TRAIT_STORE_IN_BODY was never built; Feed/Drop being genome-borne and state-conditioned already covers the need, so storage was rejected on design grounds, not measurement.
@@ -486,7 +486,7 @@ ee2ee1e872	structural:010	DEAD	3	"correct" is not locally observable, so no fixe
 807da6ac65	structural:012	DEAD	1	address-only PLAN.md progress heading with no retest clause in the skeleton; defaulting to the file's dominant structural-argument pattern.
 f3c17c56be	structural:013	UNWIRED	2	directional costs default to 1 (old behaviour) for any un-authored material; the missing artifact is real per-material directional values.
 e1367366d2	structural:014	DEAD	3	the world is a 2D slice of 3D, so in-plane distance structurally cannot observe out-of-plane support.
-11a0a46894	structural:015	EXPIRED	2	aux and the burn timer became separate fields (per structural:089's own note), so the shared-tagged-union condition this holds on no longer applies and no re-test is recorded here.
+11a0a46894	structural:015	RE-TESTED	2	Condition met and deliberately not acted on: the defer is kept conservatively rather than out of necessity, for a different still-valid reason (burns_into changing material mid-check). Verified in source 2026-09-11.
 23ce2cd2bc	structural:016	COSTED	2	holds while relaxation is incremental/paced; names M10 streaming's per-chunk seeding scan (not yet built) as the condition that changes the cost shape.
 be6cfc22c7	structural:017	META	2	a scene-width parameter sized for the test itself; adjusting it changes what the test measures, not the engine.
 088c3e5e34	structural:018	CONFOUNDED	3	the multiplier form passed all six acceptance cases and was reverted only over stale unit tests and clippy lints, not on merit.
@@ -507,8 +507,8 @@ e1def4f10d	structural:032	DEAD	3	the same binary-immunity defect keeps re-arrivi
 6e4156f52d	structural:033	DEAD	3	superseded by torque/capacity; organism_structural_tick's lingering use of max_unsupported_span is the trap living on, not a reason to retry it.
 6c16beacb9	structural:034	CONFOUNDED	2	the constant is calibrated against specific flat-scene bores (5/9/13 at ~8 cells cover), not derived, so it doesn't generalize past that scenario.
 76c5db11b4	structural:035	CONFOUNDED	1	held at shallow-to-medium cover where relief is the only lever; a scenario-calibrated finding, untested where load binds.
-ae75f7d0ba	structural:038	EXPIRED	2	both preconditions (eager ground rooting, the flat 64x divisor) are gone per structural:061/063's account of the shipped kern/bearing model, and no re-test of this specific finding is recorded.
-93445909f2	structural:040	EXPIRED	2	eager ground rooting (the degenerate condition) is gone and the recorded bearing-model follow-up shipped per structural:061/063, but no re-check of this specific gate is recorded.
+ae75f7d0ba	structural:038	LANDED	2	The divisor is gone by name and capacity.min(bearing_moment(..)) is the cap this entry proposed. Verified in source 2026-09-11.
+93445909f2	structural:040	LANDED	2	The gate shipped in the exact form the clause prescribed (load.rs capacity, parent.is_none() && rests_on_ground). Verified in source 2026-09-11.
 0c1cd65ed8	structural:041	DEAD	2	the cascade is redundant with the wavefront by construction (tick's if-moved branch already reschedules touched cells and neighbours).
 967f161eec	structural:042	DEAD	3	the rejected shape (buying span globally to fix built structures) is preserved by the author across the reach-to-torque/capacity supersession.
 b5c88c2665	structural:047	COSTED	2	acceptable only because organism structures stay small relative to MAX_THICKEN_SCAN_CELLS; names a freed per-cell storage slot as the reopening condition.
