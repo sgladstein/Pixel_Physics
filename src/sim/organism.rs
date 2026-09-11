@@ -6710,14 +6710,19 @@ pub const LOCUS_FLOWER_COLOUR: usize = 6;
 /// the bottom one. Two alleles for two strategies removes the bias by
 /// construction.
 ///
-/// `LOCUS_FLOWER_COLOUR` is 2 for the identical reason: every flowering
-/// species shipped today (`herb`, `scrambler`, `shrub`) declares exactly
-/// two flower bands. A non-flowering species (`tree`, `conifer`,
-/// `creeper`, `grass`) still carries the locus and jumps it like any
-/// other — it just drives nothing visible there, the same free ride
-/// `LOCUS_WOOD_DENSITY`'s bark-band mapping already gives a species with
-/// `bark_bands.count == 0`.
-pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3, 2];
+/// `LOCUS_FLOWER_COLOUR` is 3, one wider than the 2 every flowering
+/// species originally shipped with. Round 28 (PR2, the C2 card's second
+/// question) widened `herb` alone from two flower bands to three
+/// (yellow/orange/red) so a cross shows a middle colour instead of a coin
+/// flip; `scrambler` and `shrub` still declare two, and the derivation's
+/// own `.min(flower_bands.count - 1)` clamp folds their otherwise-unreachable
+/// third allele onto their top band, exactly the shape `LOCUS_WOOD_DENSITY`
+/// already handles for a bark range narrower than its own allele count. A
+/// non-flowering species (`tree`, `conifer`, `creeper`, `grass`) still
+/// carries the locus and jumps it like any other — it just drives nothing
+/// visible there, the same free ride `LOCUS_WOOD_DENSITY`'s bark-band
+/// mapping already gives a species with `bark_bands.count == 0`.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3, 3];
 
 /// Multipliers on the species' `branch_angle`, one per allele of
 /// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*

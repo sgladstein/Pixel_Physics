@@ -3,11 +3,16 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (two independent changes landed the same day.
+*Current as of: 2026-09-11 (three independent changes landed the same day.
 **Petal colour passes from parent to seedling** — see "Colour is a
 readout, not decoration" below; it used to be the one channel a cross
 could not carry, and a bred stand's flowers now track their parents'
-shade the way foliage and bark already did. **A seed can leave in an
+shade the way foliage and bark already did. **Flower heads are bigger
+and now vary in size, per individual and heritably** — see "Plants that
+stop, and what they stop in" below; an erect herb's head in particular
+is visibly larger, and how big a head *tries* to be is no longer one
+number per species but a real spread a stand shows and a seedling
+inherits. **A seed can leave in an
 animal's mouth instead of only in the wind** — an ant that bites a fallen
 fruit sometimes finds the seed inside survives, and sometimes carries it
 home instead of leaving it where it fell; see **Seeds carry provisions**
@@ -623,6 +628,18 @@ light makes a full head, one in poorer light makes a small one, and one that
 never gets ahead makes a bare stalk with nothing on top. A plant that fills
 fruit sets fewer loose seeds that season, because both come out of the same
 pocket.
+
+**New on 2026-09-11: how big a head *tries* to be is now itself a heritable
+trait, not just a species constant that carbon then trims.** Two equally
+well-fed plants of the same species can still build to different targets — one
+aiming for a small handful of cells, another for a large head — and a
+seedling's target tracks its parent's, drifting a little at each generation
+the way every other inherited shape does. So a bed no longer shows one size of
+head truncated by circumstance; it shows a real spread of sizes even among
+plants that never went short of carbon at all. Heads are also bigger across
+the board this round — an erect herb's head most of all, since size is the
+one lever that has ever read as "this is a flower" rather than a coloured
+mark on a stalk.
 
 **A spent stem does not stay bare for good.** Once a fruit lets go (or a
 flower is lost before it ever sets one), the stem it grew from waits and then
