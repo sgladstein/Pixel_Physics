@@ -294,6 +294,32 @@ round runs):
   keep the branch as the design and the measurement and ship the
   two-cell ant. PR #303 stays open with CI red until that is ruled.
 
+**The owner's verdicts, 2026-09-10 (synced 15:31 UTC), and what each sets
+in motion:** the thicket goes in the default played bed (*"Sure"*) and so
+does a tree (*"a mix is best"*); **rain ships ON with the control kept**
+(*"You can ship on, but give me control over it"*); the HISTORY page
+*"looks good"* and wants **a summary per colony as the default — x
+starved, x killed by y — expanding into individuals**; **pollen: the
+animals carry it**, and *"we will probably need creatures that are more
+pollination motivated (like a bee/butterfly)"* — a pollinator species is
+now the direction, over the design's BRUSH-first recommendation; **the
+seed rides home** (dispersal form 2); the pip card could not be read
+(*"cannot tell what I am supposed to be looking at"* — a still of a
+one-cell event; the next card is a zoomed moving sequence); **the
+articulated ants read as stuck and flashing** (*"I don't see anything
+moving"*) — with the three body costs, the bodies are parked on their
+branch until re-ruled; marks stay as shipped; the box is not empty (*"I
+can see the ants"*); the jump the owner wants is the 2.0 hop (card
+`…e1b18f`), which kills the animal in a session — the creature line owes
+a hop that reads like that and survives; the colony *"is overgrazing"*;
+fights *"would need a playtest"*; the two soil-wetness rules *"look the
+same"* (take the cheaper); a beetle *"should never be an ant's family"*;
+an ant should go *through* a trunk, disappearing and reappearing.
+
+**Offered and not started:** BRUSH (pollinate by hand — superseded by the
+animal ruling); sound (needs a ruling on the dependency); palatability
+co-evolution in colour; the bed as a record; wild collection.
+
 **Put to the owner this round** — in chat, per the rule above, with the
 priced readings on cards as a second copy: pollen as gene flow (the animals
 carry it, the player's BRUSH carries it, or both with the animals off); the
