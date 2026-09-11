@@ -116,58 +116,51 @@ queue.**
 
 *Record: [`../evolution-lab-round-27-2026-09-10.md`](../evolution-lab-round-27-2026-09-10.md);
 design of record
-[`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).
+[`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).*
+
+**What binds.** Ants are not the pollinators; the eye is heritable
+(`TRAIT_SIGHT_RANGE`); a ground animal with eyes tops out one row under the
+flower (21 against 22). Plant counts run lower under re-bloom. **Conserve
+tokens** (owner): a lane only for a build the owner asked for or a landing
+needs. `labforage`'s SUMMARY line is contested by every lane — keep `main`'s
+fields, append yours, `cargo check` before pushing. The landed list (#306,
+#307, #309, #310, #312, #313, #314, #317) and the bodies' landing (#320, the
+two-cell ant stays default, `longant` is placeable) are in the records.
+
+## Round twenty-eight, 2026-09-11 — the pollinator arrives and eats the garden
+
+*Record: [`../evolution-lab-round-28-2026-09-11.md`](../evolution-lab-round-28-2026-09-11.md).
 Pointer and what binds.*
 
-**Landed on `main`:** #306 (the bed with thicket and tree), #307 (the
-pollinator design; the species is `flitter`), #309 (HISTORY per colony),
-#310 (rain LIGHT, control kept), #312 (nectar), #313 (the seed rides home),
-#314 (the bloom sense, no species wired), #317 (re-bloom; shrub flowers). **The bodies landed as one PR, #320 (2026-09-11), on the
-owner's ruling *"Go with A, but the long ant should be an option that I can
-place"*:** the tuck, the founding walk and the flip ship for every body, the
-shipped ant stays two cells, and the seven-cell body is `longant`, a species
-placed from the COLONY chip or named in a scenario
-(`played_bed_longant.ron`). The shipped colony forages better for it (bed,
-60,000 frames: deliveries 9 → 20 on fewer moves). #303/#311/#315/#316 are
-superseded. Left for the dig-and-bite lane: the long body's founding and
-its whole-body bite; the moisture-gradient scene's pickups fell 416 → 78
-and were not chased.
+**Landed on `main`:** #318, #319, #320, #323, #324, #325 — petal colour
+inherited, windfall's dead zone measured, the bodies, the dig verb no longer
+shovelling pips, the nectar-only flitter, the pip's clock re-armed (the
+first two plants ever from a pip). Open at the close: #322 (heads at 12 with
+a heritable spread) and the midden; each is in the record.
 
-**What binds.** **Ants are not the pollinators** — nothing wires the ant to
-the bloom sense, and the flitter (P2) comes before the scent plane (P1b),
-because a ground animal with eyes and a pull tops out one row under the
-flower (21 against 22). **The eye is heritable** (`TRAIT_SIGHT_RANGE`, cap
-8); whether selection would pay for it against nectar is a control
-measurement inside the flitter lane, not a lane. **Every mechanism of the
-garden loop is in and its rate is zero** (bites in single digits per
-120,000 frames; no pip has ever become a plant): the next lever is where
-windfall lands and why a pip never germinates, not another mechanism. The
-bodies' two reds — the §9 swarm guard and the chamber's `roofed > 0` — are
-the owner's ruling: green them and land the stack, or park it and keep the
-two-cell ant. Plant counts run lower under re-bloom in all six pairs: watch
-it. **Conserve tokens** (owner, 2026-09-10): spawn a lane only for a build
-the owner asked for or a landing needs; a finished lane resumes by
-`SendMessage` with its context intact. `labforage`'s SUMMARY line is
-contested by every lane — keep `main`'s fields, append yours, `cargo check`
-before pushing.
-
-**The round's cards are answered (2026-09-11, in the record):** the flip
-is confirmed on sight; **bigger flowers with more variety** is a new ask
-(C2's petal-colour locus and a size lever); a one-cell event cannot be
-judged on a card even at 5x — mark the cell or follow it.
-
-**Round twenty-eight, proposed and not yet ruled:** the flitter (P2, with
-the eye-price control inside it); the garden loop's rate (where windfall
-lands against where ants walk; why a dropped pip never germinates); the
-bodies ruling; sugar water as the first player verb; the wider list is in
-the record.
+**What binds.** **The flitter must float like a bee, not hop like a frog**,
+and **flowers must be easier to find** (owner, on the cards): it reaches 106
+rows and still cannot find a one-cell flower, so sustained, steerable flight
+toward a bloom is round twenty-nine's first build — on top of `nectar_only`,
+which stays, because a plant specialist's mouth eats the plant and no gut
+setting avoids it. **A card of a one-cell event is unreadable even ringed
+and zoomed** (three pip cards, three "cannot tell"): show the stand, the
+door or the colony over a long span, or let the playtest judge. **Bigger
+heads read, 12 as well as 16, and 9 is out** (decoded through `blind_was`).
+The garden loop's last blocker is water at the nest patch (452 of 454
+checks fail on it); the dig and the schedule are fixed. **Sonnet refuses a
+brief dense in genetics vocabulary on a `[bio]` classifier** — write it in
+the world's words or run the lane on Opus. **A resumed session loses its
+in-process lanes** (`SendMessage` stops resolving): salvage the worktree
+with a WIP commit and start a lane from it. Never `TaskOutput` a running
+lane — it returns the transcript.
 
 ## The earlier rounds
 
 Rounds one to twenty-five are verbatim in
 [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md),
-which prices each one and maps it to its owning report; twenty-six and
-twenty-seven have their own records, linked above. **Read the one round,
+which prices each one and maps it to its owning report; twenty-six to
+twenty-eight have their own records, linked above. **Read the one round,
 not the file** — they are three concurrent lines braided into one sequence, and
 knowing which is yours is most of the saving:
 
@@ -176,7 +169,7 @@ knowing which is yours is most of the saving:
 | the lab as an instrument — interface, shelf, rosters, persistence, soil, scenarios, forage | 3, 4, 5, 7, 9, 10, 11, 21, 25 | `evolution-lab-gui-physics-2026-08-30.md` |
 | frame cost and the speed dial | 2, 6, 8, 17, 18, 19 | `evolution-lab-frame-cost-2026-09-01.md` |
 | creatures — groups, kin, armour, castes, verbs, gates | 12, 13, 14, 15, 16, 20, 22, 23, 24, 25 | `creature-signature-and-castes-2026-09-06.md` |
-| the ecology — fruit, seed, nectar, flowers, the pollinator | 26, 27 | `evolution-lab-ecology-design-2026-09-10.md`, `evolution-lab-pollinator-design-2026-09-10.md` |
+| the ecology — fruit, seed, nectar, flowers, the pollinator | 26, 27, 28 | `evolution-lab-ecology-design-2026-09-10.md`, `evolution-lab-pollinator-design-2026-09-10.md` |
 
 ## Environment notes that cost time here
 
