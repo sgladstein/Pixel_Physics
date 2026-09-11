@@ -1,0 +1,44 @@
+// The flitter's body. This file exists for the identical reason
+// `hopper.ron` above it does, and the wiring audit's own doc names the
+// failure a missing copy of this file produces: `place_creature` resolves
+// an animal's material by its species' own name
+// (`world.materials.id_of("flitter")`), so without it the species loads,
+// compiles, sits on the COLONY chip -- and places zero animals. `hopper.ron`
+// shipped exactly one file short of hatching once already; this ships with
+// its material in the same change.
+//
+// Same physics as `hopper.ron`'s copy of the ant's: a creature cell the
+// sweep never moves, flammable on the same terms, live flesh worth the same
+// to whatever eats it (`food_energy`/`food_class` copied unchanged -- this
+// file was not asked to reprice what a flitter is worth dead, only what it
+// looks like alive).
+//
+// **The colour is the one place this file departs, on purpose and by
+// design.** `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.7:
+// a pale cool blue-white -- (196,214,236) / (224,236,250) / (160,180,208).
+// Soil is dark brown, plants are green, ants are near-black, and the hopper
+// already took warm ochre; this is the hue the box's palette has no other
+// user for, and a pale body stays legible in flight, which is where this
+// animal is looked at. **Deliberately not a flower colour** -- `flower.ron`
+// carries eight bands running yellow through white, and a pollinator that
+// matched its own food would vanish at the exact moment (arriving at a
+// bloom) a review card needs it to read.
+(
+    name: "flitter",
+    display: "Flitter",
+    kind: Creature,
+    density: 1.0,
+    colors: [
+        (196, 214, 236),
+        (224, 236, 250),
+        (160, 180, 208),
+    ],
+    flammability: 0.6,
+    burn_temperature: 500.0,
+    burn_duration: 40,
+    burns_into: "corpse",
+    heat_conductivity: 0.1,
+    food_energy: 480.0,
+    penetration_resistance: 0.25,
+    food_class: 1.0,
+)

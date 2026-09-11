@@ -2530,6 +2530,51 @@ pub struct World {
     /// construction: nothing else sets an organism-owned `CellType::Flower`.
     pub flower_visits: u64,
 
+    /// **`flower_visits`, split by which species did the reaching** — Brief
+    /// P2's own counter, and the one that answers the question the total
+    /// cannot: *is the bed's pollinator feeding, or is the ant colony
+    /// walking over the low flowers while the flitter starves?* A bed with
+    /// two animals in it reports one number today, and P2's whole claim is
+    /// about which of them it belongs to.
+    ///
+    /// **Written at the bite site, not at the counter.**
+    /// `plant::nectar_offer` is the only writer of `flower_visits` above and
+    /// is deliberately not told who is visiting (its own doc: the plant's
+    /// side of the exchange knows nothing about the gut). So the attribution
+    /// happens at the one call site that holds the organism — see
+    /// `creature.rs`'s nectar hook, which brackets the call and credits the
+    /// difference. Keep the two in step: a second caller of `nectar_offer`
+    /// that does not bracket it will move the total and not this map, and
+    /// the tell is `flower_visits > sum(values)`.
+    ///
+    /// A `BTreeMap` rather than a `Vec` indexed by species id because a box
+    /// holds a handful of species and the ordering makes the printed line
+    /// deterministic, which a `HashMap` would not. **Keyed on the raw
+    /// `SpeciesId.0`**, not on `SpeciesId` itself, which is deliberately not
+    /// `Ord` -- a counter map is not a reason to widen a core type's derives
+    /// under another lane's hand.
+    pub flower_visits_by_species: std::collections::BTreeMap<u16, u64>,
+
+    /// **Flower cells taken off a plant by a mouth, split by which species'
+    /// mouth** — the design's own named counter for the failure it predicted
+    /// before the pollinator was built (`Reports/evolution-lab-pollinator-
+    /// design-2026-09-10.md` §2.2: *"a bed of poor plants gets stripped by
+    /// its own pollinators"*).
+    ///
+    /// **It is the effect half of `flower_visits_by_species` above, and they
+    /// point opposite ways.** A visit is an animal drinking and the flower
+    /// surviving; this is an animal eating the flower. A pollinator whose
+    /// visit count rises while this stays at zero is feeding; one where both
+    /// rise is grazing its own larder, and the two are indistinguishable in
+    /// `eats`.
+    ///
+    /// Written at the same bite site, past the nectar hook and past the
+    /// nectar-only refusal, so **a `CreatureDef::nectar_only` species reads
+    /// exactly 0 here for ever** — that zero is a claim about the mouth, and
+    /// an ordinary animal's row still moving is what says the counter is not
+    /// blind.
+    pub flowers_bitten_by_species: std::collections::BTreeMap<u16, u64>,
+
     /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
     /// `nectar_yield` returns, summed every time one is non-zero. The
     /// effect half of `flower_visits`' pair, and the plant's own side of
@@ -3954,6 +3999,8 @@ impl World {
             windfall_bitten_ownerless: 0,
             windfall_bitten: 0,
             flower_visits: 0,
+            flower_visits_by_species: std::collections::BTreeMap::new(),
+            flowers_bitten_by_species: std::collections::BTreeMap::new(),
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
             seeds_carried: 0,
