@@ -1,0 +1,54 @@
+{
+  "id": "20260911T051258362Z-83eaba",
+  "created": "2026-09-11T05:12:58Z",
+  "board": "lab-flowers",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a45d1b36830f949a2",
+    "branch": "claude/lab-flowers-size-r28",
+    "commit": "d1535c39",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a45d1b36830f949a2"
+  },
+  "title": "Bigger flowers with more variety",
+  "question": "Which bed has the flowers you asked for -- bigger, more varied -- and does the spread read as a stand rather than a random scatter?",
+  "context_md": "Round 28, second of two PRs (the first gave petal colour a real locus so it passes parent to seedling). This one: bigger authored heads (herb organ_cluster 9->16, scrambler 5->8, shrub 1->3, shrub's first-ever authored value), a per-individual size multiplier on genome slot 9 (0.3x-1.7x, so a stand shows a real spread rather than one repeated size, heritable like every other shape gene), and herb's petal range widened from two bands to three (yellow/orange/red) so a cross shows a middle colour instead of a coin flip.\n\n**What I already measured, so you don't have to re-derive it**: `labforage scenario=played_bed frames=120000`, three seeds, this build against `main`. The organ economy fires harder across the board -- `organs_built`, `fruit_dropped` and `flowers_rebloomed` are all up, sometimes by a lot. But played-bed plant count at frame 120,000 is down 15-70% against `main` in all three seeds (464/574/303 -> 322/170/259), even after re-deriving the `Ripen` costs so a bigger head doesn't ask more of the shared reproductive budget than it did before. That's reported rather than fixed further -- a gentler size bump wasn't tried for want of time, and standing-flower counts at any one frame ride the rebloom cycle's own phase, so don't read the single-frame numbers below as the whole story; `flowers_rebloomed` (monotonic) is the trustworthy one.\n\nThis frame (6,000) is the earliest checkpoint, where the population cost hasn't caught up yet -- it's closest to what a player planting this bed today would first see.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current (main)",
+      "files": [
+        "20260911T051258362Z-83eaba/000-main_labshot_6000_crop.png"
+      ],
+      "caption": "organ_cluster fixed: herb 9, scrambler 5, shrub 1 (never authored)",
+      "meta": {
+        "standing flowers (f6000)": 38,
+        "distinct petal colours": 2,
+        "herb head size (cells)": "9 (fixed)"
+      },
+      "focus": null
+    },
+    {
+      "label": "bigger + varied (this PR)",
+      "files": [
+        "20260911T051258362Z-83eaba/001-mine_labshot_6000_crop.png"
+      ],
+      "caption": "organ_cluster scaled 0.3x-1.7x per individual: herb 16, scrambler 8, shrub 3",
+      "meta": {
+        "standing flowers (f6000)": 164,
+        "distinct petal colours": 3,
+        "herb head size (cells)": "5-27 per individual"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
