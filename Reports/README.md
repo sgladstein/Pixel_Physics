@@ -2955,6 +2955,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **in flight.**
+  The sweep `dead-ends.md` has never had: which of its rejections were the
+  *idea* being wrong, and which were the test being wrong, the experiment
+  confounded, or the condition since changed. 97% of entries describe a world
+  older than the 2026-09-06 coupling day, and 708 of them name a re-test
+  condition nobody has checked. 306 entries screened so far, 14% of them
+  revival candidates; the labels, the rubric and the calibration that took
+  three rounds to get right are in [data/dead-ends-triage/](data/dead-ends-triage/).
+  Pick it up from this file — it carries what a later session must not
+  re-derive.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
