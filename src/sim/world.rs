@@ -827,6 +827,48 @@ pub struct CreatureStats {
     /// manufactured. `moves` still counts exactly what it counted — one
     /// walking step, decided and paid for — and this counts the other kind.
     pub flight_moves: u64,
+    /// **Brain evaluations made aloft** -- the float's "it was asked at
+    /// all" counter (`Reports/evolution-lab-flight-design-2026-09-11.md`
+    /// §1). Zero on `main` by construction: an airborne animal did not read
+    /// the world, evaluate its brain or act, which is the whole finding the
+    /// float was built on. Zero *here* means either no species has priced
+    /// flight or nothing left the ground, and `impulses` beside it says
+    /// which.
+    pub fly_ticks: u64,
+    /// **Airborne frames on which `BrainOutput::Fly` was actually holding
+    /// the body up** (`fly > 0`), against `flight_frames`' every airborne
+    /// frame including the ballistic ones.
+    ///
+    /// The effect half of `fly_ticks`, and the pair is the readout
+    /// `CLAUDE.md` asks for: a brain that evaluates aloft and never lifts
+    /// reads high ticks against zero frames, which is a wiring problem, and
+    /// is a different fault from a brain that never ran. `fly_frames /
+    /// flight_frames` is the share of the air the verb is paying for.
+    pub fly_frames: u64,
+    /// **Octant rotations `Turn` actually applied to a velocity.**
+    ///
+    /// `Turn`'s own effect counter, and the reason it exists is
+    /// `open-bugs-handoff.md` R4: on the ground this output is nearly inert
+    /// for a walker on level footing -- both outer candidates lose at every
+    /// value -- so "the weight is authored and the animal is steering" has
+    /// been a false inference in this engine once already. In the air there
+    /// is no candidate to veto, and this is the number that says so.
+    pub fly_turns: u64,
+    /// Joules billed by `CreatureDef::fly_cost_in_moves` -- the price of
+    /// staying up, separated from the launch (`moved`) and from metabolism
+    /// so a flight that eats a colony is visible as its own line.
+    pub fly_energy: f64,
+    /// **Landings made because the body was weightless and not flying** --
+    /// `open-bugs-handoff.md` §Z9's own exit firing.
+    ///
+    /// A creature material is exactly as dense as water, so a hop that comes
+    /// down on a pond has `g_eff == 0`, never accumulates a downward step,
+    /// and hangs there being charged the airborne rate until it dies
+    /// `STARVED ALOFT`. Weightless and *not flying* is standing on water,
+    /// and this counts the animals that are now put down on it. Read beside
+    /// `deaths_by`'s `STARVED ALOFT` share, which is the number the bug is
+    /// actually about; `LAND_AFLOAT=0` puts the defect back.
+    pub landed_afloat: u64,
     /// Launches the brain asked for and the body could not make — the
     /// creature was already off the ground.
     ///
@@ -2683,6 +2725,40 @@ pub struct World {
     /// lands here is no worse off than every pip in the three rounds
     /// before this one.
     pub pips_set_on_nest: u64,
+    /// **The owner's rule, 2026-09-11: "where should the seed drop when a
+    /// creature picks up food -- it should drop where it is eaten, not
+    /// immediately." The `Reports/lanes/evolution-lab-seed-where-eaten.md`
+    /// exit this counts:** digestion consumed the crop's last cell and the
+    /// passenger riding with it came out as a live standing `pip`, right
+    /// where the eating animal stood, through `plant::deliver_seed_
+    /// passenger`. The *it fired* half; `pip_digestion_release_x` beside it
+    /// is the *where*. Before this build a passenger present at that tick
+    /// was silently dropped with the empty crop -- see
+    /// `creature.rs`'s digest block for the fix and why the release fires
+    /// on the last cell consumed rather than the first.
+    pub pips_released_by_digestion: u64,
+    /// **Where the eating animal stood at each `pips_released_by_digestion`
+    /// event** -- the x-coordinate, same convention as `pip_rot_x`/`pip_
+    /// eaten_x` beside it. The distance-from-nest distribution the owner's
+    /// rule is asking about: a colony that carries food home before
+    /// finishing it should read differently on this list than one that
+    /// eats where it stands. Positions rather than a pre-bucketed
+    /// histogram, since the engine has no opinion about where a nest
+    /// column is -- `labforage` buckets it against `LabBox::colony_columns`
+    /// the same way it already does for `pip_germination_x`.
+    pub pip_digestion_release_x: Vec<i32>,
+    /// **The owner's rule's other half: a fruit put down without ever being
+    /// eaten keeps its seed.** `plant::deliver_seed_passenger_uneaten`'s
+    /// *it worked* counter -- a crop drop (the ordinary per-frame verb, or
+    /// a dying carrier's spill) that recreated the passenger as a whole
+    /// windfall fruit, the delivering species' own `windfall_material`,
+    /// rather than the bare `pip` the eaten exit above writes. Every one of
+    /// these can still be bitten later and go through `seed_survives_bite`
+    /// fresh, exactly as a fruit that fell there on its own would. Does not
+    /// count the rare fallback to a bare pip delivery (the species or its
+    /// windfall material could not be resolved) -- see that function's own
+    /// doc for why that degraded case is not this counter's job.
+    pub fruit_dropped_with_seed: u64,
     /// **Organisms currently riding in a crop, with no cell in the grid.**
     /// `plant::take_seed_passenger` inserts an id here in the same call that
     /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
@@ -4039,6 +4115,9 @@ impl World {
             pip_eaten_x: Vec::new(),
             pips_set_on_soil: 0,
             pips_set_on_nest: 0,
+            pips_released_by_digestion: 0,
+            pip_digestion_release_x: Vec::new(),
+            fruit_dropped_with_seed: 0,
             carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,

@@ -3384,6 +3384,30 @@ pub struct CreatureDef {
     /// steps puts digging at 1.5-2.2% of an ant's total burn.
     #[serde(default)]
     pub dig_cost_in_moves: f32,
+    /// **What holding yourself up on the air costs, per airborne frame, in
+    /// multiples of one step** -- the float's price, and the licence to use
+    /// it at all. `Reports/evolution-lab-flight-design-2026-09-11.md` §1/§3.
+    ///
+    /// In `move_cost_per_cell` units for `dig_cost_in_moves`' own stated
+    /// reason: a verb's price wants to scale with the animal paying it, and
+    /// `move_cost_per_cell * body_cells` is that scale already computed.
+    ///
+    /// **Derived rather than chosen: flying costs half of walking, per cell
+    /// covered.** At the flitter's authored 0.25 that is 0.0625 J on a
+    /// two-cell body, so 0.0875 J per airborne frame against 0.025 standing
+    /// still, and at `flight_speed` 0.5 cells/frame it is 0.125 J/cell
+    /// against walking's 0.25 and the ballistic hop's 0.037 -- **dearer than
+    /// the hop or nothing ever lands, cheaper than walking or nothing ever
+    /// flies.**
+    ///
+    /// **The struct default is 0.0, and that is also the capability gate**:
+    /// `creature::step_flight` evaluates no brain aloft for a species that
+    /// has not priced flight, so every shipped animal but the flitter is
+    /// bit-identical -- the hopper's ballistic arc pays nothing and decides
+    /// nothing in the air, exactly as before. See `BrainOutput::Fly` for why
+    /// the price is the licence and what that costs.
+    #[serde(default)]
+    pub fly_cost_in_moves: f32,
     /// **What laying a full-strength trail on one channel costs, in
     /// multiples of one step**, charged in proportion to what was actually
     /// deposited.
@@ -4117,6 +4141,7 @@ impl CreatureDef {
             idle_cost_per_cell,
             move_cost_per_cell,
             dig_cost_in_moves,
+            fly_cost_in_moves,
             emit_cost_in_moves,
             spoil_weight_cells,
             exposure_cost_per_cell,
@@ -4283,6 +4308,10 @@ impl CreatureDef {
             // never been swept at k > 1: derive it from a measurement when
             // one exists, not from this comment.
             dig_cost_in_moves: *dig_cost_in_moves,
+            // **Dimensionless, exactly as `dig_cost_in_moves` above.** A
+            // multiple of one step is a ratio, and `move_cost_per_cell` --
+            // the thing it multiplies -- is what carries the scale factor.
+            fly_cost_in_moves: *fly_cost_in_moves,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
             // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
@@ -4946,6 +4975,31 @@ pub struct Flight {
     /// cell per frame still produces motion instead of rounding to nothing.
     pub fx: f32,
     pub fy: f32,
+    /// **How much of its weight the animal is carrying on the air right
+    /// now**, `0.0` for the ballistic hop this engine shipped with and up to
+    /// (never reaching) `1.0` for a body that hangs.
+    /// `Reports/evolution-lab-flight-design-2026-09-11.md` §1.
+    ///
+    /// Held on the flight rather than recomputed per frame because the brain
+    /// runs once per `tick_interval` aloft and the ballistics run every
+    /// frame -- so this is the three-or-so frames of lift a decision buys,
+    /// exactly as `vx`/`vy` are the frames of travel a launch buys. Written
+    /// only by `creature::step_flight` from `BrainOutput::Fly`; `launch`
+    /// sets it to 0.0, so a hop is a hop until a brain says otherwise.
+    pub fly: f32,
+    /// **Sub-octant turn remainder**, the steering twin of `fx`/`fy`.
+    ///
+    /// `BrainOutput::Turn` is continuous and the air is turned in whole
+    /// octants -- the granularity a walking step turns by, so a walk and a
+    /// float cannot disagree about what a turn is. Rounding each tick's turn
+    /// to the nearest octant would make every turn below half an octant
+    /// exactly nothing, which is a binary outcome wearing a continuous
+    /// input; accumulating it instead makes the turn *rate* graded (a weak
+    /// bearing turns once every few ticks, a saturated one turns every
+    /// tick) while every individual rotation stays exact. `|Turn| < 1`, so
+    /// at most one octant per tick falls out of the arithmetic rather than
+    /// being clamped in.
+    pub turn_acc: f32,
 }
 
 /// Per-organism state too large (or too semantically distinct) to fit in

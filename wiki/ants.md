@@ -1,6 +1,15 @@
 # Ants
 
-*Current as of: 2026-09-11, when a third animal arrived: **the flitter**,
+*Current as of: 2026-09-11, evening, when **a bed was built for the flitter
+and it still could not live on one** -- four flowering clumps beside the nest
+multiply the flowers it drinks from about ninefold and change nothing about
+whether it survives, because on a bed that rich it barely comes down. See "The
+flitter" below. Earlier the same day, when **the flitter learned
+to stay up**: an animal that can see a flower now holds itself on the air,
+turns while it is up there and settles on the bloom, instead of being thrown
+in an arc it cannot steer. The same change stopped anything that lands on
+water hanging over it until it starves. See "The flitter" below. Earlier on
+2026-09-11, when a third animal arrived: **the flitter**,
 the first one in the box that lives off flowers and the first that leaves
 the ground on purpose. It is two cells, it hops rather than walks, it has
 eyes, and nothing but nectar will feed it. See "The flitter" below for what
@@ -29,6 +38,16 @@ mostly stops it. See "An ant can carry a seed home" below for the honest
 read of what it does and does not do yet — the plants it produces so far
 stand out in the bed, not ringed around the nest, because an ant sets its
 cargo down wherever it happens to be, not only at the door.
+**Updated again the same day, later still: a seed now comes free only when
+the meal it rode in on is actually eaten, not the moment anything is set
+down.** Before this, digesting a carried meal down to nothing quietly
+destroyed the seed riding with it — the drop verb was the *only* way a
+seed ever reached the ground — and a fruit merely set down aside, uneaten,
+spilled a bare seed right there rather than keeping it. Now the eaten exit
+works (a finished meal sets its seed down where the ant happens to be when
+the last bite goes) and an uneaten drop puts the whole fruit back intact,
+seed included, for whoever bites it next. See the same section below for
+what this does and does not change about *where* seedlings end up.
 Before that, 2026-09-10, when a flower stopped being invisible at a
 distance. An animal with eyes can now see a bloom the way it sees another
 animal — from across the room, not only once it is standing on one. (This
@@ -982,36 +1001,85 @@ bloom it can see, hops harder when there is one in view, and — the one wire
 that keeps it alive — stops hopping while it is standing at one. An animal
 that jumps off its own dinner never eats.
 
+**And since 2026-09-11 it can stay up, which is what turning is for.** Until
+then a flitter in the air was blind: it read nothing, decided nothing and
+steered nothing, so the very instinct that points it at a flower was switched
+off for a third to a half of its life and each jump carried it about thirty
+uncontrolled cells at a target nine cells away. Now a flitter that can see a
+bloom stops falling, turns as it goes — an eighth of a circle at a time, the
+same turn a walking animal makes — crosses to the flower head and sets itself
+down on it. With nothing in sight it does not bother, and then it is exactly
+the hopper it always was: the lift is only ever spent on something it can
+already see. **Staying up is not free**: it costs roughly three and a half
+times standing still, and about half what walking the same distance costs, so
+an animal that flew everywhere would starve and one that flies the last few
+cells to a flower does not. How fast it crosses is a setting with three
+positions rather than a decision — slow, middling and quick — because which
+of them reads as a bee is a thing to watch rather than to argue about.
+
 **What it does, and it is worth watching.** It gets high — its head reaches
-tens of rows above the soil where an ant manages a dozen — and it leaves
-the bed alone. Put flitters on a bed and the plants and the flowers come
-through a long session in the same shape as on a bed with no flitter in it,
-or better. Nothing it does costs the plants anything.
+tens of rows above the soil where an ant manages a dozen — and it leaves the
+bed alone. Put flitters on a bed and the plants and the flowers come through
+a long session inside the swings that same bed makes on its own with no
+animal on it at all. **Nothing it swallows is a plant**: over a whole session
+every joule it takes in is a joule a flower handed out, to the joule, with
+nothing else on the menu.
 
-**And it dies out. Every time, so far, on every bed we have tried.** It
-does not find enough flowers. Over a whole session a flitter reaches a bloom
-a handful of times where it would need to do so constantly, and in between
-it does what you would do looking for something you cannot smell: it wanders
-sideways along the ground, hops, and lands somewhere else. Watching one for
-two thousand frames with a full flower nine cells away, it never came closer
-than nine, drifted away as often as toward, and spent the last eight hundred
-of those frames stuck in the air over one cell until it starved. A flower is
-a single cell and a whole bed holds a few dozen; seeing one from across the
-room turns out not to be the same as arriving at it.
+**And it still dies out. Every time, so far, on every bed we have tried.**
+The old account of why was half right. *"Watching one for two thousand frames
+with a full flower nine cells away, it never came closer than nine"* — that
+was an animal with no rudder and no brakes, and it is fixed: stand a flower
+where nothing that walks or jumps can reach it and the floating animal now
+arrives at it and stays. What the float did **not** buy is more meals. Over a
+long session on the owner's own bed the floating animal drinks from about as
+many flowers as the hopping one did, seed for seed, and the colony empties
+either way — because on the beds where it does well there are twenty-odd
+flowers standing and on the ones where it does badly there are six. A flower
+head is a handful of cells and a whole bed holds a few dozen; arriving at one
+turns out not to be the same as there being enough of them.
 
-**So the honest state of it is: the animal works and its food is too hard to
-find.** It flies, it reaches the canopy, it will not touch anything but
-nectar, and it cannot yet make a living. Bigger flowers, more of them, or
-something that leads an animal to one are all the same problem from
-different sides.
+**A bed was then built for it, and here is what that settled.** Take the
+owner's own mix and add four flowering clumps just outside the bare band the
+nest needs: the flitter drinks from **about nine times as many flowers**, young
+are born on more seeds than before, and the colony empties by the same point it
+always did — with the flowers still standing at the end. **What separates a bed
+it can work from one it cannot is a distance, not a number of flowers.** The
+plain bed's nearest flowering clump stands 138 columns from where the animals
+land and a flitter can see 32; bring the nearest bloom inside about ninety
+columns and the whole ninefold arrives, and bringing it closer than that buys
+nothing and starts costing the nest its footing.
+
+**And the richer bed exposed something the poor one was hiding.** A flitter
+only stops flying when there is no flower in sight — so on a bed full of
+flowers it hardly ever stops. Watched over a long session there, **fifty-five
+per cent of everything the colony eats goes on staying in the air**, and
+twenty-nine of its thirty deaths happen in mid-air with a full bed underneath
+it. That is a wiring number rather than a fact about the world, and it is the
+next thing to change: the animal should hold itself up for the last few cells
+to a flower, not for the whole day because it can see one somewhere.
+
+**So the honest state of it is: the animal works, the bed has given what a bed
+can give, and it is still about seven times short of feeding itself.** It
+flies, it steers, it reaches the canopy, it will not touch anything but nectar,
+and it cannot yet make a living. What is left is the animal's own economy — how
+long its founding grant lasts, how much a flower is worth, and how much of its
+day it spends aloft.
 
 **And it carries no pollen.** Visiting a flower feeds the flitter and does
 nothing for the plant. That is the next piece.
 
-**One thing about the air, and it is not only about flitters.** Water is
-exactly as heavy as an animal here, so anything that hops and comes down on
-water does not land -- it hangs there and starves in mid-air. It is most of
-how a flitter dies, and most of how the older hopper dies too.
+**One thing about the air, and it is not only about flitters — fixed
+2026-09-11.** Water is exactly as heavy as an animal here, so anything that
+hopped and came down on water did not land: it hung there and starved in
+mid-air, which was **most of how a flitter died and most of how the older
+hopper died too** — between a half and nine tenths of every death. An animal
+that is weightless and is not flying is now standing on the water rather than
+hanging over it, and death in mid-air drops from most deaths to almost none.
+A flitter that is *flying* still stays up over a pond, which is the half of
+the rule that is easy to get wrong. What is left of it is honest: an animal
+that spends its last joules crossing to a flower can still die on the way,
+and about a third of a floating colony's deaths now happen that way, which is
+the price of the verb rather than a defect.
 
 **One thing to press.** The lab opens with animals wearing their *colony's*
 colour rather than their own, so the flitter's own pale blue-white body
@@ -1152,31 +1220,39 @@ place**. A pile a long way off may take a while to be discovered, and one
 right across the map may never be. Put food within reach of the colony and
 the whole loop runs.
 
-**An ant can carry a seed home instead of just a meal, and now, sometimes, it
-grows.** Biting a fallen fruit sometimes leaves the seed inside it whole
-rather than destroying it, and a whole seed can ride home in the same mouth a
-meal would, to be set down wherever the ant happens to be when it lets go —
-at the nest most often, but not only there. On the mixed bed the owner
-actually plants, a set-down seed has now grown into a standing plant more
-than once — the first time this loop has closed end to end. Two things had
-to be fixed to get there, neither visible from outside the box: a digging
-ant used to clear a set-down seed as ordinary spoil before it ever got the
-chance, and a carried seed's own waiting clock could silently stop counting
-partway home. With both closed, what decides whether a set-down seed
-germinates is almost entirely whether the ground under it is wet enough —
-dry ground, not predation, is now the real bottleneck, and a seed set down
-on ground that cannot hold water at all is moved a short way to the nearest
-patch that can, the way real ants heap refuse at a midden rather than on the
-doorstep itself.
+**An ant can carry a seed home instead of just a meal, and where it turns
+into a plant now matches when it is actually eaten, not when it is merely
+set down.** Biting a fallen fruit sometimes leaves the seed inside it whole
+rather than destroying it, and a whole seed can ride home in the same mouth
+a meal would. A seed used to come free the moment the ant next put anything
+down, wherever that happened to be — even a mouthful it had not swallowed a
+bite of yet. Now a seed only comes free once the meal carrying it is
+actually finished: an ant that eats everything in its mouth, flesh and all,
+sets the seed down at the spot where the last bite goes down, not before.
+Put a meal down before finishing it and nothing germinates yet — the whole
+fruit goes back on the ground intact, seed still inside it, waiting for
+whichever ant bites it next, the same as any fruit that fell there on its
+own. On the mixed bed the owner actually plants, a set-down seed has grown
+into a standing plant more than once this way — the first time this loop
+closed end to end. Two earlier things had to be fixed to get there, neither
+visible from outside the box: a digging ant used to clear a set-down seed
+as ordinary spoil before it ever got the chance, and a carried seed's own
+waiting clock could silently stop counting partway home. What decides
+whether a freed seed germinates is almost entirely whether the ground under
+it is wet enough — dry ground, not predation, is the real bottleneck, and a
+seed set down on ground that cannot hold water at all is moved a short way
+to the nearest patch that can, the way real ants heap refuse at a midden
+rather than on the doorstep itself.
 
 **It is not yet a ring of seedlings around the door, though, and that is a
-real finding rather than a bug.** An ant puts its cargo down wherever it
-happens to be when it lets go, not only at the nest, so the plants this loop
-has produced so far stand well out in the bed, not clustered at the colony's
-own threshold. The next piece of this loop is not germination any more — it
-is getting more of what an ant carries home to actually reach home before it
-lets go. A colony that gardens is closer to real than it was; a colony that
-gardens *at its own door* still is not.
+real finding rather than a bug.** A seed still comes free wherever the
+eating happens to finish, not only at the nest — a forager that carries a
+meal all the way home before finishing it plants at the door; one that
+snacks along the way plants wherever it stopped to finish, same as before.
+The next piece of this loop is not germination any more — it is getting
+more of what an ant carries home to actually reach home, and be eaten
+there, before it lets go. A colony that gardens is closer to real than it
+was; a colony that gardens *at its own door* still is not.
 
 They are better at it than they were, though, and the reason is worth
 knowing: **an ant can climb over a nestmate.** It cannot walk *through* one —

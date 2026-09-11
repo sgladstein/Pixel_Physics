@@ -84,28 +84,43 @@ a floor. All three reopens were verified in source:
 - **`rendering:014`**'s named reopen condition, per-glyph verification, is now
   one contact sheet and a `review.py` card.
 
-## Verified, end to end: `creatures:039`
+## The case I got wrong, and what it cost
 
-The clearest single case, and the register's exemplar shape arriving a second
-time. The entry parks the Jones/Physarum lateral pheromone sensors because both
-land in open air for a surface walker in a side-view world — measured **0.000
-over a cell holding A=27** — and names its own reopening condition: *"Correct
-for anything moving in open space (a flier, a swimmer)."*
+`creatures:039` was written up here as the clean verified revival and **it is
+not one**. The correction is worth more than the claim was.
 
-`flitter` now exists and is airborne. The slots survive at `brain.rs:515,517`.
-**No species carries a lateral weight** — ten `.ron` files match the names and
-every match is a comment. The condition arrived and nobody rewired the sensors.
+The entry parks the Jones/Physarum lateral pheromone sensors because both land
+in open air for a surface walker in a side-view world — **0.000 over a cell
+holding A=27** — and names its own reopening condition: *"correct for anything
+moving in open space (a flier, a swimmer)."*
 
-This is the `hopper` failure one layer up: the jump verb worked from 2026-08-29
-with nothing wired to it, `forage_probe` read **0 launches**, and one
-`Bias -> Impulse` wire took it to **275**. Both times a mechanism was correctly
-parked against a named condition, the condition was quietly met by another
-line's work, and nothing connected the two.
+Three things checked out. `flitter` exists and is airborne. The slots survive at
+`brain.rs:515,517`, and `creature.rs:3691` fills `inputs[lateral_slot] = r - l`
+every tick. No species carries a genome weight on either slot, so the value is
+computed and discarded — "kept but unwired", exactly as written.
 
-**Nothing in the repo closes that loop.** The register is grepped by *area*
-before work starts, so a creature-line session adding a flier has no reason to
-read a brain-input entry, and the entry cannot notice a new species file. That
-is the structural finding under all of this, and it is not fixed by this sweep.
+**The fourth check was never asked, and it overturns the other three.**
+`flitter` has no pheromone economy at all: counting real wires rather than
+comments, **`flitter` 0 against `ant` 4**. It neither lays a trail nor follows
+one, and its own file records the strip as deliberate. Wiring a lateral
+*pheromone* sensor onto the one species that moves in open space would sense a
+plane that species never writes to and never reads.
+
+The entry asked for "anything moving in open space" as a **proxy** for *a
+creature whose lateral offsets are not in dead air*. `flitter` satisfies the
+proxy and not the thing it stood for. That is this project's own *"a scene that
+contradicts the code will look like a bug in the code"* one level up: the
+precondition was checked against the **existence** of a flier rather than
+against whether the flier contains the situation under test.
+
+**The general form is the useful part, and it applies to every `EXPIRED` in this
+report**: a re-test clause names a condition in the vocabulary available when it
+was written, and a later reader matches the words. Verifying that the named
+artifact exists is not verifying that the condition is met. Each of the
+remaining candidates needs the second check, and a deep read of the 24
+highest-prior candidates demoted **15 of them** on exactly this basis — nine
+because the work had already been done and recorded in a doc comment or an asset
+rather than back in the register.
 
 ## Two things measured on the way
 

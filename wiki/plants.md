@@ -24,7 +24,15 @@ silently partway home), and a set-down seed that lands on ground too dry
 to ever hold water is now moved a short way to the nearest ground that
 can. What still is not true: the plants this produces stand wherever the
 carrying ant happened to be, not ringed around the nest, so this is a
-mutualism that has closed once, not one that gardens at the door yet.)*
+mutualism that has closed once, not one that gardens at the door yet.
+**Updated again the same day, later still: the seed now comes free when the
+meal is eaten, not the moment anything is set down.** Digesting a carried
+meal to nothing used to destroy the seed riding with it silently, so the
+drop verb was the only path a seed ever reached the ground by; a fruit
+merely set down, uneaten, spilled a bare seed on the spot instead of
+keeping it. Finishing a meal now sets its seed down where the last bite
+lands, and an uneaten drop puts the whole fruit back intact, seed inside,
+for whoever bites it next — see "The forest floor" below.)*
 
 *Before that: 2026-09-10 (**a spent flower is not the last one.** A herb,
 a scrambler and — new on this date — a shrub used to flower an axis exactly
@@ -819,19 +827,25 @@ actually go — to know whether a stand beside a nest is a garden or just a
 neighbour.
 
 **And a bitten fruit's seed can end the story as a second plant, now that
-it has ground to land on.** An ant that bites a fallen fruit sometimes
-leaves the seed inside whole, and a whole seed can ride home in the mouth
-that carried it, to be set down wherever the ant happens to be when it
-lets go. Whether that seed goes on to grow used to come down to bad luck
-almost every time: the ground a set-down seed lands on has to be able to
-hold water at all before it can ever be wet enough to sprout, and a seed
-set down on bare rock or on a colony's own hard-packed floor cannot. A
-set-down seed that lands somewhere too dry to ever hold water is now moved
-a short way to the nearest ground that can — a real patch of soil, not a
-puddle — the way real refuse ends up at a midden rather than on the bare
-doorstep. What is still true, and still worth knowing: the plants this
-produces stand wherever an ant happened to be carrying its meal, not
-ringed around the nest — see `ants.md` for the honest read.
+it has ground to land on — and now that it comes free at the right
+moment.** An ant that bites a fallen fruit sometimes leaves the seed
+inside whole, and a whole seed can ride home in the mouth that carried it.
+The seed comes free only when the meal it is riding in is actually eaten:
+an ant that finishes everything it is carrying sets the seed down where
+the last bite goes, wherever that turns out to be. Put the meal down
+before finishing it, and nothing germinates yet — the whole fruit goes
+back on the ground intact, seed and all, exactly as it would have if it
+had simply fallen there, waiting for whoever bites it next. Whether a
+freed seed goes on to grow used to come down to bad luck almost every
+time: the ground it lands on has to be able to hold water at all before it
+can ever be wet enough to sprout, and a seed set down on bare rock or on a
+colony's own hard-packed floor cannot. A seed set down somewhere too dry
+to ever hold water is now moved a short way to the nearest ground that can
+— a real patch of soil, not a puddle — the way real refuse ends up at a
+midden rather than on the bare doorstep. What is still true, and still
+worth knowing: the plants this produces stand wherever an ant happened to
+be when its meal ran out, not ringed around the nest — see `ants.md` for
+the honest read.
 
 ## Cutting a plant down
 
