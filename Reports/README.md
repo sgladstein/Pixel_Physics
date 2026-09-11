@@ -1242,6 +1242,14 @@ drift that two of these documents still reflect.**
   growth, a body is an axis rather than a tree, and **palette is untouched**,
   so `creature-appearance-design.md` §7 is half closed and not closed.
   Carries the owner's 2026-09-03 verdict on the six-silhouette card.
+  **§13 (2026-09-10) fixes the movement finding above** — the lateral tuck,
+  a length-not-width founding walk, and a flip that turns a boxed body
+  round in a dead end, shipped as the default. **Landed 2026-09-11 per the
+  owner's ruling in §13, "go with A, but the long ant should be an option
+  that I can place": the shipped ant stays `Chain(2)`, and the seven-cell
+  articulated body moves to `longant`, a species a player places rather
+  than the one a colony starts with** — `assets/species/longant.ron`,
+  `assets/materials/longant.ron`, `assets/lab_scenarios/played_bed_longant.ron`.
 - [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
   — **measurement only, no body plan built.** Three pre-checks for
   `creature-genome-flexibility-2026-09-02.md` §13's articulated-body

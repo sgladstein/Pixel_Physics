@@ -130,15 +130,20 @@ fallen fruit about twice in 360,000 frames on the played bed); the thicket
 bed (fruit on the floor 9.6x, bites 5 → 32 across the sweep, no pip yet a
 plant); the chronicle exported and a HISTORY page on F5.
 
-**Not landed, ruled on next:** the articulated bodies (PR #303, CI red).
-The tuck rule walks (ant 43.9% / 96.8% → 1.9% / 22.1% blocked) and
-founding is now the spine-only rule, and three costs of the body remain
-that are design decisions, not defects — **a 5-segment ant seats 12 of 52
-on the played bed where a 2-cell ant seats 39**; one long body opens the
-plate the swarm test needs closed (the whole-body bite scan); a width-2
-colony cannot dig a roofed chamber and starves. The owner picks: re-derive
-founding, bite and dig for long bodies as a programme, or ship the design
-and keep the two-cell ant. Report §10–§12 on the branch carry the numbers.
+**Landed 2026-09-11** on the owner's ruling: *"Go with A, but the long ant
+should be an option that I can place."* PR #303/#311/#315/#316 land with
+the shipped ant kept at `Chain(2)` — both reds named above were about the
+body, not the tuck/founding/flip mechanics, and both clear once it
+reverts — and the seven-cell body moves onto `longant`
+(`assets/species/longant.ron`, `assets/lab_scenarios/played_bed_longant.
+ron`), a species placed rather than started with. Tuck and the on-by-
+default flip ship for every body; founding stays spine-only for the
+shipped ant. `longant`'s own costs (a 5-segment body seating 12 of 52
+where the shipped ant seats 39; its own body opening the plate the swarm
+test needs closed) are named, not chased. Report §13 on the branch has
+the numbers; superseded there is "a width-2 colony cannot dig a roofed
+chamber" — it was the body, and the shipped ant's chamber scene roofs
+again.
 
 **What binds from this round.** The breeding trade is **graded**, ruled in
 chat and recorded in commit `e5792206`; **a question that needs no visual is
