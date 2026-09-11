@@ -26,37 +26,64 @@ was **confounded** (a creature test that failed because plants reacted), or the
 |---|---|
 | `a09227ca` | `scripts/deadendindex.py` + index TSV + skeleton |
 | `3459b009` | the live-flag-is-not-a-live-arm finding |
-| `88fd2fd0` | 306 screened entries, rubric, calibration record, two checks |
+| `88fd2fd0` | first 306 screened entries, rubric, calibration record, two checks |
+| `eb05951b` | this handoff, mirrored into the repo |
+| `e2b6c362` | content-derived `stable_key` — positional ids were corrupting labels |
+| `34ac713b` | the creature slice; 473 of 779 screened |
 
-**306 of 773 screened.** DEAD 194 (63%), META 55, CONFOUNDED 16, COSTED 13,
-EXPIRED 12, UNBUILT 11, SUSPECT-INSTRUMENT 2, RE-TESTED 2, UNWIRED 1.
-**44 revival candidates (14%).** The register is mostly right; the value is in
+**473 of 779 screened (61%).**
+
+| label | n | | label | n |
+|---|--:|---|---|--:|
+| DEAD | 289 | | UNBUILT | 25 |
+| META | 77 | | COSTED | 16 |
+| CONFOUNDED | 39 | | EXPIRED | 14 |
+| RE-TESTED | 6 | | SUSPECT-INSTRUMENT | 5 |
+| UNWIRED | 1 | | LANDED | 1 |
+
+**75 revival candidates (16%).** The register is mostly right; the value is in
 locating the minority precisely.
 
-Slice b (plants + field, 201) is complete. Slice d (other, rendering, worldgen,
-scheduler, parallelism) has 105 of 193.
+| section | screened | total |
+|---|--:|--:|
+| plants | 165 | 165 |
+| creatures | 77 | 77 |
+| other | 105 | 107 |
+| liquids | 59 | 59 |
+| field | 36 | 36 |
+| weather | 24 | 24 |
+| character | 16 | 16 |
+| **destruction** | **0** | **99** |
+| **structural** | **0** | **90** |
+| **rendering** | **0** | **42** |
+| **worldgen** | **0** | **23** |
+| **powders** | **0** | **18** |
+| **scheduler** | **0** | **13** |
+| **parallelism** | **0** | **10** |
+
+The creature slice carried the owner's own hypothesis and confirmed it: **23 of
+176 came back `CONFOUNDED`**, the highest rate of any slice. Two entries worth
+naming, both turning on the 2026-09-06 rebuild — `creatures:039`, lateral
+sensors kept but unwired, whose re-test clause names *"a flier"* as the
+reopening trigger and `flitter` now exists with the sensors still unwired; and
+`creatures:066`, a `reproduce_threshold` proven arithmetically unreachable under
+an economy that has since been rebuilt in exactly the variables the proof rests
+on.
 
 ## Remaining work, in order — push after every step
 
-### 1. Mirror this plan into the repo, and merge `main`
+### 1. Finish screening (295 entries left)
 
-`branchcheck` reports **4 ahead / 84 behind, BxF 672** — past the 300 bar where
-merges get expensive. Merge `main`, run `bash scripts/docscheck.sh`
-unconditionally after it (CLAUDE.md), regenerate the index, push.
+Slice a (structural + destruction + powders, 207) is **in flight**. Then
+rendering + worldgen + scheduler + parallelism (88), plus two stragglers in
+`other`.
 
-### 2. Screen slice c — creatures, character, liquids, weather (172 entries)
-
-The owner's own hypothesis lives here, 92% of creature entries predate the
-2026-09-06 cluster, and it is where `UNWIRED` is most likely real.
-
-**One Sonnet agent, skeleton-first.** Slice b cost **253k tokens for 101 entries
-(~2.5k each)** because screeners opened full entries and cross-checked source;
-three runs died on rate limits. So: work from `SLICE_c.md`, open the register
-**only** for entries tagged `ALREADY-CONDITION-MET` or where the clause is
-genuinely ambiguous, cap source lookups, and **append every ~25 rows to the
-output file** so a window boundary costs the tail and not the run.
-
-Push the partial TSV after it lands, even if short.
+**One Sonnet screener at a time, skeleton-first.** Measured cost: **~1.7k tokens
+per entry** when the screener works from the skeleton with a capped lookup
+budget, against **2.5k** when it reads source — and the skeleton-first run
+opened the register **four times in 176 entries** with no loss of quality. Four
+parallel screeners exhaust a 5-hour window before finishing; three runs died
+that way.
 
 ### 3. Rank the 44+ candidates into a run order
 
