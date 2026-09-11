@@ -37,11 +37,27 @@ use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
 use pixel_physics::sim::update;
+use pixel_physics::sim::world::World;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
         .skip(1)
         .find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
+}
+
+/// The head cell of the first living animal of `species` (lowest organism id
+/// first) -- **P2's own card knob, `follow=` below.** Reads world state only;
+/// the camera write happens at the call site, which borrows `lab.renderer`
+/// separately, so the two can never conflict.
+fn head_of_first(world: &World, species: &str) -> Option<(i32, i32)> {
+    let sid = world.species.id_of(species)?;
+    world.live_organism_ids().into_iter().find_map(|id| {
+        let state = world.organism(id)?;
+        if state.species != sid {
+            return None;
+        }
+        state.chain.first().copied()
+    })
 }
 
 /// The bed's whole soil-water total, `soil_drawdown.rs`'s own census over
@@ -131,7 +147,35 @@ fn main() {
         assert_eq!(v.len(), 2, "center wants exactly x,y, got {s:?}");
         (v[0], v[1])
     });
+    // **`follow=<species>` -- P2's own card knob**
+    // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` Brief P2).
+    // Reuses `center=`'s zoom machinery below, but re-centres on the head of
+    // the first living animal of `species` every captured frame instead of
+    // on a fixed point, so a card can follow one animal across a hop rather
+    // than watching a column the animal may cross in one frame and leave
+    // the next. **Orthogonal to `center`: leaving `follow` unset takes
+    // neither new branch below and reproduces every existing card
+    // byte-for-byte**, the identical guarantee `center=`'s own doc states
+    // for itself -- the two knobs are additive, not a rewrite of one path.
+    let follow: Option<String> = arg::<String>("follow");
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
+    // **`up=N` -- a nearest-neighbour integer upscale of the `png_dir=`
+    // frames only**, `labstats`' own knob and for its own reason: the review
+    // page scales client-side, and the skill's measured bar is that the
+    // stills the owner has been able to judge are 700-950 px across, against
+    // a 190x130 crop he reported seeing none of the changes in. The lab
+    // canvas is 512x320, so a card of it is under that bar before it starts,
+    // and under a camera (`center=`/`follow=`) it stays 512x320 however far
+    // in the camera zooms -- the renderer puts fewer, bigger world cells in
+    // the same buffer rather than a bigger buffer.
+    //
+    // Nearest-neighbour, never a filter: every pixel here IS a world cell (or
+    // an integer block of one), and a smoothed edge would invent gradients
+    // the simulation does not have. Deliberately does not touch the GIF --
+    // the skill says never to carry a zoom into the queue in a GIF, because
+    // the page can already zoom one client-side, and the frame view is what
+    // it says to prefer anyway.
+    let up: u32 = arg("up").unwrap_or(1).max(1);
     // **`crop=x,y,w,h`, `filmstrip`'s own convention, added rather than
     // relying on `zoom` alone** -- the review skill is explicit that a GIF
     // should never carry `zoom` into the queue (`image-rendering: pixelated`
@@ -229,10 +273,11 @@ fn main() {
         lab.stats.toggle();
     }
     println!(
-        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} out={out} mark={mark} png_dir={}",
+        "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out} mark={mark} png_dir={} up={up}",
         lab.spec.colony_species,
         rain.label(),
         crop.map_or_else(|| "none".to_string(), |(x, y, w, h)| format!("{x},{y},{w},{h}")),
+        follow.as_deref().unwrap_or("none"),
         png_dir.as_deref().unwrap_or("none")
     );
     println!("  {msg}");
@@ -261,14 +306,29 @@ fn main() {
     // decides which world cells `lab.draw` puts into the frame at all;
     // `crop` trims the rendered frame afterward, exactly as `filmstrip`'s
     // own crop does -- a `center` shot can still be cropped tighter.
-    if let Some((ccx, ccy)) = center {
+    // `follow` reuses this same zoom/bounds/span setup -- see its own doc
+    // above. Neither `adjust_zoom` nor the two reads below run at all when
+    // both `center` and `follow` are unset, which is the byte-identity
+    // `center=`'s own doc already promises and `follow=` inherits for free.
+    let camera_mode = center.is_some() || follow.is_some();
+    if camera_mode {
         for _ in 1..zoom {
             lab.renderer.adjust_zoom(1);
         }
-        let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
-        let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    }
+    let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
+    let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    if let Some((ccx, ccy)) = center {
         lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
         println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
+    } else if let Some(species) = &follow {
+        match head_of_first(&lab.world, species) {
+            Some((hx, hy)) => {
+                lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+                println!("  camera following {species} at ({hx},{hy}) at frame {start}, {zoom}x -- {span_x}x{span_y} world cells visible");
+            }
+            None => println!("  follow={species}: no live animal of that species at frame {start} -- camera left at default"),
+        }
     }
     // The crop rect, clamped into the real frame so an out-of-bounds request
     // (a flower head near an edge, plus margin) shrinks rather than reading
@@ -284,6 +344,19 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
+            // **`follow=` re-centres every captured frame**, not every
+            // tick -- the animal drifts between captures the same amount
+            // either way, and re-centring only where a frame is actually
+            // drawn is cheaper for no visible difference. If the followed
+            // animal has died or is not found this frame, the camera is
+            // simply left where it last was rather than snapping to the
+            // world origin -- a card that loses its animal mid-run should
+            // show the last place it was, not jump.
+            if let Some(species) = &follow {
+                if let Some((hx, hy)) = head_of_first(&lab.world, species) {
+                    lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
+                }
+            }
             let mut full = vec![0u8; (full_w * full_h * 4) as usize];
             lab.draw(&mut full, 60.0);
             // **Ring before crop**, so the ring is just another part of the
@@ -339,14 +412,26 @@ fn main() {
                 }
                 cropped
             };
-            // **`center=`'s zoom already happened inside `lab.draw`** -- the
+            // **A camera zoom already happened inside `lab.draw`** -- the
             // renderer put fewer, bigger world cells into `full` (and so
             // into `buf`) itself, so replicating pixels again here would
-            // zoom twice. Without `center`, `zoom` is still this file's
+            // zoom twice. With no camera at all, `zoom` is still this file's
             // original pixel replicate of whatever `crop` left (or the
             // whole frame).
-            let (zw, zh) = if center.is_some() { (w, h) } else { (w * zoom, h * zoom) };
-            let zoomed = if center.is_some() || zoom == 1 {
+            //
+            // **`camera_mode`, not `center.is_some()`, and that was a real
+            // bug for a day.** `follow=` arrived reusing `center=`'s zoom
+            // machinery and claiming to be orthogonal to it, and this one
+            // test was left reading `center` alone -- so a `follow=` card
+            // zoomed twice: `zoom=6` put 85x53 world cells in the 512x320
+            // buffer AND replicated every pixel six times, giving a
+            // 3072x1920 frame, and a `crop=` written in that frame's
+            // coordinates was clamped against the real 512x320 buffer to a
+            // **4x4 image**. The tell was the log line, which prints the
+            // shot's own size rather than a recomputed one -- the same
+            // guard that caught this file's last size lie, two comments up.
+            let (zw, zh) = if camera_mode { (w, h) } else { (w * zoom, h * zoom) };
+            let zoomed = if camera_mode || zoom == 1 {
                 buf
             } else {
                 let mut out_buf = vec![0u8; (zw * zh * 4) as usize];
@@ -362,7 +447,16 @@ fn main() {
             if let Some(img) = image::RgbaImage::from_raw(zw, zh, zoomed) {
                 if let Some(dir) = &png_dir {
                     let path = std::path::Path::new(dir).join(format!("frame_{:04}_f{f}.png", shots.len()));
-                    if let Err(e) = img.save(&path) {
+                    // **`up=` scales the file, never the `shots` entry**: the
+                    // GIF keeps the real pixels (see `up`'s own doc), and the
+                    // size the log prints at the end is still read off the
+                    // shot rather than recomputed.
+                    let saved = if up == 1 {
+                        img.save(&path)
+                    } else {
+                        image::imageops::resize(&img, img.width() * up, img.height() * up, image::imageops::FilterType::Nearest).save(&path)
+                    };
+                    if let Err(e) = saved {
                         eprintln!("labgif: png_dir frame {}: {e}", path.display());
                     }
                 }
