@@ -1,0 +1,68 @@
+{
+  "id": "20260911T050155056Z-03c9e3",
+  "created": "2026-09-11T05:01:55Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f",
+    "branch": "claude/lab-garden-fix-r28",
+    "commit": "7e7166d4",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-a8612e5265a1cf05f"
+  },
+  "title": "The pip survives the dig now",
+  "question": "The ringed pip is delivered at frame 91,806 and is still standing at 92,040 (234 frames later, against 5 before this fix) -- the dig verb no longer clears it as spoil. Does it read as \"safe from the colony\" even though it has not sprouted?",
+  "context_md": "Round 28, second half (`Reports/lanes/evolution-lab-garden-fix.md`). Diagnosis: the dig verb's own `ground` test could not tell a live seed from ordinary dirt (`pip` is `Powder`-kind), so it was clearing delivered pips as spoil with no counter seeing it -- confirmed by tracing this exact mechanism and by a guard test put back red before being trusted. Fixed at the dig dispatch site: a cell that is organism-owned `CellType::Seed` is skipped rather than dug.\n\nMeasured 3 seeds x 120,000 frames, played bed: the dig-diverted-seed counter fires 6/22/26 times per seed (the mechanism was real and is now closed). But `pip_checks` -- first Germinate evaluation -- is still 0 on every seed. This pip (seed 3) is the longest-surviving example across both rounds: it rolls a little as a Powder, stands for roughly 400 frames total, and then still rots (`pips_rotted`), because the whole carried span's decay hazard is settled in one roll at the moment of delivery, and a long carry (this one: over 1,000 frames) can lose that roll before the cell has stood for a single tick of Germinate's own schedule. So the dig fix is real and verified, and the loop's next blocker is decay racing the germinate check, not predation.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "seed=3, frames 91,790-92,040, ringed on the pip's own cell",
+      "files": [
+        "20260911T050155056Z-03c9e3/000-00.png",
+        "20260911T050155056Z-03c9e3/001-01.png",
+        "20260911T050155056Z-03c9e3/002-02.png",
+        "20260911T050155056Z-03c9e3/003-03.png",
+        "20260911T050155056Z-03c9e3/004-04.png",
+        "20260911T050155056Z-03c9e3/005-05.png",
+        "20260911T050155056Z-03c9e3/006-06.png",
+        "20260911T050155056Z-03c9e3/007-07.png",
+        "20260911T050155056Z-03c9e3/008-08.png",
+        "20260911T050155056Z-03c9e3/009-09.png",
+        "20260911T050155056Z-03c9e3/010-10.png",
+        "20260911T050155056Z-03c9e3/011-11.png",
+        "20260911T050155056Z-03c9e3/012-12.png",
+        "20260911T050155056Z-03c9e3/013-13.png",
+        "20260911T050155056Z-03c9e3/014-14.png",
+        "20260911T050155056Z-03c9e3/015-15.png",
+        "20260911T050155056Z-03c9e3/016-16.png",
+        "20260911T050155056Z-03c9e3/017-17.png",
+        "20260911T050155056Z-03c9e3/018-18.png",
+        "20260911T050155056Z-03c9e3/019-19.png",
+        "20260911T050155056Z-03c9e3/020-20.png",
+        "20260911T050155056Z-03c9e3/021-21.png",
+        "20260911T050155056Z-03c9e3/022-22.png",
+        "20260911T050155056Z-03c9e3/023-23.png",
+        "20260911T050155056Z-03c9e3/024-24.png",
+        "20260911T050155056Z-03c9e3/025-25.png"
+      ],
+      "caption": "delivered frame 91,806, still standing at 92,040 -- eventually rots around frame 92,234, not eaten or dug",
+      "meta": {
+        "dig_diverted_seed, 3 seeds": "6 / 22 / 26",
+        "pips_eaten, before this fix -> after": "0/6/0 -> 0/1/0",
+        "pip_checks, 3 seeds (still 0)": 0,
+        "plants_from_pip, 3 seeds (still 0)": 0,
+        "this pip's standing span": "~428 frames (round 28's traced example: 5)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
