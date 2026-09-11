@@ -1,0 +1,56 @@
+{
+  "id": "20260911T045346536Z-2fc82f",
+  "created": "2026-09-11T04:53:46Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/confident-galileo-68ljjw",
+    "commit": "30473539",
+    "agent": null,
+    "session_id": "f1fc4424-6ad6-55e1-93cb-149538c665e9",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The columns in the soil overlay: keep them, or level the bed sideways?",
+  "question": "Do you want the flat water table (B), knowing it costs about a tenth of the lab's tick -- or is the striping fine because you only ever see it with the overlay on?",
+  "context_md": "Your second question, answered: **the columns are not roots and not plants.** Both pictures below are an **empty box** -- nothing alive in it at all -- with the mister at its shipped rate for 24,000 frames. The striping is the water rules on their own.\n\nWhat holds them apart is capillary's wide rest threshold. Above field capacity two neighbouring cells are declared level if they differ by less than **380 of 1000**, so a plume that soaks in at one spot descends as a column and can never spread into its neighbours. Every pair in the bed is at rest, and the widest standing gap is **exactly 380** -- sitting on the constant.\n\nIt was put there to stop water pumping back and forth between drainage and capillary for ever. That argument is about the **vertical** pair, and drainage only ever moves water down -- so sideways it is guarding against nothing. **B** is the same bed with the sideways face narrowed and nothing else changed.\n\n**My recommendation is A -- leave it.** Rendered in the normal material colours the striped bed is a plain brown slab; you cannot see any of this without the overlay on. And the wide threshold only applies *above* field capacity, so the whole band a seed or a root actually cares about already levels. The one thing that would change my mind is the **water table**: under A it is a comb of spikes, so neighbouring columns would flood an ant's gallery at different depths.\n\nIt ships as a switch either way (), off by default, so this is reversible and costs a run to revisit.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- as it ships",
+      "files": [
+        "20260911T045346536Z-2fc82f/000-col-shipped-soil.png"
+      ],
+      "caption": "columns, and a spiky water table on the floor",
+      "meta": {
+        "widest standing difference between neighbouring columns": "380 of 1000",
+        "wettest and driest column": "682 and 600",
+        "soil-moisture writes per tick": 1701,
+        "lab tick, median ms": 0.754
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- levelled sideways",
+      "files": [
+        "20260911T045346536Z-2fc82f/001-col-level-soil.png"
+      ],
+      "caption": "the same bed, water table flat",
+      "meta": {
+        "widest standing difference between neighbouring columns": "0",
+        "wettest and driest column": "656 and 609",
+        "soil-moisture writes per tick": 2455,
+        "lab tick, median ms": 0.828
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
