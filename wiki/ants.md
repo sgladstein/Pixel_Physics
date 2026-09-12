@@ -353,6 +353,16 @@ is not a move at all: there is nothing to turn. They are held in place by
 the bodies around them and nothing they can do changes that. Why a long ant
 ends up one cell long is not yet known.
 
+**And the ant you notice standing still may not be stuck at all.** Watch a
+crowded bed for a while and the animals that draw the eye are big
+full-length ones that hold one spot for a minute of play or more. Follow one
+and it is not wedged: there is open ground beside it, it never once tries a
+step and fails, and it is not waiting on anybody. It eats, it holds its
+load, and it simply does not set off. That is a third thing, separate from
+both the jam and the cut-down bodies, and nothing about turning round
+touches it -- an ant with somewhere to go that never goes there is not
+short of room.
+
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
 something the game does for it, and the ants that come with the game have

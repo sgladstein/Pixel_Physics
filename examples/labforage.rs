@@ -320,7 +320,7 @@ impl CellProbe {
     }
 
     fn due(&self, f: u64) -> bool {
-        f >= self.from && f <= self.to && f % self.every == 0
+        f >= self.from && f <= self.to && f.is_multiple_of(self.every)
     }
 
     fn sample(&mut self, world: &World, f: u64) {
@@ -537,6 +537,62 @@ struct Piles {
     /// Ids already counted into `first_age_*`, so each animal contributes
     /// its *first* boxed tick once rather than every stop of its streak.
     first_boxed_seen: std::collections::HashSet<u16>,
+    /// **The population the pile census cannot see, and the one the owner's
+    /// own markers landed on.** `body_boxed` requires `open == 0`; an animal
+    /// with somewhere to go is excluded by construction, however long it
+    /// stands there. Round 29's second card came back with three markers on
+    /// three full-length long ants reading `open` 3, 1 and 1 -- none of them
+    /// in any column of this census, in either arm.
+    ///
+    /// `idle_with_room` counts per-animal readings where the animal had at
+    /// least one legal heading and its head had not moved since the previous
+    /// stop; `idle_with_room_long` is the same over bodies of three cells or
+    /// more, which is what the owner was looking at. `moving` is the paired
+    /// denominator -- readings where the head *did* move -- so the pair is a
+    /// rate rather than a count that grows with the colony.
+    ///
+    /// `CLAUDE.md`'s *ask what your number counts when nothing is wrong*: on
+    /// a bed whose animals are all walking this reads 0, and the two-cell ant
+    /// control is the specificity check the same way it is for `body_boxed`.
+    idle_with_room: u64,
+    idle_with_room_long: u64,
+    moving: u64,
+    /// Head cell per animal at the previous stop, so "did not move" is a
+    /// measurement rather than an inference from `moves_blocked` -- which is
+    /// exactly the counter that stays flat for this population.
+    heads: std::collections::HashMap<u16, (i32, i32)>,
+    /// **The rate above is not the finding, and its own control says so.**
+    /// Measured 2026-09-12 on the shipped two-cell ant (`played_bed`, seed
+    /// 3, 30,400 frames): `idle_with_room` **4,543 of 6,040 readings, 75%**,
+    /// against 74-76% for the long ant on the same scene shape. An ant that
+    /// is not walking this instant is an ordinary ant in both species, and a
+    /// rate cannot tell that apart from the thing the owner reported --
+    /// `CLAUDE.md`'s *ask what your number counts when nothing is wrong*,
+    /// caught by running the control before trusting the number.
+    ///
+    /// What separates them is **duration**: a two-cell ant resting across
+    /// one stop is invisible, and a seven-cell body holding one cell for a
+    /// whole 2,400-frame window is what a player points at. So this is the
+    /// same streak machinery `hist`/`max_streak` runs over `body_boxed`, run
+    /// instead over "had somewhere to go and did not go", for bodies of
+    /// three cells or more.
+    idle_live: std::collections::HashMap<u16, u32>,
+    idle_hist: std::collections::BTreeMap<u32, u64>,
+    idle_max_streak: u32,
+    /// **The same streak over *every* body size, because the 3+-cell one
+    /// cannot be controlled.** The shipped two-cell ant is the specificity
+    /// control for everything else in this census, and for the pair above it
+    /// is **vacuous**: a two-cell body never satisfies `chain.len() >= 3`,
+    /// so the control reads 0 by construction whether or not a shipped ant
+    /// stands still for minutes. `CLAUDE.md`'s *a change that moves nothing
+    /// is different evidence from one that moves a little* -- an
+    /// always-zero control is not a control. These three are the same
+    /// measure with the body-length gate removed, so `played_bed` produces a
+    /// real number and the long ant's tail has something to be long
+    /// *against*.
+    idle_live_any: std::collections::HashMap<u16, u32>,
+    idle_hist_any: std::collections::BTreeMap<u32, u64>,
+    idle_max_streak_any: u32,
 }
 
 impl Piles {
@@ -549,6 +605,9 @@ impl Piles {
     /// three things the two candidate mechanisms differ on.
     fn sample(&mut self, world: &World, f: u64, follow: bool) -> usize {
         self.stops += 1;
+        let mut next_heads: std::collections::HashMap<u16, (i32, i32)> = std::collections::HashMap::new();
+        let mut next_idle: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
+        let mut next_idle_any: std::collections::HashMap<u16, u32> = std::collections::HashMap::new();
         let mut members: Vec<u16> = Vec::new();
         let mut reads: Vec<pixel_physics::sim::creature::HeadBlock> = Vec::new();
         let mut longs: Vec<bool> = Vec::new();
@@ -566,6 +625,31 @@ impl Piles {
                 } else {
                     self.both += 1;
                 }
+            }
+            // **Every animal, not only the boxed ones** -- the whole point
+            // is that this population is not boxed. Read before the
+            // `body_boxed` branch below so the two are independent.
+            let head_now = world.organism(id).and_then(|st| st.chain.first().copied());
+            if let Some(h) = head_now {
+                let stood = self.heads.get(&id) == Some(&h);
+                let long_body = world.organism(id).is_some_and(|st| st.chain.len() >= 3);
+                if stood {
+                    if b.open > 0 {
+                        self.idle_with_room += 1;
+                        let any = self.idle_live_any.get(&id).copied().unwrap_or(0) + 1;
+                        self.idle_max_streak_any = self.idle_max_streak_any.max(any);
+                        next_idle_any.insert(id, any);
+                        if long_body {
+                            self.idle_with_room_long += 1;
+                            let n = self.idle_live.get(&id).copied().unwrap_or(0) + 1;
+                            self.idle_max_streak = self.idle_max_streak.max(n);
+                            next_idle.insert(id, n);
+                        }
+                    }
+                } else {
+                    self.moving += 1;
+                }
+                next_heads.insert(id, h);
             }
             if b.body_boxed() {
                 self.body_boxed += 1;
@@ -635,6 +719,24 @@ impl Piles {
             }
         }
         self.live = next;
+        // Swapped wholesale, so an animal that died has no stale head and
+        // its id being reused cannot read as "stood still".
+        self.heads = next_heads;
+        // A streak closes the moment the animal moves, dies, or drops below
+        // three cells -- all three are simply an id absent from `next_idle`,
+        // and all three are real ends of standing still.
+        for (id, &n) in &self.idle_live {
+            if !next_idle.contains_key(id) {
+                *self.idle_hist.entry(n).or_default() += 1;
+            }
+        }
+        self.idle_live = next_idle;
+        for (id, &n) in &self.idle_live_any {
+            if !next_idle_any.contains_key(id) {
+                *self.idle_hist_any.entry(n).or_default() += 1;
+            }
+        }
+        self.idle_live_any = next_idle_any;
 
         // **One animal, named** -- the longest live streak at this stop,
         // with everything the two candidate mechanisms differ on: whether
@@ -708,6 +810,35 @@ impl Piles {
 
     fn median_streak_long(&self) -> u32 {
         Self::median_of(&self.hist_long)
+    }
+
+    /// The 90th percentile of the *idle-with-room* streak histogram, in
+    /// sample stops. An order statistic rather than a mean, per `CLAUDE.md`:
+    /// this distribution is the long tail, and a mean over a population that
+    /// is 75% one-stop rests says nothing about the animal a player is
+    /// pointing at.
+    fn idle_streak_p90(&self) -> u32 {
+        Self::p90_of(&self.idle_hist)
+    }
+
+    /// The control's own p90 -- see `idle_live_any`.
+    fn idle_streak_p90_any(&self) -> u32 {
+        Self::p90_of(&self.idle_hist_any)
+    }
+
+    fn p90_of(hist: &std::collections::BTreeMap<u32, u64>) -> u32 {
+        let total: u64 = hist.values().sum();
+        if total == 0 {
+            return 0;
+        }
+        let mut seen = 0u64;
+        for (&len, &n) in hist {
+            seen += n;
+            if seen * 10 >= total * 9 {
+                return len;
+            }
+        }
+        hist.keys().next_back().copied().unwrap_or(0)
     }
 
     fn median_of(hist: &std::collections::BTreeMap<u32, u64>) -> u32 {
@@ -1927,7 +2058,10 @@ fn main() {
          pile_body_boxed_long={} pile_body_boxed_short={} pile_body_boxed_laden={} pile_largest_long={} \
          pile_streaks_long={} pile_streak_median_long={} pile_streak_max_long={} \
          pile_short_by_genome={} pile_short_by_loss={} pile_short_max_gen={} \
-         pile_short_genome_cells={} pile_short_have_cells={} pile_short_first_boxed_age={} pile_long_first_boxed_age={}",
+         pile_short_genome_cells={} pile_short_have_cells={} pile_short_first_boxed_age={} pile_long_first_boxed_age={} \
+         idle_with_room={} idle_with_room_long={} moving={} \
+         idle_streaks_long={} idle_streak_max_long={} idle_streak_p90_long={} \
+         idle_streaks_any={} idle_streak_max_any={} idle_streak_p90_any={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -2167,8 +2301,28 @@ fn main() {
         // glance; the raw sums are one multiplication away if needed.
         piles.short_genome_sum,
         piles.short_chain_sum,
-        if piles.short_first_age_n > 0 { piles.short_first_age_sum / piles.short_first_age_n } else { 0 },
-        if piles.long_first_age_n > 0 { piles.long_first_age_sum / piles.long_first_age_n } else { 0 }
+        piles.short_first_age_sum.checked_div(piles.short_first_age_n).unwrap_or(0),
+        piles.long_first_age_sum.checked_div(piles.long_first_age_n).unwrap_or(0),
+        // **The population `body_boxed` excludes by construction** -- see
+        // `Piles::idle_with_room`. Read `idle_with_room_long` against
+        // `moving`: that ratio is the owner's *"standing still"* for the
+        // bodies he was looking at, and no other column in this line
+        // contains it.
+        piles.idle_with_room,
+        piles.idle_with_room_long,
+        piles.moving,
+        // **The duration half, which is the finding the rate above is not.**
+        // `idle_streak_max_long` is in sample stops; multiply by `sample=`
+        // for frames. p90 rather than the mean, per `CLAUDE.md` on order
+        // statistics over chaotic outcomes.
+        piles.idle_hist.values().sum::<u64>(),
+        piles.idle_max_streak,
+        piles.idle_streak_p90(),
+        // ...and the same with the body-length gate removed, so the shipped
+        // two-cell ant can act as a control at all. See `idle_live_any`.
+        piles.idle_hist_any.values().sum::<u64>(),
+        piles.idle_max_streak_any,
+        piles.idle_streak_p90_any()
     );
     if let Some(p) = probe.as_ref() {
         p.report();
