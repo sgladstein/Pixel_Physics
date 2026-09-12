@@ -3039,6 +3039,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   being that three documents and two reviewers argued about how deep a
   depletion zone was when one census answered it in thirty seconds.
 
+- [evolution-lab-zoom-in-design-2026-09-12.md](evolution-lab-zoom-in-design-2026-09-12.md)
+  — **design + one instrument, verdicts pending.** What zooming *in* should
+  look like — and, after the remit widened mid-lane with the owner's *"I am
+  open to different visual styles"*, what the game should look like with
+  magnification as the entry point. `examples/zoomin.rs` renders filters and
+  *styles* (cell-art, soft, illustrated with curved silhouettes and ink,
+  painted, lit, textured cell-art) at 8x and at play scale, each with its
+  ns/px. Build first, under any style: **draw** the per-cell state the 1:1
+  render can only encode — a part-full water cell's fill as a level line, ~1
+  ns/px. Author's style pick is *illustrated*: the only look that answers
+  "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
+  style question deserves its own round and what it does first. Two cards.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
