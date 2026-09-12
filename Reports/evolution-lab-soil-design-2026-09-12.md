@@ -645,10 +645,17 @@ coordinator note carries the correction.
   old surface. The ground the owner cannot tunnel is what has not become
   soil yet, and the property it lacks is `packs_into`, not
   `self_supporting`.
-- **The card's first posting** (`20260912T051541289Z-3b03d3`) was overwritten
-  in the shared queue by another lane's card under the same id, and the
-  owner's comment recorded against it is about that card; it was re-posted
-  as `20260912T181533048Z-7a5aab`.
+- **The card's first posting did not reach the queue under the id this lane
+  recorded**, so the verdict it went looking for belongs to someone else's
+  work. `20260912T051541289Z-3b03d3` is round 29's cohesion card, on
+  `claude/lab-cohesion-r29`, and the owner's comment against it is about that
+  build. **It was never overwritten** — checked rather than assumed:
+  `git rev-list --count origin/review-queue -- cards/20260912T051541289Z-3b03d3.json`
+  returns **1**, a single revision. Why this lane held that id is not
+  established and is not guessed at here. Re-posted as
+  `20260912T181533048Z-7a5aab`, which is on the queue branch with its media.
+  **The transferable part is the check**: a card id is a claim about a shared
+  branch, and one command settles it.
 
 ## 7. The instrument
 
