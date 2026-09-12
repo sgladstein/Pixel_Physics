@@ -569,12 +569,68 @@ fn main() {
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
     let mut culled = 0usize;
+    /// **Where the colony actually lives, against where its nest was
+    /// painted.**
+    ///
+    /// The owner's own observation, 2026-09-12, on review card
+    /// `20260912T051541289Z-3b03d3`: *"where is the nest/home defined as
+    /// because I see ant populations moved from where they are originally
+    /// placed and just live in the plants where there is food."* A nest that
+    /// holds an odour is anchored to a **place**, so if the colony has left
+    /// that place the anchor is anchored to nothing and every claim about
+    /// cohesion is bounded by how often anybody still touches it.
+    ///
+    /// This is the instrument that answers it rather than assuming either
+    /// way, and it is a **standing** census rather than an event rate:
+    /// `CLAUDE.md`'s rule that a visible, persistent complaint wants the
+    /// standing state. Distance is from the head cell to the nearest nest
+    /// site, and the bands are the body (8), a nest patch's own half-width
+    /// (32, against `COLONY_HALF_WIDTH` 26) and a short forage (64).
+    fn nest_occupancy(w: &World) -> (usize, usize, usize, usize, f64, f64) {
+        let (mut live, mut near8, mut near32, mut near64) = (0usize, 0usize, 0usize, 0usize);
+        let (mut sum_d, mut sum_x) = (0.0f64, 0.0f64);
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism(id) else { continue };
+            if w.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            live += 1;
+            sum_x += x as f64;
+            let Some(i) = w.nearest_nest_site(x, y) else { continue };
+            let n = &w.nest_sites[i];
+            let d = (((n.x - x) as f64).powi(2) + ((n.y - y) as f64).powi(2)).sqrt();
+            sum_d += d;
+            if d <= 8.0 {
+                near8 += 1;
+            }
+            if d <= 32.0 {
+                near32 += 1;
+            }
+            if d <= 64.0 {
+                near64 += 1;
+            }
+        }
+        let mean_d = if live > 0 { sum_d / live as f64 } else { 0.0 };
+        // The colony's centroid against the founding patch's own column --
+        // the mean distance above counts an ant that has gone left and one
+        // that has gone right as both far; this says whether the *colony* has
+        // moved somewhere else, which is the owner's actual claim.
+        let centroid = if live > 0 { sum_x / live as f64 } else { 0.0 };
+        let from_patch = w.nest_sites.first().map_or(0.0, |n| (centroid - n.x as f64).abs());
+        (live, near8, near32, near64, mean_d, from_patch)
+    }
+
     // **The split counter, summed rather than only printed when it fires.**
     // `regroup_by_scent`'s return was going to a conditional line, so a run
     // that split twice early and never again read the same as one that never
     // split at all once the log scrolled. This is the number the cohesion
     // guard is stated over.
     let mut mints = 0usize;
+    // Blends at the last `NEST` window, so each row reports the window
+    // rather than the run to date -- a cumulative figure cannot say whether
+    // the colony stopped coming home halfway through.
+    let mut blends_before = 0u64;
 
     for f in 0..=frames {
         if f == cull_at {
@@ -601,6 +657,25 @@ fn main() {
         lab.stats.observe(&lab.world);
         if f % 900 == 0 || f == frames {
             line(&lab.stats, &lab.world);
+        }
+        // **The nest-occupancy window** -- see `nest_occupancy`. Printed on
+        // its own cadence so it reads as a column of its own rather than
+        // being lost in the population line, and paired with the blends
+        // applied *in that window*: a band that empties while blends keep
+        // arriving is a colony that commutes, and one where both fall to zero
+        // is a colony that has left.
+        if f > 0 && f % 10_000 == 0 {
+            let (live, n8, n32, n64, mean_d, from_patch) = nest_occupancy(&lab.world);
+            let blends = lab.world.creature_stats.nest_blends;
+            let pct = |n: usize| if live > 0 { 100.0 * n as f64 / live as f64 } else { 0.0 };
+            println!(
+                "  NEST f={f:>7} alive {live:>4} | within 8 {n8:>4} ({:>5.1}%) 32 {n32:>4} ({:>5.1}%) 64 {n64:>4} ({:>5.1}%) | mean dist {mean_d:>7.1} | centroid {from_patch:>6.1} from patch | blends this window {}",
+                pct(n8),
+                pct(n32),
+                pct(n64),
+                blends - blends_before
+            );
+            blends_before = blends;
         }
         if f < frames {
             tick(&mut lab);
