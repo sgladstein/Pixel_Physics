@@ -11,9 +11,9 @@
     "user": null,
     "cwd": "/home/user/Pixel_Physics"
   },
-  "title": "Zoomed all the way out: which one still has the plants in it?",
-  "question": "Which of these three reads as crisp, with the plants and the ground both there? Pick one.",
-  "context_md": "You reported that zooming all the way out made pixels of plants and other foreground things disappear. They were disappearing: at the widest zoom-out one screen dot has to stand for a 4x4 square of the world, and the view was drawing whichever cell sat at the corner of that square and throwing the other fifteen away. A stem one cell wide had three chances in four of landing in a gap.\n\nEach pane is the same two worlds at the same moment, top the lab bed and bottom the outdoor coast, magnified 2x. **Same world, same seed, same frame in all three** -- only the choosing rule differs.\n\n**The counts under each pane** say how many screen dots actually have a plant or an animal in them, measured by rendering the same world twice and erasing all the life in the second, so it cannot be fooled by colour. *changed* is how many dots differ from the current build: one of these repaints almost the whole screen and two barely touch it.\n\nWhat I am unsure of and would rather you judged than I argued: whether the busiest option is genuinely better to look at, or just *more*. One pane also softens everything, which I expect you to dislike -- but that is the obvious fix a lot of people would reach for, so it is here to be turned down rather than assumed away.\n\nAll three are live behind **shift and the zoom-out key**, so nothing here is a one-way door.",
+  "title": "Zoomed all the way out: which of these three should be the picture?",
+  "question": "Which one do you want as the default at the widest zoom-out? Pick one.",
+  "context_md": "You reported that zooming all the way out made pixels of plants and other foreground things disappear. They were: at the widest zoom-out one screen dot has to stand for a 4x4 square of the world, and the view drew whichever cell sat at the corner of that square and threw the other fifteen away.\n\n**134 of the bed's 512 screen columns lost their plant entirely.** That is the damage, and it is about *where* the green went rather than how much of it there was -- the current build draws almost exactly the right amount of plant for the area (1.01x), it just puts it in the wrong columns and leaves the rest bare.\n\nEach pane is the same two worlds at the same moment, the lab bed on top and an outdoor coast below, magnified 2x. **Same world, same seed, same frame in all three** -- only the rule for choosing what a dot draws differs.\n\n**What you are trading, stated plainly.** Once a dot stands for sixteen cells, a square with one stem in it either shows the stem at a whole dot's worth of ink or shows nothing. There is no third option, so anything that stops losing stems also draws them bigger than they are. In the bed, plants come out about **2.8x** their true area, ants about **7x** -- though an ant at 7x is still only four dots on the whole screen, where today it is usually none. Big things are unaffected: the sea in the outdoor pane is drawn at 1.15x.\n\n**The last two panes are the same picture areally** -- they put life on the same 1,638 dots out of 1,637, a difference of one. So this is not a question about which is more accurate. It is entirely a question of which you would rather look at: one keeps every dot a real cell's own colour, the other blends the square. The counts cannot tell them apart and neither can I; only your eye can.\n\n*changed* under each pane says how many dots differ from the current build -- one repaints almost the whole screen, the other two barely touch it. *ms to redraw* is what it costs while you are panning; standing still, all three are free.\n\nAll three are live behind **shift and the zoom-out key**, so nothing here is a one-way door.",
   "kind": "gallery",
   "blind": true,
   "blocking": false,
@@ -27,13 +27,15 @@
       "meta": {
         "dots with a plant or animal in them": 548,
         "screen columns with life in them": "189 of 512",
+        "plant drawn at this much of its true size": "1.01x",
+        "ants drawn at this much of their true size": "0.51x",
         "dots changed vs the current build": 0,
-        "milliseconds to redraw while panning": 1.45
+        "milliseconds to redraw while panning": 1.49
       },
       "focus": null
     },
     {
-      "label": "most-worth-seeing cell",
+      "label": "a real cell's own colour",
       "files": [
         "20260912T041559012Z-1b7300/001-card-coverage.png"
       ],
@@ -41,13 +43,15 @@
       "meta": {
         "dots with a plant or animal in them": 1638,
         "screen columns with life in them": "323 of 512",
+        "plant drawn at this much of its true size": "2.76x",
+        "ants drawn at this much of their true size": "7.32x",
         "dots changed vs the current build": 1311,
-        "milliseconds to redraw while panning": 4.47
+        "milliseconds to redraw while panning": 4.67
       },
       "focus": null
     },
     {
-      "label": "blended square",
+      "label": "the square blended",
       "files": [
         "20260912T041559012Z-1b7300/002-card-average.png"
       ],
@@ -55,8 +59,10 @@
       "meta": {
         "dots with a plant or animal in them": 1637,
         "screen columns with life in them": "322 of 512",
+        "plant drawn at this much of its true size": "2.86x",
+        "ants drawn at this much of their true size": "7.23x",
         "dots changed vs the current build": 141617,
-        "milliseconds to redraw while panning": 15.6
+        "milliseconds to redraw while panning": 14.88
       },
       "focus": null
     }
