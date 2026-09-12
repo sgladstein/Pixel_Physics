@@ -1,6 +1,14 @@
 # Ants
 
-*Current as of: 2026-09-11, evening, when **a bed was built for the flitter
+*Current as of: 2026-09-12, when **a long ant stops waiting for a nestmate
+that is never going to move**. A long ant that is carrying something waits
+out a jam rather than turning for home -- and it used to wait for ever,
+because the ant in its way was often stuck for the same reason. It now
+waits a few beats and then turns round. See "And a long ant can now turn
+round" below. The census that found it also found something nobody had
+looked for: **most of what piles up in a long-run colony is not long
+animals at all** but ones whose bodies have been reduced to a cell or two,
+and for those turning round is not a move. Earlier, 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
@@ -313,6 +321,30 @@ comings and goings can make the one open path look blocked for a moment: it
 will wait out a jam from a nestmate rather than turn for home and walk away
 from a door it was about to reach, and only turns end for end when nothing
 in its way is going to move on its own.
+
+**But the wait now ends.** Waiting for a nestmate to move only works if the
+nestmate is going to move, and in a crowded nest it very often is not --
+it is standing still for the same reason, behind an ant that is standing
+still behind an ant. A carrying long ant used to wait out that jam for the
+rest of its life, standing in one place with only its head turning, and a
+group of them locked together made the pile a player actually notices. It
+now gives the ant in front a few beats to move and then turns round anyway.
+A short ant is not affected: it can simply step backwards, so waiting never
+cost it anything.
+
+What that buys and what it costs are both worth saying, because they are
+the same thing. A colony that stops standing still starts walking, and
+walking is what an ant spends its food on: the colony that comes out of a
+long session is smaller and hungrier, and it carries more home. Whether
+that trade is the right one is a question about how much a long ant should
+have to eat, not about turning round, and it has not been settled.
+
+**And a pile is usually not what it looks like.** Follow one for long
+enough and most of the animals wedged in it turn out to be ants whose
+bodies have been cut down to a cell or two -- and for those, turning round
+is not a move at all: there is nothing to turn. They are held in place by
+the bodies around them and nothing they can do changes that. Why a long ant
+ends up one cell long is not yet known.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
