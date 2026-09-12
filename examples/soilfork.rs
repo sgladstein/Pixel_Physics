@@ -290,6 +290,12 @@ struct Footprint {
     packed_above: usize,
     packed_below: usize,
     soil_above: usize,
+    /// Litter and other decomposing matter standing above the original
+    /// surface -- the drift the plants make, still rotting. Counted apart
+    /// from `soil_above` because only 5% of a litter cell ever becomes soil
+    /// (`litter.ron`'s `decay_yield`), so the drift is litter for most of
+    /// its life and litter has no `packs_into`.
+    litter_above: usize,
     mound_high: i32,
     roofed: usize,
     pit: usize,
@@ -312,6 +318,10 @@ struct Footprint {
 
 fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<MaterialId>, soil: Option<MaterialId>) -> Footprint {
     let mut f = Footprint::default();
+    let rotting: Vec<MaterialId> = ["litter", "deadleaf", "deadwood", "ash", "corpse", "log", "windfall"]
+        .iter()
+        .filter_map(|n| world.materials.id_of(n))
+        .collect();
     for id in world.live_organism_ids() {
         let Some(st) = world.organism(id) else { continue };
         if world.species.get(st.species).creature.is_some() {
@@ -328,6 +338,9 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
         for y in 0..spec.height {
             let cell = world.get(x, y);
             let ground = is_ground(world, cell);
+            if y < spec.ground_y && y >= spec.ground_y - MOUND_REACH && rotting.contains(&cell.material) {
+                f.litter_above += 1;
+            }
             if is_plant_cell(world, cell) {
                 has_plant[x as usize] = true;
                 plant_cells[x as usize] += 1;
@@ -504,8 +517,8 @@ fn print_profile(world: &World, spec: &LabBox, packed: Option<MaterialId>) -> i3
 
 fn print_footprint(label: &str, f: &Footprint) {
     println!(
-        "{label:<22} ants {:>4} plants {:>4} pcells {:>6} | pack^ {:>5} soil^ {:>5} high {:>3} pack< {:>5} roofed {:>5} pit {:>4} | bare {:>3}/{:<3} pcIn {:>5} | shoot touching {:>5} enclosed {:>5} | hanging {:>4} in {:>3} piece(s) | wet mound {:.2} bank {:.2}",
-        f.ants, f.plants, f.plant_cells, f.packed_above, f.soil_above, f.mound_high, f.packed_below, f.roofed, f.pit,
+        "{label:<22} ants {:>4} plants {:>4} pcells {:>6} | pack^ {:>5} soil^ {:>5} litter^ {:>5} high {:>3} pack< {:>5} roofed {:>5} pit {:>4} | bare {:>3}/{:<3} pcIn {:>5} | shoot touching {:>5} enclosed {:>5} | hanging {:>4} in {:>3} piece(s) | wet mound {:.2} bank {:.2}",
+        f.ants, f.plants, f.plant_cells, f.packed_above, f.soil_above, f.litter_above, f.mound_high, f.packed_below, f.roofed, f.pit,
         f.bare_in_band, f.band_cols, f.plant_cells_in_band, f.touching, f.enclosed, f.hanging, f.hanging_pieces, f.mound_wet, f.bank_wet
     );
 }
