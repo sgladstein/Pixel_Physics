@@ -1106,6 +1106,30 @@ drift that two of these documents still reflect.**
   developmental arm as the null (median 50.9% against 51.6%), for two
   reasons that are the bed's — *reachable, connected, gated; not yet
   found*.
+- [evolution-lab-fission-design-2026-09-12.md](evolution-lab-fission-design-2026-09-12.md)
+  — **colony fission: one odour per nest, and how a second nest starts,
+  2026-09-12.** Design, no code. Answers the owner's *"can colonies diverge
+  and become separate colonies?"* by taking the cohesion the signature
+  report's §1f deliberately left out: **a nest is a place that holds an
+  odour**, an ant standing on nest material blends with it (`nest_blend`
+  0.10, `nest_uptake` 0.02, hung off the `AtNest` branch that is already
+  computed), a party buds out on a new `Leave` brain output wired off
+  `AtNest × Crowding` and founds a satellite 120 cells away carrying the
+  parent's odour, and each nest's odour then wanders on its own
+  (`nest_scent_drift` 0.065 per 1,000 frames) so two nests nobody walks
+  between read as strangers after one session while **one crossing ant per
+  1,000 frames holds them one colony** — polydomy the player can see.
+  Ships drift at **0.15** for the first time, with the arithmetic for why a
+  cohered nest cannot eat itself at any drift. **Measured** (`labstats`,
+  played bed, seed 1, 120,000 frames): at drift 0.5 with no cohesion one
+  nest destroys itself — `ANT 1 alive 0, killed 22, 20 of them by ANT 1` —
+  against alive 69 at the shipped dials, and drift 0.15 is byte-identical
+  because ten generations never reach the tolerance radius. **Contradicts
+  its own brief**: birth drift can never separate two cohered nests (~500
+  generations against a session's ten), so the speciation speed has to live
+  in a place dial rather than the birth dial. Two build briefs, B1 cohesion
+  and B2 budding, with the `live_slots` 846 → ~883 `mutation_rate`
+  re-derivation priced in.
 - [creature-movement-modes-2026-09-09.md](creature-movement-modes-2026-09-09.md)
   — **diagnosis plus one instrument, 2026-09-09; nothing under `src/sim/` is
   changed.** The owner's *"I have never seen any movement patterns different
@@ -2475,6 +2499,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
+  — **design of record for the two soils, 2026-09-12: what a colony's tamped
+  spoil should do with time, and what a plant inside a mound should do.** The
+  owner's three symptoms measured with the new `examples/soilfork`: the
+  towers and the engulfing are real, *"a ground new plants don't grow in"* is
+  not (the bare band is there before the mound, and seed 1's 3,182-ant colony
+  stands 200 plants on a 3,124-cell heap). Burial cannot kill a plant today —
+  `field.rs` treats every powder as transparent, shown with a stone positive
+  control — so candidate 1 is a light-model property, not a plant rule.
+  Recommends brief 3's weathering re-cut as a second material (`spoil`,
+  because the chunk-settle scan would otherwise weather the tunnel lining),
+  with the rate a dial whose zero is the owner's towers; then an `opaque`
+  material flag with its three re-derivations budgeted; rejects the loose
+  end state (a third of the nest in 6,000 frames) and the moisture premise
+  (the mound is as wet as the bank or wetter).
 - [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
   — **design of record for the late game, 2026-09-12, with the census it is
   measured against.** The owner's report — a colony that booms to hundreds,
@@ -3014,6 +3053,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **§9 is the method part**: three drafts, three classes of error, the last
   being that three documents and two reviewers argued about how deep a
   depletion zone was when one census answered it in thirty seconds.
+
+- [evolution-lab-zoom-in-design-2026-09-12.md](evolution-lab-zoom-in-design-2026-09-12.md)
+  — **design + one instrument, verdicts pending.** What zooming *in* should
+  look like — and, after the remit widened mid-lane with the owner's *"I am
+  open to different visual styles"*, what the game should look like with
+  magnification as the entry point. `examples/zoomin.rs` renders filters and
+  *styles* (cell-art, soft, illustrated with curved silhouettes and ink,
+  painted, lit, textured cell-art) at 8x and at play scale, each with its
+  ns/px. Build first, under any style: **draw** the per-cell state the 1:1
+  render can only encode — a part-full water cell's fill as a level line, ~1
+  ns/px. Author's style pick is *illustrated*: the only look that answers
+  "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
+  style question deserves its own round and what it does first. Two cards.
 
 ## Licensing and distribution
 
