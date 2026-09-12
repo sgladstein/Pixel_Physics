@@ -1,0 +1,58 @@
+{
+  "id": "20260912T045951545Z-6931d4",
+  "created": "2026-09-12T04:59:51Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ae15d1501687de35f",
+    "branch": "claude/lab-longant-pile-r29",
+    "commit": "be2808de",
+    "agent": null,
+    "session_id": "a1c37b74-5c76-5ee7-a0bc-c4fe5a5c7062",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ae15d1501687de35f"
+  },
+  "title": "Long ants standing still in a crowd -- moving, this time",
+  "question": "Watch both. Does the crowd keep rearranging itself, or is there a clump that sits in one place for the whole loop -- and does what movement there is read as ants sorting themselves out rather than teleporting?",
+  "context_md": "Your report, 2026-09-11: *\"long ants getting stuck. Not all of them but it happens regularly. It seems like they get stuck in a big group/pile of long ants.\"*\n\nSame bed, same seed, same 3,000 frames (28,000-31,000), the nest band. **This is the pair you already judged as strips** -- you said you saw a clear stuck clump on one side and nothing so obvious on the other, and you were right: the side with the visible clump is the *changed* one. Here it is as movement instead of stills, which is the reading that matters.\n\n**What changed, and what it does not reach.** A carrying long ant that has nowhere to go waits for the nestmate in its way to move rather than turning round -- and it used to wait for ever, because that nestmate is usually stuck for the same reason. One arm still waits for ever; the other gives it four beats and then turns round.\n\n**The clump you can still see is not long ants.** Censused over three seeds and 120,000 frames, 89% of the animals wedged in a pile have bodies of one or two cells rather than seven, and for those turning round is not a move -- there is nothing to turn. Clumps counting long bodies alone never exceed four animals on any seed, in either arm. Why a long ant ends up one cell long is the next question and nothing here answers it.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "waits for ever",
+      "files": [
+        "20260912T045951545Z-6931d4/000-pile_before.gif"
+      ],
+      "caption": "the rule as it stands",
+      "meta": {
+        "largest clump of stuck animals": 108,
+        "...counting only bodies of 3+ cells": 4,
+        "longest one animal stayed stuck": "41,400 frames",
+        "alive / delivered at 120,000 frames": "1006 / 2601"
+      },
+      "focus": null,
+      "gif_frames": 31
+    },
+    {
+      "label": "waits four beats",
+      "files": [
+        "20260912T045951545Z-6931d4/001-pile_after.gif"
+      ],
+      "caption": "the wait expires",
+      "meta": {
+        "largest clump of stuck animals": 41,
+        "...counting only bodies of 3+ cells": 4,
+        "longest one animal stayed stuck": "28,800 frames",
+        "alive / delivered at 120,000 frames": "274 / 3065"
+      },
+      "focus": null,
+      "gif_frames": 31
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
