@@ -143,6 +143,42 @@ never touch the same line, and no diff finds that. And **a CI verdict quoted to
 a lane has a shelf life of one push**: "9/9 green" went into a brief and was
 stale within minutes.
 
+### A session's status describes the turn that ENDED, not the one running — and the push is the lock test
+
+**I started editing a live lane's branch because I read its status as idle. It
+was not idle; it was already doing the thing I had asked for.**
+
+`get_session` on lane P returned `status_bucket: WORKING` with
+`task_summary: "test jobs running; last job green, awaiting final job"`. I read
+that as *polling rather than acting on my message*, and built the merge and the
+one-line fix myself in a worktree off its branch. It was in fact working on
+exactly that fix, and pushed first.
+
+**The status fields lag by a turn.** They are written when a turn finishes, so
+a session that has just picked up a new instruction still advertises the last
+thing it was doing. This is the same shape as this repo's own *a commit message
+is not evidence the change is in the file* — a description generated beside the
+work is not the work. **The only current fact about another session is what is
+on its branch**, which is one `git fetch` and costs nothing.
+
+**What made it free was `git push` refusing a non-fast-forward, and that is the
+transferable part.** I did the merge, ran the full suite (475 s), ran release
+clippy (59 s), ran the doc gates, committed — and only then discovered the
+collision, because the push is the first operation that consults the remote.
+**So when you do decide to write into a branch you do not own, push a trivial
+commit first and do the verification afterwards.** The push is the lock test;
+everything before it is speculative work you may be about to throw away. I
+threw away about fifteen minutes of it.
+
+**And the lane's version was better than mine**, which is the argument for
+losing that race gracefully. I fixed the dangling reference. It fixed the
+dangling reference *and* a stale promise in the same string — the note said
+turning the dial down keeps the mound small, which its own sweep had disproved
+at 11 of 12 digging more — *and* removed two peak figures round 29 had shown
+void. A stale promise beside a number is worse than a dangling pointer, because
+a player can act on it. The lane knew its own findings; I knew only the defect I
+had spotted.
+
 ### A partly-green PR carries almost no information, and I reported one as on track
 
 **Read as "7 of 9 green, two long jobs outstanding" and relayed to the owner
