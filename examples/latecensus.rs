@@ -55,6 +55,8 @@ use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::creature;
+use pixel_physics::sim::organism;
 use pixel_physics::sim::player;
 use pixel_physics::sim::world::World;
 
@@ -146,6 +148,23 @@ fn main() {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".into())
     );
     let (mut world, planted, placed) = scenario.build();
+    // **`drift=` -- the ant's `CreatureDef::scent_drift`**, added 2026-09-12 to
+    // attribute the played-bed baseline shift to a commit and then to a
+    // channel. It defaults to whatever the species file authors, so the
+    // shipped arm of this harness is unchanged and only an explicit `drift=`
+    // moves anything. Deliberately weaker than patching the constant: the
+    // shipped arm has to stay the shipped arm or the pair is not a pair.
+    if let Some(v) = arg::<f32>("drift") {
+        if let Some(id) = world.species.id_of("ant") {
+            let mut def = world.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_drift = v;
+            world.species.set_creature(id, def);
+        }
+    }
+    println!(
+        "latecensus: ant scent_drift = {:?}",
+        world.species.id_of("ant").and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.scent_drift))
+    );
     // **`lifespan=<frames>` -- the sweep knob for brief 2**, written through
     // to the colony species' `CreatureDef::life_half_life` right after the
     // bed is built and before a single frame runs, so every animal the
@@ -156,7 +175,9 @@ fn main() {
     // Echoed on its own line whether or not it was passed, `plant_probe`'s
     // rule: a log that does not name its lifespan was written by a binary
     // that never had one, and eight byte-identical logs are what that looks
-    // like from the outside.
+    // like from the outside. Written *after* `drift=` above for the same
+    // reason the SUMMARY line appends rather than interleaves: every lane adds
+    // a knob here, and one order for all of them is what keeps the diffs small.
     if let Some(v) = arg::<u32>("lifespan") {
         if let Some(id) = world.species.id_of(&spec.colony_species) {
             if let Some(mut def) = world.species.get(id).creature.clone() {
@@ -235,6 +256,66 @@ fn main() {
                 world.germinations,
                 world.fruit_dropped
             );
+            // **The two numbers that separate the two candidate channels for
+            // the 2026-09-12 baseline shift**, measured beside the census
+            // rather than inferred from it.
+            //
+            // `shares` is the trophallaxis channel: `creature::neediest_kin`
+            // gates its recipient on `is_living_kin`, which reads the scent
+            // predicate, so a drifting colony can only ever feed a shrinking
+            // set of its own. `strangers` is the far side of that same
+            // predicate read directly -- the share of ORDERED pairs of living
+            // ants that are not mutually family, which is what "the colony
+            // has become strangers" means as a number rather than as a story.
+            // Read the two together: the shift turned out to be the first
+            // with the second flat, and the `killd` column zero throughout.
+            //
+            // **Strided to at most 200 animals, deterministically.** The pair
+            // statistic is O(n^2) and this bed reaches 3,000 ants; a stride
+            // bounds it and keeps two identical worlds reporting identical
+            // numbers, which a random sample would not.
+            {
+                let ids: Vec<u16> = world
+                    .live_organism_ids()
+                    .into_iter()
+                    .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_some()))
+                    .collect();
+                let stride = (ids.len() / 200).max(1);
+                let sample: Vec<[f32; organism::CREATURE_TRAITS]> =
+                    ids.iter().step_by(stride).filter_map(|id| world.organism(*id).map(|st| st.traits)).collect();
+                let (mut pairs, mut strangers) = (0u64, 0u64);
+                for (i, a) in sample.iter().enumerate() {
+                    for (j, b) in sample.iter().enumerate() {
+                        if i == j {
+                            continue;
+                        }
+                        pairs += 1;
+                        if !creature::scent_accepts(a, b) {
+                            strangers += 1;
+                        }
+                    }
+                }
+                let mut mean = [0.0f32; 3];
+                for t in &sample {
+                    for (m, v) in mean.iter_mut().zip(creature::scent_of(t).iter()) {
+                        *m += *v;
+                    }
+                }
+                let n = sample.len().max(1) as f32;
+                for m in &mut mean {
+                    *m /= n;
+                }
+                let spread: f32 =
+                    sample.iter().map(|t| creature::scent_distance_sq(&creature::scent_of(t), &mean).sqrt()).sum::<f32>() / n;
+                println!(
+                    "        shares={} shared_j={:.0} | sampled={} strangers={:.2}% scent_spread={:.4} (tolerance radius 1.0)",
+                    world.creature_stats.shares,
+                    world.creature_stats.shared_j,
+                    sample.len(),
+                    if pairs > 0 { 100.0 * strangers as f64 / pairs as f64 } else { 0.0 },
+                    spread
+                );
+            }
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
