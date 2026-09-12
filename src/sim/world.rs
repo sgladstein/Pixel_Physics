@@ -2988,6 +2988,13 @@ pub struct World {
     /// `carried_seed_organisms`), but every delivery is a pickup, so this
     /// can never exceed `seeds_carried` over the life of a run.
     pub seeds_delivered: u64,
+    /// **A seed that had nowhere to go.** `plant::deliver_seed_passenger`
+    /// will not write a plant cell over an occupied one (open-bugs §Z16:
+    /// the digestion exit was planting the pip in the ant's own head), so a
+    /// carrier boxed in on every side with no midden site in reach loses
+    /// the seed. Counted here so the loss is a number rather than a
+    /// silence -- `CLAUDE.md`'s "did it fire at all" rule.
+    pub seeds_lost_no_room: u64,
     /// **A2's germination-side headline's raw material.** The x-coordinate
     /// of every germination whose seed cell was `pip` -- both A1's in-place
     /// spills and A2's carried deliveries, which converge on the same
@@ -4462,6 +4469,7 @@ impl World {
             bare_seeds_carried: 0,
             bare_seeds_spared: 0,
             seeds_delivered: 0,
+            seeds_lost_no_room: 0,
             pip_germination_x: Vec::new(),
             seed_transit_frames: Vec::new(),
             pip_checks: Vec::new(),
