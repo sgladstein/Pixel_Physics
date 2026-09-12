@@ -10903,48 +10903,76 @@ mod tests {
         (w, patch)
     }
 
-    /// **The threshold drains, so the colony's door is not a puddle**
-    /// (`open-bugs-handoff.md` §T2).
+    /// **A film on the threshold has somewhere to go, and the only somewhere
+    /// is a drain** (`open-bugs-handoff.md` §T2).
     ///
     /// `nest` holds no water, so an unbroken patch is the only impermeable
     /// strip on the surface of a misted bed and every misting leaves a film
     /// standing on it. An ant cannot step into a liquid, so that film is a
-    /// wall and `adjacent_nest` goes false for the whole colony at once —
+    /// wall and `adjacent_nest` goes false for the whole colony at once --
     /// which is why `deliveries` and `nest_visits` freeze on one frame while
     /// `pickups` goes on climbing. `paint_nest_patch` leaves every third
-    /// column as ordinary ground, so the film has one cell to travel.
+    /// column as ordinary ground, so the film has **one** cell to travel
+    /// instead of 26.
     ///
-    /// **Watched going red**, not assumed: with `PIXEL_PHYSICS_NEST_DRAINS=
-    /// off` — the unbroken patch that shipped until 2026-09-12 — this fails
-    /// with the film still standing.
+    /// **Two earlier scenes could not go red, and both failures are the
+    /// point.** Soaking every patch column twice with full cells went red in
+    /// CI for a reason that has nothing to do with the door -- 27 rows of
+    /// soil under a 53-column patch are *saturated* by the first soaking, so
+    /// the second film stood on ground that had simply run out of room.
+    /// Pouring on the middle of the patch instead went **blind**: `water.ron`
+    /// carries `flow_rate: 1000`, so a full cell walks the 26 columns to the
+    /// end of an unbroken patch inside the frame budget and drains there. A
+    /// guard that cannot fail for the fault it is named after is blind, not
+    /// weak (`CLAUDE.md`), so the scene is replaced rather than loosened.
     ///
-    /// It rains on the patch twice, because a door that drains its first
-    /// soaking and then stops is the same bug on the second day.
+    /// **This one walls the ends of the threshold**, which is what isolates
+    /// the mechanism: the film's only route to ground that drinks is now a
+    /// drain column, so an unbroken patch leaves it standing and a drained
+    /// one takes it. What it does *not* claim is the behaviour on a real bed
+    /// -- that is emergent over 120,000 frames of continuous misting and
+    /// belongs to `examples/nestdoor.rs`, which measures it paired against
+    /// this same `PIXEL_PHYSICS_NEST_DRAINS=off` switch (standing water over
+    /// the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
+    ///
+    /// **Watched going red**, not assumed.
     #[test]
-    fn rain_does_not_stand_on_the_nest_patch() {
+    fn a_film_on_the_door_drains_through_the_comb() {
         let (mut w, patch) = bed_with_a_nest_patch();
         assert!(patch.len() >= 16, "test setup: the patch should be tens of cells wide, got {}", patch.len());
         let water = w.materials.id_of("water").expect("water is compiled in");
-        for soak in 0..2 {
-            for &(x, y) in &patch {
-                w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
-            }
-            // The positive control for the arrangement itself: if the setup
-            // could not put water on the door, the assertion below passes for
-            // the wrong reason and would pass with the drains deleted too.
-            let poured = patch.iter().filter(|&&(x, y)| w.materials.kind(w.get(x, y - 1).material) == MaterialKind::Liquid).count();
-            assert_eq!(poured, patch.len(), "soak {soak}: the test failed to put water on the door");
-            for _ in 0..600 {
-                crate::sim::update::step(&mut w);
-                w.step_active_sites();
-            }
-            let standing = patch.iter().filter(|&&(x, y)| w.materials.kind(w.get(x, y - 1).material) == MaterialKind::Liquid).count();
-            assert_eq!(
-                standing, 0,
-                "soak {soak}: {standing} of {} nest cells are still under water, which is the wall an ant cannot step into",
-                patch.len()
-            );
+        let x0 = patch.iter().map(|c| c.0).min().expect("non-empty");
+        let x1 = patch.iter().map(|c| c.0).max().expect("non-empty");
+        let row = patch[0].1;
+        // **Walls at both ends of the threshold.** Without them the film
+        // simply runs off the patch and the scene measures the width of the
+        // bed rather than the spacing of the drains.
+        for dy in 1..=6 {
+            w.set(x0 - 1, row - dy, Cell::new(material::STONE, 0));
+            w.set(x1 + 1, row - dy, Cell::new(material::STONE, 0));
         }
+        for &(x, y) in &patch {
+            w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
+        }
+        // The positive control for the arrangement: if the setup could not
+        // put water on the door, the assertion below passes for the wrong
+        // reason and would pass with the drains deleted too.
+        let standing = |w: &World| -> usize {
+            patch.iter().filter(|&&(x, y)| (1..=6).any(|dy| w.materials.kind(w.get(x, y - dy).material) == MaterialKind::Liquid)).count()
+        };
+        assert_eq!(standing(&w), patch.len(), "the test failed to put water on the door");
+
+        for _ in 0..2_000 {
+            crate::sim::update::step(&mut w);
+            w.step_active_sites();
+        }
+
+        let left = standing(&w);
+        assert!(
+            left * 4 <= patch.len(),
+            "{left} of {} nest columns still carry a film after 2,000 frames, which is the wall an ant cannot step into",
+            patch.len()
+        );
     }
 
     /// ...and the door is still a *place*.

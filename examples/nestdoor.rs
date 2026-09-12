@@ -137,8 +137,8 @@ fn census_door(world: &World, patch: &[(i32, i32)]) -> Door {
     }
     d.lost_by = lost_hist.into_iter().collect();
     d.covered_by = cover_hist.into_iter().collect();
-    d.lost_by.sort_by(|a, b| b.1.cmp(&a.1));
-    d.covered_by.sort_by(|a, b| b.1.cmp(&a.1));
+    d.lost_by.sort_by_key(|e| std::cmp::Reverse(e.1));
+    d.covered_by.sort_by_key(|e| std::cmp::Reverse(e.1));
     d
 }
 
@@ -159,9 +159,15 @@ fn all_nest_cells(world: &World) -> Vec<(i32, i32)> {
     out
 }
 
+/// One living animal: its id, where its head is, its generation, its own
+/// delivery count, and whether it is carrying anything. A named type because
+/// the tuple is past the width clippy accepts inline, and because every
+/// reader of it wants all five.
+type Animal = (u16, (i32, i32), u16, u32, bool);
+
 /// Heads of every living animal, with generation, its own delivery count, and
 /// whether it is carrying anything.
-fn animals(world: &World) -> Vec<(u16, (i32, i32), u16, u32, bool)> {
+fn animals(world: &World) -> Vec<Animal> {
     world
         .live_organism_ids()
         .into_iter()
