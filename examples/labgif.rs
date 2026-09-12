@@ -286,8 +286,37 @@ fn main() {
             def.scent_drift = v;
             lab.world.species.set_creature(id, def);
         }
-        println!("  ant scent_drift = {v}");
+        // **Applied to the standing ants too, not only to what they breed.**
+        // A colony the scenario placed copied the species' value at founding,
+        // so a change made to the species alone would reach the children and
+        // never the founders -- which reads as a dial that half works.
+        let living: Vec<u16> = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == "ant"))
+            .collect();
+        println!("  ant scent_drift = {v} ({} standing ant(s) bred from it)", living.len());
     }
+    // **The three nest dials, so one card can isolate one mechanism.** The
+    // owner's reading of card 20260912T051541289Z-3b03d3: *"These sound like
+    // two different mechanisms and so i don't fully understand what is being
+    // shown in the images."* They are two, and separating them needs an arm
+    // with the drift on and the blending off, which was unreachable until
+    // these existed.
+    if let Some(v) = arg::<f32>("blend") {
+        lab.world.nest_blend = v;
+    }
+    if let Some(v) = arg::<f32>("uptake") {
+        lab.world.nest_uptake = v;
+    }
+    if let Some(v) = arg::<f32>("nestdrift") {
+        lab.world.nest_scent_drift = v;
+    }
+    println!(
+        "  nest_blend = {} nest_uptake = {} nest_scent_drift = {}",
+        lab.world.nest_blend, lab.world.nest_uptake, lab.world.nest_scent_drift
+    );
     println!(
         "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out} mark={mark} png_dir={} up={up}",
         lab.spec.colony_species,
