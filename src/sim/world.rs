@@ -750,6 +750,53 @@ impl World {
     }
 }
 
+/// **How often a nest's own odour takes a step**, in frames — the census
+/// cadence, so the wander is denominated in the same unit every other number
+/// about a colony is read at and `nest_scent_drift` can be quoted per
+/// thousand frames rather than per tick.
+pub const NEST_SCENT_INTERVAL: u64 = 1_000;
+
+/// The salted stream the nest wander draws from. **8, because
+/// `creature.rs`'s slot list claimed 0..=7** — a slot collision would make
+/// two independent mechanisms the same walk, which reads as a correlation
+/// nobody built.
+const RNG_SLOT_NEST_SCENT: u64 = 8;
+
+/// **One nest patch, and the odour it holds.**
+///
+/// A nest is a *place* in this model, not a set of animals: it carries a
+/// three-slot signature of its own, an ant standing on it exchanges odour
+/// with it, and the patch's own odour wanders slowly. Two nests no ant walks
+/// between therefore part; two joined by a thread of ants do not.
+/// `Reports/evolution-lab-fission-design-2026-09-12.md` §1 and §3.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NestSite {
+    /// The centre of the patch, as `creature::paint_nest_patch` was called.
+    pub x: i32,
+    /// The cursor row the patch was painted from — the patch itself follows
+    /// the ground, so this is the founding gesture's row and not a surface.
+    pub y: i32,
+    /// The odour, on `organism::SCENT_SLOTS`' three axes.
+    pub scent: [f32; 3],
+    /// **False until the first ant stands on it**, at which point the site
+    /// takes that ant's scent outright rather than blending toward a zero it
+    /// was never at.
+    ///
+    /// Seeded lazily rather than at painting time because `paint_nest_patch`
+    /// runs *before* `found_colony_of` places a single founder — the colony's
+    /// scent does not exist yet at the moment the ground is painted, and a
+    /// site starting at the origin would drag a whole colony toward `(0,0,0)`
+    /// on its first contact. The founders are the first animals to stand on
+    /// their own patch, so "the founding colony's scent" and "the first
+    /// visitor's scent" are the same value, reached without a second copy of
+    /// the founding rule.
+    pub seeded: bool,
+    /// The last `NEST_SCENT_INTERVAL` epoch this site's wander has been
+    /// advanced to, so the walk is taken exactly once per interval however
+    /// many ants touch it.
+    pub drift_epoch: u64,
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -1031,6 +1078,20 @@ pub struct CreatureStats {
     /// it. What it is not is "arrivals at the nest after having been away",
     /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **At-nest odour exchanges applied** — `creature::blend_with_nest`
+    /// returning true, which is the far side of the call rather than the
+    /// branch that decided to make it.
+    ///
+    /// **Paired with `share_blends` below and read against `nest_visits`.**
+    /// A zero here on a bed whose ants are plainly standing on their nest
+    /// means the mechanism never fired; a zero on a bed where `nest_visits`
+    /// is also frozen means the ants stopped going home, which is a
+    /// different finding and is `open-bugs-handoff.md` §T2.
+    pub nest_blends: u64,
+    /// **Odour exchanges that rode a trophallaxis contact** — the free
+    /// second path, one per executed `BrainOutput::Share`. Never the floor:
+    /// `creature::blend_with_nest`'s doc says why.
+    pub share_blends: u64,
     /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
     /// from home and came back.** The thing `nest_visits` was believed to
     /// be counting and never was.
@@ -2155,6 +2216,46 @@ pub struct World {
     /// `regroup_by_scent`; a founding gesture's label has no parent. Small
     /// and append-only, for `next_colony`'s reason: a label is never reused.
     pub colony_parents: Vec<(u32, u32)>,
+    /// **The odour each nest holds** -- one entry per nest patch on the
+    /// ground, in painting order. See [`NestSite`].
+    ///
+    /// **A colony's cohesion lives here rather than in the animals.** An
+    /// ant standing on its nest blends toward this and leaves some of its
+    /// own (`creature::blend_with_nest`), so a colony re-mixes one odour
+    /// constantly the way a real one does through the nest material, and the
+    /// difference accumulates **between** nests that stop exchanging ants
+    /// rather than inside one. That is what lets `CreatureDef::scent_drift`
+    /// finally ship non-zero: before it, any drift eventually made a colony
+    /// read its own children as strangers and eat itself (measured at drift
+    /// 0.5: `ANT 1 killed 22, 20 of them by ANT 1 itself`).
+    ///
+    /// Short by construction -- one per founding gesture -- so the nearest-
+    /// site walk an at-nest ant makes is a handful of squared distances, on
+    /// a branch `BrainInput::AtNest` had already taken.
+    /// `Reports/evolution-lab-fission-design-2026-09-12.md` §1.
+    pub nest_sites: Vec<NestSite>,
+    /// **beta: how far an at-nest ant steps toward the nest's odour**, per
+    /// at-nest tick. `creature::NEST_BLEND_DEFAULT` (0.10): a newborn enters
+    /// at the nest's odour plus its birth drift, and 25 at-nest contacts a
+    /// lifetime at this rate leave 0.9^25 = 7% of that offset standing.
+    pub nest_blend: f32,
+    /// **gamma: how far the nest steps toward the ant's odour**, per at-nest
+    /// tick. `creature::NEST_UPTAKE_DEFAULT` (0.02): about ten ticks a visit,
+    /// so one visiting ant moves a nest 18% of the way to what it is
+    /// carrying -- which is how a crossing ant holds two nests together.
+    pub nest_uptake: f32,
+    /// **sigma: how far a nest's own odour wanders**, per signature slot per
+    /// `NEST_SCENT_INTERVAL` frames. `creature::NEST_SCENT_DRIFT_DEFAULT`
+    /// (0.065): two nests nobody crosses between separate as `E|d|^2 =
+    /// 2*n*sigma^2`, so 120 steps -- one session -- put them a full
+    /// tolerance radius apart and they read as strangers.
+    ///
+    /// **The place drifts, not the birth.** Once an odour is a colony-level
+    /// quantity its centroid moves only by births, each displacing it by
+    /// `u/(N+w)`; at N ~ 40 that is 0.02 of a radius over ten generations,
+    /// five hundred generations to a session's ten. The speciation speed
+    /// cannot live in the birth dial, which is the design's §3.
+    pub nest_scent_drift: f32,
     /// **How far a lineage may evolve on the two arms-race slots** --
     /// `creature::ARMS_RACE_SLOTS`, which is armour and the jaw -- as a
     /// multiple of the `[-1, 1]` axis every other trait shares.
@@ -4088,6 +4189,10 @@ impl World {
             next_lineage: 1,
             next_colony: 1,
             colony_parents: Vec::new(),
+            nest_sites: Vec::new(),
+            nest_blend: creature::NEST_BLEND_DEFAULT,
+            nest_uptake: creature::NEST_UPTAKE_DEFAULT,
+            nest_scent_drift: creature::NEST_SCENT_DRIFT_DEFAULT,
             trait_reach: creature::TRAIT_REACH_DEFAULT,
             plasticity: creature::PLASTICITY_DEFAULT,
             seeds_germinated_after_waiting: 0,
@@ -5439,6 +5544,153 @@ impl World {
     /// gesture only, and the rest of the gesture joins it, so the numbers a
     /// player sees count the things they put down rather than the sites
     /// that were tried: `ANT 3` is the third group placed in this box.
+    /// **Register a nest patch's site**, or reuse the one already standing
+    /// there. Called once per `creature::paint_nest_patch`.
+    ///
+    /// **Re-painting the same patch does not mint a second site.** The lab's
+    /// nest tool can be pressed on one spot all afternoon, and a list with
+    /// forty coincident entries would report forty nests with a zero gap
+    /// between each pair — a tidy number about nothing, which is the shape
+    /// `CLAUDE.md`'s metric-trap rule names. Anything inside `half_width` of
+    /// an existing centre *is* that patch; anything further out is a second
+    /// nest, which is what a budded satellite will be.
+    pub fn register_nest_site(&mut self, x: i32, y: i32, half_width: i32) {
+        if self.nest_sites.iter().any(|n| (n.x - x).abs() <= half_width) {
+            return;
+        }
+        let epoch = self.frame / NEST_SCENT_INTERVAL;
+        self.nest_sites.push(NestSite { x, y, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+    }
+
+    /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
+    /// no nest. Squared distance, for `creature::scent_distance_sq`'s reason:
+    /// the only consumer is an ordering.
+    pub fn nearest_nest_site(&self, x: i32, y: i32) -> Option<usize> {
+        self.nest_sites
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, n)| {
+                let (dx, dy) = ((n.x - x) as i64, (n.y - y) as i64);
+                dx * dx + dy * dy
+            })
+            .map(|(i, _)| i)
+    }
+
+    /// **Walk every nest's own odour**, once per `NEST_SCENT_INTERVAL`
+    /// frames. Called from `begin_step`, so both drivers get it and a world
+    /// that is not being stepped does not drift.
+    ///
+    /// **A pure hash per site per epoch, never a draw from a shared `Rng`**
+    /// — `rng::stream` carries no state across calls, so this cannot shift
+    /// any creature's move roll on the same frame (the hazard
+    /// `creature::RNG_SLOT_BIRTH`'s own doc names). Same seed, same frame,
+    /// same wander, every time.
+    ///
+    /// An unseeded site does not wander: it has no odour yet to move.
+    pub(crate) fn step_nest_scents(&mut self) {
+        if self.nest_sites.is_empty() || self.nest_scent_drift <= 0.0 {
+            return;
+        }
+        let epoch = self.frame / NEST_SCENT_INTERVAL;
+        let (seed, sigma) = (self.seed, self.nest_scent_drift);
+        let mut moved = vec![[0.0f32; 3]; self.nest_sites.len()];
+        let mut any = false;
+        for (i, site) in self.nest_sites.iter_mut().enumerate() {
+            if site.drift_epoch >= epoch {
+                continue;
+            }
+            if !site.seeded {
+                site.drift_epoch = epoch;
+                continue;
+            }
+            // Every missed epoch is walked, not skipped: the wander is a sum
+            // over epochs and a site nobody visited still aged. In the drivers
+            // this loop runs exactly once per interval; the catch-up arm is
+            // for a world whose `frame` was assigned directly, which 27 places
+            // in this tree do to select a time of day.
+            while site.drift_epoch < epoch {
+                site.drift_epoch += 1;
+                let mut draw = super::rng::stream(seed, i as u64, site.drift_epoch, RNG_SLOT_NEST_SCENT);
+                for (k, v) in site.scent.iter_mut().enumerate() {
+                    let before = *v;
+                    *v = (*v + (draw.unit_f32() * 2.0 - 1.0) * sigma).clamp(-1.0, 1.0);
+                    moved[i][k] += *v - before;
+                    any = true;
+                }
+            }
+        }
+        if any {
+            self.carry_nest_wander(&moved);
+        }
+    }
+
+    /// **The animals living at a nest wear the odour it just acquired.**
+    ///
+    /// **Measured, and the reason this function exists.** The design
+    /// (`evolution-lab-fission-design-2026-09-12.md` §3) prices two cut-off
+    /// nests as separating at `E|d|^2 = 2*n*sigma^2` — a *free* walker. A
+    /// site-only wander is not free: its own residents blend with it every
+    /// tick they stand on it, and `gamma * s + beta * G` is conserved by the
+    /// exchange, so a kick of `sigma` to the site relaxes to
+    /// `sigma * beta/(gamma*n + beta)` once `n` contacts have been paid.
+    /// Measured on a six-ant bed over 120 epochs at the shipped dials: the
+    /// gap reached **0.258** where §3's arithmetic says 1.01, and the damping
+    /// gets worse with population — at the played bed's forty ants it is
+    /// about a ninth, which is a wander that does nothing at all. **A
+    /// site-only wander cannot produce the design's number, and no setting of
+    /// sigma repairs it**: the scale needed saturates the `[-1, 1]` allele
+    /// axis, at which point the walk stops being diffusive.
+    ///
+    /// So the step is applied to the gestalt rather than to the substrate
+    /// alone — which is also what a nest odour *is*, the mixture the colony
+    /// and its material hold between them. Two cut-off nests then part at
+    /// exactly `2*n*sigma^2`, and a crossing ant still carries one nest's
+    /// odour into the other, which is the polydomy half.
+    ///
+    /// **Which object this rule evaluates: one animal, against the nest site
+    /// nearest it.** A creature far from every nest is still assigned to the
+    /// nearest one, which is right while the box holds a single colony and is
+    /// the same rule `creature::blend_with_nest` uses, so an ant cannot be
+    /// blending with one nest and wearing another's wander.
+    ///
+    /// Once per `NEST_SCENT_INTERVAL` frames over the living animals, so it
+    /// is a thousandth of a per-tick pass and does not touch the sweep.
+    fn carry_nest_wander(&mut self, moved: &[[f32; 3]]) {
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            let Some(i) = self.nearest_nest_site(x, y) else { continue };
+            let delta = moved[i];
+            if let Some(state) = self.organism_mut(id) {
+                for (k, slot) in organism::SCENT_SLOTS.iter().enumerate() {
+                    state.traits[*slot] = (state.traits[*slot] + delta[k]).clamp(-1.0, 1.0);
+                }
+            }
+        }
+    }
+
+    /// **The gap between every pair of nests**, as `(i, j, distance)` —
+    /// the readout that says whether two nests have parted. Compared against
+    /// a tolerance radius (`creature::tolerance_radius`, 1.0 at the shipped
+    /// allele): below it the two are family, above it they are strangers.
+    ///
+    /// A plain distance rather than the squared one the hot path uses,
+    /// because the only consumers are a harness line and a guard, where a
+    /// number a reader can check against a radius is worth the root.
+    pub fn nest_scent_gaps(&self) -> Vec<(usize, usize, f32)> {
+        let mut out = Vec::new();
+        for i in 0..self.nest_sites.len() {
+            for j in (i + 1)..self.nest_sites.len() {
+                let d = crate::sim::creature::scent_distance_sq(&self.nest_sites[i].scent, &self.nest_sites[j].scent);
+                out.push((i, j, d.sqrt()));
+            }
+        }
+        out
+    }
+
     pub(crate) fn claim_colony(&mut self) -> u32 {
         let id = self.next_colony;
         self.next_colony = self.next_colony.saturating_add(1);
@@ -7418,6 +7670,13 @@ impl World {
         self.freeze_underground_map();
         self.freeze_ground_datum();
         self.frame = self.frame.wrapping_add(1);
+        // **The odour each nest holds takes its own step here**, once per
+        // `NEST_SCENT_INTERVAL` frames — in `begin_step` rather than as a
+        // phase in `frame::step` so that both drivers and every harness that
+        // ticks a world get it, and so the tick-sequence hash
+        // `frame_step_matches_the_sequence_app_update_ran_before_extraction`
+        // holds is untouched. A box with no nest returns on the first line.
+        self.step_nest_scents();
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this

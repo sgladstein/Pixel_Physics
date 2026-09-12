@@ -3,8 +3,11 @@
 *Current as of: 2026-09-12, when **we found out why the flying animal always
 looked stuck: most of the time it is** -- a plant holds an animal up, and it
 also blocks it, so an animal inside a bush cannot move in any direction at
-all. See "The flitter" below, and "Stuck in the bush" under it. Earlier, on
-2026-09-11, when **a bed was built for the flitter
+all. See "The flitter" below, and "Stuck in the bush" under it. Also
+2026-09-12, when **a nest became a place that holds a smell** -- ants blend
+with the mound they stand on, scent drift ships on at last, and two mounds
+nobody walks between become two colonies within a session. See "Who is
+family". Before that, 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
@@ -438,16 +441,44 @@ single animal, a jar you release — starts at its kind's scent plus a small
 offset of its own, and its children inherit that; so two clicks are one
 family while they smell alike and strangers once they have drifted apart,
 and a hungry ant will then eat one from the other click exactly as it would
-eat a beetle. Two dials set how fast that happens. **Colony scent spread**
-is how different two clicks smell to begin with (at the shipped setting of
-zero they are identical, and every ant is every ant's family, which is what
-the box always did); **scent drift** is how far a newborn's scent moves from
-its parent's (at zero, never). Turn drift up and a colony's lineages wander
-apart until some of them are strangers to the rest — at which point the ants
-page names the wanderers as a new group of their own (`ANT 1b`, split off
-`ANT 1`), draws them as their own line in their own colour, and the two
-start to bite each other when hungry. That is the answer to *is an ant
-always an ant*: no longer. Tolerance is judged from each animal's own side,
+eat a beetle. **Colony scent spread** is how different two clicks smell to begin with (at
+the shipped setting of zero they are identical, and every ant is every ant's
+family, which is what the box always did); **scent drift** is how far a
+newborn's scent moves from its parent's, and since 2026-09-12 **it ships
+on**. Every ant born is now a little different from its mother, so lineages
+wander — and when a lineage wanders far enough to be a stranger to the rest,
+the ants page names it as a new group of its own (`ANT 1b`, split off
+`ANT 1`), draws it as its own line in its own colour, and the two start to
+bite each other when hungry. That is the answer to *is an ant always an
+ant*: no longer.
+
+**A nest is a place that holds a smell, and that is what stops a colony
+coming apart from the inside.** Drift could not be turned on before, because
+it eventually made a colony read its own children as strangers and eat
+itself: at a high setting the founding group was wiped out with twenty of its
+twenty-two killings by its own name. Real ants do not have that problem —
+they re-mix one smell constantly, so a difference builds up *between* nests
+that stop swapping ants and never inside one. So the mound itself now carries
+a smell. An ant standing on its nest takes a little of the mound's smell and
+leaves a little of its own, every turn it spends at home, and that is enough:
+however far its children drift at birth, a few trips home put them back with
+the family. **A cohered nest cannot split into strangers at any setting of
+the drift dial.** Trophallaxis mixes smells the same way when two ants share
+food, but the nest is the floor under it — a line that stopped sharing would
+otherwise be a line that ate itself.
+
+**And each mound's smell slowly wanders on its own.** That is what makes two
+nests become two colonies. Put down two mounds with no ants walking between
+them and their smells part, until within one session the ants of each read
+the other's as strangers and the frontier between them is where hungry
+strangers meet. Send one ant a minute across, and the two stay family
+indefinitely — it arrives carrying the smell it left with and rubs a little
+of it into the mound it visits. **The thread of ants between two mounds is
+the whole difference between one colony living in two places and two
+colonies.** Three dials on the genome page set it: **nest blend** (how much
+of the mound's smell an ant picks up), **nest uptake** (how much of its own
+it leaves) and **nest scent drift** (how fast a mound's smell wanders on its
+own). Tolerance is judged from each animal's own side,
 so a tolerant lineage next to an intolerant one keeps walking up to animals
 that will bite it — which is what being raided looks like, and what being
 adopted looks like, and nobody wrote a rule for either. The old *colony

@@ -8914,7 +8914,19 @@ mod tests {
                     def.trait_variance[slot]
                 );
             }
-            assert_eq!(def.scent_drift, 0.0, "{name}.ron ships with no scent drift: the shipped bed is one family");
+            // **The ant ships with drift ON and the beetle does not**, and
+            // the pair is the canary: one non-default value says the field
+            // survived the round trip, one default says the other species was
+            // not dragged along with it.
+            //
+            // The ant's 0.15 is the owner's 2026-09-12 ruling, and it became
+            // safe only once a nest held an odour of its own
+            // (`World::nest_sites`): a cohered colony's scent cloud is
+            // `0.458 * drift` = 0.069 of a 1.0 tolerance radius, and it
+            // cannot reach that radius at any allele-axis setting. Before
+            // cohesion, any non-zero drift ended with a colony eating itself.
+            let expected = if name == "ant" { crate::sim::creature::SHIPPED_ANT_SCENT_DRIFT } else { 0.0 };
+            assert_eq!(def.scent_drift, expected, "{name}.ron's shipped scent drift moved; if that is deliberate, move this line with it and say what the bed measured");
         }
         let beetle = reg.get(reg.id_of("beetle").expect("beetle"));
         let beetle = beetle.creature.as_ref().expect("a creature");
