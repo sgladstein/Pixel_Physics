@@ -66,20 +66,36 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).map(|v| v.parse().ok().expect("parses")))
 }
 
-/// Every plant and creature cell erased, and how many there were.
+/// The kinds censused separately, because **a pooled number cannot see a
+/// per-kind blow-up**. An ant is two cells and a stem is one, so the kind most
+/// at risk of being *over*-drawn by a max filter is exactly the one a pooled
+/// plant-plus-creature count buries.
+const CENSUSED: [(MaterialKind, &str); 3] =
+    [(MaterialKind::Plant, "plant"), (MaterialKind::Creature, "creature"), (MaterialKind::Liquid, "liquid")];
+
+/// Every cell of `kinds` **inside `seen`** erased, and how many there were.
 ///
 /// The control world for the census below. Erased rather than "a world grown
 /// without plants", because a second growth run is a different world and the
 /// difference would then include the terrain.
-fn without_life(world: &World) -> (World, usize) {
+///
+/// **`seen` is the viewport rectangle, and taking it is the whole correctness
+/// of the ratios.** Counted over the whole world instead, the count and the
+/// denominator are rectangles of different sizes: on the 8192x2560 outdoor
+/// world that put **145,170 sea cells** against a 2,621,440-cell viewport and
+/// reported the sea drawn at 0.16x its own area, which is not a rendering
+/// finding at all, just two numbers about two different rectangles.
+/// `CLAUDE.md`'s standing rule -- ask what your number counts when nothing is
+/// wrong -- and the tell was the same one it names: a ratio nowhere near 1 on
+/// a filter that cannot lose a body of water 400 cells across.
+fn without_kinds(world: &World, seen: Rect, kinds: &[MaterialKind]) -> (World, usize) {
     let mut bare = world.clone();
-    let b = world.bounds().expect("a built world has bounds");
+    let b = world.bounds().expect("a built world has bounds").intersection(seen).expect("the viewport overlaps the world");
     let mut n = 0usize;
     for y in b.min_y..=b.max_y {
         for x in b.min_x..=b.max_x {
             let c = world.get(x, y);
-            let kind = world.materials.get(c.material).kind;
-            if matches!(kind, MaterialKind::Plant | MaterialKind::Creature) {
+            if kinds.contains(&world.materials.get(c.material).kind) {
                 bare.set(x, y, Cell::EMPTY);
                 n += 1;
             }
@@ -107,6 +123,13 @@ struct Shot {
     /// Pixels that skip recomputed on the settled pass. A filter that defeats
     /// the skip shows up here as a non-zero, whatever its per-pixel cost.
     settled_px: usize,
+    /// Per entry of `CENSUSED`: screen pixels on which that kind reached the
+    /// screen. **Paired with the true area below, in both directions**, which
+    /// is the half a survival count cannot see: a max filter's characteristic
+    /// failure is not dropping thin things but *over*-drawing them, and a
+    /// stand that is 10% plant by area rendering as a hedge would be a worse
+    /// lie than the dropout it fixes.
+    kind_px: Vec<usize>,
     /// Pixels differing from the `Stride` tile — **how much of the picture
     /// this filter actually changed**, which needs no control world and works
     /// on any scene, including one with nothing alive in it. The living-cell
@@ -119,6 +142,7 @@ struct Shot {
 fn shoot(
     world: &World,
     bare: &World,
+    kind_controls: &[World],
     filter: ZoomOutFilter,
     stride: i32,
     camera: (i32, i32),
@@ -139,6 +163,15 @@ fn shoot(
     };
     let frame = render(world);
     let blank = render(bare);
+    // One control render per kind, differenced against the same tile: a pixel
+    // that changes when only the plants are erased is a pixel a plant reached.
+    let kind_px: Vec<usize> = kind_controls
+        .iter()
+        .map(|c| {
+            let control = render(c);
+            frame.chunks_exact(4).zip(control.chunks_exact(4)).filter(|(a, b)| a != b).count()
+        })
+        .collect();
     let w = WIDTH as usize;
     let mut live_px = 0usize;
     let mut cols = vec![false; w];
@@ -156,6 +189,7 @@ fn shoot(
         settled_ms: f64::NAN,
         settled_px: usize::MAX,
         moved_px: 0,
+        kind_px,
     }
     .timed(world, filter, stride, camera, bounds, reps)
 }
@@ -312,7 +346,6 @@ fn main() {
             continue;
         }
         let world = if which == "lab" { lab_world(frames) } else { outdoor_world(settle) };
-        let (bare, live_cells) = without_life(&world);
         let b = world.bounds().expect("a built world has bounds");
         let (ww, wh) = (b.max_x - b.min_x + 1, b.max_y - b.min_y + 1);
         // The widest zoom-out the view is allowed over this world, reached the
@@ -371,8 +404,27 @@ fn main() {
             })
             .unwrap_or(wh / 2);
         let camera = (aim_x - (WIDTH as i32 * stride) / 2, surface - (HEIGHT as i32 * stride) / 2);
+        // **The world cells the viewport actually covers**, not the world's own
+        // area: the camera clamps, so on a world smaller than the view's span
+        // the two agree and on a larger one they do not. The ratios below are
+        // meaningless if this is taken from the wrong rectangle.
+        let mut aim = Renderer::new();
+        aim.zoom_out_stride = stride;
+        aim.set_camera(camera.0, camera.1, (WIDTH, HEIGHT), world.bounds());
+        let (span_x, span_y) = aim.visible_span((WIDTH, HEIGHT));
+        let inside_x = (aim.camera_x.max(b.min_x)..(aim.camera_x + span_x).min(b.max_x + 1)).len() as f64;
+        let inside_y = (aim.camera_y.max(b.min_y)..(aim.camera_y + span_y).min(b.max_y + 1)).len() as f64;
+        let viewport_cells = inside_x * inside_y;
+        // **The census rectangle is the viewport, and it is built from the same
+        // camera the tiles are rendered through** rather than from the world's
+        // own bounds -- see `without_kinds` for the reading that cost.
+        let seen = Rect::new(aim.camera_x, aim.camera_y, aim.camera_x + span_x - 1, aim.camera_y + span_y - 1);
+        let (bare, live_cells) = without_kinds(&world, seen, &[MaterialKind::Plant, MaterialKind::Creature]);
+        let kind_worlds: Vec<(World, usize)> =
+            CENSUSED.iter().map(|(k, _)| without_kinds(&world, seen, &[*k])).collect();
+        let kind_controls: Vec<World> = kind_worlds.iter().map(|(w, _)| w.clone()).collect();
         println!(
-            "  {which}: world {ww}x{wh}  widest stride {stride} (view {}x{})  living cells present {live_cells}",
+            "  {which}: world {ww}x{wh}  widest stride {stride} (view {}x{}, {viewport_cells:.0} world cells on screen)  living cells present {live_cells}",
             WIDTH as i32 * stride,
             HEIGHT as i32 * stride
         );
@@ -383,7 +435,7 @@ fn main() {
         let mut tiles: Vec<Tile> = Vec::new();
         let mut control: Option<Vec<u8>> = None;
         for (filter, name) in FILTERS {
-            let mut shot = shoot(&world, &bare, filter, stride, camera, reps);
+            let mut shot = shoot(&world, &bare, &kind_controls, filter, stride, camera, reps);
             shot.moved_px = match &control {
                 Some(c) => c.chunks_exact(4).zip(shot.frame.chunks_exact(4)).filter(|(a, b)| a != b).count(),
                 None => 0,
@@ -397,6 +449,22 @@ fn main() {
                 shot.live_px, shot.live_cols, WIDTH, shot.moved_px, shot.draw_ms, shot.settled_ms, shot.settled_px
             );
             println!("    {label}");
+            // **The inverse artifact, and it is the half a survival count is
+            // blind to.** A filter that takes the most salient of 16 cells
+            // can only ever draw a kind on *more* pixels than its share of the
+            // area, and a stand that is a tenth plant rendering as a hedge
+            // would be a worse lie than the dropout. So every kind is reported
+            // against the area it actually occupies in the viewport: 1.00x is
+            // areally honest, below is dropping, above is exaggerating.
+            for (i, (_, kname)) in CENSUSED.iter().enumerate() {
+                let cells = kind_worlds[i].1 as f64;
+                let true_px = cells / viewport_cells * (WIDTH * HEIGHT) as f64;
+                let got = shot.kind_px[i];
+                let ratio = if true_px > 0.0 { got as f64 / true_px } else { f64::NAN };
+                println!(
+                    "      {kname:<9} {cells:>7.0} cells -> {true_px:>8.1} px of true area, drawn on {got:>6} px = {ratio:>5.2}x"
+                );
+            }
             tiles.push((label, shot.frame));
         }
         rows.push((which.to_string(), tiles));

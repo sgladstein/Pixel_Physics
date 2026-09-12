@@ -10816,6 +10816,38 @@ is exactly the cell the old point sampling drew: that is why only 0.8% of the
 picture moves. `Shift`+`-` cycles the three filters live; `Stride` is kept as
 a byte-identical control.
 
+**What it costs, stated rather than buried: the picture now over-draws the
+things it stopped losing.** Once a pixel stands for sixteen cells, a block
+holding one stem either draws it at a whole pixel's worth of ink or draws
+nothing, so anything that stops losing stems necessarily draws them larger
+than life. Censused against each kind's true area in the viewport (1.00x is
+areally honest):
+
+| lab, stride 4 | cells | true area, px | `Stride` | `Coverage` |
+|---|---|---|---|---|
+| plant | 8,516 | 532 | 536 (**1.01x**) | 1,467 (2.76x) |
+| creature | 374 | 23.4 | 12 (0.51x) | 171 (7.32x) |
+| liquid (the sea, outdoor) | 23,487 | 1,468 | 1,448 (**0.99x**) | 1,689 (1.15x) |
+
+Three things follow. **The over-report belongs to the zoom, not to the
+filter** — `Average` measures 2.86x/7.23x/1.15x on the same scenes, within a
+few percent of `Coverage` everywhere, so no choice of filter buys both
+survival and areal honesty at 16:1. **The exaggeration is confined to the
+things that were vanishing**: a body of water 400 cells across draws at 1.15x
+while ants draw at 7.32x, and an ant at 7.32x is 171 pixels of 163,840 against
+12 today. **And the old filter was never losing *ink*** — 1.01x on plant says
+it drew the right amount in the wrong columns, which is why the headline of
+this bug is 134 of 512 columns losing their plant entirely and not any pixel
+total. **It matters for the lab specifically**: stand density is read off this
+view, and the late-game work is about stands thinning, so a bed that looks
+~2.8x denser than it is at the widest zoom is a number to remember before
+concluding a stand is healthy from a zoomed-out look.
+
+**Owner's verdict**, card `20260912T041559012Z-1b7300`, blind three-way,
+2026-09-12: *"A is best, B look blurry; C is worst"* — decoded through
+`blind_was` `[1, 2, 0]`, that is `Coverage` best, `Average` blurry, and the
+pre-fix `Stride` worst of the three.
+
 **What it does NOT fix, and this is the standing gap rather than a leftover.**
 The tie that bounds the change also means **a one-cell feature inside bulk
 ground is still dropped** -- an ore vein in rock, a sand seam in a stratum.
