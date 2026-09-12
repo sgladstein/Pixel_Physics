@@ -198,6 +198,265 @@ const LOW_BAND: i32 = 16;
 ///   the same six have not moved all run read identically on a standing
 ///   count and are opposite findings.
 ///
+/// **`probe=x,y;x,y;...` -- what stands at a named world cell, stop after
+/// stop.** Round 29's second card came back with the owner's finger on
+/// three fixed points in the frame: *"this the most prominent thing that
+/// shows no movement in both images"*. An aggregate cannot answer that.
+/// `Piles` says how many animals are wedged and for how long; it cannot
+/// say what is standing at the cell the owner pointed at, and *that* is
+/// the question -- a long body waiting on a nestmate, a one-cell body that
+/// cannot flip, a corpse, or a plant that was never going to move.
+///
+/// So this reads the cell directly and names its occupant: the material,
+/// and where that cell belongs to a live creature, the owning animal's
+/// species, body length, generation, cargo and `head_block` split, plus
+/// **whether its head cell has moved since the previous probe stop** --
+/// which is the owner's own criterion and not one any counter in this file
+/// already reports.
+///
+/// `CLAUDE.md`'s *ask what your number counts when nothing is wrong*: the
+/// positive control is a cell over open air, which must read `empty` and
+/// never name an animal, and a cell inside a plant, which must name the
+/// material and report no animal at all. Both are in the run's own output
+/// whenever the three probed cells are not all occupied.
+struct CellProbe {
+    cells: Vec<(i32, i32)>,
+    every: u64,
+    from: u64,
+    to: u64,
+    /// Per probed cell, the last (organism id, head cell) seen there, so a
+    /// line can say `moved` or `STILL` rather than leaving the reader to
+    /// diff two coordinates by eye.
+    last: Vec<Option<(u16, (i32, i32))>>,
+    /// Per probed cell: stops at which it held a creature, and stops at
+    /// which that creature's head had not moved since the previous stop.
+    occupied: Vec<u64>,
+    unmoved: Vec<u64>,
+    /// Distinct organism ids ever seen at the cell -- the cheap tell for
+    /// "one animal stands here for ever" against "the crowd keeps
+    /// rearranging itself and there is always somebody here".
+    seen: Vec<std::collections::BTreeSet<u16>>,
+    /// Probe stops taken, so the first one can print a full baseline and
+    /// the rest print only what changed.
+    stops: u64,
+    /// **The half a standing census cannot give: is the animal *trying*?**
+    /// `LifeCounters::moves` and `moves_blocked` are the animal's own
+    /// committed steps and its refused ones, so their change across the
+    /// window separates "wedged and shoving" (blocked climbs, moves does
+    /// not) from "not asking at all" (neither climbs) -- and those are
+    /// different bugs in different files. `CLAUDE.md`'s pairing of an
+    /// "it fired" counter with an effect counter, per animal.
+    ///
+    /// First and last reading per probed cell, each `(id, moves,
+    /// moves_blocked, energy)`; compared in `report` only where the id is
+    /// the same at both ends, since two animals' counters do not subtract.
+    first_seen: Vec<Option<(u16, u32, u32, f32)>>,
+    last_seen: Vec<Option<(u16, u32, u32, f32)>>,
+    /// **The positive control on the pair above.** `moves` and
+    /// `moves_blocked` both flat is the finding; it is also exactly what a
+    /// *dead or unticked* animal would read, and those are different
+    /// answers. `bites`/`digs`/`deliveries` come off the same `LifeCounters`
+    /// and are incremented by `act`, which runs *before* the move section,
+    /// so any of them climbing proves the animal's tick is running and it
+    /// is doing work -- it simply is not asking to walk.
+    /// `(id, bites, digs, deliveries)`, first and last.
+    first_act: Vec<Option<(u16, u32, u32, u32)>>,
+    last_act: Vec<Option<(u16, u32, u32, u32)>>,
+}
+
+impl CellProbe {
+    fn new() -> Option<Self> {
+        let spec: String = arg("probe")?;
+        let cells: Vec<(i32, i32)> = spec
+            .split(';')
+            .filter_map(|p| {
+                let mut it = p.split(',');
+                let x = it.next()?.trim().parse().ok()?;
+                let y = it.next()?.trim().parse().ok()?;
+                Some((x, y))
+            })
+            .collect();
+        if cells.is_empty() {
+            eprintln!("labforage: probe={spec} parsed no cells -- expected x,y;x,y");
+            return None;
+        }
+        // **`probebox=N` widens each probed cell to a (2N+1)-square block.**
+        // A marker on a review card is a *click*, so it carries a cell or
+        // two of aim error, and a probe of the single nearest cell answers
+        // a question the owner did not quite ask. The block is the honest
+        // reading; the summary below names the cells in it that held an
+        // animal, so the aim error shows up as neighbours rather than
+        // hiding as a miss.
+        let box_r: i32 = arg("probebox").unwrap_or(0);
+        let cells: Vec<(i32, i32)> = if box_r <= 0 {
+            cells
+        } else {
+            let mut out = Vec::new();
+            for &(x, y) in &cells {
+                for dy in -box_r..=box_r {
+                    for dx in -box_r..=box_r {
+                        out.push((x + dx, y + dy));
+                    }
+                }
+            }
+            out
+        };
+        let n = cells.len();
+        Some(Self {
+            cells,
+            every: arg("probeevery").unwrap_or(60).max(1),
+            from: arg("probefrom").unwrap_or(0),
+            to: arg("probeto").unwrap_or(u64::MAX),
+            last: vec![None; n],
+            occupied: vec![0; n],
+            unmoved: vec![0; n],
+            seen: vec![std::collections::BTreeSet::new(); n],
+            stops: 0,
+            first_seen: vec![None; n],
+            last_seen: vec![None; n],
+            first_act: vec![None; n],
+            last_act: vec![None; n],
+        })
+    }
+
+    fn due(&self, f: u64) -> bool {
+        f >= self.from && f <= self.to && f % self.every == 0
+    }
+
+    fn sample(&mut self, world: &World, f: u64) {
+        for i in 0..self.cells.len() {
+            let (x, y) = self.cells[i];
+            let cell = world.get(x, y);
+            let mat = world.materials.get(cell.material).name.clone();
+            let id = cell.organism_id();
+            let state = (id != 0).then(|| world.organism(id)).flatten();
+            let Some(st) = state else {
+                // Not a live animal's cell. Printed on the first stop and
+                // whenever it *becomes* empty: an empty or plant cell at a
+                // spot the owner marked is itself the answer, and it is the
+                // control on the creature reading below.
+                if self.last[i].is_some() || self.stops == 0 {
+                    println!("  probe f{f} ({x},{y}): {mat} -- no live creature (organism_id {id})");
+                }
+                self.last[i] = None;
+                continue;
+            };
+            let head = st.chain.first().copied().unwrap_or((x, y));
+            let moved = match self.last[i] {
+                Some((prev_id, prev_head)) => prev_id != id || prev_head != head,
+                None => true,
+            };
+            self.occupied[i] += 1;
+            if !moved {
+                self.unmoved[i] += 1;
+            }
+            self.seen[i].insert(id);
+            let reading = (id, st.life.moves, st.life.moves_blocked, st.energy);
+            if self.first_act[i].is_none() {
+                self.first_act[i] = Some((id, st.life.bites, st.life.digs, st.life.deliveries));
+            }
+            self.last_act[i] = Some((id, st.life.bites, st.life.digs, st.life.deliveries));
+            if self.first_seen[i].is_none() {
+                self.first_seen[i] = Some(reading);
+            }
+            self.last_seen[i] = Some(reading);
+            let block = pixel_physics::sim::creature::head_block(world, id);
+            let (open, by_c, by_o, kin) = block
+                .map(|b| (b.open, b.by_creature, b.by_other, b.kin_would_open))
+                .unwrap_or((0, 0, 0, 0));
+            // **Printed on the first stop and on every change, not every
+            // stop.** A block of 75 cells at a 60-frame cadence is 3,750
+            // lines of mostly-identical text, and the owner's question is
+            // *"does this move"* -- which is exactly the change. The stop
+            // counts in `report` carry the "and it never did" half, so
+            // nothing is lost by not repeating an unchanged line.
+            if !moved && self.stops > 0 {
+                self.last[i] = Some((id, head));
+                continue;
+            }
+            println!(
+                "  probe f{f} ({x},{y}): {mat} org {id} {} cells{} gen {} {} head ({},{}) {} | open {open} by_creature {by_c} by_other {by_o} kin_would_open {kin}{}",
+                st.chain.len(),
+                pixel_physics::sim::creature::authored_body_cells(world, id)
+                    .map(|a| format!(" (genome {a})"))
+                    .unwrap_or_default(),
+                st.generation,
+                world.species.get(st.species).name,
+                head.0,
+                head.1,
+                if st.crop.is_some() { "LADEN" } else { "empty" },
+                if moved { "" } else { "  STILL" },
+            );
+            println!(
+                "         ...energy {:.1} since_nest {} traffic_deferred {} heading {} moves {} blocked {} bites {} digs {} deliveries {}{}{}{}{}",
+                st.energy,
+                st.since_nest,
+                st.traffic_deferred,
+                st.heading,
+                st.life.moves,
+                st.life.moves_blocked,
+                st.life.bites,
+                st.life.digs,
+                st.life.deliveries,
+                // The three states that would each explain a standing animal
+                // without the brain being involved at all, so a reader does
+                // not have to take the deduction on trust.
+                if st.crossing.is_some() { " CROSSING" } else { "" },
+                if st.flight.is_some() { " IN-FLIGHT" } else { "" },
+                if st.senescent { " SENESCENT" } else { "" },
+                if st.spoil.is_some() { " CARRYING-SPOIL" } else { "" },
+            );
+            self.last[i] = Some((id, head));
+        }
+        self.stops += 1;
+    }
+
+    fn report(&self) {
+        println!(
+            "\n  probe summary -- {} stops every {} frames over {}..{}",
+            self.stops, self.every, self.from, self.to
+        );
+        for (i, &(x, y)) in self.cells.iter().enumerate() {
+            if self.occupied[i] == 0 {
+                continue;
+            }
+            let trying = match (self.first_seen[i], self.last_seen[i]) {
+                (Some((a_id, a_m, a_b, a_e)), Some((b_id, b_m, b_b, b_e))) if a_id == b_id => format!(
+                    " | org {a_id} over the window: moves {a_m}->{b_m} (+{}), blocked {a_b}->{b_b} (+{}), energy {a_e:.1}->{b_e:.1}",
+                    b_m.saturating_sub(a_m),
+                    b_b.saturating_sub(a_b)
+                ),
+                _ => String::new(),
+            };
+            let doing = match (self.first_act[i], self.last_act[i]) {
+                (Some((a_id, a_bi, a_d, a_de)), Some((b_id, b_bi, b_d, b_de))) if a_id == b_id => format!(
+                    "; while it stood there: bites +{}, digs +{}, deliveries +{}",
+                    b_bi.saturating_sub(a_bi),
+                    b_d.saturating_sub(a_d),
+                    b_de.saturating_sub(a_de)
+                ),
+                _ => String::new(),
+            };
+            println!(
+                "    ({x},{y}): creature at {}/{} stops, head unmoved at {} of them, {} distinct animal(s): {:?}{trying}{doing}",
+                self.occupied[i],
+                self.stops,
+                self.unmoved[i],
+                self.seen[i].len(),
+                self.seen[i]
+            );
+        }
+        let never: Vec<(i32, i32)> = self
+            .cells
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| self.occupied[*i] == 0)
+            .map(|(_, &c)| c)
+            .collect();
+        println!("    {} of {} probed cell(s) never held a live creature", never.len(), self.cells.len());
+    }
+}
+
 /// A stuck *duration* is in **sample stops**, not frames, and the summary
 /// prints the frame conversion beside it: an animal is only looked at when
 /// the sweep stops, so a streak of 3 at `sample=900` means "still stuck
@@ -256,6 +515,28 @@ struct Piles {
     max_streak_long: u32,
     /// The largest clump counting only bodies of three cells or more.
     largest_long: usize,
+    /// **Round 30's starting facts about the short bodies, and nothing
+    /// more.** This branch does not touch what produces them; the split
+    /// above says *how many* and these say *what they are*, which is the
+    /// question a fix would have to open with.
+    ///
+    /// `genome_sum` / `chain_sum` are summed over short body-boxed
+    /// readings, so their ratio is "cells the genome asks for" against
+    /// "cells the animal has" -- the cells-lost figure, as a mean rather
+    /// than a count of animals. `first_age_*` is the animal's age in frames
+    /// the first time it is ever seen body-boxed, which says whether a
+    /// short body is wedged from birth or gets that way later; the same
+    /// pair is kept for long bodies as the paired control, because an age
+    /// with nothing to compare it against says nothing.
+    short_genome_sum: u64,
+    short_chain_sum: u64,
+    short_first_age_sum: u64,
+    short_first_age_n: u64,
+    long_first_age_sum: u64,
+    long_first_age_n: u64,
+    /// Ids already counted into `first_age_*`, so each animal contributes
+    /// its *first* boxed tick once rather than every stop of its streak.
+    first_boxed_seen: std::collections::HashSet<u16>,
 }
 
 impl Piles {
@@ -301,6 +582,23 @@ impl Piles {
                     }
                     if let Some(st) = world.organism(id) {
                         self.short_max_generation = self.short_max_generation.max(st.generation);
+                        self.short_genome_sum += authored as u64;
+                        self.short_chain_sum += st.chain.len() as u64;
+                    }
+                }
+                // **Age at the *first* boxed tick, once per animal.** Kept
+                // for both populations: the short bodies are the question
+                // and the long ones are the control.
+                if self.first_boxed_seen.insert(id) {
+                    if let Some(st) = world.organism(id) {
+                        let age = f.saturating_sub(st.born_frame);
+                        if long {
+                            self.long_first_age_sum += age;
+                            self.long_first_age_n += 1;
+                        } else {
+                            self.short_first_age_sum += age;
+                            self.short_first_age_n += 1;
+                        }
                     }
                 }
                 if world.organism(id).is_some_and(|st| st.crop.is_some()) {
@@ -1106,6 +1404,9 @@ fn main() {
     // been body-boxed longest. Off by default: on a bed with a thousand
     // animals it is one line every stop whether or not anything is stuck.
     let pile_follow: bool = arg::<u32>("pilefollow").unwrap_or(0) != 0;
+    // Round 29's second card: the owner marked three fixed points that do
+    // not move in *either* arm. `CellProbe` is what names their occupants.
+    let mut probe = CellProbe::new();
 
     println!(
         "{:>7} {:>5} {:>6} {:>7} {:>10} {:>6} {:>6} {:>6} {:>9} | {:>5} {:>5} {:>5} {:>5} | {:>4} {:>5} {:>5} {:>6} | {:>4} {:>4} {:>4} | {:>5} {:>8} {:>5}",
@@ -1261,6 +1562,14 @@ fn main() {
                     let e = head_max.entry(world.species.get(state.species).name.clone()).or_insert(0);
                     *e = (*e).max(rows);
                 }
+            }
+        }
+        // **Its own cadence, not `sample_every`'s.** The question is
+        // whether a named cell's occupant moves, and the owner's own window
+        // was 3,000 frames -- a 900-frame stop cannot see inside that.
+        if let Some(p) = probe.as_mut() {
+            if p.due(f) {
+                p.sample(&world, f);
             }
         }
         if f % sample_every == 0 {
@@ -1616,7 +1925,8 @@ fn main() {
          pile_body_boxed={} pile_largest={} pile_stops_with_3={} pile_streaks={} pile_streak_median={} pile_streak_max={} \
          pile_body_boxed_long={} pile_body_boxed_short={} pile_body_boxed_laden={} pile_largest_long={} \
          pile_streaks_long={} pile_streak_median_long={} pile_streak_max_long={} \
-         pile_short_by_genome={} pile_short_by_loss={} pile_short_max_gen={}",
+         pile_short_by_genome={} pile_short_by_loss={} pile_short_max_gen={} \
+         pile_short_genome_cells={} pile_short_have_cells={} pile_short_first_boxed_age={} pile_long_first_boxed_age={}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1841,8 +2151,18 @@ fn main() {
         // See `Piles::short_by_genome`.
         piles.short_by_genome,
         piles.short_by_loss,
-        piles.short_max_generation
+        piles.short_max_generation,
+        // Round 30's starting facts -- see `Piles`' own doc on the four.
+        // Printed as means so the two body populations are comparable at a
+        // glance; the raw sums are one multiplication away if needed.
+        piles.short_genome_sum,
+        piles.short_chain_sum,
+        if piles.short_first_age_n > 0 { piles.short_first_age_sum / piles.short_first_age_n } else { 0 },
+        if piles.long_first_age_n > 0 { piles.long_first_age_sum / piles.long_first_age_n } else { 0 }
     );
+    if let Some(p) = probe.as_ref() {
+        p.report();
+    }
 }
 
 /// **The sensitivity half.** A census reading zero because there is nothing
