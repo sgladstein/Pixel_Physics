@@ -1,0 +1,106 @@
+{
+  "id": "20260912T073328717Z-172fa8",
+  "created": "2026-09-12T07:33:28Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-cohesion-r29",
+    "commit": "c29ebd0c",
+    "agent": null,
+    "session_id": "3512293e-b22a-59f0-822f-772f1bd3045b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What drifting alone does: a colony that stops recognising itself",
+  "question": "One of these colonies spends the session killing its own. Which one?",
+  "context_md": "**One mechanism only.** You said the last card sounded like two, and it was. This card is the first of them on its own, with the mound's smell turned OFF in both arms so nothing is holding anybody together.\n\nThe only difference between the two is how far a newborn's smell lands from its mother's. Same bed, same seed, same 60,000 frames of one session.\n\nThe second card shows what the mound's smell does about this.\n\n**On your other question - where home is.** Home is the patch of nest material the colony was founded on, and you are right that they leave it. Measured on three beds over a full session: on two of them every ant is gone from the patch by frame 10,000 and the colony settles 50 to 130 cells away in the plants, exactly as you described. On the third they stay, and that is the bed where food actually gets carried home. So the mound only holds a colony together on a bed where the round trip works.\n\nThe HUD says PAUSED because the harness ticks the box directly; it is genuinely running.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - newborns smell like their mother (drift 0)",
+      "files": [
+        "20260912T073328717Z-172fa8/000-frame_0000_f0.png",
+        "20260912T073328717Z-172fa8/001-frame_0003_f2400.png",
+        "20260912T073328717Z-172fa8/002-frame_0006_f4800.png",
+        "20260912T073328717Z-172fa8/003-frame_0009_f7200.png",
+        "20260912T073328717Z-172fa8/004-frame_0012_f9600.png",
+        "20260912T073328717Z-172fa8/005-frame_0015_f12000.png",
+        "20260912T073328717Z-172fa8/006-frame_0018_f14400.png",
+        "20260912T073328717Z-172fa8/007-frame_0021_f16800.png",
+        "20260912T073328717Z-172fa8/008-frame_0024_f19200.png",
+        "20260912T073328717Z-172fa8/009-frame_0027_f21600.png",
+        "20260912T073328717Z-172fa8/010-frame_0030_f24000.png",
+        "20260912T073328717Z-172fa8/011-frame_0033_f26400.png",
+        "20260912T073328717Z-172fa8/012-frame_0036_f28800.png",
+        "20260912T073328717Z-172fa8/013-frame_0039_f31200.png",
+        "20260912T073328717Z-172fa8/014-frame_0042_f33600.png",
+        "20260912T073328717Z-172fa8/015-frame_0045_f36000.png",
+        "20260912T073328717Z-172fa8/016-frame_0048_f38400.png",
+        "20260912T073328717Z-172fa8/017-frame_0051_f40800.png",
+        "20260912T073328717Z-172fa8/018-frame_0054_f43200.png",
+        "20260912T073328717Z-172fa8/019-frame_0057_f45600.png",
+        "20260912T073328717Z-172fa8/020-frame_0060_f48000.png",
+        "20260912T073328717Z-172fa8/021-frame_0063_f50400.png",
+        "20260912T073328717Z-172fa8/022-frame_0066_f52800.png",
+        "20260912T073328717Z-172fa8/023-frame_0069_f55200.png",
+        "20260912T073328717Z-172fa8/024-frame_0072_f57600.png",
+        "20260912T073328717Z-172fa8/025-frame_0075_f60000.png"
+      ],
+      "caption": "the box as it was",
+      "meta": {
+        "killed by own colony": 0,
+        "groups minted": 0,
+        "nest smell": "off",
+        "alive at the end": 133
+      },
+      "focus": null
+    },
+    {
+      "label": "B - newborns drift (drift 1.0)",
+      "files": [
+        "20260912T073328717Z-172fa8/026-frame_0000_f0.png",
+        "20260912T073328717Z-172fa8/027-frame_0003_f2400.png",
+        "20260912T073328717Z-172fa8/028-frame_0006_f4800.png",
+        "20260912T073328717Z-172fa8/029-frame_0009_f7200.png",
+        "20260912T073328717Z-172fa8/030-frame_0012_f9600.png",
+        "20260912T073328717Z-172fa8/031-frame_0015_f12000.png",
+        "20260912T073328717Z-172fa8/032-frame_0018_f14400.png",
+        "20260912T073328717Z-172fa8/033-frame_0021_f16800.png",
+        "20260912T073328717Z-172fa8/034-frame_0024_f19200.png",
+        "20260912T073328717Z-172fa8/035-frame_0027_f21600.png",
+        "20260912T073328717Z-172fa8/036-frame_0030_f24000.png",
+        "20260912T073328717Z-172fa8/037-frame_0033_f26400.png",
+        "20260912T073328717Z-172fa8/038-frame_0036_f28800.png",
+        "20260912T073328717Z-172fa8/039-frame_0039_f31200.png",
+        "20260912T073328717Z-172fa8/040-frame_0042_f33600.png",
+        "20260912T073328717Z-172fa8/041-frame_0045_f36000.png",
+        "20260912T073328717Z-172fa8/042-frame_0048_f38400.png",
+        "20260912T073328717Z-172fa8/043-frame_0051_f40800.png",
+        "20260912T073328717Z-172fa8/044-frame_0054_f43200.png",
+        "20260912T073328717Z-172fa8/045-frame_0057_f45600.png",
+        "20260912T073328717Z-172fa8/046-frame_0060_f48000.png",
+        "20260912T073328717Z-172fa8/047-frame_0063_f50400.png",
+        "20260912T073328717Z-172fa8/048-frame_0066_f52800.png",
+        "20260912T073328717Z-172fa8/049-frame_0069_f55200.png",
+        "20260912T073328717Z-172fa8/050-frame_0072_f57600.png",
+        "20260912T073328717Z-172fa8/051-frame_0075_f60000.png"
+      ],
+      "caption": "nothing holding them together",
+      "meta": {
+        "killed by own colony": 675,
+        "groups minted": 2,
+        "nest smell": "off",
+        "alive at the end": 62
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
