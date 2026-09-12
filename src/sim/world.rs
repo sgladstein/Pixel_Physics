@@ -307,6 +307,36 @@ pub struct RunLog {
 /// with every other sentence removed.
 pub const RUN_LOG_CAP: usize = 2048;
 
+/// **One killing, with both parties and the moment.**
+///
+/// `GroupDeaths::killed_by` aggregates kills per (victim group, attacker
+/// group) and loses the frame and the victim's state, so it can say *that* a
+/// colony was eaten and never *when* or *how hungry the victim already was*.
+/// On the played bed at 500,000 frames those are the two questions left:
+/// whether the killing is a founding-window event or a late-window one, and
+/// whether a "killed" ant was a starving ant that got eaten a moment early.
+#[derive(Clone, Copy, Debug)]
+pub struct KillRecord {
+    pub frame: u64,
+    pub victim_species: organism::SpeciesId,
+    pub victim_colony: u32,
+    /// The victim's energy at the moment the deciding cell came off. A value
+    /// near zero says this was a starving animal that was eaten rather than a
+    /// healthy one that was fought.
+    pub victim_energy: f32,
+    pub attacker_species: organism::SpeciesId,
+    pub attacker_colony: u32,
+}
+
+/// How many killings [`World::kills_log`] keeps before it stops recording.
+///
+/// **A bound on memory, never a gate on the killing** -- `World::tally_kill`
+/// books every kill in `GroupDeaths` whatever this does, and
+/// `World::kills_unlogged` counts what the log dropped, so an exhausted cap
+/// reads as "the log is short" and never as "the killing stopped".
+/// `CLAUDE.md`: a size cap must bound work, not produce an answer.
+pub const MAX_KILL_LOG: usize = 200_000;
+
 /// **One individual that has died, kept after its slot is gone.**
 ///
 /// The roster could only ever list the living, and `README`'s own "known
@@ -2130,6 +2160,19 @@ pub struct World {
     /// `deaths_by_cause`, split by `(species, colony)` for animals — see
     /// `GroupDeaths`. A `Vec` because a box holds a handful of groups.
     pub group_deaths: Vec<GroupDeaths>,
+    /// **Every killing, with both parties, the frame and the victim's
+    /// energy** -- see [`KillRecord`]. Append-only, bounded by
+    /// [`MAX_KILL_LOG`]; `kills_unlogged` counts what the bound dropped.
+    pub kills_log: Vec<KillRecord>,
+    /// Killings that happened after `kills_log` reached [`MAX_KILL_LOG`].
+    /// Non-zero means the log is a prefix and any share computed from it is a
+    /// share of that prefix, which a reader has to be told.
+    pub kills_unlogged: u64,
+    /// **What was standing in the vital cell of every creature that died of
+    /// `DeathCause::Killed`**, as `(species, colony, material, count)` — see
+    /// [`World::note_vital_loss`]. Read against `kills_log`: the difference
+    /// between the two is the killing nobody did.
+    pub vital_losses: Vec<(organism::SpeciesId, u32, material::MaterialId, u64)>,
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
@@ -4208,6 +4251,9 @@ impl World {
             next_lineage: 1,
             next_colony: 1,
             colony_parents: Vec::new(),
+            kills_log: Vec::new(),
+            kills_unlogged: 0,
+            vital_losses: Vec::new(),
             nest_sites: Vec::new(),
             nest_blend: creature::NEST_BLEND_DEFAULT,
             nest_uptake: creature::NEST_UPTAKE_DEFAULT,
@@ -5763,12 +5809,41 @@ impl World {
         self.group_deaths.iter().find(|g| g.species == species && g.colony == colony)
     }
 
+    /// **A vital cell lost to something that is not an attributable bite.**
+    ///
+    /// `DeathCause::Killed` is booked wherever a creature's deciding cell
+    /// goes away, whatever took it, so the cause alone cannot tell an animal
+    /// apart from a falling powder. This records what was standing in the
+    /// cell at the moment of the death, keyed by material, so "who is killing
+    /// the colony" has an answer rather than an assumption.
+    pub fn note_vital_loss(&mut self, species: organism::SpeciesId, colony: u32, took: material::MaterialId) {
+        match self.vital_losses.iter_mut().find(|(sp, col, m, _)| *sp == species && *col == colony && *m == took) {
+            Some((_, _, _, n)) => *n += 1,
+            None => self.vital_losses.push((species, colony, took, 1)),
+        }
+    }
+
     /// **A kill, booked on the victim's group against the attacker's.**
     /// Called from the bite that took a victim's deciding cell, which is the
     /// one site that knows both parties; `free_organism` sees only the
     /// corpse. Plants are never victims here (a bitten leaf does not kill a
     /// tree) and never attackers, so both ids are animals by construction.
-    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32)) {
+    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32) {
+        // **The per-kill record, beside the tally rather than instead of it.**
+        // The tally is what every page and every scene reads; this is the
+        // attribution a census needs and cannot reconstruct from it.
+        if self.kills_log.len() < MAX_KILL_LOG {
+            self.kills_log.push(KillRecord {
+                frame: self.frame,
+                victim_species: victim.0,
+                victim_colony: victim.1,
+                victim_energy,
+                attacker_species: attacker.0,
+                attacker_colony: attacker.1,
+            });
+        } else {
+            self.kills_unlogged += 1;
+        }
         let row = self.group_deaths_mut(victim.0, victim.1);
         match row.killed_by.iter_mut().find(|(sp, col, _)| *sp == attacker.0 && *col == attacker.1) {
             Some((_, _, n)) => *n += 1,

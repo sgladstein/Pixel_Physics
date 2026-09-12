@@ -9070,7 +9070,7 @@ mod tests {
             // `tally_kill` mints the `GroupDeaths` row (`group_deaths_mut` is
             // private to `world.rs`); the rest of its tally is filled in on
             // the row it just made, through the public `Vec` beside it.
-            w.tally_kill((ant, colony), (ant, attacker));
+            w.tally_kill((ant, colony), (ant, attacker), 0.0);
             let row = w.group_deaths.iter_mut().find(|d| d.species == ant && d.colony == colony).expect("tally_kill made the row");
             row.by_cause[crate::sim::organism::DeathCause::Starved.index()] = 2;
             row.by_cause[crate::sim::organism::DeathCause::Killed.index()] = 1;
