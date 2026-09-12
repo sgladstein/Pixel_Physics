@@ -95,6 +95,26 @@
     // species, and under ~20,000 it dies out"; it does not support an
     // optimum. Resolving one wants an order statistic over a dozen seeds.
     life_half_life: 60000.0,
+    // **Round 29, Brief 1 -- this species' seeds now survive an ant's gut,
+    // where before they were certain death.**
+    // `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The late-game
+    // census found the colony's staple is the seed bank -- it drains 16x in a
+    // session while the leaf larder holds -- and that a bitten seed was simply
+    // destroyed. With this set, a bite that spares the seed pays only
+    // `seed_provision_fraction` and the seed rides home in the ant's crop, to
+    // be set down where the meal ends: granivory becomes dispersal.
+    //
+    // **0.6, the value `herb` and `scrambler` already carry**, and taken from
+    // them deliberately rather than tuned here. Three reasons, in order: it is
+    // the only value in the corpus, so a first build that invents a second
+    // number is choosing between two unmeasured things instead of one; the
+    // trait is a seed *coat*, and nothing about a grass, shrub or tree coat is
+    // obviously tougher or thinner than a herb's; and a species-specific
+    // spread is exactly the sort of difference this lab exists to let
+    // *evolution* find, once the field is addressed through `ParamGenome`.
+    // Re-derive it from a dispersal sweep before believing any particular
+    // value, not from this comment.
+    seed_gut_survival: 0.6,
     stomatal_reserve: 0.2,
     // **The production rule: what a cell becomes, and what it creates.**
     //

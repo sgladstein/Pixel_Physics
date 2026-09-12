@@ -99,9 +99,34 @@ pub struct Sample {
     pub outside_cols: usize,
     pub plant_cells_in_band: usize,
     pub plant_cells_outside: usize,
+    /// **Corpse cells standing on the bed.** A stock, not a rate: the death
+    /// counters say how many animals went and this says how much of them is
+    /// still lying there uneaten, which is the half that decides whether age
+    /// deaths *feed* the colony or merely remove mouths from it.
+    ///
+    /// Counted before the `diet_yield` gate that fills `corpse_j`, not inside
+    /// it: a corpse burnt to charcoal or half digested can fall under the
+    /// edible threshold and still be lying on the ground.
+    pub corpses: usize,
 }
 
-fn is_waiting_seed(world: &World, state: &organism::OrganismState) -> bool {
+fn is_waiting_seed(world: &World, id: u16, state: &organism::OrganismState) -> bool {
+    // **A seed riding in an ant's crop is still bank, and owns no cell at
+    // all while it rides** -- round 29, Brief 1. `plant::take_seed_passenger`
+    // lifts the seed's one cell out of the world and keeps the organism live
+    // (`World::carried_seed_organisms`), so the one-cell test below says no
+    // and the passenger would otherwise be counted as a *plant*. One per
+    // carrying ant, and wrong in the direction that flatters the seed-cargo
+    // build, which is why it is closed here rather than noted.
+    //
+    // **This survived a file move**: the census body moved out of
+    // `examples/latecensus.rs` into this module on the same day the rule was
+    // added, and the version that moved was the one without it. Taking the
+    // moved side wholesale would have put every passenger back in the plant
+    // column without a single test going red.
+    if world.is_carried_seed(id) {
+        return true;
+    }
     state.cells.len() == 1
         && state
             .cells
@@ -121,7 +146,7 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_some() {
             s.ants += 1;
-        } else if is_waiting_seed(world, state) {
+        } else if is_waiting_seed(world, id, state) {
             s.seed_bank += 1;
         } else {
             s.plants += 1;
@@ -168,6 +193,13 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
             }
             if ids.flower.contains(&cell.material) {
                 s.standing_flowers += 1;
+            }
+            // **Before the `diet_yield` gate below, deliberately** -- see the
+            // field's own doc. A corpse that has burnt or been half eaten can
+            // fall under `EAT_YIELD_THRESHOLD` and still be a body lying on
+            // the bed, which is what this counts.
+            if ids.corpse.contains(&cell.material) {
+                s.corpses += 1;
             }
             let yielded = diet_yield(world, cell, gut);
             if yielded <= EAT_YIELD_THRESHOLD {
@@ -232,8 +264,16 @@ pub fn ant_gut_bias(world: &World) -> f32 {
 }
 
 /// The colony species' deaths by cause, colonies rolled up.
-pub fn colony_deaths(world: &World, species: &str) -> (u64, u64, u64) {
-    let (mut starved, mut killed, mut other) = (0, 0, 0);
+/// Returns `(starved, killed, oldage, other)`.
+///
+/// **Old age gets a column of its own rather than being folded into
+/// `other`**, which is what it would be if this simply counted variants. The
+/// question the lifespan build asks is whether a colony stops at a size
+/// instead of eating the bed, and "it settled" and "it ran out of food" are
+/// the *same* population line -- only the split between this column and
+/// `starved` tells them apart.
+pub fn colony_deaths(world: &World, species: &str) -> (u64, u64, u64, u64) {
+    let (mut starved, mut killed, mut oldage, mut other) = (0, 0, 0, 0);
     for g in &world.group_deaths {
         if world.species.get(g.species).name != species {
             continue;
@@ -243,12 +283,14 @@ pub fn colony_deaths(world: &World, species: &str) -> (u64, u64, u64) {
                 starved += n;
             } else if i == DeathCause::Killed.index() {
                 killed += n;
+            } else if i == DeathCause::OldAge.index() {
+                oldage += n;
             } else {
                 other += n;
             }
         }
     }
-    (starved, killed, other)
+    (starved, killed, oldage, other)
 }
 
 /// Columns any ant colony is founded at over this bed's life: built at bed
@@ -293,7 +335,10 @@ pub struct ChronicleRow {
 pub fn take_chronicle_row(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &Ids, colony_species: &str) -> ChronicleRow {
     let sample = census(world, spec, gut, nest_cols, ids);
     let st = world.creature_stats;
-    let (starved, killed, other_deaths) = colony_deaths(world, colony_species);
+    // The chronicle's row has no old-age column of its own yet, so an age
+    // death lands in `other_deaths` here rather than being dropped.
+    let (starved, killed, oldage, other) = colony_deaths(world, colony_species);
+    let other_deaths = other + oldage;
     ChronicleRow {
         frame: world.frame,
         sample,

@@ -55,6 +55,8 @@ use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
 use pixel_physics::sim::particle::ParticleSystem;
+use pixel_physics::sim::creature;
+use pixel_physics::sim::organism;
 use pixel_physics::sim::player;
 use pixel_physics::sim::world::World;
 
@@ -146,6 +148,49 @@ fn main() {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".into())
     );
     let (mut world, planted, placed) = scenario.build();
+    // **`drift=` -- the ant's `CreatureDef::scent_drift`**, added 2026-09-12 to
+    // attribute the played-bed baseline shift to a commit and then to a
+    // channel. It defaults to whatever the species file authors, so the
+    // shipped arm of this harness is unchanged and only an explicit `drift=`
+    // moves anything. Deliberately weaker than patching the constant: the
+    // shipped arm has to stay the shipped arm or the pair is not a pair.
+    if let Some(v) = arg::<f32>("drift") {
+        if let Some(id) = world.species.id_of("ant") {
+            let mut def = world.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_drift = v;
+            world.species.set_creature(id, def);
+        }
+    }
+    println!(
+        "latecensus: ant scent_drift = {:?}",
+        world.species.id_of("ant").and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.scent_drift))
+    );
+    // **`lifespan=<frames>` -- the sweep knob for brief 2**, written through
+    // to the colony species' `CreatureDef::life_half_life` right after the
+    // bed is built and before a single frame runs, so every animal the
+    // timeline founds at frame 6,000 already has it. `0` is the shipped
+    // pre-2026-09-12 behaviour (immortal) and is the paired control every
+    // arm of the sweep is read against.
+    //
+    // Echoed on its own line whether or not it was passed, `plant_probe`'s
+    // rule: a log that does not name its lifespan was written by a binary
+    // that never had one, and eight byte-identical logs are what that looks
+    // like from the outside. Written *after* `drift=` above for the same
+    // reason the SUMMARY line appends rather than interleaves: every lane adds
+    // a knob here, and one order for all of them is what keeps the diffs small.
+    if let Some(v) = arg::<u32>("lifespan") {
+        if let Some(id) = world.species.id_of(&spec.colony_species) {
+            if let Some(mut def) = world.species.get(id).creature.clone() {
+                def.life_half_life = v;
+                world.species.set_creature(id, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        spec.colony_species,
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
     println!(
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
@@ -171,10 +216,10 @@ fn main() {
     let tuning = player::Tuning::default();
     let mut gut = 0.0f32;
     println!(
-        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>5} {:>4} {:>5} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
         "frame", "ants", "plnts", "bank", "edible", "worth(J)",
         "leafJ", "fruitJ", "littrJ", "seedJ", "crpsJ", "flowrJ", "otherJ", "flwrs",
-        "born", "died", "strvd", "killd", "othr", "eats", "digs", "delivs",
+        "born", "died", "strvd", "oldag", "killd", "othr", "crpss", "eats", "digs", "delivs",
         "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut"
     );
     println!("        (then, cumulative production: shed=leaves shed, borne=seeds borne, germ=germinations, fdrop=fruit dropped)");
@@ -191,12 +236,12 @@ fn main() {
         if f % sample_every == 0 {
             let s = census::census(&world, &spec, gut, &nest_cols, &ids);
             let st = world.creature_stats;
-            let (starved, killed, other) = census::colony_deaths(&world, &spec.colony_species);
+            let (starved, killed, oldage, other) = census::colony_deaths(&world, &spec.colony_species);
             println!(
-                "{f:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+                "{f:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>5} {:>4} {:>5} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
                 s.ants, s.plants, s.seed_bank, s.edible, s.worth,
                 s.leaf_j, s.fruit_j, s.litter_j, s.seed_j, s.corpse_j, s.flower_j, s.other_j, s.standing_flowers,
-                st.births, st.deaths, starved, killed, other, st.eats, st.digs, st.deliveries,
+                st.births, st.deaths, starved, oldage, killed, other, s.corpses, st.eats, st.digs, st.deliveries,
                 s.roofed, s.pit, s.packed_below, s.packed_above, s.mound_high,
                 s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside
             );
@@ -211,14 +256,127 @@ fn main() {
                 world.germinations,
                 world.fruit_dropped
             );
+            // **The two numbers that separate the two candidate channels for
+            // the 2026-09-12 baseline shift**, measured beside the census
+            // rather than inferred from it.
+            //
+            // `shares` is the trophallaxis channel: `creature::neediest_kin`
+            // gates its recipient on `is_living_kin`, which reads the scent
+            // predicate, so a drifting colony can only ever feed a shrinking
+            // set of its own. `strangers` is the far side of that same
+            // predicate read directly -- the share of ORDERED pairs of living
+            // ants that are not mutually family, which is what "the colony
+            // has become strangers" means as a number rather than as a story.
+            // Read the two together: the shift turned out to be the first
+            // with the second flat, and the `killd` column zero throughout.
+            //
+            // **Strided to at most 200 animals, deterministically.** The pair
+            // statistic is O(n^2) and this bed reaches 3,000 ants; a stride
+            // bounds it and keeps two identical worlds reporting identical
+            // numbers, which a random sample would not.
+            {
+                let ids: Vec<u16> = world
+                    .live_organism_ids()
+                    .into_iter()
+                    .filter(|id| world.organism(*id).is_some_and(|st| world.species.get(st.species).creature.is_some()))
+                    .collect();
+                let stride = (ids.len() / 200).max(1);
+                let sample: Vec<[f32; organism::CREATURE_TRAITS]> =
+                    ids.iter().step_by(stride).filter_map(|id| world.organism(*id).map(|st| st.traits)).collect();
+                let (mut pairs, mut strangers) = (0u64, 0u64);
+                for (i, a) in sample.iter().enumerate() {
+                    for (j, b) in sample.iter().enumerate() {
+                        if i == j {
+                            continue;
+                        }
+                        pairs += 1;
+                        if !creature::scent_accepts(a, b) {
+                            strangers += 1;
+                        }
+                    }
+                }
+                let mut mean = [0.0f32; 3];
+                for t in &sample {
+                    for (m, v) in mean.iter_mut().zip(creature::scent_of(t).iter()) {
+                        *m += *v;
+                    }
+                }
+                let n = sample.len().max(1) as f32;
+                for m in &mut mean {
+                    *m /= n;
+                }
+                let spread: f32 =
+                    sample.iter().map(|t| creature::scent_distance_sq(&creature::scent_of(t), &mean).sqrt()).sum::<f32>() / n;
+                println!(
+                    "        shares={} shared_j={:.0} | sampled={} strangers={:.2}% scent_spread={:.4} (tolerance radius 1.0)",
+                    world.creature_stats.shares,
+                    world.creature_stats.shared_j,
+                    sample.len(),
+                    if pairs > 0 { 100.0 * strangers as f64 / pairs as f64 } else { 0.0 },
+                    spread
+                );
+            }
         }
         if f < frames {
             frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         }
     }
     let st = world.creature_stats;
+    let final_census = census::census(&world, &spec, gut, &nest_cols, &ids);
+    // **`starved`, `killed` and `oldage` stay three fields, never a pooled
+    // `died`.** Three mortality channels now move independently on this bed --
+    // hunger, the seed-cargo build's `Killed` channel, and age -- and a colony
+    // that settled and a colony that ran out of food are the same population
+    // line. Only the split tells them apart. Read once here rather than three
+    // times inside the argument list, which walked `group_deaths` per field.
+    let (starved, killed, oldage, _other) = census::colony_deaths(&world, &spec.colony_species);
     println!(
-        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0}",
-        scenario.name, spec.seed, st.births, st.deaths, st.eats, st.digs, st.spoil_dumped, st.deliveries, world.nectar_paid
+        // Round 29's fields are appended after main's, format string and
+        // argument list in the same order -- every lane adds to this line, so
+        // the house rule is append, never interleave.
+        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
+         bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
+         seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1} \
+         lifespan={} oldage={} starved={} killed={}",
+        scenario.name,
+        spec.seed,
+        st.births,
+        st.deaths,
+        st.eats,
+        st.digs,
+        st.spoil_dumped,
+        st.deliveries,
+        world.nectar_paid,
+        // **Round 29, Brief 1.** `bare_seeds_spared` is the plant side's "it
+        // fired" -- a bare-seed bite rolled `seed_gut_survival` and won --
+        // and `bare_seeds_carried` the effect counter from the far side of
+        // the call: that survivor became a `Crop::passenger` instead of
+        // standing where it was bitten. `seeds_carried` beside them is the
+        // pre-existing union of the bare and the in-fruit routes, kept so
+        // the two can be differenced. `plants_from_pip` is the end of the
+        // loop the whole brief is about: a seed an ant carried, set down
+        // where the meal ended, that came up as a plant.
+        world.bare_seeds_spared,
+        world.bare_seeds_carried,
+        world.seeds_carried,
+        world.seeds_delivered,
+        world.pips_released_by_digestion,
+        world.plants_from_pip,
+        // The final row's standing state, repeated on the SUMMARY line so a
+        // sweep can read one line per run rather than parse the table. The
+        // leaf larder is here beside the bank because the owner's live-play
+        // report is that the colony strips the stand *as well as* the bank,
+        // so a build judged on the bank alone would be judged on half of it.
+        final_census.seed_bank,
+        final_census.plants,
+        final_census.ants,
+        final_census.leaf_j / 1000.0,
+        final_census.litter_j / 1000.0,
+        final_census.seed_j / 1000.0,
+        // Brief 2's own four, appended last.
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0),
+        oldage,
+        starved,
+        killed
     );
 }

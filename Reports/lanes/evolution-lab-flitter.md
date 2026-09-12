@@ -1,83 +1,144 @@
-# Lane note — the flitter, round 29 (B1, the bed, B3)
+# Lane note — the flitter, rounds 29–30
 
-*Closed 2026-09-11. Three builds in one day; every number below is
-`examples/labforage`, `creature=flitter`, `RAYON_NUM_THREADS=4`, one binary per
-comparison. The full accounts are the two reports; this is what a later lane
-needs and cannot reconstruct.*
+*Current as of 2026-09-12. Rounds 29's three builds (#332 the float, #334 the
+bed, #339 the float's gate) and their numbers are in
+[`evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md) and the
+two flight reports; **the two findings below are the ones a later lane cannot
+reconstruct**, and they are followed by round 30's, which overturns the
+framing of all three.*
 
-## Where it got to
-
-The flitter **flies, steers, lands on the flower, and switches off when there is
-nothing in range**. It still **cannot make a living**: alive at 120,000 frames
-is **0 on every bed, seed and setting measured** — 24 runs at B3 alone.
-
-## The three things that were wrong, in the order they were found
-
-1. **No brain in the air** (B1, PR #332). `creature_tick` returned into
-   `step_flight` before `sense`, so `(BloomBearing, Turn, -2.5)` steered nothing
-   for a third to a half of the animal's life. Fixed by `BrainOutput::Fly`.
-2. **§Z9, and it was most of the loss.** A body that came down on water hung
-   there and starved: 63/57/87% of all deaths on `main`. One predicate closed it
-   — the ballistic arm goes to 3/0/6%. **The design blamed blindness aloft; the
-   measurement says the water was the bigger half.**
-3. **§Z10, the float's gate** (B3, this branch). The ON condition was
-   `BloomNear > 0` — *a flower somewhere inside the 32-cell eye* — which on a
-   bed worth flying over is nearly always true, so the verb never switched off:
-   96% of airborne frames powered, 55% of the colony's whole burn on lift, 29 of
-   30 deaths in mid-air. `(Bias, Fly, ..)` **-4.0 -> -9.6** makes the gate a
-   *distance* (9.6 cells at full energy, 1.6 at half, nothing at a quarter).
-
-## The two findings a later lane should not re-derive
+## The two round-29 findings that still stand
 
 **A bias on the `Fly` row is a distance threshold, not a taste setting.**
-`BloomNear` is `1 - dist/reach`, so `-B + 4*Energy + 8*BloomNear > 0` opens the
-float inside `4 x (12 - B)` cells at full energy and the energy term slides that
-range shut as the tank empties. Any future gate on a `*Near` sense has this
-shape — and it is why the first wiring failed: a bias tuned as "how eager" is
-silently "how far", and it saturates as soon as the world is dense.
+`BloomNear` is `1 - dist/reach`, so the gate opens inside `4 x (12 - B)` cells
+at full energy and the energy term slides that range shut as the tank empties.
+Any gate on a `*Near` sense has this shape, and it saturates once the world is
+dense.
 
 **What separates a bed the flitter can work from one it cannot is a distance,
-not a density.** Across nine bed-seed pairs the standing-flower count predicts
-nothing (a 43-flower bed takes 108 visits, a 57-flower bed takes 5); the nearest
-flowering clump's distance from the nest does — **138 / 84 / 59 columns against
-median visits 8 / 74 / 69**. Inside about ninety columns the whole ninefold
-arrives; closer buys nothing and starts costing the colony its footing
-(scramblers inside columns 180-330 seat 15 founders of 52).
+not a density** — the nearest flowering clump's distance from the nest
+predicts visits (138/84/59 columns against medians 8/74/69) where the
+standing-flower count predicts nothing. Both are derived in full in
+`evolution-lab-flitter-bed-2026-09-11.md`.
 
-## The standing gap, and where it is NOT
+## Round 30: the owner judged four cards, all negative
 
-The economy needs **~1.6 flower visits per 1,000 frames per animal**
-(`evolution-lab-flight-design-2026-09-11.md` §3). Measured over the window the
-animals are actually alive, the best settings give **0.08-0.45**. Four to twenty
-times short, with the bed as close as the founding rules allow and the float
-correctly gated.
+Verbatim, on #332/#334/#339 and then on main:
 
-**It is not in the wings.** Mid-air deaths are down to 6-10% of the total and
-lift to 5-36% of burn; `deaths_by` is now overwhelmingly `STARVED` on the
-ground. What is left is the animal's life on the ground:
+1. *"Both look very much like hopping and not flying"*
+2. *"I cannot tell from these images. I see a creature move a little within a
+   plant. That is it."*
+3. *"No. It looks like it is hopping and mostly stuck in this video. It is
+   stuck next to a plant, then does one long hop (clearly not fly) and then
+   gets stuck next to another plant"*
+4. (follow-camera GIF, 240 frames) *"This creature seems stuck in the plant or
+   just decided not to move much in the time."*
 
-- **resting** — nothing in this genome says "sit still when there is nothing in
-  sight"; `(Bias, Move, 2.0)` walks it about regardless, at 0.25 J a step
-  against 0.025 J a frame standing still;
-- **the walk** — bug **R4**, `Turn` nearly inert for a walker on level footing,
-  so a grounded flitter cannot be steered, only scattered;
-- **the eye** — `sight_range: 32` never re-derived after the brain began casting
-  aloft (`flight-design` §3 asks for it and B1 did not do it);
-- **`start_energy: 200`** — held through all three builds so the arms stayed
-  attributable, and never swept.
+The first three were still-strips; the fourth was the right instrument.
+
+## **The bed is a cage, and that is what all four verdicts were looking at** (§Z15)
+
+**`translated_if_free` requires every target cell to be empty, and `Plant` is
+not empty — but `Plant` *does* count as support.** So an animal inside a
+canopy can still launch and cannot step in any direction, in the air or on the
+ground, however good its wings or its brain are. It chatters between airborne
+and grounded on the spot, which is exactly what reads as hopping.
+
+Measured on `played_bed_understory` seed 1, the followed flitter at frame
+9,000: **zero empty neighbours on 88% of frames**, median **7 of its 8
+neighbours `Plant`**. Colony-wide, the share of live flitters that cannot step
+anywhere at a given instant:
+
+| | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| main | 42% | 12% | 18% |
+| round-30 build | 54% | 25% | 17% |
+
+**It is worse on the new build because the new build breeds more animals into
+the same canopy**, not because anything regressed. `labgif follow=` takes the
+lowest live id, which is disproportionately a long-settled — i.e. caged —
+animal, so **every card this round was aimed at the failure**.
+
+**Filed as §Z15, and it took three tries to land on a free letter.** The
+section was written as §Z12, renumbered to §Z14 when lane I's `#353` turned out
+to hold §Z12 and §Z13, and renumbered again to §Z15 when lane O's `#357` took
+§Z14 — plus §Z11 had already gone to the zoom-out lane the same way. **Four
+collisions in one day, and not one of them was a careless pick**: the letter is
+chosen by the author at filing time and `scripts/bugindex.py --check` can only
+see `main`, so every concurrent filing is a guess that goes stale the moment
+another lane pushes.
+
+**The check that works is a sweep of the remote branches, run immediately
+before pushing rather than when the section is written**: fetch all of
+`refs/heads/*`, then `git show $b:Reports/open-bugs-handoff.md | grep -oE
+'^### Z[0-9]+\.'` over `git branch -r`. It caught all three collisions and
+nothing else did. The durable fix is allocating the letter at merge time, or a
+`bugindex.py` mode that sweeps the branches itself — a command rather than a
+discipline.
+
+**This is not fixable inside the flight code and was deliberately not
+attempted.** Letting a body move into a plant cell means `relocate_chain`
+overwriting it, which is `dead-ends.md`'s already-paid disaster (the flitter
+eating its own bed: 960 plant cells -> 566, 34 standing flowers -> 4). A
+displacement or swap mechanism is a design question for the movement layer,
+not a lane fix. **Escalated rather than cut blind.**
+
+## What round 30 did change, and what it is worth
+
+Five things, all in the flight path, all gated on a species pricing flight, so
+`ascii` is byte-identical over 1,099 non-timing lines and the ant, long ant,
+hopper and beetle are byte-identical on `played_bed`.
+
+- **The hover.** `BrainOutput::Fly` is `squash(sum)`, strictly below 1, and the
+  lift was `GRAVITY * (1 - fly)` — so **gravity could never be cancelled and
+  every "flight" was an arc by construction**. This is the arithmetic reason
+  three builds all read as hopping. `HOVER_GAIN` 2.5 closes it.
+- **The price follows the lift.** The per-frame charge was binary: a
+  quarter-lift glide cost exactly a full hover. Graded outcome, switch-shaped
+  bill. **On its own this doubled the economy** — `flower_visits` 274 -> 506,
+  `born` 12 -> 25 on seed 1 at 20,000 frames — and it is what makes any cheap
+  traverse affordable at all.
+- **The stall-out.** A flier hovering two cells short of a bloom it could see
+  hung there **371 consecutive frames at a rock-steady `fly` of 0.648** and
+  never arrived: the row that ends a bout is `(FoodAdjacent, Fly, -12.0)`, so
+  **a verb whose OFF condition is "arrival" hangs for ever on journeys that do
+  not arrive.** A blocked bout now gives up its lift. `blocked` is load-bearing
+  — keyed on "went nowhere" alone it cut the wings of a freely hovering body
+  and dropped it in the water §Z9 exists to keep it out of.
+- **The cruise** (`CreatureDef::cruise_lift`, 0.7). Every previous build gated
+  lift on a bloom already within ~9.6 cells, so **every journey longer than
+  nine cells was unpowered** — all travel ballistic, all flight a final
+  approach. The cruise powers a launch on spec and ramps to nothing, so it
+  lands by construction. Not `dead-ends.md`'s rejected always-on float: that
+  had no OFF condition.
+- **Genome**: `(FoodAdjacent, Impulse, -2.0)` -> `-1.75`. At exactly -2.0 it
+  cancelled `(Bias, Impulse, 2.0)` to zero.
+
+**The cruise is not an economic win and should not be sold as one.** Seeds 1-3
+at 20,000 frames, `flower_visits`: no cruise 510/23/131 (median 131), 0.70
+264/96/142 (median **142**). It trades the rich seed's take for the poor
+seeds'. What it buys unambiguously is `fly_share` **26-69% -> 85-86%** —
+powered flight instead of arcs. Three seeds is not a sweep.
+
+At 120,000 frames, seeds 1-3, `RAYON_NUM_THREADS=1`: visits 142/39/85 ->
+676/23/131, `born` 1/0/0 -> 34/0/4, aloft-death share 8/5/21% -> ~11%.
+**`alive` at 120,000 is still 0 on every seed, both arms** — the standing gap
+is untouched.
 
 ## Environment notes that cost time here
 
-- **`labgif` has no `wire=`**, so a card at a non-shipped wiring needs a `.ron`
-  edit and a rebuild. `labforage` does have it, and it replaces the authored
-  weight, which is what made a 24-run sweep one binary.
-- **`labgif follow=` picks the lowest-id live animal**, which is often one
-  sitting still at a flower. Two cards were re-rendered before this was noticed;
-  a fixed `center=` on the flowering columns shows more.
-- **`labgif` defaults `rain=steady`** and overrides the scenario's own rate —
-  pass `rain=off` or the card is not the bed the measurement ran on.
-- **`no_colony=1` on a scenario is a post-arrival sweep**, so the bare-bed
-  control still reports `died=N`; read `flower_visits=0` as the tell instead.
-- A visit rate divided by the run length is divided by a bed that was empty for
-  three quarters of it. **Divide by the window the animals were alive** — the
-  population curve (`sample=6000`) is the denominator.
+- **`PIXEL_PHYSICS_FLIGHT29=0` reverts the whole round-30 flight model** and is verified to
+  reproduce the `origin/main` binary's summary line on seeds 1-3. Use it for
+  the A/B arm rather than an older binary: two binaries also means two
+  harnesses.
+- **`labgif` now has `track=1`** (per-frame position, `aloft`, `fly`, energy
+  and the 8-neighbourhood census) and a `CAGE` line. A follow camera holds the
+  animal dead centre, so the one thing a still cannot show is whether it is
+  travelling. Read the track, not the picture.
+- **`labgif follow=` picks the lowest live id**, usually a caged animal;
+  `follow_air=N` picks one that is up and holds it.
+- **`labgif` now has `wire=`** (a genome sweep is one binary) and defaults
+  `rain=steady` over the scenario's own rate — pass `rain=off`.
+- **A `carried <= 0.0` test can never fire**: air has a density too. Four
+  sweep arms including the OFF arm came back byte-identical before it showed.
+- Divide a visit rate by the window the animals were **alive**.

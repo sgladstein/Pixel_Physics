@@ -31,6 +31,12 @@
         // simply could not be placed anywhere.
         body: Rigid([(-1, 0), (0, -1), (-1, -1)]),
         tick_interval: 8,
+        // **No `life_half_life`, so this kind is immortal** -- the field's
+        // default, and the shipped behaviour for every animal before
+        // 2026-09-12. Only the ant and the long ant die of age today, because
+        // the lifespan was authored against the ant colony's own boom period
+        // (a generation on the played bed, the larder's edge) and nobody has
+        // measured what this kind's would be. Set it here when somebody has.
         start_energy: 1600.0,
         // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`),
         // re-derived 2026-08-30 to leave this animal's bill exactly where it
