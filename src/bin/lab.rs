@@ -490,15 +490,18 @@ impl Handler {
             // count, a bare `8` reaches here and nowhere else.
             KeyCode::Digit8 => self.lab.act(Action::CycleRain),
             // **`9` -- save the chronicle right now**, the digit row's own
-            // last unclaimed key (comment above). `write_chronicle` already
-            // reports on the bar and never blocks (its own doc), so this is
-            // a direct call rather than a new `Action` -- `Lab::act` exists
-            // to dispatch a verb the bar also draws as a button, and this
-            // one has no button (the bar has no spare pixels, the same
-            // reason `E`/FOOD is key-only): a player who wants a session's
-            // CENSUS numbers before quitting no longer has to close the
-            // window to get them.
-            KeyCode::Digit9 => self.lab.write_chronicle(),
+            // next unclaimed key (comment above). Routed through `Lab::act`
+            // rather than the direct call this used to be: the MENU page now
+            // draws a `SAVE CHRONICLE NOW` row for the same verb, so it has a
+            // button, and `Lab::act` exists to dispatch a verb a button also
+            // draws.
+            KeyCode::Digit9 => self.lab.act(Action::WriteChronicle),
+            // **`0` -- the digit row's last unclaimed key, for
+            // `MagnifyStyle`.** No letter was free either (comment above),
+            // and this needed a key the same way `8`/`9` did: a MENU row
+            // draws it too, but a style worth comparing against what it
+            // replaces is worth a key that does not need a page open first.
+            KeyCode::Digit0 => self.lab.act(Action::CycleMagnifyStyle),
             // The tools, in one unbroken run of the keyboard's bottom row and
             // in the same left-to-right order the bar draws them. The obvious
             // initials are not available -- `S` and `W` are the pan -- and six
@@ -609,6 +612,16 @@ impl Handler {
             // twice over before it existed), so `F5` is its only route in
             // besides the LOG page's own `HISTORY` row.
             KeyCode::F5 => self.lab.act(Action::Panel(Panel::History)),
+            // **The master menu.** Next in the same `F1..F5` run: every page
+            // in the lab, and every view toggle, one row each, with the key
+            // that also opens it. Owner, 2026-09-12: *"There are lots of
+            // hidden menus that can only be accessed by knowing the F key.
+            // There should be a master menu accessible from the main UI that
+            // leads to all the other menus."* Also the bar's own `MENU` chip
+            // -- the one page here with a mouse route on the bar itself,
+            // since reaching the menu cannot itself depend on already
+            // knowing a key.
+            KeyCode::F6 => self.lab.act(Action::Panel(Panel::Menu)),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
@@ -623,7 +636,12 @@ impl Handler {
             // without looking sit together.
             KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
             KeyCode::Quote => self.lab.act(Action::Broods(1)),
-            KeyCode::KeyF => self.lab.time.cycle_display_floor(),
+            // Routed through `Lab::act` rather than the direct call this
+            // used to be: the MENU page now draws a `DISPLAY FLOOR` row for
+            // this verb (also its only other readout anywhere in the lab --
+            // lane R1 left the corner's own copy as a temporary second line
+            // for whoever built this page), so it has a button.
+            KeyCode::KeyF => self.lab.act(Action::CycleDisplayFloor),
             // **`T` for what the clock does when a notable event fires** --
             // Off/Linger/Stop, cycling in the order the BOX page's `EVENTS`
             // row prints them. Free letters were `I J Q T U Y`; a sibling

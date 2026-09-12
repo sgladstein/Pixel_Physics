@@ -655,18 +655,16 @@ impl TimeControl {
     /// commentary derived from those same numbers (`sim_per_second`, the
     /// crossover line) rather than a control's only readout.
     ///
-    /// **`MIN {}HZ` is the one line kept beside ticks, and it is not a
-    /// judgement call.** `F` (`cycle_display_floor`) has no other readout
-    /// anywhere in the interface -- deleting it here would strand the only
-    /// way to see what `F` currently has the floor set to, which is exactly
-    /// the regression this round's brief warns against. Named to the
-    /// coordinator rather than silently kept; a master menu (a sibling
-    /// round's own line) is the right eventual home for it, not this corner,
-    /// but it is not stranding a feature to leave it one more line here
-    /// until that page exists.
+    /// **`MIN {}HZ` lived here as a second line, temporarily.** `F`
+    /// (`cycle_display_floor`) had no other readout anywhere in the
+    /// interface when the six-line block above was cut, so removing it here
+    /// too would have stranded the only way to see what `F` currently has
+    /// the floor set to. It now has one: the MENU page's `DISPLAY FLOOR`
+    /// row (`ui::Ui::menu_rows`) is its second and permanent home, so this
+    /// corner goes back to ticks alone.
     pub fn readout(&self, frame: u64) -> Vec<(String, [u8; 4])> {
         let grey = [150u8, 150, 150, 255];
-        vec![(format!("FRAME {frame}"), grey), (format!("MIN {}HZ", self.display_floor), grey)]
+        vec![(format!("FRAME {frame}"), grey)]
     }
 
     pub fn draw(&self, frame: &mut [u8], world: &crate::sim::world::World) {
