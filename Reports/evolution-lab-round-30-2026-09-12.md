@@ -143,6 +143,73 @@ never touch the same line, and no diff finds that. And **a CI verdict quoted to
 a lane has a shelf life of one push**: "9/9 green" went into a brief and was
 stale within minutes.
 
+### A partly-green PR carries almost no information, and I reported one as on track
+
+**Read as "7 of 9 green, two long jobs outstanding" and relayed to the owner
+that way. The two outstanding jobs were the only ones that could fail.** Run
+34705723182 on lane P's `0953dffe` finished with `cargo test (debug)` red at
+exit 101, and the lane caught it, not the coordinator.
+
+The reason the reading was worthless is structural rather than unlucky. This
+repo's nine checks split into two groups by cost: `branches`, `clippy`,
+`docscheck` and `fmt` finish inside a minute, and **a lane that ran its own
+gates locally has already cleared exactly those**. What is left running is
+`cargo test` release and debug, `ascii`, `acceptance` and `worldgen` — the
+slow ones, and the only ones with any chance of carrying a surprise. So the
+green fraction climbs to about 4 of 9 for free on every PR and says nothing.
+
+**A PR is green or it is unknown. There is no third state, and a count is not
+a forecast.** The sibling rule below is about a green PR that still cannot
+merge; this one is about a PR that is not green yet being described as though
+it were nearly there.
+
+### The second zero-conflict merge of the day, and this one broke the build
+
+`lab::params::tests::no_page_is_longer_than_two_screens` caps a panel page at
+20 rows. The ANTS page stood at **19** after round 29's landings; lane P's two
+new dial rows made **21**.
+
+**Neither side was wrong and the two never touched the same line.** Round 29
+added rows, lane P added rows, `git merge-tree` reported no conflict, and the
+sum went over a bar that neither branch could see from where it stood. The
+test fires on whoever lands last, which is arbitrary.
+
+This is the case `CLAUDE.md` already names — *two merges scoring 132 and 96,
+comfortably "safe", were zero-conflict by `git merge-tree` and still broke the
+tree* — and **it happened twice in one day** on this round. A conflict count
+predicts whether a merge will be laborious. It cannot predict whether a merge
+will be *wrong*, and the failure mode is specifically a **shared budget**: a
+row cap, a pixel width, a byte cap on a lane note. Every one of those is a
+resource two branches spend independently.
+
+**The remedy is a full local suite after the merge, not before it.** Lane P's
+`cargo test --lib` ran before bringing main in; afterwards it ran only the
+filtered guards for its own tests and let CI carry the rest, which is what its
+brief told it to do. That is a reasonable rule and **it is wrong across a
+merge that spends a shared budget**. It fixed this by dropping a row rather
+than raising the cap, on the argument that an ablation switch is not a
+constant the *expose every constant* ruling covers — the right call, and the
+next lane to add an ANTS row now has to move something first.
+
+### An instruction at the point of use was already there, and was still missed
+
+Lane P hit a merge conflict in the register's generated index, resolved it
+correctly — take either side whole, re-run `bugindex.py` — and reported that
+it had got it right *by luck rather than by knowing*, suggesting the rule be
+put in the register's header.
+
+**It is already in the register's header, in bold, immediately above the
+table**, and has been. So the cheap fix does not exist: the instruction is at
+the point of use and a careful lane still did not read it, because a merge
+shows you a conflicted hunk rather than the top of the file, and the block's
+header can be a hundred lines above the markers.
+
+**What actually protects that file is `bugindex.py --check` in `docscheck`**,
+which fails on a stale index and names the command. Lane P's docscheck was
+clean, which is how we know its resolution was right. That is this file's own
+removal criterion running forwards: *machinery now enforces it, so the prose
+is a pointer at best*. Do not add a third copy of the sentence.
+
 ### Green CI is not mergeability, and they are checked separately
 
 `#359` was 9 of 9 green and GitHub refused it. The checks had run against a
