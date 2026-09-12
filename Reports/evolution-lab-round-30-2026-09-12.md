@@ -161,6 +161,68 @@ against it, so editing afterwards points the owner's words at content he never
 saw. Amend for a defect in the writing; repost for a defect in the artifact.
 Written up in [`../.claude/skills/review/SKILL.md`](../.claude/skills/review/SKILL.md).
 
+### Which bug letter is free is a question about every branch, and the command we told people to run could not answer it
+
+Lane P filed **§Z16**. The register's highest was §Z15, `bugindex.py --check`
+was green, and §Z16 was already live on another unlanded branch — so the
+letter had to be renumbered after the PR was up. **`--check` reads one working
+tree**, and `CLAUDE.md` sent the lane to exactly that command, calling it the
+thing to use instead of checking by eye.
+
+The manual sweep that found the truth took a morning:
+
+```
+for b in $(git branch -r); do git show $b:Reports/open-bugs-handoff.md \
+  | grep -oE '^### Z[0-9]+'; done
+```
+
+**Fixed as a command rather than as another rule** (6f9f7a52):
+`python3 scripts/bugindex.py --branches` reads every fetched ref's copy of the
+register and prints the next free number in each series — **§Z18 over 75 refs
+in 1.2 s**, the same answer. `CLAUDE.md`'s instruction now names it and says
+plainly that `--check` is a confident wrong answer for this question.
+
+Three things the first version got wrong, each of which is a rule in this
+repo already and was walked into anyway:
+
+- **Reporting every cross-branch disagreement gave 8 collisions of which 7
+  were superseded letters on branches that landed weeks ago.** The live §Z16
+  was one line in a wall of noise — a number that is arithmetically correct
+  and answers a different question.
+- **The filter for that needs `--merged`, which a shallow clone cannot
+  answer**: 7 refs of 75 came back merged and the other 68 read as unlanded
+  whether they were or not. That is a confident wrong answer, not a degraded
+  one, so the collision report now **suppresses itself and says why**. The
+  next-free line needs no history and always runs.
+- **A sweep that read nothing reports no collisions, which reads as a pass.**
+  The branch count is printed unconditionally and an empty sweep exits 2.
+
+It is deliberately **not** gated by `docscheck`: its answer moves with what
+you have fetched, and a gate whose verdict depends on your clone teaches
+people to ignore it. `--selftest` is the positive control, and it goes red
+when the comparison is broken on purpose.
+
+### Posting the review card caught two bugs that no gate would have
+
+Lane R2's own report, and it is the sharpest evidence this round for the
+`review.py` habit being a *test* rather than a courtesy. Building the card for
+the master menu meant driving the real UI, and driving it found two things
+`cargo test`, `clippy`, `ascii`, `acceptance` and `docscheck` were all green
+through:
+
+- **`examples/labui.rs`'s own navigation was broken at runtime.** Every
+  "reach this panel" idiom assumed PLANTS/ANTS/BOX/PARAMS always had a bar
+  chip. The harness that renders the pictures could not reach the pages.
+- **The MENU page silently overran its row budget by 1 px**, because generic
+  panel pages never call `fit_rows`.
+
+Neither is visible to a gate: the first is in a harness nothing asserts
+against, the second is one pixel. Both are obvious the moment a human looks
+at the page. **The rule this supports is already in `CLAUDE.md` — post rather
+than describe — and what this adds is that the cost of posting is negative.**
+It is not a tax on finishing; it is the only thing that ran the code the way
+the owner will.
+
 ## Lane S — the thin things stop disappearing at full zoom-out (#345, merged)
 
 The owner's complaint 4. Diagnosed from source before the lane ran: zoom-out
