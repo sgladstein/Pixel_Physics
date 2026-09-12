@@ -609,8 +609,29 @@ nothing in either brief asked. The open question is no longer whether the gate
 earns its place; it is *by what route*, since whether a colony that stops
 digging spends the saving on foraging is untested.
 
-What also remains is the undiagnosed half of those deaths — something vacates
-the vital cell and leaves nothing behind.
+What also remains is the other half of those deaths — something vacates the
+vital cell and leaves nothing behind.
+
+**And the plant-cell half stopped being a mystery on the round's last evening.**
+Round 29's coordinator found the write site by reading the code; it is verified
+here against source rather than taken on report, and it is **one call site**.
+When an ant finishes a seed-bearing meal, the digestion exit hands
+`plant::deliver_seed_passenger` the ant's **own head** coordinates, the midden
+redirect is skipped whenever the ground below is already wet, and the delivery
+ends in an unconditional `world.set` with no occupancy test. **The ant plants a
+seed into its own head and the pip germinates there.**
+
+The three sibling paths — the drop verb, the corpse drop, the spoil dump — all
+search `NEIGHBOURS_8` for an empty cell and decline to write when none is free.
+The digestion exit is the only one that does not, which is what makes this a
+fix rather than a design question.
+
+**The cost is not the patch, it is the constants.** That path culls **71 / 58 /
+35** of the **216 / 98 / 70** booked killings on seeds 1–3. The 40,000-frame
+lifespan, the seed-cargo census and the 12 / 12 / 212 peaks were all measured
+with the cull running. Repairing it grows the colony and voids them — this
+file's own *a fix exposes the constant that was compensating* — so the lifespan
+re-run belongs in the same brief, not after it.
 
 A correction worth recording because it arrived before the brief was written:
 round 29's first reading was *"the repair is in the plant growth path"*. That
@@ -711,6 +732,11 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   cells and a dead animal whose head became a pip are the same collision from
   two sides. Measurement first: an attack-in-progress bit on
   `World::note_vital_loss`, one run, which splits the undiagnosed column.
+- **The digestion exit plants a pip in the ant's own head** (§Z16, diagnosed
+  and verified 2026-09-12, unfixed). One call site; the fix is the shape the
+  other three seed paths already use. **Budget the constant re-derivation into
+  the same brief** — it culls 71/58/35 of 216/98/70 booked killings, so the
+  lifespan, seed-cargo and peak figures are all measured with it running.
 - **Splitting or renaming `DeathCause::Killed`** — round 30 took this from
   round 29's three follow-ups, on the test that two lanes re-derived the same
   wrong reading from it in one day.

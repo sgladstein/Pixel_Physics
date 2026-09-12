@@ -157,7 +157,7 @@ point.
 | Z14 | **OPEN** | 11200 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
 | Z15 | **OPEN** | 11292 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 | Z16 | **OPEN** | 11370 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z17 | **OPEN** | 11427 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z17 | **OPEN** | 11465 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11424,6 +11424,44 @@ instrument cannot say what. That is the next measurement, and it is the larger
 half.
 
 **Instrumented rather than fixed here.** No mechanism changed.
+
+**UPDATE 2026-09-12, the plant-cell half is diagnosed and it is one call
+site.** Found by round 29's coordinator reading the code, and verified here
+against the source line by line rather than taken on report.
+
+**The digestion exit plants the pip into the ant's own head.** When a crop's
+last cell is eaten, `creature.rs` calls
+`plant::deliver_seed_passenger(world, hx, hy, passenger)` — and `(hx, hy)` is
+`state.chain.first()`, **the ant's own head cell**, read a hundred lines
+earlier. Inside
+`plant::deliver_seed_passenger_with_material` the midden redirect is skipped
+whenever the ground below already passes the water gate
+(`if already_wet || midden_disabled { (x, y) }`), so on wet ground the landing
+site stays the head. The function then ends in an **unconditional**
+`world.set(x, y, …)` with no occupancy test at all. An ant that finishes a
+seed-bearing meal standing on damp ground overwrites its own vital cell with a
+pip, and the pip germinates in place — which is exactly the plant cell this
+section's census keeps finding where the head was.
+
+**It is the odd one out, and the other three paths show the shape of the fix.**
+The drop verb, the corpse drop and the spoil dump all do
+`NEIGHBOURS_8 … find(|&(px, py)| world.is_empty(px, py))` and decline to write
+when nothing is free; the spoil dump even counts the failure rather than
+swallowing it. So: midden search first, nearest empty neighbour second,
+**counted loss last, and never a write over an occupied cell.**
+
+**Budget the constants with the repair — this is not a one-line fix.** This
+path is culling **71 / 58 / 35** of the colony's **216 / 98 / 70** `Killed`
+deaths on seeds 1–3. The 40,000-frame lifespan, the seed-cargo census and the
+12 / 12 / 212 peaks were all measured *with* that cull running, so fixing it
+grows the colony and voids them — `CLAUDE.md`'s *fixing a bug often exposes a
+constant that was compensating for it*, in its plainest form. Whoever takes
+this should budget the lifespan re-run into the same brief, on runs short
+enough to finish (≤200k frames).
+
+**It does not close the section.** §Z15 (the cage) is untouched, and the
+`empty` half below is still undiagnosed and still the larger one.
+
 ### Z17. `World::ground_datum` is built and wrong inside a sealed lab box, and it reads as "the whole box is underground" — **OPEN, found 2026-09-12**
 
 **Why this letter.** Z16 is round 29's who-kills section; Z15 is its caged
