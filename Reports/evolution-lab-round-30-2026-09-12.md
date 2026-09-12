@@ -287,20 +287,49 @@ nowhere else — a miswired probe could not have produced that. **An exact zero
 is the tidiness tell unless the quantity is quantised and the zero sits where
 the quantisation forbids a value.**
 
-Swept over 12 paired seeds: cells dug median 1.48x, cemented spoil median
-1.32x, bare share of the mound's surface 30% to 18%. **Nine of twelve mounds
-bigger is p ≈ 0.15 two-sided — not a result, and not the reduction it was built
-for.** The spread, 0.04x to 74x over one knob, is the real finding.
+**And then the round's best method finding, which only a lane measuring across
+a whole round of landings could have produced.** It ran the identical 12-seed
+paired sweep three times, on three trunks of the same day:
 
-**It ships off by default, against the standing "ship new behaviours on by
-default" ruling, and said so rather than burying it**: on, it costs +4.0% of a
-frame and builds a bigger mound on 9 of 12 seeds. A default is the one form a
-behaviour cannot be declined in.
+| trunk | cells dug, room against crowding |
+|---|---|
+| before #343 | a coin flip — 6 of 12 each way |
+| before #354 | a lean — 9 of 12 mounds bigger |
+| after #354 (today) | one-directional — **11 of 12 digging more, p ≈ 0.006** |
 
-Two method traps it paid and recorded: a single seed read first gave a tidy
-"+27% digs, +13% mound" that twelve seeds erased, and the identical sweep on
-the pre-#343 trunk read a clean coin flip. **A sweep measures one trunk, not a
-mechanism.**
+**A sweep measures one trunk, not a mechanism.** A lane measuring across a
+round of landings has to re-take it after each one rather than average them,
+and a sweep quoted without the trunk it was taken on is a number about a world
+nobody has any more. Final figures: cells dug median 1.90x (room lower on 1 of
+12), cemented spoil median 2.16x (lower on 3 of 12).
+
+**The premise held on all three trunks, which is the only reason to trust it** —
+the bottom tenth of at-nest crowding reads 24.8%, then 32.5%, then 37.5%. Three
+worlds, one answer.
+
+**It shipped off on the numbers and then on, when the owner picked it by eye.**
+That sequence is the point. It first went out switched off against the standing
+"ship new behaviours on by default" ruling, flagged rather than buried, because
+it costs +4.0% of a frame and builds a *bigger* mound. The owner's blind verdict
+then chose the room arm, and the lane flipped the default **without softening a
+single number** — the sweep it reports under that decision is 11 of 12 rather
+than the 9 of 12 it had shipped off on, which is a worse result for the gate.
+He chose it, the counters say what they say, it is a dial, and all three are in
+the record.
+
+The coordinator had told the lane to hold the default pending a survival
+measurement, on the grounds that the card's two panes differed by a colony that
+lived and one that died. **That was the wrong call**: it weighted a real
+confound above the owner's eye, the standing ruling, and the fact that the goal
+the gate was failing had been retired by the lane's own finding.
+
+Two more traps it paid and recorded: a single seed read first gave a tidy
+"+27% digs, +13% mound" that twelve seeds erased; and it had *already seen* the
+two roofed rules disagree (422 against 289 on one world) and filed it mentally
+as a definitional difference rather than chasing it — the drift was real, the
+room datum was freezing lazily at the colony's arrival, and it is now frozen in
+`begin_step` with the two rules asserted equal on the selftest and agreeing to
+a median 0.97 on the real bed.
 
 It also found [§Z17](open-bugs-handoff.md): `World::ground_datum` is built and
 wrong inside a sealed lab box.
@@ -393,8 +422,11 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   design question it was filed under. **This is the first thing round 31
   should look at**, because it is in every picture of this bed regardless of
   what the picture is of.
-- **#359** (the anthill null) — conflicts resolved and merging; the survival
-  re-read is outstanding and decides whether the default flips.
+- **#359** (the anthill null) — merging. Whether the room gate helps a colony
+  *survive* is still unmeasured: the sweep tracked digs, spoil, chambers and
+  bare share, and the one bed the owner judged differed by a colony that lived
+  and one that died. It no longer gates the default, which he has settled, but
+  it is the question his verdict actually points at.
 - **Lane R2's PR** — the menu, plus deleting R1's corner line on the owner's
   instruction.
 - **Floating soil is the soil brief**, not weathering. The design report is on
