@@ -214,7 +214,7 @@
         // ground -- a cruise that pays for lift and buys no traverse.
         //
         // Swept on `played_bed_understory`, seeds 1-3, 20,000 frames, ONE
-        // binary (`CRUISE_LIFT=` in the environment), against no cruise at
+        // binary (`PIXEL_PHYSICS_CRUISE_LIFT=` in the environment), against no cruise at
         // all. `flower_visits` per seed:
         //
         //     no cruise   510 /  23 / 131   median 131

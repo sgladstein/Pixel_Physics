@@ -38,7 +38,7 @@ Verbatim, on #332/#334/#339 and then on main:
 
 The first three were still-strips; the fourth was the right instrument.
 
-## **The bed is a cage, and that is what all four verdicts were looking at**
+## **The bed is a cage, and that is what all four verdicts were looking at** (§Z14)
 
 **`translated_if_free` requires every target cell to be empty, and `Plant` is
 not empty — but `Plant` *does* count as support.** So an animal inside a
@@ -60,6 +60,14 @@ anywhere at a given instant:
 the same canopy**, not because anything regressed. `labgif follow=` takes the
 lowest live id, which is disproportionately a long-settled — i.e. caged —
 animal, so **every card this round was aimed at the failure**.
+
+**Filed as §Z14** — renumbered from §Z12 on the final merge, because lane I's
+`#353` had claimed §Z12 and §Z13 on an unmerged branch where
+`scripts/bugindex.py --check` cannot see them. That is the second letter
+collision this branch dodged in one day (§Z11 went to the zoom-out lane the
+same way), and the lesson is that **the letter must be re-checked against the
+remote branch list, not just against `main`**:
+`for b in $(git branch -r); do git show $b:Reports/open-bugs-handoff.md | grep -oE '^### Z[0-9]+\.'; done`.
 
 **This is not fixable inside the flight code and was deliberately not
 attempted.** Letting a body move into a plant cell means `relocate_chain`
@@ -112,7 +120,7 @@ is untouched.
 
 ## Environment notes that cost time here
 
-- **`FLIGHT29=0` reverts the whole round-30 flight model** and is verified to
+- **`PIXEL_PHYSICS_FLIGHT29=0` reverts the whole round-30 flight model** and is verified to
   reproduce the `origin/main` binary's summary line on seeds 1-3. Use it for
   the A/B arm rather than an older binary: two binaries also means two
   harnesses.

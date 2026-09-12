@@ -8146,7 +8146,8 @@ const CRUISE_FRAMES: f32 = 120.0;
 /// "unset".** The shipped figure lives in `flitter.ron` (`CreatureDef::
 /// cruise_lift`, 0.4 — `HOVER_GAIN * 0.4 == 1.0`, so a full tank cancels
 /// gravity exactly at launch and the ramp walks it down from there); this
-/// exists only so `CRUISE_LIFT=` in the environment can sweep it without the
+/// exists only so `PIXEL_PHYSICS_CRUISE_LIFT=` in the environment can sweep it
+/// without the
 /// eighteen-minute rebuild an `include_str!`-embedded species file costs.
 const CRUISE_LIFT: f32 = -1.0;
 
@@ -8182,10 +8183,10 @@ const CRUISE_MIN_ENERGY: f32 = 0.5;
 /// constant is a *classifier*, not a knob.
 const CRUISE_MAX_BUOYANCY: f32 = 0.5;
 
-/// **`CRUISE=0` puts the pre-cruise behaviour back**, so the claim that the
+/// **`PIXEL_PHYSICS_CRUISE=0` puts the pre-cruise behaviour back**, so the claim that the
 /// cruise is what changed the flight can be watched going red rather than
 /// argued (`CLAUDE.md`: put the fault back before citing a green).
-/// **`FLIGHT29=0` reverts the WHOLE of this round's flight model** — the
+/// **`PIXEL_PHYSICS_FLIGHT29=0` reverts the WHOLE of this round's flight model** — the
 /// hover, the Schmitt trigger, the per-frame thrust, the wander and the bob,
 /// the forced launch tick, the perch, the stall-out and the proportional lift
 /// charge — leaving exactly the arc `main` shipped.
@@ -8201,23 +8202,25 @@ const CRUISE_MAX_BUOYANCY: f32 = 0.5;
 /// back.
 ///
 /// **Verified against the real thing rather than asserted**: `labforage` on
-/// `played_bed_understory` seeds 1-3 under `FLIGHT29=0` reproduces the
+/// `played_bed_understory` seeds 1-3 under `PIXEL_PHYSICS_FLIGHT29=0` reproduces
+/// the
 /// `origin/main` binary's summary line, which is what makes the control a
 /// control instead of a label.
 fn flight29_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| std::env::var("FLIGHT29").map(|v| v != "0").unwrap_or(true))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_FLIGHT29").map(|v| v != "0").unwrap_or(true))
 }
 
 fn cruise_enabled() -> bool {
     use std::sync::OnceLock;
     static ON: OnceLock<bool> = OnceLock::new();
-    *ON.get_or_init(|| flight29_enabled() && std::env::var("CRUISE").map(|v| v != "0").unwrap_or(true))
+    *ON.get_or_init(|| flight29_enabled() && std::env::var("PIXEL_PHYSICS_CRUISE").map(|v| v != "0").unwrap_or(true))
 }
 
 /// **The cruise's three numbers, overridable for a sweep** --
-/// `CRUISE_LIFT`/`CRUISE_FRAMES`/`CRUISE_MIN_ENERGY` in the environment, so
+/// `PIXEL_PHYSICS_CRUISE_LIFT`/`_CRUISE_FRAMES`/`_CRUISE_MIN_ENERGY` in the
+/// environment, so
 /// four variants are four runs of ONE binary rather than four eighteen-minute
 /// rebuilds. The shipped values are the constants above; an unset variable
 /// changes nothing.
@@ -8233,20 +8236,20 @@ fn cruise_params() -> (f32, f32, f32) {
     static P: OnceLock<(f32, f32, f32)> = OnceLock::new();
     *P.get_or_init(|| {
         let num = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
-        let p = (num("CRUISE_LIFT", CRUISE_LIFT), num("CRUISE_FRAMES", CRUISE_FRAMES), num("CRUISE_MIN_ENERGY", CRUISE_MIN_ENERGY));
-        eprintln!("creature: cruise lift={} frames={} min_energy={} (CRUISE={})", p.0, p.1, p.2, if cruise_enabled() { "on" } else { "OFF" });
+        let p = (num("PIXEL_PHYSICS_CRUISE_LIFT", CRUISE_LIFT), num("PIXEL_PHYSICS_CRUISE_FRAMES", CRUISE_FRAMES), num("PIXEL_PHYSICS_CRUISE_MIN_ENERGY", CRUISE_MIN_ENERGY));
+        eprintln!("creature: cruise lift={} frames={} min_energy={} (PIXEL_PHYSICS_CRUISE={})", p.0, p.1, p.2, if cruise_enabled() { "on" } else { "OFF" });
         p
     })
 }
 
-/// **`HOVER=0` reverts `HOVER_GAIN` to 1.0** — lift that can never cancel
+/// **`PIXEL_PHYSICS_HOVER=0` reverts `HOVER_GAIN` to 1.0** — lift that can never cancel
 /// gravity, which is the arithmetic every build before 2026-09-12 shipped and
 /// the reason all three of them read as hopping. The negative control for the
 /// hover, in the same shape as `LAND_AFLOAT` above and for the same reason.
 fn hover_gain() -> f32 {
     use std::sync::OnceLock;
     static G: OnceLock<f32> = OnceLock::new();
-    *G.get_or_init(|| if flight29_enabled() && std::env::var("HOVER").map(|v| v != "0").unwrap_or(true) { HOVER_GAIN } else { 1.0 })
+    *G.get_or_init(|| if flight29_enabled() && std::env::var("PIXEL_PHYSICS_HOVER").map(|v| v != "0").unwrap_or(true) { HOVER_GAIN } else { 1.0 })
 }
 
 /// **How fast a floating body converges on `flight_speed`, per frame.**

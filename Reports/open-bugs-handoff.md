@@ -152,7 +152,7 @@ point.
 | Z9 | closed | 10712 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
 | Z10 | closed | 10825 | The flitter's float never switches off on a bed that has flowers in it |
 | Z11 | closed | 10922 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11020 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z14 | **OPEN** | 11020 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11017,7 +11017,7 @@ Full account: `Reports/lanes/evolution-lab-zoom-out.md`.
 ---
 ---
 
-### Z12. **A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a sixth and a half of the flitter colony cannot step in any direction** — **OPEN, and it is what four review verdicts were looking at**
+### Z14. **A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a sixth and a half of the flitter colony cannot step in any direction** — **OPEN, and it is what four review verdicts were looking at**
 
 *Filed 2026-09-12 by the round-30 flitter lane, from a per-frame neighbourhood
 census rather than from reasoning. Nothing tuned; the arithmetic below is two
