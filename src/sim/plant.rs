@@ -11877,16 +11877,28 @@ fn buried_ground(world: &World, x: i32, y: i32) -> bool {
 /// at them, so without this they float forever.
 ///
 /// **Not `schedule_structural_check_around`, and the difference was
-/// measured at 26x.** The organism support search is hop-bounded, so a
-/// structural check fired mid-crown reads any branch further than the
-/// span limit from the roots as unsupported and converts it to deadwood —
-/// scheduling checks from abscission amputated every tree's upper crown,
-/// and the whole shedding mechanism measured as "collapses the stand at
-/// any setting" (772 cells against 20,213 at the same rate, the only
-/// difference being the check). Recorded here because Phase 3's damage
-/// work will meet the same landmine: any mid-crown disturbance today
-/// over-amputates, and that is the support model's bound, not the
-/// disturbance's size.
+/// measured at 26x.** When that was measured the organism support search
+/// was hop-bounded, so a structural check fired mid-crown read any branch
+/// further than the span limit from the roots as unsupported and converted
+/// it to deadwood — scheduling checks from abscission amputated every
+/// tree's upper crown, and the whole shedding mechanism measured as
+/// "collapses the stand at any setting" (772 cells against 20,213 at the
+/// same rate, the only difference being the check).
+///
+/// **The hop bound is gone** (plant-substrate-v2, 2026-08-22):
+/// `structural::organism_is_supported` no longer exists, and what decides
+/// whether a plant cell stays up is `anchor_support` — a Dijkstra from the
+/// anchors outward, eight-connected, with no span budget to run out of. So
+/// the 26x mechanism cannot fire today, and a Phase 3 damage result written
+/// while the old search was live is contaminated
+/// (`Reports/open-bugs-handoff.md` §0d).
+///
+/// **The prohibition stands anyway, for a different reason**: shedding is
+/// not a disturbance, and a `GrowingTip` is expected to be transiently
+/// unsupported until it reconnects, so checking here prunes ordinary plant
+/// life as if it were damage. `.claude/rules/src-sim-cells.md` carries that
+/// rule. What is owed is a positive control on the new search — a mid-crown
+/// cut removes the cut-off subtree and nothing else — not a re-run of this.
 ///
 /// A bounded component walk over *leaves only* asks exactly the question
 /// shedding raises — "does this spray still hang from anything" — and
@@ -14155,15 +14167,22 @@ mortality -- see the doc on this test"
         );
     }
 
-    /// **Shedding must not schedule a structural check**, and this is the one
-    /// guard standing between S4 and a measured 26x collapse.
+    /// **Shedding must not schedule a structural check.**
     ///
-    /// `CLAUDE.md` records it: the organism support search is hop-bounded, so
-    /// a check fired high in a crown reads everything past the span limit as
-    /// unsupported and converts it to deadwood. Growth deliberately schedules
-    /// none; an earlier abscission that scheduled one destroyed every shedding
-    /// sweep at every setting, and it read as "the mechanism is wrong" through
-    /// eight settings before anyone found the one line.
+    /// The measured reason was that the organism support search was
+    /// hop-bounded, so a check fired high in a crown read everything past the
+    /// span limit as unsupported and converted it to deadwood. An earlier
+    /// abscission that scheduled one destroyed every shedding sweep at every
+    /// setting, and it read as "the mechanism is wrong" through eight settings
+    /// before anyone found the one line.
+    ///
+    /// **That bound no longer exists** — `anchor_support` walks outward from
+    /// the anchors with no span budget (`open-bugs-handoff.md` §0d) — so this
+    /// guard is no longer the thing standing between S4 and the 26x. It stays
+    /// because the standing reason is separate and still holds: growth
+    /// deliberately schedules none, shedding is not a disturbance, and a
+    /// transiently unsupported tip is ordinary plant life rather than damage
+    /// (`.claude/rules/src-sim-cells.md`).
     ///
     /// S4 makes shedding *write a cell* where it used to erase one, which is
     /// exactly the kind of change that invites a helpful "shouldn't we tell
