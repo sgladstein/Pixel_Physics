@@ -87,6 +87,11 @@ fn strip_colony(world: &mut World) -> usize {
 fn selftest() {
     let spec = LabBox { colonies: 0, founders: 0, ..LabBox::default() };
     let mut world = spec.build();
+    // **Before anything is carved, which is where production freezes it.**
+    // `begin_step` does this on the first simulated frame; this harness never
+    // takes one, and a datum frozen after the chamber is cut is a datum that
+    // has the chamber in it. See `World::freeze_room_datum`.
+    world.freeze_room_datum();
     let ids = Ids::resolve(&world);
     let base = census::census(&world, &spec, 0.0, &[spec.width / 2], &ids);
     println!("latecensus selftest: bare box reads roofed {} pit {} mound {} edible {} (all must be 0)", base.roofed, base.pit, base.mound, base.edible);
@@ -166,6 +171,31 @@ fn selftest() {
     world.step_nest_room();
     println!("  census on the same box: roofed {} (must be 9 -- the chamber, not the shaft)", world.nest_room[0].roofed);
     assert_eq!(world.nest_room[0].roofed, 9, "the live census must find the same nine cells the footprint column does");
+
+    // **THE RECONCILIATION: two implementations of *roofed*, one answer.**
+    //
+    // `World::step_nest_room` and `lab::census::census` each decide what
+    // counts as roofed void, by different rules -- one is per nest, on a
+    // cadence, and lives in `sim` where it cannot see `lab`; the other is
+    // whole-world and costs 1.7 ms a call. Two definitions of one word are
+    // free to drift apart silently, which is the failure this whole build's
+    // own method section is about, and **they had already drifted**: with the
+    // room datum frozen lazily at the colony's arrival rather than at the
+    // bed's construction, `played_bed` seed 3 at 300,000 frames read **422
+    // against 289** for the same world. This line is what refuses that.
+    //
+    // It is an equality on a one-nest box with known geometry, not a bound:
+    // if either side changes what it counts, this fails and names it.
+    let reconcile = census::census(&world, &spec, 0.0, &[cx], &ids);
+    println!(
+        "  reconciliation: World::step_nest_room {} vs lab::census {} (must be equal)",
+        world.nest_room[0].roofed, reconcile.roofed
+    );
+    assert_eq!(
+        world.nest_room[0].roofed as usize, reconcile.roofed,
+        "the engine's per-nest roofed count and the library's whole-world one have drifted apart -- \
+         two definitions of one word, which is what this assertion exists to refuse"
+    );
 
     println!("latecensus selftest: PASS -- every footprint column moves for a case whose answer is known");
 }
@@ -504,6 +534,22 @@ fn main() {
     println!(
         "SUMMARY at_nest_crowding n={total} buckets(0.0..1.0 by 0.1)={h:?} top_bucket_share={:.3}",
         if total == 0 { 0.0 } else { h[9] as f64 / total as f64 }
+    );
+    // **The two roofed rules, side by side on the real bed.** The selftest
+    // asserts they agree on a box whose answer is known; this is the same
+    // check where it cannot be an assertion, because the engine's count is
+    // per nest and inside a band while the library's is whole-world. A gap
+    // that grows over a run is the drift the selftest exists to catch,
+    // arriving somewhere the selftest cannot see.
+    let (starved, killed, oldage, other) = census::colony_deaths(&world, &spec.colony_species);
+    println!(
+        "SUMMARY roofed_engine={} roofed_library={} deaths_starved={} deaths_killed={} deaths_oldage={} deaths_other={}",
+        world.nest_room.first().map_or(0, |r| r.roofed),
+        s.roofed,
+        starved,
+        killed,
+        oldage,
+        other
     );
     println!(
         "SUMMARY mound_bare={} mound_cols={} digs_per_1k={:.2} roofed={} packed_above={} mound_high={}",

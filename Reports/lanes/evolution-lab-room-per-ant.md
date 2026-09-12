@@ -19,12 +19,21 @@ on `step_nest_scents`' own idiom, and is itself gated on the dial. Two dials on
 the lab's ANTS page and as env switches: `PIXEL_PHYSICS_LAB_ROOM`,
 `PIXEL_PHYSICS_LAB_ROOM_TARGET`.
 
-**It ships off**, departing from *ship new behaviours on by default*, and
-that is the finding rather than a preference: on costs **+4.0% of a frame**
-(paired, alternating, quiet box; the census alone, on a byte-identical
-trajectory, is +1.7%) and builds a *bigger* mound on 9 of 12 seeds. A default
-is the one form in which a behaviour cannot be declined. The owner has the
-numbers and the switch (card `20260912T115506982Z-6ae8e2`).
+**It ships on, and that is the owner's eye overruling this lane's counters.**
+The counters say off: on costs **+4.0% of a frame** (paired, alternating,
+quiet box; the census alone, on a byte-identical trajectory, is +1.7%) and
+roughly doubles both the digging and the mound. It shipped off on that. Then
+the owner judged a blind A/B of the two arms at 300,000 frames on today's trunk
+(card `20260912T134505685Z-b518ab`): ***"A is bad. B is good"***, and
+`blind_was` `[1, 0]` puts the room arm in pane B. **The arm that measures worse
+on mound size is the one that reads better as an anthill.** That is this repo's
+own order of evidence, and the counters stay in the record rather than being
+explained away — they are why this is a dial.
+
+`PIXEL_PHYSICS_LAB_ROOM=off` is byte-identical to `main` **through 300,000
+frames**, not merely through 20,000: a determinism control shorter than a
+mechanism's onset proves nothing, and this bed's arms have run identical for
+100,000 frames before splitting.
 
 ## 2. The premise is false on this bed — do not re-derive it
 
@@ -35,16 +44,16 @@ measured on a different scene and it does not describe `played_bed`.**
 
 `CreatureStats::at_nest_crowding` buckets what the gate actually read,
 weighted by ant-ticks rather than by census stops. **Pooled over twelve seeds,
-gate off, 300,000 frames each, n = 835,536 at-nest ticks:**
+gate off, 300,000 frames each, n = 442,788 at-nest ticks:**
 
 | bucket | 0.0–0.1 | 0.1–0.2 | 0.2–0.3 | 0.3–0.4 | 0.4–0.5 | 0.5–0.6 | 0.6–0.7 | 0.7–0.8 | 0.8–0.9 | 0.9–1.0 |
 |---|---|---|---|---|---|---|---|---|---|---|
-| ticks | **271,185** | 85,255 | 128,946 | 60,817 | 0 | 54,015 | 36,760 | 33,166 | 30,344 | 135,048 |
+| ticks | **166,212** | 51,232 | 73,228 | 29,108 | 0 | 27,493 | 18,074 | 14,610 | 14,638 | 48,193 |
 
-**Median bucket 0.2–0.3, a third of every read in the bottom tenth, a sixth at
-the ceiling.** It held on the pre-#343 baseline too (median 0.3–0.4, bottom
-tenth 24.8%, n = 687,349), which is the only reason to trust it: two different
-worlds, same answer. An ant at its own door is very often standing alone. The old
+**Median bucket 0.2–0.3, 37.5% of every read in the bottom tenth, 10.9% at the
+ceiling.** It held on all three trunks this lane measured — bottom tenth 24.8%
+before #343 and 32.5% before #354 — which is the only reason to trust it:
+three different worlds, same answer. An ant at its own door is very often standing alone. The old
 gate was never stuck, so there was nothing for a desaturated input to release.
 
 ## 2b. And the outcome is a coin flip — 12 seeds, paired
@@ -54,22 +63,22 @@ seed run twice with only `PIXEL_PHYSICS_LAB_ROOM` changed:
 
 | | median | min | max | room arm lower on |
 |---|---|---|---|---|
-| cells dug, room / crowding | **1.48** | 0.14 | 111.8 | 4 of 12 |
-| cemented spoil above ground | **1.32** | 0.04 | 74.2 | 3 of 12 |
+| cells dug, room / crowding | **1.90** | 0.83 | 138.7 | **1 of 12** |
+| cemented spoil above ground | **2.16** | 0.02 | 2690 | 3 of 12 |
 
-**It leaves a bigger mound on nine of twelve seeds** — a sign test puts that at
-p ≈ 0.15, so not a result, but certainly not the reduction it was built for.
-The per-seed spread is the real finding: 0.04x to 74x on one metric, over one
-knob, on twelve beds of the same scenario.
+**It digs about twice as much and leaves about twice the mound.** Eleven of
+twelve seeds digging more is p ≈ 0.006 by a sign test — a result, and the
+opposite of the one the build was commissioned for.
 
-**Two things this table cost, both worth carrying.** This lane read **seed 3
-alone** first and got a tidy "+27% digs, +13% mound" — the single-seed artifact
-`CLAUDE.md` names, and the same shape that sank the `(Crowding, Dig, 0.6)`
-build. And the **same 12-seed sweep on the pre-#343 baseline read a clean coin
-flip** (median 1.12 and 1.01, 6 of 12 each way); the round-trip fix landing
-under it moved absolute digging by an order of magnitude on some seeds and
-moved the comparison with it. A sweep is a measurement of one trunk, not of a
-mechanism.
+**The sweep was run on three trunks and only the last is quotable.** Before
+#343 it read a clean coin flip (median 1.12 and 1.01, 6 of 12 each way); before
+#354 a lean (1.48 and 1.32, 9 of 12 mounds bigger); on today's trunk it is
+one-directional. Round 29's ant work moved absolute digging by two orders of
+magnitude on some seeds and moved the comparison with it. **A sweep measures
+one trunk, not a mechanism** — a lane measuring across a round of landings must
+re-take it after each, not average them. This lane also read **seed 3 alone**
+first and got a tidy "+27% digs, +13% mound", the single-seed artifact
+`CLAUDE.md` names.
 
 **Consequence, and it is the finding:** an anthill that never stops growing is
 not a colony asking the wrong question at the door. It is a colony that
@@ -95,6 +104,15 @@ against `latecensus`'s 26**, a 330x overcount every unit test passed through,
 because the test box has no lid at row 0 and no grow lamps. This census freezes
 its own datum. Anything else reading `ground_datum` in a lab box has the same
 bug waiting.
+
+**The two roofed rules are now reconciled and were not.** `World::step_nest_room`
+and `lab::census::census` each decide what counts as roofed; two definitions of
+one word drift silently. They had: seed 3 at 300,000 frames read **422 against
+289**, because the room datum was frozen lazily at the colony's arrival rather
+than at the bed's construction, so litter risen above the original surface
+counted as below it. Frozen in `begin_step` instead, they agree exactly on the
+selftest box and to a **median 0.97** on the real bed over 12 seeds.
+`latecensus control=selftest` now asserts the equality.
 
 **An incremental counter cannot track roofed void**, which is what the brief
 asked for: soil is a `Powder` so galleries collapse, and the spoil drop needs

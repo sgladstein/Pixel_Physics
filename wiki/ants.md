@@ -7,11 +7,11 @@ question is a better one and the colony answers it sensibly: it digs hard while
 the burrow is bare, quietens once there are a few cells of chamber for each
 ant, and starts again when the brood outgrows them. What it does not do is stop
 the mound. Across twelve beds run twice each it left a *bigger* mound on nine of
-them, and the spread between beds runs from a twenty-fifth of the mound to
-seventy times it — nothing reliable in either direction. The old question was
-supposed to be one an ant could never answer, and it is not: **a third of the
-time an ant stands at its own door there is nobody near it at all.** It ships
-switched off; it is one switch on the ants page. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
+them and dug about twice as much on eleven of twelve. The old question was
+supposed to be one an ant could never answer, and it is not: **more than a
+third of the time an ant stands at its own door there is nobody near it at
+all.** It ships switched on, because you picked it by eye over the old one;
+the numbers did not ask for it and are in the section below. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
 looked stuck: most of the time it is** -- a plant holds an animal up, and it
 also blocks it, so an animal inside a bush cannot move in any direction at
 all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
@@ -784,26 +784,26 @@ is nobody near the ant at all**, a fifth of the time it is as crowded as it
 can get, and the middle of that spread sits around a third. An ant at its own
 door is very often standing alone, so the old gate was never stuck.
 
-And the mound does not come out smaller. Twelve beds, each run twice from the
-same starting point with only this question changed: the colony left a *bigger*
-mound on nine of them and dug more on eight. The spread between beds is absurd
-— a twenty-fifth of the mound on one, seventy times it on another — so any
-single bed will show you a large difference in whichever direction it happened
-to land, and the middle of the twelve is no improvement at all. The same is
-true of how much of the mound goes green again: the room question leaves it
-greener on seven beds of twelve, which is a coin toss.
+And the mound does not come out smaller. It comes out bigger. Twelve beds, each
+run twice from the same starting point with only this question changed: the
+colony dug about twice as much on eleven of the twelve, and left about twice
+the mound. The spread between beds is absurd, from a fiftieth of the mound on
+one to hundreds of times it on another, so any single bed will show you a large
+difference — but the direction across twelve is not in doubt.
 
 That is worth saying plainly because it moves the blame. A mound that never
 regreens is not a colony asking itself the wrong question at the door. It is a
 colony that outgrows its own rooms faster than it can cut them, and the lever
 for that is how many ants there are, not what each one is asked.
 
-**So the question ships switched off**, which is against the usual rule that a
-new behaviour ships on. Switched on it costs about a twenty-fifth of a frame
-and builds more of the thing it was meant to reduce, and a default is the one
-form of a behaviour you cannot decline. It is worth turning on to watch — the
-loop closing and reopening is the clearest view of a colony's own economy in
-the box — and it is one switch on the ants page.
+**So the numbers say switch it off, and it ships on anyway, because you looked
+at the two side by side and picked it.** Shown both anthills at 300,000 frames
+without being told which was which, the verdict was that the old one is bad and
+this one is good. That outranks a mound census here, and it is the whole reason
+the box is judged by eye rather than by table. The cost is honest and stays on
+the record: about a twenty-fifth of a frame, and roughly twice as much digging.
+It is one switch on the ants page if you change your mind, and the loop closing
+and reopening is the clearest view of a colony's own economy in the box.
 
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three

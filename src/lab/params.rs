@@ -863,7 +863,7 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "colonies",
         "dig_for_room",
         world.room_gate,
-        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. OFF IS THE SHIPPED BEHAVIOUR AND IS THE OLD QUESTION -- A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT. ON READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH THE COLONY SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. IT WAS BUILT TO STOP THE MOUND GROWING AND IT DOES NOT: OVER TWELVE BEDS RUN TWICE EACH IT LEFT A BIGGER MOUND ON NINE OF THEM, AND IT COSTS ABOUT A TWENTY-FIFTH OF A FRAME. THAT IS WHY IT IS OFF, AND IT IS HERE BECAUSE THE BEHAVIOUR IS WORTH WATCHING EVEN SO. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. ON IS THE SHIPPED BEHAVIOUR: THE ANT READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH THE COLONY SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. OFF IS THE OLD QUESTION, A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT. TURNING IT ON DOES NOT MAKE THE MOUND SMALLER -- OVER TWELVE BEDS RUN TWICE EACH IT DUG MORE ON ELEVEN AND LEFT A BIGGER MOUND ON NINE, AND IT COSTS ABOUT A TWENTY-FIFTH OF A FRAME. IT SHIPS ON BECAUSE YOU PICKED IT BY EYE OVER THE OLD ONE, NOT BECAUSE THE NUMBERS ASKED FOR IT. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
     out.push(float(
         g,
@@ -1139,12 +1139,12 @@ fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
 }
 
-/// As `shipped_trait_reach`, for the room gate -- shipped **off**, and for
-/// once the derive's own `false` would have been right. Named anyway, so the
-/// key states the shipped box rather than inheriting it, which is the whole
-/// point this file makes about `soil_capillary_levels` beside it.
+/// As `shipped_trait_reach`, for the room gate -- shipped **on**, on the
+/// owner's verdict (`creature::room_gate_default`). The derive's `false` is
+/// the control arm rather than the shipped box, which is exactly the trap
+/// `trait_reach` above records, so this one is named.
 fn shipped_room_gate() -> bool {
-    false
+    true
 }
 
 /// As `shipped_trait_reach`, for the room the gate measures against.

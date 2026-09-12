@@ -5822,7 +5822,6 @@ impl World {
             self.nest_room = vec![NestRoom::default(); self.nest_sites.len()];
             return;
         };
-        self.freeze_room_datum(b);
         let mut rooms = vec![NestRoom::default(); self.nest_sites.len()];
         for id in self.live_organism_ids() {
             let Some(state) = self.organism(id) else { continue };
@@ -5894,7 +5893,7 @@ impl World {
     #[cfg(test)]
     pub(crate) fn roofed_void_at_reach(&mut self, reach: i32) -> u32 {
         let Some(b) = self.bounds else { return 0 };
-        self.freeze_room_datum(b);
+        self.freeze_room_datum();
         (b.min_x..=b.max_x).map(|x| self.roofed_in_column(b, x, reach)).sum()
     }
 
@@ -5918,7 +5917,23 @@ impl World {
 
     /// **Freeze a top-of-ground row per column, once**, for the boxes
     /// `freeze_ground_datum` cannot serve. See `room_datum`.
-    fn freeze_room_datum(&mut self, b: Rect) {
+    ///
+    /// **Called from `begin_step` beside `freeze_ground_datum`, not from the
+    /// census, and that placement is a correction rather than tidiness.**
+    /// Frozen lazily on the first census it was frozen *when the colony
+    /// arrived* -- on `played_bed` that is frame 6,000, by which point the bed
+    /// has grown and shed, and litter rotted to soil stands above the surface
+    /// the bed was built with. The datum came out above `LabBox::ground_y`,
+    /// so rows inside what is really mound counted as "below the original
+    /// ground": measured 2026-09-12 on seed 3 at 300,000 frames, **422 cells
+    /// of roofed void against `lab::census`'s 289 for the same world**. Two
+    /// rules for one word, drifting quietly, which is exactly what the
+    /// reconciliation in `latecensus`'s selftest now refuses to allow.
+    /// Frozen on the first simulated frame instead, it is the bed as built.
+    /// `pub` for `examples/latecensus.rs`'s selftest, which drives the census
+    /// directly and never takes a frame -- see that harness's own note.
+    pub fn freeze_room_datum(&mut self) {
+        let Some(b) = self.bounds else { return };
         if !self.room_datum.is_empty() {
             return;
         }
@@ -8035,6 +8050,11 @@ impl World {
         self.freeze_sky_surface();
         self.freeze_underground_map();
         self.freeze_ground_datum();
+        // **The room census's own datum, frozen here for the reason the three
+        // above are**: the world has been built and nothing has dug into it
+        // yet. One column sweep on the first simulated frame, and never
+        // again -- see `freeze_room_datum` for what freezing it later cost.
+        self.freeze_room_datum();
         self.frame = self.frame.wrapping_add(1);
         // **The odour each nest holds takes its own step here**, once per
         // `NEST_SCENT_INTERVAL` frames — in `begin_step` rather than as a
@@ -9265,6 +9285,9 @@ mod tests {
         // revert arm would otherwise take no census and every assertion below
         // would pass for the wrong reason.
         w.room_gate = true;
+        // `begin_step` does this in production, on the first simulated frame;
+        // these tests drive the census directly and never take a frame.
+        w.freeze_room_datum();
         w.step_nest_room();
         w
     }
@@ -9412,16 +9435,13 @@ mod tests {
         let mut w = test_world();
         w.step_nest_room();
         assert!(w.nest_room.is_empty(), "no nest, no room record");
-        assert!(w.ground_datum().is_empty() && w.room_datum.is_empty(), "and no datum frozen, because no column was read");
 
         let mut bed = bedded_box();
         carve(&mut bed, 20, BED_SURFACE + 10, 3, 3);
         bed.room_gate = false;
-        bed.room_datum.clear();
         bed.frame = ROOM_INTERVAL;
         bed.step_nest_room();
         assert!(bed.nest_room.is_empty(), "gate off, no room record -- however many chambers the box holds");
-        assert!(bed.room_datum.is_empty(), "and no datum frozen, because no column was read");
     }
 
     /// **The log says how much of the story it threw away.**
