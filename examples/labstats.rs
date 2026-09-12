@@ -627,9 +627,9 @@ fn main() {
     // split at all once the log scrolled. This is the number the cohesion
     // guard is stated over.
     let mut mints = 0usize;
-    /// Blends at the last `NEST` window, so each row reports the window
-    /// rather than the run to date -- a cumulative figure cannot say whether
-    /// the colony stopped coming home halfway through.
+    // Blends at the last `NEST` window, so each row reports the window
+    // rather than the run to date -- a cumulative figure cannot say whether
+    // the colony stopped coming home halfway through.
     let mut blends_before = 0u64;
 
     for f in 0..=frames {
