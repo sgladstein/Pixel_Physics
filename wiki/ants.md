@@ -10,8 +10,10 @@ the mound. Across twelve beds run twice each it left a *bigger* mound on nine of
 them and dug about twice as much on eleven of twelve. The old question was
 supposed to be one an ant could never answer, and it is not: **more than a
 third of the time an ant stands at its own door there is nobody near it at
-all.** It ships switched on, because you picked it by eye over the old one;
-the numbers did not ask for it and are in the section below. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
+all.** It ships switched on: you picked it by eye over the old one, and the
+colony then turned out to be **alive at half a million frames on five beds of
+twelve where the old question left none alive at all.** What it was built to do
+it does not do; what it does instead is keep the colony going. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
 looked stuck: most of the time it is** -- a plant holds an animal up, and it
 also blocks it, so an animal inside a bush cannot move in any direction at
 all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
@@ -796,14 +798,23 @@ regreens is not a colony asking itself the wrong question at the door. It is a
 colony that outgrows its own rooms faster than it can cut them, and the lever
 for that is how many ants there are, not what each one is asked.
 
-**So the numbers say switch it off, and it ships on anyway, because you looked
-at the two side by side and picked it.** Shown both anthills at 300,000 frames
-without being told which was which, the verdict was that the old one is bad and
-this one is good. That outranks a mound census here, and it is the whole reason
-the box is judged by eye rather than by table. The cost is honest and stays on
-the record: about a twenty-fifth of a frame, and roughly twice as much digging.
-It is one switch on the ants page if you change your mind, and the loop closing
-and reopening is the clearest view of a colony's own economy in the box.
+**And then the question turned out to be the wrong one.** Counting the same
+twelve beds again, this time for whether anything was still alive at the end:
+the old question leaves **no colony standing on any of the twelve**, and the new
+one leaves **five**, two of them several hundred ants strong. That is not what
+it was built for and it is worth more than what it was built for. It also
+settles the thing you picked by eye — shown two anthills blind you called the
+old one bad and this one good, and it turns out you were not looking at one
+lucky bed.
+
+Be clear about what it costs, because it is not free and the bed pays some of
+it. About a twenty-fifth of a frame. Roughly twice as much digging. And where
+the colony does survive it is eating: the seed bank and the standing plants
+come out lower on those beds, and far more ants starve, because there are ants
+left alive to starve. Across all twelve neither the bank nor the stand moves
+reliably either way. It is one switch on the ants page if you want the old
+behaviour, and the loop closing and reopening is the clearest view of a
+colony's own economy the box has.
 
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three

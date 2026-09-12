@@ -51,7 +51,12 @@ gate off, 300,000 frames each, n = 442,788 at-nest ticks:**
 | ticks | **166,212** | 51,232 | 73,228 | 29,108 | 0 | 27,493 | 18,074 | 14,610 | 14,638 | 48,193 |
 
 **Median bucket 0.2–0.3, 37.5% of every read in the bottom tenth, 10.9% at the
-ceiling.** It held on all three trunks this lane measured — bottom tenth 24.8%
+ceiling.** **The exact zero in bucket 4 is a positive control on the probe, not
+a flaw in it** — `CROWDING_SCALE` is 8.0 and the count is an integer, so the
+input can only take `k/8`, and `[0.4, 0.5)` is the one decile eighths cannot
+reach. A miswired probe would not have put its hole in precisely that bucket.
+It also means "median bucket" here is a median over nine reachable values
+rather than over a continuum. It held on all three trunks this lane measured — bottom tenth 24.8%
 before #343 and 32.5% before #354 — which is the only reason to trust it:
 three different worlds, same answer. An ant at its own door is very often standing alone. The old
 gate was never stuck, so there was nothing for a desaturated input to release.
@@ -80,10 +85,38 @@ re-take it after each, not average them. This lane also read **seed 3 alone**
 first and got a tidy "+27% digs, +13% mound", the single-seed artifact
 `CLAUDE.md` names.
 
-**Consequence, and it is the finding:** an anthill that never stops growing is
-not a colony asking the wrong question at the door. It is a colony that
-outgrows its rooms faster than it can cut them. The lever is colony size —
-brief 2's lifespan work — not the dig gate's input.
+**Consequence:** an anthill that never stops growing is not a colony asking the
+wrong question at the door. It is a colony that outgrows its rooms faster than
+it can cut them. The lever is colony size — brief 2's lifespan work — not the
+dig gate's input.
+
+## 2c. The brief asked the wrong question, and the right one is survival
+
+**Re-read from the same 12 paired runs, after the owner picked the room arm by
+eye and the coordinator asked what he might actually have been looking at.**
+Colony still alive at frame 300,000:
+
+| | alive at 300,000 |
+|---|---|
+| crowding at the door (today) | **0 of 12** |
+| room at the door | **5 of 12** — 427, 222, 181, 178 and 46 ants |
+
+Every control colony is extinct. Five discordant pairs, all one way, is
+**p ≈ 0.03** one-sided by McNemar. **The gate's value was never the mound.**
+
+That also rescues the owner's verdict from the objection against it. He was
+shown one bed where the control had died and the room arm had not, so his
+"A is bad, B is good" could have been one bed's luck — and it is not: it is
+5 of 12 against 0 of 12 across the sweep.
+
+**Two honesties on top of it.** The bed pays for a living colony: where the
+room arm survives, the seed bank and the standing stand are *lower*, and
+starvation deaths are much higher because there are ants alive to starve.
+Pooled, neither seed bank nor plant count moves reliably (7 of 12 each way).
+**And the mechanism is unmeasured** — whether a colony that stops digging when
+it has room spends the saving on foraging is a plausible story and nothing
+here tested it. That is the question the next lane should take, and it is a
+better one than the brief's.
 
 ## 3. What the mechanism does do, which is worth keeping
 
@@ -97,13 +130,14 @@ entry's reasoning that does not survive.
 
 ## 4. Two instrument corrections that cost real time
 
-**`World::ground_datum` is built and wrong in the lab.** The hand-built bed
+**`World::ground_datum` is built and wrong in the lab — filed as §Z17.** The hand-built bed
 marks the whole box underground, so the datum reads **0 in all 512 columns**
 and the sealed lid roofs the sky: the census read **8,544 cells of roofed void
 against `latecensus`'s 26**, a 330x overcount every unit test passed through,
 because the test box has no lid at row 0 and no grow lamps. This census freezes
 its own datum. Anything else reading `ground_datum` in a lab box has the same
-bug waiting.
+bug waiting. The owner's own unprompted report of spoil standing in open sky,
+seen on both arms and therefore not this build's, is **§Z18**.
 
 **The two roofed rules are now reconciled and were not.** `World::step_nest_room`
 and `lab::census::census` each decide what counts as roofed; two definitions of

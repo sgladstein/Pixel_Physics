@@ -156,7 +156,7 @@ point.
 | Z13 | **OPEN** | 11101 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
 | Z14 | **OPEN** | 11199 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
 | Z15 | **OPEN** | 11291 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | **OPEN** | 11370 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z18 | **OPEN** | 11370 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
 
 <!-- END GENERATED INDEX -->
 
@@ -11367,7 +11367,7 @@ rate is still far under what the economy needs (§Z10's closing note). The cage
 is why the animal *looks* stuck; it is not established that it is why the
 animal *starves*.
 
-### Z16. **Dug spoil stands in open sky, and the owner sees it before he sees anything else** — **OPEN, reported by the owner 2026-09-12 on an unrelated card (lab)**
+### Z18. **Dug spoil stands in open sky, and the owner sees it before he sees anything else** — **OPEN, reported by the owner 2026-09-12 on an unrelated card (lab)**
 
 Owner, judging a blind A/B of two anthills at 300,000 frames (review card
 `20260912T115506982Z-6ae8e2`, both panes of `played_bed` seed 3): *"Both look
@@ -11390,6 +11390,18 @@ a card about something else.** A known limitation nobody has complained about
 and a defect the owner names first are the same code and different priorities,
 which is why this gets a register entry rather than staying a line in
 `dead-ends.md`.
+
+**Z18 and not Z16, and the letter is the lesson.** This was filed as §Z16 and
+collided: round 29 landed its own Z16 on `main` while this branch was 16
+commits behind, and `scripts/bugindex.py --check` passed on both sides because
+it cannot see a letter claimed on an unmerged branch. That is how two bugs were
+once both filed as §Q. The sweep that works is over the branches, not the file:
+
+```
+for b in $(git branch -r | grep -v HEAD); do
+  git show $b:Reports/open-bugs-handoff.md 2>/dev/null | grep -oE '^### Z[0-9]+\.'
+done | sort -uV | tail
+```
 
 **Not filed against the room-per-ant build** (`Reports/lanes/evolution-lab-room-per-ant.md`):
 it is present with that gate off, it is present on `main`, and it is visible on
