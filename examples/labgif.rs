@@ -541,7 +541,17 @@ fn main() {
     // Real playback speed and a loop, `main.rs`'s own `CaptureSequence::
     // finish` convention exactly: 60 ticks/second is the shipped sim rate,
     // so `every` ticks between captures maps directly to real elapsed time.
-    let delay_ms = ((every * 1000) / 60).max(1);
+    //
+    // **`delay=<ms>` overrides it, and a time-lapse is why.** Real playback
+    // speed is the right default for the rain cards this file was built for,
+    // where `every` is single digits. It stops being a playback speed at all
+    // once the question is a *session*: a colony's boom takes 200,000 frames,
+    // which at a watchable ~150 shots means `every` near 1,300 -- and this
+    // formula turns that into 21.7 seconds per frame, i.e. a card the owner
+    // would have to sit through for nearly an hour. The pixels are unchanged;
+    // only how long each is held. Unset reproduces every existing card
+    // byte-for-byte, since the branch never runs.
+    let delay_ms = arg::<u64>("delay").unwrap_or((every * 1000) / 60).max(1);
     let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
     // **Read off the actual first shot, not recomputed from `w`/`zoom`.**
     // That recomputation was always `w * zoom, h * zoom`, which was true
@@ -562,7 +572,14 @@ fn main() {
             if let Err(e) = encoder.encode_frames(gif_frames) {
                 eprintln!("labgif: gif encode failed: {e}");
             }
-            println!("  wrote {out} ({n} frames, {shot_w}x{shot_h} each)");
+            // The delay is echoed rather than left implicit for the reason
+            // `plant_probe` echoes its seed: it is now a knob, and a card
+            // that plays at the wrong speed looks exactly like one whose
+            // `delay=` never reached the binary.
+            println!(
+                "  wrote {out} ({n} frames, {shot_w}x{shot_h} each, {delay_ms} ms/frame -> {:.1} s)",
+                (n as f64) * (delay_ms as f64) / 1000.0
+            );
         }
         Err(e) => eprintln!("labgif: failed to create {out}: {e}"),
     }
