@@ -2499,6 +2499,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-30-2026-09-12.md](evolution-lab-round-30-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round thirty: five
+  lanes on work the owner asked for in his own words that morning (the
+  tooltip, the top-left corner, a master menu, the zoom-out dropout, the
+  zoom-in exploration) plus the soil design and the anthill. What the round
+  overturned: **neither digging nor fighting is shaping the played bed**, found
+  independently from opposite ends — the who-kills lane's 216/98/70 booked
+  killings against 2/0/0 attributable, with two fifths of the rest a plant
+  standing in the dead ant's head, and this round's anthill lane finding the
+  dig gate's premise false (a third of at-nest crowding reads sit in the bottom
+  tenth, so an ant at its own door is very often alone) and shipping its gate
+  off. Also the harness findings that cost the round real time: **a spawned
+  session inherits the environment and not the repository**, a lane being
+  healthy is not evidence its work is durable and a lane having delivered is
+  not evidence it closed, a same-file gate is a hypothesis one command tests,
+  and green CI is not mergeability.
 - [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
   — **design of record for the two soils, 2026-09-12: what a colony's tamped
   spoil should do with time, and what a plant inside a mound should do.** The
