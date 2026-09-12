@@ -347,6 +347,12 @@ step is a measurement, not a rule.
   is his original complaint, present in every pane and addressed by none of
   them. The lane asked the wrong question and the coordinator approved the
   card.
+- **And he said it twice, about two unrelated cards.** On the anthill lane's
+  superseded shot: *"Both look bad and have lots of stuff floating in the
+  air."* **Two lanes, two subjects, the same complaint** — which makes floating
+  debris a property of every picture of this bed rather than a question about
+  soil design. It is the most consistently reported visual defect of the day
+  and the top of the carry-forward below.
 - **The anthill, blind**: *"A is bad. B is good"*, with `blind_was: [1, 0]`, so
   he preferred the new gate over today's behaviour. **The map was checked
   against a property only one arm has** — the pane he called bad carries 0 ants
@@ -360,8 +366,33 @@ step is a measurement, not a rule.
   digs, spoil, chambers and bare share — **not survival** — so whether the gate
   helps a colony live is unmeasured and open.
 
+## What round 29 handed over at its close
+
+Its own cards were answered the same afternoon, and two of the verdicts are
+round 30's problem now:
+
+- **The long-ant pile is not visibly fixed.** Round 29's traffic-deferral
+  expiry improves the counters — wedged long bodies better on 7 of 9 seeds —
+  and the owner's verdict on the card was *"both have lots of stuck, A looks
+  worse"*, with **A the expiry arm**. **It ships on counters and fails the
+  eye.** That is this repo's own standing rule landing on a shipped change:
+  the owner's eye is the bar, counters are constraints. The causes it did not
+  repair are §Z12 and §Z13.
+- **A follow camera ruins a colony-level card.** Two cohesion cards came back
+  *"shaking gif, probably following a creature"* — unreadable. Re-shoot from a
+  fixed frame. Folded into the coordinator note's movement rule, beside this
+  round's finding that a scrubbable frame sequence plays where a GIF did not.
+
+Chosen and confirmed: the new flight reads as flying and uncaged, seed cargo
+keeps the bed alive, and the 40,000-frame lifespan arm.
+
 ## Open at close
 
+- **Floating debris is the most reported visual defect of the day**, named by
+  the owner on two unrelated cards, and no lane owns it. It is not the soil
+  design question it was filed under. **This is the first thing round 31
+  should look at**, because it is in every picture of this bed regardless of
+  what the picture is of.
 - **#359** (the anthill null) — conflicts resolved and merging; the survival
   re-read is outstanding and decides whether the default flips.
 - **Lane R2's PR** — the menu, plus deleting R1's corner line on the owner's
@@ -369,6 +400,9 @@ step is a measurement, not a rule.
 - **Floating soil is the soil brief**, not weathering. The design report is on
   `main` and the lane that wrote it is gone; a fresh lane starts from the
   report.
+- **The long-ant pile**, inherited from round 29 on the owner's verdict rather
+  than on a measurement — its expiry landed and the pile still reads as stuck.
+  §Z12 and §Z13 below are the two causes it left.
 - **§Z13** — a resting ant reads as stuck at play zoom. A colour or a mark
   question, not a mechanic; the same shape as this repo's own note that a dead
   creature is unfindable by the very channel that makes a live one findable.
