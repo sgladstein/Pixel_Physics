@@ -591,6 +591,14 @@ impl Handler {
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
             KeyCode::BracketRight => self.app.adjust_brush(2),
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
+            // **Shift+`-` cycles the zoom-out filter** rather than a letter
+            // of its own, because every letter on the keyboard is already
+            // bound (`E` was the last one, to `cycle_material`). Hanging it
+            // off the zoom-out key is the discoverable place for it anyway:
+            // it is the control you reach for while you are already zoomed
+            // out and unhappy with what you see. `held.grab` is shift, same
+            // as the tunables group reverse on `Tab`.
+            KeyCode::Minus if self.held.grab => self.app.renderer.cycle_zoom_out_filter(),
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
             // `L` for the *living* channels. This was `B` until the merge
