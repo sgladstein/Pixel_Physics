@@ -1858,6 +1858,125 @@ const MAX_ZOOM: i32 = 8;
 /// revisited here.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
+/// How the one screen pixel covering a `stride`x`stride` block of world cells
+/// at `zoom_out_stride > 1` chooses what to draw.
+///
+/// **Reported from play, 2026-09-12**: *"when I zoom out all the way, instead
+/// of looking crisp, it looks like pixels of plants and other foreground
+/// things are disappearing."* They were. [`Stride`](Self::Stride) draws the
+/// block's top-left cell and discards the other fifteen, so a one-cell-wide
+/// stem has three chances in four of falling between sampled columns and
+/// vanishing outright — `world_to_screen`'s own doc already said so in as
+/// many words, and [`MAX_ZOOM_OUT_STRIDE`]'s says the cap exists so the view
+/// stays *"the same kind of picture, zoomed out" rather than aliasing into
+/// noise*. Stride sampling **is** that aliasing: the intent was written down
+/// and unimplemented.
+///
+/// **The owner's word is "crisp", and it rules out the obvious fix.**
+/// Averaging the block gives a stem a muddy half-tone against its
+/// background — it trades a disappearing plant for a blurred one and fails
+/// the complaint as stated. [`Average`](Self::Average) ships anyway so that
+/// reading can be rejected by eye rather than by argument, because it is the
+/// proposal the next person makes.
+///
+/// **This changes what a pixel *is*, not how many there are.** The stride cap
+/// above carries three separate owner rulings and is untouched here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ZoomOutFilter {
+    /// Every `stride`-th cell, the other `stride² - 1` discarded — what every
+    /// build before 2026-09-12 shipped. Kept as the **control**, and it has
+    /// to stay byte-identical to that behaviour rather than merely similar;
+    /// `stride_filter_reproduces_the_old_point_sampling` is what says so.
+    Stride,
+    /// The most *salient* cell of the block, by [`zoom_out_salience`] — a
+    /// creature over a plant over a liquid over bulk ground over gas over
+    /// air. Every pixel is still one real cell's own colour at its own
+    /// position, so the picture stays crisp; a one-cell stem survives because
+    /// it outranks the air and the soil it is standing in.
+    ///
+    /// **Ties resolve to the block's top-left cell**, which is precisely the
+    /// cell [`Stride`](Self::Stride) would have drawn — so a block of uniform
+    /// ground, or of uniform sky, renders identically under both filters and
+    /// only a block that genuinely *mixes* kinds moves. That is what keeps
+    /// this change confined to the mixed blocks, which are the only ones the
+    /// complaint is about, and it is why the ranking below ties `Solid` with
+    /// `Powder` on purpose.
+    ///
+    /// Determinism is required here (same-build, `PLAN.md`), so the scan
+    /// carries a strictly-greater rank rather than sorting the block:
+    /// `sort_unstable`/`min_by` return the first of equal elements and have
+    /// silently changed how every plant in the world grows once already.
+    #[default]
+    Coverage,
+    /// The area mean of the block's colours — the textbook minify filter, and
+    /// **expected to read as mud** rather than as the reported crispness. It
+    /// is here to be compared, not chosen. It is also much the most expensive
+    /// of the three: every cell of the block pays a full `cell_colour`, where
+    /// [`Coverage`](Self::Coverage) pays one and reads only each cell's
+    /// material.
+    Average,
+}
+
+impl ZoomOutFilter {
+    fn next(self) -> Self {
+        match self {
+            ZoomOutFilter::Coverage => ZoomOutFilter::Stride,
+            ZoomOutFilter::Stride => ZoomOutFilter::Average,
+            ZoomOutFilter::Average => ZoomOutFilter::Coverage,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ZoomOutFilter::Coverage => "COVERAGE (the most salient cell of the block)",
+            ZoomOutFilter::Stride => "STRIDE (every Nth cell — the old look, and the control)",
+            ZoomOutFilter::Average => "AVERAGE (the area mean — blurs rather than drops)",
+        }
+    }
+}
+
+/// How much a cell deserves the one screen pixel its block gets, at
+/// [`ZoomOutFilter::Coverage`]. Higher wins; ties go to the block's top-left
+/// cell, which is the one the old point sampling drew.
+///
+/// **Stated as data, never inferred from the palette.** `CLAUDE.md`: *when a
+/// rule must tell apart two things that can look identical, state the
+/// difference as data.* Two greens can be a leaf and a lit soil crumb, and no
+/// amount of reading the colour separates them — `MaterialKind` is the field
+/// the sweep itself dispatches on, so a material added tomorrow gets a rank
+/// from its kind rather than from somebody remembering to list it here.
+///
+/// **`Solid` and `Powder` deliberately tie**, and that tie is load-bearing
+/// rather than laziness. They are both bulk ground, and nearly the whole
+/// screen is bulk ground or bare sky — so a block entirely inside the terrain
+/// has no strict winner, resolves to its top-left cell, and comes out exactly
+/// as [`ZoomOutFilter::Stride`] would have drawn it. Ranking them against
+/// each other would repaint the interior of every hillside for no complaint
+/// anybody has made.
+fn zoom_out_salience(kind: material::MaterialKind) -> u8 {
+    match kind {
+        // An animal is two dark cells at play zoom and is the single hardest
+        // thing in this world to find in a still — `Reports/instruments.md`
+        // records that a contact sheet of a colony answered nothing and only
+        // a GIF did, because an ant is picked out of dark soil by *moving*.
+        // A still that drops it entirely is worse again, so it loses to
+        // nothing.
+        material::MaterialKind::Creature => 5,
+        // The complaint names plants, and a stem, a twig or a petiole is one
+        // cell wide for most of a plant's life.
+        material::MaterialKind::Plant => 4,
+        // A film, a trickle or a pool's rim is one cell deep and vanishes the
+        // same way a stem does. A pool's *interior* is bulk, and a block
+        // inside it has no strict winner either way.
+        material::MaterialKind::Liquid => 3,
+        material::MaterialKind::Solid | material::MaterialKind::Powder => 2,
+        // Smoke and steam are thin and worth keeping, but never at the cost
+        // of the thing burning underneath them.
+        material::MaterialKind::Gas => 1,
+        material::MaterialKind::Empty => 0,
+    }
+}
+
 /// The widest zoom-out step that still makes sense over `bounds` — capped at
 /// [`MAX_ZOOM_OUT_STRIDE`], and answering to two owner rulings that pull in
 /// opposite directions.
@@ -2388,6 +2507,16 @@ pub struct Renderer {
     /// skipping cells between samples rather than averaging them (a proper
     /// minify filter is not worth it for a debug/overview zoom level).
     pub zoom_out_stride: i32,
+    /// What the one screen pixel covering a `zoom_out_stride`-square block of
+    /// cells actually draws — see [`ZoomOutFilter`]. `Coverage` by default,
+    /// so pulling back to look at a whole bed stops dropping the thin things;
+    /// `Shift`+`-` cycles it in the live app, and `Stride` is the old look
+    /// kept as the control.
+    ///
+    /// **Costs nothing at `zoom_out_stride == 1`**, which is every ordinary
+    /// frame: the whole mechanism is behind a `stride == 1` early return, so
+    /// the unzoomed picture is bit-identical and pays not one extra read.
+    pub zoom_out_filter: ZoomOutFilter,
     /// Tints every pixel by an M13 field channel instead of (blended over)
     /// the ordinary cell colour — `V` cycles it. `Off` by default, so it
     /// costs nothing (no extra `World::field_at` calls) unless a player
@@ -2744,6 +2873,7 @@ impl Renderer {
             show_chunk_overlay: false,
             zoom: 1,
             zoom_out_stride: 1,
+            zoom_out_filter: ZoomOutFilter::default(),
             field_overlay: FieldOverlay::Off,
             organism_overlay: OrganismOverlay::Off,
             creature_colour: CreatureColour::Off,
@@ -2964,6 +3094,14 @@ impl Renderer {
         self.creature_colour = self.creature_colour.next();
     }
 
+    /// Step the zoom-out filter — `Shift`+`-` in the live app, i.e. the
+    /// zoom-out key itself with a modifier, since every letter on the
+    /// keyboard is already bound. See [`ZoomOutFilter`]; it does nothing
+    /// visible until the view is actually zoomed out.
+    pub fn cycle_zoom_out_filter(&mut self) {
+        self.zoom_out_filter = self.zoom_out_filter.next();
+    }
+
     /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
     /// in the live app. The two fields form one continuous scale rather
     /// than being independently adjustable: zooming in past `zoom_out_
@@ -2974,6 +3112,19 @@ impl Renderer {
     /// Zoom and zoom-out are one continuous control (see `adjust_zoom`), so
     /// this has to consult both: a 512-pixel viewport shows 512 cells at 1:1,
     /// 256 at zoom 2, and 1024 at stride 2.
+    /// Whether a screen pixel currently stands for a **block** of world cells
+    /// rather than for one cell — i.e. whether [`ChunkRun::colour_block`] has
+    /// anything to do.
+    ///
+    /// **Named so `draw` can hoist it out of the per-pixel loop.** At zoom 1,
+    /// which is every ordinary frame, the answer is `false` and the whole
+    /// mechanism has to cost nothing measurable; testing three fields 163,840
+    /// times a frame to learn that is exactly the shape `CLAUDE.md` means by
+    /// *guard hot-path work at the call site that already has the data*.
+    fn minifying(&self) -> bool {
+        self.zoom <= 1 && self.zoom_out_stride > 1 && self.zoom_out_filter != ZoomOutFilter::Stride
+    }
+
     pub fn visible_span(&self, viewport: (u32, u32)) -> (i32, i32) {
         let (w, h) = (viewport.0 as i32, viewport.1 as i32);
         if self.zoom > 1 {
@@ -3683,13 +3834,22 @@ impl Renderer {
         let painted = (row_bytes * height as usize).min(frame.len());
         let recomputed = if full {
             let this = &*self;
+            // **Hoisted out of the pixel loop**, not tested per pixel: at zoom
+            // 1 this is `false` and the zoom-out filter must cost nothing at
+            // all on the frame everybody actually plays.
+            let minify = this.minifying();
             frame[..painted].par_chunks_mut(row_bytes).enumerate().for_each(|(row, pixels)| {
                 let sy = row as i32;
                 let mut held = ChunkRun::default();
                 for (sx, pixel) in pixels.chunks_exact_mut(4).enumerate() {
                     let sx = sx as i32;
                     let (wx, wy) = this.screen_to_world(sx, sy);
-                    let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                    let sub = this.sub_cell(sx, sy);
+                    let colour = if minify {
+                        held.colour_block(this, world, wx, wy, sub)
+                    } else {
+                        held.colour(this, world, wx, wy, sub)
+                    };
                     pixel.copy_from_slice(&colour);
                 }
             });
@@ -3777,6 +3937,8 @@ impl Renderer {
                 // dropped here rather than inside `put`, which is what the
                 // serial version relied on it for.
                 let this = &*self;
+                // Same hoist as the full path above, and for the same reason.
+                let minify = this.minifying();
                 let y0 = rect.min_y.max(0) as usize;
                 let y1 = rect.max_y.min(height as i32 - 1);
                 if y1 >= rect.min_y.max(0) {
@@ -3791,7 +3953,12 @@ impl Renderer {
                             let mut held = ChunkRun::default();
                             for sx in rect.min_x.max(0)..=rect.max_x.min(width as i32 - 1) {
                                 let (wx, wy) = this.screen_to_world(sx, sy);
-                                let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                                let sub = this.sub_cell(sx, sy);
+                                let colour = if minify {
+                                    held.colour_block(this, world, wx, wy, sub)
+                                } else {
+                                    held.colour(this, world, wx, wy, sub)
+                                };
                                 let i = sx as usize * 4;
                                 if let Some(px) = pixels.get_mut(i..i + 4) {
                                     px.copy_from_slice(&colour);
@@ -6545,10 +6712,16 @@ impl Renderer {
 
     /// Inverse of `screen_to_world`, for placing something drawn in world
     /// space (a particle, a chunk border) onto the screen. `None` when the
-    /// position falls between two stride-sampled columns/rows at
+    /// position falls between two point-sampled columns/rows at
     /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
     /// distinct from simply being off-screen, which callers already clip
     /// against separately via `put`'s own bounds check.
+    ///
+    /// **That `None` is now reachable only under [`ZoomOutFilter::Stride`]**,
+    /// where a pixel really is one sampled cell. Under the block filters a
+    /// pixel stands for its whole block, so this is total at every stride, and
+    /// `world_to_screen_and_back_round_trips_at_every_stride` asserts it stays
+    /// `screen_to_world`'s left inverse in all three.
     /// An inclusive world rectangle as the inclusive screen rectangle it
     /// covers, plus the size of one world cell in pixels.
     ///
@@ -6577,7 +6750,21 @@ impl Renderer {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
         } else if self.zoom_out_stride > 1 {
             let (dx, dy) = (x - self.camera_x, y - self.camera_y);
-            if dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0 {
+            // **`None` only under `ZoomOutFilter::Stride`.** Under the
+            // block filters a screen pixel stands for every cell of its
+            // block, so every cell of that block has a pixel and this is a
+            // total mapping — which is the half of the dropout that
+            // `draw_particles` and the chunk-body pass were suffering. Those
+            // are separate passes with their own `world_to_screen` call, so a
+            // grain in flight was landing on a sampled column or vanishing,
+            // and at stride 4 it vanished three times in four.
+            //
+            // Kept `None` for `Stride` so the control really is the old
+            // behaviour, particles included, rather than the old terrain with
+            // new debris over it.
+            if self.zoom_out_filter == ZoomOutFilter::Stride
+                && (dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0)
+            {
                 return None;
             }
             Some((dx.div_euclid(self.zoom_out_stride), dy.div_euclid(self.zoom_out_stride)))
@@ -6684,13 +6871,112 @@ impl<'a> ChunkRun<'a> {
         if !world.in_bounds(x, y) {
             return VOID;
         }
+        let cell = self.cell(world, x, y);
+        renderer.cell_colour(world, x, y, sub, cell)
+    }
+
+    /// The cell at `(x, y)`, reusing this run's held chunk. **Callers owe the
+    /// bounds check**, exactly as `Renderer::cell_colour` does and for the
+    /// same reason — outside the world there is no chunk worth looking up.
+    ///
+    /// Split out of `colour` so `colour_block` can read a whole
+    /// `stride`x`stride` block through one hoist instead of one per cell; the
+    /// block is 4 cells on a side at most against `CHUNK_SIZE` 64, so it
+    /// nearly always sits inside the chunk already held.
+    fn cell(&mut self, world: &'a World, x: i32, y: i32) -> Cell {
         let coord = ChunkCoord::containing(x, y);
         if self.at != Some(coord) {
             self.at = Some(coord);
             self.chunk = world.chunk(coord);
         }
-        let cell = self.chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y));
-        renderer.cell_colour(world, x, y, sub, cell)
+        self.chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
+    }
+
+    /// `colour`, answering for the whole `stride`x`stride` block of world
+    /// cells that one screen pixel covers when the view is zoomed out — see
+    /// [`ZoomOutFilter`] for why a pixel is a block rather than a sample.
+    ///
+    /// **At stride 1 — every ordinary frame — and at
+    /// [`ZoomOutFilter::Stride`], this *is* `colour`**, down to the single
+    /// cell read. So the unzoomed picture cannot move, and the old look stays
+    /// available as a control that is byte-identical rather than merely
+    /// close.
+    ///
+    /// `sub` is passed through unchanged: it is `(0, 0)` at every minified
+    /// scale (`Renderer::sub_cell` returns early unless `zoom > 1`), so there
+    /// is no sub-cell position for a block to disagree about.
+    fn colour_block(
+        &mut self,
+        renderer: &Renderer,
+        world: &'a World,
+        x: i32,
+        y: i32,
+        sub: (i32, i32),
+    ) -> [u8; 4] {
+        let stride = renderer.zoom_out_stride.max(1);
+        if !renderer.minifying() {
+            return self.colour(renderer, world, x, y, sub);
+        }
+        // **The anchor alone decides whether this pixel is in the world**, so
+        // the edge of the world reads exactly as it did before. A block
+        // straddling the boundary is not allowed to drag a real cell outward
+        // into the void, which would make the world look 3 cells wider than
+        // it is at the widest zoom-out.
+        if !world.in_bounds(x, y) {
+            return VOID;
+        }
+        match renderer.zoom_out_filter {
+            // Handled by the early return above; restated so a fourth variant
+            // cannot be added without deciding what it does here.
+            ZoomOutFilter::Stride => self.colour(renderer, world, x, y, sub),
+            ZoomOutFilter::Coverage => {
+                // Seeded from the anchor rather than from a sentinel, which is
+                // what makes a tie resolve to the cell `Stride` would have
+                // drawn: every later candidate has to beat it *strictly*.
+                let mut best = (x, y);
+                let mut best_cell = self.cell(world, x, y);
+                let mut best_rank = zoom_out_salience(world.materials.get(best_cell.material).kind);
+                for by in y..y + stride {
+                    for bx in x..x + stride {
+                        if (bx, by) == (x, y) || !world.in_bounds(bx, by) {
+                            continue;
+                        }
+                        let cell = self.cell(world, bx, by);
+                        let rank = zoom_out_salience(world.materials.get(cell.material).kind);
+                        if rank > best_rank {
+                            best_rank = rank;
+                            best_cell = cell;
+                            best = (bx, by);
+                        }
+                    }
+                }
+                // The winner's **own** position, not the anchor's: the grain,
+                // the sky light and the depth grade are all functions of where
+                // a cell is, so colouring it at somebody else's coordinates
+                // would be a different kind of wrong pixel.
+                renderer.cell_colour(world, best.0, best.1, sub, best_cell)
+            }
+            ZoomOutFilter::Average => {
+                let (mut r, mut g, mut b, mut a, mut n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+                for by in y..y + stride {
+                    for bx in x..x + stride {
+                        if !world.in_bounds(bx, by) {
+                            continue;
+                        }
+                        let cell = self.cell(world, bx, by);
+                        let c = renderer.cell_colour(world, bx, by, sub, cell);
+                        r += c[0] as u32;
+                        g += c[1] as u32;
+                        b += c[2] as u32;
+                        a += c[3] as u32;
+                        n += 1;
+                    }
+                }
+                // `n` is at least 1: the anchor is in bounds or we returned
+                // `VOID` above.
+                [(r / n) as u8, (g / n) as u8, (b / n) as u8, (a / n) as u8]
+            }
+        }
     }
 }
 
@@ -9954,6 +10240,402 @@ mod tests {
             "with the left half settled, the skip should recompute fewer than every pixel (recomputed {recomputed} of {})",
             uw * uh
         );
+    }
+
+    // --- the zoom-out filter (`ZoomOutFilter`) ------------------------------
+    //
+    // Owner, 2026-09-12: *"when I zoom out all the way, instead of looking
+    // crisp, it looks like pixels of plants and other foreground things are
+    // disappearing."* Everything below is about that one sentence.
+    //
+    // **Every count here has a known non-zero answer in both arms**, which is
+    // the whole reason the scenes are hand-laid rather than grown: a survivor
+    // count that reads 0 looks exactly the same whether nothing survived or
+    // the probe never ran, so each test asserts the *old* filter's non-zero
+    // figure as well as the new one's.
+
+    /// A world of sky over a stone floor, `n` one-cell-wide vertical plant
+    /// stems, each in its **own** `stride`-wide block and each at a different
+    /// offset inside it (cycling 0, 1, 2, 3). One stem in four therefore lands
+    /// on a point-sampled column and three do not, which is the 1-in-4 the
+    /// dropout is predicted from rather than a number tuned to come out right.
+    fn stem_scene(stride: i32, n: i32) -> (World, Vec<i32>) {
+        let w = stride * n;
+        let h = 64;
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("the shipped registry has wood");
+        let mut columns = Vec::new();
+        for i in 0..n {
+            let x = i * stride + i % stride;
+            for y in 20..h - 1 {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+            columns.push(x);
+        }
+        world.end_step();
+        (world, columns)
+    }
+
+    /// Render `world` at `stride` under `filter`, and report how many screen
+    /// **columns** differ from the same world with the stems erased.
+    ///
+    /// Differencing against a stem-free control rather than matching wood's
+    /// palette: the palette is put through the sky light, the depth grade and
+    /// the grain before it reaches a pixel, so a colour-matching probe would
+    /// be a test of `cell_colour` wearing the name of a test about sampling.
+    fn stem_columns_on_screen(world: &World, erase: &[i32], stride: i32, filter: ZoomOutFilter) -> usize {
+        let (vw, vh) = (world.bounds().expect("the scene has bounds").max_x as u32 + 1, 64u32);
+        let (sw, sh) = (vw / stride as u32, vh / stride as u32);
+        let particles = ParticleSystem::new();
+        let draw = |world: &World| {
+            let mut r = Renderer::new();
+            r.zoom_out_stride = stride;
+            r.zoom_out_filter = filter;
+            let mut frame = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+            frame
+        };
+        let with = draw(world);
+        let mut bare = world.clone();
+        for &x in erase {
+            for y in 0..vh as i32 - 1 {
+                bare.set(x, y, Cell::EMPTY);
+            }
+        }
+        bare.end_step();
+        let without = draw(&bare);
+        (0..sw as usize)
+            .filter(|&sx| {
+                (0..sh as usize).any(|sy| {
+                    let i = (sy * sw as usize + sx) * 4;
+                    with[i..i + 4] != without[i..i + 4]
+                })
+            })
+            .count()
+    }
+
+    #[test]
+    fn coverage_keeps_the_one_cell_stems_that_point_sampling_drops() {
+        // 16 stems, one per 4-wide block, offsets cycling 0..3. Point
+        // sampling can only see the four sitting on a sampled column.
+        let (world, columns) = stem_scene(4, 16);
+        let strided = stem_columns_on_screen(&world, &columns, 4, ZoomOutFilter::Stride);
+        let covered = stem_columns_on_screen(&world, &columns, 4, ZoomOutFilter::Coverage);
+        assert_eq!(strided, 4, "the old filter should show exactly the quarter of stems that land on a sampled column -- if this is 0 the probe is blind, not the filter perfect");
+        assert_eq!(covered, 16, "every stem has a block of its own, so every stem should reach the screen");
+    }
+
+    #[test]
+    fn coverage_keeps_one_cell_twigs_on_the_dropped_rows_too() {
+        // The same dropout runs along the other axis and is easy to forget:
+        // `screen_to_world` strides both. Horizontal one-cell twigs, one per
+        // 4-tall block row, offsets cycling 0..3.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let wood = world.materials.id_of("wood").expect("wood");
+        let mut rows = Vec::new();
+        for i in 0..16i32 {
+            let y = i * 4 + i % 4;
+            for x in 0..w {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+            rows.push(y);
+        }
+        world.end_step();
+        let count = |filter: ZoomOutFilter| {
+            let (sw, sh) = (16u32, 16u32);
+            let particles = ParticleSystem::new();
+            let mut r = Renderer::new();
+            r.zoom_out_stride = 4;
+            r.zoom_out_filter = filter;
+            let mut frame = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+            let mut bare = world.clone();
+            for &y in &rows {
+                for x in 0..w {
+                    bare.set(x, y, Cell::EMPTY);
+                }
+            }
+            bare.end_step();
+            let mut r2 = Renderer::new();
+            r2.zoom_out_stride = 4;
+            r2.zoom_out_filter = filter;
+            let mut blank = vec![0u8; (sw * sh * 4) as usize];
+            r2.draw(&bare, &particles, &ChunkSet::default(), &mut blank, (sw, sh), true);
+            (0..sh as usize)
+                .filter(|&sy| {
+                    (0..sw as usize).any(|sx| {
+                        let i = (sy * sw as usize + sx) * 4;
+                        frame[i..i + 4] != blank[i..i + 4]
+                    })
+                })
+                .count()
+        };
+        assert_eq!(count(ZoomOutFilter::Stride), 4, "a quarter of the twigs land on a sampled row");
+        assert_eq!(count(ZoomOutFilter::Coverage), 16, "every twig has a block row of its own");
+    }
+
+    /// The mixed scene the byte-identity controls below are judged on --
+    /// ground, a pile of powder, a pool, plants, smoke and sky, so that every
+    /// rank in `zoom_out_salience` is actually present. A control over a world
+    /// that is all one material cannot fail for the replacement.
+    fn mixed_scene() -> World {
+        let (w, h) = (128i32, 128i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let wood = world.materials.id_of("wood").expect("wood");
+        for x in 0..w {
+            for y in h - 20..h {
+                world.set(x, y, Cell::new(material::STONE, (x % 4) as u8));
+            }
+            for y in h - 26..h - 20 {
+                world.set(x, y, Cell::new(material::SAND, (y % 3) as u8));
+            }
+        }
+        for x in 10..40 {
+            for y in h - 32..h - 26 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for (i, x) in (50..100).step_by(3).enumerate() {
+            for y in h - 60 + i as i32..h - 26 {
+                world.set(x, y, Cell::new(wood, (i % 3) as u8));
+            }
+        }
+        for x in 60..70 {
+            for y in 10..20 {
+                world.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        world.end_step();
+        world
+    }
+
+    fn frame_at(world: &World, stride: i32, filter: ZoomOutFilter, zoom: i32) -> Vec<u8> {
+        let (sw, sh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        r.zoom = zoom;
+        r.zoom_out_stride = stride;
+        r.zoom_out_filter = filter;
+        let mut frame = vec![0u8; (sw * sh * 4) as usize];
+        r.draw(world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+        frame
+    }
+
+    #[test]
+    fn stride_filter_reproduces_the_old_point_sampling() {
+        // **The control, and it has to be equality rather than similarity.**
+        // The old algorithm restated independently of the code under test:
+        // one `cell_colour_at` at the cell `screen_to_world` names, and
+        // nothing else. If this ever diverges, every comparison made against
+        // `Stride` in this round is void.
+        let world = mixed_scene();
+        let (sw, sh) = (64u32, 64u32);
+        for stride in 1..=MAX_ZOOM_OUT_STRIDE {
+            let got = frame_at(&world, stride, ZoomOutFilter::Stride, 1);
+            let mut r = Renderer::new();
+            r.zoom_out_stride = stride;
+            // **Primed by one real `draw` before the hand loop runs.** `draw`
+            // is what builds `self.sky` and `self.daylight` from the world
+            // clock, and `cell_colour` reads both -- so a hand loop on a fresh
+            // `Renderer` compares a lit frame against an unlit one and fails
+            // for the lighting rather than for the sampling. The restatement
+            // that matters is still independent: `cell_colour_at` reaches no
+            // part of `ChunkRun` or `colour_block`.
+            let mut scratch = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut scratch, (sw, sh), true);
+            let mut want = vec![0u8; (sw * sh * 4) as usize];
+            for sy in 0..sh as i32 {
+                for sx in 0..sw as i32 {
+                    let (wx, wy) = r.screen_to_world(sx, sy);
+                    let c = r.cell_colour_at(&world, wx, wy, r.sub_cell(sx, sy));
+                    let i = (sy as usize * sw as usize + sx as usize) * 4;
+                    want[i..i + 4].copy_from_slice(&c);
+                }
+            }
+            assert_eq!(got, want, "the Stride filter must be the old point sampling byte for byte, at stride {stride}");
+        }
+    }
+
+    #[test]
+    fn zoom_one_is_untouched_by_the_zoom_out_filter() {
+        // The whole mechanism lives behind `zoom_out_stride > 1`, so the
+        // ordinary unzoomed frame -- and every magnified one -- must be
+        // bit-identical whichever filter is selected.
+        let world = mixed_scene();
+        let base = frame_at(&world, 1, ZoomOutFilter::Stride, 1);
+        for filter in [ZoomOutFilter::Coverage, ZoomOutFilter::Average] {
+            assert_eq!(frame_at(&world, 1, filter, 1), base, "stride 1 must not depend on the filter");
+            assert_eq!(frame_at(&world, 1, filter, 4), frame_at(&world, 1, ZoomOutFilter::Stride, 4), "a magnified frame must not depend on the filter either");
+        }
+    }
+
+    #[test]
+    fn coverage_leaves_the_inside_of_bulk_ground_exactly_where_point_sampling_put_it() {
+        // The tie between `Solid` and `Powder` is load-bearing: most of the
+        // screen is bulk ground, and a block with no strict winner has to
+        // resolve to the cell the old filter drew. Without it this change
+        // repaints every hillside interior for a complaint nobody made.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            for y in 0..h {
+                let m = if (x / 7 + y / 5) % 2 == 0 { material::STONE } else { material::SAND };
+                world.set(x, y, Cell::new(m, (x % 4) as u8));
+            }
+        }
+        world.end_step();
+        assert_eq!(
+            frame_at(&world, 4, ZoomOutFilter::Coverage, 1),
+            frame_at(&world, 4, ZoomOutFilter::Stride, 1),
+            "solid and powder tie, so a world made only of them must render identically under both filters"
+        );
+    }
+
+    #[test]
+    fn the_average_filter_actually_averages_and_is_not_either_of_the_others() {
+        // Sensitivity, not preference: `Average` exists to be rejected by eye,
+        // and a mode that silently fell through to one of the others would be
+        // rejected on the wrong picture.
+        let world = mixed_scene();
+        let avg = frame_at(&world, 4, ZoomOutFilter::Average, 1);
+        assert_ne!(avg, frame_at(&world, 4, ZoomOutFilter::Stride, 1), "the mean cannot equal point sampling on a mixed world");
+        assert_ne!(avg, frame_at(&world, 4, ZoomOutFilter::Coverage, 1), "the mean cannot equal the salient cell on a mixed world");
+        // And it must be a mean of real cell colours: every channel of every
+        // pixel lies inside the range its own block spans.
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 4;
+        r.zoom_out_filter = ZoomOutFilter::Average;
+        // Primed by one real `draw`, for the reason
+        // `stride_filter_reproduces_the_old_point_sampling` states: `draw` is
+        // what builds `sky` and `daylight`, and `cell_colour` reads both, so an
+        // unprimed hand loop compares lit pixels against unlit ones.
+        let mut scratch = vec![0u8; 64 * 64 * 4];
+        r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut scratch, (64, 64), true);
+        for sy in 0..16i32 {
+            for sx in 0..16i32 {
+                let (wx, wy) = r.screen_to_world(sx, sy);
+                let mut lo = [255u8; 3];
+                let mut hi = [0u8; 3];
+                for by in wy..wy + 4 {
+                    for bx in wx..wx + 4 {
+                        let c = r.cell_colour_at(&world, bx, by, (0, 0));
+                        for k in 0..3 {
+                            lo[k] = lo[k].min(c[k]);
+                            hi[k] = hi[k].max(c[k]);
+                        }
+                    }
+                }
+                let i = (sy as usize * 64 + sx as usize) * 4;
+                for k in 0..3 {
+                    assert!(avg[i + k] >= lo[k] && avg[i + k] <= hi[k], "the mean at ({sx},{sy}) channel {k} is outside its own block's range");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn world_to_screen_stays_screen_to_worlds_inverse_under_every_filter() {
+        // A picking offset is a worse bug than the one this round is fixing:
+        // the player would click one cell and paint another. Both directions
+        // of the round trip that can be asserted are asserted -- a pixel's
+        // own cell must come back to that pixel, and every cell of a block
+        // must land on the pixel that covers it.
+        for filter in [ZoomOutFilter::Stride, ZoomOutFilter::Coverage, ZoomOutFilter::Average] {
+            for stride in 1..=MAX_ZOOM_OUT_STRIDE {
+                let mut r = Renderer::new();
+                r.zoom_out_stride = stride;
+                r.zoom_out_filter = filter;
+                r.camera_x = 37;
+                r.camera_y = -11;
+                for sy in -3..40i32 {
+                    for sx in -3..40i32 {
+                        let (wx, wy) = r.screen_to_world(sx, sy);
+                        assert_eq!(
+                            r.world_to_screen(wx, wy),
+                            Some((sx, sy)),
+                            "{filter:?} at stride {stride}: the cell a pixel names must map back to that pixel"
+                        );
+                        if filter != ZoomOutFilter::Stride {
+                            for by in wy..wy + stride {
+                                for bx in wx..wx + stride {
+                                    assert_eq!(
+                                        r.world_to_screen(bx, by),
+                                        Some((sx, sy)),
+                                        "{filter:?} at stride {stride}: every cell of a block must land on the block's pixel"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_particle_between_sampled_columns_reaches_the_screen_under_coverage() {
+        // The second half of the dropout, and the easy one to miss: particles
+        // are their own pass with their own `world_to_screen` call, so a grain
+        // in flight vanished three times in four at stride 4 even when the
+        // terrain behind it did not.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        let mut particles = ParticleSystem::new();
+        // x and y both off the sampled lattice at stride 4.
+        particles.spawn(13.0, 9.0, 0.0, 0.0, material::SAND, 0);
+        let count = |filter: ZoomOutFilter| {
+            let (sw, sh) = (16u32, 16u32);
+            let mut r = Renderer::new();
+            r.zoom_out_stride = 4;
+            r.zoom_out_filter = filter;
+            let mut with = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &particles, &ChunkSet::default(), &mut with, (sw, sh), true);
+            let mut r2 = Renderer::new();
+            r2.zoom_out_stride = 4;
+            r2.zoom_out_filter = filter;
+            let mut without = vec![0u8; (sw * sh * 4) as usize];
+            r2.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut without, (sw, sh), true);
+            with.chunks_exact(4).zip(without.chunks_exact(4)).filter(|(a, b)| a != b).count()
+        };
+        assert_eq!(count(ZoomOutFilter::Stride), 0, "the old filter drops a particle that is not on the lattice -- this is the bug, asserted so the fix is attributable");
+        assert_eq!(count(ZoomOutFilter::Coverage), 1, "under coverage the particle's block has a pixel, so it is drawn");
+    }
+
+    #[test]
+    fn the_salience_order_is_the_one_the_doc_states() {
+        use material::MaterialKind as K;
+        let rank = zoom_out_salience;
+        assert!(rank(K::Creature) > rank(K::Plant), "an animal is the hardest thing in the world to find in a still");
+        assert!(rank(K::Plant) > rank(K::Liquid));
+        assert!(rank(K::Liquid) > rank(K::Solid));
+        assert_eq!(rank(K::Solid), rank(K::Powder), "the bulk-ground tie is load-bearing -- see `coverage_leaves_the_inside_of_bulk_ground_exactly_where_point_sampling_put_it`");
+        assert!(rank(K::Powder) > rank(K::Gas));
+        assert!(rank(K::Gas) > rank(K::Empty));
+    }
+
+    #[test]
+    fn the_zoom_out_filter_cycles_back_to_where_it_started() {
+        let mut r = Renderer::new();
+        assert_eq!(r.zoom_out_filter, ZoomOutFilter::Coverage, "the fix is the default; the old look is the control behind a key");
+        let start = r.zoom_out_filter;
+        let mut seen = vec![start];
+        for _ in 0..2 {
+            r.cycle_zoom_out_filter();
+            seen.push(r.zoom_out_filter);
+        }
+        r.cycle_zoom_out_filter();
+        assert_eq!(r.zoom_out_filter, start, "three steps must return to the start");
+        seen.sort_by_key(|f| format!("{f:?}"));
+        seen.dedup();
+        assert_eq!(seen.len(), 3, "every variant must be reachable from the key");
     }
 
     #[test]
