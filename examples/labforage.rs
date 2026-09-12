@@ -2094,7 +2094,7 @@ fn main() {
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
          flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={} \
          pips_set_on_soil={} pips_set_on_nest={} \
-         fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
+         fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} perched={} stalled_out={} \
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
          pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
          nest_blends={} share_blends={} nest_sites={} nest_gap_max={:.4} \
@@ -2274,6 +2274,12 @@ fn main() {
         // which is the number the bug is about; `LAND_AFLOAT=0` puts the
         // defect back and this goes to 0.
         world.creature_stats.landed_afloat,
+        world.creature_stats.perched,
+        // The stall-out beside the perch: a bout that gave up rather than
+        // arrived. See `CreatureStats::stalled_out` -- if this climbs while
+        // `flower_visits` does not, the animal is hovering short of its
+        // target rather than reaching it.
+        world.creature_stats.stalled_out,
         // **Walking steps per real launch -- the design's own headline, and
         // it reads 0.60 on `main`.** At that rate the animal turns about
         // once per two hops and each hop carries it ~27 uncontrolled cells,
