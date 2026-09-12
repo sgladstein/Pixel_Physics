@@ -506,6 +506,13 @@ Every round-29 pull request is on `main`: #329, #330, #332, #334, #335,
   identical in every column on a one-nest bed).
 - **Tooling**: a `bugindex.py --claim` that sweeps `git branch -r`, so the
   fourth bug-letter collision of the day is the last.
+- **A landmine round thirty found in the lab box, filed by round thirty
+  after #358 so the letter is picked against `main`**: `World::ground_datum`
+  is built for the outdoor world and reads 0 across every column of a
+  hand-built bed, so the sealed lid roofs the sky — its room-per-ant census
+  read 8,544 cells of roofed void against `latecensus`'s 26, a 330x
+  overcount, and every unit test passed through it. Anything that reads
+  `ground_datum` inside a lab bed has that waiting.
 - **Cards awaiting the owner**: the lifespan session strip (`07d3ab`, blind)
   and the flitter flight A/B (`89ba6b`, blind); read both through
   `blind_was`.
