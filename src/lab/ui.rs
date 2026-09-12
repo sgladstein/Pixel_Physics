@@ -587,6 +587,40 @@ pub enum Action {
     /// `spec: &LabBox` to build its own rows (`FRAME`, `BED`, `SOIL`, ...),
     /// so there is no second copy for a mirror to disagree with.
     CycleRain,
+    /// **Move the display-rate floor one stop**, the same ladder `F`
+    /// (`bin/lab.rs`) already cycles. Routed through `Lab::act` rather than
+    /// the direct call `F` used to make, now that the MENU page gives it a
+    /// second route in besides the key: `Lab::act` exists to dispatch a verb
+    /// a button also draws, and this one now has a button.
+    CycleDisplayFloor,
+    /// **Write the chronicle now.** `Digit9`'s own verb (`bin/lab.rs`),
+    /// routed through `Lab::act` for the same reason `CycleDisplayFloor` now
+    /// is -- the MENU page is a button for a verb that used to have none.
+    WriteChronicle,
+    /// Cycle [`render::MagnifyStyle`] -- the zoomed-in cell look. `CellArt`
+    /// ships as the default, byte-identical to a build without the enum, so
+    /// a player who never touches this sees nothing different.
+    CycleMagnifyStyle,
+    /// Cycle [`render::NotchRule`] -- what `MagnifyStyle::Chamfer` does at a
+    /// concave corner. Meaningless outside `Chamfer` and harmless to set
+    /// anywhere else, the same as `CycleOverlay` is harmless with nothing
+    /// armed to look at it.
+    CycleMagnifyNotch,
+    /// Step `Renderer::magnify_ink` through a short preset ladder -- see
+    /// `MAGNIFY_LADDER_INK` in `lab::mod`. A dial with no route was the
+    /// worked example this whole lane was built to fix (round 30's style
+    /// lane, PR #352, left these five fields with none in the lab at all),
+    /// so it gets the same one-click-to-advance shape `CycleOverlay` and
+    /// `CycleCreatureColour` already use rather than a typed number: nobody
+    /// has seen this dial in the lab yet, and a coarse ladder is enough to
+    /// find out whether it is worth a finer one.
+    CycleMagnifyInk,
+    /// `Renderer::magnify_level`'s own ladder step. `CycleMagnifyInk`'s
+    /// sibling.
+    CycleMagnifyLevel,
+    /// `Renderer::magnify_grain`'s own ladder step. `CycleMagnifyInk`'s
+    /// sibling.
+    CycleMagnifyGrain,
 }
 
 /// **What a left-click on the world does.**
@@ -958,6 +992,20 @@ pub enum Panel {
     /// has had no free chip since before this page existed, and from `F5` --
     /// the next stop in the `F1..F4` run the other page keys already use.
     History,
+    /// **Every page in the lab, and every view toggle, in one place — with
+    /// the key that also opens it.** Owner, 2026-09-12: *"There are lots of
+    /// hidden menus that can only be accessed by knowing the F key. There
+    /// should be a master menu accessible from the main UI that leads to all
+    /// the other menus."*
+    ///
+    /// **Additive, not a replacement.** Every key this page lists still
+    /// works exactly as it did — `F1` still opens `Plants` directly — and
+    /// this is one more route to the same `Action::Panel`, not a second
+    /// mechanism: every row fires the identical `Action` the key or the old
+    /// bar chip fired, through the ordinary row list `Log` and `Scenarios`
+    /// already use, so it obeys the one-page-at-a-time rule and latches on
+    /// the bar for free rather than needing a paint function of its own.
+    Menu,
 }
 
 impl Panel {
@@ -975,6 +1023,7 @@ impl Panel {
             Panel::Compare => "SIDE BY SIDE",
             Panel::Scenarios => "SCENARIOS",
             Panel::History => "HISTORY",
+            Panel::Menu => "MENU",
         }
     }
 }
@@ -1304,29 +1353,28 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         .collect();
 
     // Group 3 — the pages.
+    //
+    // **`PLANTS`/`ANTS`/`BOX` were three chips here; now they are one.**
+    // Owner, 2026-09-12: *"There are lots of hidden menus that can only be
+    // accessed by knowing the F key. There should be a master menu
+    // accessible from the main UI that leads to all the other menus."* The
+    // bar was measured full at the tightest spacing on both rows before this
+    // change (`PIXEL_PHYSICS_BAR_TRACE=1`, 2026-09-12: row 0 and row 1 both
+    // at 508 of 508, zero slack) -- so the fix a single extra chip could not
+    // buy has to come from removing more width than it adds, not adding
+    // more room. `MENU` replaces the three pure-navigation chips (no chip
+    // here ever carried live state the way the jar chip does) and opens a
+    // page listing every page in the lab, `F1`/`F2`/`F3` included, so a
+    // mouse-only player reaches everything a keyboard player already could.
+    // Every key below still works exactly as it did -- this is one more
+    // route in, not a replacement for the other three.
     let panels = [
         button(
-            "PLANTS",
-            "F1",
-            Action::Panel(Panel::Plants),
-            state.panel == Some(Panel::Plants),
-            "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK.",
-            pad,
-        ),
-        button(
-            "ANTS",
-            "F2",
-            Action::Panel(Panel::Ants),
-            state.panel == Some(Panel::Ants),
-            "THE COLONY: HOW MANY ANIMALS ARE ALIVE, WHAT THE POPULATION IS DOING, AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING.",
-            pad,
-        ),
-        button(
-            "BOX",
-            "F3",
-            Action::Panel(Panel::Box),
-            state.panel == Some(Panel::Box),
-            "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE.",
+            "MENU",
+            "F6",
+            Action::Panel(Panel::Menu),
+            state.panel == Some(Panel::Menu),
+            "EVERY PAGE IN THE LAB, AND EVERY VIEW TOGGLE, WITH THE KEY THAT ALSO OPENS IT. F1/F2/F3/P/G STILL OPEN PLANTS/ANTS/BOX/PARAMS/SHELF DIRECTLY -- THIS IS THE SECOND ROUTE IN, NOT THE ONLY ONE.",
             pad,
         ),
         button(
@@ -1441,22 +1489,20 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, AIR HUMIDITY, AND THE TWO PHEROMONES. AIR HUMIDITY IS THE AIR, NOT THE GROUND -- SOIL WATER IS AN ORGANISM OVERLAY AND IT IS THE ONE A ROOT DRINKS. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
     };
 
-    // **The numbers behind all of the above.** On row 0 rather than with the
-    // pages on row 1, and that is a measurement rather than a preference: at
-    // the seven-stop ladder row 1 fits at exactly its own width, so one more
-    // button there loses `REBUILD` off the right edge (`PIXEL_PHYSICS_BAR_
-    // TRACE=1` prints both rows). Row 0 has room, and it is not a bad home —
-    // the overlay beside it is not a tool either, and row 0 has become "what
-    // you are working with and how you see it".
-    let params = button(
-        "PARAMS",
-        "P",
-        Action::Panel(Panel::Params),
-        state.panel == Some(Panel::Params),
-        "THE NUMBERS BEHIND THE VERBS: WHAT SOIL COSTS TO DIG, HOW MUCH SHOOT A PLANT NEEDS BEFORE IT SETS SEED, HOW HARD AN ANT CAN DIG, HOW BRIGHT THE LAMPS ARE. GROUPED IN FOUR PAGES, EACH ROW WITH ITS OWN RANGE, AND EVERY ROW EXPLAINS ITSELF ON HOVER.",
-        pad,
-    );
-
+    // **`PARAMS` was a chip on this row; it is now a MENU row (`P` still
+    // opens it directly).** `PIXEL_PHYSICS_BAR_TRACE=1`, 2026-09-12: row 0
+    // was the bar's real bottleneck, not row 1 -- it overflowed at both
+    // looser spacings (522 and 512 of 508) and matched 508 exactly only at
+    // the tightest, where the earlier `SHELF` dead-end already measured zero
+    // pixels spare. Row 1's own "508 of 508" reading at every spacing is not
+    // the same fact: `lay_out`'s slack is redistributed into the gaps
+    // *between* groups, so a row with any non-negative slack always reports
+    // exactly its own width regardless of how much room it actually has --
+    // only an overflow (`right > 508`) says a row is genuinely out of
+    // pixels. `PARAMS` was the chip actually holding row 0 at its ceiling,
+    // and unlike the jar chip it carries no live state on its face -- it is
+    // pure navigation, `MENU`'s whole reason for existing.
+    //
     // **The jar chip: what `RELEASE` is about to put in, and the door to the
     // rack.** The species chip's pattern and the species chip's argument —
     // the design guide says planting has to show what you are about to plant
@@ -1480,7 +1526,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     };
 
     let rows: [Vec<Vec<Spec>>; ROWS] = [
-        vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay, params]],
+        vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay]],
         vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
     ];
 
@@ -2740,6 +2786,27 @@ pub struct Ui {
     /// `Lines` (the chronicle), which is `Ui`'s `#[derive(Default)]` picking
     /// up `LogFilter`'s own `#[default]`.
     log_filter: LogFilter,
+    /// **Mirrors `Renderer::magnify_style`** -- `creature_colour`'s own
+    /// reason: `Ui` does not hold the renderer, and the MENU page has to
+    /// show which style is armed. `Lab::new` and `CycleMagnifyStyle` are the
+    /// two writers.
+    magnify_style: render::MagnifyStyle,
+    /// Mirrors `Renderer::magnify_notch`. `magnify_style`'s own reason.
+    magnify_notch: render::NotchRule,
+    /// Mirrors `Renderer::magnify_ink`. `magnify_style`'s own reason --
+    /// `f32` rather than an enum, but the same two writers.
+    magnify_ink: f32,
+    /// Mirrors `Renderer::magnify_level`. `magnify_ink`'s own reason.
+    magnify_level: f32,
+    /// Mirrors `Renderer::magnify_grain`. `magnify_ink`'s own reason.
+    magnify_grain: f32,
+    /// **Mirrors `TimeControl::display_floor`.** `creature_colour`'s own
+    /// reason: `Ui` does not hold `TimeControl`, and the MENU page is now
+    /// `MIN {}HZ`'s only home (`time::TimeControl::readout`'s own doc --
+    /// lane R1 left the corner's copy as a temporary second line for
+    /// whoever built this page). `Lab::new` and `CycleDisplayFloor` are the
+    /// two writers.
+    display_floor: u32,
 }
 
 /// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
@@ -3173,6 +3240,33 @@ impl Ui {
     /// not need a private-field workaround to ask.
     pub fn creature_colour(&self) -> render::CreatureColour {
         self.creature_colour.unwrap_or(render::CreatureColour::Off)
+    }
+
+    /// **Told by `Lab::new` and `Lab::act`'s magnify handlers** whenever any
+    /// of the five fields moves. One setter for all five rather than five,
+    /// because they only ever change together -- `Lab::act` reads
+    /// `self.renderer.magnify_*` fresh and pushes the whole struct across in
+    /// one call, so the mirror can never show two fields from different
+    /// moments.
+    pub fn set_magnify(
+        &mut self,
+        style: render::MagnifyStyle,
+        notch: render::NotchRule,
+        ink: f32,
+        level: f32,
+        grain: f32,
+    ) {
+        self.magnify_style = style;
+        self.magnify_notch = notch;
+        self.magnify_ink = ink;
+        self.magnify_level = level;
+        self.magnify_grain = grain;
+    }
+
+    /// **Told by `Lab::new` and `Lab::act`'s `CycleDisplayFloor` handler.**
+    /// `set_magnify`'s own reason -- the MENU page's `MIN {}HZ` row.
+    pub fn set_display_floor(&mut self, hz: u32) {
+        self.display_floor = hz;
     }
 
     /// **Told by `Lab::act`'s `CycleReaction` handler** whenever the
@@ -3874,6 +3968,72 @@ impl Ui {
     /// subtracts where it can and does not where it cannot is a page whose
     /// blank cells mean two different things. Same-or-different is defined
     /// for every row.
+    /// **Every page in the lab, and every view toggle, one row each.**
+    ///
+    /// A `Row::choice` per destination: the label on the left, and on the
+    /// right either the key that also reaches it or, for the handful of
+    /// controls with no other readout at all (`MIN {}HZ`, the five magnify
+    /// fields), the live value -- the note then carries the key, if any,
+    /// instead. Every row fires the identical `Action` its key or its old
+    /// bar chip already fired; nothing here is a second definition of what a
+    /// control does.
+    fn menu_rows(&self, world: &World) -> Vec<Row> {
+        let ended = ended_lines(world).len();
+        vec![
+            Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
+                "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
+            Row::choice("ANTS", "F2", Action::Panel(Panel::Ants),
+                "THE COLONY: HOW MANY ANIMALS ARE ALIVE AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING."),
+            Row::choice("BOX", "F3", Action::Panel(Panel::Box),
+                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
+            Row::choice("PARAMS", "P", Action::Panel(Panel::Params),
+                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
+            Row::choice("SHELF", "G", Action::Panel(Panel::Shelf),
+                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
+            Row::choice("THE RACK", "F4", Action::Panel(Panel::Chambers),
+                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
+            Row::choice("HISTORY", "F5", Action::Panel(Panel::History),
+                format!("EVERY FOUNDING LINE THAT HAS ENDED -- {ended} SO FAR.")),
+            Row::choice("EVERY PLANT", "MOUSE", Action::Panel(Panel::PlantList),
+                "EVERY PLANT IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE PLANTS PAGE UNTIL NOW."),
+            Row::choice("EVERY ANIMAL", "MOUSE", Action::Panel(Panel::AntList),
+                "EVERY ANIMAL IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE ANTS PAGE UNTIL NOW."),
+            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
+                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
+                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
+                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::gap(),
+            Row::choice("ANIMAL COLOUR", "H", Action::CycleCreatureColour,
+                format!("WHAT HUE EVERY ANIMAL WEARS. CURRENTLY {}. ALSO A ROW ON THE ANTS PAGE.", self.creature_colour().label())),
+            Row::choice("LIFE MARKS", "Y", Action::CycleLifeMarks,
+                "WHICH MARK, IF ANY, A LIVING ANIMAL DRAWS. OFF BY DEFAULT. ALSO A ROW ON THE ANTS PAGE."),
+            Row::choice("OVERLAY", "O", Action::CycleOverlay,
+                "FALSE-COLOUR THE INVISIBLE CHANNELS. ALSO ITS OWN CHIP ON THE BAR."),
+            Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
+                "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
+            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
+                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
+            Row::choice("DISPLAY FLOOR", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
+                "THE FLOOR UNDER THE DISPLAY RATE -- KEY F. THIS ROW IS ITS ONLY OTHER READOUT ANYWHERE IN THE LAB."),
+            Row::choice("MAGNIFY STYLE", self.magnify_style.label().split(" (").next().unwrap_or(""), Action::CycleMagnifyStyle,
+                format!("THE ZOOMED-IN CELL LOOK -- KEY 0. {}", self.magnify_style.label())),
+            Row::choice(
+                "MAGNIFY NOTCH",
+                self.magnify_notch.label().split(" (").next().unwrap_or("").to_uppercase(),
+                Action::CycleMagnifyNotch,
+                format!("WHAT CHAMFER DOES AT A CONCAVE CORNER. MOUSE ONLY. {}", self.magnify_notch.label()),
+            ),
+            Row::choice("MAGNIFY INK", format!("{:.2}", self.magnify_ink), Action::CycleMagnifyInk,
+                "PAINTED+INK'S EDGE DARKENING. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+            Row::choice("MAGNIFY LEVEL", format!("{:.2}", self.magnify_level), Action::CycleMagnifyLevel,
+                "THE OCCUPANCY A MASS NEEDS TO WIN A SUB-PIXEL. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+            Row::choice("MAGNIFY GRAIN", format!("{:.2}", self.magnify_grain), Action::CycleMagnifyGrain,
+                "PAINTED'S GRAIN AMPLITUDE. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+        ]
+    }
+
     fn compare_rows(&self, world: &World) -> Vec<Row> {
         let (Some(a), Some(b)) = (self.held, self.pinned) else {
             return vec![Row::value(
@@ -3988,6 +4148,14 @@ impl Ui {
                 Vec::new()
             }
             Panel::Compare => self.compare_rows(world),
+            // **`fit_rows`, not a bare return.** Every other generic
+            // (non-self-drawing) page here is short enough to always fit and
+            // none of them call it; this is the first one long enough to
+            // risk running off the bottom of the screen silently -- `page_
+            // rect`'s own doc names `fit_rows` as the thing that actually
+            // keeps a page whole, and a page that skips it just draws past
+            // the frame buffer's edge with nothing on screen to say so.
+            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -9565,13 +9733,15 @@ mod tests {
             buttons += usize::from(wid.action.is_some());
         }
         // Row 0: one chip per tool, the species chip, two brush steps, the
-        // overlay, the parameters page and the shelf. Row 1: three transport
-        // buttons (the readout is not one), one chip per stop on the ladder,
-        // and six pages. Written as the sum rather than as a literal so that
+        // overlay and the shelf -- `PARAMS` moved to a MENU row, 2026-09-12
+        // (`P` still opens it directly). Row 1: three transport buttons (the
+        // readout is not one), one chip per stop on the ladder, `MENU`
+        // itself (which folded `PLANTS`/`ANTS`/`BOX`), and `STATS`/`HELP`/
+        // `RESET`. Written as the sum rather than as a literal so that
         // growing either list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 2 + 1 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 6,
+            TOOLS.len() + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 4,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.

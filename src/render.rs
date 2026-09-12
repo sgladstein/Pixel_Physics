@@ -3386,6 +3386,32 @@ impl Renderer {
         self.magnify_ink = STEPS[i];
     }
 
+    /// Step the occupancy bias through the settings worth comparing —
+    /// `cycle_magnify_ink`'s own shape, no live app key yet (the lab's MENU
+    /// page is this field's first player-facing route in).
+    ///
+    /// **Kept under a half.** [`MAGNIFY_LEVEL`]'s own doc: at exactly 0.5 the
+    /// boundary passes through the cell centres and shrinks a one-cell twig
+    /// to a diamond of a quarter its area, so no step here reaches it.
+    pub fn cycle_magnify_level(&mut self) {
+        const STEPS: [f32; 4] = [0.2, MAGNIFY_LEVEL, 0.42, 0.49];
+        let i = STEPS.iter().position(|&v| (v - self.magnify_level).abs() < 1e-6).map_or(0, |i| (i + 1) % STEPS.len());
+        self.magnify_level = STEPS[i];
+    }
+
+    /// Step the grain amplitude through the settings worth comparing —
+    /// `cycle_magnify_ink`'s own shape, no live app key yet.
+    ///
+    /// **`0.0` is in the cycle on purpose**, `cycle_magnify_ink`'s own
+    /// reason: it turns the grain off and changes nothing else, so it is the
+    /// control that says how much of [`MagnifyStyle::Painted`]'s look is the
+    /// grain.
+    pub fn cycle_magnify_grain(&mut self) {
+        const STEPS: [f32; 4] = [0.0, MAGNIFY_GRAIN, 0.16, 0.24];
+        let i = STEPS.iter().position(|&v| (v - self.magnify_grain).abs() < 1e-6).map_or(0, |i| (i + 1) % STEPS.len());
+        self.magnify_grain = STEPS[i];
+    }
+
     /// The style and its dials, for `last_look`. See [`MagnifyKey`].
     fn magnify_key(&self) -> MagnifyKey {
         (
