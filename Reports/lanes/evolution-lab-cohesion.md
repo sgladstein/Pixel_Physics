@@ -59,6 +59,73 @@ order of magnitude: every one of twelve seeds came back under **0.18** with a
 single crossing against a cut-off median of 1.19, and family on all twelve.
 Polydomy is the default outcome, as §2 predicted.
 
+## What the owner's verdict added, 2026-09-12
+
+Card `20260912T051541289Z-3b03d3`. His reading: *"These sound like two
+different mechanisms and so i don't fully understand what is being shown in
+the images"*, and the question that bounds this whole lane — *"where is the
+nest/home defined as because I see ant populations moved from where they are
+originally placed and just live in the plants where there is food."*
+
+**He is right, on two beds in three, and it tracks §T2 exactly.**
+`labstats` now prints a standing occupancy census every 10,000 frames. Played
+bed, 120,000 frames, drift 0.15 with blending on:
+
+| seed | deliveries | what the colony does | blends after frame 10,000 |
+|---|---|---|---|
+| 1 | 31 | leaves; centroid walks to 130 cells from the patch | **7**, of 2,677 |
+| 2 | 9 | leaves; centroid 28–67 cells out | **8**, of 2,603 |
+| 3 | 268 | **stays**; centroid 0.4–17 cells, 15–47% within 32 | **1,077**, arriving to the last window |
+
+So **where the round trip closes the colony lives at home and cohesion is live
+all run; where it does not, the colony goes to the food and cohesion covers the
+founding cohort only.** Three seeds is a correlation, not a mechanism, and the
+causal direction is untested. **This bounds B2 as hard as it bounds B1**: a
+`Leave` verb gated on a crowded nest cannot fire on a bed where nobody is at
+the nest.
+
+**Time away does not make an ant a stranger in this model, and the owner asked
+for a build in which it does.** His words: *"if he spends too much time away
+from home then he turns enemy, but if he stays close to home then he keeps the
+scent."* What is actually built: an ant's odour moves when it is **born**, and
+coming home is what undoes it. Away from home it neither blends nor drifts, and
+it still tracks its nest's wander because `carry_nest_wander` steps every animal
+whose nearest site it is, at any distance. A lineage that never comes home
+random-walks at `scent_drift` per generation, so at the shipped 0.15 it needs
+**44 generations** to reach a tolerance radius against the 5–11 a session
+reaches — the shape exists and is far too slow to see. At drift 1.0 it is about
+one generation, which is why that arm has own-kills at all.
+
+**The cheap repair, if the owner wants that shape**: gate `carry_nest_wander` on
+proximity to the site, so an ant away falls behind the mound's wander with
+*time*. Ants at home still track it, so the divergence guard is unaffected. At
+σ = 0.065 a wholly absent ant would take 237 epochs (237,000 frames, two
+sessions) to reach a radius, so σ would need re-deriving with it. **Not built —
+it is a design change and the owner's answer decides it.**
+
+**Three arms on seed 3 isolating one mechanism each** (40,000–100,000 frames,
+`labgif`), which is what cards `20260912T073328717Z-172fa8` and
+`20260912T074657942Z-a14201` show:
+
+| arm | living ants | killed by own colony | mints | blends |
+|---|---|---|---|---|
+| drift 0, blending off | 86 | 0 | 0 | 0 |
+| drift 1.0, blending off | **155** | **675** | 2 | 0 |
+| drift 1.0, blending on | **32** | **181** | 2 | 50,484 |
+
+Blending cuts own-killings by **73%**, and the colony that stops eating itself
+is **a fifth the size**. On a bed that starves its colony (§Z6), 675 killings
+are 675 meals. **Do not read the smaller colony as cohesion costing
+population** without that term; it is the bed, and the same arm at the shipped
+0.15 costs nothing at all on any seed.
+
+**A number quoted from the wrong harness looks exactly like a result.** Card
+172fa8 went out with living-ant counts carried over from `labstats` at a
+different frame span — 133 and 62 against the true 86 and 155, wrong in both
+directions and wrong about which colony was bigger. `labgif` now counts its own
+living animals beside the kill tally. Corrected on the queue before the owner
+read it; the card carries the correction.
+
 ## Environment notes
 
 - **`cargo test --lib` will hit the stale-incremental link error** on this

@@ -350,6 +350,19 @@ fn main() {
     // `colour=off|species|colony` -- what an animal wears, the lab's own
     // default being `colony`. Off is the shipped material draw, which is
     // the control arm for any card judging the group colours.
+    // **`style=` -- the magnified look, so the lab can be seen through it.**
+    // `MagnifyStyle` is on the shared `Renderer` and applies to both games,
+    // but the lab's own key handling lives in `src/bin/lab.rs`, which other
+    // lanes hold, so without this there was no way to put a style in front of
+    // anyone on the lab bed at all. Does nothing at `zoom` 1, like the styles
+    // themselves.
+    renderer.magnify_style = match arg::<String>("style").as_deref() {
+        Some("painted") => pixel_physics::render::MagnifyStyle::Painted,
+        Some("painted_ink" | "ink") => pixel_physics::render::MagnifyStyle::PaintedInk,
+        Some("illustrated") => pixel_physics::render::MagnifyStyle::Illustrated,
+        Some("chamfer") => pixel_physics::render::MagnifyStyle::Chamfer,
+        _ => pixel_physics::render::MagnifyStyle::CellArt,
+    };
     renderer.creature_colour = match arg::<String>("colour").as_deref() {
         Some("off") => pixel_physics::render::CreatureColour::Off,
         Some("species") => pixel_physics::render::CreatureColour::Species,
