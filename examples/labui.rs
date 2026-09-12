@@ -109,10 +109,18 @@ fn main() {
     lab.set_cursor(None);
     tiles.push(("BAR AT REST".into(), shot(&mut lab)));
 
-    // 2. Hover over a page button, which is also the hover-explanation case.
-    let plants = centre(&lab, Action::Panel(Panel::Plants));
-    lab.set_cursor(Some(plants));
-    tiles.push(("HOVER: PLANTS".into(), shot(&mut lab)));
+    // 2. Hover the MENU chip, which is also the hover-explanation case --
+    // and, since round 30's master-menu lane, the one bar-level route to
+    // every page that used to have its own chip.
+    let menu_chip = centre(&lab, Action::Panel(Panel::Menu));
+    lab.set_cursor(Some(menu_chip));
+    tiles.push(("HOVER: MENU".into(), shot(&mut lab)));
+
+    // 2a. Open it, and capture the page itself -- every destination in the
+    // lab, one place, which is the whole point of this lane.
+    click(&mut lab, menu_chip);
+    tiles.push(("PAGE: MENU".into(), shot(&mut lab)));
+    lab.ui.close_panel();
 
     // 3. Pressed but not released. The gesture is armed and nothing has
     //    happened yet, which is the whole point of firing on release.
@@ -128,26 +136,24 @@ fn main() {
         lab.world.frame
     ));
     // Slide off and release: the gesture must be taken back.
-    lab.set_cursor(Some(plants));
-    lab.release(plants.0, plants.1);
+    lab.set_cursor(Some(menu_chip));
+    lab.release(menu_chip.0, menu_chip.1);
     fired.push(format!(
         "release off the button rebuilt the box: {} (world frame {})",
         lab.world.frame < frame_before,
         lab.world.frame
     ));
-    lab.ui.toggle_panel(Panel::Plants); // undo the release that landed here
+    lab.ui.close_panel(); // undo the release that landed here (opened MENU)
 
-    // 4-6. Each page, opened by a real click on its own button.
+    // 4-6. Each page, opened by a real click through MENU -- `PLANTS`/
+    // `ANTS`/`BOX` no longer have a chip of their own (`reach`'s own doc).
     for (panel, action) in [
         (Panel::Plants, Action::Panel(Panel::Plants)),
         (Panel::Ants, Action::Panel(Panel::Ants)),
         (Panel::Box, Action::Panel(Panel::Box)),
     ] {
-        if let Some(open) = lab.ui.panel {
-            let at = centre(&lab, Action::Panel(open));
-            click(&mut lab, at);
-        }
-        let at = centre(&lab, action);
+        leave_open_panel(&mut lab);
+        let at = reach(&mut lab, action);
         click(&mut lab, at);
         fired.push(format!("click opened {panel:?}: {}", lab.ui.panel == Some(panel)));
         // Hover the second row, so the tile shows a page *and* the explanation
@@ -155,10 +161,7 @@ fn main() {
         lab.set_cursor(Some((at.0 + 20, pixel_physics::lab::ui::bar_top() - 60)));
         tiles.push((format!("PAGE: {panel:?}"), shot(&mut lab)));
     }
-    if let Some(open) = lab.ui.panel {
-        let at = centre(&lab, Action::Panel(open));
-        click(&mut lab, at);
-    }
+    leave_open_panel(&mut lab);
 
     // 6a2. **The two rosters, opened the way a player opens them** -- through
     // the PLANTS/ANTS page's own LIST heading, because the bar is full and
@@ -169,19 +172,10 @@ fn main() {
         (Panel::Plants, Panel::PlantList, "PLANTS"),
         (Panel::Ants, Panel::AntList, "ANIMALS"),
     ] {
-        // Leaving whatever is open, by its own button. A roster is left by
-        // its BACK chip rather than by a bar button, which is the difference
-        // that made this loop panic the first time it ran.
-        if let Some(open) = lab.ui.panel {
-            let at = match open {
-                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
-                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
-                _ => centre(&lab, Action::Panel(open)),
-            };
-            click(&mut lab, at);
-            let _ = shot(&mut lab);
-        }
-        let at = centre(&lab, Action::Panel(cover));
+        // Leaving whatever is open, however that takes (`leave_open_panel`'s
+        // own doc -- this is the case that first found the difference).
+        leave_open_panel(&mut lab);
+        let at = reach(&mut lab, Action::Panel(cover));
         click(&mut lab, at);
         // **A frame first.** The layout is retained from the last painted
         // frame, so nothing on a page that has not been drawn is clickable --
@@ -351,22 +345,8 @@ fn main() {
         }
         fired.push(format!("LIST {verb} filter reset to {:?} in {steps} clicks", lab.ui.roster_filter()));
     }
-    // **A roster is left by its own BACK chip.** Unlike every other page
-    // here, no widget on screen carries `Action::Panel(PlantList)` while the
-    // roster is open -- the page has no bar chip, which is the whole reason
-    // it hangs off the PLANTS page -- so the usual "click whatever opened it"
-    // cannot aim at anything. Twice now this loop has found that, which is
-    // the harness doing its job: a page a synthetic click cannot leave is a
-    // page a player cannot leave either.
-    if let Some(open) = lab.ui.panel {
-        let at = match open {
-            Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
-            Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
-            _ => centre(&lab, Action::Panel(open)),
-        };
-        click(&mut lab, at);
-        let _ = shot(&mut lab);
-    }
+    // Leave whatever is open (`leave_open_panel`'s own doc).
+    leave_open_panel(&mut lab);
     // 6a-bis. **WATCH: where the pinned one has been, and how its numbers
     //         moved.** The trail is the one thing on this interface that
     //         cannot be judged from a still of the moment it was made -- it
@@ -470,15 +450,7 @@ fn main() {
     //               only the census says which it is.
     {
         // Away from any page, so the bed is not half-covered by chrome.
-        if let Some(open) = lab.ui.panel {
-            let at = match open {
-                Panel::PlantList => centre(&lab, Action::Panel(Panel::Plants)),
-                Panel::AntList => centre(&lab, Action::Panel(Panel::Ants)),
-                other => centre(&lab, Action::Panel(other)),
-            };
-            click(&mut lab, at);
-            let _ = shot(&mut lab);
-        }
+        leave_open_panel(&mut lab);
         lab.ui.release_pin();
         // **And put the cell page away.** Releasing the pin stops `follow_pin`
         // re-aiming it but does not close it, so the page stays open on
@@ -540,14 +512,10 @@ fn main() {
         // picture of two panels with a sliver of ground above them. Pressing
         // BACK is also the gesture -- pick your line in the list, then go and
         // look at where it is.
-        let at = centre(&lab, Action::Panel(cover));
+        let at = reach(&mut lab, Action::Panel(cover));
         click(&mut lab, at);
         let _ = shot(&mut lab);
-        if lab.ui.panel.is_some() {
-            let at = centre(&lab, Action::Panel(cover));
-            click(&mut lab, at);
-            let _ = shot(&mut lab);
-        }
+        leave_open_panel(&mut lab);
         let line = lab.renderer.focus_lineage;
         let mass = census.iter().find(|(l, _)| Some(*l) == line).map_or(0, |(_, m)| *m);
         fired.push(format!(
@@ -1231,7 +1199,8 @@ fn main() {
     // tested against what the player was looking at — so a harness that
     // clicked and immediately aimed would be aiming at the page before it
     // existed.
-    let at = centre(&lab, Action::Panel(Panel::Params));
+    leave_open_panel(&mut lab);
+    let at = reach(&mut lab, Action::Panel(Panel::Params));
     click(&mut lab, at);
     let _ = shot(&mut lab);
     fired.push(format!("click opened PARAMS: {}", lab.ui.panel == Some(Panel::Params)));
@@ -1366,9 +1335,7 @@ fn main() {
         }
     }
 
-    let at = centre(&lab, Action::Panel(Panel::Params));
-    click(&mut lab, at);
-    let _ = shot(&mut lab);
+    leave_open_panel(&mut lab);
 
     // **The specimen**, both kingdoms. The cell page grows the individual's
     // own rows under the cell's, and the two kingdoms carry different state —
@@ -1468,6 +1435,7 @@ fn main() {
         Action::Faster,
         Action::Preset(0),
         Action::Preset(5),
+        Action::Panel(Panel::Menu),
         Action::Panel(Panel::Plants),
         Action::Panel(Panel::Ants),
         Action::Panel(Panel::Box),
@@ -1537,21 +1505,12 @@ fn open_list(lab: &mut Lab, cover: Panel, list: Panel) {
         match lab.ui.panel {
             Some(p) if p == list => return,
             Some(p) if p == cover => {
-                let at = centre(lab, Action::Panel(list));
+                let at = reach(lab, Action::Panel(list));
                 click(lab, at);
             }
-            Some(p) => {
-                // Off any other page by its own button; a roster leaves by its
-                // cover's chip, which is the case that made this a loop.
-                let at = match p {
-                    Panel::PlantList => centre(lab, Action::Panel(Panel::Plants)),
-                    Panel::AntList => centre(lab, Action::Panel(Panel::Ants)),
-                    other => centre(lab, Action::Panel(other)),
-                };
-                click(lab, at);
-            }
+            Some(_) => leave_open_panel(lab),
             None => {
-                let at = centre(lab, Action::Panel(cover));
+                let at = reach(lab, Action::Panel(cover));
                 click(lab, at);
             }
         }
@@ -1576,6 +1535,53 @@ fn click(lab: &mut Lab, (x, y): (i32, i32)) {
     lab.set_cursor(Some((x, y)));
     lab.press(x, y);
     lab.release(x, y);
+}
+
+/// The centre of `action`'s own widget if one is drawn right now, or --
+/// `PLANTS`/`ANTS`/`BOX`/`PARAMS`, which lost their persistent bar chips
+/// when `Panel::Menu` landed -- the centre of the MENU row that reaches it,
+/// opening MENU first if it is not already the page on screen.
+///
+/// Every direct `centre(&lab, Action::Panel(panel))` in this file used to
+/// work for those four because they were always one click away from
+/// anywhere; now only MENU is, so this is the one place that knows to route
+/// through it, rather than teaching every call site.
+fn reach(lab: &mut Lab, action: Action) -> (i32, i32) {
+    if let Some(r) = lab.ui.widget_rect(action) {
+        return (r.x + r.w / 2, r.y + r.h / 2);
+    }
+    if lab.ui.panel != Some(Panel::Menu) {
+        let at = centre(lab, Action::Panel(Panel::Menu));
+        click(lab, at);
+        let _ = shot(lab);
+    }
+    centre(lab, action)
+}
+
+/// Leave whatever page is open, however a real player would have to.
+///
+/// If `open` still has its own persistent widget (a bar chip, or --
+/// `PlantList`/`AntList`'s own shape -- a heading on the cover page that
+/// opened it), one click, same as always. **`PLANTS`/`ANTS`/`BOX`/`PARAMS`
+/// have none any more**, and neither did `PlantList`/`AntList` even before
+/// this round (their cover's own chip stood in, which is exactly the
+/// assumption this function generalises away) -- so the real route for all
+/// of them is MENU: one click to switch to it, a second to close it, since
+/// MENU's own bar chip toggles whatever page is already showing. Two real
+/// clicks where one used to do, for a mouse-only player as much as for this
+/// harness.
+fn leave_open_panel(lab: &mut Lab) {
+    let Some(open) = lab.ui.panel else { return };
+    if let Some(r) = lab.ui.widget_rect(Action::Panel(open)) {
+        click(lab, (r.x + r.w / 2, r.y + r.h / 2));
+        let _ = shot(lab);
+        return;
+    }
+    let at = centre(lab, Action::Panel(Panel::Menu));
+    click(lab, at);
+    let at2 = centre(lab, Action::Panel(Panel::Menu));
+    click(lab, at2);
+    let _ = shot(lab);
 }
 
 /// A cell owned by a live organism of the asked-for kingdom.
