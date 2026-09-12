@@ -36,6 +36,7 @@
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
+use pixel_physics::sim::brain;
 use pixel_physics::sim::update;
 use pixel_physics::sim::world::World;
 
@@ -58,6 +59,67 @@ fn head_of_first(world: &World, species: &str) -> Option<(i32, i32)> {
         }
         state.chain.first().copied()
     })
+}
+
+/// **`wire=Input:Output:weight[,...]` -- override authored instinct weights
+/// for this run**, `labforage`/`labstats`/`creature_arena`'s knob, with the
+/// same spelling so the four harnesses race one set of numbers rather than
+/// four transcriptions of it.
+///
+/// `Reports/lanes/evolution-lab-flitter.md` records its absence here as an
+/// environment cost: a species file is `include_str!`-embedded, so every
+/// card at a non-shipped wiring was a full rebuild, and the round-29 lane
+/// paid that repeatedly. A GIF sweep over a genome knob is now one binary.
+fn wire_rider() -> Vec<(brain::BrainInput, brain::BrainOutput, f32)> {
+    let Some(spec) = arg::<String>("wire") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=Bias:Fly:-7.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            (input, output, w)
+        })
+        .collect()
+}
+
+/// **Which animal `follow=` should lock onto, and it is not the lowest id.**
+///
+/// `head_of_first` takes the lowest live organism id of the species, which
+/// `Reports/lanes/evolution-lab-flitter.md` already records as a trap: on a
+/// bed with fifty flitters the lowest id is very often one that has settled
+/// at a flower and will not move again, so a card meant to show flight shows
+/// a frozen sprite. Measured here on `played_bed_understory` seed 1 at
+/// `start=9000`: the lowest-id flitter moved the camera **8 times in 1,800
+/// frames** and not at all after frame 522.
+///
+/// So `follow_air=1` picks the first live animal of the species **that is
+/// airborne at the start frame** -- the animal doing the thing the card is
+/// about -- and the caller then holds that organism id for the whole capture
+/// rather than re-picking, so the camera never cuts to a different animal
+/// mid-shot. Falls back to `head_of_first`'s pick when nothing is up.
+///
+/// Opt-in: unset, `follow=` behaves exactly as it did, so every existing
+/// card reproduces.
+fn airborne_of(world: &World, species: &str) -> Option<u16> {
+    let sid = world.species.id_of(species)?;
+    world.live_organism_ids().into_iter().find(|&id| {
+        world.organism(id).is_some_and(|s| s.species == sid && s.flight.is_some() && !s.chain.is_empty())
+    })
+}
+
+/// The head cell of one named organism, or `None` once it has died.
+fn head_of_id(world: &World, id: u16) -> Option<(i32, i32)> {
+    world.organism(id)?.chain.first().copied()
 }
 
 /// The bed's whole soil-water total, `soil_drawdown.rs`'s own census over
@@ -158,6 +220,37 @@ fn main() {
     // byte-for-byte**, the identical guarantee `center=`'s own doc states
     // for itself -- the two knobs are additive, not a rewrite of one path.
     let follow: Option<String> = arg::<String>("follow");
+    // **`follow_air=N` -- follow whoever is actually flying.** See
+    // `airborne_of` for why the default pick is wrong for a flight card.
+    //
+    // `N` is how many *captured* frames the followed animal may spend on the
+    // ground before the camera moves to one that is up. A single lock-on is
+    // not enough on its own and the first attempt proved it: the lowest-id
+    // airborne flitter on the understory bed landed on a flower four frames
+    // in and sat there for the remaining 890, so a card shot that way shows a
+    // frozen sprite whichever flight model is running. Holding for a few
+    // frames keeps a landing and a take-off in shot -- which is the part
+    // worth seeing -- and then moves on rather than watching a parked animal.
+    //
+    // **Symmetric, which is what makes it fair in an A/B.** The rule is "show
+    // me this build's animal doing the thing", applied identically to both
+    // arms; a build whose animals only ever hop for twenty frames produces a
+    // clip that cuts constantly, and that reads as hopping, correctly.
+    let follow_air: u64 = arg::<u64>("follow_air").unwrap_or(0);
+    // **`track=1` -- print the followed animal's world position and flight
+    // state on every captured frame**, one `TRACK` line each.
+    //
+    // `CLAUDE.md` asks for a probe beside every debug channel, and a flight
+    // card is the case it was written for: a follow camera holds the animal
+    // dead centre, so the ONE thing a still cannot show is the thing being
+    // judged -- whether the body is travelling or sitting. Read off these
+    // lines instead: `aloft` climbing with `x` changing is a flight, `aloft`
+    // climbing with `x` fixed is the mid-air statue this round found, and
+    // `aloft` at 0 for a hundred lines is the ground deadlock it also found.
+    //
+    // Costs nothing when unset, and the GIF is byte-identical either way --
+    // it prints, it does not draw.
+    let track: bool = arg::<u32>("track").unwrap_or(0) != 0;
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
     // **`up=N` -- a nearest-neighbour integer upscale of the `png_dir=`
     // frames only**, `labstats`' own knob and for its own reason: the review
@@ -200,8 +293,8 @@ fn main() {
     // Requires `center=` -- ringing an unset default camera would ring a
     // point this file has no claim about.
     let mark: bool = arg::<u32>("mark").unwrap_or(0) != 0;
-    if mark && center.is_none() {
-        eprintln!("labgif: mark=1 with no center= rings nothing -- center= names the world cell to ring");
+    if mark && center.is_none() && follow.is_none() {
+        eprintln!("labgif: mark=1 with no center= or follow= rings nothing -- one of them names what to ring");
     }
     // **`png_dir=<path>` -- writes every captured frame as its own PNG
     // there too, numbered in capture order, alongside the GIF.** Added for
@@ -251,6 +344,35 @@ fn main() {
     // off first, and this one must too or the card is a picture of the help
     // page rather than the box.
     lab.show_help = false;
+    // **Before `load_scenario`, because that is what founds the colony** and
+    // `place_creature` copies the genome at placement -- the same ordering
+    // `labforage`'s own block states, and the same assertion, because an arm
+    // that matched nothing is the control wearing a label.
+    let wires = wire_rider();
+    if !wires.is_empty() {
+        let sid = lab.world.species.id_of(&sc.bed.colony_species).expect("the colony species is compiled in");
+        let mut genome = lab.world.species.get(sid).genome.clone();
+        let mut moved = 0;
+        for &(input, output, w) in &wires {
+            let i = brain::io_slot(input, output);
+            if genome[i] != w {
+                genome[i] = w;
+                moved += 1;
+            }
+        }
+        assert!(moved > 0, "wire= matched no slot the species did not already carry; this arm is the control wearing a label");
+        lab.world.species.set_genome(sid, genome);
+        println!(
+            "  wire= set {moved} of {} weights on {}: {}",
+            wires.len(),
+            sc.bed.colony_species,
+            wires
+                .iter()
+                .map(|&(i, o, w)| format!("{}:{}:{w}", brain::INPUT_NAMES[i as usize], brain::OUTPUT_NAMES[o as usize]))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
     let msg = lab.load_scenario(sc);
     // **After `load_scenario`, not before**: `reset()` (which it calls)
     // replaces `self.stats` with a fresh `Stats::new()`, which opens
@@ -272,6 +394,51 @@ fn main() {
     if lab.stats.showing() {
         lab.stats.toggle();
     }
+    // **`drift=` -- the ant's `scent_drift`, for a card about who is
+    // family.** Appended 2026-09-12 with the nest-cohesion build: a card at
+    // the shipped 0.15 and one at 1.0 are the same picture unless the dial
+    // can be set, and the whole claim of that build is that the second is
+    // still one colony. Applied to the standing ants as well as to what they
+    // breed, `labstats`'s `drift=` does -- a colony placed by the scenario
+    // copied the species' value at founding and would never see a change made
+    // to the species alone.
+    if let Some(v) = arg::<f32>("drift") {
+        if let Some(id) = lab.world.species.id_of("ant") {
+            let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_drift = v;
+            lab.world.species.set_creature(id, def);
+        }
+        // **Applied to the standing ants too, not only to what they breed.**
+        // A colony the scenario placed copied the species' value at founding,
+        // so a change made to the species alone would reach the children and
+        // never the founders -- which reads as a dial that half works.
+        // **No "applied to N standing ants" line here, deliberately.** The
+        // scenario places its colony during the `start` run below, not at
+        // load, so at this point there are none and a count would read "0
+        // standing ants" -- which looks exactly like a dial that reached
+        // nobody. The species value is what every founder copies, and the
+        // far-side counters at the end of the run are what say it fired.
+        println!("  ant scent_drift = {v} (set on the species; the scenario's colony is founded during start=)");
+    }
+    // **The three nest dials, so one card can isolate one mechanism.** The
+    // owner's reading of card 20260912T051541289Z-3b03d3: *"These sound like
+    // two different mechanisms and so i don't fully understand what is being
+    // shown in the images."* They are two, and separating them needs an arm
+    // with the drift on and the blending off, which was unreachable until
+    // these existed.
+    if let Some(v) = arg::<f32>("blend") {
+        lab.world.nest_blend = v;
+    }
+    if let Some(v) = arg::<f32>("uptake") {
+        lab.world.nest_uptake = v;
+    }
+    if let Some(v) = arg::<f32>("nestdrift") {
+        lab.world.nest_scent_drift = v;
+    }
+    println!(
+        "  nest_blend = {} nest_uptake = {} nest_scent_drift = {}",
+        lab.world.nest_blend, lab.world.nest_uptake, lab.world.nest_scent_drift
+    );
     println!(
         "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out} mark={mark} png_dir={} up={up}",
         lab.spec.colony_species,
@@ -282,7 +449,54 @@ fn main() {
     );
     println!("  {msg}");
 
-    for _ in 0..start {
+    // **`lifespan=<frames>` -- the ant's `CreatureDef::life_half_life`**,
+    // written through after `load_scenario` (which rebuilds the world) and
+    // before the warm-up, so the colony the timeline founds at frame 6,000
+    // already has it. `0` is immortal, the shipped behaviour before
+    // 2026-09-12 and the control arm of the card's pair. Echoed
+    // unconditionally: a log that does not name its lifespan was written by
+    // a binary that never had the knob.
+    if let Some(v) = arg::<u32>("lifespan") {
+        if let Some(id) = lab.world.species.id_of(&lab.spec.colony_species) {
+            if let Some(mut def) = lab.world.species.get(id).creature.clone() {
+                def.life_half_life = v;
+                lab.world.species.set_creature(id, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        lab.spec.colony_species,
+        lab.world.species.id_of(&lab.spec.colony_species).and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
+
+    // **The colony's own three numbers, tracked across the whole run** --
+    // `CLAUDE.md`'s review-card rule: an image says what a nest band looks
+    // like and only a count says whether the mechanism under test fired.
+    // `peak` has to be sampled every frame rather than read at the end,
+    // because the thing this build is *for* is flattening a peak that has
+    // already passed by the time the last frame is drawn.
+    let mut peak_ants = 0usize;
+    let mut peak_frame = 0u64;
+    let note_peak = |lab: &Lab, f: u64, peak: &mut usize, at: &mut u64| {
+        let n = lab.world.live_organism_ids().into_iter().filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).creature.is_some())).count();
+        if n > *peak {
+            *peak = n;
+            *at = f;
+        }
+        n
+    };
+
+    // **Sampled every `PEAK_EVERY` frames, not every frame.** A census walks
+    // every organism in the box, and the warm-up is tens of thousands of
+    // frames over a bed that holds hundreds -- per-frame it is the dominant
+    // cost of this harness and it buys nothing, because a colony's peak is a
+    // slow envelope and not a spike.
+    const PEAK_EVERY: u64 = 100;
+    for f in 0..start {
+        if f % PEAK_EVERY == 0 {
+            note_peak(&lab, f, &mut peak_ants, &mut peak_frame);
+        }
         lab.tick_for_harness();
     }
     // The requested rate arms right here -- the captured window is the
@@ -318,11 +532,23 @@ fn main() {
     }
     let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
     let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    // The organism `follow_air=N` locked onto, and how long it has been down.
+    let mut locked: Option<u16> = None;
+    let mut grounded: u64 = 0;
+    // **How many times the camera had to change animal**, printed at the end:
+    // it is the card's own "did it fire" counter for the follow rule, and on
+    // a flight card it doubles as a bout-length readout -- a build whose
+    // animals stay up needs few cuts, one whose animals hop needs many.
+    let mut cuts: u64 = 0;
     if let Some((ccx, ccy)) = center {
         lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
         println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
     } else if let Some(species) = &follow {
-        match head_of_first(&lab.world, species) {
+        if follow_air > 0 {
+            locked = airborne_of(&lab.world, species);
+            println!("  follow_air={follow_air}: locked onto organism {:?} of {species} at frame {start}", locked);
+        }
+        match locked.and_then(|id| head_of_id(&lab.world, id)).or_else(|| head_of_first(&lab.world, species)) {
             Some((hx, hy)) => {
                 lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
                 println!("  camera following {species} at ({hx},{hy}) at frame {start}, {zoom}x -- {span_x}x{span_y} world cells visible");
@@ -344,6 +570,87 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
+            if track {
+                // Whoever the camera is on: the `follow_air` lock if there is
+                // one, else `follow=`'s own lowest-id pick, so the line always
+                // describes the animal in shot.
+                let who = locked.or_else(|| follow.as_deref().and_then(|sp| {
+                    let sid = lab.world.species.id_of(sp)?;
+                    lab.world.live_organism_ids().into_iter().find(|&id| lab.world.organism(id).is_some_and(|st| st.species == sid))
+                }));
+                match who.and_then(|id| lab.world.organism(id).map(|st| (id, st))) {
+                    Some((id, st)) => {
+                        let (hx, hy) = st.chain.first().copied().unwrap_or((-1, -1));
+                        let (aloft, fly) = st.flight.map_or((-1i32, 0.0f32), |fl| (fl.aloft as i32, fl.fly));
+                        // **And what is around it, by material kind.** The
+                        // position alone says the body is not moving; only
+                        // this says *why*, and the two readings have opposite
+                        // remedies. `translated_if_free` requires every
+                        // target cell to be empty, so a body walled in by
+                        // `Plant` cannot step in any direction however good
+                        // its wings are -- and `Plant` also counts as support,
+                        // so it can still launch, which is the air/ground
+                        // chatter this round kept reading as hopping.
+                        let mut n_empty = 0;
+                        let mut n_plant = 0;
+                        let mut n_other = 0;
+                        for dy in -1..=1i32 {
+                            for dx in -1..=1i32 {
+                                if dx == 0 && dy == 0 {
+                                    continue;
+                                }
+                                if lab.world.is_empty(hx + dx, hy + dy) {
+                                    n_empty += 1;
+                                } else if matches!(
+                                    lab.world.materials.kind(lab.world.get(hx + dx, hy + dy).material),
+                                    pixel_physics::sim::material::MaterialKind::Plant
+                                ) {
+                                    n_plant += 1;
+                                } else {
+                                    n_other += 1;
+                                }
+                            }
+                        }
+                        println!(
+                            "TRACK f={} id={id} x={hx} y={hy} aloft={aloft} fly={fly:.3} e={:.1} empty={n_empty} plant={n_plant} other={n_other}",
+                            start + f,
+                            st.energy
+                        );
+                    }
+                    None => println!("TRACK f={} id=none", start + f),
+                }
+                // **And the same question over the whole colony, because one
+                // animal's cage could be one animal's bad luck.** Counts the
+                // live animals of the followed species that have NO empty
+                // cell in their 8-neighbourhood -- i.e. that `relocate_chain`
+                // cannot move in any direction whatever their brain decides,
+                // since `translated_if_free` requires every target cell empty.
+                // A high share here means the bed is a cage and no flight
+                // model can show through it.
+                if let Some(sp) = follow.as_deref() {
+                    if let Some(sid) = lab.world.species.id_of(sp) {
+                        let mut live = 0;
+                        let mut caged = 0;
+                        for id in lab.world.live_organism_ids() {
+                            let Some(st) = lab.world.organism(id) else { continue };
+                            if st.species != sid {
+                                continue;
+                            }
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            live += 1;
+                            let open = (-1..=1i32)
+                                .flat_map(|dy| (-1..=1i32).map(move |dx| (dx, dy)))
+                                .filter(|&(dx, dy)| !(dx == 0 && dy == 0))
+                                .filter(|&(dx, dy)| lab.world.is_empty(hx + dx, hy + dy))
+                                .count();
+                            if open == 0 {
+                                caged += 1;
+                            }
+                        }
+                        println!("CAGE f={} live={live} caged={caged}", start + f);
+                    }
+                }
+            }
             // **`follow=` re-centres every captured frame**, not every
             // tick -- the animal drifts between captures the same amount
             // either way, and re-centring only where a frame is actually
@@ -353,7 +660,30 @@ fn main() {
             // world origin -- a card that loses its animal mid-run should
             // show the last place it was, not jump.
             if let Some(species) = &follow {
-                if let Some((hx, hy)) = head_of_first(&lab.world, species) {
+                // **Re-lock when the animal in shot has been down too long.**
+                // `grounded` counts captured frames since it was last in the
+                // air; past `follow_air` the camera looks for someone who is,
+                // and keeps the current one if nobody is.
+                if follow_air > 0 {
+                    let up = locked.is_some_and(|id| lab.world.organism(id).is_some_and(|s| s.flight.is_some()));
+                    let alive = locked.is_some_and(|id| lab.world.organism(id).is_some());
+                    if up {
+                        grounded = 0;
+                    } else {
+                        grounded += 1;
+                    }
+                    if !alive || grounded > follow_air {
+                        if let Some(next) = airborne_of(&lab.world, species) {
+                            if Some(next) != locked {
+                                cuts += 1;
+                            }
+                            locked = Some(next);
+                            grounded = 0;
+                        }
+                    }
+                }
+                let at = locked.and_then(|id| head_of_id(&lab.world, id)).or_else(|| head_of_first(&lab.world, species));
+                if let Some((hx, hy)) = at {
                     lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
                 }
             }
@@ -363,7 +693,17 @@ fn main() {
             // rendered frame as far as the crop/zoom code below is
             // concerned -- it composes with both for free rather than
             // needing its own offset math against whichever one ran.
-            if mark && center.is_some() {
+            // **`camera_mode`, not `center.is_some()`, and this is the same
+            // bug `zoom`'s own branch below records having had for a day.**
+            // `follow=` re-centres on the animal's head through exactly the
+            // `set_camera` call `center=` uses, so the followed animal is at
+            // pixel `(full_w/2, full_h/2)` by the identical arithmetic -- a
+            // ring there names the animal as exactly as it names a pip. A
+            // card that follows a two-cell body at play zoom is unreadable
+            // without it: the owner's round-29 verdicts on the flitter were
+            // read off sheets in which the animal itself could not be
+            // picked out ("I see a creature move a little within a plant").
+            if mark && camera_mode {
                 draw_ring(&mut full, full_w, full_h, (full_w / 2) as i64, (full_h / 2) as i64, 8, [255, 0, 255, 255]);
             }
             // **`PIP_PROBE=1` -- confirms the ring is on the cell it claims
@@ -464,9 +804,23 @@ fn main() {
             }
         }
         if f < frames {
+            if f % PEAK_EVERY == 0 {
+                note_peak(&lab, start + f, &mut peak_ants, &mut peak_frame);
+            }
             lab.tick_for_harness();
         }
     }
+
+    let ants_now = note_peak(&lab, start + frames, &mut peak_ants, &mut peak_frame);
+    let by_cause = |c: pixel_physics::sim::organism::DeathCause| lab.world.deaths_by_cause[c.index()];
+    println!(
+        "  COLONY peak {peak_ants} ants at frame {peak_frame} | {ants_now} ants at frame {} | OLDAGE {} | STARVED {} | KILLED {} | born {}",
+        start + frames,
+        by_cause(pixel_physics::sim::organism::DeathCause::OldAge),
+        by_cause(pixel_physics::sim::organism::DeathCause::Starved) + by_cause(pixel_physics::sim::organism::DeathCause::StarvedInFlight),
+        by_cause(pixel_physics::sim::organism::DeathCause::Killed),
+        lab.world.creature_stats.births
+    );
 
     let water_after = soil_total(&lab);
     let rain_after = lab.world.rain_cells;
@@ -476,11 +830,53 @@ fn main() {
         water_after as i64 - water_before as i64,
         rain_after - rain_before
     );
+    // **The cohesion counters, for a card the review skill asks to carry a
+    // discrete event count in its `meta`.** A GIF of a nest cannot say
+    // whether the exchange fired or whether the colony ate itself; only
+    // these can. `CLAUDE.md`: "did it fire at all" needs a counter.
+    {
+        let w = &lab.world;
+        let own: u64 = w
+            .group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, k)| *k).sum::<u64>())
+            .sum();
+        // **The living population beside the kill tally, because a kill
+        // count alone cannot be read.** 675 own-kills in a colony of 60 and
+        // in a colony of 600 are different events, and a review card that
+        // quotes one without the other is the "mean over events" trap this
+        // repo has already paid for. Counted here rather than carried over
+        // from `labstats`: that is a different harness over a different frame
+        // span, and a plausible number about a different question looks
+        // exactly like a result.
+        let alive = w
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| w.organism(*id).is_some_and(|st| w.species.get(st.species).creature.is_some()))
+            .count();
+        println!(
+            "  cohesion: alive {alive} | nest blends {} (share blends {}) | group mints {} (labels minted off a drifted lineage, `World::colony_parents`) | killed by own colony {own} | nest odour {:?}",
+            w.creature_stats.nest_blends,
+            w.creature_stats.share_blends,
+            w.colony_parents.len(),
+            w.nest_sites.iter().map(|n| n.scent).collect::<Vec<_>>()
+        );
+    }
 
     // Real playback speed and a loop, `main.rs`'s own `CaptureSequence::
     // finish` convention exactly: 60 ticks/second is the shipped sim rate,
     // so `every` ticks between captures maps directly to real elapsed time.
-    let delay_ms = ((every * 1000) / 60).max(1);
+    //
+    // **`delay=<ms>` overrides it, and a time-lapse is why.** Real playback
+    // speed is the right default for the rain cards this file was built for,
+    // where `every` is single digits. It stops being a playback speed at all
+    // once the question is a *session*: a colony's boom takes 200,000 frames,
+    // which at a watchable ~150 shots means `every` near 1,300 -- and this
+    // formula turns that into 21.7 seconds per frame, i.e. a card the owner
+    // would have to sit through for nearly an hour. The pixels are unchanged;
+    // only how long each is held. Unset reproduces every existing card
+    // byte-for-byte, since the branch never runs.
+    let delay_ms = arg::<u64>("delay").unwrap_or((every * 1000) / 60).max(1);
     let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
     // **Read off the actual first shot, not recomputed from `w`/`zoom`.**
     // That recomputation was always `w * zoom, h * zoom`, which was true
@@ -489,6 +885,9 @@ fn main() {
     // world cells inside the *same* WIDTHxHEIGHT canvas instead. Caught by
     // hand: the log read `2560x1600` over an image that was genuinely
     // `512x320`, `CLAUDE.md`'s own "ask what your number counts" shape.
+    if follow_air > 0 {
+        println!("  follow_air: camera changed animal {cuts} times over {} captured frames", frames / every + 1);
+    }
     let (shot_w, shot_h) = shots.first().map_or((w, h), |img| (img.width(), img.height()));
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
     let n = gif_frames.len();
@@ -501,7 +900,14 @@ fn main() {
             if let Err(e) = encoder.encode_frames(gif_frames) {
                 eprintln!("labgif: gif encode failed: {e}");
             }
-            println!("  wrote {out} ({n} frames, {shot_w}x{shot_h} each)");
+            // The delay is echoed rather than left implicit for the reason
+            // `plant_probe` echoes its seed: it is now a knob, and a card
+            // that plays at the wrong speed looks exactly like one whose
+            // `delay=` never reached the binary.
+            println!(
+                "  wrote {out} ({n} frames, {shot_w}x{shot_h} each, {delay_ms} ms/frame -> {:.1} s)",
+                (n as f64) * (delay_ms as f64) / 1000.0
+            );
         }
         Err(e) => eprintln!("labgif: failed to create {out}: {e}"),
     }

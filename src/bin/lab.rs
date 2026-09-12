@@ -489,6 +489,16 @@ impl Handler {
             // branch above, which swallows every digit for a batch frame
             // count, a bare `8` reaches here and nowhere else.
             KeyCode::Digit8 => self.lab.act(Action::CycleRain),
+            // **`9` -- save the chronicle right now**, the digit row's own
+            // last unclaimed key (comment above). `write_chronicle` already
+            // reports on the bar and never blocks (its own doc), so this is
+            // a direct call rather than a new `Action` -- `Lab::act` exists
+            // to dispatch a verb the bar also draws as a button, and this
+            // one has no button (the bar has no spare pixels, the same
+            // reason `E`/FOOD is key-only): a player who wants a session's
+            // CENSUS numbers before quitting no longer has to close the
+            // window to get them.
+            KeyCode::Digit9 => self.lab.write_chronicle(),
             // The tools, in one unbroken run of the keyboard's bottom row and
             // in the same left-to-right order the bar draws them. The obvious
             // initials are not available -- `S` and `W` are the pan -- and six

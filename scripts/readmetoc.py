@@ -195,6 +195,7 @@ TOPICS = {
         "Hopper status — the jump has a species, and it hops itself to death",
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
+        "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -248,6 +249,7 @@ TOPICS = {
         "World speed — five independent time axes",
     ],
     "rendering, UI and tunables": [
+        "Zoom-in styles status — what a cell's 64 pixels can say",
         "UI improvements — overnight run, section 9",
         "Live tunables panel — overnight run, section 10",
         "Rendering performance — overnight run, section 11",

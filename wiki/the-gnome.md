@@ -1,6 +1,14 @@
 # The Gnome
 
-*Current as of: 2026-08-30. New since the last pass: **water answers
+*Current as of: 2026-09-12. New since the last pass: **the world can be
+drawn in a softer, richer style when you lean in** — five looks on one key,
+from the squares it has always drawn to a painted one with its edges inked
+back on, and nothing changes until you zoom in. Also 2026-09-12: **zooming all
+the way
+out no longer loses the thin things** — a stem, an ant or a grain in flight
+used to fall in the gaps between the dots the picture is built from, and now
+each dot draws whatever is most worth seeing in its square. Before that —
+2026-08-30: **water answers
 him** — going in throws a crown sized by how hard he hit it, a stroke
 flicks spray, surfacing sheets water off him, and swimming along the top
 leaves a churned wake behind. Before that — 2026-08-29: **he carries three
@@ -151,6 +159,44 @@ edges of the world just as they do for him, and a readout in the corner says
 where you are looking. It is measured in screenfuls rather than in cells, so
 the picture slides past at the same speed however far in or out you are
 zoomed.
+
+**Pulling back keeps the small things.** Zoom out far enough and one dot on
+the screen has to stand for a whole square of the world — sixteen of its cells
+at the widest setting — and only one of them can be drawn. It used to be
+whichever happened to sit at the corner, which meant a stem one cell wide,
+a passing ant or a grain in flight usually fell in the gap and simply was not
+there: a bed thick with plants read as a bare one. Now the dot draws whatever
+is most worth seeing in its square — a creature before a plant, a plant before
+water, water before bare ground, anything before empty air — so the thin
+things survive being pulled away from. Every dot is still some real thing's
+own colour rather than a blend, so the picture stays sharp rather than going
+soft. Two other ways of choosing are available to compare against, and the
+corner readout names whichever is in use whenever the view is zoomed out.
+
+**And leaning in can change how the world is drawn.** Once a cell is bigger
+than a single dot on the screen there are pixels to spend on it, and the
+picture no longer has to be squares. `Shift`+`=` steps through five looks and
+the corner readout names the one in use:
+
+- **cell-art** is what the game has always drawn and what it still starts in —
+  every cell a flat square.
+- **painted** is soft: colours run into one another between cell centres, with
+  a fine grain over the solid things so a bank reads as earth rather than as
+  fog. It is the warmest of the five and the loosest — thin things go slightly
+  hazy under it.
+- **painted + ink** is that same softness with a line drawn round every
+  silhouette, and it is the one the two answer each other: the line is what
+  puts the definition back, and under it a twig one cell thick is *more*
+  present than it is today rather than less. A leaf, a rope of root, a crack
+  of sky through a canopy all keep their shape.
+- **illustrated** is the flat-and-drawn cousin: no blur at all, fills that keep
+  their grain, curved silhouettes and the same ink.
+- **chamfer** keeps the pixel look entirely and just cuts the staircases off
+  the diagonals. Its corner rule is on `Shift`+`[`, and how heavy the ink is
+  on `Shift`+`]`.
+
+None of it touches the ordinary view: at normal zoom the picture is exactly
+what it was, whichever look is selected.
 
 It also **starts gently and speeds up**. A tap nudges the view a little, which
 is what you want when you are lining something up; keep the key down and it

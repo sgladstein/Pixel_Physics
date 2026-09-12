@@ -3,7 +3,24 @@
 *What plants do, and what it looks like when they are working. No code, no
 file names — see `Reports/` for why any of it is built the way it is.*
 
-*Current as of: 2026-09-11 (three independent changes landed the same day.
+*Current as of: 2026-09-12 (**a seed an animal bites is usually not
+destroyed any more, whatever kind of plant made it.** Until now only a herb
+or a scrambler's seed could survive a mouth, and only while it was still
+wrapped in the fruit that carried it; a bare seed lying on the ground was
+eaten and gone. Now a bare seed gets the same chance — and grass, shrub and
+tree seeds get it for the first time at all, so every plant in the box can be
+carried by an animal instead of only by the wind. What the animal gets out of
+a seed it fails to destroy is only the small provision the seed carries for
+that purpose, a quarter or so of the whole; the rest of the seed goes on to
+be planted somewhere else. See **The seed bank** and **Seeds carry
+provisions** below. The same day: **a leaf still attached to a living plant
+is no longer worth eating to an ordinary animal** — fallen litter on the
+floor is, and always was, so being grazed to the ground is no longer the
+default fate of a stand with a colony on it. Which of the two an animal can
+see depends on its taste, so a stand can still be grazed by something that
+has specialised into it.)*
+
+*Before that: 2026-09-11 (three independent changes landed the same day.
 **Petal colour passes from parent to seedling** — see "Colour is a
 readout, not decoration" below; it used to be the one channel a cross
 could not carry, and a bred stand's flowers now track their parents'
@@ -1068,6 +1085,18 @@ dozen plants in it, which is true and tells you nothing about either. Watch
 them against each other instead: a bank climbing while the stand does not is a
 bed where seed is being set and never taking, which is a different problem from
 a bed that is not seeding at all, and they want opposite fixes.
+
+**Since 2026-09-12 the bank has a second exit that is not a death, and on a
+bed with a colony on it, it is the loudest one.** A seed on the floor is the
+best food an ant can reach without climbing, so a colony eats the bank first
+and the stand second — which used to mean a bed was eaten out of its own
+future before it was eaten out of its present, the bank falling away while
+the leaves were still on the trees. Now most of the seeds an ant bites are
+not destroyed at all. They are carried, and set down where the ant finishes
+eating, which is usually somewhere else entirely: near the nest, on the spoil
+the colony has piled up, along whatever route it walks. So the bank does not
+only sit and wait to be found — it also gets *moved*, by the same mouths that
+used to end it, and the ground around a nest is where a lot of it ends up.
 
 But a seed does not wait for ever. Viability runs out gradually, so a bank
 that is not being topped up thins away and a bank that is settles at a depth

@@ -2499,6 +2499,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
+  — **design of record for the two soils, 2026-09-12: what a colony's tamped
+  spoil should do with time, and what a plant inside a mound should do.** The
+  owner's three symptoms measured with the new `examples/soilfork`: the
+  towers and the engulfing are real, *"a ground new plants don't grow in"* is
+  not (the bare band is there before the mound, and seed 1's 3,182-ant colony
+  stands 200 plants on a 3,124-cell heap). Burial cannot kill a plant today —
+  `field.rs` treats every powder as transparent, shown with a stone positive
+  control — so candidate 1 is a light-model property, not a plant rule.
+  Recommends brief 3's weathering re-cut as a second material (`spoil`,
+  because the chunk-settle scan would otherwise weather the tunnel lining),
+  with the rate a dial whose zero is the owner's towers; then an `opaque`
+  material flag with its three re-derivations budgeted; rejects the loose
+  end state (a third of the nest in 6,000 frames) and the moisture premise
+  (the mound is as wet as the bank or wetter).
 - [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
   — **design of record for the late game, 2026-09-12, with the census it is
   measured against.** The owner's report — a colony that booms to hundreds,
@@ -3038,6 +3053,19 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **§9 is the method part**: three drafts, three classes of error, the last
   being that three documents and two reviewers argued about how deep a
   depletion zone was when one census answered it in thirty seconds.
+
+- [evolution-lab-zoom-in-design-2026-09-12.md](evolution-lab-zoom-in-design-2026-09-12.md)
+  — **design + one instrument, verdicts pending.** What zooming *in* should
+  look like — and, after the remit widened mid-lane with the owner's *"I am
+  open to different visual styles"*, what the game should look like with
+  magnification as the entry point. `examples/zoomin.rs` renders filters and
+  *styles* (cell-art, soft, illustrated with curved silhouettes and ink,
+  painted, lit, textured cell-art) at 8x and at play scale, each with its
+  ns/px. Build first, under any style: **draw** the per-cell state the 1:1
+  render can only encode — a part-full water cell's fill as a level line, ~1
+  ns/px. Author's style pick is *illustrated*: the only look that answers
+  "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
+  style question deserves its own round and what it does first. Two cards.
 
 ## Licensing and distribution
 
