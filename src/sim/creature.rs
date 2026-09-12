@@ -3088,6 +3088,13 @@ fn nest_drain_period() -> usize {
 /// drain and at four the middle of a run is two cells from one, while at
 /// three every nest column touches ground that drinks.
 ///
+/// Measured on the played bed, seed 1, at three: standing water over the
+/// patch **51 and 48 cells -> 0 and 2**, against 2 and 0 over the same width
+/// of ground beside it, so the door stops being the wettest strip on the bed
+/// and becomes an ordinary piece of it. Nest cells with air beside them
+/// **2 and 7 of 53 -> 33 and 32 of 36**, `nest_visits` over the first 20,000
+/// frames **360 -> 1,428**, deliveries **140 -> 466**.
+///
 /// `PIXEL_PHYSICS_NEST_DRAINS=<n>` sweeps it without a rebuild, and
 /// `examples/nestdoor.rs` is what reads the result -- its `water_on` against
 /// `water_off` pair is the quantity to sweep on, since the bar is that the

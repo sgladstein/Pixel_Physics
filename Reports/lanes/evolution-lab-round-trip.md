@@ -8,16 +8,14 @@ second, narrower bug under it. Instrument: `examples/nestdoor.rs`.*
 **The colony's doorstep was the only impermeable ground on the bed, so it
 stood under a permanent puddle, and an ant cannot step into water.**
 
-`creature::paint_nest_patch` converts ~53 surface columns into `nest`.
-`nest.ron` authored **no `water_capacity`** — the default 0, "holds none at
-all, and never absorbs an adjacent `Liquid`" — while `soil` and `packedsoil`
-both hold 1,000. The mist soaked in everywhere else and stood on the door.
-`creature::landing_is_placeable_through_tissue` wants `world.is_empty`, and a
-liquid cell is not empty, so the film is a **wall**: `adjacent_nest` goes
-false for every animal in the colony, and `AtNest`, `nest_visits` and
-`deliveries` freeze on the same frame. That is the exact shape §T2 reported —
-two counters identical at 9,000, 30,000 and 120,000 frames while `pickups`
-kept climbing.
+`paint_nest_patch` converts ~53 surface columns into `nest`, which authors no
+`water_capacity` — the default 0, "holds none at all, and never absorbs an
+adjacent `Liquid`" — while `soil` and `packedsoil` both hold 1,000. The mist
+soaked in everywhere else and stood on the door.
+`landing_is_placeable_through_tissue` wants `World::is_empty` and a liquid
+cell is not empty, so the film is a **wall**: `adjacent_nest` goes false for
+the whole colony at once, and `AtNest`, `nest_visits` and `deliveries` freeze
+on one frame while `pickups` goes on climbing — §T2's reported shape exactly.
 
 ## What the counters ruled in and out
 
@@ -26,12 +24,12 @@ kept climbing.
 
 | hypothesis | counter | verdict |
 |---|---|---|
-| the door is **buried by spoil** | `covered by` histogram over the patch | **no** — the cover is `water` 47–49 of 53 on seed 1; `packedsoil` is 1 |
-| the door is **dug away** | original patch cells no longer `nest` | **no** — `lost 0` on seed 1 for the whole run (seeds 2–3 lose 6–10 to seedlings and digging, and still deliver) |
-| the door is **drowned** | free liquid over the patch vs the same width of ordinary ground beside it | **yes** — seed 1 **89–91 against 17–19**, a 5.2x excess that is the patch's alone |
-| **nobody paths home** | distinct ants 8-adjacent to a nest cell per window | fires *as well*, and separately — see below |
-| the laden ant **unloads en route** (§T2's own leading hypothesis) | pickups / drops / deliveries per window | **stale** — the `drop_urge * moisture_gradient` product §T2 names has not existed since 2026-09-02; the drop is one probability wherever you stand |
-| **only founders delivered** | `life.deliveries` split gen 0 / later | **no** — later generations deliver once the door is open (seed 1: 0 → 132 after the fix) |
+| **buried by spoil** | cover histogram over the patch | **no** — seed 1's cover is `water` 47–49 of 53; `packedsoil` is 1 |
+| **dug away** | patch cells no longer `nest` | **no** — `lost 0` on seed 1 for the whole run |
+| **drowned** | liquid over the patch vs the same width of ground beside it | **yes** — **89–91 against 17–19** |
+| **nobody paths home** | distinct ants 8-adjacent to a nest cell per window | fires *as well*, and separately |
+| **unloads en route** (§T2's leading hypothesis) | pickups / drops / deliveries per window | **stale** — the `drop_urge * moisture_gradient` product it names has not existed since 2026-09-02 |
+| **only founders delivered** | `life.deliveries` by generation | **no** — later generations deliver once the door is open |
 
 The seed split §T2 could not explain falls straight out of the water pair:
 **seed 1 floods (89 vs 17) and never booms; seed 3 does not (2–3 vs 0–1) and
@@ -46,62 +44,80 @@ material, not the ledger, not the moisture field, not what germinates where.
 Ablate with **`PIXEL_PHYSICS_NEST_DRAINS=off`** (`=<n>` sweeps the period),
 which lays the unbroken patch that shipped until today — one binary, two arms.
 
-**Two more principled fixes were built first and are worse.** Both are in
-`dead-ends.md` with their conditions, and both are about `nest.ron` rather
-than this loop:
-
-- giving `nest` a `water_capacity` while it is a `Solid` **aliases
-  `Cell::aux`**, which on a `Solid` is the structural anchor distance that
-  `structural::tick` rewrites — and roots at 0 the moment powder touches the
-  underside, which a surface patch always has. The door becomes a water
-  *sink*, deleting liquid every frame, and every counter that was looking
-  read it as a clean win;
-- making `nest` a `Powder` so that combination is legal turns
-  `player::footing` from `Hard` to `Soft`, and the gnome wades through the
-  bottom of a nest wall (`a_nest_still_stops_him`).
+**Two more principled fixes were built first and are worse**, both about
+`nest.ron` rather than this loop, both in `dead-ends.md`: a `water_capacity`
+on a `Solid` **aliases `Cell::aux`** against `structural::tick` (the door
+becomes a water *sink*, and every counter that was looking read it as a clean
+win), and making it a `Powder` to legalise that turns `player::footing` from
+`Hard` to `Soft` so the gnome wades through a nest wall.
 
 Guards in `creature.rs`: `rain_does_not_stand_on_the_nest_patch` (two
-soakings, because a door that drains the first and not the second is the same
-bug on the second day) and
-`the_nest_patch_is_still_continuous_enough_to_walk_home_to`. Both watched
-going red with the drains removed.
+soakings — a door that drains the first and not the second is the same bug on
+the second day) and `the_nest_patch_is_still_continuous_enough_to_walk_home_to`
+(the obvious way to break this fix is to widen the comb until there is nowhere
+to walk home to). Both watched going red with the drains removed.
+
+## Before and after, at 120,000 frames
+
+`nestdoor`, played bed, `RAYON_NUM_THREADS=1`, sampled every 10,000. The
+paired arm is the same binary at `PIXEL_PHYSICS_NEST_DRAINS=off`.
+
+| | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| water on the patch / on the same width beside it | **89–91 / 17–19 → 0–19 / 1–3** | 44–69 / 20–34 → 8–15 / 7–12 | 2–3 / 0–1 → 0–19 / 0–6 |
+| nest cells with air beside them | **5–6 of 53 → 18–34 of 36** | 8–26 of 45 → 16–30 of 35 | 21–27 of 37 → 7–21 of 25 |
+| patch cells destroyed by the end | 0 → 0 | **14 → 0** | 10 → 4 |
+| `nest_visits` | **731 → 2,730** | 5,810 → 4,530 | **4,320 → 7,160** |
+| deliveries | **232 → 608** | 7,967 → 3,255 | **2,355 → 8,845** |
+| born / alive at 120k | **139 / 36 → 581 / 174** | 210 / 129 → 264 / 199 | 712 / 501 → 693 / 340 |
+| deepest generation | **7 → 26** | 7 → 10 | 20 → 19 |
+
+Pooled: deliveries 10,554 → 12,708 with 2 of 3 seeds up, `nest_visits`
+10,861 → **14,420** with 2 of 3 up, and the colony at 120,000 frames alive
+36/129/501 → **174/199/340**.
+
+**Read the door rows, not the colony rows.** The door census measures the
+mechanism directly and moves the same way on both seeds; two runs that diverge
+on one frame are different worlds by the next, and `deliveries` is this repo's
+noisiest column — `instruments.md` prices it at 154–980 across six seeds of an
+*unchanged* ant. That is how seed 2 loses deliveries while ending with more
+ants, more births and three more generations.
 
 ## What is NOT fixed, and do not re-derive it
 
-**Deliveries still fall to zero for long stretches with the door standing
-open.** Seed 1 after the fix: windows 30,000–90,000 read `stnd` 16–34 of 53
-nest cells with somewhere to stand beside them, `airy` 24–34 — and **not one
-ant within eight cells of the door for 60,000 frames**. Seed 3 does the same
-from 80,000. So door access and home-finding are two bugs, and only the first
-was §T2's.
+**Deliveries still fall to zero for long stretches, and after the fix it is
+not the door.** Seed 1's last four windows read deliveries 0 with 18–21 nest
+cells standing open, 2–5 distinct ants touching the door in each window, and
+*closest anyone came* = **1** in every window of the run. The door is
+reachable and being reached. What has moved is the laden ants: their mean
+distance from home climbs **54 → 143 cells** across the run while the colony
+grows to 174–361. They forage further and do not come back.
+
+So door access and home-finding are two causes, and only the first was §T2's.
 
 Three things this lane measured that a later session should not repeat:
 
-- **Burial by spoil is not the binding constraint.** Across the after arm the
-  correlation between `stnd` and ants-at-the-door runs the *wrong* way (seed
-  1: `stnd` 34 → 0 ants at 30,000, `stnd` 15 → 17 ants at 100,000). A rule
-  refusing a pellet over a nest cell was therefore **not** built: it would
-  remove ~13 of ~46 covered cells and buy nothing measurable.
-- **The nest patch is now a germination bed.** It held no water, so nothing
-  could sprout on it; it does now, and seed 1's door reads `grassblade`
-  14–17 and `grassroot` 5–9 by mid-run. Access is unharmed (`airy` 24–34),
-  and the garden-midden and late-game lines both *want* plants on the mound —
-  but it is a real change to what the anthill looks like and it was caused
-  here.
-- **`rain=0` clears the door on its own** (seed 1: water 51 → 0, `airy`
-  2 → 53 by frame 20,000). A control, never a fix — the bed needs the mister.
-- **The patch now feeds the coarse moisture field** (`field.rs` builds
-  `moisture_source` from `aux / water_capacity`, kind-agnostic), so the ground
-  at the door reads *wet* to `MoistureGrad` where it used to read like bare
-  rock. That channel is a free weight on `Drop` and `Dig` in the genome, so
-  part of the behaviour change is this and not the access — do not attribute
-  all of it to the door.
+- **`rain=0` clears the door on its own** (seed 1: water 51 → 0, nest cells
+  with air beside them 2 → 53 by frame 20,000). That is the control that
+  pinned the cause, never a fix — the bed's plants need the mister and that
+  arm crashes the colony for its own reasons.
+- **The first two fixes were about `nest.ron` and both are worse**, for
+  reasons that have nothing to do with the door — see `dead-ends.md`. The
+  general form is worth more than either: before giving a material a data
+  field, check which `Cell::aux` readings that material already has, because
+  the compiler cannot see a tagged union whose tag is material data; and a
+  material's `kind` is an affordance table for every system at once.
+- **A spoil rule over the door is still unbuilt, and the case for it is now
+  open rather than closed.** On the water-capacity arm the correlation between
+  standable door cells and ants at the door ran the *wrong* way, which read as
+  "burial is not the binding constraint". On the shipped arm seed 1's door
+  goes `stnd` 34 → 18 and `covd` 14 → 31 as the colony passes 170 ants, with
+  `packedsoil` 8–10 of the cover — real, and small beside the 143-cell
+  laden-ant distance in the same windows. Measure the walk first.
 
 ## Where to look next
 
-The residual is in the walk, which another lane owns: an ant has no idea
-where home is, and channel A's home trail is laid only by animals that have
-touched the nest recently. Once the whole colony loses contact the trail
-evaporates and contact is re-established only by a random walk stumbling onto
-the patch — which is what the bursts in every column look like. `nestdoor`
-prints *closest anyone came* per window for exactly this question.
+The walk, which another lane owns. An ant has no idea where home is; channel
+A's home trail is laid only by animals that have touched the nest recently, so
+a colony that ranges to 143 cells lays a trail nobody is near. `nestdoor`'s
+*closest anyone came* and its laden-distance column are the pair to read.

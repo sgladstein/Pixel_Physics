@@ -110,47 +110,47 @@ point.
 | R4 | **OPEN** | 7406 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
 | V4 | **OPEN** | 7475 | breaking_free_writes_a_pressure_impulse never reaches break_free |
 | T2 | **OPEN** | 7533 | The colony forages and never brings anything home: 1,651 pickups, 4 deliveries |
-| S4 | **OPEN** | 7704 | Rock still crushes itself on an idle world |
-| S5 | closed | 7776 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| T | **OPEN** | 7897 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7941 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7990 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 8081 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 8095 | Grow into soil destroys the soil's stored water |
-| 3 | note | 8107 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 8120 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 8239 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 8260 | A material-counting guard cannot see a species |
-| W1c | note | 8273 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8407 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8485 | The structural opt-out did not hold against bearing |
-| T1d | note | 8496 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8530 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8584 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8638 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8667 | §1c's settle loss is now a counter |
-| -- | note | 8684 | What landed |
-| -- | note | 8707 | Do not re-derive these |
-| -- | note | 8735 | Measurements that contradict something written |
-| -- | note | 8755 | Open |
-| -- | note | 8790 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8808 | grass sets zero seeds on main |
-| B2 | **OPEN** | 9001 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
-| Z4 | closed | 9069 | World::germinations can exceed the number of seeds that ever existed |
-| Z5 | closed | 9154 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
-| W2 | **OPEN** | 9359 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
-| W2a | **OPEN** | 9435 | The refutation, measured |
-| E2 | **OPEN** | 9516 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | closed | 9588 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
-| W4 | **OPEN** | 9708 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
-| W5 | **OPEN** | 9768 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | closed | 9819 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10145 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10251 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10379 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10531 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10652 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10765 | The flitter's float never switches off on a bed that has flowers in it |
+| S4 | **OPEN** | 7724 | Rock still crushes itself on an idle world |
+| S5 | closed | 7796 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7917 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7961 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 8010 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 8101 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 8115 | Grow into soil destroys the soil's stored water |
+| 3 | note | 8127 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 8140 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 8259 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 8280 | A material-counting guard cannot see a species |
+| W1c | note | 8293 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8427 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8505 | The structural opt-out did not hold against bearing |
+| T1d | note | 8516 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8550 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8604 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8658 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8687 | §1c's settle loss is now a counter |
+| -- | note | 8704 | What landed |
+| -- | note | 8727 | Do not re-derive these |
+| -- | note | 8755 | Measurements that contradict something written |
+| -- | note | 8775 | Open |
+| -- | note | 8810 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8828 | grass sets zero seeds on main |
+| B2 | **OPEN** | 9021 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
+| Z4 | closed | 9089 | World::germinations can exceed the number of seeds that ever existed |
+| Z5 | closed | 9174 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
+| W2 | **OPEN** | 9379 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
+| W2a | **OPEN** | 9455 | The refutation, measured |
+| E2 | **OPEN** | 9536 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
+| W3 | closed | 9608 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W4 | **OPEN** | 9728 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
+| W5 | **OPEN** | 9788 | The lab's bed grows a water table on its stone floor, and it does not stop |
+| W6 | closed | 9839 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 10165 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10271 | Every shipped bed starves its ant colony inside one play session |
+| Z7 | **OPEN** | 10399 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10551 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10672 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10785 | The flitter's float never switches off on a bed that has flowers in it |
 
 <!-- END GENERATED INDEX -->
 
@@ -7616,13 +7616,30 @@ patch against the same width of ordinary ground beside it, so a nest that
 merely sits in a hollow is told apart from one that floods *because it is
 impermeable*:
 
-| seed 1 | of 53 nest cells | water on the patch | ...beside it | deliveries, last 9 windows |
-|---|---|---|---|---|
-| shipped | **5-6** with air beside them | **89-91** | 17-19 | 83, 9, then **0 0 0 0 0 0** |
-| fixed | 15-17 | **0-9** | 0-9 | 0, 0, 0, 0, 0, 55, 66, 99 |
+| seed 1, 120,000 frames | nest cells with air beside them | water on the patch | ...on the same width beside it |
+|---|---|---|---|
+| shipped | **5-6** of 53 | **89-91** | 17-19 |
+| drained | **18-34** of 36 | **0-19** | 1-3 |
 
 Seed 3, which never floods (2-3 against 0-1) and whose colony booms, is the
 control the bug already had and nobody had read as one.
+
+**What the drains buy**, same instrument, the paired arm being the same binary
+at `PIXEL_PHYSICS_NEST_DRAINS=off`:
+
+| | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| `nest_visits` | **731 -> 2,730** | 5,810 -> 4,530 | **4,320 -> 7,160** |
+| deliveries | **232 -> 608** | 7,967 -> 3,255 | **2,355 -> 8,845** |
+| born / alive at 120k | **139/36 -> 581/174** | 210/129 -> 264/199 | 712/501 -> 693/340 |
+| deepest generation | **7 -> 26** | 7 -> 10 | 20 -> 19 |
+
+Pooled: deliveries 10,554 -> 12,708 and `nest_visits` 10,861 -> **14,420**,
+each up on 2 of 3 seeds. **Read the door rows above these**: the door census
+measures the mechanism and moves the same way on every seed, while
+`deliveries` is this register's noisiest column (`instruments.md` prices it at
+154-980 across six seeds of an *unchanged* ant) and two runs that diverge on
+one frame are different worlds by the next.
 
 **Ruled out by measurement, not by argument.** Not spoil: the cover histogram
 on seed 1 is `water` 47-49 and `packedsoil` **1**. Not the door being dug
@@ -7652,20 +7669,23 @@ legal turns `player::footing` from `Hard` to `Soft`, and the gnome wades
 through the bottom of a nest wall (`a_nest_still_stops_him`).
 
 **What is still open, and it is a different bug in the same sentence.**
-Deliveries fall to zero for long stretches **with the door standing open**:
-seed 1 after the fix reads 16-34 standable nest cells across windows
-30,000-90,000 and **not one ant within eight cells of the door for 60,000
-frames**; seed 3 does the same from 80,000. So door *access* and *home-finding*
-are two causes and only the first was this entry's. The residual is in the
-walk: an ant has no idea where home is, channel A's home trail is laid only by
-animals that have touched the nest recently, and once the whole colony loses
-contact the trail evaporates and is re-established only by a random walk
-stumbling onto the patch. `nestdoor` prints *closest anyone came* per window
-for exactly that question. **A rule refusing a spoil pellet over a nest cell
-was measured and not built** — the correlation between standable door cells
-and ants at the door runs the *wrong* way in the after arm (seed 1: 34
-standable and 0 ants at 30,000; 15 standable and 17 ants at 100,000) — see
-`Reports/lanes/evolution-lab-round-trip.md`.
+Deliveries still fall to zero for long stretches **with the door standing open
+and being reached**: seed 1's last four windows read deliveries 0 with 18-21
+nest cells standing open, 2-5 distinct ants touching the door in each window,
+and *closest anyone came* = **1** in every window of the run. What moves
+instead is the laden ants' distance from home, **54 -> 143 cells** across the
+run as the colony grows past 170. They forage further and do not come back. So
+door *access* and *home-finding* are two causes and only the first was this
+entry's. The residual is in the walk: an ant has no idea where home is, and
+channel A's home trail is laid only by animals that have touched the nest
+recently, so a colony ranging to 143 cells lays a trail nobody is near.
+`nestdoor`'s *closest anyone came* and its laden-distance column are the pair
+to read. **A rule refusing a spoil pellet over a nest cell is still unbuilt**,
+and the case for it is open rather than closed -- seed 1's door does go from
+34 standable cells to 18 as the colony passes 170 ants, with `packedsoil` 8-10
+of the cover, which is real and small beside the 143-cell laden distance in
+the same windows. Measure the walk first;
+`Reports/lanes/evolution-lab-round-trip.md` has both.
 
 **What the fix deliberately does not change**, because the first draft did and
 it reached further than it looked. The patch is still `nest` and still holds
