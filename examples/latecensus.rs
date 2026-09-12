@@ -521,7 +521,7 @@ fn main() {
         "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
          bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
          seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1} \
-         lifespan={} oldage={} starved={} killed={}",
+         lifespan={} oldage={} starved={} killed={} seeds_lost_no_room={}",
         scenario.name,
         spec.seed,
         st.births,
@@ -561,7 +561,11 @@ fn main() {
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0),
         oldage,
         starved,
-        killed
+        killed,
+        // §Z16's exit, appended last: a seed a boxed-in carrier could not put
+        // down anywhere. Reads 0 on every bed measured so far; a run where
+        // it does not is a crowd worth looking at.
+        world.seeds_lost_no_room
     );
     // **Appended at the end, in addition to every field above in its own
     // order** -- this line is contested by every lane of the round and a

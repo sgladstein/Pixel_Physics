@@ -2635,6 +2635,60 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
         let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
         if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
     };
+    // **Never over an occupied cell -- open-bugs §Z16, 2026-09-12.** The
+    // digestion exit in `creature.rs` hands the pip in at the ant's *own
+    // head* coordinates (the meal is eaten where the ant stands), and this
+    // function wrote it there unconditionally whenever the redirect above
+    // left `(x, y)` alone: on ground already wet enough (`already_wet`
+    // short-circuits), or with no midden site in reach. The ant's head cell
+    // became a pip, `reconcile_chain` booked the death as `Killed`, and on
+    // the played bed at 500,000 frames that one path was 71 / 58 / 35 of
+    // the colony's 216 / 98 / 70 "killed" deaths on seeds 1-3 -- the
+    // colony was being planted, not fought. The drop verb and the corpse
+    // drop already hand in an empty cell, so for them this is a no-op.
+    //
+    // The order is the drop verb's own: the first empty of the eight
+    // neighbours (the seed lands beside where the meal was eaten, which is
+    // the owner's 2026-09-11 rule to within a cell), then the ring two
+    // cells out -- measured 2026-09-12 on `played_bed` seed 1 at 20,000
+    // frames, 6 of 11 digestion releases had every neighbour taken, because
+    // a meal is mostly eaten in a tunnel full of nestmates, and a tunnel
+    // has an empty cell within two -- then the midden search regardless of
+    // wetness, and only then a counted loss. **A cap on the search must
+    // bound work, not decide the outcome**: the loss exit below releases
+    // the carried-set guard and counts `World::seeds_lost_no_room` rather
+    // than silently dropping the seed, and it is exactly the corpse path's
+    // own no-room handling.
+    //
+    // `PIXEL_PHYSICS_PIP_OVERWRITE=1` -- a one-binary kill switch, the same
+    // shape as `PIXEL_PHYSICS_MIDDEN` above: reproduces today's write into
+    // the head so a before/after census comes from one binary and one seed.
+    // Default off (the fix). Read only on this rare branch, never the sweep.
+    let overwrite_allowed = std::env::var("PIXEL_PHYSICS_PIP_OVERWRITE").as_deref() == Ok("1");
+    let site = if overwrite_allowed || world.is_empty(x, y) {
+        Some((x, y))
+    } else {
+        NEIGHBOURS_8
+            .iter()
+            .map(|&(dx, dy)| (x + dx, y + dy))
+            .find(|&(px, py)| world.is_empty(px, py))
+            .or_else(|| {
+                (-2..=2)
+                    .flat_map(|dy| (-2..=2).map(move |dx| (dx, dy)))
+                    .filter(|&(dx, dy): &(i32, i32)| dx.abs() == 2 || dy.abs() == 2)
+                    .map(|(dx, dy)| (x + dx, y + dy))
+                    .find(|&(px, py)| world.is_empty(px, py))
+            })
+            .or_else(|| find_midden_site(world, x, y, threshold))
+    };
+    let Some((x, y)) = site else {
+        world.carried_seed_organisms.remove(&passenger.organism_id);
+        world.seeds_lost_no_room += 1;
+        if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
+            eprintln!("A2_DEBUG lost frame={} organism={} at=({x},{y}) no empty cell within reach", world.frame, passenger.organism_id);
+        }
+        return;
+    };
     // **Counts the outcome, not only the redirect firing** -- a pip whose
     // original site already qualified never touches `find_midden_site` at
     // all and still counts as `pips_set_on_soil`. See both fields' own docs
@@ -23238,6 +23292,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             aux: organism::pack_cell_type(CellType::Seed),
             picked_up_frame: w.frame,
         };
+        // The pickup empties the cell it takes the seed from
+        // (`take_seed_passenger`), and the planter now refuses an occupied
+        // one (open-bugs §Z16) -- so hand it the empty cell the real
+        // sequence would, rather than delivering onto the fruit still
+        // standing there, which the old unconditional write let this scene
+        // get away with.
+        w.set(fx, fy, Cell::EMPTY);
         deliver_seed_passenger(&mut w, fx, fy, passenger);
 
         assert_eq!(

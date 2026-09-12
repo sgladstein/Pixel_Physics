@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**59 open, 113 bugs** (plus 20 landing-note items,
+**58 open, 113 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -156,9 +156,9 @@ point.
 | Z13 | **OPEN** | 11103 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
 | Z14 | **OPEN** | 11201 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
 | Z15 | **OPEN** | 11293 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | **OPEN** | 11371 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11467 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11519 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z16 | closed | 11371 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11501 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11553 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11368,7 +11368,7 @@ is **0 on every seed on both arms**, unchanged by any of this — and the visit
 rate is still far under what the economy needs (§Z10's closing note). The cage
 is why the animal *looks* stuck; it is not established that it is why the
 animal *starves*.
-### Z16. `DeathCause::Killed` is not a killing counter, and the played bed's colony is being overgrown rather than eaten — **OPEN, found 2026-09-12**
+### Z16. `DeathCause::Killed` is not a killing counter, and the played bed's colony is being overgrown rather than eaten — **the overwrite CLOSED 2026-09-12 by #366; the two attributable bites were never a bug**
 
 **Why this letter.** §Z15 is reserved for lane N's caged-flitter section.
 
@@ -11463,6 +11463,40 @@ enough to finish (≤200k frames).
 **It does not close the section.** §Z15 (the cage) is untouched, and the
 `empty` half below is still undiagnosed and still the larger one.
 
+**2026-09-12, closed by #366 — and the `empty` half was the same write seen
+later.** The planter (`deliver_seed_passenger_with_material`) now refuses an
+occupied cell: first empty of the eight neighbours, then the ring two cells
+out (6 of 11 releases on `played_bed` seed 1 at 20,000 frames had every
+neighbour taken — a meal is mostly finished in a tunnel), then the midden
+search, then a counted loss (`World::seeds_lost_no_room`; the carried-set
+guard is released so the slot is reclaimed). `PIXEL_PHYSICS_PIP_OVERWRITE=1`
+reproduces the old write from the same binary. Guards
+`digestion_never_plants_the_pip_in_the_ants_own_head` and
+`a_boxed_in_ant_loses_the_seed_and_keeps_its_head`, both watched red on the
+old code. `plant::growable` was never involved.
+
+Paired, `played_bed`, 120,000 frames, one thread, one binary:
+
+| seed | `KILLED` old (pip / grass / empty) | `KILLED` fixed | ants at 120k | born | seed bank | plants | lost, no room |
+|---|---|---|---|---|---|---|---|
+| 1 | 28 (11 / 2 / 6) | **0** | 0 → 52 | 29 → 214 | 774 → 306 | 215 → 184 | 48 of 508 releases |
+| 2 | 79 (18 / 9 / 45) | **0** | 8 → 10 | 125 → 108 | 609 → 576 | 184 → 164 | 14 of 209 |
+| 3 | 150 (42 / 25 / 70) | **0** | 29 → 135 | 277 → 252 | 1,076 → 313 | 183 → 147 | 7 of 393 |
+
+**The whole channel goes to zero on every seed, `empty` half included**: once
+the pip stood in the head, a nestmate carried it off, or it rotted, or powder
+buried it, before the ant's own next reconcile — so the vital cell read
+`empty`, `soil` or `litter` rather than `pip`. There was one write, seen at
+different moments. **And the cull was load-bearing**, exactly as the update
+above warned: without it the colony lives (seed 1 was extinct by 120,000 and
+holds 52; seed 3 goes 29 → 135) and eats the bank the cargo loop had built
+(seed 3's bank 1,076 → 313, plants 183 → 147). The 40,000-frame lifespan, the
+seed-cargo census and the 12 / 12 / 212 peaks are one trunk behind again and
+want re-deriving as order statistics over seeds (§Z14) on a machine that stays
+up; that re-derivation is **not** in #366 and is the next brief. What remains
+of this section: the two attributable same-colony bites in the 500,000-frame
+table, which are killings and not a bug, and §Z15 (the cage), which is the
+same collision from the living side and untouched here.
 
 ### Z18. **Dug spoil stands in open sky, and the owner sees it before he sees anything else** — **OPEN, reported by the owner 2026-09-12 on an unrelated card (lab)**
 

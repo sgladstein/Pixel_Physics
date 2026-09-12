@@ -3917,6 +3917,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             // rare branch already (a passenger emptying its crop), never
             // the sweep: reproduces this round's bug exactly, the
             // passenger silently lost with the emptied crop. Default on.
+            // **`(hx, hy)` is this ant's own head, and it is occupied by
+            // this ant.** Until 2026-09-12 the planter wrote the pip there
+            // whenever its midden redirect left the site alone, which turned
+            // the head into a pip and the ant into a `Killed` death that no
+            // animal caused -- open-bugs §Z16, 71 / 58 / 35 of the played
+            // bed's 216 / 98 / 70 "killed" deaths on seeds 1-3. The planter
+            // now refuses an occupied cell and puts the pip down beside the
+            // head instead (`deliver_seed_passenger_with_material`), so the
+            // head coordinates stay the right thing to hand in: they say
+            // where the meal was eaten, and the planter decides where the
+            // seed can actually stand.
             if left == 0 && std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() != Ok("0") {
                 if let Some(passenger) = c.passenger {
                     plant::deliver_seed_passenger(world, hx, hy, passenger);
@@ -19504,6 +19515,109 @@ mod tests {
             !w.carried_seed_organisms.contains(&seed_id),
             "release must free the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
         );
+    }
+
+    /// **§Z16 -- the digestion exit must never plant the pip in the ant's
+    /// own head.** `creature_tick`'s digest block hands the surviving seed
+    /// to `plant::deliver_seed_passenger` at the ant's *head* coordinates,
+    /// and until 2026-09-12 the planter wrote the pip there unconditionally
+    /// unless the midden redirect happened to move it -- which it does not
+    /// when the ground under the head already passes the water gate, and
+    /// cannot when no midden site is in reach. The ant's head became a pip,
+    /// `reconcile_chain` booked the death as `Killed`, and on the played
+    /// bed that path was 71 / 58 / 35 of the colony's 216 / 98 / 70
+    /// "killed" deaths on seeds 1-3 at 500,000 frames (open-bugs §Z16).
+    /// Stone under the ant here fails the water gate and no midden site
+    /// exists, so this scene reaches the fallback that wrote into the head:
+    /// watched red with the guard in `deliver_seed_passenger_with_material`
+    /// removed, green with it.
+    #[test]
+    fn digestion_never_plants_the_pip_in_the_ants_own_head() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let head = w.organism(ant).expect("live").chain[0];
+        let head_material = w.get(head.0, head.1).material;
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired, or the guard below is checking nothing");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "the pip was written over the ant's own head -- this is §Z16, the 'killed' death that was never a killing");
+        assert_eq!(w.get(head.0, head.1).material, head_material, "the head cell must still be the ant's own flesh after the release");
+        let delivered: Vec<(i32, i32)> =
+            (0..200).flat_map(|x| (95..106).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger must still be put down exactly once, found {}", delivered.len());
+        let (px, py) = delivered[0];
+        assert!((px - head.0).abs() <= 1 && (py - head.1).abs() <= 1 && (px, py) != head, "the pip lands beside the head, where the meal was eaten, not in it: got ({px},{py}) for head {head:?}");
+        assert_eq!(w.seeds_delivered, 1, "a redirected delivery is still a delivery");
+        assert_eq!(w.seeds_lost_no_room, 0, "room was available, so nothing may be counted as lost");
+        assert!(reconcile_chain(&mut w, ant), "the ant must survive its own meal");
+    }
+
+    /// **§Z16, the no-room exit.** An ant boxed in on all eight sides that
+    /// finishes a seed-bearing meal has nowhere to put the pip down. The
+    /// seed is lost and *counted* (`World::seeds_lost_no_room`), the
+    /// carried-set guard is released so the slot is reclaimed, and the
+    /// ant's head is untouched -- losing a seed is a graded outcome; losing
+    /// the ant was the bug.
+    #[test]
+    fn a_boxed_in_ant_loses_the_seed_and_keeps_its_head() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let head = w.organism(ant).expect("live").chain[0];
+        // Wall in every empty cell within two of the whole body, not just
+        // the head: the guard searches the head's eight neighbours, then the
+        // ring two cells out, then the midden columns, and stone under and
+        // around it fails all three.
+        let body: Vec<(i32, i32)> = w.organism(ant).expect("live").chain.clone();
+        for &(bx, by) in &body {
+            for dx in -2..=2 {
+                for dy in -2..=2 {
+                    if w.is_empty(bx + dx, by + dy) {
+                        w.set(bx + dx, by + dy, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+        }
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "no room anywhere must never mean 'write it into the ant'");
+        assert_eq!(w.seeds_lost_no_room, 1, "the lost seed must be counted, or the loss is invisible");
+        assert_eq!(w.seeds_delivered, 0, "a lost seed is not a delivery");
+        let owned = (0..200).flat_map(|x| (90..106).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).organism_id() == seed_id).count();
+        assert_eq!(owned, 0, "a lost seed owns no cell");
+        assert!(!w.carried_seed_organisms.contains(&seed_id), "the carried-set guard must be released on the loss exit, or the slot leaks");
     }
 
     /// **A2 -- digestion must not consume a passenger.** `creature_tick`'s
