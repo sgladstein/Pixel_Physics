@@ -71,6 +71,12 @@
         // itself fires; re-deriving `start_energy` for the faster clock is
         // real work this file does not do yet.
         tick_interval: 4,
+        // **No `life_half_life`, so this kind is immortal** -- the field's
+        // default, and the shipped behaviour for every animal before
+        // 2026-09-12. Only the ant and the long ant die of age today, because
+        // the lifespan was authored against the ant colony's own boom period
+        // (a generation on the played bed, the larder's edge) and nobody has
+        // measured what this kind's would be. Set it here when somebody has.
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*
         // block): idle 0.3, open-ground move 1.0. An ant is smaller and
@@ -193,6 +199,52 @@
         // number to move -- `start_energy` is (§3), and it is held at 200
         // here so this arm is attributable.
         fly_cost_in_moves: 0.25,
+        // **How far this animal will fly on spec** -- the cruise, 0.4 of a
+        // full hover at the top of the ramp, decaying to nothing over
+        // `creature::CRUISE_FRAMES`. See that constant for why the verb
+        // exists: every build before 2026-09-12 gated lift on a bloom already
+        // within ~9.6 cells, so every journey longer than nine cells was
+        // UNPOWERED and the animal crossed its bed by hopping. 0.4 because
+        // `creature::HOVER_GAIN` is 2.5 and 0.4 x 2.5 is exactly 1.0: a full
+        // tank leaves the ground level rather than climbing, which is what a
+        // bee looks like and a firework does not.
+        //
+        // **What this number actually controls is how long the hover lasts,
+        // not how strong it is**, and that is worth knowing before tuning it.
+        // `creature::HOVER_GAIN` is 2.5 and the hover clamps at 1.0, so any
+        // value above 0.4 is *saturated* at the top of the ramp: 0.7 holds a
+        // full, gravity-cancelling hover for the first 43% of
+        // `creature::CRUISE_FRAMES` (about 51 frames) and then glides down
+        // over the remaining 69. At 0.4 the saturated phase is zero frames
+        // long and the animal starts sinking from the instant it leaves the
+        // ground -- a cruise that pays for lift and buys no traverse.
+        //
+        // Swept on `played_bed_understory`, seeds 1-3, 20,000 frames, ONE
+        // binary (`PIXEL_PHYSICS_CRUISE_LIFT=` in the environment), against no cruise at
+        // all. `flower_visits` per seed:
+        //
+        //     no cruise   510 /  23 / 131   median 131
+        //     0.40        252 /  59 /  87   median  87
+        //     0.55        530 /  75 / 110   median 110
+        //     0.70        264 /  96 / 142   median 142
+        //
+        // **The result is messy and that is the honest shape of it**
+        // (`CLAUDE.md`: a clean first number here is the tell for an
+        // artifact). The cruise is not an economic win -- it trades the rich
+        // seed's take for the poor seeds', and the median moves 131 -> 142,
+        // which is noise at three seeds. What it buys unambiguously is the
+        // thing this lane exists for: **powered flight instead of ballistic
+        // arcs**, `fly_share` 26-69% -> 85-86% on the same three runs, at an
+        // aloft-death share of 10-14% against the no-cruise arm's 6-13%.
+        //
+        // 0.70 rather than 0.55 because 0.55's aloft deaths reach 8 of 30
+        // (27%) on seed 1 where 0.70 stays at 10-14% across all three, and
+        // because its median is the better of the two. **Three seeds is not a
+        // sweep** (`CLAUDE.md` measured six to be unrepresentative), so treat
+        // this as "no setting was clearly worse" rather than as a fitted
+        // optimum, and re-derive it against an order statistic over a dozen
+        // seeds before building anything on the exact value.
+        cruise_lift: 0.7,
         // **`emit_cost_in_moves` is gone, not merely zeroed -- Brief P2's
         // own "emit_cost" in the strip list.** `hopper.ron`'s whole comment
         // here priced trail-laying, and this animal lays no trail: `nest:
@@ -1494,7 +1546,25 @@
             // doc §2.5 states this in the same words: "opposite condition,
             // opposite population silenced." Write this down again at the
             // next site that touches this line, or it reads as the retry.
-            (FoodAdjacent, Impulse, -2.0),
+            // **-2.0 -> -1.75, 2026-09-12: a visit is a pause, not a
+            // parking space.** At exactly -2.0 this cancels `(Bias, Impulse,
+            // 2.0)` to `squash(0.0) == 0.0`, and `(Bias/Energy/FoodAdjacent,
+            // Move)` sums negative for a fed animal at food, so a flitter
+            // that reached a flower with a full tank could neither hop nor
+            // walk: it sat on that one cell, not moving a pixel, for the
+            // **~4,160 frames** it took idle metabolism to bring it down to
+            // the 0.48 tank where `Move` reopens. Measured on the understory
+            // bed at `start=9000`: the followed animal moved **once in 1,800
+            // frames**. That is the owner's *"stuck next to a plant"*,
+            // literally, and it is here rather than in the wings.
+            //
+            // -1.75 leaves `squash(0.25) = 0.2`, so a fed animal at a flower
+            // takes off on about one tick in five -- a visit of roughly
+            // twenty frames, a drink and away. The wire still does its job
+            // (`wiki/ants.md`: *an animal that jumps off its own dinner never
+            // eats*); it is now a bias against leaving rather than a bar on
+            // it.
+            (FoodAdjacent, Impulse, -1.75),
 
             // --- Fly: stay up, and steer ---------------------------------
             // **The verb this round exists for, and it is where `Turn`
@@ -1587,6 +1657,28 @@
             // velocity (fixed in `creature::fly_brain_tick`), and nothing in
             // the genome said when to stop flying. A verb with no OFF
             // condition is not a graded outcome, it is a state.
+            // **-9.6 held through the 2026-09-12 hover fix, and widening it
+            // was tried first and is a trap worth naming.** Once lift
+            // genuinely cancels gravity (`creature::HOVER_GAIN`) a bout goes
+            // somewhere, so the obvious next move is to open the gate at a
+            // range worth crossing -- `-7.0` buys 20 cells at full energy
+            // against 9.6. Measured on `played_bed_understory` seed 1,
+            // 20,000 frames, one binary (`labforage wire=`): it is **worse on
+            // every column** -- `flower_visits` 381 -> 118, `born` 9 -> 3,
+            // `alive` 16 -> 5, and `STARVED_ALOFT` **2 -> 20 of 31 deaths**,
+            // i.e. straight back to the §Z10 regime the gate exists to
+            // prevent. `-8.5` is between the two on every column (250 / 9 /
+            // 8 / 3) and still worse than holding.
+            //
+            // **And the reason is an invariant, not a tuning curve.** The
+            // gate opens on `-B + 4*Energy + 8*BloomNear > 0`, so at zero
+            // energy it reduces to `8*BloomNear > B`: while **B exceeds the
+            // `BloomNear` weight (8.0)** an empty tank cannot fly whatever it
+            // can see, and below 8.0 a starving animal a few cells from a
+            // bloom takes off and hovers until it dies. That is the whole of
+            // the 20 aloft deaths. Any future change to either number has to
+            // keep `|Bias| > |BloomNear|` or re-derive what grounds a dying
+            // animal.
             (Bias, Fly, -9.6),
             // **The fuel gauge, and the sign is the thing to check before
             // copying this line.** `BrainInput::Energy` is

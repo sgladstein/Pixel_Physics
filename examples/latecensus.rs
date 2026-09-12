@@ -165,6 +165,32 @@ fn main() {
         "latecensus: ant scent_drift = {:?}",
         world.species.id_of("ant").and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.scent_drift))
     );
+    // **`lifespan=<frames>` -- the sweep knob for brief 2**, written through
+    // to the colony species' `CreatureDef::life_half_life` right after the
+    // bed is built and before a single frame runs, so every animal the
+    // timeline founds at frame 6,000 already has it. `0` is the shipped
+    // pre-2026-09-12 behaviour (immortal) and is the paired control every
+    // arm of the sweep is read against.
+    //
+    // Echoed on its own line whether or not it was passed, `plant_probe`'s
+    // rule: a log that does not name its lifespan was written by a binary
+    // that never had one, and eight byte-identical logs are what that looks
+    // like from the outside. Written *after* `drift=` above for the same
+    // reason the SUMMARY line appends rather than interleaves: every lane adds
+    // a knob here, and one order for all of them is what keeps the diffs small.
+    if let Some(v) = arg::<u32>("lifespan") {
+        if let Some(id) = world.species.id_of(&spec.colony_species) {
+            if let Some(mut def) = world.species.get(id).creature.clone() {
+                def.life_half_life = v;
+                world.species.set_creature(id, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        spec.colony_species,
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
     println!(
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
@@ -190,10 +216,10 @@ fn main() {
     let tuning = player::Tuning::default();
     let mut gut = 0.0f32;
     println!(
-        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>5} {:>4} {:>5} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
         "frame", "ants", "plnts", "bank", "edible", "worth(J)",
         "leafJ", "fruitJ", "littrJ", "seedJ", "crpsJ", "flowrJ", "otherJ", "flwrs",
-        "born", "died", "strvd", "killd", "othr", "eats", "digs", "delivs",
+        "born", "died", "strvd", "oldag", "killd", "othr", "crpss", "eats", "digs", "delivs",
         "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut"
     );
     println!("        (then, cumulative production: shed=leaves shed, borne=seeds borne, germ=germinations, fdrop=fruit dropped)");
@@ -210,12 +236,12 @@ fn main() {
         if f % sample_every == 0 {
             let s = census::census(&world, &spec, gut, &nest_cols, &ids);
             let st = world.creature_stats;
-            let (starved, killed, other) = census::colony_deaths(&world, &spec.colony_species);
+            let (starved, killed, oldage, other) = census::colony_deaths(&world, &spec.colony_species);
             println!(
-                "{f:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+                "{f:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>5} {:>4} {:>5} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
                 s.ants, s.plants, s.seed_bank, s.edible, s.worth,
                 s.leaf_j, s.fruit_j, s.litter_j, s.seed_j, s.corpse_j, s.flower_j, s.other_j, s.standing_flowers,
-                st.births, st.deaths, starved, killed, other, st.eats, st.digs, st.deliveries,
+                st.births, st.deaths, starved, oldage, killed, other, s.corpses, st.eats, st.digs, st.deliveries,
                 s.roofed, s.pit, s.packed_below, s.packed_above, s.mound_high,
                 s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside
             );
@@ -366,11 +392,21 @@ fn main() {
             );
         }
     }
-
+    // **`starved`, `killed` and `oldage` stay three fields, never a pooled
+    // `died`.** Three mortality channels now move independently on this bed --
+    // hunger, the seed-cargo build's `Killed` channel, and age -- and a colony
+    // that settled and a colony that ran out of food are the same population
+    // line. Only the split tells them apart. Read once here rather than three
+    // times inside the argument list, which walked `group_deaths` per field.
+    let (starved, killed, oldage, _other) = census::colony_deaths(&world, &spec.colony_species);
     println!(
+        // Round 29's fields are appended after main's, format string and
+        // argument list in the same order -- every lane adds to this line, so
+        // the house rule is append, never interleave.
         "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
          bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
-         seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1}",
+         seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1} \
+         lifespan={} oldage={} starved={} killed={}",
         scenario.name,
         spec.seed,
         st.births,
@@ -405,6 +441,11 @@ fn main() {
         final_census.ants,
         final_census.leaf_j / 1000.0,
         final_census.litter_j / 1000.0,
-        final_census.seed_j / 1000.0
+        final_census.seed_j / 1000.0,
+        // Brief 2's own four, appended last.
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0),
+        oldage,
+        starved,
+        killed
     );
 }

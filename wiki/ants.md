@@ -1,7 +1,14 @@
 # Ants
 
-*Current as of: 2026-09-12, when **a long ant stops waiting for a nestmate
-that is never going to move**. A long ant that is carrying something waits
+*Current as of: 2026-09-12, when **we found out why the flying animal always
+looked stuck: most of the time it is** -- a plant holds an animal up, and it
+also blocks it, so an animal inside a bush cannot move in any direction at
+all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
+when **ants started dying of old age** -- the
+first thing in this world that does, on the other side of the glass from the
+plants that always have. See "Ants get old" below; it is what turns a colony's
+boom-and-crash into a size it holds. The same day, **a long ant stops waiting
+for a nestmate that is never going to move**. A long ant that is carrying something waits
 out a jam rather than turning for home -- and it used to wait for ever,
 because the ant in its way was often stuck for the same reason. It now waits
 a few beats and then turns round. See "And a long ant can now turn round"
@@ -838,7 +845,35 @@ is not enough to build a wall out of: walls, pillars and chambers are something
 this preference could in principle grow into rather than something you will
 watch happen.
 
-**Ants starve now, and a colony settles at a size instead of running down.**
+**Ants get old and die of it, and that is what actually settles a colony at
+a size.** Until now nothing in this world died of age. Every death in every
+session was hunger or a fight, so a colony could only shrink by famine: it
+found a bed full of food, bred on it until there were hundreds of them, ate
+the bed down to bare ground, and then went all at once. Watch one long enough
+and you get a boom, a cliff, and a dead bed with the session still to run.
+
+An ant now has a lifespan, and it works the way a plant's does: it is the
+*middle* of a spread, not a stopwatch. Half a brood is still walking at it.
+Nineteen in twenty are alive at a quarter of it. About one in eighty reaches
+two and a half times it. So there is no moment where the colony turns over -- there is
+a steady trickle of ants that simply stop, all through the run, and the
+colony's size settles near how fast it breeds times how long an ant lives,
+instead of climbing until there is nothing left to eat. When it does fall, it
+falls as a slope rather than a cliff.
+
+Each ant that goes leaves a body where it fell, exactly as a starved one does,
+and a body is food -- so a colony that is losing its old is also feeding its
+young on them. A long run is now several generations deep instead of one line
+of animals that outlives the session.
+
+It is a number you can set, on the ANTS page, and it ships on only for the two
+ants. The hopper, the flitter and the beetle are still immortal, because
+nobody has measured what their lifespans should be. At zero -- which is what
+they are -- nothing ever dies of age and you get the old behaviour back
+exactly. It is not inherited yet: every ant of a kind lives the same span, and
+a lineage cannot evolve a longer one until living longer costs something.
+
+**Ants starve too, and that was the first thing that made a colony settle.**
 An ant carries a store of energy, spends it on standing still, walking and
 thinking, and refills it by eating. That store used to be so deep that
 nothing reached the bottom of it inside any run anyone actually watched — so
@@ -1184,6 +1219,61 @@ plain bed's nearest flowering clump stands 138 columns from where the animals
 land and a flitter can see 32; bring the nearest bloom inside about ninety
 columns and the whole ninefold arrives, and bringing it closer than that buys
 nothing and starts costing the nest its footing.
+
+### Stuck in the bush
+
+**Watch one flitter for a while and it will look stuck, and four times out of
+four that is what people said about it.** The reason turned out to have
+nothing to do with its wings. **A plant holds an animal up, and a plant is
+also solid to it** — and those two facts together make a bush a cage. An
+animal standing in the middle of foliage has leaves on every side, so there
+is nowhere for it to step; but the leaves under it are perfectly good ground,
+so it can still jump. It jumps, gets nowhere, comes down in the same place,
+and does it again. From outside that reads as hopping in place, or as sitting.
+
+It is not rare. Counted over a whole bed, **between about a sixth and a half
+of the living flitters cannot move in any direction at any given moment** —
+and when we watched one animal closely it had no free cell beside it on
+**seven frames out of eight**. It is also not new, and not something the
+flying work caused: the same thing is true of the older build, and it is
+slightly commoner now only because there are more animals sharing the same
+bushes. Worth knowing if you are ever wondering whether an animal is broken:
+look at what is touching it first.
+
+### What flying looks like now
+
+**Until 2026-09-12 the animal could not actually hover, and nobody had noticed
+the arithmetic said so.** Its wings could only ever cancel *part* of its
+weight — never all of it, no matter how hard it flapped — so every "flight"
+was a thrown arc that fell a bit more slowly. That is why it kept reading as
+hopping: it *was* hopping.
+
+Now a fed flitter genuinely holds itself up. It leaves the ground level
+instead of climbing, bobs as it goes the way something with wings does,
+wanders a little off its line rather than ruling a straight one, and comes
+down as it tires. Three other things changed with it, all of them things that
+were making the animal look dead when it was not:
+
+- **Flying is now priced by how hard it is flying.** A gentle glide used to
+  cost exactly what a full hover cost, which meant there was no such thing as
+  a cheap, long, shallow crossing. On its own this change roughly **doubled**
+  how many flowers the colony drinks from.
+- **It will now fly somewhere it cannot see.** Before, it only ever spent lift
+  on a flower already within about nine cells — so every journey longer than
+  that was an unpowered throw, and the animal crossed its bed by hopping and
+  flew only the last few cells. Now a well-fed one sets off on spec and glides
+  down as the effort runs out. A hungry one still just hops; it cannot afford
+  to go looking.
+- **And it gives up.** An animal used to be able to hover two cells short of a
+  flower it could see and stay there until it starved, because the only thing
+  that told it to stop flying was arriving — which never happened. One was
+  watched doing exactly that for **371 frames without moving**. Now a flight
+  that is getting nowhere stops, and the animal drops and walks.
+
+**None of this makes it survive.** On every bed and every seed tried, the
+colony still empties by the end of a long session. It drinks from several
+times as many flowers as it used to and raises young on more of them, and it
+still does not make a living.
 
 **And the richer bed exposed something the poor one was hiding.** A flitter
 only stops flying when there is no flower in sight — so on a bed full of

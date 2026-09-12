@@ -12,84 +12,48 @@ exchanges odour with the nearest one (`creature::blend_with_nest`), a
 trophallaxis contact does the same between two ants, and each site's own
 odour wanders once per 1,000 frames. `ant.ron` ships `scent_drift: 0.15`.
 
-## What not to re-derive — B1, landed as #347
+## What not to re-derive — B1 (#347) and the precondition (#350)
 
-Full account and numbers: PR #347 and `../evolution-lab-fission-design-2026-09-12.md`.
-The four findings a later session would otherwise pay for again:
+*Numbers and full accounts are in those PRs and in
+`../evolution-lab-fission-design-2026-09-12.md`. What a later session would
+otherwise pay for again:*
 
-- **Cohesion of the odour works and is strong.** At `scent_drift = 1.0`, 500
-  generations, every ant stays within **0.123** of its nest's odour against a
-  tolerance radius of 1.0; with the blend removed the same bed spreads to
-  **3.36**, the whole axis. The design's `0.072 * |u|` predicted 0.125.
+- **Cohesion of the odour works and is strong.** At `scent_drift = 1.0` over
+  500 generations every ant stays within **0.123** of its nest's odour against
+  a radius of 1.0; with the blend removed the same bed spreads to **3.36**.
 - **`TRAIT_TOLERANCE` drifts at `scent_drift` too and is deliberately not
-  blended**, so §1's "no setting can make a cohered nest eat itself" holds for
-  the odour and not for the allele that judges it. Blending it would erase the
-  asymmetry `TRAIT_TOLERANCE` is built around. Register, do not tune.
-- **§3's divergence arithmetic is a free-nest calculation**; a nest's own
-  residents anchor it, so a site-only wander relaxes to
-  `sigma * beta / (gamma * n + beta)` — measured median 0.580 where §3 says
-  1.01, and about a ninth of that at forty ants. No sigma repairs it.
-  `World::carry_nest_wander` is the fix: the wander moves the gestalt. **Do
-  not "improve" it back into a per-site-only wander.**
-- **One crossing ant a thousand frames holds two nests together**, every one
-  of twelve seeds under 0.18 against a cut-off median of 1.19. Polydomy is the
-  default outcome.
-
-## What the owner's verdict added, 2026-09-12
-
-Card `20260912T051541289Z-3b03d3`, and the question that bounds this lane:
-*"where is the nest/home defined as because I see ant populations moved from
-where they are originally placed and just live in the plants where there is
-food."* **He is right on two beds in three**, and it tracks §T2: seeds 1 and 2
-(deliveries 31 and 9) put every blend in the first 10,000 frames and then 7
-and 8 in the remaining 110,000, the centroid walking 28–130 cells out; seed 3
-(deliveries 268) stays, 15–47% within 32 cells, blends arriving to the last
-window. **Where the round trip closes the colony lives at home; where it does
-not, cohesion covers the founding cohort only.** Correlation over three seeds,
-direction untested. It bounds B2 as hard as B1.
-
-**Time away does not make an ant a stranger, and the owner asked for a build
-in which it does.** An ant's odour moves when it is **born**; coming home
-undoes it. Away from home it neither blends nor drifts and still tracks its
-nest's wander, because `carry_nest_wander` steps every animal whose nearest
-site it is at any distance. At the shipped 0.15 a lineage that never comes
-home needs ~44 generations to reach a radius against the 5–11 a session
-reaches. **The repair, costed and not built** (a design change, the owner's
-call): gate `carry_nest_wander` and the blend on proximity, so an ant away
-falls behind with *time* while ants at home still track it — the divergence
-guard is unaffected, but σ would need re-deriving (a wholly absent ant takes
-237 epochs at 0.065).
-
-**Three arms on seed 3, one mechanism each** (40,000–100,000 frames), cards
-`20260912T073328717Z-172fa8` and `20260912T074657942Z-a14201`: drift 0 with
-blending off gives 86 alive and 0 own-kills; drift 1.0 blending off gives 155
-and **675**; drift 1.0 blending on gives 32 and **181**. Blending cuts
-own-killings 73%, and the colony that stops eating itself is a fifth the size
-because on a starving bed 675 killings are 675 meals. **A bed term, absent at
-the shipped 0.15 on every seed.**
-
-**A number quoted from the wrong harness looks exactly like a result.** Card
-172fa8 went out with living-ant counts carried from `labstats` at a different
-frame span — 133 and 62 against the true 86 and 155, wrong in both directions
-and wrong about which colony was bigger. `labgif` now counts its own.
+  blended**, so "no setting can make a cohered nest eat itself" holds for the
+  odour, not for the allele that judges it. Register, do not tune — blending
+  it erases the asymmetry `TRAIT_TOLERANCE` is built around.
+- **The design's §3 divergence arithmetic is a free-nest calculation**; a
+  nest's residents anchor it, so a site-only wander relaxes to
+  `sigma*beta/(gamma*n + beta)` — 0.580 measured where §3 says 1.01.
+  `World::carry_nest_wander` is the fix. **Do not "improve" it back into a
+  per-site-only wander.**
+- **One crossing ant a thousand frames holds two nests together**, twelve
+  seeds under 0.18 against a cut-off median of 1.19. Polydomy is the default.
+- **The colony leaves its painted patch on two beds in three**, and it tracks
+  §T2: where the round trip closes (seed 3, 268 deliveries) it stays and
+  cohesion is live all run; where it does not, every blend lands in the first
+  10,000 frames and the centroid walks 28–130 cells out. **This bounds
+  budding as hard as it bounds cohesion.**
+- **Time away does not make an ant a stranger.** An ant's odour moves when it
+  is **born**; coming home undoes it. The owner asked for the other shape and
+  **the repair is costed and not built** (his call): gate `carry_nest_wander`
+  and the blend on proximity, and re-derive sigma with it.
 
 ## Environment notes
 
-- **`cargo test --lib` will hit the stale-incremental link error** on this
-  container (`rust-lld: error: undefined hidden symbol: anon.…`, referenced
-  from `creature::act`). `rm -rf target/debug/incremental` clears it. It is
-  `CLAUDE.md`'s documented gotcha and not a code error; it cost ten minutes
-  here because the message names a real function.
+- **`cargo test --lib` hits the stale-incremental link error** here
+  (`rust-lld: undefined hidden symbol: anon.…`, named from `creature::act`).
+  `rm -rf target/debug/incremental` clears it; it is not a code error.
 - **A test bed needs `scheduler::step` beside `update::step`.** `update::step`
-  begins and ends the frame and sweeps; it does **not** dispatch creature
-  active sites, so a bed driven with `update::step` alone ticks no animals at
-  all and every creature counter reads zero. That looks exactly like a dead
-  mechanism. `App::update`'s order is `update::step` then `scheduler::step`.
-- **`blend_a_lifetime`-style helpers must not filter on the colony label.** A
-  `regroup_by_scent` mint *renames* the ants it splits off, so a label filter
-  silently stops reaching exactly the animals a split has just made
-  interesting — which reads as "cohesion failed" and is the helper failing.
-  Measured: a cloud of 2.645 that was really 0.123.
+  begins and ends the frame and sweeps but dispatches no creature sites, so a
+  bed driven with it alone ticks no animals and every creature counter reads
+  zero — which looks exactly like a dead mechanism.
+- **A helper that filters on the colony label silently stops reaching the
+  animals a `regroup_by_scent` mint has just renamed** — measured as a cloud
+  of 2.645 that was really 0.123.
 
 ## What B2 needs from here
 
@@ -184,3 +148,58 @@ half the rest is the vital cell going **empty** and about two fifths is a
 **The positive control that caught it was the pair** — the attacker log read
 against the cause tally. 216 against 2 on the first run. A kill counter with
 no second counter beside it would have been quoted as a war.
+
+## For round 30: where to look, and what is already ruled out
+
+*Read-only, no fix started — round 30 owns this. §Z16 is the finding.*
+
+**Read §Z15 beside §Z16.** Lane N landed it in the same window: *a plant holds
+a creature up and also blocks it, so a bed of foliage is a cage*. That is the
+same collision between plant cells and creature cells from the other side —
+theirs is the living animal that cannot step, mine is the dead one whose head
+cell became a pip. Whoever picks either up should read both; they may be one
+repair.
+
+**Plants do not grow into ants, so growth is not the suspect.**
+`plant::growable` (`src/sim/plant.rs:245`) is the gate every growing tip
+passes, and it refuses an occupied creature cell twice over: a shoot
+(`penetration_force <= 0.0`) takes the cell only when `cell.material ==
+material::EMPTY` and otherwise returns false outright, and a root takes it
+only when the material is a `Powder` soft enough to push through. A creature
+cell is neither. **So the pip and the grassblade standing in a dead ant's head
+were not grown there — the ant's own cell was converted in place, or claimed
+by a path that does not go through `growable`.** That is the half of the
+search space round 30 can drop.
+
+**The three placement paths that write a plant cell without `growable`**, in
+the order they are worth checking:
+
+- `plant::seed_survives_bite` (`plant.rs:2360`) writes a `pip` **over the
+  bitten cell in place** rather than clearing it, and the creature bite path
+  calls `reconcile_chain` on the victim immediately after. Whether that cell
+  can ever be an animal's is the question; if it can, the pip is the ant.
+- `plant::germinate` (`plant.rs:11957`) converts a standing pip **in place**,
+  which would turn any such pip into the `grassblade` the table also shows.
+  That makes grassblade a *consequence* of the pip case rather than a second
+  route, and testing the pip case tests both.
+- Whatever sets a carried seed down (`pips_set_on_soil` / `pips_set_on_nest`
+  are its counters) — does the drop test the target cell for an occupant?
+
+**Hypotheses for the `EMPTY` half, which is the larger half and is not
+diagnosed.** A vital cell reading `Empty` was vacated by something that left
+nothing behind:
+
+- a powder or liquid swapping through a creature cell in the sweep;
+- the animal's own move ordering — a body vacating its head before the rest
+  of the chain is reconciled;
+- `creature.rs`'s own `world.set(tx, ty, Cell::EMPTY)` on the bite path.
+  **Partly ruled out already**: that site reads the victim's identity *before*
+  the clear and calls `tally_kill` when the chain fails to reconcile, so it
+  should have been attributed, and 384 deaths produced 2 attributions. It can
+  only contribute where one of the two lookups returns `None`.
+
+**The cheapest instrument that would separate them** is the one this branch
+already has: widen `World::note_vital_loss` to record whether an attack was in
+progress on that cell this frame, and the EMPTY column splits into "a bite
+nobody could attribute" and "everything else" in one run. That is a
+measurement, not a fix.
