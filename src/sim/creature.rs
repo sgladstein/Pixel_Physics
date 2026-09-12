@@ -7571,7 +7571,7 @@ pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
         // airborne brain tick is what decides whether this one is more than
         // a hop. `turn_acc: 0.0` for the same reason: nothing is being
         // steered yet.
-        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0, fly: 0.0, turn_acc: 0.0 });
+        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0, fly: 0.0, turn_acc: 0.0, aloft: 0, stall: 0 });
     }
     world.creature_stats.impulses += 1;
     true
@@ -7718,6 +7718,121 @@ pub fn flight_speed() -> f32 {
     })
 }
 
+/// **How much of its own weight a floating animal carries, per unit of
+/// `Fly`** -- and this constant is the whole of round 29's verdict.
+///
+/// `BrainOutput::Fly` is `brain::squash(sum) = sum/(1+|sum|)`, which is
+/// **strictly less than 1 for every finite genome**. The design wrote the
+/// lift as `g_eff = GRAVITY * (1 - carried) * (1 - fly)`, so with `fly`
+/// bounded below 1 by construction, **gravity could never be cancelled and
+/// every "flight" was still an arc** -- a shallower one, nothing more. The
+/// measurement agreed and nobody read it that way: on the understory bed
+/// the float was on for **72% of all airborne frames** and a take-off still
+/// bought **23 frames of air against the wingless arc's 22**. Three review
+/// cards came back *"both look very much like hopping"*, *"one long hop
+/// (clearly not fly)"*.
+///
+/// So the lift gets a gain: `hover = (fly * HOVER_GAIN).min(1.0)`. At 2.5 a
+/// `Fly` of 0.4 -- an ordinary output, not a saturated one -- holds the
+/// whole body up, and a weaker one holds part of it. **Graded, not binary**
+/// (`CLAUDE.md`'s first law): 0.2 carries half the weight and the animal
+/// sinks as it travels, which is what a tiring flier should do.
+///
+/// **Not folded into `fly_cost_in_moves` or into the genome.** The price of
+/// a frame of lift and the amount of lift a frame buys are different
+/// questions, and the species file already owns the first one; putting the
+/// gain in the genome would let selection discover anti-gravity.
+const HOVER_GAIN: f32 = 2.5;
+
+/// **The float's OFF threshold once it is already on** -- a Schmitt trigger,
+/// so a bout is one continuous flight rather than a chatter.
+///
+/// The ON condition stays exactly what `flitter.ron`'s `(Bias, Fly, ..)`
+/// makes it (`open-bugs-handoff.md` §Z10: a bias on a `*Near` row is a
+/// *distance*). What was missing is that the identical threshold governed
+/// staying up, so an animal crossing to a flower switched its wings off and
+/// on every few ticks as the bloom drifted in and out of range, and the
+/// resulting path is a chain of arcs -- a hop, whatever the counters say.
+///
+/// Deliberately shallow. `-0.35` on a squashed output is `sum > -0.538`,
+/// which widens the flitter's range from 9.6 cells to **11.7**; it does not
+/// reopen §Z10, where the gate was so wide it never shut at all. The energy
+/// term still slides the whole band closed as the tank empties, which is
+/// what keeps `STARVED_ALOFT` down.
+const FLY_HOLD: f32 = -0.35;
+
+/// **The lift a bout holds while it is inside the hysteresis band.** Below
+/// `1 / HOVER_GAIN`, so an animal that is flying on nothing but the hold
+/// sinks steadily: leaving the range is a glide down, not a switch-off.
+const FLY_HOLD_LIFT: f32 = 0.25;
+
+/// **How a bout ends: a power-down, not a cut.** `Fly` going hard negative
+/// (the flitter's `(FoodAdjacent, Fly, -12.0)`, i.e. *you have arrived*)
+/// decays the held lift by this factor per tick rather than zeroing it, so
+/// the animal settles onto the flower head over four ticks instead of
+/// dropping off it. `CLAUDE.md`'s first law again -- an outcome is a
+/// distribution, and "landed" wants a middle.
+const FLY_DECAY: f32 = 0.5;
+
+/// Lift below this is no lift: the power-down terminates, `fly` is exactly
+/// `0.0`, and §Z9's `landed`-when-weightless predicate can fire.
+const FLY_FLOOR: f32 = 0.1;
+
+/// **How long a flier has to get nowhere before it counts as having
+/// arrived** -- three brain ticks at the flitter's interval.
+///
+/// See `organism::Flight::stall`: at 1 frame this lands an animal every time
+/// it brushes a leaf and a bout collapses to 12 frames, shorter than the
+/// wingless arc. At 12 it keeps the flight and still catches the statue --
+/// a body wedged in foliage with its wings on, which is what a full hover
+/// makes possible for the first time.
+const PERCH_FRAMES: u8 = 12;
+
+/// **How fast a floating body converges on `flight_speed`, per frame.**
+///
+/// The thrust used to be applied inside the brain tick -- once every
+/// `tick_interval` frames -- while gravity was applied on all of them, so
+/// the vertical track was a sawtooth: fall for three frames, snap back on
+/// the fourth. That is an arc at the resolution a card is read at. The
+/// decision still happens at brain rate; only the *integration* moved to
+/// every frame, which is the same split `vx`/`vy` already had.
+const THRUST_RATE: f32 = 0.25;
+
+/// **The wingbeat**, in cells per frame per frame, and the period it beats
+/// at. A triangle wave on the vertical acceleration, so the body rides up
+/// and down about two thirds of a cell -- at play zoom that is the
+/// difference between a dot sliding along a line and something alive.
+///
+/// Costs nothing: it is a term in an addition that already happens, it
+/// draws no RNG, and it is inside the `fly > 0` branch only the flitter
+/// ever enters.
+const BOB: f32 = 0.05;
+const BOB_PERIOD: u64 = 20;
+
+/// **The wander** -- how far off its own heading a floating animal drifts,
+/// and over how many frames. A second triangle wave, applied across the
+/// track rather than along it, so a flight to a flower arrives where it was
+/// always going to and *meanders* on the way instead of ruling a straight
+/// line. Without it the path is one of eight compass directions held
+/// exactly, which reads as a projectile.
+const WANDER: f32 = 0.4;
+const WANDER_PERIOD: u64 = 96;
+
+/// A triangle wave in `[-1, 1]`, phased per animal.
+///
+/// **No `sin`**: `brain.rs`'s module doc bars libm from anything determinism
+/// depends on, and this feeds a position. **Phased on the organism id** so
+/// a bed of fifty flitters does not beat in unison -- `* 37` is an odd
+/// stride across the period, nothing more.
+fn weave(organism: u16, aloft: u16, period: u64) -> f32 {
+    let t = ((aloft as u64 + organism as u64 * 37) % period) as f32 / period as f32;
+    if t < 0.5 {
+        4.0 * t - 1.0
+    } else {
+        3.0 - 4.0 * t
+    }
+}
+
 /// The octant of `DIRS` a velocity points along, nearest-neighbour.
 ///
 /// **Normalised by the direction's own length, not a raw dot product.**
@@ -7807,8 +7922,33 @@ fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &
     // **Read raw and gated on strictly positive, exactly as `Impulse` is.**
     // `squash(0.0)` is exactly 0.0, so a species with an unauthored row is
     // never lifted and never thrusts -- the ballistic arc, byte for byte.
-    let fly = outputs[brain::BrainOutput::Fly as usize].clamp(0.0, 1.0);
+    //
+    // **Then a Schmitt trigger on top, and that is round 29's second fix**
+    // (`FLY_HOLD`). A bout used to be re-decided from scratch every tick
+    // against one threshold, so an animal crossing to a bloom that drifted
+    // in and out of the gate's range switched its wings off and on all the
+    // way there. Holding is not the same decision as starting: once up, the
+    // animal keeps flying until the bloom is clearly gone (`FLY_HOLD`) or it
+    // has arrived (`FoodAdjacent`, which drives the row hard negative), and
+    // **arriving powers down over four ticks rather than cutting** so it
+    // settles onto the flower instead of falling off it.
+    let raw = outputs[brain::BrainOutput::Fly as usize];
     let was_flying = flight.fly > 0.0;
+    let fly = if raw > if was_flying { FLY_HOLD } else { 0.0 } {
+        // Inside the hold band `raw` is negative and clamps to zero, so
+        // `FLY_HOLD_LIFT` is what a bout coasts on -- below `1/HOVER_GAIN`,
+        // i.e. a glide down rather than a hover.
+        raw.clamp(0.0, 1.0).max(if was_flying { FLY_HOLD_LIFT } else { 0.0 })
+    } else if was_flying {
+        let next = flight.fly * FLY_DECAY;
+        if next < FLY_FLOOR {
+            0.0
+        } else {
+            next
+        }
+    } else {
+        0.0
+    };
     flight.fly = fly;
     if fly > 0.0 {
         // **The float taking the arc over.** `launch` builds its velocity as
@@ -7850,16 +7990,16 @@ fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &
             state.heading = heading;
         }
 
-        // **Thrust along the heading, against a drag -- and the thrust is
-        // deliberately NOT applied along the current velocity.** Both terms
-        // are scaled by `fly`, so one number is the lift, the drag and the
-        // throttle, the equilibrium speed is exactly `flight_speed`
-        // (`target * fly / fly`), and a weak lift converges to it slowly
-        // while a strong one snaps to it. The design report asks for a
-        // horizontal drag active only while flying and a thrust toward a
-        // species speed; this is both, in one term, with no new constant --
-        // and at `fly == 0.0` none of it runs, so the ballistic hop is
-        // byte-identical.
+        // **The thrust itself has moved to `step_flight`, and runs every
+        // frame.** What is left here is the decision: how much lift, and
+        // which way. Integrating the steering at brain rate while gravity
+        // integrated at frame rate is what made the track a sawtooth -- fall
+        // three frames, snap back on the fourth -- which is an arc at the
+        // resolution a review card is read at. See `THRUST_RATE`.
+        //
+        // The note below is kept because it is the reason the thrust points
+        // along the *heading* rather than along the velocity, which is still
+        // true wherever it runs.
         //
         // **Scaling the velocity to `flight_speed` instead was built first,
         // and it is a rocket.** A direction-preserving renormalisation
@@ -7872,11 +8012,6 @@ fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &
         // Thrusting along the heading leaves gravity a component of its own
         // to bend the path with, which is what makes a level flier sink
         // slightly and a weak one sink a lot.
-        let target = flight_speed();
-        let (dx, dy) = DIRS[heading as usize];
-        let len = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
-        flight.vx = flight.vx * (1.0 - fly) + target * fly * dx as f32 / len;
-        flight.vy = flight.vy * (1.0 - fly) + target * fly * dy as f32 / len;
     }
 
     // Charged at the ground's own rates and booked to the ground's own
@@ -7919,7 +8054,13 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // what it was before this existed.
     let interval = organism_tick_interval(world, organism, def);
     let mut thinking = 0.0f32;
-    if def.fly_cost_in_moves > 0.0 && float_enabled() && world.frame.is_multiple_of(interval) {
+    // **`aloft == 0` forces a tick on the launch frame itself.** The modulus
+    // alone meant a body that left the ground on the wrong frame flew the
+    // first `tick_interval - 1` frames of a 6-cell/frame launch as pure
+    // ballistics -- up to eighteen cells before the wings could take the arc
+    // over, which is exactly the *"one long hop (clearly not fly)"* the owner
+    // read off round 29's card. The float now gets the launch.
+    if def.fly_cost_in_moves > 0.0 && float_enabled() && (flight.aloft == 0 || world.frame.is_multiple_of(interval)) {
         thinking = fly_brain_tick(world, organism, def, &mut flight, &cells);
     }
 
@@ -7932,10 +8073,62 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // flying is holding up nothing, which is the arithmetic saying what it
     // should. `fly` is 0.0 for every ballistic arc, so this line is the
     // identity it was for a species that does not float.
-    let gravity_effective = GRAVITY * (1.0 - carried) * (1.0 - flight.fly);
+    // **The lift, and it is the fix round 29 needed.** `fly` is a squashed
+    // output and so is strictly below 1; multiplying gravity by `1 - fly`
+    // therefore *never* reached a hover, and every flight stayed an arc.
+    // `HOVER_GAIN` is what closes that, and `hover` is still graded: a weak
+    // `Fly` carries part of the weight and the animal sinks as it goes.
+    //
+    // `carried` is the share the surrounding fluid takes; a body that is both
+    // submerged and flying is holding up nothing, which is the arithmetic
+    // saying what it should. Both are 0 for a ballistic arc, so this line is
+    // the identity it was for a species that does not float.
+    let hover = (flight.fly * HOVER_GAIN).min(1.0);
+    let gravity_effective = GRAVITY * (1.0 - carried) * (1.0 - hover);
     let terminal = terminal_speed(&shape, fluid, gravity_effective);
 
     flight.vy += gravity_effective;
+    if flight.fly > 0.0 {
+        // **Thrust and steer, every frame** (`THRUST_RATE`). The brain has
+        // already chosen the lift and turned the heading; this integrates it
+        // at the rate the ballistics integrate at, so the track is a line
+        // rather than a sawtooth of three falling frames and one correction.
+        //
+        // **The direction is continuous, not one of eight.** `turn_acc`
+        // carries the sub-octant remainder the whole-octant turn could not
+        // spend, and blending the neighbouring octant in by that fraction
+        // spends it here instead -- so a bearing worth a third of an octant
+        // *aims* a third of an octant, rather than doing nothing for three
+        // ticks and then snapping 45 degrees. `heading` itself is untouched,
+        // so every bearing `sense` computes still means what it meant.
+        let heading = world.organism(organism).map_or(0, |s| s.heading) % 8;
+        let (dx, dy) = DIRS[heading as usize];
+        let frac = flight.turn_acc.clamp(-1.0, 1.0);
+        let side = if frac >= 0.0 { AHEAD_LEFT } else { AHEAD_RIGHT };
+        let (nx, ny) = DIRS[((heading + side) % 8) as usize];
+        let f = frac.abs();
+        let mut ax = dx as f32 * (1.0 - f) + nx as f32 * f;
+        let mut ay = dy as f32 * (1.0 - f) + ny as f32 * f;
+        // **The wander, across the track.** A straight line held exactly for
+        // forty cells reads as a thrown stone; a bee's path wobbles about the
+        // line it is nonetheless following. Applied to the aim, never to the
+        // destination, so it costs the flight nothing but distance.
+        let w = WANDER * weave(organism, flight.aloft, WANDER_PERIOD);
+        let (px, py) = (-ay, ax);
+        ax += px * w;
+        ay += py * w;
+        let len = (ax * ax + ay * ay).sqrt().max(f32::MIN_POSITIVE);
+        let target = flight_speed();
+        let k = (flight.fly * THRUST_RATE).clamp(0.0, 1.0);
+        flight.vx = flight.vx * (1.0 - k) + target * k * ax / len;
+        flight.vy = flight.vy * (1.0 - k) + target * k * ay / len;
+        // **The wingbeat.** A triangle wave on the vertical acceleration,
+        // phased per animal, riding the body up and down about two thirds of
+        // a cell. It is the difference between a dot sliding along a line and
+        // something alive, and it costs one add inside a branch only a
+        // species that prices flight ever enters.
+        flight.vy += BOB * weave(organism, flight.aloft, BOB_PERIOD);
+    }
     // Downward only: this is a *terminal* velocity, and clamping the rising
     // half of an arc with it would collapse every launch speed to the same
     // number and delete the mass law the whole design rests on.
@@ -7958,6 +8151,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // body moving 3 cells this frame must test the two it passes through, or
     // it walks through a one-cell floor.
     let mut landed = false;
+    // **A substep was due and the world refused it on every axis.** Not the
+    // same as "did not move": at half a cell a frame most frames have no
+    // step due at all. See the perch below.
+    let mut blocked = false;
     let mut moves = 0u64;
     loop {
         let sx = axis_step(flight.fx);
@@ -8016,6 +8213,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             }
         }
         // Nowhere to go on either axis.
+        blocked = true;
         if sy > 0 {
             landed = true;
         } else {
@@ -8048,6 +8246,37 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         world.creature_stats.landed_afloat += 1;
     }
 
+    // **The perch, and it is §Z9's shape again one floor up.** §Z9 was a body
+    // that hung because the *water* held it up; this is a body that hangs
+    // because its own *wings* do. Before `HOVER_GAIN` it could not happen --
+    // gravity always won eventually, so anything wedged in a canopy was
+    // pushed down out of it within a few frames. Now a flier pressed into
+    // foliage has every substep refused, keeps its lift, and stays exactly
+    // where it is until it starves: measured on the understory bed, the
+    // followed animal was airborne and motionless for **450 consecutive
+    // captured frames**.
+    //
+    // A flier that is trying to move, cannot, and is touching something has
+    // arrived on it. `body_is_supported` is the identical predicate a walk
+    // and a landing already share, so a perch and a footing cannot disagree.
+    // **Counted on "went nowhere", not on "was refused".** Requiring a
+    // refusal was measured first and is `perched == 0` -- a flier wedged in a
+    // canopy jitters one cell back and forth rather than being refused twelve
+    // frames running, so the counter it was keyed on never got there. What a
+    // perch is actually about is a body that is not going anywhere, and at
+    // half a cell a frame twelve frames with no cell move is exactly that.
+    if moves == 0 {
+        flight.stall = flight.stall.saturating_add(1);
+    } else {
+        flight.stall = 0;
+    }
+    let _ = blocked;
+    if !landed && flight.stall >= PERCH_FRAMES && flight.fly > 0.0 && body_is_supported(world, &cells) {
+        landed = true;
+        world.creature_stats.perched += 1;
+    }
+
+    flight.aloft = flight.aloft.saturating_add(1);
     world.creature_stats.flight_frames += 1;
     world.creature_stats.flight_moves += moves;
     if flight.fly > 0.0 {

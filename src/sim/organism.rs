@@ -5000,6 +5000,36 @@ pub struct Flight {
     /// at most one octant per tick falls out of the arithmetic rather than
     /// being clamped in.
     pub turn_acc: f32,
+    /// **Frames since this body left the ground**, saturating.
+    ///
+    /// Two jobs, both of which `Reports/lanes/evolution-lab-flitter.md`'s
+    /// round-29 verdicts turned on.
+    ///
+    /// **It makes the launch frame a decision point.** The airborne brain
+    /// runs once per `tick_interval`, so a body that left the ground on a
+    /// frame the modulus did not like flew the first three frames of a
+    /// 6-cell/frame launch with no wings on -- up to eighteen cells of pure
+    /// ballistics before anything could take the arc over. That is most of
+    /// what the owner saw as *"one long hop (clearly not fly)"*.
+    /// `aloft == 0` forces the first tick regardless of the modulus.
+    ///
+    /// **And it phases the wingbeat.** `creature::weave` reads it for the
+    /// bob and the wander, so the flutter is a function of how long *this*
+    /// animal has been up rather than of the world clock -- two flitters
+    /// launching a frame apart beat out of step, which is what stops a bed
+    /// full of them pulsing in unison.
+    pub aloft: u16,
+    /// **Consecutive frames a flying body has had a step refused on every
+    /// axis** -- the perch's counter, reset by any successful substep.
+    ///
+    /// One blocked frame is not a stall: a flier crossing a canopy clips a
+    /// leaf constantly and should slide along it, which is what the axis
+    /// fallbacks in `creature::step_flight` are for. Landing on the first
+    /// refusal was built and measured -- it put the animal down so eagerly
+    /// that a bout fell to **12 frames, shorter than the 22-frame wingless
+    /// arc it replaced**, and `flower_visits` with it (381 -> 307). What
+    /// deserves a perch is a body that has been trying and getting nowhere.
+    pub stall: u8,
 }
 
 /// Per-organism state too large (or too semantically distinct) to fit in

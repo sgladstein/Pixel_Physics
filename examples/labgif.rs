@@ -36,6 +36,7 @@
 use pixel_physics::lab::rain::Rain;
 use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::{Lab, HEIGHT, WIDTH};
+use pixel_physics::sim::brain;
 use pixel_physics::sim::update;
 use pixel_physics::sim::world::World;
 
@@ -58,6 +59,67 @@ fn head_of_first(world: &World, species: &str) -> Option<(i32, i32)> {
         }
         state.chain.first().copied()
     })
+}
+
+/// **`wire=Input:Output:weight[,...]` -- override authored instinct weights
+/// for this run**, `labforage`/`labstats`/`creature_arena`'s knob, with the
+/// same spelling so the four harnesses race one set of numbers rather than
+/// four transcriptions of it.
+///
+/// `Reports/lanes/evolution-lab-flitter.md` records its absence here as an
+/// environment cost: a species file is `include_str!`-embedded, so every
+/// card at a non-shipped wiring was a full rebuild, and the round-29 lane
+/// paid that repeatedly. A GIF sweep over a genome knob is now one binary.
+fn wire_rider() -> Vec<(brain::BrainInput, brain::BrainOutput, f32)> {
+    let Some(spec) = arg::<String>("wire") else { return Vec::new() };
+    spec.split(',')
+        .map(|entry| {
+            let bits: Vec<&str> = entry.split(':').collect();
+            assert_eq!(bits.len(), 3, "wire entry {entry:?} wants Input:Output:weight, e.g. wire=Bias:Fly:-7.0");
+            let input = brain::INPUTS
+                .iter()
+                .copied()
+                .find(|i| brain::INPUT_NAMES[*i as usize].eq_ignore_ascii_case(bits[0]))
+                .unwrap_or_else(|| panic!("unknown input {:?}; known: {:?}", bits[0], brain::INPUT_NAMES));
+            let output = brain::OUTPUTS
+                .iter()
+                .copied()
+                .find(|o| brain::OUTPUT_NAMES[*o as usize].eq_ignore_ascii_case(bits[1]))
+                .unwrap_or_else(|| panic!("unknown output {:?}; known: {:?}", bits[1], brain::OUTPUT_NAMES));
+            let w: f32 = bits[2].parse().unwrap_or_else(|_| panic!("wire weight {:?} does not parse", bits[2]));
+            (input, output, w)
+        })
+        .collect()
+}
+
+/// **Which animal `follow=` should lock onto, and it is not the lowest id.**
+///
+/// `head_of_first` takes the lowest live organism id of the species, which
+/// `Reports/lanes/evolution-lab-flitter.md` already records as a trap: on a
+/// bed with fifty flitters the lowest id is very often one that has settled
+/// at a flower and will not move again, so a card meant to show flight shows
+/// a frozen sprite. Measured here on `played_bed_understory` seed 1 at
+/// `start=9000`: the lowest-id flitter moved the camera **8 times in 1,800
+/// frames** and not at all after frame 522.
+///
+/// So `follow_air=1` picks the first live animal of the species **that is
+/// airborne at the start frame** -- the animal doing the thing the card is
+/// about -- and the caller then holds that organism id for the whole capture
+/// rather than re-picking, so the camera never cuts to a different animal
+/// mid-shot. Falls back to `head_of_first`'s pick when nothing is up.
+///
+/// Opt-in: unset, `follow=` behaves exactly as it did, so every existing
+/// card reproduces.
+fn airborne_of(world: &World, species: &str) -> Option<u16> {
+    let sid = world.species.id_of(species)?;
+    world.live_organism_ids().into_iter().find(|&id| {
+        world.organism(id).is_some_and(|s| s.species == sid && s.flight.is_some() && !s.chain.is_empty())
+    })
+}
+
+/// The head cell of one named organism, or `None` once it has died.
+fn head_of_id(world: &World, id: u16) -> Option<(i32, i32)> {
+    world.organism(id)?.chain.first().copied()
 }
 
 /// The bed's whole soil-water total, `soil_drawdown.rs`'s own census over
@@ -158,6 +220,23 @@ fn main() {
     // byte-for-byte**, the identical guarantee `center=`'s own doc states
     // for itself -- the two knobs are additive, not a rewrite of one path.
     let follow: Option<String> = arg::<String>("follow");
+    // **`follow_air=N` -- follow whoever is actually flying.** See
+    // `airborne_of` for why the default pick is wrong for a flight card.
+    //
+    // `N` is how many *captured* frames the followed animal may spend on the
+    // ground before the camera moves to one that is up. A single lock-on is
+    // not enough on its own and the first attempt proved it: the lowest-id
+    // airborne flitter on the understory bed landed on a flower four frames
+    // in and sat there for the remaining 890, so a card shot that way shows a
+    // frozen sprite whichever flight model is running. Holding for a few
+    // frames keeps a landing and a take-off in shot -- which is the part
+    // worth seeing -- and then moves on rather than watching a parked animal.
+    //
+    // **Symmetric, which is what makes it fair in an A/B.** The rule is "show
+    // me this build's animal doing the thing", applied identically to both
+    // arms; a build whose animals only ever hop for twenty frames produces a
+    // clip that cuts constantly, and that reads as hopping, correctly.
+    let follow_air: u64 = arg::<u64>("follow_air").unwrap_or(0);
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
     // **`up=N` -- a nearest-neighbour integer upscale of the `png_dir=`
     // frames only**, `labstats`' own knob and for its own reason: the review
@@ -200,8 +279,8 @@ fn main() {
     // Requires `center=` -- ringing an unset default camera would ring a
     // point this file has no claim about.
     let mark: bool = arg::<u32>("mark").unwrap_or(0) != 0;
-    if mark && center.is_none() {
-        eprintln!("labgif: mark=1 with no center= rings nothing -- center= names the world cell to ring");
+    if mark && center.is_none() && follow.is_none() {
+        eprintln!("labgif: mark=1 with no center= or follow= rings nothing -- one of them names what to ring");
     }
     // **`png_dir=<path>` -- writes every captured frame as its own PNG
     // there too, numbered in capture order, alongside the GIF.** Added for
@@ -251,6 +330,35 @@ fn main() {
     // off first, and this one must too or the card is a picture of the help
     // page rather than the box.
     lab.show_help = false;
+    // **Before `load_scenario`, because that is what founds the colony** and
+    // `place_creature` copies the genome at placement -- the same ordering
+    // `labforage`'s own block states, and the same assertion, because an arm
+    // that matched nothing is the control wearing a label.
+    let wires = wire_rider();
+    if !wires.is_empty() {
+        let sid = lab.world.species.id_of(&sc.bed.colony_species).expect("the colony species is compiled in");
+        let mut genome = lab.world.species.get(sid).genome.clone();
+        let mut moved = 0;
+        for &(input, output, w) in &wires {
+            let i = brain::io_slot(input, output);
+            if genome[i] != w {
+                genome[i] = w;
+                moved += 1;
+            }
+        }
+        assert!(moved > 0, "wire= matched no slot the species did not already carry; this arm is the control wearing a label");
+        lab.world.species.set_genome(sid, genome);
+        println!(
+            "  wire= set {moved} of {} weights on {}: {}",
+            wires.len(),
+            sc.bed.colony_species,
+            wires
+                .iter()
+                .map(|&(i, o, w)| format!("{}:{}:{w}", brain::INPUT_NAMES[i as usize], brain::OUTPUT_NAMES[o as usize]))
+                .collect::<Vec<_>>()
+                .join(",")
+        );
+    }
     let msg = lab.load_scenario(sc);
     // **After `load_scenario`, not before**: `reset()` (which it calls)
     // replaces `self.stats` with a fresh `Stats::new()`, which opens
@@ -318,11 +426,23 @@ fn main() {
     }
     let bounds = pixel_physics::sim::chunk::Rect::new(0, 0, lab.spec.width - 1, lab.spec.height - 1);
     let (span_x, span_y) = lab.renderer.visible_span((full_w, full_h));
+    // The organism `follow_air=N` locked onto, and how long it has been down.
+    let mut locked: Option<u16> = None;
+    let mut grounded: u64 = 0;
+    // **How many times the camera had to change animal**, printed at the end:
+    // it is the card's own "did it fire" counter for the follow rule, and on
+    // a flight card it doubles as a bout-length readout -- a build whose
+    // animals stay up needs few cuts, one whose animals hop needs many.
+    let mut cuts: u64 = 0;
     if let Some((ccx, ccy)) = center {
         lab.renderer.set_camera(ccx - span_x / 2, ccy - span_y / 2, (full_w, full_h), Some(bounds));
         println!("  camera centred on ({ccx},{ccy}) at {zoom}x -- {span_x}x{span_y} world cells visible");
     } else if let Some(species) = &follow {
-        match head_of_first(&lab.world, species) {
+        if follow_air > 0 {
+            locked = airborne_of(&lab.world, species);
+            println!("  follow_air={follow_air}: locked onto organism {:?} of {species} at frame {start}", locked);
+        }
+        match locked.and_then(|id| head_of_id(&lab.world, id)).or_else(|| head_of_first(&lab.world, species)) {
             Some((hx, hy)) => {
                 lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
                 println!("  camera following {species} at ({hx},{hy}) at frame {start}, {zoom}x -- {span_x}x{span_y} world cells visible");
@@ -353,7 +473,30 @@ fn main() {
             // world origin -- a card that loses its animal mid-run should
             // show the last place it was, not jump.
             if let Some(species) = &follow {
-                if let Some((hx, hy)) = head_of_first(&lab.world, species) {
+                // **Re-lock when the animal in shot has been down too long.**
+                // `grounded` counts captured frames since it was last in the
+                // air; past `follow_air` the camera looks for someone who is,
+                // and keeps the current one if nobody is.
+                if follow_air > 0 {
+                    let up = locked.is_some_and(|id| lab.world.organism(id).is_some_and(|s| s.flight.is_some()));
+                    let alive = locked.is_some_and(|id| lab.world.organism(id).is_some());
+                    if up {
+                        grounded = 0;
+                    } else {
+                        grounded += 1;
+                    }
+                    if !alive || grounded > follow_air {
+                        if let Some(next) = airborne_of(&lab.world, species) {
+                            if Some(next) != locked {
+                                cuts += 1;
+                            }
+                            locked = Some(next);
+                            grounded = 0;
+                        }
+                    }
+                }
+                let at = locked.and_then(|id| head_of_id(&lab.world, id)).or_else(|| head_of_first(&lab.world, species));
+                if let Some((hx, hy)) = at {
                     lab.renderer.set_camera(hx - span_x / 2, hy - span_y / 2, (full_w, full_h), Some(bounds));
                 }
             }
@@ -363,7 +506,17 @@ fn main() {
             // rendered frame as far as the crop/zoom code below is
             // concerned -- it composes with both for free rather than
             // needing its own offset math against whichever one ran.
-            if mark && center.is_some() {
+            // **`camera_mode`, not `center.is_some()`, and this is the same
+            // bug `zoom`'s own branch below records having had for a day.**
+            // `follow=` re-centres on the animal's head through exactly the
+            // `set_camera` call `center=` uses, so the followed animal is at
+            // pixel `(full_w/2, full_h/2)` by the identical arithmetic -- a
+            // ring there names the animal as exactly as it names a pip. A
+            // card that follows a two-cell body at play zoom is unreadable
+            // without it: the owner's round-29 verdicts on the flitter were
+            // read off sheets in which the animal itself could not be
+            // picked out ("I see a creature move a little within a plant").
+            if mark && camera_mode {
                 draw_ring(&mut full, full_w, full_h, (full_w / 2) as i64, (full_h / 2) as i64, 8, [255, 0, 255, 255]);
             }
             // **`PIP_PROBE=1` -- confirms the ring is on the cell it claims
@@ -489,6 +642,9 @@ fn main() {
     // world cells inside the *same* WIDTHxHEIGHT canvas instead. Caught by
     // hand: the log read `2560x1600` over an image that was genuinely
     // `512x320`, `CLAUDE.md`'s own "ask what your number counts" shape.
+    if follow_air > 0 {
+        println!("  follow_air: camera changed animal {cuts} times over {} captured frames", frames / every + 1);
+    }
     let (shot_w, shot_h) = shots.first().map_or((w, h), |img| (img.width(), img.height()));
     let gif_frames: Vec<image::Frame> = shots.into_iter().map(|img| image::Frame::from_parts(img, 0, 0, delay)).collect();
     let n = gif_frames.len();

@@ -869,6 +869,19 @@ pub struct CreatureStats {
     /// `deaths_by`'s `STARVED ALOFT` share, which is the number the bug is
     /// actually about; `LAND_AFLOAT=0` puts the defect back.
     pub landed_afloat: u64,
+    /// **Landings made because a *flying* body had nowhere left to go** --
+    /// the perch.
+    ///
+    /// Once lift genuinely cancels gravity (`creature::HOVER_GAIN`) a flier
+    /// no longer comes down by itself, so a body that pushed into foliage
+    /// and had every substep refused simply hung there with its wings on,
+    /// for ever: measured on the understory bed, the followed flitter was
+    /// airborne and motionless for **450 consecutive captured frames**, a
+    /// statue in mid-air, which is a worse artifact than the hop it
+    /// replaced. A flier that cannot move and is touching something has
+    /// arrived on it. Read beside `landed_afloat` -- that one is water,
+    /// this one is leaves.
+    pub perched: u64,
     /// Launches the brain asked for and the body could not make — the
     /// creature was already off the ground.
     ///

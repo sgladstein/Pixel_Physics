@@ -1494,7 +1494,25 @@
             // doc §2.5 states this in the same words: "opposite condition,
             // opposite population silenced." Write this down again at the
             // next site that touches this line, or it reads as the retry.
-            (FoodAdjacent, Impulse, -2.0),
+            // **-2.0 -> -1.75, 2026-09-12: a visit is a pause, not a
+            // parking space.** At exactly -2.0 this cancels `(Bias, Impulse,
+            // 2.0)` to `squash(0.0) == 0.0`, and `(Bias/Energy/FoodAdjacent,
+            // Move)` sums negative for a fed animal at food, so a flitter
+            // that reached a flower with a full tank could neither hop nor
+            // walk: it sat on that one cell, not moving a pixel, for the
+            // **~4,160 frames** it took idle metabolism to bring it down to
+            // the 0.48 tank where `Move` reopens. Measured on the understory
+            // bed at `start=9000`: the followed animal moved **once in 1,800
+            // frames**. That is the owner's *"stuck next to a plant"*,
+            // literally, and it is here rather than in the wings.
+            //
+            // -1.75 leaves `squash(0.25) = 0.2`, so a fed animal at a flower
+            // takes off on about one tick in five -- a visit of roughly
+            // twenty frames, a drink and away. The wire still does its job
+            // (`wiki/ants.md`: *an animal that jumps off its own dinner never
+            // eats*); it is now a bias against leaving rather than a bar on
+            // it.
+            (FoodAdjacent, Impulse, -1.75),
 
             // --- Fly: stay up, and steer ---------------------------------
             // **The verb this round exists for, and it is where `Turn`
@@ -1587,6 +1605,28 @@
             // velocity (fixed in `creature::fly_brain_tick`), and nothing in
             // the genome said when to stop flying. A verb with no OFF
             // condition is not a graded outcome, it is a state.
+            // **-9.6 held through the 2026-09-12 hover fix, and widening it
+            // was tried first and is a trap worth naming.** Once lift
+            // genuinely cancels gravity (`creature::HOVER_GAIN`) a bout goes
+            // somewhere, so the obvious next move is to open the gate at a
+            // range worth crossing -- `-7.0` buys 20 cells at full energy
+            // against 9.6. Measured on `played_bed_understory` seed 1,
+            // 20,000 frames, one binary (`labforage wire=`): it is **worse on
+            // every column** -- `flower_visits` 381 -> 118, `born` 9 -> 3,
+            // `alive` 16 -> 5, and `STARVED_ALOFT` **2 -> 20 of 31 deaths**,
+            // i.e. straight back to the §Z10 regime the gate exists to
+            // prevent. `-8.5` is between the two on every column (250 / 9 /
+            // 8 / 3) and still worse than holding.
+            //
+            // **And the reason is an invariant, not a tuning curve.** The
+            // gate opens on `-B + 4*Energy + 8*BloomNear > 0`, so at zero
+            // energy it reduces to `8*BloomNear > B`: while **B exceeds the
+            // `BloomNear` weight (8.0)** an empty tank cannot fly whatever it
+            // can see, and below 8.0 a starving animal a few cells from a
+            // bloom takes off and hovers until it dies. That is the whole of
+            // the 20 aloft deaths. Any future change to either number has to
+            // keep `|Bias| > |BloomNear|` or re-derive what grounds a dying
+            // animal.
             (Bias, Fly, -9.6),
             // **The fuel gauge, and the sign is the thing to check before
             // copying this line.** `BrainInput::Energy` is
