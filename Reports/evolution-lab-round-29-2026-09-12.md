@@ -448,8 +448,9 @@ zoom-in and zoom-out designs, the soil design and the magnify styles (#344,
   hour before the code overturned it.
 - **The stuck flitter was never the flight.** Four cards, four verdicts, all
   aimed at a caged animal by a camera that picks the lowest id.
-- **The stuck pile is mostly not stuck.** Bred one-cell bodies and resting
-  ants; the one genuine jam is bounded.
+- **The stuck pile is mostly not stuck — and the fix does not read.** Bred
+  one-cell bodies and resting ants; the one genuine jam is bounded on the
+  counters, and the owner's eye called the fixed arm the worse of the two.
 - **The nest door was under water.** Not spoil, not digging, not the walk —
   a material with no water capacity.
 - **A seed riding home saves the bed and starves the colony**, and the
@@ -457,8 +458,9 @@ zoom-in and zoom-out designs, the soil design and the magnify styles (#344,
 - **Survival at 2.5 lifespans is 1.31%**, not 0.4%.
 - **The nest is not where the colony lives** on two beds in three, which
   bounds budding, cohesion and the owner's "time away" model alike.
-- **Method:** a determinism or baseline control shorter than a mechanism's
-  onset proves nothing (identical to 100,000 frames, dominant after); a card's
+- **Method:** a follow camera destroys a colony-level card (two cohesion
+  cards came back "shaking, cannot tell anything"); a determinism or baseline
+  control shorter than a mechanism's onset proves nothing (identical to 100,000 frames, dominant after); a card's
   `meta` must be measured in the window it shows; `labgif` defaults to
   `rain=steady` and `latecensus` sets no rain, so a card paired against a
   census must pass `rain=off`; a 3x magnified view is blind to thin-feature
@@ -468,13 +470,41 @@ zoom-in and zoom-out designs, the soil design and the magnify styles (#344,
 
 ## The owner's verdicts (2026-09-12)
 
-Flitter cards: hopping, stuck, cannot tell — four times, and correct each
-time. Seed cargo: *"A looks slightly better but not sure what happens at
-80–100k frames"* — answered above. Long-ant pile GIF: *"way too slow"*, and
-three markers of *"no movement"* that were resting full-length ants. Cohesion:
-two mechanisms on one card, could not tell them apart, likes both, and the
-two questions that became #350. The render board's zoom cards belong to round
-thirty.
+Through the day: flitter cards hopping, stuck, cannot tell — four times, and
+correct each time. Seed cargo: *"A looks slightly better but not sure what
+happens at 80–100k frames"* — answered above. Long-ant pile GIF: *"way too
+slow"*, and three markers of *"no movement"* that were resting full-length
+ants. Cohesion: two mechanisms on one card, could not tell them apart, likes
+both, and the two questions that became #350. The render board's zoom cards
+belong to round thirty.
+
+**At the close (14:51–14:59, every open card answered; the blind ones read
+through `blind_was`):**
+
+- **The flitter flies.** On the blind A/B (`89ba6b`) he chose the new build
+  — *hover, cruise and stall-out* — as the animal flying between flowers,
+  against today's shipped flight. Four negatives and then the fifth card,
+  with the animal uncaged, is a yes: the flight was right and the cage was
+  the whole story.
+- **Seed cargo keeps the bed alive.** On the whole-session blind A/B
+  (`61ce30`) he chose the cargo build as the bed still alive at 500,000
+  frames.
+- **Ants that get old are the colony he wants.** On the blind session strip
+  (`07d3ab`), *"A is better"* — and presented A was the 40,000-frame
+  lifespan arm. The 3.2-fold band beat the 530-fold swing by eye.
+- **The long-ant pile is not fixed to the eye.** On the blind pair
+  (`3ede0a`): *"Both have lots of stuck. A looks worse"* — and presented A
+  was the expiry build. The counters say the expiry helps on seven seeds in
+  nine; the eye says both arms are a stuck crowd and the fix arm reads worse.
+  Eye is the bar; the pile goes to round thirty as **not visibly fixed**,
+  with #353's own reading of what the crowd is (bred one-cell bodies and
+  resting ants) as the place to start.
+- **Two cohesion cards were unreadable** (`a14201`, `172fa8`): *"a crazy gif
+  that is shaking, maybe following a creature. I cannot tell anything"* —
+  twice. A follow camera answers a question about one animal and destroys a
+  question about a colony; those were colony questions. The mechanism's
+  verdict therefore still rests on the counters and on #350's finding that
+  the colony is not at the nest.
 
 ## Open at close
 
@@ -513,6 +543,6 @@ Every round-29 pull request is on `main`: #329, #330, #332, #334, #335,
   read 8,544 cells of roofed void against `latecensus`'s 26, a 330x
   overcount, and every unit test passed through it. Anything that reads
   `ground_datum` inside a lab bed has that waiting.
-- **Cards awaiting the owner**: the lifespan session strip (`07d3ab`, blind)
-  and the flitter flight A/B (`89ba6b`, blind); read both through
-  `blind_was`.
+- **No card awaits the owner**: he answered every open one at the close (see
+  *The owner's verdicts*). The two cohesion cards want re-posting from a
+  fixed camera, and the pile wants a build the eye can pass.

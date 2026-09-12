@@ -100,7 +100,11 @@ thirty's, and §Z15/§Z16 may be one repair. **The nest is not where the colony
 lives** on two beds in three (#350): budding, cohesion and the owner's "time
 away turns enemy" all wait on that, and the shipped drift value is his design
 call. **The flitter is caged by the canopy, not broken in flight** (§Z15): a
-design lane, starting from `climbable`. **A card paired against a census passes
+design lane, starting from `climbable`; uncaged, the owner chose the new
+flight as flying. **Owner verdicts at the close:** seed cargo and the
+lifespan arm chosen by eye; **the long-ant pile is not visibly fixed**
+(both arms stuck, the fix arm worse) — round thirty's; a follow camera
+ruins a colony-level card. **A card paired against a census passes
 `rain=off`, and its `meta` is measured in the window it shows.** **Cloud lanes
 by poke**, auto-merge off on every lane PR, one merge order for one file,
 `git merge-tree` before CI, the bug letter named in the brief — the mechanics
