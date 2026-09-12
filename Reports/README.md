@@ -2467,6 +2467,21 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
+  — **design of record for the late game, 2026-09-12, with the census it is
+  measured against.** The owner's report — a colony that booms to hundreds,
+  strips the bed and dies; chambers and spoil that leave a bare patch over
+  the nest — reproduced on the played bed at 500,000 frames with the new
+  `examples/latecensus` (seed 3: 73 → **495 ants** at 200k, then 0 ants, 6
+  plants and 2 seeds; the unfed control holds ~230 plants over a bank of
+  ~1,000). What the mouth takes first is the **seed bank**, not the leaves;
+  the dead zone over the nest is there from the first stop and never closes.
+  The answer in three builds: a bitten seed becomes cargo (granivory as
+  dispersal, the midden as garden) with a live leaf marginal at the shipped
+  gut; ants die of age on the plant's own hazard; the dig gate reads room per
+  ant and dumped spoil weathers back to soil. Also names `labforage`'s
+  `plants` column as plants **plus** the bank, which relabels every earlier
+  count on this bed.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
