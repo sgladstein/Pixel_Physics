@@ -237,6 +237,20 @@ fn main() {
     // arms; a build whose animals only ever hop for twenty frames produces a
     // clip that cuts constantly, and that reads as hopping, correctly.
     let follow_air: u64 = arg::<u64>("follow_air").unwrap_or(0);
+    // **`track=1` -- print the followed animal's world position and flight
+    // state on every captured frame**, one `TRACK` line each.
+    //
+    // `CLAUDE.md` asks for a probe beside every debug channel, and a flight
+    // card is the case it was written for: a follow camera holds the animal
+    // dead centre, so the ONE thing a still cannot show is the thing being
+    // judged -- whether the body is travelling or sitting. Read off these
+    // lines instead: `aloft` climbing with `x` changing is a flight, `aloft`
+    // climbing with `x` fixed is the mid-air statue this round found, and
+    // `aloft` at 0 for a hundred lines is the ground deadlock it also found.
+    //
+    // Costs nothing when unset, and the GIF is byte-identical either way --
+    // it prints, it does not draw.
+    let track: bool = arg::<u32>("track").unwrap_or(0) != 0;
     let out: String = arg("out").unwrap_or_else(|| "/tmp/labrain.gif".to_string());
     // **`up=N` -- a nearest-neighbour integer upscale of the `png_dir=`
     // frames only**, `labstats`' own knob and for its own reason: the review
@@ -464,6 +478,87 @@ fn main() {
     let mut shots: Vec<image::RgbaImage> = Vec::new();
     for f in 0..=frames {
         if f % every == 0 {
+            if track {
+                // Whoever the camera is on: the `follow_air` lock if there is
+                // one, else `follow=`'s own lowest-id pick, so the line always
+                // describes the animal in shot.
+                let who = locked.or_else(|| follow.as_deref().and_then(|sp| {
+                    let sid = lab.world.species.id_of(sp)?;
+                    lab.world.live_organism_ids().into_iter().find(|&id| lab.world.organism(id).is_some_and(|st| st.species == sid))
+                }));
+                match who.and_then(|id| lab.world.organism(id).map(|st| (id, st))) {
+                    Some((id, st)) => {
+                        let (hx, hy) = st.chain.first().copied().unwrap_or((-1, -1));
+                        let (aloft, fly) = st.flight.map_or((-1i32, 0.0f32), |fl| (fl.aloft as i32, fl.fly));
+                        // **And what is around it, by material kind.** The
+                        // position alone says the body is not moving; only
+                        // this says *why*, and the two readings have opposite
+                        // remedies. `translated_if_free` requires every
+                        // target cell to be empty, so a body walled in by
+                        // `Plant` cannot step in any direction however good
+                        // its wings are -- and `Plant` also counts as support,
+                        // so it can still launch, which is the air/ground
+                        // chatter this round kept reading as hopping.
+                        let mut n_empty = 0;
+                        let mut n_plant = 0;
+                        let mut n_other = 0;
+                        for dy in -1..=1i32 {
+                            for dx in -1..=1i32 {
+                                if dx == 0 && dy == 0 {
+                                    continue;
+                                }
+                                if lab.world.is_empty(hx + dx, hy + dy) {
+                                    n_empty += 1;
+                                } else if matches!(
+                                    lab.world.materials.kind(lab.world.get(hx + dx, hy + dy).material),
+                                    pixel_physics::sim::material::MaterialKind::Plant
+                                ) {
+                                    n_plant += 1;
+                                } else {
+                                    n_other += 1;
+                                }
+                            }
+                        }
+                        println!(
+                            "TRACK f={} id={id} x={hx} y={hy} aloft={aloft} fly={fly:.3} e={:.1} empty={n_empty} plant={n_plant} other={n_other}",
+                            start + f,
+                            st.energy
+                        );
+                    }
+                    None => println!("TRACK f={} id=none", start + f),
+                }
+                // **And the same question over the whole colony, because one
+                // animal's cage could be one animal's bad luck.** Counts the
+                // live animals of the followed species that have NO empty
+                // cell in their 8-neighbourhood -- i.e. that `relocate_chain`
+                // cannot move in any direction whatever their brain decides,
+                // since `translated_if_free` requires every target cell empty.
+                // A high share here means the bed is a cage and no flight
+                // model can show through it.
+                if let Some(sp) = follow.as_deref() {
+                    if let Some(sid) = lab.world.species.id_of(sp) {
+                        let mut live = 0;
+                        let mut caged = 0;
+                        for id in lab.world.live_organism_ids() {
+                            let Some(st) = lab.world.organism(id) else { continue };
+                            if st.species != sid {
+                                continue;
+                            }
+                            let Some(&(hx, hy)) = st.chain.first() else { continue };
+                            live += 1;
+                            let open = (-1..=1i32)
+                                .flat_map(|dy| (-1..=1i32).map(move |dx| (dx, dy)))
+                                .filter(|&(dx, dy)| !(dx == 0 && dy == 0))
+                                .filter(|&(dx, dy)| lab.world.is_empty(hx + dx, hy + dy))
+                                .count();
+                            if open == 0 {
+                                caged += 1;
+                            }
+                        }
+                        println!("CAGE f={} live={live} caged={caged}", start + f);
+                    }
+                }
+            }
             // **`follow=` re-centres every captured frame**, not every
             // tick -- the animal drifts between captures the same amount
             // either way, and re-centring only where a frame is actually

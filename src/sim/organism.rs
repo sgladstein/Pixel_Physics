@@ -3408,6 +3408,30 @@ pub struct CreatureDef {
     /// the price is the licence and what that costs.
     #[serde(default)]
     pub fly_cost_in_moves: f32,
+    /// **The lift this species puts into a traverse it cannot see the end
+    /// of** — the cruise, as a fraction of a full hover at the top of the
+    /// ramp. `creature::CRUISE_FRAMES` has the derivation and the measurement.
+    ///
+    /// Species data rather than an engine constant for two reasons, one of
+    /// them a bug already paid for. **How far an animal will fly on spec is a
+    /// fact about the animal**, the way `fly_cost_in_moves` is; a hoverfly and
+    /// a bumblebee do not search the same way, and nothing here should have to
+    /// be re-derived to give them different ones. And **the guard
+    /// `a_weightless_body_is_put_down_on_water_unless_it_is_flying` cannot
+    /// construct its own premise without it**: that test holds `fly` at 0 to
+    /// build a body that is *not* flying, and a cruise read from a process-wide
+    /// switch overrode it on the next brain tick and flew the body clean past
+    /// the water, so §Z9's fix read as broken when it was not. A species field
+    /// the test can zero on its own cloned `def` is the difference between a
+    /// guard that can state its premise and one that cannot.
+    ///
+    /// **Default 0.0**, so every species but the flitter is bit-identical —
+    /// the same shape `fly_cost_in_moves` above uses as its capability gate,
+    /// and verified the same way (`ascii` byte-identical over 1,099
+    /// non-timing lines; `labforage` on `played_bed` byte-identical for the
+    /// ant, the long ant, the hopper and the beetle).
+    #[serde(default)]
+    pub cruise_lift: f32,
     /// **What laying a full-strength trail on one channel costs, in
     /// multiples of one step**, charged in proportion to what was actually
     /// deposited.
@@ -4142,6 +4166,7 @@ impl CreatureDef {
             move_cost_per_cell,
             dig_cost_in_moves,
             fly_cost_in_moves,
+            cruise_lift,
             emit_cost_in_moves,
             spoil_weight_cells,
             exposure_cost_per_cell,
@@ -4312,6 +4337,7 @@ impl CreatureDef {
             // multiple of one step is a ratio, and `move_cost_per_cell` --
             // the thing it multiplies -- is what carries the scale factor.
             fly_cost_in_moves: *fly_cost_in_moves,
+            cruise_lift: *cruise_lift,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
             // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
