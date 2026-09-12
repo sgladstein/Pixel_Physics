@@ -7179,7 +7179,14 @@ fn step_chain(
         // stops**, its head and tail in the *identical cells* stop after
         // stop -- only its heading moving, because `tumble` re-aims it every
         // tick -- for streaks up to 68 stops, 61,200 frames. Connected
-        // clumps of those reached **108 animals** on seed 3.
+        // clumps of those reached **75 animals** on seed 1.
+        //
+        // **Those two figures were retaken after `84dd9bfc` (nest odour)
+        // landed, and the clump one moved a long way: it read 108 on seed 3
+        // before that merge and 19 after.** Scent drift changes the colony
+        // the pile forms in, so any pile figure quoted here has to name the
+        // tree it came from. Nine seeds on the merged tree put the largest
+        // clump at 6-75 and the longest body-boxed streak at 13-44 stops.
         //
         // So the gate becomes a **bounded** wait rather than an unbounded
         // one: `CLAUDE.md`'s *a size cap must bound work, never gate whether
