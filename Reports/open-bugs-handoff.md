@@ -157,8 +157,8 @@ point.
 | Z14 | **OPEN** | 11201 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
 | Z15 | **OPEN** | 11293 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 | Z16 | closed | 11371 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11501 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11553 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z18 | **OPEN** | 11512 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11564 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11430,6 +11430,12 @@ half.
 site.** Found by round 29's coordinator reading the code, and verified here
 against the source line by line rather than taken on report.
 
+> **Superseded the same day by the block below** (#366 repaired it). Kept as
+> the diagnosis record, because the reasoning that found the write site is
+> worth more than the patch. **Read the code description here as past tense**
+> — `deliver_seed_passenger_with_material` no longer ends in an unconditional
+> write.
+
 **The digestion exit plants the pip into the ant's own head.** When a crop's
 last cell is eaten, `creature.rs` calls
 `plant::deliver_seed_passenger(world, hx, hy, passenger)` — and `(hx, hy)` is
@@ -11460,8 +11466,13 @@ constant that was compensating for it*, in its plainest form. Whoever takes
 this should budget the lifespan re-run into the same brief, on runs short
 enough to finish (≤200k frames).
 
-**It does not close the section.** §Z15 (the cage) is untouched, and the
-`empty` half below is still undiagnosed and still the larger one.
+**What this block got wrong, left visible rather than edited away.** It said
+the `empty` half was "still undiagnosed and still the larger one". It was
+neither: the block below shows it was **the same write seen later**, and the
+repair took it to zero on every seed. Predicting a second mechanism from a
+column an instrument could not attribute is exactly the *ask what your number
+counts* trap, and this is what it looks like when the prediction is wrong.
+§Z15 (the cage) is untouched and is the part that genuinely remains.
 
 **2026-09-12, closed by #366 — and the `empty` half was the same write seen
 later.** The planter (`deliver_seed_passenger_with_material`) now refuses an
