@@ -355,7 +355,7 @@ fn main() {
         // a deciding cell goes away, whatever took it, so the cause is not an
         // attack counter. This is what was standing in the cell instead.
         let mut losses: Vec<_> = world.vital_losses.clone();
-        losses.sort_unstable_by(|a, b| b.3.cmp(&a.3));
+        losses.sort_unstable_by_key(|(_, _, _, n)| std::cmp::Reverse(*n));
         let total: u64 = losses.iter().map(|(_, _, _, n)| *n).sum();
         println!("  KILLED deaths booked: {total}, of which {} are attributable to an attacker", kills.len());
         for (sp, col, mat, n) in losses.iter().take(12) {
