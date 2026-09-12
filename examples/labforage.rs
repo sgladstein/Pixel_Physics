@@ -1258,6 +1258,28 @@ fn main() {
         println!("      {:>4}: {:>7} / {:>10}", b * HEAT_BUCKET, wf_buckets[b], ant_buckets[b]);
     }
 
+    // **The seed bank as a standing count, round 29 Brief 1.** `plants`
+    // above is plants **plus** the waiting bank -- the late-game design's §3
+    // records that as a live mislabel in every earlier reading of this file
+    // -- so the bank has to be counted separately to say whether it drained.
+    // A waiting seed is a one-cell organism whose cell reads `CellType::Seed`
+    // (the same test `latecensus::is_waiting_seed` uses), plus any seed
+    // currently riding in a crop, which owns no cell at all while it rides.
+    let seed_bank_n = world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|&id| {
+            world.organism(id).is_some_and(|st| {
+                world.species.get(st.species).creature.is_none()
+                    && (world.is_carried_seed(id)
+                        || (st.cells.len() == 1
+                            && st.cells.keys().next().is_some_and(|&(x, y)| {
+                                pixel_physics::sim::organism::cell_type(world.get(x, y).aux())
+                                    == Some(pixel_physics::sim::organism::CellType::Seed)
+                            })))
+            })
+        })
+        .count();
     println!(
         "SUMMARY seed={} founders={} colonies={} frames={frames} handout={handout} cols={cols} plants={} windfall={} fruit_dropped={} edible={} unvisited={} floor={} aloft={} \
          peak_edible={peak_edible} eats={} born={} died={} alive={} intake={:.0} burn={:.0} shares={} shared_j={:.0} moves={} deliveries={} nest_visits={} \
@@ -1274,7 +1296,8 @@ fn main() {
          pips_set_on_soil={} pips_set_on_nest={} \
          fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
-         pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?}",
+         pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
+         bare_seeds_spared={} bare_seeds_carried={} seed_bank={seed_bank_n}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
         st.deliveries, st.nest_visits,
@@ -1469,7 +1492,16 @@ fn main() {
         // The histogram computed just above is the where-eaten
         // distribution the owner's rule is about.
         world.pips_released_by_digestion,
-        world.fruit_dropped_with_seed
+        world.fruit_dropped_with_seed,
+        // **Round 29's seed-cargo lane's counters, appended at the end by
+        // the same convention.** `bare_seeds_spared` is the plant side's
+        // "it fired" (a bare-seed bite rolled `seed_gut_survival` and won);
+        // `bare_seeds_carried` is the "it worked" from the far side of the
+        // call (that survivor became a `Crop::passenger` rather than
+        // standing where it was bitten). Both read 0 with
+        // `PIXEL_PHYSICS_SEED_CARGO=0`, which is the kill switch's control.
+        world.bare_seeds_spared,
+        world.bare_seeds_carried
     );
 }
 

@@ -1598,7 +1598,24 @@ fn place_creature(
                             world.frame,
                             (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
                         );
-                        if !plant::seed_survives_bite(world, px, py, &mut seed_rng) {
+                        // **Round 29: a bare seed taken to fund a birth is
+                        // spared and priced like any other**, because this is
+                        // a bite and `seed_survives_bite` does not know which
+                        // site called it. `yielded` was read off the standing
+                        // cell before the roll, so a seed the roll spares has
+                        // to be re-priced here or the parent would be paid the
+                        // whole seed *and* leave it standing -- the one shape
+                        // this build must not create, since the seed it
+                        // rescues would otherwise be free food. No passenger
+                        // here: this path has no crop to put one in, so the
+                        // spared seed stands where it was bitten as a `pip`,
+                        // exactly as A1 has always left a surplus survivor.
+                        let bite_outcome = plant::seed_survives_bite(world, px, py, &mut seed_rng);
+                        let yielded = match bite_outcome {
+                            plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
+                            _ => yielded,
+                        };
+                        if !bite_outcome.survived() {
                             world.set(px, py, Cell::EMPTY);
                         }
                         if banked {
@@ -5799,7 +5816,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // that is not a windfall's seed, so this changes nothing
                 // else the bite verb does.
                 let seed_saved = plant::seed_survives_bite(world, fxx, fyy, draw);
-                if !seed_saved {
+                // **Round 29, Brief 1 -- what a spared *bare* seed pays.**
+                // `Reports/evolution-lab-late-game-design-2026-09-12.md` §2.
+                // A windfall is flesh around a seed, so the mouth ate the
+                // flesh and is paid in full; a bare seed *is* the mouthful,
+                // and sparing it means the mouth got only the provision the
+                // seed attaches to buy its carriage. Charging face value for
+                // a seed that is still there would be the seed counted twice
+                // -- once as food and once as a plant -- which is exactly the
+                // free lunch that would make this build read as "the colony
+                // got richer" rather than "the bank stopped draining".
+                //
+                // Applied whether or not the seed goes on to ride: a survivor
+                // that cannot board (a passenger is already aboard) stands
+                // where it was bitten as a `pip`, and the mouth got the same
+                // provision either way. `worth` is read before the roll
+                // because the roll rewrites the cell.
+                let worth = match seed_saved {
+                    plant::SeedBite::SurvivedBare => worth * plant::seed_provision_fraction(world, fxx, fyy),
+                    _ => worth,
+                };
+                if !seed_saved.survived() {
                     world.set(fxx, fyy, Cell::EMPTY);
                 }
                 // **A2 -- ride home instead of standing.** `seed_saved` just
@@ -5812,7 +5849,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // passenger already aboard is left exactly where A1 always
                 // left it.
                 let passenger =
-                    (seed_saved && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
+                    (seed_saved.survived() && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
+                // **The bare route's own source tag.** `seeds_carried` counts
+                // both routes and cannot say which; this is the half round 29
+                // opened, and the half the seed-bank census is about.
+                if passenger.is_some() && seed_saved == plant::SeedBite::SurvivedBare {
+                    world.bare_seeds_carried += 1;
+                }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
@@ -16683,6 +16726,69 @@ mod tests {
         run(&mut w, 1200);
         assert!(w.creature_stats.eats + w.creature_stats.pickups > before, "the ant should have taken the carrion it is standing in");
         assert!(w.organism(ant).is_some(), "and should not have starved doing it");
+    }
+
+    /// **Round 29, Brief 1 -- the price of a seed the mouth did not
+    /// destroy, measured at the call site rather than argued.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The bite
+    /// verb is a *pickup*, so what a seed is worth to the animal is the
+    /// `unit` that lands in its `Crop`; that is the quantity asserted here.
+    ///
+    /// **Two arms in one test, and the second is the positive control the
+    /// brief asks for by name**: at `seed_provision_fraction: 1.0` the
+    /// identical run must pay the seed's whole face value, so a green on the
+    /// first arm is evidence about the multiply and not about the
+    /// scaffolding. Both arms set `seed_gut_survival: 1.0`, which makes
+    /// every bare-seed bite a survival and takes the roll out of the
+    /// comparison entirely.
+    #[test]
+    fn a_carried_bare_seed_pays_only_its_provision() {
+        let seed_face = {
+            let w = test_world();
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            w.materials.get(seed_mat).food_energy
+        };
+        let run_arm = |fraction: f32| -> (f32, u64, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let grass = w.species.id_of("grass").expect("grass species must be loaded");
+            w.species.get_mut(grass).seed_gut_survival = 1.0;
+            w.species.get_mut(grass).seed_provision_fraction = fraction;
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            // A floor of bare grass seed for the ant to walk into. Each is a
+            // one-cell organism wearing `CellType::Seed` -- exactly what the
+            // bed's own waiting seed bank is made of.
+            for x in 98..108 {
+                let id = w.push_organism(grass).expect("an organism slot is free");
+                w.set(x, 100, Cell::new(seed_mat, 0).with_organism_id(id).with_aux(organism::pack_cell_type(CellType::Seed)));
+            }
+            let ant = spawn(&mut w, "ant", 95, 100);
+            run(&mut w, 1200);
+            let unit = w.organism(ant).and_then(|st| st.crop).map(|c| c.unit).unwrap_or(f32::NAN);
+            (unit, w.bare_seeds_spared, w.bare_seeds_carried)
+        };
+
+        let (unit_quarter, spared_q, carried_q) = run_arm(0.25);
+        assert!(spared_q > 0, "the ant never bit a bare seed at all -- what this arm measured is the scene, not the price");
+        assert!(carried_q > 0, "a spared bare seed never became a passenger: the it-fired counter moved and the effect counter did not");
+        assert!(
+            (unit_quarter - seed_face * 0.25).abs() < 0.01,
+            "a bare seed spared at provision 0.25 must enter the crop at a quarter of its {seed_face} J face, not {unit_quarter}"
+        );
+
+        let (unit_whole, spared_w, carried_w) = run_arm(1.0);
+        assert!(spared_w > 0 && carried_w > 0, "the control arm must reach the same code path, or it controls nothing");
+        assert!(
+            (unit_whole - seed_face).abs() < 0.01,
+            "the positive control: at provision 1.0 the carriage is free and the crop must hold the whole {seed_face} J, not {unit_whole}"
+        );
     }
 
     #[test]

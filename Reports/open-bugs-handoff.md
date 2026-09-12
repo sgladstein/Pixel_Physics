@@ -147,10 +147,10 @@ point.
 | W6 | closed | 9733 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
 | W7 | closed | 10059 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 | Z6 | **OPEN** | 10165 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10293 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10445 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10566 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10679 | The flitter's float never switches off on a bed that has flowers in it |
+| Z7 | **OPEN** | 10308 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10460 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10581 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10694 | The flitter's float never switches off on a bed that has flowers in it |
 
 <!-- END GENERATED INDEX -->
 
@@ -10289,6 +10289,21 @@ and 5), every death starvation, both boxes failing the bar.
   too. Two of the three instruments this section named cannot answer at any
   length, because their scene is not the shipped bed; `examples/labforage` is
   the one that can.
+- **2026-09-12, round 29 Brief 1 — the first of three builds aimed at this
+  section landed, and it is not on its own a fix.** The late-game census
+  (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0) answered the
+  *what* this section had left open: the colony's staple is the **seed bank**,
+  which drains 16x in a session while the leaf larder holds, so the bed is
+  eaten out of its future before it is eaten out of its present. Brief 1 turns
+  a bitten bare seed into cargo — it rolls `seed_gut_survival`, pays only
+  `seed_provision_fraction` of face, and rides home as the passenger the
+  garden loop already carries — and dials a live leaf under the edibility bar
+  at the shipped neutral gut, leaving fallen litter at full value. Numbers,
+  both arms, `played_bed`, seeds 1–3, 500,000 frames, are in
+  `Reports/lanes/evolution-lab-seed-cargo.md` and the PR that landed it.
+  **The remaining two briefs — an ant that dies of age, and a nest that stops
+  digging when it has room — are still unbuilt**, so a colony's population is
+  still bounded only by the larder's edge and this section stays OPEN.
 
 ### Z7. The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0.003 per step — **HOMING HALF FIXED 2026-09-09 (units 0/1, channel A); the food half is deliberately STILL OPEN — the repair works and costs 25.0% of a mirrored race**
 

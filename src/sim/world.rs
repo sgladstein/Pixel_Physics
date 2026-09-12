@@ -2654,6 +2654,25 @@ pub struct World {
     /// once per bite: a second surviving seed while a passenger is already
     /// aboard leaves its `pip` standing instead and does not touch this.
     pub seeds_carried: u64,
+    /// **Round 29, Brief 1 -- how many of those pickups were a *bare seed*
+    /// off the floor rather than a seed inside a fallen fruit.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The new
+    /// source tag the brief asks for by name: `seeds_carried` counts both
+    /// routes and cannot say which, and only the bare route is the one this
+    /// build opened -- the bank is what the census says the colony eats
+    /// first, and a windfall's passenger has ridden home since round 28.
+    /// **Read it against `bare_seeds_spared` beside it**: that is the
+    /// far-side effect counter for the same event (the roll passed), and
+    /// spared-minus-carried is seeds left standing as a `pip` because the
+    /// biter's crop was already carrying one.
+    pub bare_seeds_carried: u64,
+    /// **Round 29, Brief 1 -- a bare seed's bite rolled `seed_gut_survival`
+    /// and won**, counted in `plant::seed_survives_bite` where the roll
+    /// happens. The *it fired* half; `bare_seeds_carried` above is the *it
+    /// worked* half. Zero on any run with `PIXEL_PHYSICS_SEED_CARGO=0`, and
+    /// zero before this build existed, which is what makes it the kill
+    /// switch's own control.
+    pub bare_seeds_spared: u64,
     /// **A2 -- a passenger was put down as a live pip organism**, the *it
     /// worked* half of `seeds_carried` -- `plant::deliver_seed_passenger`.
     /// The two need not be equal within a window (a passenger can still be
@@ -4107,6 +4126,8 @@ impl World {
             nectar_paid: 0.0,
             windfall_germination_x: Vec::new(),
             seeds_carried: 0,
+            bare_seeds_carried: 0,
+            bare_seeds_spared: 0,
             seeds_delivered: 0,
             pip_germination_x: Vec::new(),
             seed_transit_frames: Vec::new(),
@@ -4328,6 +4349,21 @@ impl World {
             .filter(|(_, slot)| slot.state.is_some())
             .map(|(i, slot)| encode_organism_id((i + 1) as u16, slot.generation))
             .collect()
+    }
+
+    /// **Is this organism riding in a crop right now?** -- i.e. is it a seed
+    /// whose one cell `plant::take_seed_passenger` lifted out of the world,
+    /// leaving the organism live but owning nothing.
+    ///
+    /// Exists because a census outside the crate cannot otherwise tell such
+    /// an organism from a plant: it is live, it is not a creature, and it has
+    /// no cells, so the obvious "one cell and that cell is a seed" test for a
+    /// waiting seed says no and it lands in the plant column instead. One
+    /// per carrying ant, which is small -- and wrong in the direction that
+    /// flatters the change being measured here, which is the reason to close
+    /// it rather than note it.
+    pub fn is_carried_seed(&self, organism_id: u16) -> bool {
+        self.carried_seed_organisms.contains(&organism_id)
     }
 
     /// **Live cells per founding line, heaviest first.**
