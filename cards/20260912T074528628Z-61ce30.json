@@ -1,0 +1,48 @@
+{
+  "id": "20260912T074528628Z-61ce30",
+  "created": "2026-09-12T07:45:28Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-seed-cargo-r29",
+    "commit": "db60d4b7",
+    "agent": null,
+    "session_id": "e2ff442a-4f1d-54d1-949a-7ba55880bbd4",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The played bed over a whole 500,000-frame session",
+  "question": "Which bed is still alive at the end of a session?",
+  "context_md": "This is the answer to your question on the last card -- *\"it is about to get destroyed or is it coming back?\"* -- run out to the end instead of stopping at 60,000 frames.\n\nThe same bed and the same seed as that card (played_bed, seed 3), from the first frame to frame 500,000. 251 captures, one every 2,000 world frames, about ten seconds a loop, so the whole session plays as a time-lapse. The frame counter is in the top-left corner. Both arms are one scenario and one seed; the only thing between them is what a bite does to a seed, and whether a leaf on a living plant is worth eating.\n\n**Watch the middle of the loop.** Both beds thin out badly around 100,000-250,000 frames while the colony is at its biggest. The question is what happens after that.\n\nThe counters below are the paired 500,000-frame census on this same bed and seed. They are given as a pair rather than split between the two panes, so the panes stay judged by eye:\n\n| at frame 500,000 | |\n|---|---|\n| plants standing | **2 against 114** |\n| seed bank | **0 against 402** |\n| ants | 0 against 0 -- both colonies are gone by the end |\n| columns with no plant, away from the nest | **254 of 383 against 11 of 383** |\n| seed larder | 0.7 kJ against 47.8 kJ |\n| leaf larder | 273.5 kJ at 20,000 frames falling to 3.4 kJ, against 0.0 the whole way -- a live leaf is deliberately not food any more |\n| seeds carried home over the session | 0 against 2,778 |\n| plants grown from a carried seed | 0 against 156 |",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "main -- a bitten seed is destroyed, and a live leaf is a full meal",
+      "files": [
+        "20260912T074528628Z-61ce30/000-card_main.gif"
+      ],
+      "caption": "500,000 frames, one capture every 2,000",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 251
+    },
+    {
+      "label": "this build -- a bitten seed rides home and is sown where the meal ends",
+      "files": [
+        "20260912T074528628Z-61ce30/001-card_build.gif"
+      ],
+      "caption": "500,000 frames, one capture every 2,000",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 251
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
