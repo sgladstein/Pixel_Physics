@@ -3980,7 +3980,6 @@ impl Ui {
     fn menu_rows(&self, world: &World) -> Vec<Row> {
         let ended = ended_lines(world).len();
         vec![
-            Row::value("PAGES", "KEY", FAINT, "EVERY PAGE. F1..F3, P AND G STILL OPEN THEIRS DIRECTLY -- THIS IS THE SECOND ROUTE IN."),
             Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
                 "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
             Row::choice("ANTS", "F2", Action::Panel(Panel::Ants),
@@ -4006,7 +4005,6 @@ impl Ui {
             Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
                 "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
             Row::gap(),
-            Row::value("VIEW & TOGGLES", "KEY", FAINT, "CONTROLS WITH NO PAGE OF THEIR OWN. SOME ALSO SIT ON THE BAR OR ON ANOTHER PAGE'S ROW -- THIS IS THE ONE PLACE ALL OF THEM ARE."),
             Row::choice("ANIMAL COLOUR", "H", Action::CycleCreatureColour,
                 format!("WHAT HUE EVERY ANIMAL WEARS. CURRENTLY {}. ALSO A ROW ON THE ANTS PAGE.", self.creature_colour().label())),
             Row::choice("LIFE MARKS", "Y", Action::CycleLifeMarks,
@@ -4157,18 +4155,7 @@ impl Ui {
             // rect`'s own doc names `fit_rows` as the thing that actually
             // keeps a page whole, and a page that skips it just draws past
             // the frame buffer's edge with nothing on screen to say so.
-            Panel::Menu => {
-                let rows = self.menu_rows(world);
-                if std::env::var("PIXEL_PHYSICS_MENU_TRACE").is_ok() {
-                    eprintln!(
-                        "menu trace: {} rows, content {}px, budget {}px",
-                        rows.len(),
-                        rows.iter().map(Row::height).sum::<i32>(),
-                        page_content_budget()
-                    );
-                }
-                fit_rows(rows, page_content_budget())
-            }
+            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));

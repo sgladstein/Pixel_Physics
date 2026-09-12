@@ -117,8 +117,11 @@ fn main() {
     tiles.push(("HOVER: MENU".into(), shot(&mut lab)));
 
     // 2a. Open it, and capture the page itself -- every destination in the
-    // lab, one place, which is the whole point of this lane.
+    // lab, one place, which is the whole point of this lane. Cursor off the
+    // bar first: left at `menu_chip`, the MENU button's own hover note would
+    // sit over the page and be mistaken for part of it.
     click(&mut lab, menu_chip);
+    lab.set_cursor(None);
     tiles.push(("PAGE: MENU".into(), shot(&mut lab)));
     lab.ui.close_panel();
 
