@@ -44,7 +44,7 @@ Frame cost, 9 alternating reps inside one run, threads pinned, full redraw at
 painted alone, because the 3x3 neighbourhood is hoisted per *cell*. Settled
 world: **0 pixels recomputed under every style**, so the render skip holds.
 
-## Four things worth carrying out of this lane
+## Five things worth carrying out of this lane
 
 - **An odd zoom hides a bilinear loss.** At 3x the middle pixel of a block
   sits exactly on its cell centre, so plain bilinear hands a twig one
@@ -60,6 +60,25 @@ world: **0 pixels recomputed under every style**, so the render skip holds.
 - **`mixed_scene` contains no diagonal anywhere.** The chamfer is correctly
   inert on it, which read as a dead feature until the corners were counted:
   zero. Anything testing an edge rule needs a scene with an edge in it.
+- **A parameter line can echo a value the code ignores, and that is the
+  reusable half of it.** This lane's own instrument parsed `notch=`, printed
+  it on the header line beside every other setting, and then never wrote it to
+  the `Renderer` — so `fill` and `cut` produced identical output and the knob
+  read as a setting that does nothing rather than a wire that was not
+  attached. The echo is what `CLAUDE.md` prescribes against a *stale* harness
+  and it does not defend against a *disconnected* one: it proves the binary
+  received the argument, never that anything downstream read it. The check
+  that does is the positive control — chamfer twig area, worst of 8:
+
+  | notch | 2x | 3x | 4x | 8x |
+  |---|---|---|---|---|
+  | `fill` | 1.332 | 1.147 | 1.249 | 1.207 |
+  | `deep` | 1.000 | 1.000 | 1.000 | 1.000 |
+  | `cut` | 1.000 | 1.000 | 1.000 | 1.000 |
+
+  `fill` fattens a diagonal twig by filling the notches beside it; the other
+  two leave it exactly as today. **Ask of any new knob what number it is
+  supposed to move, and move it**, before trusting a single run that used it.
 
 ## What this lane did not do, and why
 
