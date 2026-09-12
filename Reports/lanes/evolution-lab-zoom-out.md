@@ -138,6 +138,14 @@ Card `20260912T041559012Z-1b7300`, blind three-way, answered 2026-09-12:
 - **`Stride` worst** — the current build is the worst of the three, which is
   the owner confirming the defect independently of the counts.
 
+**He judged a still, at 2x, and has not yet met what the verdict costs.** The
+density overstatement above — plants at **2.76x** their true area, **2.95x**
+pooled over everything living — is not visible in a paired comparison where
+every pane overstates equally; it shows up the first time someone reads stand
+health off a zoomed-out view in play and the bed looks fuller than it is. The
+verdict is sound and this is not a reason to doubt it; it is the thing to
+expect a second report about.
+
 **One caveat on the middle finding, recorded rather than buried.** The card
 was answered against its first text, which carried a steer of mine against the
 blend (*"which I expect you to dislike"*). The coordinator had already ruled
