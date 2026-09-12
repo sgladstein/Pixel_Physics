@@ -1,8 +1,9 @@
 # Liquids & Gases
 
 *Current as of: 2026-09-11 (water on a low plant soaks into the ground
-under it, not just off a branch into open air; and wet ground can be told to
-even itself out sideways). Before that, 2026-09-07
+under it, not just off a branch into open air; a wet roof over a dug tunnel
+drips into it; and wet ground can be told to even itself out sideways).
+Before that, 2026-09-07
 (rain drips through a canopy instead of sitting
 on it), and 2026-08-22 (steam joins the weather; rock sinks in
 water; a boulder entering a pool throws a crown; smoke and steam are
@@ -42,6 +43,16 @@ against a trunk stays put rather than sinking into the roots. And ground
 that has already taken all the water it can hold turns the next drop away,
 so a bed you keep watering does eventually puddle -- that is the difference
 between damp ground and a waterlogged one, and you can see it happen.
+
+**A wet roof drips into the space under it.** Dig a tunnel and you leave a
+ceiling of soil with nothing beneath it. Ground that is merely damp holds
+what it has and the tunnel stays dry — but ground wetter than it can hold
+sheds the excess downward, and with nothing under it to soak into, it comes
+out as drops falling into the tunnel. So a gallery driven under a watered bed
+seeps, and one driven through dry ground does not. Before this a roof had
+nowhere to send its water at all: it saturated, stayed saturated for ever, and
+because saturated ground turns away anything landing on it, the water backed
+up and stood on the plants above.
 
 **Wet ground does not even itself out sideways, and that is a setting.**
 Ground drier than it can hold levels with its neighbours the way you would
