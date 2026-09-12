@@ -1,0 +1,58 @@
+{
+  "id": "20260912T115506982Z-6ae8e2",
+  "created": "2026-09-12T11:55:06Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-room-per-ant-r30",
+    "commit": "af377b6a",
+    "agent": null,
+    "session_id": "da2c6514-8db3-561b-abbb-a591d9ed5e9e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The anthill at 300,000 frames: room at the door vs crowding at the door",
+  "question": "Which of these reads as an anthill that has stopped growing?",
+  "context_md": "Seed 3 of the played bed, the same run you reported -- boom to ~500 ants, then a dead bed. Both panes are frame 300,000 of two runs from the identical start, with one thing changed: **what an ant standing at its own door is asked before it digs.**\n\nOne pane asks the old question, *how many ants are pressed against me*. The other asks *how much roofed room does this colony have, per ant* -- so every chamber cut makes the next one less urgent.\n\n**The loop works and it does not change the outcome, and I would rather you knew both.** The colony answers the new question sensibly -- a third of a cell of room each at the founding, four cells by the time the first chambers are cut, ten once it has thinned, back to three or four as it fills again. But over **twelve beds run twice each**, it dug less in six and more in six, and left a smaller mound in six and a bigger one in six. The middle is no change at all, and the spread between beds is a seventh of the digging to five times it.\n\n**And the premise it was built on is wrong.** I was told the old question is one an ant can never answer -- always 'yes, we are packed'. Counting what ants actually read at the door, 687,000 moments across twelve beds: **a quarter of the time there is nobody near the ant at all.** The old gate was never stuck. So a mound that never regreens is not the door question; it is a colony outgrowing its rooms faster than it can cut them, which is the *number of ants* -- the lifespan work, not this.\n\n**What I want from you is the choice above, and one decision.** It costs about 4% of a frame in the lab and changes nothing measurable. It ships on, per your standing rule. Say the word and it ships off instead -- it is one switch on the ANTS page either way.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "room at the door",
+      "files": [
+        "20260912T115506982Z-6ae8e2/000-on_1.png"
+      ],
+      "caption": "frame 300,000, seed 3",
+      "meta": {
+        "cells the colony dug out": 2613,
+        "cemented spoil left standing above ground": 745,
+        "chambers standing underground (cells)": 289,
+        "bare columns on the mound's surface": "65 of 65",
+        "ants left alive": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "crowding at the door (today)",
+      "files": [
+        "20260912T115506982Z-6ae8e2/001-off_1.png"
+      ],
+      "caption": "frame 300,000, seed 3",
+      "meta": {
+        "cells the colony dug out": 2053,
+        "cemented spoil left standing above ground": 648,
+        "chambers standing underground (cells)": 196,
+        "bare columns on the mound's surface": "82 of 90",
+        "ants left alive": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
