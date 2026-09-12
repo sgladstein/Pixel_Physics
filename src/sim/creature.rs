@@ -8446,7 +8446,14 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // get a vote on -- the same split `HOVER_GAIN` states, that what a frame
     // of lift buys is not what it costs. Clamped, so a tank over
     // `start_energy` does not buy a longer cruise than a full one.
-    if cruise_enabled() && def.cruise_lift > 0.0 && carried < CRUISE_MAX_BUOYANCY {
+    // **Both fields, and `fly_cost_in_moves` first: the price is the licence.**
+    // Keyed on `cruise_lift` alone this held up a species that pays nothing
+    // to fly, which `a_floating_flitter_closes_on_a_flower_no_walk_or_hop_can_
+    // reach` caught in one line -- *"an unpriced species must never be held
+    // up: the gate is not the price"*, 1,687 airborne frames where it wants 0.
+    // The capability gate in this engine is the charge, everywhere; a second
+    // field that can switch lift on without it is a hole in that rule.
+    if cruise_enabled() && def.fly_cost_in_moves > 0.0 && def.cruise_lift > 0.0 && carried < CRUISE_MAX_BUOYANCY {
         let tank = world.organism(organism).map_or(0.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
         // The species' own figure, with the sweep knob overriding it when set.
         let (sweep_lift, frames, min_energy) = cruise_params();
