@@ -15,9 +15,17 @@ Away from the nest it is the same 5x5 count, which is what `(Crowding, Move,
 means at the nest changed.
 
 `World::step_nest_room` takes the census in `begin_step`, once per 256 frames,
-on `step_nest_scents`' own idiom, and is itself gated on the dial. Two dials on
-the lab's ANTS page and as env switches: `PIXEL_PHYSICS_LAB_ROOM`,
-`PIXEL_PHYSICS_LAB_ROOM_TARGET`.
+on `step_nest_scents`' own idiom, and is itself gated on the dial.
+`room_target` is a row on the lab's ANTS page and `PIXEL_PHYSICS_LAB_ROOM_TARGET`
+from a harness; the arming switch is `PIXEL_PHYSICS_LAB_ROOM` and has **no**
+row, matching the three ablation switches already shipped that way.
+
+**That was not a free choice and the guard is worth knowing about.**
+`no_page_is_longer_than_two_screens` caps a page at 20 rows; ANTS stood at 19
+after round 29's landings, so two rows made 21 and **CI went red on a test that
+passes for every lane alone and fails for the last one in**. It is the
+merge-is-wrong-without-conflicting shape `CLAUDE.md` names: both sides clean,
+the sum over the bar. The next lane adding an ANTS row has to move something.
 
 **It ships on, and that is the owner's eye overruling this lane's counters.**
 The counters say off: on costs **+4.0% of a frame** (paired, alternating,

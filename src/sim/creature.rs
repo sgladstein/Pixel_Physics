@@ -2162,9 +2162,14 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 /// seed and one glance, so the counters stay in the record rather than being
 /// explained away: they are why this is a dial at all.
 ///
-/// `PIXEL_PHYSICS_LAB_ROOM=off` is the revert and is bit-exact against
-/// `main` -- verified byte for byte **through 300,000 frames**, not merely
-/// 20,000: `sense` writes the same 5x5 count it always did and
+/// **`PIXEL_PHYSICS_LAB_ROOM=off` is the revert, and it is an env switch with
+/// no row on the lab's pages** -- the same shape `spoil_kept`,
+/// `trophallaxis_enabled` and `curvature_sense_enabled` ship in, because an
+/// ablation switch is for measuring an arm rather than for playing with. Only
+/// `room_target` is a constant and only it has a row. (The page had no space
+/// for a second one either: `no_page_is_longer_than_two_screens` caps ANTS at
+/// 20 rows and it stood at 19.) It is bit-exact against `main` -- verified
+/// byte for byte **through 300,000 frames**, not merely 20,000: `sense` writes the same 5x5 count it always did and
 /// `World::step_nest_room` returns before reading a cell. An env switch
 /// rather than two builds, matching `spoil_kept` and `trophallaxis_enabled`
 /// and for the reason `CLAUDE.md` gives them -- two arms compared inside one

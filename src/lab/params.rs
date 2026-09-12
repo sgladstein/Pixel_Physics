@@ -853,18 +853,17 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         span(0.0, 1.0, 0.01),
         "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
-    // **The two dials of the room gate.** A rule of the box rather than a
-    // property of any animal, for `alarm_decay`'s reason directly above: the
-    // first switches what an ant at the nest is *asked*, and the second is
-    // where that question's answer crosses a half.
-    out.push(toggle(
-        g,
-        Knob::Rule { field: "room_gate" },
-        "colonies",
-        "dig_for_room",
-        world.room_gate,
-        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. ON IS THE SHIPPED BEHAVIOUR: THE ANT READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH THE COLONY SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. OFF IS THE OLD QUESTION, A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT. TURNING IT ON DOES NOT MAKE THE MOUND SMALLER -- OVER TWELVE BEDS RUN TWICE EACH IT DUG MORE ON ELEVEN AND LEFT A BIGGER MOUND ON NINE, AND IT COSTS ABOUT A TWENTY-FIFTH OF A FRAME. IT SHIPS ON BECAUSE YOU PICKED IT BY EYE OVER THE OLD ONE, NOT BECAUSE THE NUMBERS ASKED FOR IT. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
-    ));
+    // **The room gate's one number, and only its number.**
+    //
+    // The switch that arms it is `PIXEL_PHYSICS_LAB_ROOM`, an env var with no
+    // row here, which is the same shape `spoil_kept`, `trophallaxis_enabled`
+    // and `curvature_sense_enabled` already ship in: an ablation switch is for
+    // measuring an arm, not for playing with, and the owner's *expose every
+    // constant* ruling is about constants. **The page also has room for
+    // exactly one more row and this is it** -- `no_page_is_longer_than_two_screens`
+    // caps a page at 20 and ANTS stood at 19, so a toggle here would have put
+    // it at 21 and the guard caught that in CI rather than in review. The next
+    // lane to add an ANTS row has to move something.
     out.push(float(
         g,
         Knob::Scalar { field: "room_target" },
@@ -872,7 +871,7 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "room_each_ant_wants",
         world.room_target,
         span(0.25, 16.0, 0.25),
-        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. IT DOES NOTHING UNLESS THE SWITCH ABOVE IS ON. THE SHIPPED 2.0 COMES OFF THE CENSUS RATHER THAN OUT OF THE AIR: A COLONY LEFT ALONE FOR HALF A MILLION FRAMES CUTS ABOUT 220 CELLS OF CHAMBER, AND THE TWO RUNS THAT BOOMED PEAKED AT 116 AND 495 ANTS -- SO 1.9 AND 0.44 CELLS EACH, AND NEITHER COLONY EVER STOPPED DIGGING. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER, SO THE MOUND STAYS SMALL AND THE ANTS GO BACK TO THE SURFACE EARLIER. TURN IT UP AND THEY KEEP EXCAVATING -- PAST ABOUT 4 YOU HAVE THE OLD BEHAVIOUR BACK IN EVERYTHING BUT NAME. IT DOES NOTHING AT ALL WITH THE SWITCH ABOVE OFF. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. AN ANT AT ITS OWN DOOR READS THE ROOM THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH IT SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. THE SHIPPED 2.0 COMES OFF THE CENSUS RATHER THAN OUT OF THE AIR: A COLONY LEFT ALONE FOR HALF A MILLION FRAMES CUTS ABOUT 220 CELLS OF CHAMBER, AND THE TWO RUNS THAT BOOMED PEAKED AT 116 AND 495 ANTS -- SO 1.9 AND 0.44 CELLS EACH, AND NEITHER COLONY EVER STOPPED DIGGING. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER, SO THE MOUND STAYS SMALL AND THE ANTS GO BACK TO THE SURFACE EARLIER. TURN IT UP AND THEY KEEP EXCAVATING -- PAST ABOUT 4 YOU HAVE THE OLD BEHAVIOUR BACK IN EVERYTHING BUT NAME. IT DOES NOTHING AT ALL WITH THE SWITCH ABOVE OFF. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
 }
 
@@ -1576,7 +1575,6 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
                 "soil_capillary_levels" => world.soil_capillary_levels = on,
-                "room_gate" => world.room_gate = on,
                 _ => return false,
             }
             true
