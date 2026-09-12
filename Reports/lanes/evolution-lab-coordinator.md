@@ -70,66 +70,67 @@ designs of record
 [`../evolution-lab-fission-design-2026-09-12.md`](../evolution-lab-fission-design-2026-09-12.md).
 Pointer and what binds.*
 
-**Landed on `main`:** #329, #330, #332, #334, #335, #339, #340, #341, #342,
-#343, #347, #350, #351, #353, #354, #356, #357, #358 — the flitter floats,
+**Landed on `main`:** eighteen PRs — the flitter floats,
 lands and flies; the seed is cargo and a live leaf is not a meal; the nest
 door drains; one odour per nest with drift on; the chronicle carries a
 census; the traffic deferral expires; ants die of age; the baseline shift is
-attributed; who kills the colony is answered. Round thirty ran beside this
-round on the same trunk (#344–#346, #352, #355) under a written
-two-coordinator protocol.
+attributed; who kills the colony is answered. Round thirty ran beside it on
+the same trunk under a two-coordinator protocol.
 
 **What binds.** **The played bed's baseline moved on 2026-09-12**: nest scent
 drift at 0.15 changes the second half of every large-colony session
 (identical to 100,000 frames, peak 3,182 → 760, extinct by 420,000) —
 **every played-bed population figure past ~100,000 frames taken before #347
 is stale**, the late-game design's §0 among them; the fresh census is in the
-record. No mechanism survived a control (not combat, not strangers, not
-sharing, not the draws): the channel is occasional kin flips on a chaotic bed,
-and **the dial is inert on today's trunk**, where the colony peaks at 12 / 12
-/ 212 on seeds 1–3. **A control shorter than the mechanism's onset proves
-nothing.** **`DeathCause::Killed` is not a killing counter** (§Z16): of 384
-such deaths on three seeds, two are an animal's bite, about a hundred and
-fifty leave a plant cell where the head was — written in place, not grown:
-`growable` refuses an occupied cell — and half leave an empty cell. The colony
-is **overwritten, not fought**; which in-place write does it (bitten seed,
-germination, seed drop), the `Killed` rename and the empty half are round
-thirty's, and §Z15/§Z16 may be one repair. **The nest is not where the colony
+record. No mechanism survived a control (not combat, strangers, sharing
+or the draws): the channel is occasional kin flips, and **the dial is inert
+on today's trunk** (peaks 12 / 12 / 212 on seeds 1–3). **A control shorter than the mechanism's onset proves
+nothing.** **`DeathCause::Killed` is not a killing counter** (§Z16;
+the numbers are in round thirty's block below): the colony is **overwritten,
+not fought**. Which in-place write does it, the `Killed` rename and the
+empty half are open; §Z15/§Z16 may be one repair. **The nest is not where the colony
 lives** on two beds in three (#350): budding, cohesion and the owner's "time
 away turns enemy" all wait on that, and the shipped drift value is his design
 call. **The flitter is caged by the canopy, not broken in flight** (§Z15): a
-design lane, starting from `climbable`; uncaged, the owner chose the new
-flight as flying. **Owner verdicts at the close:** seed cargo and the
+design lane from `climbable`; uncaged, the owner read it as flying. **Owner verdicts at the close:** seed cargo and the
 lifespan arm chosen; **the long-ant pile is not visibly fixed** (the fix
 arm read worse) — round thirty's; a follow camera ruins a colony card. **A card paired against a census passes
-`rain=off`, and its `meta` is measured in the window it shows.** **Cloud lanes
-by poke**, auto-merge off on every lane PR, one merge order for one file,
-`git merge-tree` before CI, the bug letter named in the brief — the mechanics
-are in the record's environment section.
+`rain=off`, and its `meta` is measured in the window it shows.** **Cloud lanes by poke**, auto-merge off, one merge order per file,
+`git merge-tree` before CI — the record's environment section has the rest.
 
-## Round twenty-eight, 2026-09-11 — the pollinator arrives and eats the garden
+## Round thirty, 2026-09-12 — the screen quiets, and two mechanisms turn out not to matter
 
-*Record: [`../evolution-lab-round-28-2026-09-11.md`](../evolution-lab-round-28-2026-09-11.md).*
+*Record: [`../evolution-lab-round-30-2026-09-12.md`](../evolution-lab-round-30-2026-09-12.md).*
+**What binds.** **Neither digging nor fighting shapes the played bed** — 2 of
+384 deaths are attributable to an attacker, two fifths are a plant standing in
+the ant's head (§Z16), and the dig gate's premise is false (#359). **Green CI
+is not mergeability.** Four harness rules it paid for — spawning a lane with its repository,
+checking its work left the container, checking a delivered lane closed, and
+testing a same-file gate rather than assuming it — are in [`../session-programs.md`](../session-programs.md).
+
+**Landed:** #344–#346, #352, #355, #359 anthill, #362 menu,
+#363 the close. **Round thirty-one's first item is floating
+debris, §Z18** — named on two unrelated cards, no lane owns it, and it is in
+every picture of this bed.
+
+**Before filing a bug run `python3 scripts/bugindex.py --branches`, not
+`--check`.** `--check` reads one working tree, so it passes on a letter
+already live on an unlanded branch — that is how §Z16 got filed twice.
+`--branches` sweeps every fetched ref for the next free number.
+
+## Rounds twenty-five to twenty-eight, 2026-09-09 → 2026-09-11
+
+*Records and designs: the earlier-rounds table below.*
+
 **What binds.** `nectar_only` stays: a plant specialist's mouth eats the plant
 and no gut setting avoids it. **A card of a one-cell event is unreadable even
-ringed and zoomed**: show the stand, the door or the colony over a long span,
-or let the playtest judge. **Sonnet refuses a brief dense in genetics vocabulary on a `[bio]`
-classifier** — write it in the world's words or run the lane on Opus.
-
-## Rounds twenty-five to twenty-seven, 2026-09-09 → 2026-09-10
-
-*Records: [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md)
-(twenty-five), [`../evolution-lab-round-26-2026-09-10.md`](../evolution-lab-round-26-2026-09-10.md),
-[`../evolution-lab-round-27-2026-09-10.md`](../evolution-lab-round-27-2026-09-10.md);
-designs of record
-[`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md),
-[`../evolution-lab-ecology-design-2026-09-10.md`](../evolution-lab-ecology-design-2026-09-10.md),
-[`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).*
-
-**What binds.** Trophallaxis is a brain output the genome can evolve, never a
+ringed and zoomed** — show the stand, the door or the colony over a long span,
+or let the playtest judge. **Sonnet refuses a brief dense in genetics
+vocabulary on a `[bio]` classifier**: write it in the world's words or run the
+lane on Opus. Trophallaxis is a brain output the genome can evolve, never a
 rule; **rest is the absence of a reason to act**; a queen is three authored
 values over mechanisms that exist, **never a type the engine knows**;
-**movement, not stills, is how animals are seen**. The direction is *the
+**movement, not stills, is how animals are seen** — but a *follow camera* ruins a colony-level card (2026-09-12: two unreadable, "shaking gif"), and a scrubbable frame sequence plays for him where a GIF did not. The direction is *the
 colony that gardens survives*; the breeding trade is graded (`e5792206`) and
 ships graded only after `GRADED_MAX_SUPPRESSION` is swept. Ants are not the
 pollinators; the eye is heritable (`TRAIT_SIGHT_RANGE`). **Conserve tokens**
@@ -174,10 +175,8 @@ knowing which is yours is most of the saving:
   caller's. Use `get <id>` rather than trusting an empty inbox.
 - **Several agents in one container makes every timing untrustworthy** —
   pin `RAYON_NUM_THREADS` or compare arms inside one run.
-- **A cloud lane is reached by poke, never by `SendMessage`**:
-  `create_trigger(persistent_session_id, no schedule)` then `fire_trigger`,
-  a fresh trigger per message, and the reply comes back the same way. A poke
-  lands at the lane's *next turn boundary*, so a lane that ends its turn
-  "waiting" is idle until poked. Lanes arm auto-merge on their own PRs —
-  disable it at subscription. Delete every poke at the close. Full protocol:
-  `../session-programs.md` and the round-29 record.
+- **A cloud lane is reached by poke, never by `SendMessage`**, and a poke
+  lands at the lane's *next turn boundary* — a lane that ends its turn
+  "waiting" is idle until poked. Lanes arm auto-merge on their own PRs;
+  disable it at subscription. Delete every poke at the close. Mechanism and
+  the four failures it cost: [`../session-programs.md`](../session-programs.md).

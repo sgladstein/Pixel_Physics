@@ -136,6 +136,7 @@ bash scripts/acceptance.sh                  # the structural acceptance cases; C
 bash scripts/worldgencheck.sh               # is a generation pass eating another's output, or has one stopped firing; CI gates this. --selftest puts the defect back
 bash scripts/seedsweep.sh                   # the order-statistic seed sweep; run BEFORE changing any model over procedural content
 bash scripts/docscheck.sh                   # documentation checks: links, map-vs-tree, freshness notes, report index
+python3 scripts/bugindex.py --branches      # WHICH BUG LETTER IS FREE -- swept over every fetched branch, not just this tree. Run it BEFORE filing in Reports/open-bugs-handoff.md; --check cannot see a letter claimed on an unlanded branch. --selftest is the positive control
 python3 scripts/contextbudget.py            # what every session, agent and subagent pays before it starts; --gate is the ceiling, --check is gated by docscheck
 bash scripts/contextprobe.sh                 # ...and what the runtime ACTUALLY loads, over the InstructionsLoaded hook; contextbudget infers, this measures. --selftest is the positive control
 bash scripts/branchcheck.sh                 # how far behind main this branch is, and which branches are merged-and-deletable; --gate is the CI trunk check
@@ -414,8 +415,18 @@ append-only, lettered, written into by every line at once. Two bugs were once
 filed as **§Q**, and a branch carried a stale copy of **§M still headed OPEN**
 which `main` had since closed. So before adding a section: **grep the file for
 the thing you are about to file**, and for the letter run
-`python3 scripts/bugindex.py --check`, which names both lines when one is used
-twice and is already gated by `docscheck`. Do not check the letter by eye.
+**`python3 scripts/bugindex.py --branches`**, which prints the next free
+number in every series across every fetched branch. Do not check the letter by
+eye — and **do not use `--check` for this, which is what this line said until
+2026-09-12 and is a confident wrong answer**: `--check` reads one working
+tree, so it passes on a letter that is free *here* and already taken on a
+branch that has not landed. Measured that day: a lane filed **§Z16** against a
+register whose highest was §Z15, `--check` was green, and §Z16 was live on
+another branch; `--branches` answers **§Z18** in 1.2 s over 75 refs.
+`--check` keeps its own job — the index is current, no letter is used twice
+*in this file* — and stays the one `docscheck` gates, because `--branches`
+answers differently depending on what you have fetched and a gate whose
+verdict moves with your fetch state teaches people to ignore it.
 When a merge conflicts there, ask which side is *newer* rather than which is
 yours. **Check the split is self-consistent, too** — one plan gave Lane A
 everything under `examples/*` and told Lane C to add a mode to a file under
