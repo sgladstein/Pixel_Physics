@@ -30,19 +30,39 @@ Provenance dates come from `git blame`, not from the prose: **594 of 773 entries
 (77%) cite no date at all**, and 1,060 of the file's 1,678 entry lines were
 written on 2026-08-21 by the original ten-agent census. An entry that names no
 date is not undated -- it is dated by the commit that added it, which is the
-only date that survives an author forgetting to write one. This needs full
-history; a shallow clone silently dates every pre-boundary line to the boundary
-commit, so `--check` fails loudly rather than reporting a wrong arc.
+only date that survives an author forgetting to write one.
 
-    python3 scripts/deadendindex.py            # regenerate TSV + skeleton
-    python3 scripts/deadendindex.py --check    # verify counts; gated by docscheck
+Regeneration therefore needs full history and **refuses without it**: a shallow
+clone silently dates every pre-boundary line to the boundary commit, which is
+wrong and plausible at the same time. `--check` does not need full history,
+because it compares on the columns blame does not touch -- that is what lets CI
+run it at its default checkout depth.
+
+    python3 scripts/deadendindex.py            # regenerate TSV + skeleton (needs full history)
+    python3 scripts/deadendindex.py --check    # is the committed index stale? writes nothing
     python3 scripts/deadendindex.py --skeleton <section>[,<section>]
     python3 scripts/deadendindex.py --watch      # clauses waiting on an arrival
 
-`--check` also verifies the per-section counts written into the `##` headings.
-They are stale today in nine of fourteen sections -- `## other  (20 entries)`
-holds **105** -- and a count nobody can check is worse than none, which is the
-same reasoning the file's own header gives for recounting its total.
+`--check` compares the committed TSV and skeleton against a regeneration and
+also verifies the per-section counts written into the `##` headings. They were
+stale in nine of fourteen sections when this was written -- `## other  (20
+entries)` held **105** -- and a count nobody can check is worse than none,
+which is the same reasoning the file's own header gives for recounting its
+total.
+
+**`--check` used to do neither of those things, and its green meant nothing.**
+`main()` called `write_outputs()` before it looked at the flag, so the check
+always rewrote both generated files and then compared only the headings against
+a count it had just produced itself -- it could not see a stale committed index,
+which is the one job CLAUDE.md gives a generated-file gate. In a depth-1 clone
+it rewrote all 804 rows of both files with the boundary commit's dates and still
+exited 0, and CI's `docscheck` job checks out at default depth, so CI had been
+running that regeneration and passing. Three controls, measured 2026-09-12 and
+re-runnable: delete one register entry and `--check` goes red on the row count
+and the heading (it does, and writes nothing while doing it); run it in a
+depth-1 clone and `git status` stays clean (it does -- the old script left 1,585
+changed lines in two tracked files); run the *regeneration* there and it refuses
+rather than writing wrong dates.
 """
 
 import re
@@ -221,6 +241,12 @@ def build(section, line, body, dates, flags):
     m = re.match(r"- \*\*(.+?)\*\*", body, re.S)
     address = flat(m.group(1)) if m else flat(body[:100])
 
+    # The claim: everything after the bold address, minus the " - " that joins
+    # them. It is what distinguishes two dead ends filed under one report
+    # section, and without it the key collides -- see `stable_key`.
+    claim = flat(body[m.end():]) if m else ""
+    claim = re.sub(r"^-\s*", "", claim)
+
     rt = re.search(r"\*Re-test when:\*\s*(.+?)(?=\n\s*\*[A-Z]|\Z)", body, re.S)
     retest = flat(rt.group(1)) if rt else ""
 
@@ -267,6 +293,7 @@ def build(section, line, body, dates, flags):
         "section": section,
         "line": line,
         "address": address,
+        "claim": claim,
         "target": target,
         "family": family,
         "retest": retest,
@@ -306,26 +333,64 @@ def stable_key(e):
     every verdict to the wrong entry, and nothing about the file would look
     different afterwards.
 
-    So the durable handle hashes the entry's own address. It survives
-    insertion, deletion and reordering, and it changes only when the address
+    So the durable handle hashes the entry's own content. It survives
+    insertion, deletion and reordering, and it changes only when the entry
     itself is edited -- which is the case where a human should look anyway.
     The ordinal stays as the readable label; this is what joins data to it.
 
-    **Scoped by section, and that is not cosmetic.** The register deliberately
-    lists some dead ends twice, because two documents record the same rejection
-    with different detail -- its own header says so. Hashing the address alone
-    gives those rows one key, which silently collapsed six of them into
-    already-labelled entries and made the coverage count read 55 of 59 liquids
-    when all 59 had been judged. Section plus address keeps rows 1:1 with the
-    file, so "how much is screened" stays answerable, and the duplicates simply
-    get a verdict each -- which is what the register asks for by carrying
-    them."""
+    **Section plus address is not enough, and the first version of this
+    function got that wrong in a way that moved verdicts onto the wrong
+    entries.** The docstring here used to assert that same-key rows were the
+    duplicates the register deliberately carries. Measured 2026-09-12 by
+    reading all 33 of them: **12 shared keys over 33 rows, of which only the
+    two `other:` pairs are genuine duplicates** -- the other 10 groups are 29
+    rows that are *distinct dead ends filed under one report-section
+    address*. `Reports/next-session-handoff.md §3` alone carries five
+    different structural levers; `§1c-i` five different crack-pattern
+    attempts; `open-bugs-handoff.md §1 'Whiskers'` four different whisker
+    fixes. The join collapsed each group to one `screened.tsv` row, so one
+    verdict stood for all of them, and it had already done damage:
+    `structural:038`'s write-back (the divisor is gone, `LANDED`) was carried
+    by `structural:039`, whose subject is *"stale distances are not this
+    bug"* and whose re-test clause demands a `relax=1` re-baseline.
+
+    So the hash takes the **claim** as well -- the first 160 characters after
+    the bold address, which is where the subject of the rejection is stated.
+    160 is measured rather than chosen: it separates all 29 while staying
+    short enough that editing the tail of a long entry does not re-key it.
+    Rows that still collide after this are true duplicates and may share a
+    verdict, which is what the register asks for by carrying them."""
     import hashlib
-    return hashlib.sha1(f"{e['section']}\x00{e['address']}".encode("utf-8")).hexdigest()[:10]
+    return hashlib.sha1(
+        f"{e['section']}\x00{e['address']}\x00{e.get('claim', '')[:160]}".encode("utf-8")
+    ).hexdigest()[:10]
 
 
-def write_outputs(entries):
-    TSV.parent.mkdir(parents=True, exist_ok=True)
+# Columns derived from `git blame` rather than from the register's text. A
+# shallow clone dates every pre-boundary line to the boundary commit, so these
+# three are the ones that differ between a full and a truncated history. The
+# compare in `--check` excludes them; the regeneration refuses to run shallow
+# at all, so they are never *written* wrong either.
+BLAME_COLUMNS = ("written", "effective", "pre_cluster")
+
+# The same three, as they appear in the skeleton's tag list.
+SKEL_BLAME = re.compile(r"(?:; )?(?:eff=[^;)]*|pre-09-06)")
+
+
+def is_shallow():
+    res = subprocess.run(["git", "rev-parse", "--is-shallow-repository"],
+                         cwd=ROOT, capture_output=True, text=True)
+    return res.returncode == 0 and res.stdout.strip() == "true"
+
+
+def render_outputs(entries):
+    """Build the TSV and skeleton *in memory*. Writes nothing.
+
+    Split out of `write_outputs` so `--check` can compare without touching the
+    tree. `--check` used to call `write_outputs` before it looked at its own
+    flag, so it always rewrote both files and compared nothing but the `##`
+    heading counts -- it could not tell a stale committed index from a fresh
+    one, which is the single job CLAUDE.md gives a generated-file gate."""
     per = Counter()
     rows = ["\t".join(COLUMNS)]
     skel = ["# dead-ends.md skeleton -- generated by scripts/deadendindex.py",
@@ -359,9 +424,84 @@ def write_outputs(entries):
         skel.append(f"  - addr: {e['address'][:180]}")
         if e["retest"]:
             skel.append(f"  - retest: {e['retest'][:260]}")
-    TSV.write_text("\n".join(rows) + "\n", encoding="utf-8")
-    SKEL.write_text("\n".join(skel) + "\n", encoding="utf-8")
+    return per, "\n".join(rows) + "\n", "\n".join(skel) + "\n"
+
+
+def write_outputs(entries):
+    """Regenerate both committed artifacts. Refuses on a shallow clone.
+
+    The dates in these files come from blame over the whole history of the
+    register. In a depth-1 clone blame reports the boundary commit for every
+    pre-boundary line, so a regeneration there rewrites all 804 rows with
+    dates that are wrong and plausible. Refusing is the only safe answer: the
+    old code only failed when blame returned *no* dates, which a shallow blame
+    never does."""
+    if is_shallow():
+        print("deadendindex: refusing to regenerate in a shallow clone -- `git blame` "
+              "dates every pre-boundary line to the boundary commit, so `written`, "
+              "`effective` and `pre_cluster` would all be written wrong. "
+              "Run `git fetch --unshallow` first.", file=sys.stderr)
+        return None
+    TSV.parent.mkdir(parents=True, exist_ok=True)
+    per, tsv, skel = render_outputs(entries)
+    TSV.write_text(tsv, encoding="utf-8")
+    SKEL.write_text(skel, encoding="utf-8")
     return per
+
+
+def strip_blame_tsv(text):
+    """TSV rows with the blame-derived columns blanked, for comparison."""
+    lines = text.rstrip("\n").split("\n")
+    if not lines or not lines[0]:
+        return []
+    head = lines[0].split("\t")
+    drop = {head.index(c) for c in BLAME_COLUMNS if c in head}
+    return [tuple("" if i in drop else v for i, v in enumerate(r.split("\t")))
+            for r in lines]
+
+
+def strip_blame_skel(text):
+    return [SKEL_BLAME.sub("", line) for line in text.rstrip("\n").split("\n")]
+
+
+def compare_committed(entries):
+    """Is what is committed what this script would generate? Writes nothing.
+
+    Compared on everything except the blame-derived columns, so the answer is
+    the same in a shallow clone as in a full one -- which is what lets CI run
+    this at its default checkout depth."""
+    problems = []
+    per, tsv, skel = render_outputs(entries)
+    for path, fresh, strip, label in (
+        (TSV, tsv, strip_blame_tsv, "index"),
+        (SKEL, skel, strip_blame_skel, "skeleton"),
+    ):
+        if not path.exists():
+            problems.append(f"{path.relative_to(ROOT)} is missing -- run `deadendindex.py`")
+            continue
+        have = strip(path.read_text(encoding="utf-8"))
+        want = strip(fresh)
+        if have == want:
+            continue
+        if len(have) != len(want):
+            problems.append(
+                f"{path.relative_to(ROOT)} is stale: holds {len(have)} lines, "
+                f"the register generates {len(want)} -- run `deadendindex.py`")
+            continue
+        bad = [i for i, (a, b) in enumerate(zip(have, want)) if a != b]
+        problems.append(
+            f"{path.relative_to(ROOT)} is stale: {len(bad)} of {len(want)} lines differ "
+            f"(first at line {bad[0] + 1}) -- run `deadendindex.py`")
+    return per, problems
+
+
+def heading_problems(headers, per):
+    out = []
+    for section, claimed, line in headers:
+        actual = per.get(section, 0)
+        if claimed is not None and claimed != actual:
+            out.append(f"L{line}: `## {section}` claims {claimed} entries, holds {actual}")
+    return out
 
 
 def main():
@@ -381,18 +521,6 @@ def main():
                     print(f"  retest: {e['retest']}")
         return 0
 
-    per = write_outputs(entries)
-    problems = []
-
-    if not any(e["written"] for e in entries):
-        problems.append("git blame produced no dates -- run `git fetch --unshallow` first; "
-                        "a shallow clone dates every pre-boundary line to the boundary commit")
-
-    for section, claimed, line in headers:
-        actual = per.get(section, 0)
-        if claimed is not None and claimed != actual:
-            problems.append(f"L{line}: `## {section}` claims {claimed} entries, holds {actual}")
-
     if "--watch" in args:
         watch = [e for e in entries
                  if e["retest"] and FORWARD_LOOKING.search(e["retest"])
@@ -401,6 +529,8 @@ def main():
               f"rather than a standing state.")
         print("deadendindex: a watchlist, not a verdict -- the named thing arriving is not "
               "the condition being met.")
+        print("deadendindex: and not coverage of anything -- measured 2026-09-12, none of the "
+              "six entries the triage's own run-order kept is on this list.")
         per = Counter()
         for e in entries:
             per[e["section"]] += 1
@@ -410,9 +540,19 @@ def main():
         return 0
 
     if "--check" in args:
+        # Never writes. The old version called `write_outputs` first, so it
+        # dirtied the tree on every run and compared nothing but the heading
+        # counts -- including in CI, whose checkout is shallow.
+        per, problems = compare_committed(entries)
+        problems += heading_problems(headers, per)
         for p in problems:
             print(f"deadendindex: {p}")
         return 1 if problems else 0
+
+    per = write_outputs(entries)
+    if per is None:
+        return 1
+    problems = heading_problems(headers, per)
 
     print(f"deadendindex: {len(entries)} entries -> {TSV.relative_to(ROOT)}, {SKEL.relative_to(ROOT)}")
     print(f"deadendindex: skeleton {SKEL.stat().st_size:,} B (~{SKEL.stat().st_size // 4:,} tok) "
