@@ -643,8 +643,14 @@ nothing in either brief asked. The open question is no longer whether the gate
 earns its place; it is *by what route*, since whether a colony that stops
 digging spends the saving on foraging is untested.
 
-What also remains is the other half of those deaths — something vacates the
-vital cell and leaves nothing behind.
+**And the other half of those deaths was never a second mechanism** — settled
+the same evening, after this round closed, by the session that took the repair.
+It is the same write seen later: once the pip is in the head, a nestmate
+carries it off, or it rots or is buried, before the ant's next reconcile, so
+the vital cell reads empty instead of plant. Paired at 120,000 frames, booked
+killings go 28 → 0, 79 → 0 and 150 → 0 across three seeds, the empty column
+included. What round 29 called *"the larger half"* and round 30 called *"the
+most important open question on the trunk"* was one call site all along.
 
 **And the plant-cell half stopped being a mystery on the round's last evening.**
 Round 29's coordinator found the write site by reading the code; it is verified
@@ -811,15 +817,29 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   question, not a mechanic; the same shape as this repo's own note that a dead
   creature is unfindable by the very channel that makes a live one findable.
 - **§Z12** — bred one-cell morphs that cannot flip. Inheritance, not injury.
-- **§Z15 and §Z16 are probably one repair** — a living animal blocked by plant
-  cells and a dead animal whose head became a pip are the same collision from
-  two sides. Measurement first: an attack-in-progress bit on
-  `World::note_vital_loss`, one run, which splits the undiagnosed column.
-- **The digestion exit plants a pip in the ant's own head** (§Z16, diagnosed
-  and verified 2026-09-12, unfixed). One call site; the fix is the shape the
-  other three seed paths already use. **Budget the constant re-derivation into
-  the same brief** — it culls 71/58/35 of 216/98/70 booked killings, so the
-  lifespan, seed-cargo and peak figures are all measured with it running.
+- ~~**§Z15 and §Z16 are probably one repair**~~, and ~~the attack-in-progress
+  bit that would have split the undiagnosed column~~ — **both retired by #366,
+  which is the best outcome this list had.** The `empty` half was never a
+  second mechanism: it was **the same write seen later**. Once the pip was in
+  the head, a nestmate carried it off, or it rotted or was buried, before the
+  ant's next reconcile, so the vital cell read empty or soil instead of plant.
+  Paired at 120,000 frames, booked killings go **28 (11 pip / 2 grass / 6
+  empty) → 0**, **79 (18/9/45) → 0**, **150 (42/25/70) → 0** — zero on every
+  seed, the empty half included. Nothing is left in §Z16 but the two
+  attributable bites, which are real killings. §Z15, the cage, is untouched and
+  still open.
+- ~~**The digestion exit plants a pip in the ant's own head**~~ — **repaired
+  the same evening in #366**, and the fix retires more of this list than it
+  was aimed at. See below.
+- **The lifespan re-derivation, and round 30's own headline with it.** #366's
+  paired numbers put ants at 120,000 frames going **0→52, 8→10, 29→135**, and
+  seed 1's births **29→214**. So every played-bed figure is one trunk behind
+  again — *and that includes this round's survival result*. The 5 of 12 against
+  0 of 12 was a paired comparison, so it is still true **of the trunk it was
+  taken on**, and whether the room gate still earns its place on a bed that no
+  longer culls its colony is **unmeasured**. That is lane P's own rule — *a
+  sweep measures one trunk, not a mechanism* — turned on lane P's own result.
+  **Re-run it with the lifespan work, not as a separate brief.**
 - **Splitting or renaming `DeathCause::Killed`** — round 30 took this from
   round 29's three follow-ups, on the test that two lanes re-derived the same
   wrong reading from it in one day.
