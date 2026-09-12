@@ -1,6 +1,15 @@
 # Ants
 
-*Current as of: 2026-09-12, when **an ant at the nest started being asked
+*Current as of: 2026-09-12, when **an ant stopped planting the seed it had
+just eaten inside its own head.** When a meal that carried a seed was
+finished, the seed was set down at the spot where the ant stood, which is
+the ant, and the ant died of it, booked as a killing that no animal had
+done. On the played bed that was most of what was "killing" the colony:
+take it away and a colony that was gone by a session's midpoint is still
+there with fifty ants, and eats the seed bank it had been building. The
+seed now goes down beside the ant, or two cells out, or at the midden, and
+an ant boxed in on every side loses the seed rather than its life. Before
+that, on the same day, **an ant at the nest started being asked
 how much room the colony has** rather than how many ants are pressed against
 it — and it was measured that this does not make the anthill smaller. The
 question is a better one and the colony answers it sensibly: it digs hard while
