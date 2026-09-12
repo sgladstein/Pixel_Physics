@@ -327,7 +327,54 @@ fn main() {
     );
     println!("  {msg}");
 
-    for _ in 0..start {
+    // **`lifespan=<frames>` -- the ant's `CreatureDef::life_half_life`**,
+    // written through after `load_scenario` (which rebuilds the world) and
+    // before the warm-up, so the colony the timeline founds at frame 6,000
+    // already has it. `0` is immortal, the shipped behaviour before
+    // 2026-09-12 and the control arm of the card's pair. Echoed
+    // unconditionally: a log that does not name its lifespan was written by
+    // a binary that never had the knob.
+    if let Some(v) = arg::<u32>("lifespan") {
+        if let Some(id) = lab.world.species.id_of(&lab.spec.colony_species) {
+            if let Some(mut def) = lab.world.species.get(id).creature.clone() {
+                def.life_half_life = v;
+                lab.world.species.set_creature(id, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        lab.spec.colony_species,
+        lab.world.species.id_of(&lab.spec.colony_species).and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
+
+    // **The colony's own three numbers, tracked across the whole run** --
+    // `CLAUDE.md`'s review-card rule: an image says what a nest band looks
+    // like and only a count says whether the mechanism under test fired.
+    // `peak` has to be sampled every frame rather than read at the end,
+    // because the thing this build is *for* is flattening a peak that has
+    // already passed by the time the last frame is drawn.
+    let mut peak_ants = 0usize;
+    let mut peak_frame = 0u64;
+    let note_peak = |lab: &Lab, f: u64, peak: &mut usize, at: &mut u64| {
+        let n = lab.world.live_organism_ids().into_iter().filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).creature.is_some())).count();
+        if n > *peak {
+            *peak = n;
+            *at = f;
+        }
+        n
+    };
+
+    // **Sampled every `PEAK_EVERY` frames, not every frame.** A census walks
+    // every organism in the box, and the warm-up is tens of thousands of
+    // frames over a bed that holds hundreds -- per-frame it is the dominant
+    // cost of this harness and it buys nothing, because a colony's peak is a
+    // slow envelope and not a spike.
+    const PEAK_EVERY: u64 = 100;
+    for f in 0..start {
+        if f % PEAK_EVERY == 0 {
+            note_peak(&lab, f, &mut peak_ants, &mut peak_frame);
+        }
         lab.tick_for_harness();
     }
     // The requested rate arms right here -- the captured window is the
@@ -509,9 +556,23 @@ fn main() {
             }
         }
         if f < frames {
+            if f % PEAK_EVERY == 0 {
+                note_peak(&lab, start + f, &mut peak_ants, &mut peak_frame);
+            }
             lab.tick_for_harness();
         }
     }
+
+    let ants_now = note_peak(&lab, start + frames, &mut peak_ants, &mut peak_frame);
+    let by_cause = |c: pixel_physics::sim::organism::DeathCause| lab.world.deaths_by_cause[c.index()];
+    println!(
+        "  COLONY peak {peak_ants} ants at frame {peak_frame} | {ants_now} ants at frame {} | OLDAGE {} | STARVED {} | KILLED {} | born {}",
+        start + frames,
+        by_cause(pixel_physics::sim::organism::DeathCause::OldAge),
+        by_cause(pixel_physics::sim::organism::DeathCause::Starved) + by_cause(pixel_physics::sim::organism::DeathCause::StarvedInFlight),
+        by_cause(pixel_physics::sim::organism::DeathCause::Killed),
+        lab.world.creature_stats.births
+    );
 
     let water_after = soil_total(&lab);
     let rain_after = lab.world.rain_cells;
@@ -557,7 +618,17 @@ fn main() {
     // Real playback speed and a loop, `main.rs`'s own `CaptureSequence::
     // finish` convention exactly: 60 ticks/second is the shipped sim rate,
     // so `every` ticks between captures maps directly to real elapsed time.
-    let delay_ms = ((every * 1000) / 60).max(1);
+    //
+    // **`delay=<ms>` overrides it, and a time-lapse is why.** Real playback
+    // speed is the right default for the rain cards this file was built for,
+    // where `every` is single digits. It stops being a playback speed at all
+    // once the question is a *session*: a colony's boom takes 200,000 frames,
+    // which at a watchable ~150 shots means `every` near 1,300 -- and this
+    // formula turns that into 21.7 seconds per frame, i.e. a card the owner
+    // would have to sit through for nearly an hour. The pixels are unchanged;
+    // only how long each is held. Unset reproduces every existing card
+    // byte-for-byte, since the branch never runs.
+    let delay_ms = arg::<u64>("delay").unwrap_or((every * 1000) / 60).max(1);
     let delay = image::Delay::from_saturating_duration(std::time::Duration::from_millis(delay_ms));
     // **Read off the actual first shot, not recomputed from `w`/`zoom`.**
     // That recomputation was always `w * zoom, h * zoom`, which was true
@@ -578,7 +649,14 @@ fn main() {
             if let Err(e) = encoder.encode_frames(gif_frames) {
                 eprintln!("labgif: gif encode failed: {e}");
             }
-            println!("  wrote {out} ({n} frames, {shot_w}x{shot_h} each)");
+            // The delay is echoed rather than left implicit for the reason
+            // `plant_probe` echoes its seed: it is now a knob, and a card
+            // that plays at the wrong speed looks exactly like one whose
+            // `delay=` never reached the binary.
+            println!(
+                "  wrote {out} ({n} frames, {shot_w}x{shot_h} each, {delay_ms} ms/frame -> {:.1} s)",
+                (n as f64) * (delay_ms as f64) / 1000.0
+            );
         }
         Err(e) => eprintln!("labgif: failed to create {out}: {e}"),
     }
