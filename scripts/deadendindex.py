@@ -75,6 +75,14 @@ ROOT = Path(__file__).resolve().parent.parent
 DOC = ROOT / "Reports" / "dead-ends.md"
 TSV = ROOT / "Reports" / "data" / "dead-ends-index.tsv"
 SKEL = ROOT / "Reports" / "data" / "dead-ends-skeleton.md"
+SCREENED = ROOT / "Reports" / "data" / "dead-ends-triage" / "screened.tsv"
+CANDIDATES = ROOT / "Reports" / "data" / "dead-ends-triage" / "candidates.tsv"
+
+# The five verdicts that leave an entry open: the idea may not have had a fair
+# test. Everything else (DEAD, META, UNBUILT, LANDED, RE-TESTED) is closed.
+CANDIDATE_LABELS = ("CONFOUNDED", "COSTED", "SUSPECT-INSTRUMENT", "EXPIRED", "UNWIRED")
+CANDIDATE_COLUMNS = ["label", "id", "line", "confidence", "section", "live_flags",
+                     "evidence", "address", "reason"]
 
 # The day six couplings landed at once -- soil nutrient as per-cell data, plants
 # held by roots rather than walls, tissue parting, colony groups, kin-as-scent,
@@ -427,6 +435,40 @@ def render_outputs(entries):
     return per, "\n".join(rows) + "\n", "\n".join(skel) + "\n"
 
 
+def render_candidates(entries):
+    """`candidates.tsv`, derived from `screened.tsv` rather than maintained.
+
+    It used to be hand-maintained, and it drifted: measured 2026-09-12 it
+    carried **61 CONFOUNDED rows against screened.tsv's 59**, and its first row
+    was `creatures:039 EXPIRED` -- an entry the PR body, a PR comment and its
+    own check file all withdraw. A later session reading the table re-walks a
+    candidate that was already closed, which is the whole cost of a derived
+    file that is not derived.
+
+    Joined on the content key, never on the `section:ordinal` id: one
+    `screened.tsv` row already carried a stale ordinal (`other:107` for what is
+    now `other:110`)."""
+    if not SCREENED.exists():
+        return None
+    rows = [l.rstrip("\n").split("\t") for l in
+            SCREENED.read_text(encoding="utf-8").rstrip("\n").split("\n")]
+    hdr, data = rows[0], rows[1:]
+    ki, li, ci, ri = (hdr.index(c) for c in ("key", "label", "confidence", "reason"))
+    verdict = {r[ki]: r for r in data}
+
+    per = Counter()
+    out = ["\t".join(CANDIDATE_COLUMNS)]
+    for e in entries:
+        per[e["section"]] += 1
+        v = verdict.get(stable_key(e))
+        if not v or v[li] not in CANDIDATE_LABELS:
+            continue
+        out.append("\t".join(str(x).replace("\t", " ") for x in [
+            v[li], ident(e, per[e["section"]]), e["line"], v[ci], e["section"],
+            e["live_flags"], e["grade"], e["address"], v[ri]]))
+    return "\n".join(out) + "\n"
+
+
 def write_outputs(entries):
     """Regenerate both committed artifacts. Refuses on a shallow clone.
 
@@ -446,6 +488,9 @@ def write_outputs(entries):
     per, tsv, skel = render_outputs(entries)
     TSV.write_text(tsv, encoding="utf-8")
     SKEL.write_text(skel, encoding="utf-8")
+    cand = render_candidates(entries)
+    if cand is not None:
+        CANDIDATES.write_text(cand, encoding="utf-8")
     return per
 
 
@@ -472,10 +517,12 @@ def compare_committed(entries):
     this at its default checkout depth."""
     problems = []
     per, tsv, skel = render_outputs(entries)
-    for path, fresh, strip, label in (
-        (TSV, tsv, strip_blame_tsv, "index"),
-        (SKEL, skel, strip_blame_skel, "skeleton"),
-    ):
+    checks = [(TSV, tsv, strip_blame_tsv, "index"),
+              (SKEL, skel, strip_blame_skel, "skeleton")]
+    cand = render_candidates(entries)
+    if cand is not None:
+        checks.append((CANDIDATES, cand, lambda t: t.rstrip("\n").split("\n"), "candidates"))
+    for path, fresh, strip, label in checks:
         if not path.exists():
             problems.append(f"{path.relative_to(ROOT)} is missing -- run `deadendindex.py`")
             continue
