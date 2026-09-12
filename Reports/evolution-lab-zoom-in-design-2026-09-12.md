@@ -105,7 +105,7 @@ settled-world skip is untouched by all of them.
 | **B. state drawn** (`drawn`) | a part-full water cell shows its fill as a *level line* — the bottom `fill` of the block in the undimmed colour, the rest in the air above. The dark surface line becomes a waterline with sky over it. | **~1**; fires on part-full *surface* cells only (39 of 2,560 in the crop) | nothing at 1x: with `zoom == 1` the level collapses to the same whole-cell dimming, byte-identical to today, the way the crack strip collapses to `CRACK_DARKEN`. Needs the colour of the cell above for the empty part of the block — one neighbour read on a surface cell. | **not a mode** — it is the crack strip's own shape (`sub`-aware per-cell drawing) and should be on whenever `zoom > 1` |
 | **C. material texture** (`stamp`) | a mass is drawn at 8x the way it looks at 1x: each block is a field of `zoom/4`-pixel sub-grains, each picking its own palette entry by a world-keyed hash and scaled by the lighting the 1:1 render already put on the cell. Wood gets vertical bark strips keyed on the column; a leaf cell facing air on two sides of a corner gives that corner to the air, so lone leaves are lobes and a canopy edge is scalloped. Hard edges, exact palette, no blur. | **~24** on every redrawn pixel (`stamp+drawn` 29 against `nearest` 5, same run) — at 8x on this box ~4 ms single-threaded for a full redraw; `draw` is parallel over rows | the palette spread of every material was tuned for 1x, so a wide palette (stone) reads speckly at 8x and a narrow one (log, deliberately 18 units) stays flat — which is the same trade `dead-ends.md`'s `log.ron` entry records, now re-run at magnification. Nothing at 1x: sub-grain = cell. | **yes** — `flat` / `textured`, the mirror of lane S's `stride` / `coverage` / `average` on the minify side, with the sub-grain size a dial |
 | **D. chamfered edges** (`contour`) | the staircase on a diagonal becomes a 45° edge: at each corner of a block, if the two orthogonal neighbours across it share a class (air / liquid / powder / solid / plant / creature) that is not the cell's own, the corner triangle is theirs. Convex corners are cut; the concave notch of a staircase is filled from the air side by the same rule. Chosen from what the cells *are*, never from colour — the whole difference from hqx/xBR. | **~17** (741 corners cut in the crop) | reads eight neighbours, so a neighbour across a chunk border can change without dirtying this chunk and leave a stale triangle until the chunk redraws (`FOAM_BLEND`'s doc records why the shipped path avoids neighbour reads; at 8x the chunk covers the screen so it is moot, at 2x it is real). And a *taste* cost: a lone leaf cell becomes an octagon and the notch rule speckles roots and canopies with diamonds — `notch=fill` badly, `notch=deep` (fill only where the diagonal cell agrees too) less, `notch=cut` (never fill) not at all but then a diagonal twig stays a staircase. | **yes**, as a third mode, with the notch rule a dial |
-| **E. smoothing** (`smooth`) | bilinear interpolation between cell centres of the shipped colours — the first thing "upsample it" suggests | **~30**, four reads per pixel, the most expensive arm | destroys the per-cell grain that makes soil read as soil, softens every edge, and reads as a blurred photograph of the 1x picture. This is precisely the definition the owner rejected for zoom-*out* ("crisp"), arriving from the other side. | no — rejected below |
+| **E. smoothing** (`smooth`) | bilinear interpolation between cell centres of the shipped colours — the first thing "upsample it" suggests | **~30**, four reads per pixel, the most expensive arm | destroys the per-cell grain that makes soil read as soil, softens every edge, and reads as a blurred photograph of the 1x picture. (This row first said it was "precisely what the owner rejected for zoom-out with 'crisp'" — that was the coordinator's steer, inferred, and withdrawn the same day; see §0. What stands is the cost and the grain.) | costed, not rejected — the owner's pane E verdict decides; see §0 and §4 |
 | **F. brightness noise** (`texture`) | as A plus a per-pixel brightness jitter keyed on world position, 8–15% | ~12 | at 8% invisible, at 15% reads as compression noise laid over the squares; adds no information. C is the version of "texture past some zoom" that carries meaning. | no — rejected below |
 | **G. pixel-art upscalers** (hqx / xBR / EPX) | not rendered | — | already in `dead-ends.md`: they infer shape from colour, and the deliberate per-cell shade jitter means adjacent pixels rarely match. Backwards here for as long as palettes carry grain. | no |
 | **H. field reconstruction** (`examples/subpixel.rs`) | plant tissue as a thresholded kernel field: smooth tapered strokes and lobes. Not re-rendered | 82 ns/px gated (`subpixel-rendering-2026-08-29.md` §11) | the owner has seen three rounds of it: "3d-ish", then "smooth circular shape/edges look fake", then "different but not clearly better" (card `20260829T090050407Z-b3bfd3`). D is its hard-edged, six-times-cheaper cousin and is the form of that idea worth a fourth look, if any. | it could be a mode; not proposed |
@@ -123,8 +123,10 @@ settled-world skip is untouched by all of them.
 - **D** does what it says on silhouettes and does something nobody asked for
   on single cells. It is worth a mode because the notch dial may find a
   setting the sheet did not, and because it costs nothing when off.
-- **E** is the clearest picture on the sheet, in the wrong direction: the
-  grain is gone and the tree is fog.
+- **E** is the clearest picture on the sheet and the most different: the
+  grain is gone and the tree is fog. Whether that is a wrong direction is
+  the owner's call, not this report's — the taste argument that stood here
+  was the coordinator's steer and is withdrawn (§0).
 
 ## 2b. The styles — what the per-cell data supports without a simulation change
 
@@ -151,9 +153,11 @@ keeps thin things from disappearing).
 
 Two things the 3x sheet says that the 8x sheet cannot:
 
-- **Soft fails "crisp" at play scale.** The one-cell twigs that make a
-  stand read as a stand go to haze under bilinear, which is the *disappearing*
-  the owner complained of, produced by a different mechanism.
+- **Soft loses thin things at play scale.** The one-cell twigs that make a
+  stand read as a stand go to haze under bilinear. This is a measured loss of
+  information, not a taste claim — it is the *disappearing* the owner named
+  in the zoom-out complaint, produced by a different mechanism — and it is
+  what a soft look would have to fix (dilate before blurring) if chosen.
 - **Illustrated passes it with margin**, and is the one look on the sheet
   that is plausibly a *different game* rather than the same game filtered:
   bold outlines, flat fills, exact palette. It is also the cheapest of the
@@ -190,16 +194,16 @@ Two lists, because the widened remit made them two questions.
 **As a style — the owner's call, from the card, and then its own round:**
 
 2. **Illustrated** (`iso+outline`) is the author's pick if one has to be
-   named: it is the only look on the sheet that answers "crisp" *better*
-   than today at play scale, it is the cheapest non-pixel look, it is exact
+   named, on cost and on information rather than on taste: it is the only
+   look on the sheet that keeps *more* definition than today at play scale, it is the cheapest non-pixel look, it is exact
    palette by construction, and it is the flat-and-cartoony direction the
    owner asked for in the subpixel rounds without the rounded shading he
    rejected there.
 3. **Textured cell-art** (`stamp+drawn`) if the verdict is that the pixel
    look stays: it answers "big sharp squares" at magnification and changes
    nothing at 1x.
-4. **Soft / painted** only if the owner wants them despite the play-scale
-   loss of thin things — and then with the `level`-style bias ported to the
+4. **Soft / painted** rank below on the play-scale loss of thin things
+   alone, which is a measurement; the owner may still pick them — and then with the `level`-style bias ported to the
    colour field so twigs are dilated before they are blurred.
 5. **Lit** is on the card to be voted down deliberately rather than by
    default; the record says it loses.
@@ -247,16 +251,19 @@ Said here rather than done, because lane S is in the file.
   which is the one thing that would change the 1x game, and is exactly what
   the owner is being asked to judge on the 3x sheet.
 
-## 4. What was rejected, and why
+## 4. What was rejected or costed, and why
 
-Filed in `dead-ends.md` under **rendering**, each with its condition:
+Filed in `dead-ends.md` under **rendering**, each with its condition. Only
+the second is a rejection; the first is a costing and the third a variant.
 
-- **Bilinear smoothing at magnification** — filed first as a rejection on
-  cost and on taste; **the taste half was withdrawn the same day** when the
-  remit widened (§0), and the entry now records the cost and the play-scale
-  finding only: it is the most expensive filter, it removes the grain, and
-  at 3x it thins one-cell twigs into haze. The card is the re-test; if the
-  owner picks soft, the twig loss is the thing to fix before it ships.
+- **Bilinear smoothing at magnification** — **not rejected: costed, awaiting
+  the owner's verdict on pane E.** Filed first as a rejection on cost and on
+  taste; the taste half was the coordinator's steer and was withdrawn the
+  same day when the remit widened (§0). The `dead-ends.md` entry now says so
+  with the date, and records the cost and the play-scale finding only: it is
+  the most expensive filter, it removes the grain, and at 3x it thins one-cell
+  twigs into haze. If the owner picks soft, the twig loss is the thing to fix
+  before it ships.
 - **Per-pixel brightness noise as "texture past some zoom"** — no information
   and no shape; the material-keyed sub-grain (C) is the version of the idea
   that carries meaning. Holds unconditionally: noise cannot say anything a
