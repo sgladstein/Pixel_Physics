@@ -1,0 +1,106 @@
+{
+  "id": "20260912T074657942Z-a14201",
+  "created": "2026-09-12T07:46:57Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-cohesion-r29",
+    "commit": "c29ebd0c",
+    "agent": null,
+    "session_id": "3512293e-b22a-59f0-822f-772f1bd3045b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "What the mound's smell does about it",
+  "question": "Both these colonies breed at the same high drift. In one, the mound they stand on pulls them back to one smell. Which one, and is it the better box?",
+  "context_md": "**The second mechanism, on its own.** Newborns drift at the same high setting in BOTH panels, so that is not the difference. The only difference is whether the mound carries a smell that an ant standing on it takes a little of and leaves a little of its own into.\n\nThis is what ships turned on, though at a much gentler drift than either of these.\n\n**What the numbers say, and it cuts both ways.** The blending does what it was built to do: killings of its own family fall from 675 to 181. But the colony that stops eating itself is much smaller, 32 against 155 - because on this bed 675 killings are also 675 meals, and a colony that cannot feed itself was living off its own dead. That is a bed problem rather than a smell problem, and it is worth your eye on it.\n\n**Your question about what happens to an ant that drifts too far:** it is treated as a stranger by everyone at home, so it has no colony and it founds none. A new colony only arrives with budding - a party walking out of a crowded nest to found a second mound - which is the next build, not this one.\n\n**And on \"too long away turns him enemy\":** that shape is not in this build, and I would rather say so than let the card imply it. An ant's smell moves when it is BORN, not while it is away; coming home is what undoes it. An ant that never comes home simply keeps the smell it was born with. Making time-away itself the thing that turns an ant into a stranger is a small change to the same machinery, and I can build it if you want that shape.\n\nThe HUD says PAUSED because the harness ticks the box directly; it is genuinely running.",
+  "kind": "frames",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - no smell in the mound",
+      "files": [
+        "20260912T074657942Z-a14201/000-frame_0000_f0.png",
+        "20260912T074657942Z-a14201/001-frame_0003_f2400.png",
+        "20260912T074657942Z-a14201/002-frame_0006_f4800.png",
+        "20260912T074657942Z-a14201/003-frame_0009_f7200.png",
+        "20260912T074657942Z-a14201/004-frame_0012_f9600.png",
+        "20260912T074657942Z-a14201/005-frame_0015_f12000.png",
+        "20260912T074657942Z-a14201/006-frame_0018_f14400.png",
+        "20260912T074657942Z-a14201/007-frame_0021_f16800.png",
+        "20260912T074657942Z-a14201/008-frame_0024_f19200.png",
+        "20260912T074657942Z-a14201/009-frame_0027_f21600.png",
+        "20260912T074657942Z-a14201/010-frame_0030_f24000.png",
+        "20260912T074657942Z-a14201/011-frame_0033_f26400.png",
+        "20260912T074657942Z-a14201/012-frame_0036_f28800.png",
+        "20260912T074657942Z-a14201/013-frame_0039_f31200.png",
+        "20260912T074657942Z-a14201/014-frame_0042_f33600.png",
+        "20260912T074657942Z-a14201/015-frame_0045_f36000.png",
+        "20260912T074657942Z-a14201/016-frame_0048_f38400.png",
+        "20260912T074657942Z-a14201/017-frame_0051_f40800.png",
+        "20260912T074657942Z-a14201/018-frame_0054_f43200.png",
+        "20260912T074657942Z-a14201/019-frame_0057_f45600.png",
+        "20260912T074657942Z-a14201/020-frame_0060_f48000.png",
+        "20260912T074657942Z-a14201/021-frame_0063_f50400.png",
+        "20260912T074657942Z-a14201/022-frame_0066_f52800.png",
+        "20260912T074657942Z-a14201/023-frame_0069_f55200.png",
+        "20260912T074657942Z-a14201/024-frame_0072_f57600.png",
+        "20260912T074657942Z-a14201/025-frame_0075_f60000.png"
+      ],
+      "caption": "drift 1.0, blending off",
+      "meta": {
+        "killed by own colony": 675,
+        "groups minted": 2,
+        "odour exchanges at the mound": 0,
+        "living ants at the end": 155
+      },
+      "focus": null
+    },
+    {
+      "label": "B - the mound holds a smell",
+      "files": [
+        "20260912T074657942Z-a14201/026-frame_0000_f0.png",
+        "20260912T074657942Z-a14201/027-frame_0003_f2400.png",
+        "20260912T074657942Z-a14201/028-frame_0006_f4800.png",
+        "20260912T074657942Z-a14201/029-frame_0009_f7200.png",
+        "20260912T074657942Z-a14201/030-frame_0012_f9600.png",
+        "20260912T074657942Z-a14201/031-frame_0015_f12000.png",
+        "20260912T074657942Z-a14201/032-frame_0018_f14400.png",
+        "20260912T074657942Z-a14201/033-frame_0021_f16800.png",
+        "20260912T074657942Z-a14201/034-frame_0024_f19200.png",
+        "20260912T074657942Z-a14201/035-frame_0027_f21600.png",
+        "20260912T074657942Z-a14201/036-frame_0030_f24000.png",
+        "20260912T074657942Z-a14201/037-frame_0033_f26400.png",
+        "20260912T074657942Z-a14201/038-frame_0036_f28800.png",
+        "20260912T074657942Z-a14201/039-frame_0039_f31200.png",
+        "20260912T074657942Z-a14201/040-frame_0042_f33600.png",
+        "20260912T074657942Z-a14201/041-frame_0045_f36000.png",
+        "20260912T074657942Z-a14201/042-frame_0048_f38400.png",
+        "20260912T074657942Z-a14201/043-frame_0051_f40800.png",
+        "20260912T074657942Z-a14201/044-frame_0054_f43200.png",
+        "20260912T074657942Z-a14201/045-frame_0057_f45600.png",
+        "20260912T074657942Z-a14201/046-frame_0060_f48000.png",
+        "20260912T074657942Z-a14201/047-frame_0063_f50400.png",
+        "20260912T074657942Z-a14201/048-frame_0066_f52800.png",
+        "20260912T074657942Z-a14201/049-frame_0069_f55200.png",
+        "20260912T074657942Z-a14201/050-frame_0072_f57600.png",
+        "20260912T074657942Z-a14201/051-frame_0075_f60000.png"
+      ],
+      "caption": "drift 1.0, blending on",
+      "meta": {
+        "killed by own colony": 181,
+        "groups minted": 2,
+        "odour exchanges at the mound": 50484,
+        "living ants at the end": 32
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
