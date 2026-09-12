@@ -1,0 +1,99 @@
+{
+  "id": "20260912T042033946Z-e6bcfa",
+  "created": "2026-09-12T04:20:33Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-zoom-in-design-r30",
+    "commit": "ccaef282",
+    "agent": null,
+    "session_id": "afe6c401-ad48-5951-b2f6-0453c5148c9f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zooming in at 8x: six directions on one scene",
+  "question": "Which direction should zooming in take -- A today, B today with the water's level drawn, C sub-cell material texture, D chamfered edges, E smoothing, F brightness noise? Pick one, or say what B, C or D got wrong.",
+  "context_md": "Same world, same crop, same 1:1 colours in every pane -- only what the 64 pixels of each cell do differs. A stone basin of water beside a tree on the soil surface, pinned at noon.\n\n- **A today** -- nearest-neighbour: every cell one flat 8x8 square.\n- **B level drawn** -- as A, but a part-full water cell shows its fill as a level *line* inside the block instead of being dimmed toward black (today the surface row draws as a dark line). Fires on 39 cells here.\n- **C material texture** -- as B, plus each mass is drawn the way it looks at 1x: sub-grains of the material's own palette inside the block, bark strips on wood, leaf cells rounded toward air. Hard edges, no blur.\n- **D chamfered edges** -- as B, plus the staircase on a diagonal is cut to a 45-degree edge from what the neighbouring cells *are* (never from colour). Lone leaf cells become octagons; the roots pick up small diamonds.\n- **E smoothing** -- bilinear between cell centres, the first thing 'upsample it' suggests. Blurs the grain and the edges.\n- **F brightness noise** -- as A with a per-pixel brightness jitter at 15%.\n\n**My reading, which is the thing to check:** E loses exactly the crispness the zoom-out complaint was about; F adds nothing. B is free and strictly more information. C is the biggest change and the one that answers 'big sharp squares'. D fixes silhouettes but changes the pixel character of single cells.\n\nCost under each pane is the arm's own per-output-pixel work on this box, single-threaded, over a full 512x320 frame -- at 8x the frame has the same pixel count as at 1x, so none of these grows with zoom, and none defeats the settled-world render skip (all are pure functions of the cell and its neighbours).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A today (nearest)",
+      "files": [
+        "20260912T042033946Z-e6bcfa/000-zoomin8_nearest.png"
+      ],
+      "caption": "what ships",
+      "meta": {
+        "extra cost per pixel (ns)": 0,
+        "water surface cells shown as a level": 0
+      },
+      "focus": null
+    },
+    {
+      "label": "B level drawn",
+      "files": [
+        "20260912T042033946Z-e6bcfa/001-zoomin8_drawn.png"
+      ],
+      "caption": "fill as a line, not a dimming",
+      "meta": {
+        "extra cost per pixel (ns)": 1,
+        "water surface cells shown as a level": 39
+      },
+      "focus": null
+    },
+    {
+      "label": "C material texture + level",
+      "files": [
+        "20260912T042033946Z-e6bcfa/002-zoomin8_stamp-drawn.png"
+      ],
+      "caption": "sub-grains, bark, leaf lobes",
+      "meta": {
+        "extra cost per pixel (ns)": 24,
+        "water surface cells shown as a level": 39
+      },
+      "focus": null
+    },
+    {
+      "label": "D chamfered edges + level",
+      "files": [
+        "20260912T042033946Z-e6bcfa/003-zoomin8_contour-drawn.png"
+      ],
+      "caption": "45-degree cut from cell class",
+      "meta": {
+        "extra cost per pixel (ns)": 17,
+        "corners cut": 741,
+        "water surface cells shown as a level": 39
+      },
+      "focus": null
+    },
+    {
+      "label": "E smoothing",
+      "files": [
+        "20260912T042033946Z-e6bcfa/004-zoomin8_smooth.png"
+      ],
+      "caption": "bilinear over the shipped colours",
+      "meta": {
+        "extra cost per pixel (ns)": 30
+      },
+      "focus": null
+    },
+    {
+      "label": "F brightness noise",
+      "files": [
+        "20260912T042033946Z-e6bcfa/005-zoomin8_texture.png"
+      ],
+      "caption": "position-keyed jitter, 15%",
+      "meta": {
+        "extra cost per pixel (ns)": 12
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
