@@ -1297,6 +1297,7 @@ fn main() {
          fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
          pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
+         nest_blends={} share_blends={} nest_sites={} nest_gap_max={:.4} \
          bare_seeds_spared={} bare_seeds_carried={} seed_bank={seed_bank_n}",
         spec.seed, spec.founders, spec.colonies, last.plants, last.windfall, world.fruit_dropped, last.edible, last.unvisited, last.floor, last.aloft,
         st.eats, st.births, st.deaths, last.ants, l.harvested_plant + l.harvested_corpse, burn, st.shares, st.shared_j, st.moves,
@@ -1493,11 +1494,22 @@ fn main() {
         // distribution the owner's rule is about.
         world.pips_released_by_digestion,
         world.fruit_dropped_with_seed,
-        // **Round 29's seed-cargo lane's counters, appended at the end by
-        // the same convention.** `bare_seeds_spared` is the plant side's
-        // "it fired" (a bare-seed bite rolled `seed_gut_survival` and won);
-        // `bare_seeds_carried` is the "it worked" from the far side of the
-        // call (that survivor became a `Crop::passenger` rather than
+        // **Appended at the end, keeping `main`'s fields first and in place**
+        // -- this line is contested by every lane and a reordering breaks
+        // everyone's parser. The pair is `CLAUDE.md`'s "it fired" counter and
+        // its far side: `nest_blends` says cohesion ran, `nest_gap_max` says
+        // what it produced.
+        world.creature_stats.nest_blends,
+        world.creature_stats.share_blends,
+        world.nest_sites.len(),
+        world.nest_scent_gaps().iter().map(|(_, _, d)| *d).fold(0.0f32, f32::max),
+        // **Round 29's seed-cargo lane's counters, appended after the
+        // cohesion lane's by that same convention** -- both pairs landed in
+        // this line on the same day, and the merge kept main's in place
+        // rather than interleaving them. `bare_seeds_spared` is the plant
+        // side's "it fired" (a bare-seed bite rolled `seed_gut_survival` and
+        // won); `bare_seeds_carried` is the "it worked" from the far side of
+        // the call (that survivor became a `Crop::passenger` rather than
         // standing where it was bitten). Both read 0 with
         // `PIXEL_PHYSICS_SEED_CARGO=0`, which is the kill switch's control.
         world.bare_seeds_spared,

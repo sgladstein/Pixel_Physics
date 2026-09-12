@@ -2071,6 +2071,56 @@ pub const TRAIT_REACH_DEFAULT: f32 = TRAIT_REACH_MAX;
 /// and_not_the_genotype`), not the shipped bed.
 pub const PLASTICITY_DEFAULT: f32 = 1.0;
 
+/// **beta -- how far an at-nest ant steps toward the odour its nest holds**,
+/// per at-nest tick. `World::nest_blend`'s shipped value.
+///
+/// **Derived, not chosen.** A newborn enters at the nest's odour plus its
+/// birth drift, so `|u| ~ scent_drift`, decaying as `(1-beta)^m` over `m`
+/// at-nest blends. Measured on the played bed: 1,796 shares over 120,000
+/// frames across 146 animals is ~25 contacts a lifetime, and a share needs a
+/// neighbour where an at-nest tick does not, so 25 is a strict lower bound on
+/// at-nest ticks. Over ages uniform in 0..25 at beta = 0.1 the standing cloud
+/// is `rms = d * sqrt((1/25) * sum 0.81^m) = 0.458 d`, which at the shipped
+/// `scent_drift` of 0.15 is **0.069 against a tolerance radius of 1.0 -- 7%**.
+/// The cloud only reaches the radius at `d = 2.18`, off the +-1 allele axis
+/// entirely: **no setting of `scent_drift` can make a cohered nest eat
+/// itself**, which is the whole reason drift can finally ship non-zero.
+pub const NEST_BLEND_DEFAULT: f32 = 0.10;
+
+/// **gamma -- how far the nest steps toward the odour of the ant standing on
+/// it**, per at-nest tick. `World::nest_uptake`'s shipped value.
+///
+/// **Derived from what one crossing ant has to be worth.** A visit is about
+/// ten at-nest ticks, so an arriving ant moves the nest `1 - 0.98^10 = 18%`
+/// of the way to what it is carrying, against the `0.09` of a radius the
+/// wander opens per 1,000 frames. One crossing per 1,000 frames therefore
+/// holds two nests at about half a radius -- kin, and visibly not identical
+/// -- and two crossings hold them at a quarter. **That is polydomy, and it
+/// is the number that makes the thread between two mounds mean something.**
+pub const NEST_UPTAKE_DEFAULT: f32 = 0.02;
+
+/// **sigma -- how far a nest's own odour wanders**, per signature slot per
+/// `world::NEST_SCENT_INTERVAL` frames. `World::nest_scent_drift`'s shipped
+/// value.
+///
+/// **Derived from "one session".** Two nests nobody walks between separate as
+/// a pair of independent walks, `E|delta|^2 = 2*n*sigma^2` over `n` steps, so
+/// reaching a tolerance radius of 1.0 in `n` steps wants `sigma = 1/sqrt(2n)`.
+/// At 120 steps -- 120,000 frames, the owner's own length for a session --
+/// that is **0.0645**, rounded to 0.065.
+pub const NEST_SCENT_DRIFT_DEFAULT: f32 = 0.065;
+
+/// **What `ant.ron` authors for `CreatureDef::scent_drift`** -- the per-birth
+/// width of a newborn's scent and tolerance, and since 2026-09-12 it ships
+/// **on**.
+///
+/// Here as a constant because two places have to agree about it and one of
+/// them is a guard: the species file is the source of truth, and
+/// `organism.rs`'s round-trip test asserts the ant reads exactly this while
+/// the beetle still reads 0. A drift that silently returned to 0 would make
+/// the whole cohesion mechanism unobservable while every test stayed green.
+pub const SHIPPED_ANT_SCENT_DRIFT: f32 = 0.15;
+
 /// **What the parameters page will wind the reach up to.** Not a bound in the
 /// arithmetic -- nothing breaks above it -- but the top of the dial, chosen
 /// so that the top of the *armour* range is a graded fight rather than a new
@@ -3010,6 +3060,14 @@ impl World {
             return 0;
         };
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        // **The patch is a place that holds an odour, and this is where it
+        // becomes one.** Registered before the ground is converted so that a
+        // patch which turns out to have no paintable ground under it still
+        // has a site -- the alternative reads as "the nest exists but has no
+        // smell", which is a harder failure to see than an empty patch.
+        // Its odour is taken from the first ant to stand on it; see
+        // `NestSite::seeded` for why it cannot be taken here.
+        self.register_nest_site(x, y, half_width);
         let mut painted = 0;
         for cx in (x - half_width)..=(x + half_width) {
             if let Some(sy) = colony_surface(self, cx, y) {
@@ -3167,6 +3225,20 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    // **Cohesion, on the branch `AtNest` had already taken.** `sense` has
+    // just run `adjacent_nest` for the brain input; reading the input back
+    // rather than re-testing the neighbourhood is the whole of "no new
+    // scan", and it keeps `sense` a pure read of an immutable world.
+    //
+    // **This is the floor under `scent_drift`, and it is why the dial can
+    // ship non-zero.** Without it a colony's odours diffuse apart under any
+    // drift until it reads its own children as strangers: measured at drift
+    // 0.5, `ANT 1 killed 22, 20 of them by ANT 1 itself`, the founding group
+    // wiped out and the colony a quarter its size
+    // (`Reports/evolution-lab-fission-design-2026-09-12.md` §0).
+    if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+        blend_with_nest(world, organism, x, y);
+    }
     let sighting = seen.prey;
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
@@ -4343,6 +4415,104 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
 /// The three signature slots of a trait vector, as one point.
 pub fn scent_of(traits: &[f32; CREATURE_TRAITS]) -> [f32; 3] {
     [traits[SCENT_SLOTS[0]], traits[SCENT_SLOTS[1]], traits[SCENT_SLOTS[2]]]
+}
+
+/// **One at-nest exchange: the ant takes the nest's odour and leaves some of
+/// its own.**
+///
+/// ```text
+/// s_i += beta  (G - s_i)      // the ant takes the nest's odour
+/// G   += gamma (s_i - G)      // and leaves some of its own
+/// ```
+///
+/// **Which object this rule evaluates: one ant against one nest site**, per
+/// tick, on the branch `BrainInput::AtNest` had already taken — no scan is
+/// added, and a box with no nest patch never reaches the first line.
+///
+/// **One vector, inherited *and* blended.** The mouth, the eye and the kin
+/// sense all read one scent through `scent_of`, so a second worn signature
+/// beside the heritable one (the sketch in
+/// `creature-signature-and-castes-2026-09-06.md` §1f) would give them two
+/// answers to one question. A child inherits its parent's *current* scent,
+/// which is what makes the nest the floor under the whole colony.
+///
+/// **Deliberately not hung on `BrainOutput::Share`.** Trophallaxis is a brain
+/// output the genome evolves and may lose (round 25's ruling, never a rule),
+/// so a line that stops sharing would eat itself. A blend rides the `Share`
+/// path too — same contact, same beta, free — but the nest is what cohesion
+/// rests on.
+///
+/// Returns whether a blend was applied, for the counter on the far side of
+/// the call.
+pub fn blend_with_nest(world: &mut World, organism: u16, x: i32, y: i32) -> bool {
+    let (beta, gamma) = (world.nest_blend, world.nest_uptake);
+    let Some(i) = world.nearest_nest_site(x, y) else { return false };
+    let Some(mine) = world.organism(organism).map(|s| scent_of(&s.traits)) else {
+        return false;
+    };
+    // **An unseeded site takes the visitor's odour outright and blends
+    // nothing this tick.** See `NestSite::seeded`: the ground is painted
+    // before a single founder is placed, so there is no colony scent to copy
+    // at painting time, and blending toward an unset `(0,0,0)` would drag the
+    // founding cohort off its own signature on its first step.
+    if !world.nest_sites[i].seeded {
+        world.nest_sites[i].scent = mine;
+        world.nest_sites[i].seeded = true;
+        return false;
+    }
+    if beta <= 0.0 && gamma <= 0.0 {
+        return false;
+    }
+    let nest = world.nest_sites[i].scent;
+    if beta > 0.0 {
+        if let Some(state) = world.organism_mut(organism) {
+            for (k, slot) in SCENT_SLOTS.iter().enumerate() {
+                // Clamped to the allele axis every other write to a trait
+                // slot is clamped to, so a blend cannot put a scent
+                // somewhere a birth could not.
+                state.traits[*slot] = (state.traits[*slot] + beta * (nest[k] - state.traits[*slot])).clamp(-1.0, 1.0);
+            }
+        }
+    }
+    if gamma > 0.0 {
+        let site = &mut world.nest_sites[i];
+        for (k, v) in site.scent.iter_mut().enumerate() {
+            *v = (*v + gamma * (mine[k] - *v)).clamp(-1.0, 1.0);
+        }
+    }
+    // **Counted here, on the far side of the exchange, rather than at the
+    // call site.** A counter at the branch that decided to call would count
+    // intentions; this counts exchanges, and it is the number that says
+    // whether cohesion fired at all on a bed where the ants have stopped
+    // coming home (`open-bugs-handoff.md` §T2).
+    world.creature_stats.nest_blends += 1;
+    true
+}
+
+/// **Two animals in mandible-to-mandible contact mix their odours**, each
+/// stepping `beta` toward the other. The `Share` path's free rider: the
+/// contact is already established and paid for, so this is six multiplies.
+///
+/// **Symmetric, where the nest exchange is not.** Two ants meeting are two
+/// peers; an ant and its nest are an individual against a reservoir, which is
+/// why that one has a separate, much smaller `gamma` for the nest's side.
+///
+/// This is a *second* path to cohesion and never the load-bearing one — see
+/// [`blend_with_nest`] for why cohesion may not depend on an allele.
+fn blend_with_kin(world: &mut World, a: u16, b: u16, beta: f32) {
+    if beta <= 0.0 {
+        return;
+    }
+    let (Some(sa), Some(sb)) = (world.organism(a).map(|s| scent_of(&s.traits)), world.organism(b).map(|s| scent_of(&s.traits))) else {
+        return;
+    };
+    for (id, mine, theirs) in [(a, sa, sb), (b, sb, sa)] {
+        if let Some(state) = world.organism_mut(id) {
+            for (k, slot) in SCENT_SLOTS.iter().enumerate() {
+                state.traits[*slot] = (mine[k] + beta * (theirs[k] - mine[k])).clamp(-1.0, 1.0);
+            }
+        }
+    }
 }
 
 /// **How far another animal's scent may be from this one's and still read
@@ -5568,6 +5738,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 did.shares += 1; // billed by `creature_tick`
                 world.creature_stats.shares += 1;
                 world.creature_stats.shared_j += amount as f64;
+                // **The odour rides the same contact the food did.** Free --
+                // the pair is already resolved and the transfer already
+                // billed -- and never the load-bearing path: see
+                // `blend_with_nest` for why cohesion may not rest on an
+                // output the genome can lose.
+                blend_with_kin(world, organism, kin.id, world.nest_blend);
+                world.creature_stats.share_blends += 1;
             }
         }
     }
@@ -12629,6 +12806,17 @@ mod tests {
                     let ant = w.species.id_of("ant").expect("ant species");
                     let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
                     def.mutation_rate = 0.0;
+                    // **And the scent drift, for the same reason and since
+                    // 2026-09-12.** This scene is built on a tolerance of
+                    // `-1` -- radius 0, an exact match only -- and has no
+                    // nest patch, so nothing cohered these ants. At the
+                    // shipped `scent_drift` of 0.15 an animal born here is a
+                    // stranger to its own parent on its first tick, the fight
+                    // gains sides nobody placed, and the plate is measured
+                    // under a different number of mouths in each arm. This
+                    // arm measures a plate; the drift dial has its own guards
+                    // (`a_cohered_nest_never_splits_into_strangers`).
+                    def.scent_drift = 0.0;
                     w.species.set_creature(ant, def);
                     let mut g = w.species.get(ant).genome.clone();
                     g[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Share)] = 0.0;
@@ -12878,7 +13066,20 @@ mod tests {
             // is the point of it being an output: nothing that ships carries
             // a weight here.
             let species = w.species.id_of("ant").expect("ant species");
-            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // **The drift dial is pinned off here, and this scene is why it
+            // has to be.** The nestmate arm is two ants at a tolerance of
+            // `-1` -- radius 0, an exact match only -- on a bed with no nest
+            // patch, so nothing cohered them. Both are rich enough to breed
+            // inside the 400 frames, and at the shipped `scent_drift` of 0.15
+            // a newborn is a stranger to its own mother the instant it is
+            // placed, so the "nestmates never swing" arm measured 11 attacks
+            // between animals it had never made nestmates. What this test is
+            // about is the attack verb's kin predicate; the drift dial's own
+            // claim -- that a **cohered** nest cannot split whatever the
+            // drift -- is `a_cohered_nest_never_splits_into_strangers`.
+            def.scent_drift = 0.0;
+            w.species.set_creature(species, def.clone());
             if wired {
                 w.species.set_genome(
                     species,
@@ -15737,6 +15938,316 @@ mod tests {
         assert!(beetle_sees_ant_as_prey(false), "shipped: a different kind is never family, so the ant is prey however alike they smell");
         assert!(!beetle_sees_ant_as_prey(true), "crossing kinds: only scent decides, and at the same scent the ant is family");
     }
+
+    /// A flat stone bed with one founding on it, and the colony's label.
+    /// `ants` small enough that every station lands inside the nest patch
+    /// `paint_nest_patch` lays (52 cells at `COLONY_ANT_SPACING` 4), so the
+    /// whole colony is at home.
+    fn cohesion_bed(ants: i32, drift: f32) -> World {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.scent_drift = drift;
+        w.species.set_creature(id, def);
+        assert!(w.found_colony_of(100, 100, "ant", ants) >= 2, "the bed must hold a colony");
+        w
+    }
+
+    /// Apply **one birth's worth of drift** to every living ant, through the
+    /// engine's own width and the engine's own clamp -- `trait_width` is what
+    /// `try_bud` reads, so this cannot drift at a width a real birth could
+    /// not.
+    fn jitter_every_ant(w: &mut World, round: u64) {
+        let ids = live_creature_ids(w);
+        for id in ids {
+            let Some(species) = w.organism(id).map(|s| s.species) else { continue };
+            let Some(def) = w.species.get(species).creature.as_ref().cloned() else { continue };
+            let mut draw = rng::stream(w.seed, id as u64, round, RNG_SLOT_BIRTH);
+            for slot in 0..CREATURE_TRAITS {
+                let width = trait_width(&def, slot);
+                if width > 0.0 {
+                    if let Some(state) = w.organism_mut(id) {
+                        state.traits[slot] = (state.traits[slot] + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-1.0, 1.0);
+                    }
+                }
+            }
+        }
+    }
+
+    /// One lifetime of at-nest contacts for every ant of `colony` (or every
+    /// ant in the box, for `None`), against the nest site at index `site`.
+    ///
+    /// **`None` rather than a label, where a label would be wrong.** A
+    /// `regroup_by_scent` mint *renames* the ants it splits off, so a helper
+    /// that filtered on the label the colony was founded with would silently
+    /// stop blending exactly the animals a split had just made interesting --
+    /// which reads as "cohesion failed" and is the helper failing.
+    fn blend_a_lifetime(w: &mut World, colony: Option<u32>, site: usize, contacts: usize) {
+        let (nx, ny) = (w.nest_sites[site].x, w.nest_sites[site].y);
+        let ids: Vec<u16> = live_creature_ids(w).into_iter().filter(|id| colony.is_none_or(|c| w.organism(*id).is_some_and(|s| s.colony == c))).collect();
+        for _ in 0..contacts {
+            for id in &ids {
+                blend_with_nest(w, *id, nx, ny);
+            }
+        }
+    }
+
+    /// Is every living ant still family with every other, judged both ways?
+    fn all_mutually_kin(w: &World) -> bool {
+        let ids = live_creature_ids(w);
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                let (Some(sa), Some(sb)) = (w.organism(*a), w.organism(*b)) else { continue };
+                if !scent_accepts(&sa.traits, &sb.traits) || !scent_accepts(&sb.traits, &sa.traits) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// **A cohered nest never splits into strangers, at any drift.**
+    ///
+    /// The measured negative this replaces is the design's §0: at
+    /// `scent_drift = 0.5` with no cohesion, the played bed's groups block
+    /// read `ANT 1 alive 0, killed 22 | killed by ANT 1 x20` -- the founding
+    /// group wiped out, twenty of its twenty-two killings by its own name,
+    /// the colony a quarter its size. That is why the dial shipped at 0 and
+    /// why it can now ship at 0.15.
+    ///
+    /// **Run at `scent_drift = 1.0`, not at the shipped 0.15**, and with
+    /// *every* ant taking a full birth's jitter every lifetime -- the whole
+    /// population replaced each generation at nearly seven times the shipped
+    /// width. The claim is not "the shipped dial is safe", which would be a
+    /// statement about one number; it is that **no setting on the allele axis
+    /// can break a cohered nest**, which is what makes the dial free to move.
+    ///
+    /// **The frame budget is compressed deliberately, and this is the
+    /// trade.** The design asks for 120,000 frames on the played bed; that is
+    /// six to eight minutes and does not belong in `cargo test --lib`. What
+    /// runs here instead is the closed loop through the shipped functions --
+    /// `trait_width`'s draw, `blend_with_nest`'s exchange,
+    /// `regroup_by_scent`'s census, `scent_accepts`' predicate -- over 500
+    /// generations, which is fifty times the generation depth the played bed
+    /// reaches in a session. The bed-length claim is carried by the
+    /// `labstats` three-arm table in the PR, not by this test.
+    ///
+    /// **Watched going red**: with `nest_blend` and `nest_uptake` at 0 --
+    /// the mechanism removed and nothing else changed -- the colony parts on
+    /// the first generation and `regroup_by_scent` mints. The arm is left in
+    /// the test as `uncohered`, so the red is re-run on every suite rather
+    /// than having been seen once.
+    #[test]
+    fn a_cohered_nest_never_splits_into_strangers() {
+        /// The furthest any living ant's scent sits from `nest`.
+        fn cloud(w: &World, nest: [f32; 3]) -> f32 {
+            live_creature_ids(w)
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .map(|st| scent_distance_sq(&scent_of(&st.traits), &nest).sqrt())
+                .fold(0.0f32, f32::max)
+        }
+
+        // **The control arm first, and it is not decoration.** Green is the
+        // default state for a claim of this shape, so the bed has to be shown
+        // capable of parting before its not parting means anything.
+        let mut uncohered = cohesion_bed(8, 1.0);
+        uncohered.nest_blend = 0.0;
+        uncohered.nest_uptake = 0.0;
+        let mut spread = 0.0f32;
+        for round in 0..GENERATIONS {
+            jitter_every_ant(&mut uncohered, round);
+            blend_a_lifetime(&mut uncohered, None, 0, CONTACTS);
+            let first = scent_of(&uncohered.organism(live_creature_ids(&uncohered)[0]).expect("an ant").traits);
+            spread = spread.max(cloud(&uncohered, first));
+        }
+        assert!(spread > 2.0, "with the blend removed the colony's scents must run apart: measured {spread:.4}, and 2.0 is well inside the 3.36 this bed reaches");
+
+        // **The claim, at `scent_drift = 1.0` rather than at the shipped
+        // 0.15**, and with every ant taking a full birth's jitter every
+        // lifetime -- the whole population replaced each generation at nearly
+        // seven times the shipped width, for 500 generations.
+        let mut w = cohesion_bed(8, 1.0);
+        assert_eq!(w.nest_sites.len(), 1, "one founding, one nest site: {:?}", w.nest_sites);
+        let mut worst = 0.0f32;
+        for round in 0..GENERATIONS {
+            jitter_every_ant(&mut w, round);
+            blend_a_lifetime(&mut w, None, 0, CONTACTS);
+            worst = worst.max(cloud(&w, w.nest_sites[0].scent));
+        }
+        assert!(
+            worst < 0.5,
+            "a cohered nest's scent cloud must stay well inside a tolerance radius of 1.0 at ANY drift: measured {worst:.4} against the uncohered arm's {spread:.4}"
+        );
+        assert!(w.creature_stats.nest_blends > 0, "the far-side counter: not one blend was applied, so nothing above tested the mechanism");
+
+        // **The shipped bed, at a session's depth.** Ten ant generations is
+        // what the played bed reaches in 120,000 frames, and this is the arm
+        // that says the dial `ant.ron` now ships is safe rather than merely
+        // that the mechanism is strong.
+        let mut shipped = cohesion_bed(8, SHIPPED_ANT_SCENT_DRIFT);
+        let own_kills_before = own_colony_kills(&shipped);
+        let mut worst_shipped = 0.0f32;
+        for round in 0..10 {
+            jitter_every_ant(&mut shipped, round);
+            blend_a_lifetime(&mut shipped, None, 0, CONTACTS);
+            worst_shipped = worst_shipped.max(cloud(&shipped, shipped.nest_sites[0].scent));
+            assert!(all_mutually_kin(&shipped), "generation {round} at the shipped drift: a cohered nest read its own as strangers");
+            assert_eq!(shipped.regroup_by_scent(), 0, "generation {round} at the shipped drift: a cohered nest split into a second group");
+        }
+        assert!(worst_shipped < 0.2, "the shipped dial's cloud: measured {worst_shipped:.4}, and 0.2 is a fifth of the tolerance radius it is judged against");
+        assert_eq!(own_colony_kills(&shipped), own_kills_before, "a cohered nest must not eat itself");
+
+        // **And the wiring, through a real tick rather than a direct call.**
+        // The loops above prove the arithmetic; only this proves that
+        // `creature_tick` reaches it off `BrainInput::AtNest` on a bed the
+        // driver is stepping.
+        let mut live = cohesion_bed(8, 1.0);
+        let before = live.creature_stats.nest_blends;
+        for _ in 0..400 {
+            update::step(&mut live); // begins and ends the frame
+            scheduler::step(&mut live); // and dispatches the creature sites, matching App::update's order
+        }
+        assert!(live.creature_stats.nest_blends > before, "the at-nest blend never fired under the driver: the input is wired but nothing reads it");
+    }
+
+    /// 500 generations, and 25 at-nest contacts a lifetime -- the lower bound
+    /// the played bed's 1,796 shares over 146 animals gives, since a share
+    /// needs a neighbour where an at-nest tick does not.
+    const GENERATIONS: u64 = 500;
+    const CONTACTS: usize = 25;
+
+    /// Killings booked to an ant's own colony, summed over every group --
+    /// the `killed by ANT 1 x20` column of the design's §0, as one number.
+    fn own_colony_kills(w: &World) -> u64 {
+        w.group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, n)| *n).sum::<u64>())
+            .sum()
+    }
+
+    /// **Two nests nobody walks between read as strangers within one
+    /// session; one ant a thousand frames holds them together.**
+    ///
+    /// The divergence lives in the *place*, not in the births -- design §3.
+    /// Once an odour is a colony-level quantity its centroid moves only by
+    /// births, each displacing it by `u/(N+w)`, which is 0.02 of a radius
+    /// over ten generations: five hundred generations against a session's
+    /// ten. So what parts two nests is `World::nest_scent_drift`, and this
+    /// test is over that.
+    ///
+    /// **A session is 120,000 frames**, which is 120 steps of
+    /// `world::NEST_SCENT_INTERVAL`. The wander is walked by the shipped
+    /// `step_nest_scents` over exactly those 120 epochs; what is compressed
+    /// is the ants' walking between contacts, not the mechanism.
+    ///
+    /// **The control is the corridor, and it is what makes this sensitive.**
+    /// A test that only asserted "two nests part" would pass against a
+    /// mechanism that parts *every* pair of nests unconditionally, which is
+    /// not polydomy, it is a broken box. The second arm sends one ant across
+    /// each epoch and the two must stay family.
+    #[test]
+    fn two_cut_off_nests_read_as_strangers_within_one_session() {
+        /// `true` when the two colonies still read each other as family,
+        /// judged both ways off one ant of each.
+        fn kin_across(w: &World, a: u32, b: u32) -> bool {
+            let one = |colony: u32| live_creature_ids(w).into_iter().filter_map(|id| w.organism(id)).find(|s| s.colony == colony).map(|s| s.traits);
+            let (Some(ta), Some(tb)) = (one(a), one(b)) else { return true };
+            scent_accepts(&ta, &tb) && scent_accepts(&tb, &ta)
+        }
+
+        /// One session of two nests 120 cells apart -- the design's
+        /// `bud_distance`, and far enough that `register_nest_site` mints two
+        /// sites rather than reading the second as a repaint of the first.
+        /// `crossings` is how many ants walk between them per interval.
+        /// Returns the gap between the two odours and whether the two
+        /// colonies still read each other as family.
+        fn a_session(crossings: usize, seed: u64) -> (f32, bool) {
+            let mut w = test_world();
+            w.seed = seed;
+            for x in 10..190 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            assert!(w.found_colony_of(60, 100, "ant", 6) >= 2);
+            assert!(w.found_colony_of(180, 100, "ant", 6) >= 2);
+            let groups = w.live_creature_groups();
+            assert_eq!(groups.len(), 2, "the bed must hold two colonies: {groups:?}");
+            let (a, b) = (groups[0].colony, groups[1].colony);
+            assert_eq!(w.nest_sites.len(), 2, "two foundings, two nest sites: {:?}", w.nest_sites);
+            // Seed both sites off their own colony, as a founding cohort's
+            // first tick at home does.
+            blend_a_lifetime(&mut w, Some(a), 0, 1);
+            blend_a_lifetime(&mut w, Some(b), 1, 1);
+            for _ in 0..SESSION_EPOCHS {
+                w.frame += crate::sim::world::NEST_SCENT_INTERVAL;
+                w.step_nest_scents();
+                blend_a_lifetime(&mut w, Some(a), 0, 10);
+                blend_a_lifetime(&mut w, Some(b), 1, 10);
+                // **The thread.** One ant of A spends part of the interval at
+                // B's nest and the rest back at its own, carrying one odour
+                // into the other exactly as a crossing forager does.
+                for _ in 0..crossings {
+                    let Some(id) = live_creature_ids(&w).into_iter().find(|id| w.organism(*id).is_some_and(|s| s.colony == a)) else { continue };
+                    let (bx, by) = (w.nest_sites[1].x, w.nest_sites[1].y);
+                    let (ax, ay) = (w.nest_sites[0].x, w.nest_sites[0].y);
+                    for _ in 0..10 {
+                        blend_with_nest(&mut w, id, bx, by);
+                    }
+                    for _ in 0..10 {
+                        blend_with_nest(&mut w, id, ax, ay);
+                    }
+                }
+            }
+            let gap = w.nest_scent_gaps().first().map(|(_, _, d)| *d).expect("two sites, one pair");
+            (gap, kin_across(&w, a, b))
+        }
+
+        // **Twelve seeds, and an order statistic, because this is a wander.**
+        // `CLAUDE.md`: a guard over a procedural system gates an order
+        // statistic rather than a single seed, and six seeds is not a sweep.
+        // The per-seed spread measured here is 0.27 to 1.95 on the cut-off
+        // arm -- a factor of seven, which is a distribution and not a
+        // threshold, and a single-seed bar would be rubber-stamped or flaky
+        // depending on which one it was set from.
+        let mut cut: Vec<f32> = Vec::new();
+        let mut joined: Vec<f32> = Vec::new();
+        let mut strangers = 0;
+        let mut still_kin = 0;
+        for seed in 1..=12u64 {
+            let (g_cut, kin_cut) = a_session(0, seed);
+            let (g_joined, kin_joined) = a_session(1, seed);
+            assert!(g_cut > g_joined, "seed {seed}: a crossing ant must close the gap, not open it -- cut {g_cut:.3}, joined {g_joined:.3}");
+            cut.push(g_cut);
+            joined.push(g_joined);
+            strangers += usize::from(!kin_cut);
+            still_kin += usize::from(kin_joined);
+        }
+        cut.sort_by(f32::total_cmp);
+        joined.sort_by(f32::total_cmp);
+        let median = cut[cut.len() / 2];
+        let worst_joined = *joined.last().expect("twelve seeds");
+
+        // The typical cut-off pair passes the tolerance radius inside one
+        // session. Measured median 1.19 against a radius of 1.0; the bar is
+        // 0.8, which is headroom rather than the measured value.
+        assert!(median > 0.8, "two nests nobody crosses between must part by a session: median gap {median:.3} over {} seeds, against a tolerance radius of 1.0", cut.len());
+        // **And the control that makes the line above sensitive.** Without
+        // it the assertion is also passed by a box that parts every pair of
+        // nests unconditionally, which is not polydomy -- it is a box that
+        // cannot hold a colony together across two mounds. Measured: every
+        // joined seed under 0.18, an order of magnitude inside the cut-off
+        // arm, and family on all twelve.
+        assert!(worst_joined < 0.4, "one ant a thousand frames must hold two nests together: worst joined gap {worst_joined:.3} over {} seeds", joined.len());
+        assert_eq!(still_kin, 12, "two nests joined by a crossing ant must stay family on every seed: {still_kin} of 12");
+        assert!(strangers >= 6, "most cut-off pairs must actually read as strangers, not merely drift: {strangers} of 12 (measured 8)");
+    }
+
+    /// 120 steps of `world::NEST_SCENT_INTERVAL` -- 120,000 frames, which is
+    /// the owner's own length for one session of the played bed.
+    const SESSION_EPOCHS: usize = 120;
 
     /// **Every station of one founding shares the colony's scent offset, and
     /// two foundings do not** -- `colony_scent_offset` is keyed on the label,
