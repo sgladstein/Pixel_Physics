@@ -99,6 +99,20 @@ pub struct Sample {
     pub outside_cols: usize,
     pub plant_cells_in_band: usize,
     pub plant_cells_outside: usize,
+    /// **Columns inside `BAND` whose surface stands above the original
+    /// ground** -- the anthill itself, as a footprint.
+    pub mound_cols: usize,
+    /// ...of those, the ones carrying no plant cell in the four rows above
+    /// that surface.
+    ///
+    /// **The per-column `bare_in_band` above cannot answer "is the anthill
+    /// green", and this is why it gets its own pair.** A column is "not bare"
+    /// to that metric if a plant stands anywhere in it, floor to lid -- so a
+    /// seedling at the foot of a mound marks the whole column vegetated while
+    /// the cemented slope above it is bare rock. `CLAUDE.md`'s *ask what your
+    /// number counts*, landing on the question the room-per-ant build is
+    /// judged by.
+    pub mound_bare: usize,
     /// **Corpse cells standing on the bed.** A stock, not a rate: the death
     /// counters say how many animals went and this says how much of them is
     /// still lying there uneaten, which is the half that decides whether age
@@ -227,6 +241,50 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
             } else {
                 s.other_j += j;
             }
+        }
+    }
+    // **Bare on the mound's own surface**, walked as its own pass because it
+    // asks a different question from the column loop below: not "does this
+    // column hold a plant" but "is the ground you can see on the anthill
+    // growing anything".
+    for x in 0..spec.width {
+        // **Inside the band only, which is what makes this the anthill's
+        // surface rather than the bed's.** Measured 2026-09-12 on seed 1 at
+        // 20,000 frames, unbanded: **141 mound columns** with only 19 packed
+        // cells above the surface -- litter rotting to soil high on a drift,
+        // which the late-game report already records as why `mound_high`
+        // reads 24-40 rows on the *unfed* bed. Half the bed is not an
+        // anthill.
+        if nest_cols.iter().map(|c| (c - x).abs()).min().unwrap_or(i32::MAX) > BAND {
+            continue;
+        }
+        // **The same window *and* the same material set the `mound` column
+        // above uses**, and both halves were paid for: a first pass looked
+        // for the topmost `Powder`/`Solid` below the lid and read **9 mound
+        // columns in a bare box**. The window alone did not fix it -- the
+        // grow lamps hang within `MOUND_REACH` of the surface, and a lamp is
+        // not an anthill. A mound is made of the bed's own ground, which is
+        // what `Ids::ground` is.
+        let Some(top) = ((spec.ground_y - MOUND_REACH).max(0)..spec.height).find(|&y| {
+            let cell = world.get(x, y);
+            ids.ground.contains(&cell.material) && cell.organism_id() == 0
+        }) else {
+            continue;
+        };
+        if top >= spec.ground_y {
+            continue;
+        }
+        s.mound_cols += 1;
+        // Four rows, not one: a seedling rooted in the slope stands above the
+        // cell it is rooted in, and a metric that only looked at the surface
+        // cell itself would call every planted mound bare.
+        let green = ((top - 4).max(0)..top).any(|y| {
+            let cell = world.get(x, y);
+            world.materials.kind(cell.material) == MaterialKind::Plant
+                || (cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|st| world.species.get(st.species).creature.is_none()))
+        });
+        if !green {
+            s.mound_bare += 1;
         }
     }
     for x in 0..spec.width {

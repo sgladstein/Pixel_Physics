@@ -1,6 +1,19 @@
 # Ants
 
-*Current as of: 2026-09-12, when **we found out why the flying animal always
+*Current as of: 2026-09-12, when **an ant at the nest started being asked
+how much room the colony has** rather than how many ants are pressed against
+it — and it was measured that this does not make the anthill smaller. The
+question is a better one and the colony answers it sensibly: it digs hard while
+the burrow is bare, quietens once there are a few cells of chamber for each
+ant, and starts again when the brood outgrows them. What it does not do is stop
+the mound. Across twelve beds run twice each it left a *bigger* mound on nine of
+them and dug about twice as much on eleven of twelve. The old question was
+supposed to be one an ant could never answer, and it is not: **more than a
+third of the time an ant stands at its own door there is nobody near it at
+all.** It ships switched on: you picked it by eye over the old one, and the
+colony then turned out to be **alive at half a million frames on five beds of
+twelve where the old question left none alive at all.** What it was built to do
+it does not do; what it does instead is keep the colony going. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
 looked stuck: most of the time it is** -- a plant holds an animal up, and it
 also blocks it, so an animal inside a bush cannot move in any direction at
 all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
@@ -750,6 +763,58 @@ born wanting to dig, and now they simply pay for wanting to. For the colony
 to actually dig *less* than it can afford, the wanting itself has to change,
 and that is bred rather than set — it needs far more ants over far more
 generations than a bed currently produces.
+
+**The wanting now changes with the room the colony has — and that still does
+not shrink the mound.** An ant standing at its own door used to decide whether
+to dig from how many other ants were pressed up against it, which is a
+question about the crush in one small square and not about the nest. It is now
+a question about the nest: the space the colony has hollowed out and roofed
+over, divided among the ants living in it. That reads low when the burrow is
+bare and high when there is a chamber's worth each, and the colony behaves
+exactly as you would hope — it digs hard through the founding, quietens once
+there are a few cells of room per ant, and starts again when the brood
+outgrows them. Watch the numbers and you can see the loop close and reopen:
+about a third of a cell each at the founding, four cells each by the time the
+first chambers are cut, ten when the colony has thinned, and back down to
+three or four as it fills again.
+
+**What it does not do is what it was built for.** The old question was
+supposed to be one an ant could never answer — always "yes, we are packed",
+whatever the colony dug. It is not. Stand at the door and count, over two
+thirds of a million moments across twelve beds: **a quarter of the time there
+is nobody near the ant at all**, a fifth of the time it is as crowded as it
+can get, and the middle of that spread sits around a third. An ant at its own
+door is very often standing alone, so the old gate was never stuck.
+
+And the mound does not come out smaller. It comes out bigger. Twelve beds, each
+run twice from the same starting point with only this question changed: the
+colony dug about twice as much on eleven of the twelve, and left about twice
+the mound. The spread between beds is absurd, from a fiftieth of the mound on
+one to hundreds of times it on another, so any single bed will show you a large
+difference — but the direction across twelve is not in doubt.
+
+That is worth saying plainly because it moves the blame. A mound that never
+regreens is not a colony asking itself the wrong question at the door. It is a
+colony that outgrows its own rooms faster than it can cut them, and the lever
+for that is how many ants there are, not what each one is asked.
+
+**And then the question turned out to be the wrong one.** Counting the same
+twelve beds again, this time for whether anything was still alive at the end:
+the old question leaves **no colony standing on any of the twelve**, and the new
+one leaves **five**, two of them several hundred ants strong. That is not what
+it was built for and it is worth more than what it was built for. It also
+settles the thing you picked by eye — shown two anthills blind you called the
+old one bad and this one good, and it turns out you were not looking at one
+lucky bed.
+
+Be clear about what it costs, because it is not free and the bed pays some of
+it. About a twenty-fifth of a frame. Roughly twice as much digging. And where
+the colony does survive it is eating: the seed bank and the standing plants
+come out lower on those beds, and far more ants starve, because there are ants
+left alive to starve. Across all twelve neither the bank nor the stand moves
+reliably either way. It is one switch on the ants page if you want the old
+behaviour, and the loop closing and reopening is the clearest view of a
+colony's own economy the box has.
 
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three

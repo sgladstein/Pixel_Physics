@@ -1656,7 +1656,27 @@
             (Carrying,    3, -75.0),
             (PheroBAlong, 3,  -6.0),
 
-            // units 5,6 -- crowding, gated ON standing at the nest, driving Dig.
+            // units 5,6 -- room at the nest, gated ON standing at the nest,
+            // driving Dig.
+            //
+            // **What this input means changed on 2026-09-12 and the wiring
+            // did not.** At the nest `BrainInput::Crowding` no longer carries
+            // the 5x5 head-count; it carries how packed the nest is by
+            // *room* -- the roofed void the patch holds divided by the ants
+            // in it, on 0..1 with more room reading lower
+            // (`world::NestRoom::occupancy`, `creature::sense`). Away from
+            // the nest it is the same density it always was. The reason is
+            // §14's own re-test condition (0): the count is pinned at 1.000
+            // through a whole run, nothing digging does can lower it, so a
+            // gate reading it was asking a question that was already
+            // answered and the colony dug at a flat rate for ever. The
+            // polarity below is unchanged and is still right -- packed digs,
+            // roomy does not -- because both quantities rise with crowding.
+            // **The weights here were not retuned for the new input**, which
+            // is deliberate: the pair is wide open at the nest (see below),
+            // so it swings on whatever the input does, and a colony living
+            // at 0.44-1.90 cells of void per ant sits on the steep part of
+            // the curve rather than against a stop.
             // **Chambers get dug as the colony grows, not everywhere the ant
             // reads density.** `(Crowding, Dig, 0.6)` unconditional was tried,
             // rate-matched and swept in §14 and withdrawn
