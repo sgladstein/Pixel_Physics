@@ -241,15 +241,22 @@ fn main() {
         }
     }
     let st = world.creature_stats;
+    let final_census = census::census(&world, &spec, gut, &nest_cols, &ids);
+    // **`starved`, `killed` and `oldage` stay three fields, never a pooled
+    // `died`.** Three mortality channels now move independently on this bed --
+    // hunger, the seed-cargo build's `Killed` channel, and age -- and a colony
+    // that settled and a colony that ran out of food are the same population
+    // line. Only the split tells them apart. Read once here rather than three
+    // times inside the argument list, which walked `group_deaths` per field.
+    let (starved, killed, oldage, _other) = census::colony_deaths(&world, &spec.colony_species);
     println!(
-        // **`starved`, `killed` and `oldage` stay three fields, never a
-        // pooled `died`.** Three mortality channels now move independently on
-        // this bed -- hunger, whatever the seed-cargo build's `Killed` channel
-        // turns out to be, and age -- and a colony that settled and a colony
-        // that ran out of food are the same population line. Only the split
-        // tells them apart, and a later round wants to read the age column
-        // beside the killed one.
-        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} lifespan={} oldage={} starved={} killed={}",
+        // Round 29's fields are appended after main's, format string and
+        // argument list in the same order -- every lane adds to this line, so
+        // the house rule is append, never interleave.
+        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
+         bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
+         seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1} \
+         lifespan={} oldage={} starved={} killed={}",
         scenario.name,
         spec.seed,
         st.births,
@@ -259,9 +266,36 @@ fn main() {
         st.spoil_dumped,
         st.deliveries,
         world.nectar_paid,
+        // **Round 29, Brief 1.** `bare_seeds_spared` is the plant side's "it
+        // fired" -- a bare-seed bite rolled `seed_gut_survival` and won --
+        // and `bare_seeds_carried` the effect counter from the far side of
+        // the call: that survivor became a `Crop::passenger` instead of
+        // standing where it was bitten. `seeds_carried` beside them is the
+        // pre-existing union of the bare and the in-fruit routes, kept so
+        // the two can be differenced. `plants_from_pip` is the end of the
+        // loop the whole brief is about: a seed an ant carried, set down
+        // where the meal ended, that came up as a plant.
+        world.bare_seeds_spared,
+        world.bare_seeds_carried,
+        world.seeds_carried,
+        world.seeds_delivered,
+        world.pips_released_by_digestion,
+        world.plants_from_pip,
+        // The final row's standing state, repeated on the SUMMARY line so a
+        // sweep can read one line per run rather than parse the table. The
+        // leaf larder is here beside the bank because the owner's live-play
+        // report is that the colony strips the stand *as well as* the bank,
+        // so a build judged on the bank alone would be judged on half of it.
+        final_census.seed_bank,
+        final_census.plants,
+        final_census.ants,
+        final_census.leaf_j / 1000.0,
+        final_census.litter_j / 1000.0,
+        final_census.seed_j / 1000.0,
+        // Brief 2's own four, appended last.
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0),
-        census::colony_deaths(&world, &spec.colony_species).2,
-        census::colony_deaths(&world, &spec.colony_species).0,
-        census::colony_deaths(&world, &spec.colony_species).1
+        oldage,
+        starved,
+        killed
     );
 }

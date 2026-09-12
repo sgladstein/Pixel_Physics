@@ -3940,7 +3940,7 @@ impl App {
             }
         };
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -4016,6 +4016,29 @@ impl App {
                     " — zoom-out {}x {}",
                     self.renderer.zoom_out_stride,
                     self.renderer.zoom_out_filter.label()
+                )
+            } else {
+                String::new()
+            },
+            // **The magnified style (`Shift`+`=`), keyed on the *zoom***, and
+            // the mirror of the line above in every respect. Below zoom 2 the
+            // style cannot move a single pixel, so naming it would be noise;
+            // at zoom 2 and up it decides what every pixel is, and a magnified
+            // screenshot that does not say which style drew it cannot be
+            // reproduced or compared. The zoom goes with it because the styles
+            // are indistinguishable at 1x and diverge with it -- and because
+            // the chamfer's notch rule is a second dial whose setting is not
+            // guessable from the picture either.
+            if self.renderer.zoom > 1 && self.renderer.magnify_style != render::MagnifyStyle::default() {
+                format!(
+                    " — zoom-in {}x {}{}",
+                    self.renderer.zoom,
+                    self.renderer.magnify_style.label(),
+                    if self.renderer.magnify_style == render::MagnifyStyle::Chamfer {
+                        format!(" notch {}", self.renderer.magnify_notch.label())
+                    } else {
+                        String::new()
+                    }
                 )
             } else {
                 String::new()

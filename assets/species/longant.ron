@@ -953,6 +953,54 @@
         // shared.
         climbs_over_kin: true,
 
+        // **How many consecutive ticks a laden body waits out a jam before
+        // it turns round anyway** -- round 29, and the one line in this
+        // file that exists because of a playtest report rather than a
+        // measurement. The owner, 2026-09-11: *"long ants getting stuck.
+        // Not all of them but it happens regularly. It seems like they get
+        // stuck in a big group/pile of long ants."*
+        //
+        // `creature::boxed_by_traffic` withholds a laden animal's flip
+        // while a nestmate is in the way, on the premise that the jam
+        // clears the moment that nestmate takes its own next step.
+        // `Reports/creature-articulated-body-2026-09-09.md` §13g named the
+        // case where the premise is false and left it open: **the other
+        // animal is boxed too**, so nothing is going to move and the
+        // deferral repeats for ever. Measured on the owner's own scene
+        // (`played_bed_longant`, 3 seeds, 120,000 frames) the animal
+        // body-boxed longest at a stop was laden on 24 of 25 sampled stops
+        // through the colony's first 35,000 frames, its head and tail in
+        // the *identical cells* stop after stop, for streaks up to 68
+        // stops -- 61,200 frames of an animal standing still with only its
+        // heading moving.
+        //
+        // **4 of the animal's own ticks**, not frames. The arms, one
+        // binary, `PIXEL_PHYSICS_TRAFFIC_DEFER`: at **64 the output is
+        // digit-identical to never expiring at all** -- no animal in this
+        // colony ever reaches 64 consecutive deferrals, so that is where
+        // the lever runs out rather than a setting anyone would ship. At
+        // **16** the population holds on two seeds of three and the pile
+        // falls less far. At **4**, over seeds 1/2/3: largest clump of
+        // body-boxed animals 18/8/108 -> 16/7/41, and the longest streak
+        // for bodies of three cells or more 64/30/36 -> 15/29/24, both
+        // better on every seed.
+        //
+        // **What it costs, stated rather than hidden**: an animal that
+        // stops standing still starts walking and burning, so the colony
+        // that comes out is smaller -- alive 673/194/1006 -> 182/144/274,
+        // every death `STARVED` in both arms -- while it moves far more
+        // (834,562 -> 1,621,888 steps on seed 3) and delivers more on two
+        // seeds of three. That is §13g's own trade one step further on, and
+        // re-deriving this file's own food economy against a colony that
+        // does not jam is owed work, not a settled number. Full table:
+        // `Reports/lanes/evolution-lab-longant-pile.md`.
+        //
+        // **No other species authors this**, so every one of them keeps the
+        // pre-round-29 rule exactly -- and a two-cell body is unreachable
+        // by it whatever it authors, because reversing is one ordinary step
+        // onto its own vacating tail (§13c).
+        traffic_defer_max: Some(4),
+
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

@@ -53,7 +53,14 @@ determinism control could not have caught it, and that is the lesson: **a
 baseline control shorter than the mechanism's onset proves nothing about the run
 you are about to sweep.**
 
-## The sweep, re-measured on the merged tree (`main` at `c7ee0f40`)
+## The sweep, re-measured at `main` = `c7ee0f40` (one trunk behind what ships)
+
+**The branch ships over `39b31c7e`** — seed cargo, the drained door and the
+long-ant pile all land after these rows were taken, and the round's queue had
+no room for another two-hour sweep before landing. Ships under the owner's
+ruling that the mechanism and the dial are the deliverable and the constant is
+re-derivable from the ANTS page. Re-deriving it is six runs of `latecensus
+scenario=played_bed frames=500000 sample=20000` at `RAYON_NUM_THREADS=1`.
 
 | seed | life | peak | at frame | 500k a/p/bank | starved | killed | old age |
 |---|---|---|---|---|---|---|---|
