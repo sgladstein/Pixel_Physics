@@ -448,8 +448,8 @@ mode=bury` as its gate.
 
 **Kept as the zero of the dial, never removed:** the towers.
 
-**The card** asks the fork the 2026-08-31 card never had answered, on the
-bed that actually grows the heap: seed 1 at 300,000 frames with the two
+**The card** (`20260912T051541289Z-3b03d3`) asks the fork the 2026-08-31
+card never had answered, on the bed that actually grows the heap: seed 1 at 300,000 frames with the two
 soils tinted apart, and the same heap 6,000 frames after each rule. The
 counts are in `meta`. *"Live with the heap and its hanging pieces, let it
 weather over a session, or let it go loose now — knowing what each costs
