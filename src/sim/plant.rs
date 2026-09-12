@@ -200,12 +200,26 @@ fn render_step(
 /// behaviour where a damaged plant gets no extra frontier at all.
 ///
 /// `PIXEL_PHYSICS_RESPROUT=<deficit per tip>` turns it on. **Off by default,
-/// and deliberately** — the claim it makes is *"a felled tree has a middle
-/// between thriving and gone"*, which is judged by eye and by
-/// `scripts/seedsweep.sh`, not by a test, and neither has passed on it yet.
-/// It is a switch rather than a constant for the reason `CLAUDE.md` gives:
-/// both arms have to come out of one binary, or the comparison crosses a
-/// rebuild.
+/// and it stays off: the owner judged it and the verdict was "looks
+/// identical"** (blind A/B, review card `20260912T170408642Z-07fc94`,
+/// 2026-09-12). The claim it makes is *"a felled tree has a middle between
+/// thriving and gone"*, which is judged by eye, and it did not land.
+///
+/// **Kept in the tree, off, because the negative is worth being able to
+/// reproduce** — and because the mechanism is right about the half nobody
+/// had measured: the bole deficit separates a cut plant from an uncut one
+/// cleanly (control p90 851 against a cut p50 of 2,307).
+///
+/// **What it got wrong is that frontier was the scarce thing.**
+/// `max_active_tips` gates `Grow` itself — a tip at the cap is skipped
+/// outright, see the `organism_active_tip_count` guard — so raising
+/// `supportable` converts more dormant buds into tips that then cannot all
+/// build. Measured: **+66% new shoots for under 1% more standing tissue**.
+/// The tell was there before the verdict and was read as a curiosity: the
+/// per-tip price is **inert**, 50 and 150 giving byte-identical results on
+/// seed 1, which only happens when something downstream binds first.
+/// `plants:124` carries the full account. Anything that only raises the
+/// supportable count is that entry again.
 ///
 /// **The floor it measures against is `RESPROUT_DEFICIT_FLOOR`, and the two
 /// numbers do different jobs.** The floor says *is this plant damaged*; this
