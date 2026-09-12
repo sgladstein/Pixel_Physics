@@ -334,10 +334,13 @@ own the cell it writes** — a measurement first, then a rule, on every bed,
 read beside §Z15. And `DeathCause::Killed` should be split, or at least
 renamed in every readout, so a lost cell is never again reported as a killing
 — a labelling change, and the thing that stops a third lane re-deriving this.
-Both are round thirty's, filed as §Z16 with the table above, and the
-round-thirty coordinator has them with the correction; its own room-per-ant
-brief had already stopped on §Z14's finding that a twelve-ant colony is not
-crowded.
+Both are filed as §Z16 with the table above. The round-thirty coordinator
+has them with the correction and **takes the rename in round thirty**; the
+in-place write and the empty half it holds for round thirty-one. Its own
+room-per-ant lane reached the same verdict from the other end — a twelve-seed
+sweep said the dig gate's question is not what makes the mound, and it ships
+that gate off — so two lanes at opposite ends of the day agree that what
+shrinks this colony is neither digging nor fighting.
 
 ## Fission B1 — one odour per nest (#347, merged `9979e6fa`) and its precondition (#350, merged `d3d4aec5`)
 
