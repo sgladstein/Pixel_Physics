@@ -175,8 +175,8 @@ the build's colony stays in single figures. `plants_from_pip` 65 / 41 / 156,
 where every earlier measurement read 0–2. A **KILLED** death channel appears
 with seed cargo (56 / 37 / 153 at 120k against 0 / 1 / 0; 159 at 500k) and is
 not nestmate predation by the food rule. It is not the baseline shift below,
-and #358 found what it is: **plants growing into the ants** (see *Who kills
-whom*).
+and #358 found what it is: **the bed writing plant cells over the ants**
+(see *Who kills whom*).
 
 Two things checked rather than assumed after its merges: #345 re-renders the
 played bed byte-identically; #347 leaves the whole 500k census **identical in
@@ -299,26 +299,45 @@ shipped configuration:
 
 **Two of 384.** Both are ants of the same colony at about 300 J in the third
 tenth of one run — two events, not a channel. About two fifths of the
-colony's "killings" are a **plant that has grown into the ant's head** — a
-pip, a grass blade, wood, a seed, a leaf. The colony that seed cargo shrank
-to a dozen is not fighting and is not being hunted; it is being **overgrown**
-by the bed it saved. The other half of the deaths leave the vital cell
+colony's "killings" are a **plant cell standing where the ant's head was** —
+a pip, a grass blade, wood, a seed, a leaf. The colony that seed cargo shrank
+to a dozen is not fighting and is not being hunted; it is being **overwritten
+by the bed it saved**. The other half of the deaths leave the vital cell
 **empty**, vacated by something that left nothing behind, and this instrument
 cannot say what: that is the larger half and the next measurement. Nothing
 here is a mechanism change; the log and the table (`World::kills_log`,
 `World::vital_losses`) are per event and off the sweep, and `latecensus`
 prints both under *who kills whom*.
 
-The repair is two things, and only one is cheap. **A plant must not grow into
-an occupied creature cell** — a rule in the plant growth path, on every bed,
-so it wants its own measurement and whoever owns growth should first say
-whether the test exists and is skipped or was never there. And
-`DeathCause::Killed` should be split, or at least renamed in every readout,
-so a lost cell is never again reported as a killing — a labelling change, and
-the thing that stops a third lane re-deriving this. Both are round thirty's,
-filed as §Z16 with the table above, and the round-thirty coordinator has
-them; its own room-per-ant brief had already stopped on §Z14's finding that a
-twelve-ant colony is not crowded.
+**And it is not growth.** This coordinator's first reading — a plant growing
+into the ant — was wrong, and O read the code before the round could act on
+it: `plant::growable` is the gate every growing tip passes and it refuses an
+occupied creature cell twice over (a shoot takes a cell only when it is
+empty, a root only when it is a soft powder), so the pip was not grown there.
+The cell was **converted in place** by a path that never consults `growable`,
+and there are three: `plant::seed_survives_bite` writes a pip *over* the
+bitten cell rather than clearing it, immediately before the creature path
+reconciles the victim; `plant::germinate` converts a standing pip in place,
+which would make the grass blades a consequence of the pip case rather than a
+second route; and whatever sets a carried seed down. For the empty half the
+bite path is nearly excluded — it reads the victim before its clear and
+attributes the kill, and 384 deaths produced two — so the cheapest next
+instrument is one bit on `note_vital_loss`, *was an attack in progress on
+this cell this frame*, which splits the empty column in a single run. O also
+notes that **§Z15 and §Z16 are one collision seen from two sides** — the
+living animal a plant cell holds up and blocks, and the dead animal whose
+head cell became a pip — and may be one repair rather than two.
+
+The repair is therefore two things, and only one is cheap. **Which of the
+three in-place writes puts a plant cell into a creature's cell, and does it
+own the cell it writes** — a measurement first, then a rule, on every bed,
+read beside §Z15. And `DeathCause::Killed` should be split, or at least
+renamed in every readout, so a lost cell is never again reported as a killing
+— a labelling change, and the thing that stops a third lane re-deriving this.
+Both are round thirty's, filed as §Z16 with the table above, and the
+round-thirty coordinator has them with the correction; its own room-per-ant
+brief had already stopped on §Z14's finding that a twelve-ant colony is not
+crowded.
 
 ## Fission B1 — one odour per nest (#347, merged `9979e6fa`) and its precondition (#350, merged `d3d4aec5`)
 
@@ -416,11 +435,14 @@ zoom-in and zoom-out designs, the soil design and the magnify styles (#344,
   ~100,000 frames taken before #347 are measurements of a tree nobody has.
   The change is inert on a quiet bed, so a lane that re-checks on one will
   correctly find nothing moved.
-- **The colony does not turn on itself, and nothing hunts it: it is
-  overgrown.** `Killed` was never a killing counter; of 384 such deaths on
-  three seeds, two are an animal's bite and about a hundred and fifty are a
-  plant growing into the ant's head. The other half leave an empty cell and
-  are not yet explained.
+- **The colony does not turn on itself, and nothing hunts it: the bed
+  overwrites it.** `Killed` was never a killing counter; of 384 such deaths
+  on three seeds, two are an animal's bite and about a hundred and fifty
+  leave a plant cell where the ant's head was — not grown there (`growable`
+  refuses an occupied cell) but written in place by the bitten-seed,
+  germination or seed-drop path. The other half leave an empty cell and are
+  not yet explained. This coordinator's own "overgrown" reading lasted an
+  hour before the code overturned it.
 - **The stuck flitter was never the flight.** Four cards, four verdicts, all
   aimed at a caged animal by a camera that picks the lowest id.
 - **The stuck pile is mostly not stuck.** Bred one-cell bodies and resting
@@ -461,7 +483,8 @@ Every round-29 pull request is on `main`: #329, #330, #332, #334, #335,
   scent drift value (shipped 0.15, inert on today's trunk, decisive on a
   large colony); the *"time away turns an ant into an enemy"* model, which
   needs a home the colony actually lives at first (#350); and whether a plant
-  may grow into an occupied creature cell (§Z16).
+  cell may ever be written over an occupied creature cell (§Z16 and §Z15,
+  one collision from two sides).
 - **§Z16's empty half** — half the colony's deaths leave a vacated cell that
   no instrument yet attributes — and the `DeathCause::Killed` rename, both
   round thirty's, with the finding already in its coordinator's hands.

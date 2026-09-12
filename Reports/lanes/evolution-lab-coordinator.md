@@ -92,9 +92,11 @@ and **the dial is inert on today's trunk**, where the colony peaks at 12 / 12
 / 212 on seeds 1–3. **A control shorter than the mechanism's onset proves
 nothing.** **`DeathCause::Killed` is not a killing counter** (§Z16): of 384
 such deaths on three seeds, two are an animal's bite, about a hundred and
-fifty are a plant grown into the ant's head, and half leave an empty cell — the
-colony is **overgrown, not fought**; the plant-into-creature rule, the rename
-and the empty half are round thirty's. **The nest is not where the colony
+fifty leave a plant cell where the head was — written in place, not grown:
+`growable` refuses an occupied cell — and half leave an empty cell. The colony
+is **overwritten, not fought**; which in-place write does it (bitten seed,
+germination, seed drop), the `Killed` rename and the empty half are round
+thirty's, and §Z15/§Z16 may be one repair. **The nest is not where the colony
 lives** on two beds in three (#350): budding, cohesion and the owner's "time
 away turns enemy" all wait on that, and the shipped drift value is his design
 call. **The flitter is caged by the canopy, not broken in flight** (§Z15): a
