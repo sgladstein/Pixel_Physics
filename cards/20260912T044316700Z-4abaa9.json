@@ -1,0 +1,112 @@
+{
+  "id": "20260912T044316700Z-4abaa9",
+  "created": "2026-09-12T04:43:16Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-zoom-in-design-r30",
+    "commit": "6f9139e4",
+    "agent": null,
+    "session_id": "afe6c401-ad48-5951-b2f6-0453c5148c9f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Six looks for the same world, at 8x and at play scale",
+  "question": "The aesthetic is on the table, not just the zoom: which of these looks should this game have -- A cell-art (today), B soft, C illustrated, D painted, E lit, F textured cell-art? Pick one; say what it gets wrong. The last pane shows all six at 3x, which is where a look has to hold.",
+  "context_md": "Same world, same crop, same 1:1 colours in every pane. Nothing in the simulation changes for any of them -- each is a rule for which *class* (air / water / soil / stone / plant) a sub-pixel belongs to and which cell it takes its colour from, so no pane can invent a colour the engine would not draw.\n\n- **A cell-art** -- today: every cell a flat square.\n- **B soft** -- bilinear between cell centres. At 3x the thin twigs go to haze.\n- **C illustrated** -- curved silhouettes, flat interiors that keep their grain, an ink line where a mass meets air. At 3x every twig is bolder than today.\n- **D painted** -- soft, with a fine grain laid back over it.\n- **E lit** -- illustrated plus edge shading from the shape itself: leaves become beads, the pool gets a bevel. This is the 3d-ish look you turned down for plants in August; it is here so it is turned down on purpose.\n- **F textured cell-art** -- the pixel look kept, with each material drawn up close the way it looks at 1x (grain, bark, leaf lobes) and the water surface drawn as a level rather than a dark line.\n\n**My reading, which is the thing to check:** C is the one look that is a *different game* rather than the same game filtered, it is the cheapest of the non-pixel looks, and it is the only one that keeps more definition than today at play scale. B and D lose thin things at 3x -- your zoom-out complaint by another route. If the pixel look stays, F.\n\nWhichever wins ships as a runtime selector with its dials on the parameters page, not as a chosen constant. Cost under each pane is extra work per output pixel over today, from one quiet run; every look keeps the settled-world render skip.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A cell-art (today)",
+      "files": [
+        "20260912T044316700Z-4abaa9/000-styles8_nearest.png"
+      ],
+      "caption": "what ships",
+      "meta": {
+        "extra cost per pixel (ns)": 0,
+        "keeps thin twigs at 3x": "yes"
+      },
+      "focus": null
+    },
+    {
+      "label": "B soft",
+      "files": [
+        "20260912T044316700Z-4abaa9/001-styles8_smooth.png"
+      ],
+      "caption": "bilinear over the shipped colours",
+      "meta": {
+        "extra cost per pixel (ns)": 30,
+        "keeps thin twigs at 3x": "no -- they fade"
+      },
+      "focus": null
+    },
+    {
+      "label": "C illustrated",
+      "files": [
+        "20260912T044316700Z-4abaa9/002-styles8_iso-outline.png"
+      ],
+      "caption": "curved silhouettes, ink line, grain kept",
+      "meta": {
+        "extra cost per pixel (ns)": 27,
+        "keeps thin twigs at 3x": "yes -- bolder than today"
+      },
+      "focus": null
+    },
+    {
+      "label": "D painted",
+      "files": [
+        "20260912T044316700Z-4abaa9/003-styles8_smooth-texture.png"
+      ],
+      "caption": "soft plus a fine grain",
+      "meta": {
+        "extra cost per pixel (ns)": 42,
+        "keeps thin twigs at 3x": "no -- they fade"
+      },
+      "focus": null
+    },
+    {
+      "label": "E lit",
+      "files": [
+        "20260912T044316700Z-4abaa9/004-styles8_iso-lit-outline.png"
+      ],
+      "caption": "illustrated plus edge shading",
+      "meta": {
+        "extra cost per pixel (ns)": 36,
+        "keeps thin twigs at 3x": "yes"
+      },
+      "focus": null
+    },
+    {
+      "label": "F textured cell-art",
+      "files": [
+        "20260912T044316700Z-4abaa9/005-styles8_stamp-drawn.png"
+      ],
+      "caption": "pixel look kept, materials drawn up close, water level drawn",
+      "meta": {
+        "extra cost per pixel (ns)": 26,
+        "keeps thin twigs at 3x": "yes",
+        "water surface cells drawn as a level": 39
+      },
+      "focus": null
+    },
+    {
+      "label": "All six at play scale (3x)",
+      "files": [
+        "20260912T044316700Z-4abaa9/006-styles3.png"
+      ],
+      "caption": "same order, left to right, top to bottom: A B C / D E F -- press z for the whole sheet",
+      "meta": {
+        "where a look has to hold": "here, not at 8x"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
