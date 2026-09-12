@@ -707,6 +707,22 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
         // Vital cell gone (or nothing left at all): the rest is meat. The
         // site knows the cell went away and not what took it -- a bite, a
         // fire, a blast, the brush -- so the cause is `Killed` and no finer.
+        //
+        // **And that is why `DeathCause::Killed` is not a killing counter**,
+        // which two lanes have now read it as. Measured 2026-09-12 on the
+        // played bed at 500,000 frames: seed 1 booked **216** deaths here and
+        // `World::tally_kill` could attribute **2** of them to an attacker;
+        // seed 3 booked 70 and attributed none. Whatever is emptying these
+        // cells is mostly not an animal.
+        //
+        // So the vacated cell is recorded before the death, which is the one
+        // thing this site knows that the cause does not: what is standing in
+        // the vital cell now. `World::vital_losses`.
+        let took = world.get(chain[0].0, chain[0].1).material;
+        let who = world.organism(organism).map(|st| (st.species, st.colony));
+        if let Some((species, colony)) = who {
+            world.note_vital_loss(species, colony, took);
+        }
         creature_dies(world, organism, organism::DeathCause::Killed);
         return false;
     }
@@ -5783,16 +5799,21 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     // swallow path does and for the same reason:
                     // `reconcile_chain` frees the slot when the lost cell was
                     // the deciding one, and the identity goes with it.
+                    // **The energy goes with the identity**, read at the
+                    // same moment and for the same reason: after
+                    // `reconcile_chain` the slot may be gone, and "was this a
+                    // starving animal that got eaten" cannot be asked of a
+                    // freed slot.
                     let victim_group = world
                         .organism(victim)
                         .filter(|s| !s.chain.is_empty())
-                        .map(|s| (s.species, s.colony));
+                        .map(|s| (s.species, s.colony, s.energy));
                     world.set(tx, ty, Cell::EMPTY);
                     world.creature_stats.attack_cells += 1;
                     if !reconcile_chain(world, victim) {
                         world.creature_stats.attack_kills += 1;
                         if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                            world.tally_kill(v, me);
+                            world.tally_kill((v.0, v.1), me, v.2);
                         }
                     }
                 }
@@ -6113,7 +6134,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // deciding cell and the identity goes with it. Only an animal
                 // can be a kill: a leaf's owner is a tree and stays a tree.
                 let victim_group = (victim != 0 && victim != organism)
-                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
+                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony, s.energy)))
                     .flatten();
                 // A bitten windfall's own seed asks the plant side whether
                 // it survives the mouth before this clears the cell --
@@ -6167,7 +6188,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     // because this is the one site that knows both parties
                     // -- see `World::tally_kill`.
                     if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                        world.tally_kill(v, me);
+                        world.tally_kill((v.0, v.1), me, v.2);
                     }
                 }
                 // **Into the crop at face value, and nothing is booked
