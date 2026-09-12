@@ -1889,19 +1889,7 @@ pub fn water_equivalents(w: &World) -> f64 {
                 // is the prerequisite `MaterialDef::water_capacity` names
                 // ("widening it later means teaching those tallies about
                 // held water first").
-                // **`Solid` as well as `Powder`, since 2026-09-12.** The doc
-                // above promises that "a second water-holding powder joins
-                // automatically", and `nest` is the case that showed the
-                // promise was half a kind short: it gained a
-                // `water_capacity` so the colony's doorstep would stop
-                // standing under a permanent puddle (`open-bugs-handoff.md`
-                // §T2), and `update::update_soil_water` filters on the field
-                // and not on kind, so it drinks -- while this arm did not
-                // count it and the water simply left the books. Held water is
-                // held water whatever the cell's kind; the prerequisite the
-                // field's own doc names ("teaching those tallies about held
-                // water first") is exactly this line.
-                MaterialKind::Solid | MaterialKind::Powder if m.water_capacity > 0 => {
+                MaterialKind::Powder if m.water_capacity > 0 => {
                     total += crate::sim::update::soil_moisture(cell) as f64 / material::SOIL_SATURATED as f64;
                 }
                 _ => {}

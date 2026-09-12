@@ -2674,35 +2674,7 @@ impl MaterialRegistry {
             }
         }
         reg.resolve_references();
-        reg.apply_nest_ablation();
         reg
-    }
-
-    /// **The ablation for the drowned door** (`open-bugs-handoff.md` §T2).
-    ///
-    /// `PIXEL_PHYSICS_NEST_DRAINS=off` forces `nest`'s `water_capacity` back
-    /// to 0 -- the state it shipped in until 2026-09-12, where the colony's
-    /// own doorstep was the one impermeable strip on a misted bed's surface
-    /// and stood under a permanent film of water that no ant could step into.
-    /// One binary, two arms, so any harness can run the control without a
-    /// rebuild; `CLAUDE.md`'s "the control is to hold the semantic rule fixed,
-    /// not to add another metric".
-    ///
-    /// **Applied here rather than inside the `.ron` parse**, and applied
-    /// again at the end of `reload`, because `load` is `builtin` followed by
-    /// `reload` and a hot reload off disk would otherwise put the shipped
-    /// value straight back and silently end the control arm mid-run.
-    ///
-    /// By name, deliberately: this is one material's known bug and not a
-    /// general "dry out any material" knob, and a general one would be a
-    /// second way to author material data.
-    fn apply_nest_ablation(&mut self) {
-        if std::env::var("PIXEL_PHYSICS_NEST_DRAINS").as_deref() != Ok("off") {
-            return;
-        }
-        if let Some(id) = self.id_of("nest") {
-            self.materials[id.0 as usize].water_capacity = 0;
-        }
     }
 
     /// Read every `.ron` in `dir`, falling back to the compiled-in set on
@@ -2757,10 +2729,6 @@ impl MaterialRegistry {
         // loaded — melting_point/melts_into can be added to two files in
         // either order and the game should not care which.
         self.resolve_references();
-        // ...and re-apply the one ablation, because a hot reload off disk has
-        // just written the shipped `water_capacity` back over it. See
-        // `apply_nest_ablation`.
-        self.apply_nest_ablation();
         Ok(count)
     }
 

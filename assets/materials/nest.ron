@@ -22,38 +22,5 @@
         (206, 180, 132),
     ],
     penetration_resistance: 6.0,
-    // **The door is worked soil, so rain soaks into it.** This field was
-    // absent -- the default 0, "holds no water at all, and never absorbs an
-    // adjacent Liquid" -- and that one omission is the whole of
-    // `open-bugs-handoff.md` §T2, the round trip that closed for the founders
-    // and then stopped for ever.
-    //
-    // `paint_nest_patch` converts ~53 surface columns of a misted bed into
-    // this material, so the patch was the one impermeable strip on the whole
-    // surface of a bed whose every other ground cell holds 1,000. Rain
-    // landing on it had nowhere to go and stood as free `water`; an ant
-    // cannot step into a liquid (`landing_is_placeable_through_tissue` wants
-    // `is_empty`), so the film is a wall, `adjacent_nest` goes false for
-    // every animal in the colony, and `AtNest`, `nest_visits` and
-    // `deliveries` freeze together. Measured on the played bed, seed 1, over
-    // 120,000 frames: of 53 nest cells **47-49 stood under water** and only
-    // 2-7 had air beside them, against 3-11 wet of 37 on seed 3 -- the seed
-    // whose colony booms. Standing water over the patch against the same
-    // width of ordinary ground beside it separated the two readings: the
-    // patch floods and the ground either side of it does not.
-    //
-    // Same 1,000 as `soil` and `packedsoil`, which is what the cell was
-    // before the colony worked it and what the colony's own tailings are.
-    // `nest` is a `Solid` rather than a `Powder`, which matters in two
-    // places and is deliberate in both: the soil-moisture pass filters on
-    // this field and not on kind, so the patch drinks and drains normally,
-    // while `evaporation`'s soil path is `Powder`-only, so the door gives
-    // its water back downward to the column rather than upward to the sky.
-    // `weather::water_equivalents` was widened to `Solid | Powder` in the
-    // same change so held water here stays on the conservation books.
-    //
-    // Ablate with `PIXEL_PHYSICS_NEST_DRAINS=off`, which forces this back to
-    // 0 -- see `MaterialRegistry::apply_nest_ablation`.
-    water_capacity: 1000,
     heat_conductivity: 0.3,
 )

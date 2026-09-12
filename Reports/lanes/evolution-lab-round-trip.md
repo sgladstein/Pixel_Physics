@@ -39,33 +39,32 @@ booms.** Same code, same bed.
 
 ## The fix
 
-`assets/materials/nest.ron` gains `water_capacity: 1000` — the door is worked
-soil and drinks rain like the ground it was made from. `weather.rs`'s
-held-water arm widens from `Powder` to `Solid | Powder`, because `nest` is a
-`Solid` and the conservation ledger would otherwise read every absorbed drop
-as a leak. Ablate with **`PIXEL_PHYSICS_NEST_DRAINS=off`**, which reproduces
-the pre-fix run **row for row** — one binary, two arms.
+**Drains in the threshold.** `paint_nest_patch` leaves every third column as
+the ordinary ground it was, so a one-cell film has **one cell** to travel
+before the earth drinks it, instead of 26. Nothing else changes: not the
+material, not the ledger, not the moisture field, not what germinates where.
+Ablate with **`PIXEL_PHYSICS_NEST_DRAINS=off`** (`=<n>` sweeps the period),
+which lays the unbroken patch that shipped until today — one binary, two arms.
 
-Guards: `update.rs::the_nest_patch_drinks_the_water_standing_on_it` (four
-separate soakings, so a door that fills once and then saturates fails) and
-`water_held_in_the_nest_patch_stays_on_the_conservation_books`. Both watched
-going red under the ablation.
+**Two more principled fixes were built first and are worse.** Both are in
+`dead-ends.md` with their conditions, and both are about `nest.ron` rather
+than this loop:
 
-Before / after at 120,000 frames, `nestdoor`:
+- giving `nest` a `water_capacity` while it is a `Solid` **aliases
+  `Cell::aux`**, which on a `Solid` is the structural anchor distance that
+  `structural::tick` rewrites — and roots at 0 the moment powder touches the
+  underside, which a surface patch always has. The door becomes a water
+  *sink*, deleting liquid every frame, and every counter that was looking
+  read it as a clean win;
+- making `nest` a `Powder` so that combination is legal turns
+  `player::footing` from `Hard` to `Soft`, and the gnome wades through the
+  bottom of a nest wall (`a_nest_still_stops_him`).
 
-| | seed 1 | seed 2 | seed 3 |
-|---|---|---|---|
-| water on the patch ÷ beside it | **5.2x → 1.0x** | 2.2x → 0.8x | 3x → ~1x |
-| nest cells with air beside them | **5–6 → 15–17** of 53 | 8–26 → 1–15 of 44 | 21–27 → 9–16 |
-| `nest_visits` | **731 → 2,589** | 5,810 → 5,853 | 4,320 → 3,378 |
-| deliveries | 232 → 294 | 7,967 → 4,762 | 2,355 → 3,707 |
-| born / alive at 120k | 139/36 → **175/78** | 210/129 → 599/397 | 712/501 → 319/146 |
-| deepest generation | **7 → 11** | 7 → 21 | 20 → 16 |
-
-Read the **top two rows** and not the bottom three: the door census is the
-direct measurement of the mechanism and moves the same way on every seed,
-while the colony outcomes are three samples of a chaotic process — two runs
-that diverge on one frame are different worlds by the next.
+Guards in `creature.rs`: `rain_does_not_stand_on_the_nest_patch` (two
+soakings, because a door that drains the first and not the second is the same
+bug on the second day) and
+`the_nest_patch_is_still_continuous_enough_to_walk_home_to`. Both watched
+going red with the drains removed.
 
 ## What is NOT fixed, and do not re-derive it
 

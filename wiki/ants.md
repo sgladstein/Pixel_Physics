@@ -1,16 +1,14 @@
 # Ants
 
 *Current as of: 2026-09-12, when **the nest door stopped standing under a
-puddle**. The patch of pale ground a colony walks home to used to be the one
-piece of the bed that could not drink; every misting left a film of water
-sitting on it, and since nothing walks into water, the whole colony simply
-lost its front door — food kept being picked up and none of it ever came
-home. The door is worked soil now and rain soaks into it like the rest of the
-bed, so it darkens after a misting and dries out again, and the colony can
-get back in. Two things follow from it on the screen: a nest that has just
-been watered looks damp rather than flooded, and seedlings will now come up
-on the doorstep, because the ground there finally holds enough water to
-sprout on. See "Coming home" below. Earlier, 2026-09-11, evening, when **a bed was built for the flitter
+puddle**. The worked ground a colony walks home to used to be the one piece of
+the bed that could not soak up water; every misting left a film sitting on it,
+and since nothing walks into water, the whole colony simply lost its front
+door — food kept being picked up and none of it ever came home. The threshold
+has drains in it now: every third column of it is left as ordinary ground, so
+a film has one cell to travel before the earth drinks it. The door looks very
+slightly speckled and is otherwise the same place. See "Coming home" below.
+Earlier, 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
@@ -355,15 +353,15 @@ glides, and the same creature curled up in a corner does not.
 ### Coming home
 
 **The door has to be walkable, and for a long time it was not.** A colony
-recognises home by *touching* it — the patch of pale ground under the nest,
+recognises home by *touching* it — the patch of worked ground under the nest,
 and nothing else. Until 2026-09-12 that patch was the only ground in the bed
 that could not take up water, so a misting left a film standing on it; nothing
 walks into water, so the door was walled off and the colony lost home
 altogether. Food went on being found and picked up and none of it came back.
-It is ordinary worked soil now, so the rain goes into it and the door stays a
-door. Watch for the patch darkening after a misting and drying pale again —
-that is the fix doing its work — and expect seedlings on the doorstep, which
-could never happen on ground that held no water.
+The threshold has drains in it now — every third column of it is left as
+ordinary earth — so a film has one cell to travel before the ground drinks it,
+exactly as it does everywhere else in the bed. On screen that is a door which
+looks faintly speckled rather than a door with a puddle on it.
 
 **What is still not right**, and it is worth knowing before you read a run:
 even with the door clear a colony can lose track of home for a long stretch —
