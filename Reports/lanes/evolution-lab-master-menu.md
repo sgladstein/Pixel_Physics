@@ -8,17 +8,15 @@ too."*
 ## What changed
 
 `Panel::Menu` (`src/lab/ui.rs`), opened by a `MENU` bar chip and by `F6`. It
-lists every page in the lab and every view toggle, one `Row::choice` each:
-the destination on the left, the key that also reaches it (or the live
-value, for the two controls with no other readout — see below) on the
-right. Every row fires the exact `Action` its key already fired — nothing
-here is a second definition of a control.
+lists every page and every view toggle, one `Row::choice` each: destination
+left, the key that also reaches it (or the live value, for two controls
+with no other readout — see below) right. Every row fires the exact
+`Action` its key already fired — no second definition of a control.
 
-**Re-derived page list** (the brief's own table was stale —
-`PlantList`/`AntList`/`Log`/`Scenarios`/`Compare` already had mouse routes,
-just none from one place): `Plants`(F1), `Ants`(F2), `Box`(F3), `Params`(P),
-`Shelf`(G), `Chambers`(F4), `History`(F5), plus `PlantList`/`AntList`/
-`Log`/`Scenarios`/`Compare` — a row on some other page each, no key.
+**Re-derived page list** (the brief's table was stale — `PlantList`/
+`AntList`/`Log`/`Scenarios`/`Compare` already had mouse routes, just none
+from one place): `Plants`(F1)/`Ants`(F2)/`Box`(F3)/`Params`(P)/`Shelf`(G)/
+`Chambers`(F4)/`History`(F5), plus those five with a row elsewhere, no key.
 
 ## The bar: consolidation, not addition
 
@@ -27,11 +25,11 @@ of 508, zero slack**, at the tightest of the three `SPACINGS` — the bar
 takes nothing more without removing something first (`Reports/dead-ends.md`,
 the `SHELF` entry, already established this for row 0).
 
-**`MENU` replaces `PLANTS`/`ANTS`/`BOX`** on row 1 (three pure-navigation
-chips folded into one) **and `PARAMS` moves off row 0 into a MENU row** (`P`
-still opens it directly). Both were pure navigation — no chip here ever
-carried live state the way the jar chip does, which is why the jar chip
-stayed and these didn't (`SHELF` entry, same reasoning, other direction).
+**`MENU` replaces `PLANTS`/`ANTS`/`BOX`** on row 1 (three pure-nav chips
+folded into one) **and `PARAMS` moves off row 0 into a MENU row** (`P`
+still opens it directly) — both pure navigation, unlike the jar chip, which
+stayed because it carries live state (`SHELF` entry, same reasoning
+reversed).
 
 Measured after: **row 0 and row 1 both fit at 508 of 508 with zero overflow
 at every one of the three `SPACINGS`, including the loosest** (`pad=2
@@ -40,30 +38,32 @@ gap=2`) — not merely passing, real headroom for the first time since
 (`every_button_answers_where_it_was_drawn`, updated in the same change).
 
 **A bare-add alternative was built and measured, not argued** — see
-`dead-ends.md`: adding `MENU` on top of everything else (no removal) also
-passes `fits()`, but only at the single tightest spacing, both rows at
-exactly 0 slack — worse than consolidation, comfortable at every spacing
-tried. Rejected on that measurement.
+`dead-ends.md`: adding `MENU` on top of everything (no removal) also passes
+`fits()`, but only at the tightest spacing, both rows at exactly 0 slack —
+worse than consolidation, comfortable at every spacing. Rejected on that.
 
 ## Two verbs that had no button at all now have one
 
 `Digit9` (write the chronicle) and `KeyF` (`cycle_display_floor`) were direct
-calls to `Lab`/`TimeControl` methods specifically because — their own source
-comments said so — *"this one has no button."* Now one exists (`SAVE
-CHRONICLE NOW`, `DISPLAY FLOOR` on the MENU page), so both keys route through
-`Lab::act` as `Action::WriteChronicle`/`Action::CycleDisplayFloor`, matching
-the rule the comments themselves stated: `Lab::act` dispatches a verb a
-button also draws.
+calls specifically because — their own source comments said so — *"this one
+has no button."* Now one exists (`SAVE CHRONICLE NOW`, `DISPLAY FLOOR` on
+the MENU page), so both route through `Lab::act` as `Action::WriteChronicle`/
+`Action::CycleDisplayFloor`, the rule those comments themselves state:
+`Lab::act` dispatches a verb a button also draws.
 
-## The display-floor handoff (lane R1)
+## The display-floor handoff (lane R1) — closed
 
 R1 left `MIN {}HZ` as a temporary second line in the top-left corner
 (`TimeControl::readout`), explicitly for this lane to re-home — it was the
 one line R1 could not delete because no other readout of `F`'s setting
-existed anywhere. It now has one: the MENU page's `DISPLAY FLOOR` row shows
-the live value (`MIN {}HZ`) and its note names the key. The corner's second
-line is removed (`time.rs`); ticks alone remain, per the owner's other
-2026-09-12 instruction.
+existed anywhere. **It now has one, and the value is in the row's value
+slot, not just its label**: `DISPLAY FLOOR`'s right-aligned field reads
+`MIN {n}HZ` live off `TimeControl::display_floor` (mirrored into `Ui` the
+same way `ANIMAL COLOUR`/`OVERLAY` mirror `Renderer` state), with the key
+named in the note instead. The corner's second line is removed (`time.rs`);
+ticks alone remain. Owner's verdict on R1's card: *"Much better"*; on the
+follow-up once this row existed: *"remove Min 10hz too"* — the same
+complaint, closed in two steps by two lanes.
 
 ## The magnify style/ink/level/grain handoff (round 30's style lane, #352)
 
@@ -95,11 +95,11 @@ enum) — nothing changes unless the row or key is used.
 **`lay_out`'s "508 of 508, zero slack" does not mean the same thing on both
 rows.** Slack is redistributed into the gaps *between* groups, so any row
 with non-negative slack always reports exactly its own width — only an
-*overflow* (`right > 508` at a looser spacing) says a row is actually out of
-room. Row 1 read "508 of 508" at every spacing even before this change and
-was never the bottleneck; row 0's overflow at the two looser spacings
-(`522`, `512`) was. Read the overflow column, not "fits", to find which row
-has room.
+*overflow* (`right > 508` at a looser spacing) says a row is out of room.
+Row 1 read "508 of 508" at every spacing even before this change and was
+never the bottleneck; row 0's overflow at the two looser spacings (`522`,
+`512`) was. Read the overflow column, not "fits", to find which row has
+room.
 
 ## Verification
 
