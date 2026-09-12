@@ -10996,15 +10996,16 @@ duration is not the long ant's fault.** `idle_with_room` — at least one legal
 heading, head unmoved since the previous stop — and its streak, over 120,000
 frames, `sample=900`, so one stop is 900 frames:
 
-| longest idle-with-room streak, stops | s1 | s2 | s3 | s4 | s5 | s6 |
-|---|---|---|---|---|---|---|
-| long-ant colony, bodies of **3+ cells**, unchanged | 33 | 40 | 68 | 64 | 63 | 56 |
-| ...with the expiry | 62 | 46 | 54 | 49 | 38 | — |
-| **shipped two-cell ant**, all bodies | **56** | **68** | **62** | — | — | — |
+| longest idle-with-room streak, stops | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 | s9 |
+|---|---|---|---|---|---|---|---|---|---|
+| long-ant colony, bodies of **3+ cells**, unchanged | 33 | 40 | 68 | 64 | 63 | 56 | 83 | 61 | 53 |
+| ...with the expiry | 62 | 46 | 54 | 49 | 38 | 71 | 50 | 62 | 35 |
+| **shipped two-cell ant**, all bodies | **56** | **68** | **62** | — | — | — | — | — | — |
 
 p90 over the same streaks: **11–16** stops for those long bodies against
 **13–20** for the shipped two-cell ant — if anything the shipped ant's rests
-run *longer*. **The shipped ant rests exactly as long as the long ant does** —
+run *longer*. **The shipped ant rests as long as a full-length long body
+does** —
 50,000-plus frames in one spot on every seed — and nobody has ever reported
 it, because a two-cell body resting is two pixels not moving and a seven-cell
 body resting is a conspicuous shape holding one spot. Nothing about the long
