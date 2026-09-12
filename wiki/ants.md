@@ -1,6 +1,16 @@
 # Ants
 
-*Current as of: 2026-09-11, evening, when **a bed was built for the flitter
+*Current as of: 2026-09-12, when **the nest door stopped standing under a
+puddle**. The patch of pale ground a colony walks home to used to be the one
+piece of the bed that could not drink; every misting left a film of water
+sitting on it, and since nothing walks into water, the whole colony simply
+lost its front door — food kept being picked up and none of it ever came
+home. The door is worked soil now and rain soaks into it like the rest of the
+bed, so it darkens after a misting and dries out again, and the colony can
+get back in. Two things follow from it on the screen: a nest that has just
+been watered looks damp rather than flooded, and seedlings will now come up
+on the doorstep, because the ground there finally holds enough water to
+sprout on. See "Coming home" below. Earlier, 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
@@ -341,6 +351,27 @@ Nothing in the game knows what any of those creatures is. Weight comes from
 counting its cells, and how well it catches the air comes from how wide it
 is against how tall — so a long creature strung out flat along a ledge
 glides, and the same creature curled up in a corner does not.
+
+### Coming home
+
+**The door has to be walkable, and for a long time it was not.** A colony
+recognises home by *touching* it — the patch of pale ground under the nest,
+and nothing else. Until 2026-09-12 that patch was the only ground in the bed
+that could not take up water, so a misting left a film standing on it; nothing
+walks into water, so the door was walled off and the colony lost home
+altogether. Food went on being found and picked up and none of it came back.
+It is ordinary worked soil now, so the rain goes into it and the door stays a
+door. Watch for the patch darkening after a misting and drying pale again —
+that is the fix doing its work — and expect seedlings on the doorstep, which
+could never happen on ground that held no water.
+
+**What is still not right**, and it is worth knowing before you read a run:
+even with the door clear a colony can lose track of home for a long stretch —
+tens of thousands of frames where nobody goes near the nest at all — and then
+find it again. An ant has no idea where home is; it only smells the trail
+other ants leave, and if the whole colony drifts far enough for long enough
+there is no trail left to follow and finding the way back is luck. That is the
+next thing to fix, not a thing you are meant to be seeing.
 
 **They leave smells behind.** Every ant continuously leaves a scent that
 says *home is this way*: strongest for an ant that has just been at the
