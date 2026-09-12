@@ -582,6 +582,16 @@ _CODEISH = re.compile(
 )
 
 
+# Words that are *about* identifier shapes rather than the name of anything.
+# The shape test below excludes ordinary English by construction, and these
+# are the exception: they are themselves snake_case or CamelCase, so they pass
+# it. Found on this tool's first real run, on its own branch -- `other:121`,
+# the dead end recording `--touching`'s rejected form, matched on `CamelCase`
+# and `SCREAMING_SNAKE` because its clause *describes* the shape filter and a
+# code comment in the same diff had introduced those words to `src/`.
+_SHAPE_WORDS = {"camelcase", "snake_case", "screaming_snake", "kebab_case", "pascalcase"}
+
+
 def clause_identifiers(retest):
     """Identifier-shaped tokens anywhere in a `Re-test when:` clause.
 
@@ -591,7 +601,7 @@ def clause_identifiers(retest):
     (q_peak girth memory)"*), and so does `structural:038`. The house voice
     backticks a *file* far more reliably than it backticks the thing a clause
     is waiting for."""
-    return set(_CODEISH.findall(retest or ""))
+    return {t for t in _CODEISH.findall(retest or "") if t.lower() not in _SHAPE_WORDS}
 
 
 def git_out(args):
