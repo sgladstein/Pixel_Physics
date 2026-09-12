@@ -181,6 +181,16 @@ const RNG_SLOT_BODY_FATE: u64 = 6;
 /// doc in this file argues a *distinct* integer avoids.
 const RNG_SLOT_SEED_SURVIVAL: u64 = 7;
 
+/// The old-age stream: whether this animal's number came up on this tick.
+///
+/// **8, and a slot of its own for `RNG_SLOT_BODY_FATE`'s stated reason**:
+/// `rng::stream` is a pure hash of its four inputs, so a brand new constant
+/// draws from a key nothing has ever read and cannot shift a single existing
+/// draw anywhere in the tree. Keyed on `(seed, organism, frame, SLOT)` -- the
+/// same shape `RNG_SLOT_MOVE` uses, never on the cell's position, because
+/// where an animal happens to be standing must not decide when it dies.
+const RNG_SLOT_OLD_AGE: u64 = 8;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -3127,6 +3137,32 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // decisions from a chain describing cells that are no longer there.
     if !reconcile_chain(world, organism) {
         return Vec::new();
+    }
+
+    // --- old age ---------------------------------------------------------
+    // **The one thing in this tick that can end it before anything is
+    // decided**, and it is deliberately the first: an animal's age does not
+    // depend on what it was about to do, and putting the roll after the walk
+    // would make a death conditional on whether the step succeeded.
+    //
+    // **Gated on the species field at the call site, which already holds
+    // `def`** -- `CLAUDE.md`'s hot-path rule. Every shipped species but the
+    // ant and the long ant is at 0, so for them this is one `u32` compare per
+    // tick and nothing else: no `World::get`, no body walk, no draw.
+    //
+    // The interval is *this individual's*, not the species' -- see
+    // `plant::old_age_chance_over` for why. `pace` is heritable, so an ant
+    // that takes its turn twice as often rolls twice as often, and dividing
+    // the interval back out is what stops `life_half_life` becoming a
+    // function of a gene nobody meant to point at it.
+    if def.life_half_life > 0 {
+        let age = world.organism(organism).map_or(0, |st| world.frame.saturating_sub(st.born_frame));
+        let interval = organism_tick_interval(world, organism, def);
+        let chance = plant::old_age_chance_over(age as f32, def.life_half_life as f32, interval);
+        if chance > 0.0 && rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_OLD_AGE).chance(chance) {
+            creature_dies(world, organism, organism::DeathCause::OldAge);
+            return Vec::new();
+        }
     }
 
     // --- airborne: integrate, do not decide -----------------------------
@@ -10799,6 +10835,140 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    // --- old age ---------------------------------------------------------
+
+    /// A flat bed and a cohort of ants that **cannot starve and cannot
+    /// breed**, so the only thing that can remove one is the age roll.
+    ///
+    /// Both exclusions are load-bearing rather than tidiness. Leave the costs
+    /// on and the founders' 200-J grant runs out at 12,000 frames, which is
+    /// inside every horizon below and would put starvation deaths in the
+    /// column this test reads. Leave breeding on and the cohort is no longer
+    /// a cohort: a child born at frame 900 rolls its own hazard from its own
+    /// birth, and "how many are alive" stops being a survival curve.
+    /// `reproduce_at_of` returns `None` at a threshold of 0, which is the
+    /// documented off switch and what the ANTS page's own row says.
+    fn age_cohort(life: u32, ants: i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            for y in 120..=160 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.clone().expect("ant is a creature");
+        def.life_half_life = life;
+        // **Every per-tick charge, not just the two obvious ones.** The
+        // metabolism is `idle_cost_per_cell` and `move_cost_per_cell`, and
+        // then five more taxes are levied every tick as fractions of
+        // `start_energy` -- the brain, the eye, the ground sense, the jaw and
+        // the shell (see `apply_creature_energy`'s caller). Zeroing only the
+        // first two leaves an ant that still starves inside this test's
+        // horizon, which would put starvation deaths in the column the
+        // survival curve reads. The `Starved == 0` assertion below is what
+        // catches that if another priced capability is ever added.
+        def.idle_cost_per_cell = 0.0;
+        def.move_cost_per_cell = 0.0;
+        def.exposure_cost_per_cell = 0.0;
+        def.synapse_fraction = 0.0;
+        def.sight_fraction = 0.0;
+        def.curvature_fraction = 0.0;
+        def.force_fraction = 0.0;
+        def.armour_fraction = 0.0;
+        def.digest_fraction = 0.0;
+        def.reproduce_threshold = 0.0;
+        w.species.set_creature(id, def);
+        let placed = w.found_colony_of(128, 120, "ant", ants);
+        assert_eq!(placed as i32, ants, "the bed seated {placed} of {ants} -- the scene is wrong, not the rule");
+        w
+    }
+
+    fn alive_creatures(w: &World) -> usize {
+        w.live_organism_ids().into_iter().filter(|id| w.organism(*id).is_some_and(|st| w.species.get(st.species).creature.is_some())).count()
+    }
+
+    fn aged_deaths(w: &World) -> u64 {
+        w.deaths_by_cause[organism::DeathCause::OldAge.index()]
+    }
+
+    /// **The positive control, as a survival curve rather than as "somebody
+    /// died".**
+    ///
+    /// The hazard's own three numbers, which are the model's and not tuned:
+    /// **96% alive at `T/4`, half at `T`, 1.3% at `2.5T`**. A cohort is the
+    /// only way to see the *shape*, and the shape is the whole point -- a
+    /// flat hazard of the same nominal rate kills the young at the same rate
+    /// as the old, which is a colony that never settles and a death that
+    /// reads as arbitrary.
+    ///
+    /// **Watched going red**, which `CLAUDE.md` asks for before its green is
+    /// cited: with the roll deleted from `creature_tick` this reports 20 / 20
+    /// / 20 alive and `OLDAGE 0`, and fails on the first bar. With the roll
+    /// present but the species left at its authored 40,000 -- the knob
+    /// disconnected from the harness -- it reports 20 / 20 / 20 as well, so
+    /// this covers the write-through and not only the arithmetic.
+    ///
+    /// `T` is 1,200 rather than the authored 40,000 so the horizon is 3,000
+    /// frames: this is `cargo test`'s debug profile, and the shape is
+    /// scale-free (`plant::old_age_chance_over` is a function of `age/T`). 20
+    /// ants rather than the played bed's 52 for the same reason. The
+    /// 52-founder run at `life_half_life: 6000` the design asks for is in
+    /// `Reports/lanes/evolution-lab-lifespan.md`.
+    #[test]
+    fn a_cohort_of_ants_dies_of_age_on_the_plants_own_curve() {
+        const T: u32 = 1_200;
+        const N: usize = 20;
+        let mut w = age_cohort(T, N as i32);
+        assert_eq!(alive_creatures(&w), N, "the cohort must start whole");
+
+        run(&mut w, (T / 4) as usize);
+        let young = alive_creatures(&w);
+        run(&mut w, (T - T / 4) as usize);
+        let middle = alive_creatures(&w);
+        run(&mut w, (T * 5 / 2 - T) as usize);
+        let old = alive_creatures(&w);
+        println!("old-age cohort of {N} at T={T}: {young} alive at T/4, {middle} at T, {old} at 2.5T, OLDAGE {}", aged_deaths(&w));
+
+        // **Bars set from the model with headroom, on a cohort of twenty.**
+        // At 96% survival the expected loss by `T/4` is 0.8 animals, so 18 of
+        // 20 is ~2.5 sigma of slack and still fails flat against a flat
+        // hazard (which leaves ~13). At `T` the expectation is 10 and the
+        // window is 5..=15; at `2.5T` it is 0.08 and 1 is the ceiling.
+        assert!(young >= 18, "96% must still be walking at a quarter of the lifespan: {young} of {N}");
+        assert!((5..=15).contains(&middle), "the half-life must be the median: {middle} of {N} at T");
+        assert!(old <= 1, "almost nobody may reach two and a half lifespans: {old} of {N}");
+        // **The far-side counter, not just the population.** A population
+        // that fell could have starved; only this says the age roll is what
+        // took them -- `CLAUDE.md`, pair every "it fired" counter with an
+        // effect counter from the far side of the call.
+        assert!(
+            aged_deaths(&w) as usize >= N - 1,
+            "every death here must be attributed to old age: OLDAGE {} of {N}",
+            aged_deaths(&w)
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            0,
+            "nothing in this bed may starve -- the scene is wrong if it does"
+        );
+    }
+
+    /// **The immortal default, the pre-2026-09-12 animal exactly.**
+    ///
+    /// Every species but the ant and the long ant ships at 0, and this is
+    /// what that has to mean: not "a very long life" but no roll at all. The
+    /// vacuity check comes first -- a bed whose cohort had died of something
+    /// else would pass the zero, which is `CLAUDE.md`'s *green is the default
+    /// state* exactly.
+    #[test]
+    fn life_half_life_zero_is_immortal() {
+        let mut w = age_cohort(0, 20);
+        run(&mut w, 3_000);
+        assert_eq!(alive_creatures(&w), 20, "at life_half_life 0 nothing may die at all: {} of 20", alive_creatures(&w));
+        assert_eq!(aged_deaths(&w), 0, "an immortal species must not roll the hazard once");
     }
 
     /// **A measurement, not a guard** (hence `#[ignore]`): can a

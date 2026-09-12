@@ -3684,18 +3684,49 @@ pub const SEED_TICK_INTERVAL: u64 = 4;
 /// `S(a) = exp(-ln2 * (a/T)^2)` — a Weibull with shape 2. Three consequences
 /// worth naming because the bars in the tests are set from them rather than
 /// from taste: **T is the median lifespan**, survival at `T/4` is **96%**,
-/// and survival at `2.5T` is **0.4%**.
+/// and survival at `2.5T` is **1.3%**.
+///
+/// **That last figure read `0.4%` until 2026-09-12 and was arithmetically
+/// wrong**, found while giving the ant the same hazard: `exp(-ln2 * 2.5^2)`
+/// is `2^-6.25` = **1.31%**, and the discrete product over ticks agrees to
+/// three places (1.23% at `T`=4,000 / interval 45, 1.31% at 40,000 / 6).
+/// `0.4%` is `2^-8`, i.e. the survival at **2.83T**. Nothing depended on it
+/// — every bar set from it is `< 0.02`, which 1.3% clears — so this is a
+/// corrected label rather than a corrected model, and it is written down
+/// because `Reports/evolution-lab-late-game-design-2026-09-12.md` §1.2 and
+/// two test comments repeat the wrong number from here.
 ///
 /// Returns 0 for a non-positive `life_half_life`, which is every species'
 /// default and means immortal — the behaviour everything had before this
 /// existed. Clamped to 1, so an absurdly short life is instant death rather
 /// than a probability above one.
 fn old_age_chance(age_frames: f32, life_half_life: f32) -> f32 {
+    old_age_chance_over(age_frames, life_half_life, ORGANISM_TICK_INTERVAL)
+}
+
+/// The same hazard for a caller whose tick is **not** `ORGANISM_TICK_INTERVAL`.
+///
+/// `old_age_chance` above is this with the plant's own cadence baked in; the
+/// creature's is a different number and a *per-individual* one -- `pace` is a
+/// heritable trait, so two ants of one colony take their turns at different
+/// intervals. The interval belongs in the signature rather than in the body
+/// for exactly the reason `half_life_chance`'s doc gives for its own
+/// `interval` argument: the outcome must be a property of the half-life and
+/// not of how often the check happens. Baking 45 in and letting the ant roll
+/// every 6 frames would have made a fast lineage die at `T/2.7` and turned
+/// `pace` into a silent lifespan gene -- the shape `CLAUDE.md`'s "a term in a
+/// weighted sum is not an independent knob" warns about, found before it was
+/// built rather than after.
+///
+/// **T is the median lifespan in frames at every interval**, which is the
+/// property `the_hazard_is_a_property_of_the_half_life_not_the_interval`
+/// asserts by surviving two intervals seven times apart.
+pub(crate) fn old_age_chance_over(age_frames: f32, life_half_life: f32, interval: u64) -> f32 {
     if life_half_life <= 0.0 || age_frames <= 0.0 {
         return 0.0;
     }
     let per_frame = 2.0 * std::f32::consts::LN_2 * age_frames / (life_half_life * life_half_life);
-    (per_frame * ORGANISM_TICK_INTERVAL as f32).clamp(0.0, 1.0)
+    (per_frame * interval.max(1) as f32).clamp(0.0, 1.0)
 }
 
 fn half_life_chance(half_life: f32, interval: u64) -> f32 {
@@ -22141,7 +22172,8 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     ///
     /// The numbers are the model's, not tuned: the hazard integrates to
     /// `ln 2` at `age == T`, so survival is `exp(-ln2 * (age/T)^2)` — **97%**
-    /// at `T/5`, 50% at `T`, and 0.4% at `2.5T`. The bars are set from that
+    /// at `T/5`, 50% at `T`, and **1.3%** at `2.5T` (this said `0.4%` until
+    /// 2026-09-12; see `old_age_chance`'s own doc for the arithmetic). The bars are set from that
     /// with headroom, and the horizon is `2.5T` for the same reason.
     /// **The old-age hazard rises with age and integrates to a median at
     /// `T`** — the arithmetic half of `SpeciesDef::life_half_life`, tested
@@ -22190,6 +22222,42 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(late < 0.02, "an old plant must be all but gone: survival {late:.4} at 2.5T");
     }
 
+    /// **The hazard is a property of the half-life, not of how often it is
+    /// checked** -- the claim `old_age_chance_over`'s third argument exists
+    /// to keep true, asserted across an interval ratio of 7.5x because the
+    /// creature that now shares this function rolls every 6 frames where a
+    /// plant rolls every 45.
+    ///
+    /// Put the fault back to see it go red: drop the `interval` argument and
+    /// bake `ORGANISM_TICK_INTERVAL` into the body, and the 6-frame arm's
+    /// median lands at `T/2.7` -- an ant with a 40,000-frame lifespan dying
+    /// at 15,000, and a *pace* gene silently deciding it, which is the whole
+    /// reason this is a parameter.
+    #[test]
+    fn the_hazard_is_a_property_of_the_half_life_not_the_interval() {
+        const T: f32 = 40_000.0;
+        let survival_at = |age: f32, interval: u64| -> f32 {
+            let mut s = 1.0f32;
+            let mut a = 0.0f32;
+            while a < age {
+                s *= 1.0 - old_age_chance_over(a, T, interval);
+                a += interval as f32;
+            }
+            s
+        };
+        for interval in [6u64, 12, 45] {
+            let (quarter, half, late) = (survival_at(T / 4.0, interval), survival_at(T, interval), survival_at(T * 2.5, interval));
+            println!("interval {interval}: survival {quarter:.3} at T/4, {half:.3} at T, {late:.4} at 2.5T");
+            assert!((half - 0.5).abs() < 0.02, "T must be the median at interval {interval}: {half:.3}");
+            assert!(quarter > 0.94, "96% must still be alive at T/4 at interval {interval}: {quarter:.3}");
+            assert!(late < 0.02, "about 1.3% must be left at 2.5T at interval {interval}: {late:.4}");
+        }
+        // An interval of 0 would be a division the caller cannot make sense
+        // of; it is floored at 1 rather than panicking, because a clock knob
+        // at zero is a `Clock::creature_interval` question and not this one's.
+        assert!(old_age_chance_over(100.0, T, 0) > 0.0, "a zero interval is floored at 1, not treated as immortal");
+    }
+
     #[test]
     fn old_age_kills_a_grown_plant_and_spares_a_seedling() {
         // **The horizon is bounded by the scene, not by the model, and that
@@ -22208,7 +22276,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // Survival at `T/4` is `exp(-ln2/16)` = **96%**, so "still alive" is
         // a claim about the hazard's shape rather than about luck.
         const YOUNG: usize = (LIFE / 4.0) as usize;
-        // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
+        // `2.5T`: survival `exp(-ln2 * 6.25)` = **1.3%**.
         const OLD: usize = (LIFE * 2.5) as usize;
 
         /// -> is **the plant this arm planted** still alive?
@@ -22243,7 +22311,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
 
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
         assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
-        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 0.4% by the model");
+        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
     }
 
     #[test]

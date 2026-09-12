@@ -195,6 +195,7 @@ TOPICS = {
         "Hopper status — the jump has a species, and it hops itself to death",
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
+        "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",

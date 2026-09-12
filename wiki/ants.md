@@ -1,7 +1,10 @@
 # Ants
 
-*Current as of: 2026-09-11, evening, when **a bed was built for the flitter
-and it still could not live on one** -- four flowering clumps beside the nest
+*Current as of: 2026-09-12, when **ants started dying of old age** -- the
+first thing in this world that does, on the other side of the glass from the
+plants that always have. See "Ants get old" below; it is what turns a colony's
+boom-and-crash into a size it holds. Before that, 2026-09-11, evening, when
+**a bed was built for the flitter and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
 flitter" below. Earlier the same day, when **the flitter learned
@@ -702,7 +705,35 @@ is not enough to build a wall out of: walls, pillars and chambers are something
 this preference could in principle grow into rather than something you will
 watch happen.
 
-**Ants starve now, and a colony settles at a size instead of running down.**
+**Ants get old and die of it, and that is what actually settles a colony at
+a size.** Until now nothing in this world died of age. Every death in every
+session was hunger or a fight, so a colony could only shrink by famine: it
+found a bed full of food, bred on it until there were hundreds of them, ate
+the bed down to bare ground, and then went all at once. Watch one long enough
+and you get a boom, a cliff, and a dead bed with the session still to run.
+
+An ant now has a lifespan, and it works the way a plant's does: it is the
+*middle* of a spread, not a stopwatch. Half a brood is still walking at it.
+Nineteen in twenty are alive at a quarter of it. About one in eighty reaches
+two and a half times it. So there is no moment where the colony turns over -- there is
+a steady trickle of ants that simply stop, all through the run, and the
+colony's size settles near how fast it breeds times how long an ant lives,
+instead of climbing until there is nothing left to eat. When it does fall, it
+falls as a slope rather than a cliff.
+
+Each ant that goes leaves a body where it fell, exactly as a starved one does,
+and a body is food -- so a colony that is losing its old is also feeding its
+young on them. A long run is now several generations deep instead of one line
+of animals that outlives the session.
+
+It is a number you can set, on the ANTS page, and it ships on only for the two
+ants. The hopper, the flitter and the beetle are still immortal, because
+nobody has measured what their lifespans should be. At zero -- which is what
+they are -- nothing ever dies of age and you get the old behaviour back
+exactly. It is not inherited yet: every ant of a kind lives the same span, and
+a lineage cannot evolve a longer one until living longer costs something.
+
+**Ants starve too, and that was the first thing that made a colony settle.**
 An ant carries a store of energy, spends it on standing still, walking and
 thinking, and refills it by eating. That store used to be so deep that
 nothing reached the bottom of it inside any run anyone actually watched — so

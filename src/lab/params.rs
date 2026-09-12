@@ -722,6 +722,7 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
         "scent_drift" => def.scent_drift,
+        "life_half_life" => def.life_half_life as f32,
         "scent_spread" => def.scent_spread,
         "kin_crosses_kinds" => f32::from(u8::from(def.kin_crosses_kinds)),
         _ => return None,
@@ -764,6 +765,14 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "HOW HARD THIS KIND CAN BITE, AGAINST HOW TOUGH A THING IS. UNSET IT MATCHES THE DIGGING FORCE, WHICH IS WHY THE ROW SHOWS THAT NUMBER UNTIL YOU MOVE IT. IT IS WHAT DECIDES WHICH FOODS AN ANIMAL CAN ACTUALLY GET THROUGH -- A HARD-SHELLED ANIMAL IS SIMPLY INEDIBLE TO A WEAK MOUTH.");
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
+    // **Under `tick_interval` on purpose**: that row is how fast an animal
+    // lives and this is how long, and the two are read together. On the ANTS
+    // page rather than beside `scent_drift` on GENOME, because GENOME is
+    // titled "what a lineage inherits" and this is emphatically not
+    // inherited yet -- see `CreatureDef::life_half_life` for why it is
+    // priced before it is.
+    cr("life_half_life", span(0.0, 200_000.0, 1_000.0), true,
+        "HOW LONG AN ANT LIVES, IN FRAMES. IT IS THE MIDDLE OF A SPREAD AND NOT A STOPWATCH: HALF A BROOD IS STILL WALKING AT THIS NUMBER, NINETEEN IN TWENTY ARE ALIVE AT A QUARTER OF IT, AND ABOUT ONE IN EIGHTY REACHES TWO AND A HALF TIMES IT. ZERO -- WHICH IS WHAT EVERY OTHER ANIMAL IN THE BOX STILL IS -- MEANS NOTHING EVER DIES OF AGE, SO A COLONY CAN ONLY SHRINK BY FAMINE: IT BREEDS UNTIL IT HAS EATEN THE BED AND THEN GOES ALL AT ONCE. GIVE IT A LIFESPAN AND THE COLONY SETTLES NEAR HOW FAST IT BREEDS TIMES HOW LONG IT LIVES, AND ITS FALL IS A SLOPE. EACH ANT THAT GOES LEAVES A BODY, AND A BODY IS FOOD.");
 
     // **The colony-founding rows**, under their own header so a page of one
     // species' numbers does not appear to have grown a row that reaches
@@ -1252,6 +1261,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
                 "scent_drift" => def.scent_drift = value,
+                "life_half_life" => def.life_half_life = value.max(0.0).round() as u32,
                 "scent_spread" => def.scent_spread = value,
                 "kin_crosses_kinds" => def.kin_crosses_kinds = value >= 0.5,
                         _ => return false,
@@ -2547,6 +2557,7 @@ mod tests {
             "reproduce_threshold", "mutation_rate", "tick_interval",
             "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
             "climbs_over_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
+            "life_half_life",
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
             "synapse_fraction", "sight_fraction", "curvature_fraction",

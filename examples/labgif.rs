@@ -282,7 +282,54 @@ fn main() {
     );
     println!("  {msg}");
 
-    for _ in 0..start {
+    // **`lifespan=<frames>` -- the ant's `CreatureDef::life_half_life`**,
+    // written through after `load_scenario` (which rebuilds the world) and
+    // before the warm-up, so the colony the timeline founds at frame 6,000
+    // already has it. `0` is immortal, the shipped behaviour before
+    // 2026-09-12 and the control arm of the card's pair. Echoed
+    // unconditionally: a log that does not name its lifespan was written by
+    // a binary that never had the knob.
+    if let Some(v) = arg::<u32>("lifespan") {
+        if let Some(id) = lab.world.species.id_of(&lab.spec.colony_species) {
+            if let Some(mut def) = lab.world.species.get(id).creature.clone() {
+                def.life_half_life = v;
+                lab.world.species.set_creature(id, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        lab.spec.colony_species,
+        lab.world.species.id_of(&lab.spec.colony_species).and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
+
+    // **The colony's own three numbers, tracked across the whole run** --
+    // `CLAUDE.md`'s review-card rule: an image says what a nest band looks
+    // like and only a count says whether the mechanism under test fired.
+    // `peak` has to be sampled every frame rather than read at the end,
+    // because the thing this build is *for* is flattening a peak that has
+    // already passed by the time the last frame is drawn.
+    let mut peak_ants = 0usize;
+    let mut peak_frame = 0u64;
+    let note_peak = |lab: &Lab, f: u64, peak: &mut usize, at: &mut u64| {
+        let n = lab.world.live_organism_ids().into_iter().filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).creature.is_some())).count();
+        if n > *peak {
+            *peak = n;
+            *at = f;
+        }
+        n
+    };
+
+    // **Sampled every `PEAK_EVERY` frames, not every frame.** A census walks
+    // every organism in the box, and the warm-up is tens of thousands of
+    // frames over a bed that holds hundreds -- per-frame it is the dominant
+    // cost of this harness and it buys nothing, because a colony's peak is a
+    // slow envelope and not a spike.
+    const PEAK_EVERY: u64 = 100;
+    for f in 0..start {
+        if f % PEAK_EVERY == 0 {
+            note_peak(&lab, f, &mut peak_ants, &mut peak_frame);
+        }
         lab.tick_for_harness();
     }
     // The requested rate arms right here -- the captured window is the
@@ -464,9 +511,23 @@ fn main() {
             }
         }
         if f < frames {
+            if f % PEAK_EVERY == 0 {
+                note_peak(&lab, start + f, &mut peak_ants, &mut peak_frame);
+            }
             lab.tick_for_harness();
         }
     }
+
+    let ants_now = note_peak(&lab, start + frames, &mut peak_ants, &mut peak_frame);
+    let by_cause = |c: pixel_physics::sim::organism::DeathCause| lab.world.deaths_by_cause[c.index()];
+    println!(
+        "  COLONY peak {peak_ants} ants at frame {peak_frame} | {ants_now} ants at frame {} | OLDAGE {} | STARVED {} | KILLED {} | born {}",
+        start + frames,
+        by_cause(pixel_physics::sim::organism::DeathCause::OldAge),
+        by_cause(pixel_physics::sim::organism::DeathCause::Starved) + by_cause(pixel_physics::sim::organism::DeathCause::StarvedInFlight),
+        by_cause(pixel_physics::sim::organism::DeathCause::Killed),
+        lab.world.creature_stats.births
+    );
 
     let water_after = soil_total(&lab);
     let rain_after = lab.world.rain_cells;

@@ -337,6 +337,11 @@ fn main() {
         let tolerance: Option<f32> = arg::<f32>("tolerance").or(rivalry.then_some(-1.0));
         let spread: Option<f32> = arg::<f32>("spread").or(rivalry.then_some(1.0));
         let drift: Option<f32> = arg::<f32>("drift");
+        // **`lifespan=<frames>` -- brief 2's knob**, the ant's
+        // `CreatureDef::life_half_life`. `0` is immortal, the shipped
+        // behaviour before 2026-09-12 and the paired control this build's
+        // every figure is read against.
+        let lifespan: Option<u32> = arg::<u32>("lifespan");
         let crosskin: Option<i32> = arg::<i32>("crosskin");
         if let Some(v) = spread {
             // The offset is drawn at founding, keyed on the seed and the
@@ -395,6 +400,20 @@ fn main() {
             }
             println!("labstats: ant scent_drift = {v}");
         }
+        if let Some(v) = lifespan {
+            if let Some(id) = lab.world.species.id_of("ant") {
+                let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+                def.life_half_life = v;
+                lab.world.species.set_creature(id, def);
+            }
+        }
+        // Echoed whether or not it was passed -- `CLAUDE.md`'s harness rule:
+        // a log that does not name its lifespan was written by a binary that
+        // never had the knob, which looks exactly like a run at 0.
+        println!(
+            "labstats: ant life_half_life = {} frames (0 = immortal)",
+            lab.world.species.id_of("ant").and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+        );
         if let Some(v) = crosskin {
             if let Some(id) = lab.world.species.id_of("ant") {
                 let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();

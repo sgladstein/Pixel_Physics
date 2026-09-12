@@ -3879,6 +3879,40 @@ pub struct CreatureDef {
     /// for it.
     #[serde(default)]
     pub nectar_only: bool,
+    /// **How long an animal of this kind lives, in frames -- the median.**
+    ///
+    /// `0` is immortal, which is every species' default and the behaviour
+    /// everything in this engine had until 2026-09-12: *no* creature died of
+    /// age, so every death in every session was starvation or a fight and a
+    /// colony could only shrink by famine. It booms on the bed's larder to
+    /// hundreds, strips it, and dies all at once
+    /// (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0 measures
+    /// the shape: 73 -> 495 ants by 200,000 frames on seed 3, then 24 ants
+    /// and 13 plants by 260,000 -- a dead bed with a session still to run).
+    ///
+    /// **The plant's hazard, not a second model** -- `plant::
+    /// old_age_chance_over`, a Weibull with shape 2, rolled once per creature
+    /// tick at the individual's own interval. Three consequences worth
+    /// naming because they are what "graded" means here: **this is the
+    /// median**, survival at `T/4` is **96%** and survival at `2.5T` is
+    /// **1.3%** (the design report says 0.4%; that figure was arithmetically
+    /// wrong and is corrected at `plant::old_age_chance`). So a cohort dies over a spread rather than all at once,
+    /// which is `CLAUDE.md`'s first law -- an outcome is a distribution, not
+    /// a binary -- arriving on the animal side of the box. The corpse is laid
+    /// exactly as a starved animal's is, so a death is also 240 J of carrion
+    /// for a nestmate.
+    ///
+    /// **Authored per species, not heritable, and that is deliberate for
+    /// this build.** A trait slot widens the genome and shifts every seeded
+    /// draw in the world, and a lifespan gene with no standing cost is a
+    /// ratchet: every lineage walks it up for ever and nothing pays. The
+    /// design of record (§4) rules that it is priced before it is inherited.
+    ///
+    /// Exposed as a lab dial and as a scenario `Setting`, per the standing
+    /// "stop balancing, start exposing" ruling -- nobody can set this from
+    /// theory and the owner's own bed is the only authority on it.
+    #[serde(default)]
+    pub life_half_life: u32,
     /// **How far apart two colonies of this kind start, in scent.** Every
     /// colony label draws one offset at founding, uniform in
     /// `-spread..=spread` on each of the three signature slots
@@ -4162,6 +4196,7 @@ impl CreatureDef {
             climbs_over_kin,
             eats_kin,
             nectar_only,
+            life_half_life,
             scent_spread,
             scent_drift,
             kin_crosses_kinds,
@@ -4277,6 +4312,15 @@ impl CreatureDef {
             // A switch, not a length: scaling a body does not change what
             // its mouth will open.
             nectar_only: *nectar_only,
+            // **A span of real time, so x 1 -- and that is a claim about
+            // the hazard, not an assumption.** A supersampled animal decides
+            // `k` times as often, so a per-tick chance passed through
+            // unchanged would kill it `sqrt(k)` times sooner; it is safe here
+            // only because `plant::old_age_chance_over` takes the interval as
+            // an argument and divides it back out, which makes the median a
+            // number of *frames* at every cadence. If that ever stops being
+            // true this line becomes a `/ time_factor`.
+            life_half_life: *life_half_life,
             scent_spread: *scent_spread,
             scent_drift: *scent_drift,
             kin_crosses_kinds: *kin_crosses_kinds,
@@ -6246,6 +6290,19 @@ pub enum DeathCause {
     /// numbers and cannot say how many plants died this way. This is that
     /// count, for the price of one boolean at the closing seam.
     FelledOrLost,
+    /// **An animal that simply got old**, on the graded hazard
+    /// [`CreatureDef::life_half_life`] describes. Plants have died this way
+    /// since the growth clock landed, but `plant.rs` records it as `Starved`
+    /// -- a plant that cannot pay its maintenance genuinely is starving. An
+    /// animal's age death pays nothing and owes nothing, so it wanted a cause
+    /// of its own, and telling it from `Starved` is the whole point of the
+    /// counter: "the colony settled at a size" and "the colony ran out of
+    /// food" look identical in a population line and nowhere else.
+    ///
+    /// **Appended rather than filed beside `Starved`** so that no existing
+    /// cause's [`DeathCause::index`] moves: `World::deaths_by_cause` and
+    /// every `GroupDeaths::by_cause` row are positional arrays.
+    OldAge,
 }
 
 impl DeathCause {
@@ -6259,12 +6316,13 @@ impl DeathCause {
             DeathCause::Culled => "CULLED",
             DeathCause::LostVitalTissue => "LOST ITS TISSUE",
             DeathCause::FelledOrLost => "FELLED",
+            DeathCause::OldAge => "OLD AGE",
         }
     }
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 7;
+pub const DEATH_CAUSES: usize = 8;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -6275,6 +6333,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Culled,
     DeathCause::LostVitalTissue,
     DeathCause::FelledOrLost,
+    DeathCause::OldAge,
 ];
 
 impl DeathCause {
