@@ -3066,6 +3066,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ns/px. Author's style pick is *illustrated*: the only look that answers
   "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
   style question deserves its own round and what it does first. Two cards.
+- [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
+  eighteen pull requests from nine cloud lanes, merged in one order because
+  five of them met in `creature.rs`, with round thirty running beside it on
+  the same trunk. What the round overturned, with the numbers: the played
+  bed's baseline moved under everyone (nest scent drift at 0.15, attributed
+  to one commit, every proposed mechanism refuted by a control, inert on the
+  trunk it now sits on); the colony is not fought and does not turn on
+  itself — `Killed` was never a killing counter and two of 384 such deaths
+  are an animal's bite, the rest a plant grown into the ant's head or an empty
+  cell nobody has explained; the stuck flitter was never the flight but a
+  canopy cage; the nest door stood under a puddle; a seed carried home saves
+  the bed and shrinks the colony to a dozen; survival at 2.5 lifespans is
+  1.31%, not 0.4%. Carries the cloud-lane mechanics (poke, auto-merge,
+  merge-tree serialisation, bug-letter collisions) the next coordinator pays
+  for otherwise.
 
 ## Licensing and distribution
 
