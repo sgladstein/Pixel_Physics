@@ -2117,16 +2117,28 @@ pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
 
 /// `World::room_gate`'s shipped value, overridable per run.
 ///
-/// **On by default** -- owner's ruling, *ship new behaviours on by default*.
-/// `PIXEL_PHYSICS_LAB_ROOM=off` is the revert and is bit-exact: `sense`
-/// writes the same 5x5 count it always did and `World::step_nest_room` is
-/// never consulted. An env switch rather than two builds, matching
-/// `spoil_kept` and `trophallaxis_enabled` and for the reason `CLAUDE.md`
-/// gives them -- two arms compared inside one run cannot be the stale-binary
-/// failure.
+/// **Off by default, which departs from the owner's standing ruling (*ship
+/// new behaviours on by default*), and the departure is the finding rather
+/// than a preference.** Measured over 12 paired seeds on `played_bed` at
+/// 300,000 frames: the room arm leaves a bigger mound on **9 of 12** seeds
+/// (median 1.32x, min 0.04, max 74) and digs more on 8 of 12 (median 1.48x),
+/// while costing **+4.0% of a frame** in the lab. So switching it on ships a
+/// slower box that builds *more* of the thing the build was commissioned to
+/// reduce. The ruling is about getting working behaviour played, and a
+/// default is the one form in which this one cannot be declined; it is a
+/// keystroke on the ANTS page for anyone who wants it, and the owner has the
+/// numbers and the switch (card `20260912T115506982Z-6ae8e2`). Flip this one
+/// line if they say so.
+///
+/// `PIXEL_PHYSICS_LAB_ROOM=on` arms it. The default is bit-exact against
+/// `main`: `sense` writes the same 5x5 count it always did and
+/// `World::step_nest_room` returns before reading a cell. An env switch
+/// rather than two builds, matching `spoil_kept` and `trophallaxis_enabled`
+/// and for the reason `CLAUDE.md` gives them -- two arms compared inside one
+/// run cannot be the stale-binary failure.
 pub fn room_gate_default() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() == Ok("on"))
 }
 
 /// `World::room_target`'s shipped value, overridable per run with

@@ -854,7 +854,7 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "colonies",
         "dig_for_room",
         world.room_gate,
-        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. ON IS THE SHIPPED BEHAVIOUR AND IS WHY AN ANTHILL NOW STOPS GROWING: THE ANT READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND A COLONY THAT HAS DUG ENOUGH GOES BACK TO FORAGING. OFF IS THE OLD QUESTION -- A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT, WHICH AT ANY REAL COLONY SIZE IS PINNED AT ITS CEILING FOR EVER, SO NOTHING THE COLONY DIGS CAN EVER ANSWER IT AND THE MOUND GROWS UNTIL THE BED DIES. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. OFF IS THE SHIPPED BEHAVIOUR AND IS THE OLD QUESTION -- A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT. ON READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH THE COLONY SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. IT WAS BUILT TO STOP THE MOUND GROWING AND IT DOES NOT: OVER TWELVE BEDS RUN TWICE EACH IT LEFT A BIGGER MOUND ON NINE OF THEM, AND IT COSTS ABOUT A TWENTY-FIFTH OF A FRAME. THAT IS WHY IT IS OFF, AND IT IS HERE BECAUSE THE BEHAVIOUR IS WORTH WATCHING EVEN SO. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
     out.push(float(
         g,
@@ -863,7 +863,7 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         "room_each_ant_wants",
         world.room_target,
         span(0.25, 16.0, 0.25),
-        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. THE SHIPPED 2.0 COMES OFF THE CENSUS RATHER THAN OUT OF THE AIR: A COLONY LEFT ALONE FOR HALF A MILLION FRAMES CUTS ABOUT 220 CELLS OF CHAMBER, AND THE TWO RUNS THAT BOOMED PEAKED AT 116 AND 495 ANTS -- SO 1.9 AND 0.44 CELLS EACH, AND NEITHER COLONY EVER STOPPED DIGGING. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER, SO THE MOUND STAYS SMALL AND THE ANTS GO BACK TO THE SURFACE EARLIER. TURN IT UP AND THEY KEEP EXCAVATING -- PAST ABOUT 4 YOU HAVE THE OLD BEHAVIOUR BACK IN EVERYTHING BUT NAME. IT DOES NOTHING AT ALL WITH THE SWITCH ABOVE OFF. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. IT DOES NOTHING UNLESS THE SWITCH ABOVE IS ON. THE SHIPPED 2.0 COMES OFF THE CENSUS RATHER THAN OUT OF THE AIR: A COLONY LEFT ALONE FOR HALF A MILLION FRAMES CUTS ABOUT 220 CELLS OF CHAMBER, AND THE TWO RUNS THAT BOOMED PEAKED AT 116 AND 495 ANTS -- SO 1.9 AND 0.44 CELLS EACH, AND NEITHER COLONY EVER STOPPED DIGGING. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER, SO THE MOUND STAYS SMALL AND THE ANTS GO BACK TO THE SURFACE EARLIER. TURN IT UP AND THEY KEEP EXCAVATING -- PAST ABOUT 4 YOU HAVE THE OLD BEHAVIOUR BACK IN EVERYTHING BUT NAME. IT DOES NOTHING AT ALL WITH THE SWITCH ABOVE OFF. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
 }
 
@@ -1130,9 +1130,12 @@ fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
 }
 
-/// As `shipped_trait_reach`, for the room gate -- shipped on.
+/// As `shipped_trait_reach`, for the room gate -- shipped **off**, and for
+/// once the derive's own `false` would have been right. Named anyway, so the
+/// key states the shipped box rather than inheriting it, which is the whole
+/// point this file makes about `soil_capillary_levels` beside it.
 fn shipped_room_gate() -> bool {
-    true
+    false
 }
 
 /// As `shipped_trait_reach`, for the room the gate measures against.
@@ -1205,12 +1208,11 @@ pub struct Dials {
     /// mechanism that silently never fires looks exactly like one that did.
     #[serde(default = "shipped_nest_scent_drift")]
     pub nest_scent_drift: f32,
-    /// `World::room_gate`. **A plain `#[serde(default)]` would be wrong here
-    /// for `trait_reach`'s reason and in its sharper form**: `false` is not
-    /// the shipped box, it is the control arm, so a dials file written before
-    /// this key existed would silently switch an ant's dig gate back to the
-    /// saturated head-count and the anthill would grow for ever again --
-    /// quietly, with every gate green. Named default, shipped on.
+    /// `World::room_gate`. Named default rather than the derive's, even
+    /// though the two agree today: the shipped value is a live question with
+    /// the owner (`creature::room_gate_default`), and a key whose default is
+    /// spelled out moves with that answer instead of silently tracking
+    /// `bool::default()`.
     #[serde(default = "shipped_room_gate")]
     pub room_gate: bool,
     /// `World::room_target`. Named default for `room_gate`'s reason, and

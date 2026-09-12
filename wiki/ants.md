@@ -2,16 +2,16 @@
 
 *Current as of: 2026-09-12, when **an ant at the nest started being asked
 how much room the colony has** rather than how many ants are pressed against
-it — and it was measured that this does not change how big the anthill gets.
-The question is a better one and the colony answers it sensibly: it digs hard
-while the burrow is bare, quietens once there are a few cells of chamber for
-each ant, and starts again when the brood outgrows them. What it does not do
-is stop the mound. Across twelve beds the colony dug less in six of them and
-more in six, and the mound came out smaller in six and bigger in six — a coin
-flip, with beds ranging from a seventh of the digging to five times it. The
-old question was supposed to be one an ant could never answer, and it is not:
-a quarter of the time an ant stands at its own door there is nobody near it at
-all. See "Digging, and the mound". Also the same day, when **a long ant stops waiting for a nestmate
+it — and it was measured that this does not make the anthill smaller. The
+question is a better one and the colony answers it sensibly: it digs hard while
+the burrow is bare, quietens once there are a few cells of chamber for each
+ant, and starts again when the brood outgrows them. What it does not do is stop
+the mound. Across twelve beds run twice each it left a *bigger* mound on nine of
+them, and the spread between beds runs from a twenty-fifth of the mound to
+seventy times it — nothing reliable in either direction. The old question was
+supposed to be one an ant could never answer, and it is not: **a third of the
+time an ant stands at its own door there is nobody near it at all.** It ships
+switched off; it is one switch on the ants page. See "Digging, and the mound". Also the same day, when **a long ant stops waiting for a nestmate
 that is never going to move**. A long ant that is carrying something waits
 out a jam rather than turning for home -- and it used to wait for ever,
 because the ant in its way was often stuck for the same reason. It now waits
@@ -777,20 +777,26 @@ is nobody near the ant at all**, a fifth of the time it is as crowded as it
 can get, and the middle of that spread sits around a third. An ant at its own
 door is very often standing alone, so the old gate was never stuck.
 
-And the mound comes out the same size either way. Twelve beds, each run twice
-from the same starting point with only this question changed: the colony dug
-less in six and more in six, and left a smaller mound in six and a bigger one
-in six. The spread between beds is enormous — a seventh of the digging on one,
-five times it on another — and the middle of it is no change at all. Any one
-bed will show you a big difference in whichever direction it happened to land.
+And the mound does not come out smaller. Twelve beds, each run twice from the
+same starting point with only this question changed: the colony left a *bigger*
+mound on nine of them and dug more on eight. The spread between beds is absurd
+— a twenty-fifth of the mound on one, seventy times it on another — so any
+single bed will show you a large difference in whichever direction it happened
+to land, and the middle of the twelve is no improvement at all. The same is
+true of how much of the mound goes green again: the room question leaves it
+greener on seven beds of twelve, which is a coin toss.
 
 That is worth saying plainly because it moves the blame. A mound that never
 regreens is not a colony asking itself the wrong question at the door. It is a
 colony that outgrows its own rooms faster than it can cut them, and the lever
-for that is how many ants there are, not what each one is asked. The question
-still ships **on**, because it is the better-posed one and it costs nothing
-measurable; it is one switch on the ants page if you want the old behaviour
-back.
+for that is how many ants there are, not what each one is asked.
+
+**So the question ships switched off**, which is against the usual rule that a
+new behaviour ships on. Switched on it costs about a twenty-fifth of a frame
+and builds more of the thing it was meant to reduce, and a default is the one
+form of a behaviour you cannot decline. It is worth turning on to watch — the
+loop closing and reopening is the clearest view of a colony's own economy in
+the box — and it is one switch on the ants page.
 
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three

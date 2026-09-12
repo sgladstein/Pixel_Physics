@@ -154,6 +154,12 @@ fn selftest() {
     // actually holds. The two halves fail for different reasons and a harness
     // that only had the first would pass with the census disconnected.
     world.nest_room.clear();
+    // **Armed explicitly, because the gate ships off.** Inheriting the default
+    // here would make this control silently vacuous the moment the shipped
+    // value changed -- which is exactly what happened when it did: the census
+    // returned on its first line and the assertion below panicked on an empty
+    // `nest_room` rather than failing with its own message.
+    world.room_gate = true;
     world.frame = pixel_physics::sim::world::ROOM_INTERVAL;
     world.step_nest_room();
     println!("  census on the same box: roofed {} (must be 9 -- the chamber, not the shaft)", world.nest_room[0].roofed);
