@@ -7930,6 +7930,21 @@ the lifespan changes the peak little (seed 3, 190 → 171) and the design's cost
 fork was followed — halved once to 20,000, which flattened no further (155)
 and merely killed more (612 of 864 deaths), so 40,000 ships.
 
+**The peak is not the headline, though — the trajectory is.** Ants at each
+20,000-frame stop on seed 1, the one seed whose colony survives the session:
+
+```
+life 0       73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
+life 40,000  27  464  146   18   69  105  158  152  191  364  269  483  346  314  347  362  375  368  324  190  256
+```
+
+Over the second half of the run the immortal colony swings between **6 and
+3,182 ants — a 530-fold band**, and falls from 3,099 to 16 inside a single
+20,000-frame step. That step is the owner's own description: *they die all at
+once*. Give the ant a lifespan and the same bed holds **152 to 483 — a 3.2-fold
+band — for 280,000 frames**. That is what "settles at a size, and its fall is a
+slope" means here, and no single-stop figure in the table above shows it.
+
 **And the bed still dies, which this build does not claim to fix.** No setting
 — 0 included — meets the late-game programme's bar of a live colony over a
 bank above ~500 at 500,000 frames. The bank is what the mouth takes first

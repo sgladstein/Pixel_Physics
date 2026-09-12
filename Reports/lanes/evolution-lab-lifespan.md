@@ -46,6 +46,22 @@ the peak (seed 3, 190 → 171), and at 80,000 seed 3 peaks *higher* (332) than a
 0. The cost fork was followed — halved to 20,000, which flattened no further
 (155) and merely killed more (612 of 864 deaths) — so **40,000 ships**.
 
+**But the peak is the wrong headline, and the trajectory is the right one.**
+Ants at each 20,000-frame stop, seed 1, the one seed whose colony survives the
+session:
+
+```
+life 0       73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
+life 40,000  27  464  146   18   69  105  158  152  191  364  269  483  346  314  347  362  375  368  324  190  256
+```
+
+Over the second half (220,000 → 500,000) the control swings between **6 and
+3,182 ants — a 530-fold band** with a cliff from 3,099 to 16 inside one
+20,000-frame step, which is the owner's "they die all at once" to the digit.
+The lifespan arm holds **152 to 483, a 3.2-fold band**, for 280,000 frames.
+*That* is "the colony settles at a size and its fall is a slope", and no
+single-stop figure in the table above shows it.
+
 **The bar is not met at any setting, 0 included.** No arm ends with a live
 colony over a bank above ~500. Seed 1 at 40,000 is the only arm alive at
 500,000 frames at all (256 ants), and its bank is 73. The bank is what the mouth
