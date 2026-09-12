@@ -115,7 +115,7 @@ fn twig_scene(spacing: i32, n: i32) -> (World, Vec<(i32, i32)>) {
 /// palette goes through the sky light, the depth grade and the grain before it
 /// reaches a pixel, so a colour-matching probe would be a test of `cell_colour`
 /// wearing the name of a test about styles.
-fn twig_strength(zoom: i32, style: MagnifyStyle) -> (Vec<f32>, Vec<f32>) {
+fn twig_strength(zoom: i32, style: MagnifyStyle, notch: NotchRule) -> (Vec<f32>, Vec<f32>) {
     let (spacing, n) = (8i32, 8i32);
     let (world, twigs) = twig_scene(spacing, n);
     let (sw, sh) = ((spacing * n * zoom) as u32, (64 * zoom) as u32);
@@ -124,6 +124,7 @@ fn twig_strength(zoom: i32, style: MagnifyStyle) -> (Vec<f32>, Vec<f32>) {
         let mut r = Renderer::new();
         r.zoom = zoom;
         r.magnify_style = style;
+        r.magnify_notch = notch;
         let mut f = vec![0u8; (sw * sh * 4) as usize];
         r.draw(w, &particles, &ChunkSet::default(), &mut f, (sw, sh), true);
         f
@@ -167,7 +168,7 @@ fn twig_strength(zoom: i32, style: MagnifyStyle) -> (Vec<f32>, Vec<f32>) {
     )
 }
 
-fn twig_table() {
+fn twig_table(notch: NotchRule) {
     let worst = |v: &[f32]| v.iter().copied().fold(f32::INFINITY, f32::min);
     let mean = |v: &[f32]| v.iter().sum::<f32>() / v.len().max(1) as f32;
     println!("one-cell diagonal twigs reaching the screen, as a fraction of today's look");
@@ -175,7 +176,7 @@ fn twig_table() {
     println!("  {:>18}  {:>5}  {:>11}  {:>11}  {:>11}  {:>11}", "style", "zoom", "peak worst", "peak mean", "area worst", "area mean");
     for zoom in [2, 3, 4, 8] {
         for (name, style) in EVERY_STYLE {
-            let (peak, area) = twig_strength(zoom, style);
+            let (peak, area) = twig_strength(zoom, style, notch);
             println!(
                 "  {name:>18}  {zoom:>4}x  {:>11.3}  {:>11.3}  {:>11.3}  {:>11.3}",
                 worst(&peak),
@@ -190,7 +191,7 @@ fn twig_table() {
     // nothing else, so what is left is the class field's own contribution.
     // Without this the ink gets the credit for both halves of the recovery.
     println!("  where the recovery comes from, at zoom 4 (area, worst of 8):");
-    let (_, plain) = twig_strength(4, MagnifyStyle::Painted);
+    let (_, plain) = twig_strength(4, MagnifyStyle::Painted, notch);
     let field_only = {
         let (spacing, n) = (8i32, 8i32);
         let _ = (spacing, n);
@@ -256,12 +257,13 @@ fn ink_arm(zoom: i32, ink: f32) -> f32 {
 /// an emitter whose light changes the colour of its neighbours (the fire).
 /// Each reaches `cell_colour` by a different route, and a look that holds for
 /// one can still fail for another.
-fn burning_scene(zoom: i32, frames: u64) -> (App, (i32, i32)) {
+fn burning_scene(zoom: i32, frames: u64, notch: NotchRule) -> (App, (i32, i32)) {
     let mut app = App::new();
     for _ in 0..frames {
         app.update();
     }
     app.renderer.zoom = zoom;
+    app.renderer.magnify_notch = notch;
     let bounds = app.world.bounds().expect("the generated world has bounds");
     // **The whole world, not its middle third.** The first version of this
     // searched the middle third and landed in open ocean -- ten plant cells,
@@ -369,8 +371,8 @@ fn blit(img: &mut image::RgbaImage, frame: &[u8], crop: (u32, u32, u32, u32), up
 
 // ---------------------------------------------------------------- frame cost
 
-fn cost_table(zoom: i32, settle: u64) {
-    let (mut app, _) = burning_scene(zoom, settle);
+fn cost_table(zoom: i32, settle: u64, notch: NotchRule) {
+    let (mut app, _) = burning_scene(zoom, settle, notch);
     let mut frame = vec![0u8; (VIEW_W * VIEW_H * 4) as usize];
     // **Interleaved inside one run, and alternating**, because a cross-run
     // number on this container is worthless: the same fixed binary has been
@@ -472,8 +474,8 @@ fn settled_skip(zoom: i32) {
 // ---------------------------------------------------------------- the card
 
 #[allow(clippy::too_many_arguments)]
-fn gif(zoom: i32, settle: u64, frames: u64, every: u64, style: MagnifyStyle, pair: bool, crop: (u32, u32, u32, u32), up: u32, png_dir: Option<&str>, out: &str, delay_ms: u64) {
-    let (mut app, _) = burning_scene(zoom, settle);
+fn gif(zoom: i32, settle: u64, frames: u64, every: u64, style: MagnifyStyle, notch: NotchRule, pair: bool, crop: (u32, u32, u32, u32), up: u32, png_dir: Option<&str>, out: &str, delay_ms: u64) {
+    let (mut app, _) = burning_scene(zoom, settle, notch);
     app.renderer.magnify_style = style;
     let (cw, ch) = (crop.2 * up, crop.3 * up);
     let (w, h) = if pair { (cw * 2 + 4, ch) } else { (cw, ch) };
@@ -547,8 +549,8 @@ fn gif(zoom: i32, settle: u64, frames: u64, every: u64, style: MagnifyStyle, pai
 /// `crop=x,y,w,h` (in screen pixels) and `up=N` because the review page scales
 /// client-side and a 512-wide tile of a 3x view is smaller than the 700–950 px
 /// the owner has actually been able to judge things at.
-fn sheet(zoom: i32, settle: u64, crop: (u32, u32, u32, u32), up: u32, out: &str) {
-    let (mut app, _) = burning_scene(zoom, settle);
+fn sheet(zoom: i32, settle: u64, notch: NotchRule, crop: (u32, u32, u32, u32), up: u32, out: &str) {
+    let (mut app, _) = burning_scene(zoom, settle, notch);
     let gap = 4u32;
     let (cw, ch) = (crop.2 * up, crop.3 * up);
     let img_w = cw * 2 + gap;
@@ -576,6 +578,16 @@ fn main() {
     let pair: u32 = arg("pair").unwrap_or(0);
     let style = style_of(&arg::<String>("style").unwrap_or_else(|| "painted_ink".to_string()));
     let notch = arg::<String>("notch").unwrap_or_else(|| "deep".to_string());
+    // **Parsed, echoed and for one revision not actually applied** -- exactly
+    // the shape `CLAUDE.md` warns about, and the reason the parameter line
+    // above exists: a knob nobody can see the value of is a knob nobody can
+    // tell is disconnected. Caught by asking what `notch=fill` changed and
+    // finding the answer was nothing.
+    let notch = match notch.as_str() {
+        "fill" => NotchRule::Fill,
+        "cut" => NotchRule::Cut,
+        _ => NotchRule::Deep,
+    };
     let out: String = arg("out").unwrap_or_else(|| "/tmp/magnify.gif".to_string());
     let up: u32 = arg("up").unwrap_or(1).max(1);
     let png_dir: Option<String> = arg("png_dir");
@@ -591,12 +603,11 @@ fn main() {
     // **The harness echoes its own parameters**, `CLAUDE.md`'s own rule after
     // a 3.5-hour study came back as three populations wearing 24 logs: a knob
     // nobody can see the value of is a knob nobody can tell is disconnected.
-    println!("magnify: mode={mode} zoom={zoom}x settle={settle} frames={frames} every={every} style={style:?} notch={notch} pair={pair} crop={crop:?} up={up}");
-    let _ = NotchRule::default();
+    println!("magnify: mode={mode} zoom={zoom}x settle={settle} frames={frames} every={every} style={style:?} notch={notch:?} pair={pair} crop={crop:?} up={up}");
     match mode.as_str() {
-        "cost" => cost_table(zoom, settle),
-        "gif" => gif(zoom, settle, frames, every, style, pair != 0, crop, up, png_dir.as_deref(), &out, delay),
-        "sheet" => sheet(zoom, settle, crop, up, &out),
-        _ => twig_table(),
+        "cost" => cost_table(zoom, settle, notch),
+        "gif" => gif(zoom, settle, frames, every, style, notch, pair != 0, crop, up, png_dir.as_deref(), &out, delay),
+        "sheet" => sheet(zoom, settle, notch, crop, up, &out),
+        _ => twig_table(notch),
     }
 }
