@@ -12,6 +12,32 @@ That demotion rate is the finding, not a disappointment: a precondition named in
 2026-08 vocabulary and matched by a later reader is a *word* match, and the
 verification is what separates it from a condition actually met.
 
+## Verification status — five of six checked in source
+
+Each was then verified against the tree, and **every one differed from its
+summary in some specific**, which is the single most useful thing this pass
+produced. Details in the per-check files beside this one.
+
+| # | entry | verified | what the check changed |
+|---|---|---|---|
+| 1 | `plants:124` | ✅ **strongest** | `q_peak` shipped *and* `q_now` beside it, unrequested; `break_buds` reads neither; `plant.rs:7335` still says the prerequisite "is not built yet". The only summary whose specifics were all correct. |
+| 2 | `structural:074` | ⚠️ **half** | Condition **met** — the hop bound is gone, attachment is reachability. Empirical half **blocked**: nothing stages a mid-crown disturbance. `schedule_structural_check_around` does not exist and there are four call sites, not two. |
+| 3 | `structural:013` | ✅ **narrowed** | The gap is **two materials, not six** — `log` and `nest`, the only unauthored `Solid`s. `load.rs:2135` names the same pair independently. Six numbers in two `.ron` files. |
+| 4 | `plants:058` | ✅ **both gates** | Stated condition met, *and* a second gate the entry never mentions (the `thicken()` fix) was cleared too — discovered only by checking `plants:019`. |
+| 5 | `plants:044` | — | not checked |
+| 6 | `other:080` | — | not checked |
+
+Also settled outside this list: **`structural:005`'s packing claim is refuted**
+(max offset 258 against the 239 quoted, needing a ninth bit), and
+**`creatures:039` is withdrawn** — its named artifact arrived while the
+condition stayed unmet.
+
+**The pattern across all of them: the register's reasoning holds up and its
+citations drift.** Line numbers shift with merges, function names are
+approximate, material lists are over-broad, and entries acquire extra gates in
+code that the register never learns about. Verify in source before running
+anything here.
+
 ## Run, best first
 
 | # | entry | why it ranks here | cost |
