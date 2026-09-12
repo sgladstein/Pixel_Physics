@@ -4499,3 +4499,43 @@ four-cell scene cannot make: the moisture pass is change-driven, so in a
 sealed scene the levelling wave **strands** once a pass makes no writes. The
 guard asserts the rule; the sweep owns the bed.
 `Reports/soil-water-columns-2026-09-11.md` §7–§8.
+
+## 2026-09-11 — round three on the water, and the owner found the last one
+
+*"This is not fully fixed. water is still pooling on top of plants."* Right,
+and the evidence was in my own report: 234 drops still standing on tissue,
+against 523 before. I reported the fall and under-called the residue.
+
+Three more blockers. The **entry gate** still demanded a living plant, so a
+drop resting on dead grass never entered the rule at all (41 of 213) — and
+it had two gates, so teaching the scan to walk through plant matter moved
+nothing until the gate was fixed too. A **trapped drop was a dam rather than
+a landing** (66 of 213): leaving it to drain on its own beat only works while
+it has somewhere to go, and over full ground it has none.
+
+And the third is the owner's own diagnosis, which was exactly right and was
+one clause: *"when creatures dig they create a layer of air under soil, and
+water doesn't drop down out of soil into air."* `update_soil_water`'s
+drainage required the cell below to **hold** water, so every gallery an ant
+digs roofs itself with soil that saturates permanently — and saturated ground
+turns away every drop that lands on it. A wet roof sheds into the void as a
+falling drop now, at the same rate and off the same surplus as the
+soil-to-soil branch; damp ground still does not leak, which is the clause
+that keeps it *a wet roof drips* rather than *soil leaks*. Perched cells on
+`played_bed_scrambler` went 1-of-1 saturated to 0-of-7.
+
+**What is left is not the drip rule.** Of 158 drops still standing, 72 are
+over genuinely saturated ground and 53 over water that is itself full. The
+bed under a plant has three doors and all are shut: it cannot evaporate
+(`is_damp_soil_surface` refuses a covered column), cannot spread sideways
+(the capillary rest threshold), and can only drain down into a sealed box.
+**That corrects `soil-water-columns-2026-09-11.md`, which called the sideways
+threshold cosmetic** — it is a direct lever on the pooling, standing water
+397 → 220 with the dial on. Evaporation under cover is untouched and is the
+larger suspect.
+
+Two instrument failures, one shape: the census replayed the rule from outside
+and went stale **twice in one session**, each time naming a blocker the
+engine no longer had; and "arrived" has to count both doors, since a drop
+reaching ground with room becomes soil moisture rather than liquid fill.
+`Reports/canopy-throughfall-2026-09-07.md` §8.

@@ -357,7 +357,15 @@ by somebody about to try it on creatures.
   rain-rate artifact. Ground that can hold water is a landing now; ground at
   capacity still refuses, which is what keeps it graded. §7.4 is a guard that
   was **blind on its first writing** and only the put-the-fault-back check
-  found it. `update_powder` has `fall_through_organism` (litter, seed,
+  found it. **§8 is round three**, opened by the owner's *"this is not fully
+  fixed"*: the entry gate still demanded a *living* plant so a drop on dead
+  grass never reached the rule (41 of 213); a trapped drop was a dam rather
+  than a landing (66 of 213); and — the owner's own diagnosis — drainage
+  required the cell below to *hold* water, so **soil over an ant-dug tunnel
+  saturated permanently and then turned away everything that landed on it**.
+  A wet roof drips now; damp ground still does not. §8.4 says what is left
+  and why it is a water-balance problem rather than a drip one, and corrects
+  `soil-water-columns`'s claim that the sideways threshold was cosmetic. `update_powder` has `fall_through_organism` (litter, seed,
   windfall) on the 2D-slice argument that *a branch one cell wide is not a
   shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
   so water landing on a crown simply sat. Measured before the fix,
