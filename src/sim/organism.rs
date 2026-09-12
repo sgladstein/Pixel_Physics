@@ -3433,6 +3433,30 @@ pub struct CreatureDef {
     /// the price is the licence and what that costs.
     #[serde(default)]
     pub fly_cost_in_moves: f32,
+    /// **The lift this species puts into a traverse it cannot see the end
+    /// of** — the cruise, as a fraction of a full hover at the top of the
+    /// ramp. `creature::CRUISE_FRAMES` has the derivation and the measurement.
+    ///
+    /// Species data rather than an engine constant for two reasons, one of
+    /// them a bug already paid for. **How far an animal will fly on spec is a
+    /// fact about the animal**, the way `fly_cost_in_moves` is; a hoverfly and
+    /// a bumblebee do not search the same way, and nothing here should have to
+    /// be re-derived to give them different ones. And **the guard
+    /// `a_weightless_body_is_put_down_on_water_unless_it_is_flying` cannot
+    /// construct its own premise without it**: that test holds `fly` at 0 to
+    /// build a body that is *not* flying, and a cruise read from a process-wide
+    /// switch overrode it on the next brain tick and flew the body clean past
+    /// the water, so §Z9's fix read as broken when it was not. A species field
+    /// the test can zero on its own cloned `def` is the difference between a
+    /// guard that can state its premise and one that cannot.
+    ///
+    /// **Default 0.0**, so every species but the flitter is bit-identical —
+    /// the same shape `fly_cost_in_moves` above uses as its capability gate,
+    /// and verified the same way (`ascii` byte-identical over 1,099
+    /// non-timing lines; `labforage` on `played_bed` byte-identical for the
+    /// ant, the long ant, the hopper and the beetle).
+    #[serde(default)]
+    pub cruise_lift: f32,
     /// **What laying a full-strength trail on one channel costs, in
     /// multiples of one step**, charged in proportion to what was actually
     /// deposited.
@@ -3926,6 +3950,40 @@ pub struct CreatureDef {
     /// for it.
     #[serde(default)]
     pub nectar_only: bool,
+    /// **How long an animal of this kind lives, in frames -- the median.**
+    ///
+    /// `0` is immortal, which is every species' default and the behaviour
+    /// everything in this engine had until 2026-09-12: *no* creature died of
+    /// age, so every death in every session was starvation or a fight and a
+    /// colony could only shrink by famine. It booms on the bed's larder to
+    /// hundreds, strips it, and dies all at once
+    /// (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0 measures
+    /// the shape: 73 -> 495 ants by 200,000 frames on seed 3, then 24 ants
+    /// and 13 plants by 260,000 -- a dead bed with a session still to run).
+    ///
+    /// **The plant's hazard, not a second model** -- `plant::
+    /// old_age_chance_over`, a Weibull with shape 2, rolled once per creature
+    /// tick at the individual's own interval. Three consequences worth
+    /// naming because they are what "graded" means here: **this is the
+    /// median**, survival at `T/4` is **96%** and survival at `2.5T` is
+    /// **1.3%** (the design report says 0.4%; that figure was arithmetically
+    /// wrong and is corrected at `plant::old_age_chance`). So a cohort dies over a spread rather than all at once,
+    /// which is `CLAUDE.md`'s first law -- an outcome is a distribution, not
+    /// a binary -- arriving on the animal side of the box. The corpse is laid
+    /// exactly as a starved animal's is, so a death is also 240 J of carrion
+    /// for a nestmate.
+    ///
+    /// **Authored per species, not heritable, and that is deliberate for
+    /// this build.** A trait slot widens the genome and shifts every seeded
+    /// draw in the world, and a lifespan gene with no standing cost is a
+    /// ratchet: every lineage walks it up for ever and nothing pays. The
+    /// design of record (§4) rules that it is priced before it is inherited.
+    ///
+    /// Exposed as a lab dial and as a scenario `Setting`, per the standing
+    /// "stop balancing, start exposing" ruling -- nobody can set this from
+    /// theory and the owner's own bed is the only authority on it.
+    #[serde(default)]
+    pub life_half_life: u32,
     /// **How far apart two colonies of this kind start, in scent.** Every
     /// colony label draws one offset at founding, uniform in
     /// `-spread..=spread` on each of the three signature slots
@@ -4189,6 +4247,7 @@ impl CreatureDef {
             move_cost_per_cell,
             dig_cost_in_moves,
             fly_cost_in_moves,
+            cruise_lift,
             emit_cost_in_moves,
             spoil_weight_cells,
             exposure_cost_per_cell,
@@ -4210,6 +4269,7 @@ impl CreatureDef {
             traffic_defer_max,
             eats_kin,
             nectar_only,
+            life_half_life,
             scent_spread,
             scent_drift,
             kin_crosses_kinds,
@@ -4328,6 +4388,15 @@ impl CreatureDef {
             // A switch, not a length: scaling a body does not change what
             // its mouth will open.
             nectar_only: *nectar_only,
+            // **A span of real time, so x 1 -- and that is a claim about
+            // the hazard, not an assumption.** A supersampled animal decides
+            // `k` times as often, so a per-tick chance passed through
+            // unchanged would kill it `sqrt(k)` times sooner; it is safe here
+            // only because `plant::old_age_chance_over` takes the interval as
+            // an argument and divides it back out, which makes the median a
+            // number of *frames* at every cadence. If that ever stops being
+            // true this line becomes a `/ time_factor`.
+            life_half_life: *life_half_life,
             scent_spread: *scent_spread,
             scent_drift: *scent_drift,
             kin_crosses_kinds: *kin_crosses_kinds,
@@ -4363,6 +4432,7 @@ impl CreatureDef {
             // multiple of one step is a ratio, and `move_cost_per_cell` --
             // the thing it multiplies -- is what carries the scale factor.
             fly_cost_in_moves: *fly_cost_in_moves,
+            cruise_lift: *cruise_lift,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
             // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
@@ -5061,6 +5131,36 @@ pub struct Flight {
     /// at most one octant per tick falls out of the arithmetic rather than
     /// being clamped in.
     pub turn_acc: f32,
+    /// **Frames since this body left the ground**, saturating.
+    ///
+    /// Two jobs, both of which `Reports/lanes/evolution-lab-flitter.md`'s
+    /// round-29 verdicts turned on.
+    ///
+    /// **It makes the launch frame a decision point.** The airborne brain
+    /// runs once per `tick_interval`, so a body that left the ground on a
+    /// frame the modulus did not like flew the first three frames of a
+    /// 6-cell/frame launch with no wings on -- up to eighteen cells of pure
+    /// ballistics before anything could take the arc over. That is most of
+    /// what the owner saw as *"one long hop (clearly not fly)"*.
+    /// `aloft == 0` forces the first tick regardless of the modulus.
+    ///
+    /// **And it phases the wingbeat.** `creature::weave` reads it for the
+    /// bob and the wander, so the flutter is a function of how long *this*
+    /// animal has been up rather than of the world clock -- two flitters
+    /// launching a frame apart beat out of step, which is what stops a bed
+    /// full of them pulsing in unison.
+    pub aloft: u16,
+    /// **Consecutive frames a flying body has had a step refused on every
+    /// axis** -- the perch's counter, reset by any successful substep.
+    ///
+    /// One blocked frame is not a stall: a flier crossing a canopy clips a
+    /// leaf constantly and should slide along it, which is what the axis
+    /// fallbacks in `creature::step_flight` are for. Landing on the first
+    /// refusal was built and measured -- it put the animal down so eagerly
+    /// that a bout fell to **12 frames, shorter than the 22-frame wingless
+    /// arc it replaced**, and `flower_visits` with it (381 -> 307). What
+    /// deserves a perch is a body that has been trying and getting nowhere.
+    pub stall: u8,
 }
 
 /// Per-organism state too large (or too semantically distinct) to fit in
@@ -6326,6 +6426,19 @@ pub enum DeathCause {
     /// numbers and cannot say how many plants died this way. This is that
     /// count, for the price of one boolean at the closing seam.
     FelledOrLost,
+    /// **An animal that simply got old**, on the graded hazard
+    /// [`CreatureDef::life_half_life`] describes. Plants have died this way
+    /// since the growth clock landed, but `plant.rs` records it as `Starved`
+    /// -- a plant that cannot pay its maintenance genuinely is starving. An
+    /// animal's age death pays nothing and owes nothing, so it wanted a cause
+    /// of its own, and telling it from `Starved` is the whole point of the
+    /// counter: "the colony settled at a size" and "the colony ran out of
+    /// food" look identical in a population line and nowhere else.
+    ///
+    /// **Appended rather than filed beside `Starved`** so that no existing
+    /// cause's [`DeathCause::index`] moves: `World::deaths_by_cause` and
+    /// every `GroupDeaths::by_cause` row are positional arrays.
+    OldAge,
 }
 
 impl DeathCause {
@@ -6339,12 +6452,13 @@ impl DeathCause {
             DeathCause::Culled => "CULLED",
             DeathCause::LostVitalTissue => "LOST ITS TISSUE",
             DeathCause::FelledOrLost => "FELLED",
+            DeathCause::OldAge => "OLD AGE",
         }
     }
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 7;
+pub const DEATH_CAUSES: usize = 8;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -6355,6 +6469,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Culled,
     DeathCause::LostVitalTissue,
     DeathCause::FelledOrLost,
+    DeathCause::OldAge,
 ];
 
 impl DeathCause {

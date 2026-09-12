@@ -1241,6 +1241,10 @@ fn main() {
     // post-arrival sweep rather than a flag on the founding call: a
     // scenario's own timeline places its colony unconditionally.
     let no_colony: bool = arg::<u32>("no_colony").unwrap_or(0) != 0;
+    // **`lifespan=<frames>` -- brief 2's knob**, written through to the
+    // colony species' `CreatureDef::life_half_life` once the world exists.
+    // `0` is immortal, the shipped behaviour before 2026-09-12.
+    let lifespan: Option<u32> = arg::<u32>("lifespan");
     // **Found the colony at frame `ants_at` instead of at frame 0** --
     // `labshot.rs`'s own knob and the same owner framing, 2026-09-09: a bed
     // grown first and stocked later is how the game is actually played. 0
@@ -1395,6 +1399,24 @@ fn main() {
             println!("  {key}= {rho} (shipped {})", pixel_physics::sim::pheromone::DECAY_RHO);
         }
     }
+    // **The lifespan, written before founding for `wire_rider`'s reason** --
+    // a species-table write after the founders are standing would still
+    // reach them (the def is read per tick, not copied at placement), but
+    // keeping every arm's knob in one block is what stops the next one being
+    // written in the wrong place. Echoed unconditionally.
+    if let Some(v) = lifespan {
+        if let Some(sid) = world.species.id_of(&spec.colony_species) {
+            if let Some(mut def) = world.species.get(sid).creature.clone() {
+                def.life_half_life = v;
+                world.species.set_creature(sid, def);
+            }
+        }
+    }
+    println!(
+        "  {} life_half_life = {} frames (0 = immortal)",
+        spec.colony_species,
+        world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+    );
     // **Same block, same reason, same refusal.** See `wire_rider`'s own doc:
     // before founding, because `place_creature` copies the genome at
     // placement -- and it asserts that the write actually moved a slot,
@@ -2072,7 +2094,7 @@ fn main() {
          launch_attempts={} real_launches={} impulses_refused={} refused_pct={:.0} starved_aloft={} flight_frames={} \
          flower_visits_by={} flowers_bitten_by={} alive_by={} deaths_by={} head_max_rows={} \
          pips_set_on_soil={} pips_set_on_nest={} \
-         fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
+         fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} perched={} stalled_out={} \
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
          pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
          nest_blends={} share_blends={} nest_sites={} nest_gap_max={:.4} \
@@ -2252,6 +2274,12 @@ fn main() {
         // which is the number the bug is about; `LAND_AFLOAT=0` puts the
         // defect back and this goes to 0.
         world.creature_stats.landed_afloat,
+        world.creature_stats.perched,
+        // The stall-out beside the perch: a bout that gave up rather than
+        // arrived. See `CreatureStats::stalled_out` -- if this climbs while
+        // `flower_visits` does not, the animal is hovering short of its
+        // target rather than reaching it.
+        world.creature_stats.stalled_out,
         // **Walking steps per real launch -- the design's own headline, and
         // it reads 0.60 on `main`.** At that rate the animal turns about
         // once per two hops and each hop carries it ~27 uncontrolled cells,
