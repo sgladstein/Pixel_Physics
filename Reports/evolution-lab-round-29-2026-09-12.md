@@ -276,7 +276,7 @@ no live cost to weigh; the fresh census replaces the late-game design's §0
 (censused at `be2808de`). *Who kills whom* was the round's most important
 open question for six hours, and the next section is its answer.
 
-## Who kills whom — nobody; the colony is overgrown (#358, merged `%%SHA358%%`)
+## Who kills whom — nobody; the colony is overgrown (#358, merged `75485d74`)
 
 The question had a wrong premise, and lane O found it in the code before
 running anything. `creature::reconcile_chain` books `DeathCause::Killed`
@@ -480,7 +480,7 @@ thirty.
 
 Every round-29 pull request is on `main`: #329, #330, #332, #334, #335,
 #339, #340, #341, #342, #343, #347, #350, #351, #353, #354, #356, #357 and
-#358, the last at `%%SHA358%%`. What is open is work, not paper:
+#358, the last at `75485d74`. What is open is work, not paper:
 
 - **Three owner design calls**, put to him and not decided here: the nest
   scent drift value (shipped 0.15, inert on today's trunk, decisive on a
