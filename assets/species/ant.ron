@@ -809,6 +809,27 @@
         // shared.
         climbs_over_kin: true,
 
+        // **The speed of speciation, and it ships ON.** Owner ruling
+        // 2026-09-12. Every newborn's three scent numbers and its tolerance
+        // land this far either side of its parent's, so a lineage wanders
+        // rather than cloning its signature -- which is what makes two nests
+        // that stop exchanging ants become two families the player can watch
+        // part, instead of one family for ever.
+        //
+        // **It could not ship before there was a nest to come home to.** With
+        // no cohesion any non-zero setting eventually spread a colony's
+        // odours past its own tolerance and it ate itself: measured at 0.5,
+        // `ANT 1 killed 22, 20 of them by ANT 1 itself`, the founding group
+        // wiped out and the colony a quarter its size. Now an ant standing on
+        // its nest blends toward the odour the nest holds
+        // (`World::nest_blend`), so the cloud a colony spreads over is
+        // `0.458 * scent_drift` -- 0.069 here, 7% of the 1.0 tolerance
+        // radius, and it does not reach that radius until 2.18, off the
+        // allele axis entirely. **No setting of this dial can make a cohered
+        // nest eat itself**, which is the whole of the case for turning it
+        // on. `Reports/evolution-lab-fission-design-2026-09-12.md` §1 and §5.
+        scent_drift: 0.15,
+
         nest: "nest",
 
         // Against Material::penetration_resistance, the pattern roots

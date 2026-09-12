@@ -792,6 +792,44 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
             "HOW DIFFERENT TWO COLONIES OF THIS KIND SMELL WHEN YOU PUT THEM DOWN. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED DRAWS ITS OWN OFFSET FROM THE ANCESTRAL SCENT, THIS FAR AT MOST ON EACH OF THE THREE SCENT NUMBERS, AND ITS CHILDREN ARE BORN WITH IT. AT 0 -- THE SHIPPED SETTING -- EVERY CLICK IS ONE FAMILY. AT 1 WITH TOLERANCE AT -1 EVERY CLICK IS A STRANGER TO EVERY OTHER, SO A HUNGRY ANT EATS AN ANT FROM THE OTHER CLICK AS IT WOULD A BEETLE, WHICH IS WHAT THE OLD COLONY RIVALRY SWITCH DID. FELT AT THE NEXT FOUNDING, NOT ON ANIMALS ALREADY STANDING.",
         ));
     }
+    // **The three dials that make a nest a place with a smell** -- beside
+    // `scent_spread` because the three of them and it are the whole of what
+    // decides who is family, and on this page rather than GENOME because
+    // GENOME is at its two-screen ceiling (`no_page_is_longer_than_two_
+    // screens`, 19 rows before these) and a nest is an ant thing.
+    //
+    // **World rules rather than species fields**, for `World::trait_reach`'s
+    // reason: a nest patch belongs to the box, and two species sharing one
+    // mound cannot be allowed to disagree about how fast it re-mixes.
+    {
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_blend" },
+            "colonies",
+            "nest_blend",
+            world.nest_blend,
+            span(0.0, 1.0, 0.01),
+            "HOW MUCH OF THE NEST'S OWN SMELL AN ANT PICKS UP EACH TURN IT SPENDS STANDING ON IT. THIS IS WHAT HOLDS A COLONY TOGETHER: EVERY ANT THAT COMES HOME IS PULLED BACK TOWARD ONE SHARED SMELL, SO A NEST CANNOT SLOWLY SPLIT INTO STRANGERS NO MATTER HOW FAST ITS CHILDREN DRIFT. AT 0 THERE IS NO NEST SMELL AT ALL AND EACH LINE WANDERS ALONE, WHICH IS HOW THE BOX BEHAVED BEFORE THIS EXISTED AND IS ALSO HOW A COLONY EATS ITSELF. TURN IT UP AND A SINGLE VISIT HOME IS ENOUGH TO MAKE AN ANT FAMILY AGAIN. IT COSTS NOTHING: THE EXCHANGE RIDES A CHECK THE ANT WAS ALREADY MAKING.",
+        ));
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_uptake" },
+            "colonies",
+            "nest_uptake",
+            world.nest_uptake,
+            span(0.0, 1.0, 0.005),
+            "HOW MUCH OF ITS OWN SMELL AN ANT LEAVES IN THE NEST EACH TURN IT STANDS ON IT -- THE OTHER HALF OF THE EXCHANGE ABOVE, AND MUCH SMALLER, BECAUSE ONE ANT SHOULD NOT REPAINT A WHOLE MOUND. IT IS WHAT LETS AN ANT WALKING BETWEEN TWO NESTS CARRY ONE'S SMELL INTO THE OTHER AND HOLD THEM RELATED: AT THE SHIPPED SETTING ONE VISIT MOVES A NEST ABOUT A FIFTH OF THE WAY TO WHAT THE VISITOR IS CARRYING. AT 0 A NEST'S SMELL IS DEAF TO WHO LIVES IN IT AND THE ANTS ONLY EVER TAKE.",
+        ));
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_scent_drift" },
+            "colonies",
+            "nest_scent_drift",
+            world.nest_scent_drift,
+            span(0.0, 0.5, 0.005),
+            "HOW FAR A NEST'S OWN SMELL WANDERS ON ITS OWN, EVERY THOUSAND FRAMES. THIS IS THE SPEED AT WHICH TWO SEPARATE MOUNDS BECOME TWO DIFFERENT FAMILIES, AND IT IS A PROPERTY OF THE PLACE RATHER THAN OF THE ANTS -- WHICH IS THE REALISTIC WAY ROUND, SINCE COLONIES SMELL DIFFERENT BECAUSE THEY WERE FOUNDED APART AND NOT BECAUSE THEY SLOWLY MUTATED APART. AT THE SHIPPED SETTING TWO MOUNDS THAT NOBODY WALKS BETWEEN ARE STRANGERS INSIDE ONE SESSION, AND A SINGLE ANT CROSSING EVERY THOUSAND FRAMES IS ENOUGH TO HOLD THEM RELATED. AT 0 EVERY MOUND IN THE BOX KEEPS THE SMELL IT WAS FOUNDED WITH FOR EVER.",
+        ));
+    }
     if let Some(v) = creature_value(world, species, "kin_crosses_kinds") {
         out.push(toggle(
             g,
@@ -879,11 +917,13 @@ fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
-            // **The speed of speciation.** Zero is the shipped setting and
-            // the four scent-side slots below are inert at it -- see `TRAIT_SCENT_A`.
+            // **The speed of speciation, and since 2026-09-12 it ships ON.**
+            // What made that safe is the nest holding an odour of its own --
+            // the three dials on the ANTS page -- so the note below no longer
+            // says "at 0, the shipped setting".
             out.push(float(g, Knob::Creature { species: sp.clone(), field: "scent_drift" }, species, "scent_drift",
                 def.scent_drift, span(0.0, 1.0, 0.01),
-                "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION: AT 0 -- THE SHIPPED SETTING -- NO LINEAGE EVER DRIFTS AND A COLONY STAYS ONE FAMILY FOR EVER; TURN IT UP AND LINEAGES WANDER APART UNTIL SOME ARE STRANGERS TO THE REST, AT WHICH POINT THE ANTS PAGE NAMES THEM AS A NEW GROUP AND A HUNGRY ANT WILL EAT ONE. NOBODY CAN SET THIS FROM THEORY; FIND THE RATE AT WHICH COLONIES SPLIT INSIDE A SESSION."));
+                "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION, AND IT SHIPS ON: EVERY ANT BORN IS A LITTLE DIFFERENT FROM ITS MOTHER, SO LINEAGES WANDER, AND ONE THAT WANDERS FAR ENOUGH IS NAMED AS A NEW GROUP ON THIS PAGE AND A HUNGRY ANT WILL EAT ONE OF ITS OWN OLD FAMILY. IT COULD NOT BE TURNED ON BEFORE A NEST HELD A SMELL: WITHOUT THAT, ANY SETTING EVENTUALLY HAD A COLONY EATING ITSELF. NOW THE MOUND PULLS EVERY ANT THAT COMES HOME BACK TO ONE SMELL, AND NO SETTING OF THIS DIAL CAN SPLIT A COLONY THAT LIVES AT ONE. AT 0 NOTHING EVER DRIFTS AND THE BOX IS ONE FAMILY FOR EVER, WHICH IS WHAT IT DID BEFORE."));
             for (slot, name, note) in TRAIT_ROWS {
                 // **The two arms-race rows widen with the dial below.** A
                 // reach of 4 that the ancestral row could still only be set
@@ -1058,6 +1098,22 @@ fn shipped_trait_reach() -> f32 {
 
 /// The value a `lab_dials.ron` written before `plasticity` existed loads at:
 /// the shipped dial, for `shipped_trait_reach`'s reason.
+fn shipped_nest_blend() -> f32 {
+    creature::NEST_BLEND_DEFAULT
+}
+
+/// As `shipped_nest_blend`, for the nest's side of the exchange.
+fn shipped_nest_uptake() -> f32 {
+    creature::NEST_UPTAKE_DEFAULT
+}
+
+/// As `shipped_nest_blend`, for the odour a place acquires on its own.
+fn shipped_nest_scent_drift() -> f32 {
+    creature::NEST_SCENT_DRIFT_DEFAULT
+}
+
+/// The value a `lab_dials.ron` written before `plasticity` existed loads at:
+/// the shipped dial, for `shipped_trait_reach`'s reason.
 fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
 }
@@ -1111,6 +1167,22 @@ pub struct Dials {
     /// arm uses: `0` is [`organism::DevelopmentalKey::World`], `n > 0` is
     /// `DevelopmentalKey::Plant { coarseness: n - 1 }`.
     pub developmental_key: u32,
+    /// `World::nest_blend`. **A named default, for `trait_reach`'s reason**:
+    /// a dials file written before cohesion existed would otherwise load
+    /// `0.0`, which is a box whose nests hold no odour at all — and since the
+    /// ant now ships with `scent_drift` on, that is the setting under which a
+    /// colony drifts apart and eats itself.
+    #[serde(default = "shipped_nest_blend")]
+    pub nest_blend: f32,
+    /// `World::nest_uptake`. Named default for `nest_blend`'s reason.
+    #[serde(default = "shipped_nest_uptake")]
+    pub nest_uptake: f32,
+    /// `World::nest_scent_drift`. Named default for `nest_blend`'s reason —
+    /// here a missing key loading as 0 would be *quiet* rather than harmful
+    /// (nests simply never part), which is the more dangerous of the two: a
+    /// mechanism that silently never fires looks exactly like one that did.
+    #[serde(default = "shipped_nest_scent_drift")]
+    pub nest_scent_drift: f32,
 }
 
 impl Dials {
@@ -1143,6 +1215,9 @@ impl Dials {
                 organism::DevelopmentalKey::World => 0,
                 organism::DevelopmentalKey::Plant { coarseness } => coarseness + 1,
             },
+            nest_blend: world.nest_blend,
+            nest_uptake: world.nest_uptake,
+            nest_scent_drift: world.nest_scent_drift,
         }
     }
 
@@ -1167,6 +1242,9 @@ impl Dials {
         world.trait_reach = self.trait_reach;
         world.plasticity = self.plasticity;
         world.pheromones.set_alarm_rho(self.alarm_decay);
+        world.nest_blend = self.nest_blend;
+        world.nest_uptake = self.nest_uptake;
+        world.nest_scent_drift = self.nest_scent_drift;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1180,6 +1258,39 @@ impl Dials {
         // restored key, or the box runs two rules at once -- see
         // `Knob::Heredity`'s own write arm, which this mirrors exactly.
         world.refold_developmental_seeds();
+    }
+
+    /// Which of these differ from `default`, as `"NAME value"` strings in
+    /// declaration order -- `Lab::write_chronicle`'s own use, so a chronicle
+    /// names what the player actually set rather than every dial whether
+    /// touched or not. Plain `!=` rather than a derived `PartialEq`: every
+    /// dial here moves by a whole slider step or a button press, never by
+    /// float noise, so an exact comparison is the right one.
+    pub fn changes_from(&self, default: &Dials) -> Vec<String> {
+        let mut out = Vec::new();
+        macro_rules! diff {
+            ($field:ident, $label:literal) => {
+                if self.$field != default.$field {
+                    out.push(format!("{} {:?}", $label, self.$field));
+                }
+            };
+        }
+        diff!(soil_capillary_levels, "SOIL_CAPILLARY_LEVELS");
+        diff!(plant_load_failure, "PLANT_LOAD_FAILURE");
+        diff!(plant_bending, "PLANT_BENDING");
+        diff!(plant_size_cadence, "PLANT_SIZE_CADENCE");
+        diff!(trait_reach, "TRAIT_REACH");
+        diff!(plasticity, "PLASTICITY");
+        diff!(alarm_decay, "ALARM_DECAY");
+        diff!(mutation_sigma, "MUTATION_SIGMA");
+        diff!(fate_mutation_chance, "FATE_MUTATION_CHANCE");
+        diff!(param_mutation_chance, "PARAM_MUTATION_CHANCE");
+        diff!(param_mutation_sigma, "PARAM_MUTATION_SIGMA");
+        diff!(developmental_key, "DEVELOPMENTAL_KEY");
+        diff!(nest_blend, "NEST_BLEND");
+        diff!(nest_uptake, "NEST_UPTAKE");
+        diff!(nest_scent_drift, "NEST_SCENT_DRIFT");
+        out
     }
 
     /// Write every dial to [`ASSET_PATH`](Self::ASSET_PATH) whole, like
@@ -1370,6 +1481,26 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                     return false;
                 }
                 world.plasticity = value;
+                return true;
+            }
+            // **The nest's three, ahead of the rate guard too.** Two of
+            // them are rates and would pass it; `nest_scent_drift` is a step
+            // size per thousand frames whose span stops at 0.5, so they are
+            // kept together rather than split across the guard -- a reader
+            // looking for one of the three should find all three. Each bound
+            // is its own row's span, so the page and the setter cannot
+            // disagree about what a legal setting is.
+            let nest_dial: Option<(&mut f32, f32)> = match *field {
+                "nest_blend" => Some((&mut world.nest_blend, 1.0)),
+                "nest_uptake" => Some((&mut world.nest_uptake, 1.0)),
+                "nest_scent_drift" => Some((&mut world.nest_scent_drift, 0.5)),
+                _ => None,
+            };
+            if let Some((slot, top)) = nest_dial {
+                if !(0.0..=top).contains(&value) {
+                    return false;
+                }
+                *slot = value;
                 return true;
             }
             if !crate::sim::plant::settable_rate(value) {
