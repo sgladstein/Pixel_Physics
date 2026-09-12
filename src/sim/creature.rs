@@ -3289,6 +3289,11 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         // they are not the same `at_nest_ticks`. Read beside `deliveries`,
         // which says the round trip closes at all.
         world.creature_stats.at_nest_ticks += 1;
+        // ...and what it read, bucketed. See `CreatureStats::at_nest_crowding`
+        // -- with the gate off this is the old 5x5 density and is the control
+        // for the premise; with it on it is the room signal.
+        let bucket = ((inputs[brain::BrainInput::Crowding as usize] * 10.0) as usize).min(9);
+        world.creature_stats.at_nest_crowding[bucket] += 1;
         blend_with_nest(world, organism, x, y);
     }
     let sighting = seen.prey;

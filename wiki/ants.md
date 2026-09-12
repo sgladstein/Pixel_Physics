@@ -1,7 +1,18 @@
 # Ants
 
-*Current as of: 2026-09-12, when **a nest became a place that holds a
-smell** — ants blend with the mound they stand on, scent drift ships on at
+*Current as of: 2026-09-12, when **an ant at the nest started being asked
+how much room the colony has** rather than how many ants are pressed against
+it — and it was measured that this does not change how big the anthill gets.
+The question is a better one and the colony answers it sensibly: it digs hard
+while the burrow is bare, quietens once there are a few cells of chamber for
+each ant, and starts again when the brood outgrows them. What it does not do
+is stop the mound. Across twelve beds the colony dug less in six of them and
+more in six, and the mound came out smaller in six and bigger in six — a coin
+flip, with beds ranging from a seventh of the digging to five times it. The
+old question was supposed to be one an ant could never answer, and it is not:
+a quarter of the time an ant stands at its own door there is nobody near it at
+all. See "Digging, and the mound". Before that, the same day, when **a nest became a
+place that holds a smell** — ants blend with the mound they stand on, scent drift ships on at
 last, and two mounds nobody walks between become two colonies within a
 session. See "Who is family". Before that, 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
@@ -638,6 +649,43 @@ born wanting to dig, and now they simply pay for wanting to. For the colony
 to actually dig *less* than it can afford, the wanting itself has to change,
 and that is bred rather than set — it needs far more ants over far more
 generations than a bed currently produces.
+
+**The wanting now changes with the room the colony has — and that still does
+not shrink the mound.** An ant standing at its own door used to decide whether
+to dig from how many other ants were pressed up against it, which is a
+question about the crush in one small square and not about the nest. It is now
+a question about the nest: the space the colony has hollowed out and roofed
+over, divided among the ants living in it. That reads low when the burrow is
+bare and high when there is a chamber's worth each, and the colony behaves
+exactly as you would hope — it digs hard through the founding, quietens once
+there are a few cells of room per ant, and starts again when the brood
+outgrows them. Watch the numbers and you can see the loop close and reopen:
+about a third of a cell each at the founding, four cells each by the time the
+first chambers are cut, ten when the colony has thinned, and back down to
+three or four as it fills again.
+
+**What it does not do is what it was built for.** The old question was
+supposed to be one an ant could never answer — always "yes, we are packed",
+whatever the colony dug. It is not. Stand at the door and count, over two
+thirds of a million moments across twelve beds: **a quarter of the time there
+is nobody near the ant at all**, a fifth of the time it is as crowded as it
+can get, and the middle of that spread sits around a third. An ant at its own
+door is very often standing alone, so the old gate was never stuck.
+
+And the mound comes out the same size either way. Twelve beds, each run twice
+from the same starting point with only this question changed: the colony dug
+less in six and more in six, and left a smaller mound in six and a bigger one
+in six. The spread between beds is enormous — a seventh of the digging on one,
+five times it on another — and the middle of it is no change at all. Any one
+bed will show you a big difference in whichever direction it happened to land.
+
+That is worth saying plainly because it moves the blame. A mound that never
+regreens is not a colony asking itself the wrong question at the door. It is a
+colony that outgrows its own rooms faster than it can cut them, and the lever
+for that is how many ants there are, not what each one is asked. The question
+still ships **on**, because it is the better-posed one and it costs nothing
+measurable; it is one switch on the ants page if you want the old behaviour
+back.
 
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three

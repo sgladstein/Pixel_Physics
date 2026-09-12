@@ -1053,6 +1053,18 @@ pub struct CreatureStats {
     /// tells them apart -- the colony stopped wanting to dig, or the colony
     /// stopped reaching the nest to dig at. See its increment site.
     pub at_nest_ticks: u64,
+    /// **What the dig gate actually read, bucketed** -- ten equal buckets of
+    /// `BrainInput::Crowding` over `at_nest_ticks`, `[0, 0.1)` first.
+    ///
+    /// **This is the one instrument that can check the premise the whole
+    /// room-per-ant build rests on**, which is that the old input is pinned
+    /// at its ceiling at the nest. That figure (median 1.000, p90 and max
+    /// 1.000) was measured on a different scene and inherited, and
+    /// `CLAUDE.md` is explicit that a number must be sanity-checked against
+    /// the case you are about to use it on. Weighted by ant-ticks rather than
+    /// by census stops, so it is the distribution of what was *read* rather
+    /// than of what was available to read.
+    pub at_nest_crowding: [u64; 10],
     pub digs: u64,
     /// **What those digs cost**, in joules, and the far side of the counter
     /// above.
@@ -2318,8 +2330,9 @@ pub struct World {
     /// **What each nest in `nest_sites` holds** -- same length, same order,
     /// rebuilt every `ROOM_INTERVAL` frames by `step_nest_room`.
     ///
-    /// Empty in a world with no nest, which is every outdoor world, and that
-    /// is the branch the census returns on before touching a cell.
+    /// Empty in a world with no nest -- which is every outdoor world -- and
+    /// empty with `room_gate` off, which is the branch that makes the revert
+    /// free rather than merely inert.
     pub nest_room: Vec<NestRoom>,
     /// **Whether an ant at the nest reads room rather than density.**
     ///
@@ -5725,7 +5738,17 @@ impl World {
     /// exercise a hand-set record proves the arithmetic while a disconnected
     /// census passes underneath it.
     pub fn step_nest_room(&mut self) {
-        if self.nest_sites.is_empty() {
+        // **Gated on the dial it feeds, so the arm that does not use it pays
+        // nothing.** Measured 2026-09-12, `latecensus` on `played_bed` seed 3,
+        // 20,000 frames, four alternating paired runs against `main` on a
+        // quiet box: with the census running and the gate off -- a
+        // byte-identical trajectory, so the whole difference is this sweep --
+        // 59.52 s against 58.55 s, **+0.049 ms a frame, about +1.7%**, slower
+        // in 3 of 4 rounds. Small, real, and buying nothing at all when no ant
+        // reads it. With the gate on the same comparison is 61.27 s against
+        // 58.89 s (+0.119 ms, +4.0%, slower in 4 of 4); the extra is the
+        // colony doing different work, not overhead.
+        if !self.room_gate || self.nest_sites.is_empty() {
             self.nest_room.clear();
             return;
         }
@@ -9178,6 +9201,11 @@ mod tests {
             w.set(63, y, Cell::new(material::STONE, 0));
         }
         w.register_nest_site(32, BED_SURFACE, 8);
+        // Explicit rather than inherited from the default: the default reads
+        // `PIXEL_PHYSICS_LAB_ROOM` once per process, so a suite run under the
+        // revert arm would otherwise take no census and every assertion below
+        // would pass for the wrong reason.
+        w.room_gate = true;
         w.step_nest_room();
         w
     }
@@ -9310,17 +9338,31 @@ mod tests {
         assert!(at(100_000, 1) < 0.01 && at(0, 500) > 0.99, "the curve reaches both ends only in the limit");
     }
 
-    /// **A world with no nest pays nothing and reads nothing.**
+    /// **A world with no nest, and a box with the gate off, both pay
+    /// nothing and read nothing.**
     ///
     /// The outdoor game is every world that never founds a colony, and the
-    /// census must not so much as look at a cell there. Provable red by
-    /// moving the `nest_sites.is_empty()` return below the sweep.
+    /// census must not so much as look at a cell there. The second half is
+    /// what makes `PIXEL_PHYSICS_LAB_ROOM=off` a free revert rather than a
+    /// merely inert one -- the sweep costs +1.7% of the frame on the lab bed
+    /// (see `step_nest_room`), which is real money for an arm nothing reads.
+    ///
+    /// Provable red by moving either return below the sweep.
     #[test]
-    fn a_world_with_no_nest_takes_no_census() {
+    fn a_world_with_no_nest_or_no_gate_takes_no_census() {
         let mut w = test_world();
         w.step_nest_room();
         assert!(w.nest_room.is_empty(), "no nest, no room record");
         assert!(w.ground_datum().is_empty() && w.room_datum.is_empty(), "and no datum frozen, because no column was read");
+
+        let mut bed = bedded_box();
+        carve(&mut bed, 20, BED_SURFACE + 10, 3, 3);
+        bed.room_gate = false;
+        bed.room_datum.clear();
+        bed.frame = ROOM_INTERVAL;
+        bed.step_nest_room();
+        assert!(bed.nest_room.is_empty(), "gate off, no room record -- however many chambers the box holds");
+        assert!(bed.room_datum.is_empty(), "and no datum frozen, because no column was read");
     }
 
     /// **The log says how much of the story it threw away.**

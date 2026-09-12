@@ -574,6 +574,25 @@ fn main() {
                 })
                 .collect();
             println!("            founders (cells): {}", founder_line.join(" "));
+            // **The nest's own room, beside the picture of it.** A chamber
+            // cut and a chamber collapsed are the same photograph at contact-
+            // sheet size, and only the count says which -- `CLAUDE.md`'s
+            // standing rule, and the reason every other line here carries its
+            // counters. `rpa` is cells of roofed void per ant and `reads` is
+            // what the dig gate makes of it (`World::NestRoom`); `digs` is
+            // cells actually removed, beside the rolls that tried.
+            if let Some(room) = world.nest_room.first() {
+                println!(
+                    "            nest room: roofed {:>5} ants {:>4} rpa {} | dig gate reads {} | digs {:>6} of {:>7} rolls | gate {}",
+                    room.roofed,
+                    room.ants,
+                    room.room_per_ant().map_or("-".to_string(), |v| format!("{v:.2}")),
+                    room.occupancy(world.room_target).map_or("-".to_string(), |v| format!("{v:.3}")),
+                    stats.digs,
+                    stats.dig_rolls,
+                    if world.room_gate { "room" } else { "crowding" }
+                );
+            }
             // **Why a stand is shrinking, split by the mechanism that did
             // it.** A plant census says the stand got smaller and cannot say
             // which rule took it -- and they want opposite responses. Owner,
@@ -669,14 +688,32 @@ fn main() {
     // two-cell animal at all, so the one thing this harness grew a crop for
     // was the one thing it could not do.
     let (tw, th) = crop.map_or((vw, vh), |(_, _, w, h)| (w as u32, h as u32));
-    let (sw, sh) = (tw, th * tiles.len() as u32);
+    // **`scale=` -- pixel replication on the way out, and it is not the same
+    // knob as `zoom=`.** `zoom` changes how many world cells fit the lab's
+    // fixed 512x320 viewport, so a tight crop at high zoom is detailed and
+    // *small*: 280x180 px. The review skill is explicit that a card that size
+    // reaches the owner as nothing to see -- "the stills he has been able to
+    // judge are 700-950 px across" -- and the page's own client-side zoom is
+    // not a substitute when the file itself is the thing shared. Nearest
+    // neighbour, integer only, so no pixel is invented: this is the same
+    // `image-rendering: pixelated` upscale the page would do, baked in.
+    let scale = arg::<u32>("scale").unwrap_or(1).max(1);
+    let (sw, sh) = (tw * scale, th * tiles.len() as u32 * scale);
     let mut sheet = vec![0u8; (sw * sh * 4) as usize];
     for (i, tile) in tiles.iter().enumerate() {
-        let y0 = i as u32 * th;
+        let y0 = i as u32 * th * scale;
         for y in 0..th {
-            let src = (y * tw * 4) as usize;
-            let dst = ((y0 + y) * sw * 4) as usize;
-            sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
+            for ry in 0..scale {
+                let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
+                for x in 0..tw {
+                    let src = ((y * tw + x) * 4) as usize;
+                    let px = &tile[src..src + 4];
+                    for rx in 0..scale {
+                        let dst = dst_row + (((x * scale + rx) * 4) as usize);
+                        sheet[dst..dst + 4].copy_from_slice(px);
+                    }
+                }
+            }
         }
     }
     image::save_buffer(&out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");

@@ -332,6 +332,15 @@ fn main() {
         st.at_nest_ticks,
         if st.dig_rolls == 0 { 0.0 } else { st.digs as f64 / st.dig_rolls as f64 }
     );
+    // **What the dig gate actually read, ant-tick weighted.** With the gate
+    // off this line is the old input's own distribution on this bed, which is
+    // the control for the premise the build rests on.
+    let h = st.at_nest_crowding;
+    let total: u64 = h.iter().sum();
+    println!(
+        "SUMMARY at_nest_crowding n={total} buckets(0.0..1.0 by 0.1)={h:?} top_bucket_share={:.3}",
+        if total == 0 { 0.0 } else { h[9] as f64 / total as f64 }
+    );
     println!(
         "SUMMARY mound_bare={} mound_cols={} digs_per_1k={:.2} roofed={} packed_above={} mound_high={}",
         s.mound_bare,
