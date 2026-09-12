@@ -2032,6 +2032,29 @@ fn main() {
         println!("      {:>4}: {:>7} / {:>10}", b * HEAT_BUCKET, wf_buckets[b], ant_buckets[b]);
     }
 
+    // **The seed bank as a standing count, round 29 Brief 1.** `plants`
+    // above is plants **plus** the waiting bank -- the late-game design's §3
+    // records that as a live mislabel in every earlier reading of this file
+    // -- so the bank has to be counted separately to say whether it drained.
+    // A waiting seed is a one-cell organism whose cell reads `CellType::Seed`
+    // (the same test `latecensus::is_waiting_seed` uses), plus any seed
+    // currently riding in a crop, which owns no cell at all while it rides.
+    let seed_bank_n = world
+        .live_organism_ids()
+        .into_iter()
+        .filter(|&id| {
+            world.organism(id).is_some_and(|st| {
+                world.species.get(st.species).creature.is_none()
+                    && (world.is_carried_seed(id)
+                        || (st.cells.len() == 1
+                            && st.cells.keys().next().is_some_and(|&(x, y)| {
+                                pixel_physics::sim::organism::cell_type(world.get(x, y).aux())
+                                    == Some(pixel_physics::sim::organism::CellType::Seed)
+                            })))
+            })
+        })
+        .count();
+
     piles.close();
     piles.print(sample_every, &world.creature_stats);
 
@@ -2053,6 +2076,7 @@ fn main() {
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
          pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
          nest_blends={} share_blends={} nest_sites={} nest_gap_max={:.4} \
+         bare_seeds_spared={} bare_seeds_carried={} seed_bank={seed_bank_n} \
          pile_stops={} pile_animal_reads={} pile_boxed={} pile_boxed_terrain={} pile_boxed_creature={} pile_boxed_both={} \
          pile_body_boxed={} pile_largest={} pile_stops_with_3={} pile_streaks={} pile_streak_median={} pile_streak_max={} \
          pile_body_boxed_long={} pile_body_boxed_short={} pile_body_boxed_laden={} pile_largest_long={} \
@@ -2266,6 +2290,17 @@ fn main() {
         world.creature_stats.share_blends,
         world.nest_sites.len(),
         world.nest_scent_gaps().iter().map(|(_, _, d)| *d).fold(0.0f32, f32::max),
+        // **Round 29's seed-cargo lane's counters, appended after the
+        // cohesion lane's by that same convention** -- both pairs landed in
+        // this line on the same day, and the merge kept main's in place
+        // rather than interleaving them. `bare_seeds_spared` is the plant
+        // side's "it fired" (a bare-seed bite rolled `seed_gut_survival` and
+        // won); `bare_seeds_carried` is the "it worked" from the far side of
+        // the call (that survivor became a `Crop::passenger` rather than
+        // standing where it was bitten). Both read 0 with
+        // `PIXEL_PHYSICS_SEED_CARGO=0`, which is the kill switch's control.
+        world.bare_seeds_spared,
+        world.bare_seeds_carried,
         // **Round 29's pile census, appended after main's fields** -- see
         // `Piles`. `pile_largest` is the owner's *"big group/pile"* and
         // `pile_streak_median`/`pile_streak_max` are the *"stuck"*: a

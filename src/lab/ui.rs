@@ -49,6 +49,7 @@ use crate::render;
 use crate::sim::organism::SpeciesId;
 use crate::sim::world::{self, World};
 
+use super::census;
 use super::names;
 use super::params;
 use super::plainspeak;
@@ -852,7 +853,7 @@ impl Tool {
     }
     fn note(self) -> &'static str {
         match self {
-            Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS ALWAYS READ OUT TOP RIGHT, TOOL OR NO TOOL.",
+            Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS READ OUT WHILE THIS TOOL IS HELD -- SWITCH TOOLS AND IT GOES AWAY, BUT A PINNED PAGE STAYS.",
             Tool::Plant => "PUT ONE SEED IN THE SOIL WHERE YOU CLICK. THE CHIP TO THE RIGHT SAYS WHICH SPECIES AND WHAT IT COSTS TO GROW ONE. A SEED NEEDS BARE SOIL WITH ROOM ABOVE IT.",
             Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
@@ -6053,14 +6054,17 @@ pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
 /// and nothing else, so a file on disk and the LOG/HISTORY pages a player is
 /// looking at are always the same reading of the same events.
 ///
-/// Three parts, in the order `examples/chronicle.rs` already prints them:
-/// a header naming the bed, the LINES view through the identical
-/// [`format_log_line`] the LOG page draws through -- **oldest first**, so it
-/// reads as a story rather than as the page's own newest-first table -- and
-/// a LEGENDS section built from [`ended_lines`]. Per-kind counts last,
-/// `CLAUDE.md`'s standing rule: prose says what and where, only the count
-/// says whether it fired.
-pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32) -> String {
+/// Four parts, in the order `examples/chronicle.rs` already prints them: a
+/// header naming the bed plus what the player changed from the shipped
+/// dials, a CENSUS section (`census::chronicle_section`) -- the numbers a
+/// story of events cannot carry, per
+/// `Reports/evolution-lab-late-game-design-2026-09-12.md` brief 0 -- the
+/// LINES view through the identical [`format_log_line`] the LOG page draws
+/// through -- **oldest first**, so it reads as a story rather than as the
+/// page's own newest-first table -- and a LEGENDS section built from
+/// [`ended_lines`]. Per-kind counts last, `CLAUDE.md`'s standing rule: prose
+/// says what and where, only the count says whether it fired.
+pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, census_rows: &[census::ChronicleRow], dial_changes: &[String]) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
     let _ = writeln!(out, "CHRONICLE OF {bed_label}");
@@ -6074,6 +6078,13 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32) 
         world.frame,
         dial
     );
+    if dial_changes.is_empty() {
+        out.push_str("DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED\n");
+    } else {
+        let _ = writeln!(out, "DIALS CHANGED FROM SHIPPED: {}", dial_changes.join(", "));
+    }
+    out.push('\n');
+    out.push_str(&census::chronicle_section(census_rows));
     out.push('\n');
     let mut lines: Vec<&world::LogEvent> = world.run_log.recent().filter(|e| e.kind.is_line_event()).collect();
     lines.reverse(); // the log reads newest first; a story reads forward
@@ -8326,20 +8337,33 @@ impl Ui {
             }
         }
 
-        // **What is under the pointer, always, with no mode to turn on.**
+        // **What is under the pointer, while LOOK is the tool in hand.**
         // Owner request, 2026-08-30: *"the info option that tells me what
         // material, temp, etc that my mouse is hovering over."* Docked rather
         // than following the cursor, for `draw_note`'s reason — a box under
         // the pointer covers the thing it is describing.
+        //
+        // **Gated on `Tool::Look`, 2026-09-12.** It ran unconditionally from
+        // 2026-08-30 to here, which was the owner's ask at the time; the
+        // later ask narrows it: *"the tooltip... should only show up when the
+        // look tool is open."* Every other tool already has its own readout
+        // (a species chip, a stock dial, a brush ring) telling you what it is
+        // about to do, so the cell readout was competing with that rather
+        // than adding to it. The **pinned** cell page (`self.inspect`, drawn
+        // above) is a different thing and stays up regardless of tool — the
+        // player asked for that one by clicking, so switching tools does not
+        // put it away.
         //
         // **Left column, under the clock, and it was top right first.** The
         // biosphere page is a full-height *right-hand* column and `Lab::draw`
         // paints it after this, so a top-right box spends its life half
         // hidden — which a contact sheet showed and no test could have. The
         // left column is free below the clock.
-        if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
-            let (wx, wy) = renderer.screen_to_world(cx, cy);
-            paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
+        if self.tool == Tool::Look {
+            if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
+                let (wx, wy) = renderer.screen_to_world(cx, cy);
+                paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
+            }
         }
 
         // The last verb's notice, over everything, just above the bar.
@@ -9300,7 +9324,7 @@ mod tests {
         let log_count = w.run_log.recent().filter(|e| e.kind == world::LogKind::LineEnded).count();
         assert_eq!(log_count, 3, "the fixture did not end three lines");
 
-        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
         // One legend paragraph opens `THE <NAME> LINE (`; counting that
         // prefix is the export's own row count, not a re-derivation of it.
         let legend_lines = text.lines().filter(|l| l.starts_with("THE ") && l.contains(" LINE (")).count();
@@ -9692,6 +9716,49 @@ mod tests {
         assert_eq!(ui.inspecting(), Some((11, 20)));
         ui.inspect(&w, (11, 20));
         assert_eq!(ui.inspecting(), None);
+    }
+
+    /// **The hover readout follows the Look tool.** Owner ask, 2026-09-12:
+    /// *"The tooltip that shows the material, moisture level, if creature is
+    /// present should only show up when the look tool is open."* This is the
+    /// docked box `paint_hover_cell` draws, not the pinned cell page --
+    /// `the_inspector_toggles_on_the_cell_it_is_pointed_at` above covers that
+    /// one, and it is deliberately untouched by this change.
+    #[test]
+    fn the_hover_readout_only_shows_under_the_look_tool() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
+        lab.show_help = false;
+        // Away from the bar and from the readout's own dock, so only the
+        // readout's presence or absence can move this one pixel.
+        lab.ui.set_cursor(Some((300, 150)));
+        assert_eq!(lab.ui.tool(), Tool::Look, "test setup: LOOK is not the default tool");
+
+        let readout_pixel = |buf: &[u8]| -> [u8; 4] {
+            let i = (((HOVER_TOP + 1) as u32 * W + (MARGIN + 1) as u32) * 4) as usize;
+            [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+        };
+
+        let mut under_look = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut under_look, 60.0);
+        assert_eq!(
+            readout_pixel(&under_look),
+            READOUT_BG,
+            "LOOK is armed and the docked readout box did not draw where it always docks"
+        );
+
+        // Put the fault back, one tool at a time, and watch it go red -- a
+        // gate written `!= Tool::Look` for only the tool someone tried would
+        // pass this for every other tool by accident.
+        for tool in [Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Wall] {
+            lab.ui.arm_tool(tool);
+            let mut under_other = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut under_other, 60.0);
+            assert_ne!(
+                readout_pixel(&under_other),
+                readout_pixel(&under_look),
+                "{tool:?} is armed and the hover readout still drew -- it should show only under LOOK"
+            );
+        }
     }
 
     /// Every page row that names a quantity carries its own explanation. The

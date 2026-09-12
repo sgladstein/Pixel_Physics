@@ -642,60 +642,31 @@ impl TimeControl {
     /// can check every character against the font — a missing glyph draws as
     /// a silent blank and that has shipped three times in this repo
     /// (`hud.rs`'s own `[`/`]`, `_`/`<`/`>` and `;`/`'` notes).
+    ///
+    /// **Cut to two lines, 2026-09-12.** Owner: *"all the text in the top
+    /// left of the screen should be removed except for ticks."* This block
+    /// used to run to six lines while running (RUNNING/ASKED, GOT/AT-HZ, SIM
+    /// per real second, ticks-per-frame, the MOTION/FAST-FORWARD crossover)
+    /// and four while paused, all of it talking over the bed the owner's
+    /// standing direction is to hand the player rather than narrate at them.
+    /// Everything cut was either restated elsewhere -- PAUSED/RUNNING and the
+    /// requested/achieved rate are the bar's own speed readout at the bottom
+    /// of the screen, and both are in the window title too -- or was
+    /// commentary derived from those same numbers (`sim_per_second`, the
+    /// crossover line) rather than a control's only readout.
+    ///
+    /// **`MIN {}HZ` is the one line kept beside ticks, and it is not a
+    /// judgement call.** `F` (`cycle_display_floor`) has no other readout
+    /// anywhere in the interface -- deleting it here would strand the only
+    /// way to see what `F` currently has the floor set to, which is exactly
+    /// the regression this round's brief warns against. Named to the
+    /// coordinator rather than silently kept; a master menu (a sibling
+    /// round's own line) is the right eventual home for it, not this corner,
+    /// but it is not stranding a feature to leave it one more line here
+    /// until that page exists.
     pub fn readout(&self, frame: u64) -> Vec<(String, [u8; 4])> {
-        let white = [235u8, 235, 235, 255];
         let grey = [150u8, 150, 150, 255];
-        let mut lines = Vec::new();
-
-        // **Paused says one thing and says it loudly.** Every other line
-        // below is a rate, and a rate of zero printed six times over is a
-        // readout the player has to *infer* a stopped box from. The whole
-        // point of the owner's complaint was that the phase had no unmistakable
-        // statement on screen, so this is that statement and it displaces the
-        // rates rather than sitting above them.
-        if self.phase == Phase::Paused {
-            let stopped = [235u8, 185, 90, 255];
-            lines.push(("PAUSED - NOTHING IS TICKING".to_string(), stopped));
-            lines.push((format!("SPACE RUNS THE BOX AT {}X", self.requested), white));
-            // **The setting is named where the player is standing when they
-            // set it.** A paused box is the bench, and the floor is the one
-            // number on this readout they change rather than read.
-            lines.push((
-                format!(
-                    "F - MIN {}HZ, SO {}X DRAWS AT {}HZ",
-                    self.display_floor,
-                    self.requested,
-                    auto_display_hz(self.requested).max(self.display_floor),
-                ),
-                grey,
-            ));
-            lines.push((format!("FRAME {frame} - HELD"), grey));
-            return lines;
-        }
-        lines.push((format!("RUNNING - ASKED {}X", self.requested), white));
-        lines.push((
-            format!(
-                "GOT {:.1}X AT {}HZ - MIN {}HZ",
-                self.achieved.max(0.0),
-                self.display_hz,
-                self.display_floor,
-            ),
-            white,
-        ));
-        lines.push((format!("SIM {} PER REAL SECOND", sim_per_second(self.achieved)), grey));
-        let n = self.ticks_per_frame();
-        // Singular at one, because 1X at a display rate the box can meet
-        // sits there permanently and "1 TICKS PER FRAME" is the line the
-        // player reads most.
-        lines.push((format!("{n} TICK{} PER FRAME", if n == 1 { "" } else { "S" }), grey));
-        // The crossover, named on screen rather than left to be inferred.
-        lines.push(if self.reads_as_motion() {
-            (format!("MOTION - UP TO {MOTION_TICKS_PER_FRAME} PER FRAME"), [140, 210, 140, 255])
-        } else {
-            (format!("FAST-FORWARD - OVER {MOTION_TICKS_PER_FRAME} PER FRAME"), [235, 185, 90, 255])
-        });
-        lines.push((format!("FRAME {frame}"), grey));
-        lines
+        vec![(format!("FRAME {frame}"), grey), (format!("MIN {}HZ", self.display_floor), grey)]
     }
 
     pub fn draw(&self, frame: &mut [u8], world: &crate::sim::world::World) {
@@ -710,26 +681,6 @@ impl TimeControl {
                 colour,
             );
         }
-    }
-}
-
-/// Simulated world time per real second, in words the player thinks in.
-///
-/// The guide asks for *simulated-time-per-real-second* on screen and it is
-/// numerically the same quantity as the multiplier — which is exactly why it
-/// earns a second line only if it is stated in a different unit. "64X" is a
-/// ratio; "1M 4S" is how much world goes by while you watch.
-fn sim_per_second(rate: f32) -> String {
-    let seconds = rate.max(0.0).round() as u64;
-    match seconds {
-        0 => format!("{:.1}S", rate.max(0.0)),
-        // The break is at a real minute, not at a round-looking 100. Above 60
-        // the second line has to carry a *different* unit from the multiplier
-        // to be worth its row: at 64x, "64S" restates the dial and "1M 4S"
-        // says how much world goes by while you watch.
-        1..=59 => format!("{seconds}S"),
-        60..=3599 => format!("{}M {}S", seconds / 60, seconds % 60),
-        _ => format!("{}H {}M", seconds / 3600, (seconds % 3600) / 60),
     }
 }
 
@@ -1496,14 +1447,6 @@ mod tests {
         assert_eq!(t.display_hz(), 10, "256x is past the last rung");
         t.slower();
         assert_eq!(t.display_hz(), 20);
-    }
-
-    #[test]
-    fn sim_per_second_reads_in_world_time() {
-        assert_eq!(sim_per_second(1.0), "1S");
-        assert_eq!(sim_per_second(64.0), "1M 4S");
-        assert_eq!(sim_per_second(3600.0), "1H 0M");
-        assert_eq!(sim_per_second(0.4), "0.4S");
     }
 
     // ------------------------------------------------- the box's own "look at this"

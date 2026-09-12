@@ -213,7 +213,40 @@
     // Foliage: what a herbivore is for. 120 is what `ant.ron`'s
     // `eat_energy` paid for any mouthful, so the ant's economy is unchanged
     // by the move from eater-constant to food-property.
-    food_energy: 480.0,
+    //
+    // **480 -> 40, round 29, Brief 1 -- a live leaf is marginal food at the
+    // shipped neutral gut, and grazing the stand becomes a niche a lineage
+    // evolves into rather than the behaviour every colony ships with.**
+    // `Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1. The
+    // owner's live-play report and the census agree on the complaint: the
+    // colony strips the stand (seed 3's leaf larder 239 -> 16 kJ over one
+    // session) while also eating the seed bank, and a bed cannot regrow
+    // under a mouth that eats its leaves *and* its future.
+    //
+    // **The face value IS the dial, and the arithmetic is the whole
+    // choice.** `diet_yield` credits `face * diet_quality(gut)` and
+    // `creature.rs`'s `EAT_YIELD_THRESHOLD` is 12 J, so at 40 face:
+    //
+    //     gut   0.0   40 * 0.25  = 10.0   under the bar -- not food
+    //     gut  -0.6   40 * 0.64  = 25.6   over  the bar -- food
+    //     gut  -1.0   40 * 1.00  = 40.0   over  the bar -- good food
+    //
+    // 40 is the smallest round number whose neutral credit is under 12 and
+    // whose credit at the -0.68 where carrion leaves the menu is over it, so
+    // the grazer that appears is an animal that has *paid* the omnivore's
+    // price rather than one that got the leaf for free.
+    //
+    // **`litter.ron` deliberately stays at 480: the floor is food, the
+    // standing plant is not.** A shed leaf is the same tissue and is a
+    // whole meal; what changed is that it has to fall first. That is the
+    // distribution law on the diet axis -- the bed feeds the colony out of
+    // its surplus instead of its body.
+    //
+    // Note what does *not* move with it: `worth_in_aux` foods (a corpse)
+    // carry their own value, `nectar_yield` is a species field, and the
+    // flitter is `nectar_only`, so this number reaches the ant and the
+    // beetle and nothing else.
+    food_energy: 40.0,
     // **The armour table's soft band -- see `material.rs`'s
     // `penetration_resistance` doc for the whole derivation.** Everything
     // a shipped mouth must be able to eat is priced below the *weakest*
