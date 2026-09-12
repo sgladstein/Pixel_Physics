@@ -531,10 +531,14 @@ fn main() {
                 }
             );
             println!(
-                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   q_peak    q_now  deficit   near    far   gap  n_near/n_far"
+                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   q_peak    q_now  deficit  flushed   near    far   gap  n_near/n_far"
             );
 
             let mut last = cells_at_cut;
+            // **A world counter, so it is reported as a delta per stop.**
+            // The cumulative total is dominated by the 12,000-frame warm-up
+            // and would hide the whole post-cut window inside it.
+            let mut last_flushed = w.buds_flushed;
             let stops = 6u64;
             // The fine stops first, then the coarse ones past where they
             // stopped -- one ascending list, so the run steps forward only.
@@ -603,7 +607,7 @@ fn main() {
                 let m = median(&mut cells);
                 let (near, far, n_near, n_far) = depletion_contrast(&w, width, height);
                 println!(
-                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>7.2}  {:>7.2}  {:>7.2}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
+                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>7.2}  {:>7.2}  {:>7.2}  {:>7}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
                     w.frame,
                     alive,
                     m,
@@ -622,6 +626,7 @@ fn main() {
                     median(&mut q_peak),
                     median(&mut q_now),
                     median(&mut deficit),
+                    w.buds_flushed - last_flushed,
                     near,
                     far,
                     far - near,
@@ -629,6 +634,7 @@ fn main() {
                     n_far,
                 );
                 last = m;
+                last_flushed = w.buds_flushed;
             }
         }
     }

@@ -9309,6 +9309,11 @@ fn break_buds(world: &mut World, organism_id: u16) {
     let flush_becomes = fate_for(world, organism_id, species_id, CellType::DormantBud, organism::FateWhen::Flush, 0)
         .map_or(CellType::GrowingTip, |f| f.becomes);
     world.set(bx, by, cell.with_aux(organism::pack_cell_type(flush_becomes)));
+    // **Counted at the conversion, not at the budget.** `supportable` is how
+    // many flushes the plant could afford; this is how many it took, and the
+    // defect `plants:124` is about is exactly the case where the first is
+    // positive and the second is zero.
+    world.buds_flushed = world.buds_flushed.saturating_add(1);
     // The richest cell pays the flush price; the bud keeps its own stake.
     //
     // This used to `write_carbon(bx, by, bud_cost)` -- an assignment, which
