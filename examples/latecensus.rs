@@ -218,6 +218,76 @@ fn main() {
     }
     let st = world.creature_stats;
     let final_census = census::census(&world, &spec, gut, &nest_cols, &ids);
+    // **Who killed whom, and when.** `killd` says a colony is being eaten and
+    // nothing else; this says by what, from which group, at which frame, and
+    // how hungry the victim already was. `World::kills_log` is the record and
+    // `World::tally_kill` the one site that knows both parties.
+    //
+    // **The victim's energy is the term that decides how to read the rest.**
+    // An ant killed at 3,000 J was fought; one killed at 40 J was a starving
+    // animal that was eaten a moment early, and booking that as a killing
+    // rather than a starvation is a labelling question, not an ecology one.
+    {
+        let kills = &world.kills_log;
+        println!("\n--- who kills whom --- {} killing(s) logged{}", kills.len(), if world.kills_unlogged > 0 { format!(", {} past the log's cap -- every share below is of the logged prefix", world.kills_unlogged) } else { String::new() });
+        // (attacker species, relation) -> (count, summed victim energy, first frame, last frame)
+        let mut rows: Vec<(String, &'static str, u64, f64, u64, u64)> = Vec::new();
+        for k in kills {
+            let attacker = world.species.get(k.attacker_species).name.clone();
+            let relation = if k.attacker_species != k.victim_species {
+                "other species"
+            } else if k.attacker_colony == k.victim_colony {
+                "SAME colony"
+            } else {
+                "other colony"
+            };
+            match rows.iter_mut().find(|(a, r, ..)| *a == attacker && *r == relation) {
+                Some((_, _, n, e, first, last)) => {
+                    *n += 1;
+                    *e += k.victim_energy as f64;
+                    *first = (*first).min(k.frame);
+                    *last = (*last).max(k.frame);
+                }
+                None => rows.push((attacker, relation, 1, k.victim_energy as f64, k.frame, k.frame)),
+            }
+        }
+        rows.sort_unstable_by(|a, b| b.2.cmp(&a.2).then(a.0.cmp(&b.0)));
+        println!("  {:<12} {:<14} {:>7} {:>12} {:>10} {:>10}", "killer", "relation", "kills", "mean victim J", "first", "last");
+        for (attacker, relation, n, e, first, last) in &rows {
+            println!("  {attacker:<12} {relation:<14} {n:>7} {:>12.0} {first:>10} {last:>10}", e / *n as f64);
+        }
+        // **The window, because "is this a founding-window thing" is the
+        // question a total cannot answer.** Deciles of the run, so the shape
+        // reads off one line whatever `frames` was set to.
+        let mut decile = [0u64; 10];
+        for k in kills {
+            let d = ((k.frame * 10) / frames.max(1)).min(9) as usize;
+            decile[d] += 1;
+        }
+        println!("  kills by tenth of the run: {decile:?}");
+        // And the victim-energy split, which is the labelling question.
+        let starving = kills.iter().filter(|k| k.victim_energy < 100.0).count();
+        println!(
+            "  victims under 100 J at death: {starving} of {} ({:.0}%) -- these were starving animals that were eaten, not animals that lost a fight",
+            kills.len(),
+            if kills.is_empty() { 0.0 } else { 100.0 * starving as f64 / kills.len() as f64 }
+        );
+        // **The killing nobody did.** `DeathCause::Killed` is booked wherever
+        // a deciding cell goes away, whatever took it, so the cause is not an
+        // attack counter. This is what was standing in the cell instead.
+        let mut losses: Vec<_> = world.vital_losses.clone();
+        losses.sort_unstable_by(|a, b| b.3.cmp(&a.3));
+        let total: u64 = losses.iter().map(|(_, _, _, n)| *n).sum();
+        println!("  KILLED deaths booked: {total}, of which {} are attributable to an attacker", kills.len());
+        for (sp, col, mat, n) in losses.iter().take(12) {
+            println!(
+                "    {:<10} colony {col:<3} vital cell taken by {:<14} x{n}",
+                world.species.get(*sp).name,
+                world.materials.get(*mat).name
+            );
+        }
+    }
+
     println!(
         "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
          bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
