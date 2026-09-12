@@ -62,6 +62,12 @@ The lifespan arm holds **152 to 483, a 3.2-fold band**, for 280,000 frames.
 *That* is "the colony settles at a size and its fall is a slope", and no
 single-stop figure in the table above shows it.
 
+**Card `20260912T092226496Z-07d3ab`** (blind, board `lab`) puts the two whole
+sessions side by side as paired 41-frame sequences — `labgif … frames=500000
+every=12500 rain=off`, peak/end/old-age counts in `meta`. Frame sequences and
+not GIFs on the skill's own head-to-head evidence. Collect with
+`review.py inbox`.
+
 **The bar is not met at any setting, 0 included.** No arm ends with a live
 colony over a bank above ~500. Seed 1 at 40,000 is the only arm alive at
 500,000 frames at all (256 ants), and its bank is 73. The bank is what the mouth
