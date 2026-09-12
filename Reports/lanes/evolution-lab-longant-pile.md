@@ -14,11 +14,12 @@ else has; all were retaken and the pre-merge table is not reproduced.
 
 ## 1. Three findings, and only the first is fixed
 
-| | what it is | filed |
-|---|---|---|
-| a laden long body waits for a nestmate that will never move | the deferral never expired | **fixed here**, §3 |
-| most of what is wedged is **one-cell ants, bred that way** | a flip is a no-op for them | **§Z12**, OPEN |
-| the long ants a player *points at* are **resting**, and resting looks identical to stuck | a look problem, not a walk bug | **§Z13**, OPEN |
+1. **A laden long body waits for a nestmate that will never move** — the
+   deferral never expired. **Fixed here**, §3.
+2. **Most of what is wedged is one-cell ants, bred that way** — a flip is a
+   no-op for them. **§Z12**, OPEN.
+3. **The long ants a player *points at* are resting**, and resting looks
+   identical to stuck. A look problem, not a walk bug. **§Z13**, OPEN.
 
 The third was found by answering the owner's own markers, and it is the one
 that matters for reading his verdicts: **what he pointed at was never what
@@ -156,10 +157,14 @@ the owner's call, and it is recorded here rather than argued away.
 
 ## 6. §Z12's starting facts — settled, not guessed
 
-`pile_short_by_loss` is **0 in all eight runs**: not one wedged short body
-was born long and lost cells. Authored and held cell counts agree to within
-29 of 10,154 on the worst seed, a mean of **1.0 against 1.0**, and
-`pile_short_max_gen` is 6–31, **never 0**. They are a bred one-cell morph.
+`pile_short_by_loss` is **0 in 17 of the 18 runs** (nine seeds, both arms)
+and **2 readings of 705** in the eighteenth, so a wedged short body is
+essentially never a full-length ant cut down. Authored and held cell counts
+agree to within 29 of 10,154 at the widest, a mean of **1.00 against 1.00**,
+and `pile_short_max_gen` runs 6–31, **never 0**. They are a bred one-cell
+morph. (The split's threshold is `authored <= 2`, so it cannot tell "authored
+2, lost 1" from "authored 1"; the authored-against-held gap is what does, and
+it is 29 cells over 10,154 readings at its widest.)
 Full account, and the two candidate fixes that make each other unnecessary,
 in **§Z12**.
 

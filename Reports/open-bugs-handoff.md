@@ -153,7 +153,7 @@ point.
 | Z10 | closed | 10682 | The flitter's float never switches off on a bed that has flowers in it |
 | Z11 | closed | 10779 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 10874 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 10945 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z13 | **OPEN** | 10955 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10905,14 +10905,24 @@ is these animals, and the long-body jam that was fixed is the smaller half.**
 **They are an evolved morph, not injured ants, and that is measured rather
 than inferred.** `creature::authored_body_cells` reads how many cells an
 animal's own `FateGenome` *would* unfold to, against how many it has.
-`labforage`'s `pile_short_by_loss` — born long, now short — reads **0 in all
-eight runs above**. `pile_short_genome_cells` and `pile_short_have_cells`
-agree to within 29 of 10,154 on the worst seed and exactly elsewhere, so a
-mean authored length of **1.0 cells against a mean held length of 1.0**:
-these animals hold precisely what their genome asks for. And
-`pile_short_max_gen` is 6, 10, 14, 16, 17, 17, 24, 31 — **never generation
-0**. The fates table is heritable, so a colony deep enough breeds a one-cell
-body plan and those bodies then wedge.
+`labforage`'s `pile_short_by_loss` — authored more than two cells and now
+short — reads **0 in 17 of the 18 runs** (nine seeds, both arms), and **2
+readings out of 705** in the eighteenth (seed 8 unchanged). So a wedged short
+body is essentially never a full-length ant that was cut down.
+`pile_short_genome_cells` and `pile_short_have_cells` agree to within 29 of
+10,154 on the widest seed and exactly or to within 2 elsewhere: a mean
+authored length of **1.00 cells against a mean held length of 1.00**, so
+these animals hold what their genome asks for. And `pile_short_max_gen` runs
+6 to 31 across the 18 runs — **never generation 0**. The fates table is
+heritable, so a colony deep enough breeds a one-cell body plan and those
+bodies then wedge.
+
+**The split's own limit, stated because it bounds the claim:** `by_genome` is
+`authored <= 2`, so an animal authored two cells that now holds one counts as
+"by genome" while having in fact lost a cell. The cells-authored-against-held
+gap is what catches those, and it is 29 cells over 10,154 readings at its
+widest. It does not change the reading; it is the reason the reading is
+"essentially never" rather than "never".
 
 They also get wedged **younger**: `pile_short_first_boxed_age` (the animal's
 age in frames at its first body-boxed reading) reads 13,028 / 25,849 / 29,474
