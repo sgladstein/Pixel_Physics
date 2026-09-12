@@ -10915,27 +10915,46 @@ mod tests {
     /// column as ordinary ground, so the film has **one** cell to travel
     /// instead of 26.
     ///
-    /// **Two earlier scenes could not go red, and both failures are the
-    /// point.** Soaking every patch column twice with full cells went red in
-    /// CI for a reason that has nothing to do with the door -- 27 rows of
-    /// soil under a 53-column patch are *saturated* by the first soaking, so
-    /// the second film stood on ground that had simply run out of room.
-    /// Pouring on the middle of the patch instead went **blind**: `water.ron`
-    /// carries `flow_rate: 1000`, so a full cell walks the 26 columns to the
-    /// end of an unbroken patch inside the frame budget and drains there. A
-    /// guard that cannot fail for the fault it is named after is blind, not
-    /// weak (`CLAUDE.md`), so the scene is replaced rather than loosened.
+    /// **The ends of the threshold are walled, and that is what isolates the
+    /// mechanism.** An earlier scene poured on the middle of an open patch
+    /// and went **blind**: `water.ron` carries `flow_rate: 1000`, so a full
+    /// cell walks the 26 columns to the end of an unbroken patch inside the
+    /// frame budget and drains off the end, which is the width of the bed
+    /// rather than the spacing of the drains. Walled, the film's only route
+    /// to ground that drinks is a drain column. What the scene does *not*
+    /// claim is the behaviour on a real bed -- that is emergent over 120,000
+    /// frames of continuous misting and belongs to `examples/nestdoor.rs`,
+    /// which measures it paired against this same switch (standing water
+    /// over the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
     ///
-    /// **This one walls the ends of the threshold**, which is what isolates
-    /// the mechanism: the film's only route to ground that drinks is now a
-    /// drain column, so an unbroken patch leaves it standing and a drained
-    /// one takes it. What it does *not* claim is the behaviour on a real bed
-    /// -- that is emergent over 120,000 frames of continuous misting and
-    /// belongs to `examples/nestdoor.rs`, which measures it paired against
-    /// this same `PIXEL_PHYSICS_NEST_DRAINS=off` switch (standing water over
-    /// the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
+    /// **It rains twice, and the second soaking is a different measurement
+    /// from the first -- which is the whole reason this reads volume and not
+    /// occupancy.** Onto dry ground the door sheds the film completely, 0 of
+    /// 36 columns from frame 100 onward. Onto ground that already holds the
+    /// first soaking it sheds **35,610 of the 36,000 units poured on it** and
+    /// keeps the last 1%: 36 cells at fill 8-12 of `LIQUID_FULL`, over drain
+    /// columns sitting at 620 of 1,000 with **not one soil cell saturated**
+    /// (67,612 units in a bed that holds 5,184,000).
     ///
-    /// **Watched going red**, not assumed.
+    /// So the second film is not standing water, it is the near-empty fringe
+    /// `CLAUDE.md`'s liquid metric trap names, and an occupancy count cannot
+    /// tell the two apart. That is exactly what failed CI on 2026-09-12,
+    /// reading *"36 of 36 nest cells are still under water"* over a door that
+    /// had just drunk 99% of what fell on it. **The saturation reading of
+    /// that failure was wrong** and is recorded here because it is the
+    /// obvious one: the bed is 1.3% full, not out of room.
+    ///
+    /// **The 1% is a real remainder all the same, not an artifact.** A cell
+    /// holding 9 of 1,000 is still a `Liquid`, still fails `World::is_empty`,
+    /// and `is_partable` refuses anything that is not living tissue -- so it
+    /// still walls the column it sits in, and it is why `nestdoor` reads 0-19
+    /// liquid cells over the drained patch on the played bed rather than 0.
+    /// What the drains buy is that the door stops being *the wettest strip on
+    /// the bed*; §T2 carries the number and stays open on the residue.
+    ///
+    /// **Watched going red**, not assumed: at `PIXEL_PHYSICS_NEST_DRAINS=off`
+    /// the first soaking alone leaves **53 of 53** columns under full cells
+    /// for the whole 2,000 frames.
     #[test]
     fn a_film_on_the_door_drains_through_the_comb() {
         let (mut w, patch) = bed_with_a_nest_patch();
@@ -10951,26 +10970,72 @@ mod tests {
             w.set(x0 - 1, row - dy, Cell::new(material::STONE, 0));
             w.set(x1 + 1, row - dy, Cell::new(material::STONE, 0));
         }
-        for &(x, y) in &patch {
-            w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
-        }
-        // The positive control for the arrangement: if the setup could not
-        // put water on the door, the assertion below passes for the wrong
-        // reason and would pass with the drains deleted too.
-        let standing = |w: &World| -> usize {
-            patch.iter().filter(|&&(x, y)| (1..=6).any(|dy| w.materials.kind(w.get(x, y - dy).material) == MaterialKind::Liquid)).count()
+        // **Columns carrying any liquid at all -- which is what an ant runs
+        // into -- and the water actually standing in them.** Both, because
+        // the two answer different questions and the second soaking is where
+        // they separate.
+        let over_the_door = |w: &World| -> (usize, u64) {
+            patch.iter().fold((0, 0), |(columns, volume), &(x, y)| {
+                let held: u64 = (1..=6)
+                    .map(|dy| w.get(x, y - dy))
+                    .filter(|c| w.materials.kind(c.material) == MaterialKind::Liquid)
+                    .map(|c| c.aux() as u64)
+                    .sum();
+                (columns + usize::from(held > 0), volume + held)
+            })
         };
-        assert_eq!(standing(&w), patch.len(), "the test failed to put water on the door");
+        let pour = |w: &mut World| -> u64 {
+            let mut poured = 0;
+            for &(x, y) in &patch {
+                if w.is_empty(x, y - 1) {
+                    w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
+                    poured += u64::from(material::LIQUID_FULL);
+                }
+            }
+            poured
+        };
+        let settle = |w: &mut World| {
+            for _ in 0..2_000 {
+                crate::sim::update::step(w);
+                w.step_active_sites();
+            }
+        };
 
-        for _ in 0..2_000 {
-            crate::sim::update::step(&mut w);
-            w.step_active_sites();
-        }
-
-        let left = standing(&w);
+        // **First soaking, onto dry ground**, and the positive control for
+        // the arrangement comes before it: if the setup could not put a full
+        // cell on every nest column, everything below passes for the wrong
+        // reason and would pass with the drains deleted too.
+        let poured = pour(&mut w);
+        assert_eq!(over_the_door(&w), (patch.len(), poured), "the test failed to put a full cell on every nest column");
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
         assert!(
-            left * 4 <= patch.len(),
-            "{left} of {} nest columns still carry a film after 2,000 frames, which is the wall an ant cannot step into",
+            columns <= 2,
+            "{columns} of {} nest columns still carry a film after 2,000 frames, holding {volume} of the {poured} units poured -- the wall an ant cannot step into. Measured 0 with the drains in and {} without them",
+            patch.len(),
+            patch.len()
+        );
+
+        // **Second soaking, onto ground that is already holding the first.**
+        // The bar is on the water, not on the count: the door sheds 99% of
+        // this one and keeps a fringe of near-empty cells, so an occupancy
+        // assertion here would report a drained door as a drowned one.
+        let poured = pour(&mut w);
+        // Its own positive control, and it is not the one above: a door that
+        // never cleared the first soaking has no empty cell to pour into, so
+        // without this the bar below would go red reading `0 units poured`
+        // and say nothing about the second day.
+        assert_eq!(
+            poured,
+            u64::from(material::LIQUID_FULL) * patch.len() as u64,
+            "the first soaking must clear before a second can be poured; only {poured} units went on"
+        );
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            volume * 20 <= poured,
+            "the door shed only {} of the {poured} units of a second soaking, leaving {volume} standing over {columns} of {} columns",
+            poured.saturating_sub(volume),
             patch.len()
         );
     }
