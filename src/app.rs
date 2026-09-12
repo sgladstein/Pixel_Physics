@@ -3396,7 +3396,7 @@ impl App {
                 Key("SPACE", "PAUSE"),
                 Key(".", "STEP ONE FRAME"),
                 Key("R", "RESET"),
-                Key("= -", "ZOOM"),
+                Key("= - _", "ZOOM / ZOOM-OUT PIXELS"),
                 Key("F6 F7 F8", "NEW WORLD / PRESET / SEED"),
                 Key("F5", "RELOAD ASSETS"),
                 Blank,
@@ -3940,7 +3940,7 @@ impl App {
             }
         };
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -3999,6 +3999,26 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // **The zoom-out filter (`Shift`+`-`), keyed on the *stride*
+            // rather than on the value.** Every other selector here is silent
+            // at its default; this one is silent whenever the view is not
+            // zoomed out at all, and named on every frame that is — including
+            // at its own default. The reason is this line's own
+            // harness-echo rule: at stride 1 the filter cannot affect a single
+            // pixel, so naming it would be noise, and at stride > 1 it decides
+            // what *every* pixel is, so a zoomed-out screenshot that does not
+            // say which filter drew it cannot be reproduced or compared. The
+            // stride is named with it for the same reason -- the three
+            // filters are indistinguishable at stride 1 and diverge with it.
+            if self.renderer.zoom_out_stride > 1 {
+                format!(
+                    " — zoom-out {}x {}",
+                    self.renderer.zoom_out_stride,
+                    self.renderer.zoom_out_filter.label()
+                )
+            } else {
+                String::new()
             },
             // Same rule again: silent at the default, named the moment it
             // is not, because the value of a look selector is being able to
