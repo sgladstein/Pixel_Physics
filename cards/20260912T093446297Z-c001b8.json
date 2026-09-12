@@ -1,0 +1,75 @@
+{
+  "id": "20260912T093446297Z-c001b8",
+  "created": "2026-09-12T09:34:46Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-readout-corner-r30",
+    "commit": "7c8678a7",
+    "agent": null,
+    "session_id": "10ebee7a-1c25-57df-bcf4-eab94deda31f",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "R30: box stops talking over the bed",
+  "question": "Corner: does it now read as ticks-only (plus MIN HZ, the one sole-route exception)? Hover: does the cell readout correctly follow the LOOK tool?",
+  "context_md": "Two of the owner's asks, both view-only: (1) the cell readout (material/moisture/organism) should only show while LOOK is armed; (2) the top-left corner should carry ticks and nothing else. Same bed and cursor cell (300,150) in the paired hover shots; same capture frame for the corner pair. `MIN 10HZ` is kept beside ticks -- it is the only on-screen readout of the display-floor value `F` cycles, so cutting it would strand that control (flagged to the coordinator for lane R2's master menu to re-home later).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "Corner -- before",
+      "files": [
+        "20260912T093446297Z-c001b8/000-corner_before.png"
+      ],
+      "caption": "paused; up to 6 lines while running",
+      "meta": {
+        "lines shown": 4
+      },
+      "focus": null
+    },
+    {
+      "label": "Corner -- after",
+      "files": [
+        "20260912T093446297Z-c001b8/001-corner_after.png"
+      ],
+      "caption": "FRAME (ticks) + MIN HZ (sole-route exception)",
+      "meta": {
+        "lines removed": 4,
+        "lines kept": 2,
+        "kept as ticks": 1,
+        "kept as sole-route exception": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "Hover -- LOOK armed",
+      "files": [
+        "20260912T093446297Z-c001b8/002-hover_look_corner.png"
+      ],
+      "caption": "readout present: material, temp, moisture, organism",
+      "meta": {
+        "readout drawn": 1
+      },
+      "focus": null
+    },
+    {
+      "label": "Hover -- PLANT armed",
+      "files": [
+        "20260912T093446297Z-c001b8/003-hover_plant_corner.png"
+      ],
+      "caption": "same cell, same cursor, readout gone",
+      "meta": {
+        "readout drawn": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
