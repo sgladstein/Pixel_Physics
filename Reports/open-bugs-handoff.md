@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**53 open, 105 bugs** (plus 20 landing-note items,
+**52 open, 105 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -150,7 +150,7 @@ point.
 | Z7 | **OPEN** | 10293 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
 | Z8 | closed | 10445 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
 | Z9 | closed | 10566 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | **OPEN** | 10679 | The flitter's float never switches off on a bed that has flowers in it |
+| Z10 | closed | 10679 | The flitter's float never switches off on a bed that has flowers in it |
 
 <!-- END GENERATED INDEX -->
 
@@ -10676,7 +10676,7 @@ vector, so of the eight launch directions **three carry no upward component at
 all** (headings 5, 6 and 7 normalise to a purely horizontal or zero vector) and
 the mean over the eight is 15.2. Measured on the water-free bed: **15**.
 
-### Z10. **The flitter's float never switches off on a bed that has flowers in it** — OPEN, creatures/lab
+### Z10. **The flitter's float never switches off on a bed that has flowers in it** — **FIXED 2026-09-11** (round 29 B3, one weight in `flitter.ron`)
 
 Filed 2026-09-11 by round 29's bed lane, out of the measurement the bed question
 produced rather than out of a complaint.
@@ -10726,3 +10726,48 @@ arm is **0.22 per 1,000 frames per animal against the 1.6 the economy needs**
 rules allow. The remaining seven is not in this bug.
 
 *Reproduction:* `cargo run --release --example labforage -- scenario=played_bed_understory creature=flitter seed=1 frames=120000 sample=6000`, and read `fly_share`, `fly_j` and `deaths_by` on the SUMMARY line. The control is the same command with `wire=Bias:Fly:-9.6`.
+
+---
+
+**FIXED 2026-09-11 (B3).** `flitter.ron`'s `(Bias, Fly, ..)` goes **-4.0 ->
+-9.6**, and nothing else moves. **A bias on this row is a distance threshold**,
+because `BloomNear` is `1 - dist/reach`: the sum `-B + 4*Energy + 8*BloomNear`
+opens the float inside `4 x (12 - B)` cells at full energy, so -4.0 was the
+whole 32-cell eye (*visibility*) and -9.6 is **9.6 cells** (*proximity*) --
+the design's own closing distance -- with the fuel gauge sliding that range shut
+as the tank empties (1.6 cells at half, nothing at a quarter). The verb now
+switches off, and an animal with nothing in range **comes down and sits** at
+0.025 J a frame.
+
+**The sweep that chose it: 24 runs, two beds x four biases x three seeds,
+120,000 frames, one binary** (`wire=Bias:Fly:<b>` replaces the authored weight,
+so the arms differ by exactly one number). `played_bed_understory`:
+
+| bias | range at full energy | `born` (sum) | visits per animal (median) | deaths in mid-air | lift as a share of burn | longest colony |
+|---|---|---|---|---|---|---|
+| -4.0 (was) | 32 cells | 2/0/3 (5) | 3.83 / 1.14 / 2.11 (2.11) | **97% / 61% / 37%** | 55 / 39 / 30% | 24,000 |
+| -7.0 | 20 cells | 6/1/1 (8) | 4.44 / 1.00 / 1.61 (1.61) | 24% / 28% / 12% | 51 / 23 / 27% | 18,000 |
+| **-9.6 (shipped)** | 9.6 cells | 8/2/0 (**10**) | 7.17 / 2.37 / 0.97 (**2.37**) | **8% / 10% / 6%** | 36 / 22 / 5% | **48,000** |
+| -11.0 | 4 cells | 4/1/0 (5) | 6.22 / 1.38 / 1.88 (1.88) | 0% / 7% / 3% | 4 / 4 / 2% | 30,000 |
+
+**The bug is closed on its own terms**: mid-air deaths fall from 97/61/37% of
+all deaths to 8/10/6%, and lift from 55% of everything the colony eats to 36%
+at worst and 5% at best. Births double and the visits-per-animal median rises,
+so nothing measured falls with it.
+
+**What it costs, stated rather than buried.** On `played_bed`, where the nearest
+flowering clump stands 138 columns from the nest and a 9.6-cell gate rarely
+opens, `flower_visits` go **76/8/5 -> 26/10/22**: better on the two poor seeds,
+a third of the good one. The trade was taken deliberately -- a wiring that keeps
+an animal alive on a bed with flowers in it is worth more than one that wrings a
+few more visits out of a bed that cannot feed it either way.
+
+**What it does NOT fix, and this is the standing gap rather than a leftover of
+this bug.** Nobody persists at any setting: **alive at 120,000 is 0 on all 24
+runs**. The deaths stop happening in the air and start happening on the ground
+(`deaths_by` is now overwhelmingly `STARVED`), and the visit rate at the best
+settings is **0.08-0.45 per 1,000 frames per animal against the 1.6 the economy
+needs** (`Reports/evolution-lab-flight-design-2026-09-11.md` §3). **The next
+lever is this animal's life on the ground** -- resting when nothing is in sight,
+the walk (bug **R4**), the eye -- not its wings. Full account:
+`Reports/evolution-lab-flitter-bed-2026-09-11.md`.
