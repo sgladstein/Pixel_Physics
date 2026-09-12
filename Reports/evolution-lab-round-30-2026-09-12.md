@@ -269,6 +269,40 @@ fixed one and the other side fixed the other, and *that* merges clean into a
 half-corrected story. Same conclusion, and it matters because it says which
 cases to look for.
 
+### A rehearsed merge is only a rehearsal of the tree you rehearsed on
+
+**I dry-ran the round's one known conflict, resolved it, ran every gate, saved
+the recipe — and the real merge still produced a defect the rehearsal could not
+have contained.**
+
+The rehearsal was worth it and did its job: it predicted the file, the number of
+hunks and the resolution, and the script replayed exactly. What it could not
+predict is a change I made *after* running it. I later appended a 35-line
+diagnosis to the end of §Z16. The real merge then inserted §Z18 into the gap
+between §Z16's body and that block, so a paragraph about ants planting seeds in
+their own heads came to rest under the floating-spoil heading.
+
+**Every gate was green through it, and each was right.** `bugindex --check`
+verifies the index matches the headings; it did. `docscheck` was clean. The
+index line numbers were self-consistent with the heading positions, because the
+index is *built* from the headings and knows nothing about which section a
+paragraph belongs to. **The property that broke — does this prose sit under the
+heading it is about — is not the property any of them checks.** That is this
+file's own *ask what your number counts* with the instrument being a gate rather
+than a metric: a green that is accurate about its own question and silent about
+yours.
+
+Two things follow.
+
+- **An append to the end of a section is structurally fragile**, because the
+  next section's heading is the only thing marking where it stops, and a merge
+  can put a new heading in front of it. Prefer inserting into the middle of a
+  section, or re-read the boundaries afterwards.
+- **Re-read the merged result, not the merge.** `git diff --diff-filter=U`
+  returning empty means the conflict is resolved, not that the file is right. I
+  found this by reading §Z16 and §Z18 end to end after the resolution, and by
+  nothing else.
+
 ### An instruction at the point of use was already there, and was still missed
 
 Lane P hit a merge conflict in the register's generated index, resolved it
