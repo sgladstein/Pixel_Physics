@@ -121,4 +121,32 @@
     // Same value as `leaf` and `moss` -- this is soft tissue and the three
     // are not meaningfully different to a mandible.
     penetration_resistance: 0.1,
+
+    // **A blade of grass was never food at all, and the late-game design
+    // assumed it was 480 like `leaf`.** Measured 2026-09-12 building round
+    // 29's Brief 1: this file authored **neither** `food_energy` nor
+    // `food_class`, both of which are `#[serde(default)]` and therefore
+    // `0.0` -- so `food_value` returned zero, `diet_yield` returned zero,
+    // and every mouth in the world has been blind to a sward since the day
+    // the field existed. The design report's "leaf.ron/grassblade.ron 480 ->
+    // 40" is a correct instruction for one of the two files and an
+    // *increase* for this one; the number is recorded here rather than
+    // quietly matched, because the next session to read that report will
+    // otherwise re-derive the same surprise.
+    //
+    // **Set to `leaf`'s new 40 anyway, and the reason it is safe is that it
+    // changes nothing at the shipped gut**: `40 * diet_quality(0.0) = 10`
+    // against `EAT_YIELD_THRESHOLD`'s 12, so a neutral ant still cannot see
+    // grass, exactly as it could not before. What it buys is that the two
+    // foliage materials now say the same thing, so a lineage that walks its
+    // gut down to -0.6 and becomes a grazer can graze the *meadow* and not
+    // only the canopy -- which is the niche Brief 1 is opening, and it would
+    // be an odd world where the one plant built to be walked through is the
+    // one plant a grazer cannot eat.
+    food_energy: 40.0,
+    // Plant matter, like every other foliage material. Also previously
+    // unauthored and therefore `0.0`, which is the *flesh/plant midpoint* --
+    // so had anything ever given this a food value without this line, a
+    // sward would have read as half meat.
+    food_class: -1.0,
 )

@@ -217,8 +217,45 @@ fn main() {
         }
     }
     let st = world.creature_stats;
+    let final_census = census::census(&world, &spec, gut, &nest_cols, &ids);
     println!(
-        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0}",
-        scenario.name, spec.seed, st.births, st.deaths, st.eats, st.digs, st.spoil_dumped, st.deliveries, world.nectar_paid
+        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} \
+         bare_seeds_spared={} bare_seeds_carried={} seeds_carried={} seeds_delivered={} pips_released_by_digestion={} plants_from_pip={} \
+         seed_bank={} plants={} ants={} leaf_kj={:.1} litter_kj={:.1} seed_kj={:.1}",
+        scenario.name,
+        spec.seed,
+        st.births,
+        st.deaths,
+        st.eats,
+        st.digs,
+        st.spoil_dumped,
+        st.deliveries,
+        world.nectar_paid,
+        // **Round 29, Brief 1.** `bare_seeds_spared` is the plant side's "it
+        // fired" -- a bare-seed bite rolled `seed_gut_survival` and won --
+        // and `bare_seeds_carried` the effect counter from the far side of
+        // the call: that survivor became a `Crop::passenger` instead of
+        // standing where it was bitten. `seeds_carried` beside them is the
+        // pre-existing union of the bare and the in-fruit routes, kept so
+        // the two can be differenced. `plants_from_pip` is the end of the
+        // loop the whole brief is about: a seed an ant carried, set down
+        // where the meal ended, that came up as a plant.
+        world.bare_seeds_spared,
+        world.bare_seeds_carried,
+        world.seeds_carried,
+        world.seeds_delivered,
+        world.pips_released_by_digestion,
+        world.plants_from_pip,
+        // The final row's standing state, repeated on the SUMMARY line so a
+        // sweep can read one line per run rather than parse the table. The
+        // leaf larder is here beside the bank because the owner's live-play
+        // report is that the colony strips the stand *as well as* the bank,
+        // so a build judged on the bank alone would be judged on half of it.
+        final_census.seed_bank,
+        final_census.plants,
+        final_census.ants,
+        final_census.leaf_j / 1000.0,
+        final_census.litter_j / 1000.0,
+        final_census.seed_j / 1000.0
     );
 }
