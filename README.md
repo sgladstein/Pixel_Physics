@@ -7950,9 +7950,11 @@ slope" means here, and no single-stop figure in the table above shows it.
 bank above ~500 at 500,000 frames. The bank is what the mouth takes first
 (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1.1), and that is
 brief 1's mechanism, not this one's. What this build is measured to deliver is
-the *colony*: at 40,000, seed 1 is the only arm in the sweep still alive at
-500,000 frames, and its deaths are spread over the whole run instead of
-arriving as one cliff.
+the *colony*: seed 1 is the only bed of the three still holding ants at 500,000
+frames, and it holds them under **both** settings — 108 without a lifespan and
+256 with one. The difference is not whether the colony is there at the end but
+how it got there, which is the trajectory above: one arm arrived by crashing
+from 3,099 to 16 and re-booming, the other by holding a band.
 
 **On a smaller bed it is a straight gain.** `labstats frames=120000 seed=1` on
 the harness bed, lifespan 0 against 40,000: ants alive **18 → 92**, starved
