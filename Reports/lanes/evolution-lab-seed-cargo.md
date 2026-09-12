@@ -93,6 +93,30 @@ second mortality channel on top, or the two will be inseparable.
 have been the tell**: deepest generation 10 → 25 on seed 3, 10 → 8 on seed 1,
 7 → 3 on seed 2. Do not quote the seed-3 number alone.
 
+## Rendering the whole session as a card
+
+**`labgif` cannot make a long-span animation on its own, and the reason is not
+obvious from its `--help`.** Its GIF frame delay is derived from the capture
+interval -- `delay_ms = every * 1000 / 60`, i.e. it always plays back at
+real-world speed. That is right for the mister it was built for and useless for
+a 500,000-frame session: at `every=2000` each frame would hold for **33
+seconds**. The route that does not touch a contested file (`examples/labgif.rs`
+carries salvage commits from two other lanes) is `png_dir=`, then assemble the
+GIF outside with Pillow at a chosen delay. 251 captures at `every=2000`, cropped
+to `(0, 34, 512, 242)` -- which drops the two top chrome lines and the whole
+bottom UI bar but keeps the frame counter -- quantised to 255 colours, is
+**1.0 MB** for ten seconds of playback; uncropped and per-arm-quantised it is 13 MB.
+
+**Fit one palette across BOTH arms.** Quantising each arm separately gives the
+arm with more foliage more greens, which is a colour difference the owner could
+read as the answer without ever looking at the plants -- on a blind A/B that is
+the card deciding itself.
+
+**`labgif` overrides the scenario's own rain rate with `steady` by default**
+(`rain=` in its header), while `latecensus` takes whatever the scenario ships.
+`played_bed` ships `Off`, so a card rendered at the default is a *different
+world* from the census whose counters are printed beside it. Pass `rain=off`.
+
 ## For Brief 2 and Brief 3
 
 - `CreatureDef`/`Species` already carry `life_half_life` (the plant field);
