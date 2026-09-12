@@ -290,13 +290,13 @@ fn main() {
         // A colony the scenario placed copied the species' value at founding,
         // so a change made to the species alone would reach the children and
         // never the founders -- which reads as a dial that half works.
-        let living: Vec<u16> = lab
-            .world
-            .live_organism_ids()
-            .into_iter()
-            .filter(|id| lab.world.organism(*id).is_some_and(|st| lab.world.species.get(st.species).name == "ant"))
-            .collect();
-        println!("  ant scent_drift = {v} ({} standing ant(s) bred from it)", living.len());
+        // **No "applied to N standing ants" line here, deliberately.** The
+        // scenario places its colony during the `start` run below, not at
+        // load, so at this point there are none and a count would read "0
+        // standing ants" -- which looks exactly like a dial that reached
+        // nobody. The species value is what every founder copies, and the
+        // far-side counters at the end of the run are what say it fired.
+        println!("  ant scent_drift = {v} (set on the species; the scenario's colony is founded during start=)");
     }
     // **The three nest dials, so one card can isolate one mechanism.** The
     // owner's reading of card 20260912T051541289Z-3b03d3: *"These sound like
@@ -532,8 +532,21 @@ fn main() {
             .iter()
             .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, k)| *k).sum::<u64>())
             .sum();
+        // **The living population beside the kill tally, because a kill
+        // count alone cannot be read.** 675 own-kills in a colony of 60 and
+        // in a colony of 600 are different events, and a review card that
+        // quotes one without the other is the "mean over events" trap this
+        // repo has already paid for. Counted here rather than carried over
+        // from `labstats`: that is a different harness over a different frame
+        // span, and a plausible number about a different question looks
+        // exactly like a result.
+        let alive = w
+            .live_organism_ids()
+            .into_iter()
+            .filter(|id| w.organism(*id).is_some_and(|st| w.species.get(st.species).creature.is_some()))
+            .count();
         println!(
-            "  cohesion: nest blends {} (share blends {}) | group mints {} (labels minted off a drifted lineage, `World::colony_parents`) | killed by own colony {own} | nest odour {:?}",
+            "  cohesion: alive {alive} | nest blends {} (share blends {}) | group mints {} (labels minted off a drifted lineage, `World::colony_parents`) | killed by own colony {own} | nest odour {:?}",
             w.creature_stats.nest_blends,
             w.creature_stats.share_blends,
             w.colony_parents.len(),
