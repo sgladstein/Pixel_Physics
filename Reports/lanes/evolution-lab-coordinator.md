@@ -24,8 +24,7 @@ three, and it has not been superseded):
 
 **So: stop balancing, start exposing.** A default that looks wrong is something
 to **register and report**, never to tune. **Ship new behaviours as default**
-(round twenty; restated by the owner in round twenty-nine as *"ship everything
-on, I will tell you to change it"*). Reach is not behaviour: nothing born
+(round twenty; the owner in round twenty-nine: *"ship everything on"*). Reach is not behaviour: nothing born
 swinging or listening is `CLAUDE.md`'s second law failing quietly.
 
 **Read the bed at a session, not at a minute.** The owner's own framing — a
@@ -60,8 +59,7 @@ one binary's loop and not to `frame::step`**.
 **The perf line's handed-forward list** (archived round nineteen,
 [`../evolution-lab-frame-cost-2026-09-01.md`](../evolution-lab-frame-cost-2026-09-01.md)
 §18.5): the **~21% in the kernel and rayon**, then the moisture pass, then the
-pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline
-binary after every merge** — a hash gate is worthless against a stale one.
+pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline binary after every merge.**
 
 ## Round twenty-nine, 2026-09-12 — the bed comes back, and the colony learns to die
 
@@ -102,9 +100,8 @@ away turns enemy" all wait on that, and the shipped drift value is his design
 call. **The flitter is caged by the canopy, not broken in flight** (§Z15): a
 design lane, starting from `climbable`; uncaged, the owner chose the new
 flight as flying. **Owner verdicts at the close:** seed cargo and the
-lifespan arm chosen by eye; **the long-ant pile is not visibly fixed**
-(both arms stuck, the fix arm worse) — round thirty's; a follow camera
-ruins a colony-level card. **A card paired against a census passes
+lifespan arm chosen; **the long-ant pile is not visibly fixed** (the fix
+arm read worse) — round thirty's; a follow camera ruins a colony card. **A card paired against a census passes
 `rain=off`, and its `meta` is measured in the window it shows.** **Cloud lanes
 by poke**, auto-merge off on every lane PR, one merge order for one file,
 `git merge-tree` before CI, the bug letter named in the brief — the mechanics
@@ -116,8 +113,7 @@ are in the record's environment section.
 **What binds.** `nectar_only` stays: a plant specialist's mouth eats the plant
 and no gut setting avoids it. **A card of a one-cell event is unreadable even
 ringed and zoomed**: show the stand, the door or the colony over a long span,
-or let the playtest judge. **Bigger heads read, 12 as well as 16, and 9 is
-out.** **Sonnet refuses a brief dense in genetics vocabulary on a `[bio]`
+or let the playtest judge. **Sonnet refuses a brief dense in genetics vocabulary on a `[bio]`
 classifier** — write it in the world's words or run the lane on Opus.
 
 ## Rounds twenty-five to twenty-seven, 2026-09-09 → 2026-09-10
@@ -176,8 +172,8 @@ knowing which is yours is most of the saving:
   `TMPDIR`, or one lane captures another's frame.
 - **`review.py inbox --mark-seen` marked all 199 cards seen**, not just the
   caller's. Use `get <id>` rather than trusting an empty inbox.
-- **Several agents in one container makes every timing untrustworthy.** Pin
-  `RAYON_NUM_THREADS` or compare arms inside one run.
+- **Several agents in one container makes every timing untrustworthy** —
+  pin `RAYON_NUM_THREADS` or compare arms inside one run.
 - **A cloud lane is reached by poke, never by `SendMessage`**:
   `create_trigger(persistent_session_id, no schedule)` then `fire_trigger`,
   a fresh trigger per message, and the reply comes back the same way. A poke
