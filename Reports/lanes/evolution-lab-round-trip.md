@@ -89,9 +89,14 @@ Three things this lane measured that a later session should not repeat:
   and the garden-midden and late-game lines both *want* plants on the mound —
   but it is a real change to what the anthill looks like and it was caused
   here.
-- **`rain=0` clears the door on its own** (seed 1: water 51 → 0 and `airy`
-  2 → 53 by frame 20,000) and is the control, never a fix — the bed's plants
-  need the mister and that arm crashes the colony for its own reasons.
+- **`rain=0` clears the door on its own** (seed 1: water 51 → 0, `airy`
+  2 → 53 by frame 20,000). A control, never a fix — the bed needs the mister.
+- **The patch now feeds the coarse moisture field** (`field.rs` builds
+  `moisture_source` from `aux / water_capacity`, kind-agnostic), so the ground
+  at the door reads *wet* to `MoistureGrad` where it used to read like bare
+  rock. That channel is a free weight on `Drop` and `Dig` in the genome, so
+  part of the behaviour change is this and not the access — do not attribute
+  all of it to the door.
 
 ## Where to look next
 
