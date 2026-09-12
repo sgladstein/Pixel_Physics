@@ -1173,6 +1173,36 @@ impl Dials {
         world.refold_developmental_seeds();
     }
 
+    /// Which of these differ from `default`, as `"NAME value"` strings in
+    /// declaration order -- `Lab::write_chronicle`'s own use, so a chronicle
+    /// names what the player actually set rather than every dial whether
+    /// touched or not. Plain `!=` rather than a derived `PartialEq`: every
+    /// dial here moves by a whole slider step or a button press, never by
+    /// float noise, so an exact comparison is the right one.
+    pub fn changes_from(&self, default: &Dials) -> Vec<String> {
+        let mut out = Vec::new();
+        macro_rules! diff {
+            ($field:ident, $label:literal) => {
+                if self.$field != default.$field {
+                    out.push(format!("{} {:?}", $label, self.$field));
+                }
+            };
+        }
+        diff!(soil_capillary_levels, "SOIL_CAPILLARY_LEVELS");
+        diff!(plant_load_failure, "PLANT_LOAD_FAILURE");
+        diff!(plant_bending, "PLANT_BENDING");
+        diff!(plant_size_cadence, "PLANT_SIZE_CADENCE");
+        diff!(trait_reach, "TRAIT_REACH");
+        diff!(plasticity, "PLASTICITY");
+        diff!(alarm_decay, "ALARM_DECAY");
+        diff!(mutation_sigma, "MUTATION_SIGMA");
+        diff!(fate_mutation_chance, "FATE_MUTATION_CHANCE");
+        diff!(param_mutation_chance, "PARAM_MUTATION_CHANCE");
+        diff!(param_mutation_sigma, "PARAM_MUTATION_SIGMA");
+        diff!(developmental_key, "DEVELOPMENTAL_KEY");
+        out
+    }
+
     /// Write every dial to [`ASSET_PATH`](Self::ASSET_PATH) whole, like
     /// `player::Tuning::save` — a generated file with no comments to lose.
     pub fn save(&self) -> Result<(), String> {

@@ -49,6 +49,7 @@ use crate::render;
 use crate::sim::organism::SpeciesId;
 use crate::sim::world::{self, World};
 
+use super::census;
 use super::names;
 use super::params;
 use super::plainspeak;
@@ -6053,14 +6054,17 @@ pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
 /// and nothing else, so a file on disk and the LOG/HISTORY pages a player is
 /// looking at are always the same reading of the same events.
 ///
-/// Three parts, in the order `examples/chronicle.rs` already prints them:
-/// a header naming the bed, the LINES view through the identical
-/// [`format_log_line`] the LOG page draws through -- **oldest first**, so it
-/// reads as a story rather than as the page's own newest-first table -- and
-/// a LEGENDS section built from [`ended_lines`]. Per-kind counts last,
-/// `CLAUDE.md`'s standing rule: prose says what and where, only the count
-/// says whether it fired.
-pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32) -> String {
+/// Four parts, in the order `examples/chronicle.rs` already prints them: a
+/// header naming the bed plus what the player changed from the shipped
+/// dials, a CENSUS section (`census::chronicle_section`) -- the numbers a
+/// story of events cannot carry, per
+/// `Reports/evolution-lab-late-game-design-2026-09-12.md` brief 0 -- the
+/// LINES view through the identical [`format_log_line`] the LOG page draws
+/// through -- **oldest first**, so it reads as a story rather than as the
+/// page's own newest-first table -- and a LEGENDS section built from
+/// [`ended_lines`]. Per-kind counts last, `CLAUDE.md`'s standing rule: prose
+/// says what and where, only the count says whether it fired.
+pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, census_rows: &[census::ChronicleRow], dial_changes: &[String]) -> String {
     use std::fmt::Write as _;
     let mut out = String::new();
     let _ = writeln!(out, "CHRONICLE OF {bed_label}");
@@ -6074,6 +6078,13 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32) 
         world.frame,
         dial
     );
+    if dial_changes.is_empty() {
+        out.push_str("DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED\n");
+    } else {
+        let _ = writeln!(out, "DIALS CHANGED FROM SHIPPED: {}", dial_changes.join(", "));
+    }
+    out.push('\n');
+    out.push_str(&census::chronicle_section(census_rows));
     out.push('\n');
     let mut lines: Vec<&world::LogEvent> = world.run_log.recent().filter(|e| e.kind.is_line_event()).collect();
     lines.reverse(); // the log reads newest first; a story reads forward
@@ -9300,7 +9311,7 @@ mod tests {
         let log_count = w.run_log.recent().filter(|e| e.kind == world::LogKind::LineEnded).count();
         assert_eq!(log_count, 3, "the fixture did not end three lines");
 
-        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
         // One legend paragraph opens `THE <NAME> LINE (`; counting that
         // prefix is the export's own row count, not a re-derivation of it.
         let legend_lines = text.lines().filter(|l| l.starts_with("THE ") && l.contains(" LINE (")).count();

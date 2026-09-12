@@ -30,7 +30,17 @@
 //! under the played bed's name with no warning at all -- the coordinator hit
 //! this exactly, and it is why `frames=` alone is not proof of anything: the
 //! first line has to name what bed actually ran.
+//!
+//! **`census=1` (the default) adds the same CENSUS section the lab's own
+//! chronicle export carries** (`Lab::write_chronicle`, `census::
+//! chronicle_section`) -- one row every `sample=` frames (default 10,000,
+//! `Lab::CHRONICLE_CENSUS_EVERY`'s own value), so a headless run and a real
+//! session's saved chronicle are the same table. `census=0` drops it back
+//! to the plain LOG-only export this file always was. This is the second
+//! form of "the chronicle as an export"; see `examples/latecensus.rs` for
+//! what each CENSUS column answers.
 
+use pixel_physics::lab::census;
 use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::ui::format_log_line;
@@ -49,6 +59,8 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(6000);
     let all: u32 = arg("all").unwrap_or(0);
+    let show_census: bool = arg::<u32>("census").unwrap_or(1) != 0;
+    let sample_every: u64 = arg("sample").unwrap_or(pixel_physics::lab::Lab::CHRONICLE_CENSUS_EVERY);
     // A bad name refuses at load rather than quietly running the default bed
     // under the wrong label -- see this file's own doc comment for why that
     // silence is the bug this binary just had.
@@ -103,14 +115,39 @@ fn main() {
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
+    // **CENSUS bookkeeping, `census::nest_columns`'s own reason: a nest does
+    // not move once founded**, so this is resolved once rather than
+    // recomputed every sample. `gut` starts at whatever colony the bed
+    // founds at build time and updates when the timeline delivers another,
+    // `examples/latecensus.rs`'s identical shape.
+    let ids = census::Ids::resolve(&world);
+    let nest_cols = census::nest_columns(&spec, scenario.as_ref());
+    let mut gut: f32 = census::ant_gut_bias(&world);
+    let mut census_rows: Vec<census::ChronicleRow> = Vec::new();
     for _ in 0..frames {
         // The scenario's own timeline, before this frame's step -- a colony
         // founded this frame belongs in this frame's log, not next frame's
         // (`labforage.rs`'s identical ordering).
         if let Some(sc) = &scenario {
-            pixel_physics::lab::scenario::tick_timeline(sc, &mut world, &spec);
+            let arrived = pixel_physics::lab::scenario::tick_timeline(sc, &mut world, &spec);
+            if arrived.animals > 0 {
+                gut = census::ant_gut_bias(&world);
+            }
         }
         frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        // Right after `frame::step`, the lab's own cadence (`Lab::tick`):
+        // this frame's settled state, sampled once every `sample_every`.
+        if show_census && world.frame % sample_every == 0 {
+            census_rows.push(census::take_chronicle_row(&world, &spec, gut, &nest_cols, &ids, &spec.colony_species));
+        }
+    }
+
+    // **The CENSUS section, right after the header** -- `Lab::write_
+    // chronicle`'s own ordering (`ui::chronicle_text`), so this and a real
+    // session's saved chronicle read the same way top to bottom.
+    if show_census {
+        print!("{}", census::chronicle_section(&census_rows));
+        println!();
     }
 
     // Newest-first on the log; a story reads the other way.
