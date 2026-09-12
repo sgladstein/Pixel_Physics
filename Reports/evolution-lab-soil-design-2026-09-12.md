@@ -17,57 +17,46 @@ also fully solve the problem). Lets really think think through."*
 
 *Status: **design of record for the two soils, with the measurements every
 recommendation is taken from.** Nothing here is built except the instrument,
-`examples/soilfork`. Lane U of round thirty; upstream of round-30 brief 3
-(room and weathering), which this report asks to re-cut in one respect.*
+`examples/soilfork`. Lane U of round thirty. The first cut landed as PR
+#346; this revision folds in the coordinator's reframing of the same day —
+**the direction is open** (the owner: *"I don't know if we want more loose
+or more fixed, but I want the agent to explore the options and downstream
+effects"*), the owner's four issues are the criteria every option is judged
+against, and the towers are a preference to weigh rather than a rule. Brief
+3's weathering half was cut; this report owns everything about what soil is
+and does, and a build lane is cut from whatever it recommends.*
 
-## The answer
+## The owner's four issues, and what the measurements say about each
 
-**Two of the owner's three symptoms survive measurement and one does not.**
-The towers are real and so is the engulfing. *"A ground that new plants don't
-grow in"* is not: the bare patch over a nest is there before the mound is,
-and on the bed that grows the biggest mound the plants stand *on* it. So the
-question is not what to do about a sterile substrate. It is what a heap of
-tamped spoil should do with time, and what a plant inside one should do.
+These are the acceptance criteria, in the owner's words. Every option in §3
+is scored against them in §4.
 
-1. **Keep the tamped spoil — the nest cannot exist without it — and let the
-   spoil that is *dumped* weather back to loose soil, at a rate that is a
-   dial.** This is round-30 brief 3, with one correction: **it cannot be a
-   `decays_into` on `packedsoil`**, because the chunk-settle scan schedules a
-   decay site for *every* cell whose material decays (`world.rs`,
-   `end_step`), so the tunnel lining would weather too and the nest would go
-   with it. The dumped pellet and the tunnel wall have to be **two
-   materials**: `spoil` (self-supporting, decays to soil) and `packedsoil`
-   (self-supporting, permanent). That is the "second flag" the brief asked
-   for, and it is a material name rather than a rule. Measured as a staged
-   end state on the played bed, the dial's two ends are a mound that stands
-   for a session and one that cones over a few thousand frames at the cost
-   of a fifth to a third of the shallow galleries (§3b). Its zero is
-   "leave the towers", so nothing the owner likes is lost by shipping it.
-2. **Make loose and packed soil opaque to sunlight, as a material property.**
-   Burial cannot kill a plant today and *cannot* be made to with any rule
-   about the plant: `field.rs` counts only `Solid` and `Plant` cells as
-   occluders, so a leaf inside a heap of `packedsoil` sees the full lamp.
-   Measured with a stone positive control (§2b): the same burial in stone
-   cuts a tree's income to **8%** of the control and starts its starvation
-   clock, in packed soil its income is unchanged. An `opaque` flag on the
-   material costs nothing per frame — the scan already reads the material —
-   and gives the buried plant the graded death `rot_remains` already
-   delivers. It is second, not first, because it reallocates three things
-   calibrated against transparent ground: the germination light gate, the
-   ant's own light sense, and every cave in the outdoor game (§3d).
-3. **Do not build the moisture candidate, the richer-soil candidate, or the
-   gated crumb rule.** The mound is as wet as the bank beside it or wetter
-   (0.29 against 0.22 of capacity on seed 3, 0.65 against 0.62 on seed 1),
-   the crumb rule that the brief calls untried
-   has been the shipped rule since 2026-09-01, and a richer decomposed soil
-   needs a nutrient economy the engine does not have. Each is in §3 with its
-   number.
+| # | the issue, as the owner put it | survives measurement? | what is actually happening |
+|---|---|---|---|
+| 1 | *You cannot tunnel through decomposed soil and have it stay; bank soil dug and placed does stay* | **partly, with a different mechanism than "two soils"** | Decomposed *soil* is `soil` and lines a tunnel exactly as the bank does — there is no second soil to behave differently. What cannot be tunnelled is **what has not yet become soil**: litter, carrion, ash, dead wood. None of them has a `packs_into`, so a gallery cut through them is never tamped and falls in five frames (§2e). On the lab bed that layer is thin — 81–123 cells of litter over 650–987 of rot-made soil — so the asymmetry is real but small there, and larger wherever leaves pile deep. It is between *tamped* and *untamped*, not between two soils |
+| 2 | *Individual pieces of soil floating in the air* | **yes, at scale** | The single hanging pellet is already removed by the crumb rule (live since 2026-09-01). What remains is spoil on spoil and spoil in branches: 91 cells at 82 ants, **1,074 in 165 pieces** at 3,182 ants (§2c) |
+| 3 | *Spoil engulfs plants* | **yes — and the plant lives on inside** | 1,391 shoot cells enclosed on the big colony. Burial cannot kill: soil casts no shade in this engine, so a plant inside a heap keeps its full light and income; only room stops it growing (§2b). On a small colony most of what stands above the old ground line is the plants' own rot, not spoil (§2f) |
+| 4 | *The mound is ground new plants don't grow in* | **no** | The bare patch is there before the mound is, plants stand on the biggest heap in the report, and the heap is as wet as the bank beside it (§2a). The bare patch is the colony eating seedlings |
 
-**The thing to hold on to** — an ant must be able to make a hole that stays,
-and a heap that is permanent and sterile is a scar — is satisfied by 1 and 2
-together and by neither alone. The lining stays packed for ever; the heap
-weathers into ground; what the heap buried dies in the dark and rots into the
-heap. The verb still delivers a visible mound. The mound has a middle.
+**And the preference:** *"they create cool towers … I like them, but don't
+know if they are worth the problem they cause."* Treated as an input to
+weigh. Two of the options below remove the towers and say so in those words.
+
+**The recommendation, in one paragraph, with its trade** (the full case is
+§4): let *dumped* spoil weather back to loose soil at a rate that is a dial
+whose zero is today's towers, as a second material so the tunnel lining never
+weathers; and make soil cast shade, as a material property, so a buried
+plant dies the graded death the engine already has. **The trade:** at any
+rate above zero the towers come down over a session — that is what
+weathering *is* — and every loose cell that lands in a shallow gallery closes
+it, measured at 1% of the nest per 6,000 frames at the slow end and 30% at
+the fast end. Issue 1 is a third, separate fix: give the decomposing
+materials a `packs_into`, or accept that a drift of leaves is not ground you
+can tunnel. Neither direction — more fixed, more loose — wins on its own:
+the "fixed" options (§3i–3k) close issues 1 and 2 and make the whole bed a
+wall; the "loose" option (§3c) closes 2 and 3 and takes a third of the nest
+with it. The recommendation is the middle, and the dial is what lets the
+owner move along it in play rather than in a rebuild.
 
 ## 1. What the two soils are today
 
@@ -109,9 +98,24 @@ pellets **52–101 rows** into a tree's crown, four seeds, against **4–11**
 rows with no tree in the bed — that is the *engulfing*, and it is a live
 mechanism on `main` today, not a stale one.
 
-So the asymmetry the owner describes is exactly one bit on one material, and
-every consequence below follows from the two things that bit does: the
-lining stands, and so does everything else the colony tamps.
+So the asymmetry between *bank* soil and *spoil* is exactly one bit on one
+material, and every consequence below follows from the two things that bit
+does: the lining stands, and so does everything else the colony tamps.
+
+**But the asymmetry the owner noticed is a different one, and only part
+of it is a soil.** "The soil that is created when plants, leaves, other
+things decompose" ends as `soil` — the same material as the bank, with the
+same `packs_into`, so a colony lines a gallery in it exactly as it does in
+the bank. What it *cannot* line is anything still on the way: `litter`,
+`deadleaf`, `deadwood`, `ash`, `corpse`, `log`, `windfall` and `pip` have no
+`packs_into`, so `line_burrow` cannot tamp a wall in any of them and a
+gallery cut through a leaf drift is loose on every side. How much of the
+forest floor is in that state is a matter of rate and yield: litter rots
+fast (a damp cell has a half-life of about 400 frames) and only one cell in
+twenty becomes soil (`decay_yield` **0.05**, set because 1:1 rot *"buried the
+owner's trees to their crowns"*), so the standing layer of untampable
+matter is thin on the lab bed (§2f) and deep only where leaves fall faster
+than they rot. §2e states the mechanism; §3i costs the fix.
 
 ## 2. Which symptoms survive measurement
 
@@ -225,6 +229,53 @@ card is taken from. On seed 3 the same rules give a shallow honeycomb along
 the whole surface — packed lining in every 32-column bin of the bed, 8 to
 111 cells each — under a crust of spoil one to three cells thick. Same flag,
 two silhouettes; which one a bed gets is the colony's size.
+
+### 2e. "You cannot tunnel through decomposed soil and have it stay" — survives, and it is the litter
+
+Read from the assets rather than run, because the reading is decisive:
+`packs_into` exists on `soil` alone (§1), so the only material a colony can
+line a gallery in is soil — bank soil and rot-made soil alike, since both are
+the one material. Litter, carrion, ash and dead wood cannot be lined at all.
+`burrow_probe`'s own measurement then applies to them unchanged: an unlined
+gallery in a `Powder` is 63–82% open one frame later and gone in five. **The
+number that would settle it by measurement rather than by reading** is a
+`litter` arm on `burrow_probe` with `line_burrow` applied — not built here,
+one instrument being the budget — and the prediction is the bank's 100%
+against the drift's 0% within five frames.
+
+There is a second, smaller mechanism worth naming: a gallery is one to three
+cells tall and the rot-made layer above the old surface on the lab bed is
+one to two cells deep (§2f), so a tunnel cut *along* it has no roof to tamp,
+whatever the material. Neither mechanism is "decomposed soil is different
+ground". So issue 1 survives in part: the owner is comparing tamped ground
+with untamped ground, and the untamped ground is the leaves and bodies that
+have not become soil yet, or a drift too thin to roof. "Behave the same" has
+two readings — make the drift tampable, or make the bank untampable — and
+only the first keeps the nest (§1's 2/1-against-54/58 measurement is the
+second).
+
+### 2f. Who built the heap — the ants, or the plants
+
+`soilfork` counts three things standing above the original surface: tamped
+spoil, loose soil, and decomposing matter still on its way to being soil.
+
+| bed | packed spoil | loose soil (rot-made, or weathered) | litter and other rotting matter |
+|---|---|---|---|
+| seed 3, 100,000 frames, 89 ants | **88** | 650 | 81 |
+| seed 3, 200,000 frames, 82 ants | 541 | 987 | 123 |
+| seed 1, 300,000 frames, 3,182 ants | **3,124** | 669 | 13 |
+
+On a colony of a hundred, **most of what stands above the old ground line is
+the plants' own doing** — rot-made soil outnumbers spoil seven to one at
+100,000 frames and two to one at 200,000, with a thin skin of litter over it
+— and "the ants built this heap" is partly wrong. On a colony of three
+thousand the ants dominate five to one. This reframes issue 3 for the
+ordinary bed: a seedling on a small colony's bed is buried by the forest
+floor more often than by spoil, which is the burial `decay_yield` was set to
+slow. And it reframes issue 1: the rot-made ground is overwhelmingly `soil`
+already, so the untampable fraction is small here. The remedy for both
+burials is the same one (§3d); the remedy for the untampable fraction is
+§3i, or accepting it.
 
 ## 3. The option space, each costed
 
@@ -349,8 +400,18 @@ match. *Kind:* a material property, default on for `soil`, `packedsoil`,
 `spoil`, `sand`, `snow`; off for `litter` (insubstantial — a leaf drift is
 not a roof) and every liquid.
 
+**The plain consequence, stated because it is bigger than this question:
+depth does not exist for the light model except through rock and
+vegetation.** A seed under fifty cells of soil reads full daylight. A root
+ten rows down is as lit as a leaf. A cave dug into a hillside of soil is lit
+to its floor; only one cut into stone is dark. Nothing in the engine has ever
+been calibrated with ground that casts shade, which is exactly why this is
+the biggest risk in the report and not the smallest change in it.
+
 *What it reallocates, and why it is second.* This is the change `CLAUDE.md`
-warns about: a term whose *expression* changes moves every constant
+warns about — the `phototropism_dir` case: the prescribed repair, correct,
+and reproduction went to **zero** at inherited constants with every gate
+green but one. A term whose *expression* changes moves every constant
 calibrated against the old expression, and here three are:
 
 - **`Germinate`'s light gate** (herb 0.1, grass 0.08 of maximum). Today a
@@ -368,10 +429,23 @@ calibrated against the old expression, and here three are:
   dark, which `field.rs` says it wants ("caves stay dark") and nobody has
   looked at. `shade_factor` for moss reads the same field.
 
-None of these is a reason not to do it; all three are why it is a lane of its
-own with `latecensus` and `labforage` run before and after, not a rider on
-3b. Positive control: `soilfork mode=bury arms=none,packed` with the flag on
-must put the packed arm where the stone arm is now.
+**Is the re-derivation affordable?** Yes, as one lane, on these terms, and
+not otherwise. The constants are enumerable — one `light_threshold` per
+species (seven files: conifer, creeper, grass, herb, scrambler, shrub, tree),
+`shade_factor`'s floor, and whatever `LightHere` weight any shipped brain
+carries — and the measurement that says whether they moved already exists:
+`latecensus` and `labforage` on the played bed, three seeds, flag off against
+flag on, read at the seed bank (seeds borne, germinations, bank size) and at
+the stand. If germinations move by less than the seed-to-seed spread the
+gates are re-derived by construction; if they move by more, the germination
+threshold is re-set so a seed *on* the surface passes as it does today and
+only a seed *under* soil waits, which is the intended change. **What makes it
+unaffordable is skipping that measurement**: the flag with inherited
+constants is the regression `CLAUDE.md` names, and nothing downstream would
+notice, because every gate would stay green while the bank quietly shrank.
+So the lane is the flag *and* the three-seed paired census, or it is not
+scoped. Positive control: `soilfork mode=bury arms=none,packed` with the flag
+on must put the packed arm where the stone arm is now.
 
 *Not recommended instead:* a per-leaf rule ("a shoot cell with ground above
 it earns nothing") in `plant.rs`. It is cheap — one `get` per shoot cell per
@@ -422,13 +496,93 @@ long enough becomes self-supporting — would make every bank a wall and every
 gallery in loose soil permanent, which is the freeze `packedsoil.ron` refused
 `reinforces_powder` for.
 
+### 3i. Make the drift tampable: a `packs_into` on decomposing matter (issue 1's direct fix)
+
+*Sees:* a colony can tunnel a leaf drift or a carcass pile and the tunnel
+stays; a gallery in litter is lined like one in the bank. On the lab bed the
+untampable layer is thin (§2f), so this buys little there and more under an
+outdoor forest. *Cost:* none per frame — the
+dig and `line_burrow` already read `packs_into` off the material. *Kind:* a
+material property, one line per asset. **The downstream effect is the whole
+decision, and it is not free:** litter is **food** (480 J a cell, the
+colony's second larder), and a tamped litter cell would become `packedsoil`
+— the colony converting its own larder into wall as it digs. Two shapes:
+`litter.packs_into: packedsoil` (simple; leaf mould pressed into ground is
+what a real nest wall in a drift is; the larder loss is the cost) or a
+`packedlitter` that stays edible and self-supporting (keeps the food, adds a
+material and a food class). The first is the recommendation if issue 1 is to
+be closed at all, with the larder loss measured on `labforage` before it
+ships. **Or accept that leaves are not ground**, which is what the engine
+says today and is physically defensible — a burrow in a leaf pile is not a
+thing. That is a legitimate answer to issue 1 and the cheapest, and it should
+be put to the owner as one.
+
+### 3j. Loose soil sets when it comes to rest (the "fixed" direction, one rule for both soils)
+
+The coordinator's candidate: the distinction is not *which* soil but *has
+this cell come to rest*. Tilth falls until it lands, then sets; a pellet is at
+rest the moment it is set down; nothing sets in mid-air because nothing is
+at rest there. *Sees:* every hole in every soil holds — a dug pit keeps
+vertical walls, a gallery needs no tamping, the forest floor is a wall once
+it has lain still. *Cost:* the cheap form is a conversion `soil ->
+packedsoil` on the chunk-settle scan that already runs for decay, so nothing
+per cell per frame; the expensive form is a per-cell rest counter, and there
+is no room for one (`aux` is moisture on a `Powder`). *Kind:* a rule, with
+the settle interval as its dial. **Downstream, traced:** the lab's bed is
+built settled, so it becomes `packedsoil` on the first settle — the whole
+bed at 0.95 resistance and 1.19x root cost; repose stops existing after
+first rest, so litter drifts, pits and spoil never cone again and every heap
+is permanent; the crumb rule keeps the single hanging cell out, and the
+lattice (issue 2) is made *legal everywhere*, since anything that lands on
+anything sets; in the outdoor game every landslide freezes where it stops
+and every dug hole keeps its walls with no ant in it, which is the "roof
+that never falls" the four support models were built to avoid. It closes
+issue 1 completely and issue 2 not at all, and it is the freeze
+`packedsoil.ron` refused `reinforces_powder` for, applied to the world.
+**Not recommended**, and it is the clearest statement of what "more fixed"
+costs: a ground that can never slump is a ground with no middle.
+
+### 3k. Rot-made soil is born packed (`decays_into: packedsoil`)
+
+The narrow form of 3j: only what the plants make sets, the bank stays loose.
+*Sees:* the forest floor becomes worked ground as it forms; a tunnel through
+it holds without lining. *Cost:* none per frame; one field on each
+decomposing material. *Kind:* material property. **Downstream:** it does not
+touch issue 1's actual mechanism (the drift is litter, which does not decay
+into anything for most of its life) — it only changes the 5% that becomes
+soil; a dead tree's remains become a packed lump that never cones; and
+`latecensus`'s `packed_above` stops meaning spoil. It buys almost nothing
+issue 1 wants and costs the drift its repose. **Not recommended.**
+
 ## 4. Recommendation, and the first thing to build
 
-**First: brief 3, re-cut.** Room-per-ant as scoped; weathering as a second
-material `spoil` rather than a flag on `packedsoil`, with `decays_into: soil`
-and the two decay chances as lab-exposed dials, default set by a sweep of the
-rate against **roofed void lost over a session** on both seeds above, and the
-sweep's table in the PR. Deliverables that already exist for it:
+**The scorecard**, every option against the owner's four issues, the
+preference, and the two costs that trade against them:
+
+| option | 1 tunnel the drift | 2 floating pieces | 3 engulfing | 4 sterile mound | towers | galleries lost | per frame |
+|---|---|---|---|---|---|---|---|
+| 3a leave it | no | no (91 / 1,074 hang) | no | not an issue | kept | 0 | 0 |
+| 3b weather dumped spoil, slow | no | slowly (−20% in 6k frames) | over a session | — | **removed over a session** | −1% / 6k frames | ~0 |
+| 3b weather dumped spoil, fast | no | mostly (404 of 1,073) | faster | — | **removed in thousands of frames** | −19% / −30% | ~0 |
+| 3c loose now | no | yes (57 of 1,073) | yes | — | **removed at once** | **−31% / −39%** | 0 |
+| 3d soil casts shade | no | no | **yes, graded** | — | kept | 0 | 0, plus a re-derivation lane |
+| 3i drift tampable | **yes** (the litter fraction) | no | no | — | kept | 0 | 0, larder converts to wall |
+| 3j all soil sets at rest | **yes** | worse (lattice legal everywhere) | no | — | kept, permanent | 0 | 0, repose gone from the world |
+| 3k rot born packed | barely | no | no | — | kept | 0 | 0 |
+| 3e / 3f / 3g | — | — | — | already true | — | — | — |
+
+No single option closes more than two of the three live issues. **The
+recommendation is 3b slow plus 3d, with 3i put to the owner as a yes-or-no**,
+and it removes the towers — over a session at the slow end of the dial,
+never at its zero. That is stated in those words because it is the one thing
+he likes that the answer costs.
+
+**First: weathering.** A second material `spoil` rather than a flag on
+`packedsoil`, with `decays_into: soil` and the two decay chances as
+lab-exposed dials, default set by a sweep of the rate against **roofed void
+lost over a session** on both seeds above, and the sweep's table in the PR.
+Room-per-ant (#359) is already on `main` and is untouched by this.
+Deliverables that already exist for it:
 `soilfork mode=fork` is the staged version and its `weather` and
 `weather_slow` arms are the two ends of the sweep; the positive control is a
 mound placed with no colony coning within N frames (brief 3's own); the
@@ -446,9 +600,17 @@ powders.md` and `wiki/ants.md` updated in the same change. Half a day.
 three re-derivations named in 3d budgeted as part of it, and `soilfork
 mode=bury` as its gate.
 
-**Kept as the zero of the dial, never removed:** the towers.
+**Third, a question rather than a build:** issue 1. Either the decomposing
+materials get a `packs_into` (3i, with the larder loss measured first), or
+the answer to *"you cannot tunnel through decomposed soil"* is *"that is
+leaves, not soil, and it is right that a burrow in leaves falls in"* — and
+the owner picks.
 
-**The card** (`20260912T051541289Z-3b03d3`) asks the fork the 2026-08-31
+**Kept as the zero of the dial:** the towers. Any setting above zero takes
+them down over time; that is the trade, and it is the owner's to make in
+play.
+
+**The card** (`20260912T181533048Z-7a5aab`) asks the fork the 2026-08-31
 card never had answered, on the bed that actually grows the heap: seed 1 at 300,000 frames with the two
 soils tinted apart, and the same heap 6,000 frames after each rule. The
 counts are in `meta`. *"Live with the heap and its hanging pieces, let it
@@ -476,7 +638,17 @@ coordinator note carries the correction.
   it without reading the neighbourhood itself, and that is the wrong reader.
 - **Brief 3's scheduling of the decay site from the dump verb.** Sites are
   scheduled by material at chunk settle, so the lining weathers unless the
-  pellet is a different material.
+  pellet is a different material. (Brief 3's weathering half was cut on the
+  same day; the finding stands for whoever builds it.)
+- **The brief's "the two soils" as the asymmetry.** Rot-made soil *is* bank
+  soil, and on the lab bed it is most of what the plants leave above the
+  old surface. The ground the owner cannot tunnel is what has not become
+  soil yet, and the property it lacks is `packs_into`, not
+  `self_supporting`.
+- **The card's first posting** (`20260912T051541289Z-3b03d3`) was overwritten
+  in the shared queue by another lane's card under the same id, and the
+  owner's comment recorded against it is about that card; it was re-posted
+  as `20260912T181533048Z-7a5aab`.
 
 ## 7. The instrument
 
