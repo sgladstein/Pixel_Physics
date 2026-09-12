@@ -24,23 +24,27 @@ is visible.
 
 | | 09-11 | 09-12 |
 |---|--:|--:|
-| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | 497 | **526** |
-| `META` — rejects a harness or a process, not an engine mechanism | 93 | 97 |
-| `CONFOUNDED` | 57 | 57 |
-| `UNBUILT` — argued and declined, never measured | 41 | 42 |
-| `COSTED` | 26 | 30 |
-| `EXPIRED` | 12 | 8 |
-| `SUSPECT-INSTRUMENT` | 10 | 10 |
-| `RE-TESTED` — condition met, retried, still no | 11 | 13 |
-| `LANDED` — retried, worked, shipped | 13 | 18 |
+| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | 497 | **562** |
+| `META` — rejects a harness or a process, not an engine mechanism | 93 | **110** |
+| `UNBUILT` — argued and declined, never measured | 41 | 43 |
+| `LANDED` — retried, worked, shipped | 13 | 22 |
+| `COSTED` | 26 | 21 |
+| `CONFOUNDED` | 57 | **19** |
+| `RE-TESTED` — condition met, retried, still no | 11 | 18 |
+| `EXPIRED` | 12 | 7 |
+| `SUSPECT-INSTRUMENT` | 10 | **1** |
 | `UNWIRED` | 2 | 1 |
 
-**106 rows are labelled as revival candidates, 13% — and a blind re-rating puts
-the number that actually stand at about 37% of those, so roughly 39.** That
-correction is the most important thing on this page and it is explained in full
-below. **The register is right about rather more than two thirds of what it
-holds**, and the value of a sweep is locating the minority precisely rather
-than casting doubt on the whole.
+**49 revival candidates, 6% — not the 111 this page first reported.** Every
+labelled candidate was re-rated blind and every disagreement settled by reading
+source; the account is below. Two classes carried almost all of the error:
+`CONFOUNDED` fell 57 → 19 and `SUSPECT-INSTRUMENT` 10 → 1, the latter almost
+entirely into `META`, because the thing being rejected *was* the instrument.
+
+**The register is right about far more of what it holds than the first pass
+credited** — and that is the finding, not a disappointment. A register whose job
+is stopping wasted sessions is supposed to be mostly right, and the value of a
+sweep is locating the minority precisely rather than casting doubt on the whole.
 
 ## The largest actionable class is the owner's own hypothesis
 
@@ -100,21 +104,31 @@ and Question 1 (`META` beats everything).
 
 | | n | |
 |---|--:|---|
-| candidates confirmed blind | 39 | **precision 37%** |
-| candidates closed blind | 67 | |
+| candidates confirmed blind | 39 of 106 | **precision 37%** |
 | `DEAD` controls reopened | 4 of 106 | 3.8%, so the rater is not simply closing everything |
 
-Two classes carry almost the whole error. `CONFOUNDED` closed to `DEAD` 21 times
-in one batch alone, and `SUSPECT-INSTRUMENT` re-read as `META` six times — the
-thing rejected *was* the instrument. Both are failures of the same two rules.
+The controls are what make the 37% mean anything: a rater that closed everything
+would have reopened none of the 106 `DEAD`.
+
+**Then every disagreement was settled by reading.** The two readings differed on
+71 of the 212 rows, and a third pass adjudicated each against source: **63 went
+to the blind reading, 7 to the screen, and 1 to neither** (`Blast::calve`'s
+release bound, which is `COSTED` — its cost figure is independent of the
+explained null, and `default_joint_density` is still `0.9`, which is the
+reopening condition the rubric says not to bury in `DEAD`).
+
+**Candidates: 111 → 49.** Two classes carry almost the whole error, and both are
+failures of the same two rules. `CONFOUNDED` fell 57 → 19 — rule A, delete the
+suspect number and the entry still rejects. `SUSPECT-INSTRUMENT` fell 10 → 1,
+almost all of it into `META` — Question 1, the thing being rejected *was* the
+instrument, so reviving it would change a measurement rather than the engine.
 
 **So the reading this page originally gave — "the screen is tight rather than
-loose, and the 15% is a floor" — is wrong, and the correction is not a
-tightening of the same number but a different number.** The candidate list is
-roughly 37% precise, so about **39 entries** in it are real, not 106; and the
-~40 the `DEAD` side hides are mostly the write-back kind rather than the
-revivable kind. The true "this idea was never fairly tested" set is **smaller
-than the candidate list and is a different set from it**.
+loose, and the 15% is a floor" — is withdrawn, and the correction is not a
+tightening of that number but a different number and a different set.** The real
+candidate list is **49**, and the ~40 entries the `DEAD` side hides are mostly
+the write-back kind rather than the revivable kind: six of the seven pooled
+reopens are stale, not revivable.
 
 The `DEAD` side reopens were verified in source:
 
@@ -259,6 +273,7 @@ the other, resolved and never written back.
    plant-line commit and is recorded as a dead end.
 
 Machine-readable results: [`data/dead-ends-triage/`](data/dead-ends-triage/) —
-`screened.tsv` (804 verdicts, one per distinct entry), `candidates.tsv` (the 106,
-regenerated from `screened.tsv` rather than maintained), `rubric.md`, and the
+`screened.tsv` (one verdict per distinct entry, the adjudicated ones marked in
+their reason line), `candidates.tsv` (the 49, regenerated from `screened.tsv`
+rather than maintained), `rubric.md`, and the
 checks above. Regenerate the index with `python3 scripts/deadendindex.py`.

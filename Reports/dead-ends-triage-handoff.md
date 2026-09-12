@@ -37,16 +37,18 @@ report-section address, and each group's single verdict stood for all of them.
 
 | label | 09-11 | 09-12 | | label | 09-11 | 09-12 |
 |---|--:|--:|---|---|--:|--:|
-| DEAD | 495 | **526** | | UNBUILT | 41 | 42 |
-| META | 93 | 97 | | COSTED | 26 | 30 |
-| CONFOUNDED | 57 | 57 | | EXPIRED | 21 | 8 |
-| SUSPECT-INSTRUMENT | 9 | 10 | | RE-TESTED | 8 | 13 |
-| LANDED | 6 | 18 | | UNWIRED | 2 | 1 |
+| DEAD | 495 | **562** | | UNBUILT | 41 | 43 |
+| META | 93 | **110** | | COSTED | 26 | 21 |
+| CONFOUNDED | 57 | **19** | | SUSPECT-INSTRUMENT | 9 | **1** |
+| EXPIRED | 21 | 7 | | RE-TESTED | 8 | 18 |
+| LANDED | 6 | 22 | | UNWIRED | 2 | 1 |
 
-**106 rows are labelled candidates (13%), and a blind re-rating puts the number
-that stand at about 37% of those — roughly 39.** That correction matters more
-than the count: this page previously said the 15% was a *floor*. It is not a
-floor, and it is a different set. See the revival report's error-rate section.
+**49 revival candidates, down from 118.** Every labelled candidate was re-rated
+blind against an equal number of `DEAD` controls (37% confirmed, 4 of 106
+controls reopened), and all 71 disagreements were then settled by reading
+source: 63 went to the blind reading, 7 to the screen, 1 to neither. This page
+previously called the 15% a *floor*. It was not a floor and it was a different
+set. `CONFOUNDED` 57 → 19 is rule A; `SUSPECT-INSTRUMENT` 10 → 1 is Question 1.
 
 By section: plants 25, structural 22, other 15, creatures 13, liquids 9,
 weather 8, destruction 6, field 5, powders 4, rendering 4, worldgen 4,
@@ -78,20 +80,15 @@ Screening, validation and the write-up are **done** — see
 [`dead-ends-revival-2026-09-11.md`](dead-ends-revival-2026-09-11.md). What is
 left:
 
-1. **Finish the adjudication.** The blind re-rating disagreed with the screen on
-   71 of 212 rows and every disagreement is meant to be settled by reading
-   before a candidate is kept. Until that lands, `candidates.tsv`'s 106 rows are
-   the screen's list, not the adjudicated one, and about two thirds of them are
-   expected to close.
-2. **Then rank what survives.** `data/dead-ends-triage/candidates.tsv` is now
+1. **Rank the 49.** `data/dead-ends-triage/candidates.tsv` is now
    *generated* from `screened.tsv` rather than maintained, so it cannot drift
    again — it used to carry 61 `CONFOUNDED` against the screen's 59, with a
    withdrawn entry as its first row. Each survivor needs the original number,
    the defect in CLAUDE.md's vocabulary, the decisive check with **both**
    expected results, a cost tier, and what it buys in ethos terms.
-3. **Run the cheap tier.** Smaller than it looks: 7 candidates cite a live flag,
-   and a live flag is not a runnable arm.
-4. **The loop is half closed.** `deadendindex.py --touching` asks the arrival
+2. **Run the cheap tier.** Smaller than it looks: several candidates cite a live
+   flag, and a live flag is not a runnable arm.
+3. **The loop is half closed.** `deadendindex.py --touching` asks the arrival
    question — does this branch's diff *add* an identifier some `Re-test when:`
    clause names — and `branchcheck.sh --brief` runs it at session start. Recall
    is 2 of 5 on replay, so **silence is not evidence**. The half that remains is
