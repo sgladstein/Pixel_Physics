@@ -7924,26 +7924,34 @@ it fell on, then ants/plants/bank at 500,000:
 | 3 | 40,000 | 171 | 140,000 | 0 / 3 / 5 | 299 / 364 |
 | 3 | 80,000 | 332 | 160,000 | 0 / 50 / 107 | 192 / 749 |
 
-**The runaway is the thing it bounds, and on the seed that runs away it is
-bounded 6.6x**: seed 1 goes 3,182 ants to 483. Where the colony never ran away
-the lifespan changes the peak little (seed 3, 190 → 171) and the design's cost
-fork was followed — halved once to 20,000, which flattened no further (155)
-and merely killed more (612 of 864 deaths), so 40,000 ships.
+**Measured against `main` at `f3acaf76`, and superseded — see the note below
+the table before using any of it.** On that trunk the runaway was bounded 6.6x
+(seed 1, 3,182 ants to 483), the lifespan changed the peak little where the
+colony never ran away (seed 3, 190 → 171), and the design's cost fork was
+followed — halved once to 20,000, which flattened no further (155) and merely
+killed more (612 of 864 deaths), so 40,000 ships.
 
-**The peak is not the headline, though — the trajectory is.** Ants at each
-20,000-frame stop on seed 1, the one seed whose colony survives the session:
+**Every figure in that table is from before scent drift landed, and the
+baseline moved when it did.** The sweep above was measured against `main` at
+`f3acaf76`. `main` then shipped nest odour and `scent_drift` on at 0.15, and
+re-running the *identical* control arm across that merge — same binary, same
+seed, same scenario, only `main`'s landed code between them — turns the played
+bed's seed 1 from a 3,182-ant runaway that still holds 108 ants at 500,000
+frames into a colony that peaks at **760** and is **extinct by 420,000**:
 
 ```
-life 0       73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
-life 40,000  27  464  146   18   69  105  158  152  191  364  269  483  346  314  347  362  375  368  324  190  256
+before scent drift, life 0   73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
+after  scent drift, life 0   73  236  334  254  274  420  676  705  726  760  126  208  129   94  125    2    0    0    0    0    0
 ```
 
-Over the second half of the run the immortal colony swings between **6 and
-3,182 ants — a 530-fold band**, and falls from 3,099 to 16 inside a single
-20,000-frame step. That step is the owner's own description: *they die all at
-once*. Give the ant a lifespan and the same bed holds **152 to 483 — a 3.2-fold
-band — for 280,000 frames**. That is what "settles at a size, and its fall is a
-slope" means here, and no single-stop figure in the table above shows it.
+That is not a small revision. It means the sweep table's absolute numbers
+describe a tree that no longer exists, and it means **the claim this section
+carried — that a lifespan bounds the runaway 6.6x and holds the colony in a
+band — is not established on the current trunk**. On the post-merge tree's one
+measured seed the lifespan arm peaks *higher* than the control (1,265 against
+760) and also goes extinct, at 460,000. The re-measurement over the remaining
+seeds is in `Reports/lanes/evolution-lab-lifespan.md`; until it lands, read the
+mechanism below as shipped and correct, and the ecology numbers as pending.
 
 **And the bed still dies, which this build does not claim to fix.** No setting
 — 0 included — meets the late-game programme's bar of a live colony over a

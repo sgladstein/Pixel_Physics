@@ -23,7 +23,37 @@ any new caller at a new cadence must pass its own — the *individual's*
 bar depended on it (all are `< 0.02`), so the model is unchanged and only the
 label is. **The design report still says 0.4%** — not this lane's to edit.
 
-## The sweep
+## Scent drift moved the baseline out from under this whole sweep
+
+**Read this before any number below it.** The sweep was measured against `main`
+at `f3acaf76`. `main` then landed nest odour with `scent_drift` on at 0.15
+(PR #347 and its neighbours). Re-running the **identical control arm** across
+that merge — same binary, same seed, same scenario, only `main`'s landed code
+between the two runs — gives a different bed:
+
+```
+before, life 0       73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
+after,  life 0       73  236  334  254  274  420  676  705  726  760  126  208  129   94  125    2    0    0    0    0    0
+after,  life 40,000  27  243  515  161   11    6    7   64  507 1265  733  653  799  579  459  367  141   73    0    0    0
+```
+
+The runaway is gone: the control peaks at **760** instead of 3,182 and is
+**extinct by 420,000 frames** instead of holding 108. And on this one
+re-measured seed the lifespan arm peaks **higher** than the control (1,265
+against 760) and also goes extinct, at 460,000 — the opposite sign to
+everything below.
+
+The two arms are *identical* to 100,000 frames (21/43/47/57/73 on both trees),
+so this is a slow-accumulating difference and not a broken build; the 60,000-
+frame determinism control could not have caught it, and that is the lesson —
+**a determinism arm shorter than the mechanism's onset proves nothing about the
+run you are about to sweep.**
+
+Seeds 2 and 3 are re-running on the merged tree. Until they land, **the table
+below is a measurement of a tree that no longer exists** and the mechanism, not
+the ecology figures, is what this branch has established.
+
+## The sweep, as measured at `f3acaf76` (superseded)
 
 `latecensus scenario=played_bed frames=500000 sample=20000`,
 `RAYON_NUM_THREADS=1`. Peak ants and the frame it fell on, then
