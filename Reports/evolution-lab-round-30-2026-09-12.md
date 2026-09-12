@@ -227,6 +227,48 @@ than raising the cap, on the argument that an ablation switch is not a
 constant the *expose every constant* ruling covers — the right call, and the
 next lane to add an ANTS row now has to move something first.
 
+### The invariant that no single diff can see — a shared budget and a duplicated claim are one failure
+
+**Lane P's synthesis, and it is better than the three separate entries above.**
+It hit this shape three times in one day and argued they belong together rather
+than apart. They do.
+
+| costume | the invariant | where it lived |
+|---|---|---|
+| the ANTS page over its row cap | a total of 20 rows | split across two branches' additions |
+| the two `roofed` rules drifting | one definition of roofed void | two functions, 422 against 289 on one world |
+| a result quoted in five places | one measured fact | commit, PR body, lane note, wiki, help string |
+
+**Git is per file and per line. Every one of these invariants is neither.** So
+`git merge-tree` reports no conflict and is right to: nothing overlapped. The
+thing that broke was a property of the *sum*, and no diff of either side
+contains it.
+
+**The half of this the round nearly shipped is the third row**, and it is the
+one with no gate at all. When lane P's sweep came in and reversed the mound
+result, it corrected its commit messages, its PR body, its lane note, the wiki
+page and the `dead-ends.md` entry — and not the panel help string, **because a
+help string does not look like documentation, it looks like code**. That text
+was still promising the player a smaller mound, on the page the owner reads,
+hours after the measurement that disproved it. Then the same thing happened one
+level up: the PR body still called the revert *"one keystroke on the lab's ANTS
+page"* after the toggle row came off.
+
+**So the rule is about where a claim lives, not about proof-reading.** A claim
+written before a change and not re-read after it hides wherever it does not
+look like prose: a `note:` field, a PR body, a card's `meta`, a doc comment
+quoting a number. **Any lane that quoted a result this round should re-read its
+`note:` fields against its final numbers.**
+
+One correction to the lane's own version, which is otherwise adopted whole. It
+wrote that the same mistake *"on a shared file in a fresh branch merges clean
+and silently takes the worse of two versions"*. Two branches editing the **same
+line** do conflict — that is the case git handles. The dangerous version is the
+one that actually happened: the claim lived in **two different files**, one side
+fixed one and the other side fixed the other, and *that* merges clean into a
+half-corrected story. Same conclusion, and it matters because it says which
+cases to look for.
+
 ### An instruction at the point of use was already there, and was still missed
 
 Lane P hit a merge conflict in the register's generated index, resolved it
