@@ -2792,6 +2792,31 @@ pub struct SpeciesDef {
     /// so here rather than let the next session re-derive it from scratch.
     #[serde(default)]
     pub seed_gut_survival: f32,
+    /// **What a bite of a *bare* seed pays the mouth, as a fraction of the
+    /// seed's own `food_energy`**, when that bite did not destroy the seed.
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2, Brief 1.
+    ///
+    /// The seed a `seed_gut_survival` roll has just spared is still there --
+    /// it becomes a `pip` and either rides home in the biter's crop or
+    /// stands where it was bitten. So the mouth cannot have eaten it, and
+    /// crediting the whole 480 J would be the seed counted twice: once as
+    /// food and once as a plant. What an ant really gets off a seed it
+    /// carries is the elaiosome -- the provision the plant attaches
+    /// *precisely* to buy the carriage -- and 0.25 is that provision here.
+    ///
+    /// **A plant trait, like `seed_gut_survival` beside it, and for the same
+    /// reason**: it is the seed that decides how much of itself to give
+    /// away, not the mouth that decides how much to take. A species that
+    /// pays nothing (`0.0`) is a seed nobody profits by carrying; a species
+    /// at `1.0` pays the whole seed and the carriage is free, which is the
+    /// positive control this build's brief asks for by name.
+    ///
+    /// Only read when the bitten cell is the bare `seed`/propagule itself.
+    /// A *windfall* is flesh wrapped round a seed: the flesh is the meal and
+    /// the seed is a passenger inside it, so a bitten windfall goes on
+    /// paying its full face value and this fraction never applies to it.
+    #[serde(default = "default_seed_provision_fraction")]
+    pub seed_provision_fraction: f32,
     /// **What a fully-charged flower pays a feeding animal, in joules** —
     /// `plant::nectar_offer`, credited through `diet_quality` exactly like
     /// every other mouthful
@@ -4370,6 +4395,13 @@ fn default_windfall_material() -> String {
     "seed".to_string()
 }
 
+/// See `SpeciesDef::seed_provision_fraction`. **Not `#[serde(default)]`'s
+/// zero**, which would be "a carried seed feeds nobody" and would make every
+/// species that never authors the field silently unprofitable to harvest.
+fn default_seed_provision_fraction() -> f32 {
+    0.25
+}
+
 /// Set against the measured bank rather than from a target. On the
 /// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
 /// still climbing** — 42 at 28,800, so it was accelerating, not settling —
@@ -4410,6 +4442,8 @@ pub struct Species {
     pub windfall_material: String,
     /// See `SpeciesDef::seed_gut_survival`.
     pub seed_gut_survival: f32,
+    /// See `SpeciesDef::seed_provision_fraction`.
+    pub seed_provision_fraction: f32,
     /// See `SpeciesDef::nectar_yield`.
     pub nectar_yield: f32,
     /// See `SpeciesDef::nectar_refill`.
@@ -4616,6 +4650,7 @@ impl From<SpeciesDef> for Species {
             fruit_material: def.fruit_material,
             windfall_material: def.windfall_material,
             seed_gut_survival: def.seed_gut_survival,
+            seed_provision_fraction: def.seed_provision_fraction,
             nectar_yield: def.nectar_yield,
             nectar_refill: def.nectar_refill,
             flower_bands: def.flower_bands,

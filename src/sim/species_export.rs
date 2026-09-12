@@ -169,6 +169,7 @@ pub fn individual_as_species(parent: &Species, genome: &[f32], traits: [f32; sup
         fruit_material: parent.fruit_material.clone(),
         windfall_material: parent.windfall_material.clone(),
         seed_gut_survival: parent.seed_gut_survival,
+        seed_provision_fraction: parent.seed_provision_fraction,
         nectar_yield: parent.nectar_yield,
         nectar_refill: parent.nectar_refill,
         flower_bands: parent.flower_bands,

@@ -1576,6 +1576,7 @@ fn forage_loop_scene() {
     let floor = h - 8;
     let nest = world.materials.id_of("nest").expect("nest is compiled in");
     let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+    let litter_glyph = world.materials.id_of("litter").expect("litter is compiled in");
     let ant = world.materials.id_of("ant").expect("ant is compiled in");
 
     // **Real generated terrain, the configuration the loop was actually
@@ -1671,6 +1672,37 @@ fn forage_loop_scene() {
         parallel::step(&mut world);
         world.step_active_sites();
         world.step_fields();
+    }
+    // **Leaf litter under the stand, and this is round 29's change to the
+    // scene.** `Reports/evolution-lab-late-game-design-2026-09-12.md` §1
+    // item 1 dialled `leaf.ron`'s `food_energy` 480 -> 40, so a *live* leaf
+    // now credits 10 J at the shipped neutral gut against
+    // `EAT_YIELD_THRESHOLD`'s 12 and a neutral ant cannot see one. This
+    // scene's whole food supply was the canopy those trees grow, so without
+    // this it gates `pickups > 0` on a colony with nothing to pick up -- the
+    // scene would fail for the reason `CLAUDE.md` names as *a scene that
+    // contradicts the code will look like a bug in the code*, and the bug
+    // would be in the scene.
+    //
+    // **Litter, not leaf, and that is the design and not a workaround**:
+    // `litter.ron` stays at 480 on purpose -- the floor is food, the
+    // standing plant is marginal. What the stand is still *for* is that it
+    // keeps making more: a shed leaf goes through `plant::shed_to_litter`,
+    // so the source stays renewable and findable, which is the property
+    // §13f found this scene needed and a finite pile never had.
+    //
+    // Strewn after the warmup rather than before it, so the trees' own 2,400
+    // frames of growth do not bury it, and one cell every third column so it
+    // is spread across the stand the way shed leaves are rather than heaped
+    // where one ant finds all of it.
+    {
+        let litter = world.materials.id_of("litter").expect("litter is compiled in");
+        for x in (200..470).step_by(3) {
+            let sy = surface(&world, x);
+            if sy > 0 && world.is_empty(x, sy - 1) {
+                world.set(x, sy - 1, Cell::new(litter, (x as u8) % 4));
+            }
+        }
     }
     for i in 0..55 {
         let ax = 24 + i * 4;
@@ -1872,7 +1904,13 @@ fn forage_loop_scene() {
                             Some('a')
                         } else if c.material == nest {
                             Some('N')
-                        } else if c.material == leaf {
+                        } else if c.material == leaf || c.material == litter_glyph {
+                            // **`f` is "food", and since round 29 that is the
+                            // litter on the floor as much as the leaf on the
+                            // tree** -- a neutral ant can only eat the first
+                            // of the two, so a sheet that drew only the
+                            // canopy would show a colony surrounded by food
+                            // it cannot see.
                             Some('f')
                         } else if c.material != material::EMPTY {
                             Some(glyph(c.material))
