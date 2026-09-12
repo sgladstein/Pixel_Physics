@@ -1,0 +1,48 @@
+{
+  "id": "20260912T092124285Z-89ba6b",
+  "created": "2026-09-12T09:21:24Z",
+  "board": "flitter",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-flitter-flies-r29",
+    "commit": "3e06e79a",
+    "agent": null,
+    "session_id": "f4e73c0e-482f-5169-8622-20321457adf1",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The flitter: does it fly between flowers, or hop?",
+  "question": "Which reads as an animal flying between flowers?",
+  "context_md": "Follow camera on one flitter, play zoom, 2,100 frames from frame 6,000 of the understory bed, seed 1. Both clips come from ONE binary and differ by one switch, so the camera rule and the harness are identical; the only difference is the flight model.\n\nAirborne frames per bout (median): main 24, round 30 36. Bouts per 1,000 frames: main 17.6, round 30 13.8. Share of time off the ground: main 49%, round 30 72%. Cells travelled in the window: main 118, round 30 134. Flower visits over a full 120,000-frame run, seeds 1-3: main 142/39/85, round 30 421/106/142.\n\nSo the claim to check by eye is fewer, longer, powered bouts covering more ground -- rather than more of them.\n\nOne caveat you should have, because it decides what these clips are worth. We found this round that a plant both holds an animal up and blocks it, so an animal standing inside a bush cannot step in any direction at all, and between a sixth and a half of the colony is in that state at any moment. Both animals here happen to be free of it for the whole window (0% on each), which is why this window was chosen -- a clip of a caged animal shows the cage, not the flying. That bug is filed and is NOT fixed here.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "main (today's shipped flight)",
+      "files": [
+        "20260912T092124285Z-89ba6b/000-ab_main.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 701
+    },
+    {
+      "label": "round 30 (hover + cruise + stall-out)",
+      "files": [
+        "20260912T092124285Z-89ba6b/001-ab_mine.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 701
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
