@@ -20,8 +20,8 @@ any new caller at a new cadence must pass its own — the *individual's*
 **A corrected number came out of it.** Survival at `2.5T` was documented as
 `0.4%` in `plant.rs`, in design §1.2 and in two test comments.
 `exp(-ln2 · 2.5²)` is **1.31%**; `0.4%` is `2^-8`, the survival at `2.83T`. No
-bar depended on it (every one is `< 0.02`), so the model is unchanged and only
-the label is. **The design report still says 0.4%** — not this lane's to edit.
+bar depended on it (all are `< 0.02`), so the model is unchanged and only the
+label is. **The design report still says 0.4%** — not this lane's to edit.
 
 ## The sweep
 
@@ -42,19 +42,29 @@ ants/plants/bank at 500,000, then old-age against starvation deaths:
 
 **The runaway is what it bounds, and on the seed that runs away it is bounded
 6.6x** (3,182 → 483). Where the colony never ran away the lifespan barely moves
-the peak (seed 3, 190 → 171). The cost fork was followed — halved to 20,000,
-which flattened no further (155) and merely killed more (612 of 864 deaths) —
-so **40,000 ships**. Seed 3 at 80,000 peaks *higher* (332) than at 0.
+the peak (seed 3, 190 → 171), and at 80,000 seed 3 peaks *higher* (332) than at
+0. The cost fork was followed — halved to 20,000, which flattened no further
+(155) and merely killed more (612 of 864 deaths) — so **40,000 ships**.
 
 **The bar is not met at any setting, 0 included.** No arm ends with a live
 colony over a bank above ~500. Seed 1 at 40,000 is the only arm alive at
-500,000 frames at all (256 ants), and its bank is 73. The bank is what the
-mouth takes first (design §1.1) — **brief 1's mechanism, not this one's**.
+500,000 frames at all (256 ants), and its bank is 73. The bank is what the mouth
+takes first (design §1.1) — **brief 1's mechanism, not this one's**.
 
-**The boom seed has moved, and the design's §0 census is not a usable
-baseline.** §0 was taken at `be2808de`; on today's `main` seed **1** is the
-runaway (3,182 ants against §0's 116) and seed 3 is not (190 against §0's 495).
-Rebuild any baseline from `origin/main` itself.
+**The boom seed has moved, and design §0 is not a usable baseline.** §0 was
+taken at `be2808de`; on today's `main` seed **1** is the runaway (3,182 ants
+against §0's 116) and seed 3 is not (190 against §0's 495). Rebuild any baseline
+from `origin/main` itself.
+
+**Do not read the two arms at one frame — they are at different phases.** At
+frame 200,000 on seed 1 the *control* bed is three times greener than the
+lifespan bed (174 plants against 51), which reads as the mechanism making things
+worse and is the opposite of what `labstats` says. Both are true and neither is
+the outcome: the lifespan arm reaches its peak at ~120,000 frames and has
+already grazed the stand, while the control is still climbing and has not
+cliffed yet (it crashes to 58 plants by 500,000). This is `CLAUDE.md`'s *a
+cascade censused before it settles* on the population rather than on rubble —
+**compare at 500,000, or compare the whole curve, never at one stop.**
 
 ## The controls, quoted
 
@@ -73,25 +83,17 @@ the comparison drops those and demands the rest match. It is not blind: fed the
 **`ascii` is green and NOT byte-identical**, and only **two** scenes changed
 behaviour (an earlier note here said four): `ants: the foraging loop` — 22 → 15
 creatures at 12,000 frames, deaths 7 → 9, births 11 → 6 — and `ants: deposition
-follows the moisture gradient`, deaths 52 → 53. Survival at 40,000 is 93.9% at
-12,000 frames, so ~1.2 age deaths are expected among ~20 ants and 2 are seen;
-the lost births are the knock-on of the lost workers. A third scene (`M17`)
-differs only in a ratio derived from two wall-clock timings.
+follows the moisture gradient`, deaths 52 → 53. Expected age deaths among ~20
+ants are ~1.2 and 2 are seen; the lost births are the knock-on of the lost
+workers. A third scene (`M17`) differs only in a ratio of two wall-clock timings.
 
 ## `labstats`, the paired arms
 
-`labstats frames=120000 seed=1` (**no `scenario=` knob** — passing one is
-silently ignored, so this is its own bed, not played_bed):
-
-| | life 0 | life 40,000 |
-|---|---|---|
-| ants alive | 18 | **92** |
-| starved / old age / killed | 137 / 0 / 2 | **63** / 50 / 1 |
-| born / died | 107 / 139 | 164 / 114 |
-| plants standing / seed bank | 34 / 85 | **101 / 166** |
-| seeds borne / sprouted | 3,086 / 524 | **5,397 / 1,101** |
-| animal generations standing / ever | 5 / 15 | **15** / 15 |
-| shares | 4,555 | 1,866 |
+`labstats frames=120000 seed=1`, full table in README's *Lifespan status*.
+**`labstats` has no `scenario=` knob** — passing one is silently ignored, so
+those are its own bed, not played_bed. Lifespan 0 → 40,000: ants alive **18 →
+92**, starved 137 → 63, plants standing 34 → 101, bank 85 → 166, seeds borne
+3,086 → 5,397, shares 4,555 → 1,866.
 
 **The colony with a lifespan is bigger, not smaller**, and the bed under it is
 three times greener: age deaths thin it *before* it eats the bed bare, so the
