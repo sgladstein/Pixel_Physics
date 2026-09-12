@@ -22,8 +22,11 @@ is the work under review; its resumable state is
    design trap the check file did not name. structural:074's condition was met
    on 2026-08-22 and two documents already say so. structural:013 is moot —
    both unauthored solids opt out of the check it fears.
-4. **The 3-of-40 rate is a floor, and the adversary was anchored low.** An
-   independent re-rating with a neutral prompt is in §4.
+4. **The 3-of-40 rate replicates (4 of 40 with a neutral prompt), but it
+   measures the wrong side.** The PR never tested whether its *candidates*
+   stand, and blind they mostly do not: 14 of 20 closed, 0 of 10 controls
+   reopened, five closures adjudicated by reading and all five upheld. The
+   candidate table is a ~40%-precision list, not a floor. §4.
 
 ## 1. What holds
 
@@ -239,17 +242,71 @@ that had the main checkout, no triage data, and no anchoring instruction:
 
 - **Under-call (sample A): 40 random `DEAD` entries, labels stripped, "does
   the recorded evidence support the rejection today, verified in source".**
-  RESULT_A
+  **4 of 40 reopened**, every one cited to source and two re-verified here:
+  `destruction:034` holds *"until materials ship finite `ignition_temperature`"*
+  and `wood.ron:123`, `log.ron:149`, `deadleaf.ron:168` now do, while
+  `explosion.rs:2088` still says no shipped material sets one; `field:008`
+  records `LIGHT_DECAY` 0.997 as the answer and `field.rs:152` is 0.95 with a
+  doc saying the channel no longer carries sunlight at all. The other two:
+  `destruction:004` (the log palette it rejects was replaced by copying
+  `wood.ron`'s, `rigid.rs:3986` carries the shade) and `field:027` (the
+  "second mechanism" its clause demands shipped, `field.rs:1263–1290`).
+  Pooled with the PR's own sample: **7 of 80, 8.75%**, so the PR's number is
+  corroborated and the anchoring in its prompt did not move it. Note what the
+  seven are: **six are stale rather than revivable** — the world moved and
+  the entry was resolved or superseded elsewhere without a write-back — and
+  only `destruction:034` is a condition met with the re-test still owed. That
+  is the PR's own structural finding again, from the DEAD side.
 - **Over-call (sample B): 30 entries — 20 candidates (12 CONFOUNDED, 4
   COSTED, 3 SUSPECT-INSTRUMENT, 1 EXPIRED) blended with 10 `DEAD` controls,
-  labels stripped, the rubric applied cold.** RESULT_B
+  labels stripped, the rubric applied cold.** The rater **closed 14 of the 20
+  candidates and reopened 0 of the 10 controls.** Exact label agreement
+  16/30 — against the PR's 38/42 on a random set that was mostly `DEAD` and
+  `META`, where agreement is cheap. By class: CONFOUNDED **2 of 12 confirmed**
+  (7 → DEAD, 1 → META, 1 → LANDED, 1 → RE-TESTED), SUSPECT-INSTRUMENT **0 of
+  3** (all three re-read as META — the thing rejected *is* a metric), COSTED 3
+  of 4, EXPIRED 1 of 1 (structural:074, found independently via
+  `plant.rs:8398` `anchor_support`).
 
-READING_AB
+**Five of the fourteen closures were adjudicated by reading, and the blind
+rater was right in all five** — the same result the PR's own calibration got
+when it adjudicated its keyword set. `structural:062` rejects on two counts
+that survive deleting the confound (undercut went to zero failures; at the cut
+the mean equals the minimum). `liquids:046` is arithmetic: whole-difference
+transfer overshoots whatever the sweep direction does, and half-difference is
+strictly better. `creatures:022` — **showcased in the PR body and the revival
+report as the exemplar CONFOUNDED** — records that the confounded sweep was
+*"invalidated and restarted"*; it is a process entry, already handled, and
+Question 1 of the rubric claims it as META before CONFOUNDED can. `plants:161`
+is a mutual exclusion the entry states in bold. `structural:007` **annotates
+its own revival in the body** (*"since overturned: it is half the fix"*,
+shipped as `LandingAux::Seed`); the screen read the clause and not the body.
+Two rubric rules were under-applied in exactly the candidate direction: **rule
+A** (delete the suspect number — does the entry still reject?) and **Question
+1** (META beats everything). The PR's κ could not see this, because two
+screeners sharing a rubric share its blind spot, and the random calibration set
+held few candidates to be wrong about.
 
-The sample files, keys and result TSVs are in the session scratchpad and
-should be copied to `Reports/data/dead-ends-triage/` by the enacting session
-(`sample-A-dead40.md`, `key-A.tsv`, `result-A.tsv`; `sample-B-mixed30.md`,
-`key-B.tsv`, `result-B.tsv`) so the numbers are re-derivable.
+**What the two samples say together.** The DEAD side is about as tight as the
+PR claimed. The candidate side is not: on this sample the table's precision is
+roughly **30–45%** (6 of 20 confirmed blind; allow some of the closures to be
+wrong). Over 111 rows that is **~35–50 real candidates**, not 111, and the
+~40 under-called from DEAD are mostly stale-not-revivable. So the true
+"idea was never fairly tested" set is likely **smaller than 111, and a
+different set** — half the listed ones do not stand, and the ones the DEAD
+side hides are the write-back kind. The revival report's *"tight rather than
+loose … the 14% is a floor"* should be replaced by that sentence. The
+practical consequence is in Part A step 3: no candidate should cost anyone an
+hour before a second blind pass over the 111 with rule A and Question 1
+stressed.
+
+The sample files, keys and result TSVs are committed beside this report in
+`Reports/data/dead-ends-triage-review-2026-09-12/` (`sample-A-dead40.md`,
+`key-A.tsv`, `result-A.tsv`; `sample-B-mixed30.md`, `key-B.tsv`,
+`result-B.tsv`). Both raters ran on the `main` checkout, which holds no triage
+data, with Opus; the prompts are in the session transcript and were neutral
+on the expected rate. n=20 on the candidate side is one rater's reading and
+should be treated as a direction, not a decimal.
 
 ## 5. The plan
 
@@ -257,7 +314,7 @@ Work in this order. Parts A and B go on the PR branch
 `claude/gallant-fermat-dqvtm4`; Part C is Rust and goes on a fresh branch
 off `main` once #331 has landed. Every step names its check.
 
-### Part A — make #331's tables true (half a day, no Rust)
+### Part A — make #331's tables true (a day, no Rust; step 3b is half of it)
 
 1. **Re-key.** `stable_key` = sha1(section, address, claim[:160]). Regenerate.
    Confirm 785 rows → ≥ 783 distinct keys (the two `other:` pairs may still
@@ -270,8 +327,25 @@ off `main` once #331 has landed. Every step names its check.
 3. **Relabel** creatures:039, field:003, structural:013, plants:044 per §2c;
    restore structural:039; record demotion reasons for powders:013,
    destruction:050, plants:017, plants:098 (read each, one sentence citing
-   source). Regenerate `candidates.tsv` from `screened.tsv` — add that
-   regeneration to `deadendindex.py` so the file cannot drift again.
+   source). Relabel the fourteen closures of §4 sample B to the blind
+   rater's labels where the adjudication upheld them (`result-B.tsv` has
+   the reasons), and add the four sample-A reopens: `destruction:034` as
+   EXPIRED (re-test owed: run `oil_beside_a_blast_ignites_but_stone_does_not`
+   and read `fire::try_ignite`'s temperature path against the three
+   finite-ignition materials), `field:027` and `destruction:004` as LANDED,
+   `field:008` as RE-TESTED, each after re-verifying the citation in
+   `result-A.tsv`. Regenerate `candidates.tsv` from `screened.tsv` — add
+   that regeneration to `deadendindex.py` so the file cannot drift again.
+   **3b. Second blind pass over the remaining candidates.** One Opus
+   session, all rows still labelled CONFOUNDED / COSTED / SUSPECT-INSTRUMENT
+   / EXPIRED / UNWIRED after 3a, labels stripped, blended with an equal
+   number of DEAD controls so the rater cannot infer the base rate, rubric
+   as written with rule A and Question 1 quoted in the prompt. Adjudicate
+   every disagreement by reading; keep a candidate only where the
+   adjudication says so. Expect to close about half. ~300k tokens. This is
+   the step that makes the table worth ranking from; without it the
+   run-order is ranking a list that is half noise. Record the resulting
+   precision beside §4's number in the revival report.
 4. **Write back** structural:074 (condition met 2026-08-22; cite §0d and the
    rules bullet; the empirical positive control is open, instrument named)
    and structural:013 (§3). Fix the two stale `plant.rs` doc comments
@@ -279,8 +353,10 @@ off `main` once #331 has landed. Every step names its check.
    `anchor_support` — doc-only, no behaviour.
 5. **Reconcile numbers** across the handoff, the revival report and both
    `Reports/README.md` lines (§2d), from the regenerated tables. Add the two
-   rate measurements from §4 to the revival report's error-rate section and
-   correct its "floor" reading if §4 says so.
+   rate measurements from §4 to the revival report's error-rate section,
+   replace its *"tight rather than loose … a floor"* reading with §4's, and
+   take `creatures:022` out of the CONFOUNDED showcase in the report and the
+   PR body (it is a process entry the register already resolved).
 6. `bash scripts/docscheck.sh`, `python3 scripts/bugindex.py --check`, push,
    let CI run. Then the owner decides on the merge (§6).
 
@@ -300,11 +376,16 @@ thing a clause names?* Build `deadendindex.py --touching <paths…>`:
   diff's *added* lines; plus, separately and marked as weaker, entries whose
   target file changed at all when that file has fewer than ~15 entries.
 
-**Positive controls, from the nine write-backs**: replay the merged PRs
-that shipped `q_now` (plants:124 must surface), `cross_section_axis`
-(plants:019 — it has no clause, so it *cannot* surface; that is the
-65-entry gap and the control that proves it), `bearing_moment`
-(structural:038/040). **Negative control**: replay five merged PRs that
+**Positive controls, from the nine write-backs and §4's reopens**: replay
+the merged PRs that shipped `q_now` (plants:124 must surface),
+`cross_section_axis` (plants:019 — it has no clause, so it *cannot* surface;
+that is the 65-entry gap and the control that proves it), `bearing_moment`
+(structural:038/040), the finite `ignition_temperature` values in
+`wood.ron`/`log.ron`/`deadleaf.ron` (destruction:034 must surface — its
+clause names the identifier and the diff added it), and `apply_sky_to`
+(field:027). Six of the seven stale entries the two adversarial samples
+found are of this shape; a `--touching` that catches four of them at replay
+is doing the job. **Negative control**: replay five merged PRs that
 touched nothing the register names and confirm the output is empty or
 near it. **Kill criterion**: if the identifier match produces more than ~10
 hits per plant-line PR with fewer than one true positive among them, stop

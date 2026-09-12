@@ -3090,6 +3090,23 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [dead-ends-triage-review-2026-09-12.md](dead-ends-triage-review-2026-09-12.md)
+  — **review of the register sweep (PR #331), and the plan to carry it on.**
+  The nine `CONDITION MET` write-backs hold and are the durable value. The
+  machine-readable half is wrong for about one entry in twelve, by
+  construction: the content key collides on 19 distinct entries, the index
+  check rewrites two tracked files and gates nothing (measured in a depth-1
+  clone), and the tables never learned the run-order's own demotions —
+  `creatures:039` is still the first candidate row. Two fresh blind
+  re-ratings: the DEAD side replicates (4 of 40 reopened, mostly stale rather
+  than revivable); the candidate side does not (14 of 20 closed, 0 of 10
+  controls reopened, five closures adjudicated and upheld), so the candidate
+  table is a ~40%-precision list, not a floor. Re-reads the run-order:
+  `plants:124` stands, with the deficit read per organism at the bole;
+  `structural:074`'s condition was met on 2026-08-22 and two documents say
+  so; `structural:013` is moot because both unauthored solids opt out of the
+  check. Plan in four parts; samples and results in
+  [data/dead-ends-triage-review-2026-09-12/](data/dead-ends-triage-review-2026-09-12/).
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
