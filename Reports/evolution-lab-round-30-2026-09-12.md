@@ -705,8 +705,49 @@ step is a measurement, not a rule.
   panes differ by a colony that lived and a colony that died, on one bed. That
   is the single-seed artifact the lane itself had documented an hour earlier,
   and the coordinator reviewed the card without catching it. The sweep tracked
-  digs, spoil, chambers and bare share — **not survival** — so whether the gate
-  helps a colony live is unmeasured and open.
+  digs, spoil, chambers and bare share — **not survival**.
+
+  **That objection was mine and it was wrong, settled later the same day.** The
+  difference the coordinator called a confound is the effect: 5 of 12 against
+  0 of 12, p ≈ 0.03. He was not looking at one lucky bed.
+
+- **The master menu** (answered 18:45, after the round closed): *"The menu
+  should be clickable not just a list of shortcuts. Make it look more menu and
+  less list of information (it matches all the other information panels in this
+  game. Maybe two columns of clickable buttons, but you think about it and
+  decide"*.
+
+  **Checked against the source before any of it is briefed, and the complaint
+  is exactly half right, which is the good half.** Every menu row is *already*
+  fully clickable: `Row::choice` carries an `Action`, and drawing one pushes a
+  full-width tap target under it. Nothing about click handling needs building.
+
+  What is true is the appearance, and the code says so itself. `Body::Choice`
+  draws the label in `FAINT` and the key in `GOOD` — **pixel-identical to
+  `Body::Value`, an information row** — and its tap target is invisible. Two
+  source comments state the design outright: *"Same footprint as `Value` — it
+  draws like one and only the tap target under it differs"*, and *"a `Choice`
+  is a `Head` that draws as a value row"*. So a player cannot tell a button
+  from a readout anywhere a `Choice` appears, and the MENU page is simply the
+  first page made entirely of them.
+
+  **The decision he delegated, and the reasoning.** Do both, because neither
+  alone is enough:
+
+  1. **Give `Body::Choice` its own drawn treatment.** This is the actual defect
+     and it is one row type, not one page — it fixes every other page that uses
+     `Choice` at the same time. The bar chips already have a button idiom the
+     player knows; borrowing it is cheaper and more consistent than inventing
+     a second one.
+  2. **Then two columns, which pays for something the lane had to cut.** The
+     page reached 211 px of a 228 px budget in one column, and the group
+     headings `PAGES` and `VIEW & TOGGLES` were dropped for that margin.
+     Halving the height buys them back — and headings are much of what makes a
+     page read as a menu rather than a list.
+
+  Column count alone would not fix "looks like information"; the row treatment
+  alone leaves one long ungrouped list. **Judge it by eye before calling it
+  done** — this is the category where description has failed here repeatedly.
 
 ## What round 29 handed over at its close
 
@@ -730,6 +771,14 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
 
 ## Open at close
 
+- **The MENU page reads as a list, not a menu**, and the owner ruled on it
+  after the round closed. **Do not rebuild click handling — the rows are
+  already clickable**; `Body::Choice` just draws pixel-identical to an
+  information row with an invisible tap target. Give `Choice` its own drawn
+  treatment first (it fixes every page that uses it, not only MENU), then two
+  columns, which buys back the `PAGES` / `VIEW & TOGGLES` headings the lane cut
+  at 211 px of a 228 px budget. Full reasoning in the verdicts above. Judge by
+  eye before calling it done.
 - **Floating debris is the most reported visual defect of the day** — filed
   by lane P as **§Z18** (dug spoil standing in open sky), named by the owner
   on two unrelated cards, and no lane owns the repair. It is not the soil
