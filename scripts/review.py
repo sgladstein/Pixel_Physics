@@ -547,6 +547,10 @@ def cmd_get(args) -> int:
     if card is None:
         print("no such card: %s" % args.id, file=sys.stderr)
         return 1
+    decoded = _blind_decode(card)
+    if decoded:
+        card = dict(card)
+        card["blind_decoded"] = decoded
     print(json.dumps(card, indent=2))
     if args.mark_seen and card.get("response"):
         rl.mark_seen(root, card["id"])
@@ -675,6 +679,56 @@ def _summary(card: dict) -> dict:
     }
 
 
+def _blind_decode(card: dict) -> dict | None:
+    """Translate a blind card's displayed letters back to the real options.
+
+    **Every reader of a blind verdict was hand-deriving this, and the register
+    already carries one case where it was derived backwards and relayed to the
+    authoring session as a contradiction** (`.claude/skills/review/SKILL.md`,
+    the `20260824T014630073Z-a10698` worked example). The mapping is one line
+    of arithmetic, it is stored right here beside the prose, and an agent that
+    inverts it ships the arm the owner rejected *quoting the owner as the
+    reason*. So the tool that stored it is the one that applies it.
+
+    The convention, and the direction that is easy to get wrong:
+    `blind_was[i]` is the **stored index shown in displayed pane i**, and pane
+    0 is what the owner calls "A". So displayed A -> items[blind_was[0]].
+
+    Returns `None` for an unblinded card, which is most of them.
+    """
+    resp = card.get("response") or {}
+    order = resp.get("blind_was")
+    if not order:
+        return None
+    items = card.get("items") or []
+    letters = {}
+    for shown, stored in enumerate(order):
+        letter = chr(ord("A") + shown)
+        if isinstance(stored, int) and 0 <= stored < len(items):
+            letters[letter] = items[stored].get("label") or ("item %d" % stored)
+        else:
+            letters[letter] = "?? blind_was[%d]=%r out of range" % (shown, stored)
+    warn = ("The owner's prose names the DISPLAYED pane. Read every letter in "
+            "his comment through this map before quoting him.")
+    if len(order) == 2:
+        # **A two-pane swap is its own inverse, so this map cannot be
+        # sanity-checked by inspection.** Measured by putting the fault back:
+        # inverting the mapping changes nothing on a 2-item card and is caught
+        # instantly on a 3-item one. So on an A/B card the arithmetic offers no
+        # self-check at all and the only defence is the content -- find a claim
+        # in the prose that only one arm can satisfy ("B look blurry" when
+        # exactly one arm is a blur) and confirm it lands on that arm.
+        warn += (" TWO PANES: the swap is its own inverse, so nothing here can "
+                 "tell a correct map from a reversed one. Check the prose "
+                 "against a property only one arm has before you act on it.")
+    return {
+        "note": warn,
+        "displayed_to_real": letters,
+        "as_sentence": "; ".join("he saw %s as %s" % (k, v) for k, v in letters.items()),
+        "blind_was": order,
+    }
+
+
 def _answered(card: dict) -> dict:
     resp = card.get("response") or {}
     out = _summary(card)
@@ -687,6 +741,9 @@ def _answered(card: dict) -> dict:
         "comment": resp.get("comment"),
         "annotations": resp.get("annotations") or [],
     }
+    decoded = _blind_decode(card)
+    if decoded:
+        out["blind"] = decoded
     return out
 
 

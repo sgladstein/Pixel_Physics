@@ -35,6 +35,7 @@ scripts/bugindex.py`; `--check` verifies it is current and is what
 """
 
 import re
+import subprocess
 import sys
 from pathlib import Path
 
@@ -203,6 +204,210 @@ def duplicates(rows):
     return {k: v for k, v in seen.items() if len(v) > 1}
 
 
+def _series(ident):
+    """`Z17` -> `("Z", 17)`; anything not a lettered-numbered pair -> None.
+
+    Bare letters (`### G.`) and the historic oddities (`1h`) have no successor
+    to compute, so they are excluded rather than guessed at.
+    """
+    m = re.fullmatch(r"([A-Za-z]+)([0-9]+)", ident)
+    return (m.group(1).upper(), int(m.group(2))) if m else None
+
+
+def branch_registers():
+    """Every fetched ref's copy of the register, as `{ref: [(ident, title)]}`.
+
+    Reads `git show <ref>:Reports/open-bugs-handoff.md` over `refs/remotes/`
+    and `refs/heads/`. Refs with no copy of the file are skipped silently and
+    counted -- the `review-queue` orphan carries data rather than source, and
+    branches cut before the register existed have none either.
+    """
+    root = DOC.resolve().parent.parent
+    rel = DOC.resolve().relative_to(root).as_posix()
+    refs = subprocess.run(
+        ["git", "for-each-ref", "--format=%(refname:short)",
+         "refs/remotes/", "refs/heads/"],
+        capture_output=True, text=True, cwd=root, check=False,
+    ).stdout.split()
+    out, missing = {}, 0
+    for ref in refs:
+        blob = subprocess.run(
+            ["git", "show", f"{ref}:{rel}"],
+            capture_output=True, text=True, cwd=root, check=False,
+        )
+        if blob.returncode != 0 or not blob.stdout:
+            missing += 1
+            continue
+        out[ref] = [
+            (ident, title)
+            for ident, _s, title, _ln, is_bug in entries(blob.stdout.split("\n"))
+            if is_bug and ident != "--"
+        ]
+    return out, missing
+
+
+def landed_refs():
+    """Refs wholly contained in `origin/main`, or `None` if unanswerable.
+
+    **`None` in a shallow clone, and that is the whole reason this returns an
+    option rather than a set.** `--merged` needs the common ancestor, and a
+    clone cut at depth 413 does not have it for a branch older than the
+    boundary: measured 2026-09-12, 7 refs of 75 came back merged and the other
+    68 read as unlanded whether they were or not. A set with 68 wrong members
+    is not a degraded answer, it is a confident wrong one -- the collision
+    report built on it named 8 collisions of which 7 were superseded letters
+    on branches that landed weeks ago.
+    """
+    root = DOC.resolve().parent.parent
+    shallow = subprocess.run(
+        ["git", "rev-parse", "--is-shallow-repository"],
+        capture_output=True, text=True, cwd=root, check=False,
+    )
+    if shallow.stdout.strip() == "true":
+        return None
+    for trunk in ("origin/main", "main"):
+        r = subprocess.run(
+            ["git", "for-each-ref", "--merged", trunk,
+             "--format=%(refname:short)", "refs/remotes/", "refs/heads/"],
+            capture_output=True, text=True, cwd=root, check=False,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            return set(r.stdout.split()) | {trunk}
+    return None
+
+
+def branch_collisions(per_branch, landed=frozenset(), trunk="origin/main"):
+    """`{ident: {title: [refs]}}` for identifiers that will be ambiguous.
+
+    Same identifier plus same title is the *same entry* seen on two branches,
+    which is what a merged or shared branch looks like and is not a problem.
+    Two different titles under one letter is the collision -- an inbound
+    "see §Z16" then resolves to whichever branch the reader is standing on.
+
+    **A title carried only by branches already contained in the trunk is
+    history, not a collision, and reporting it buries the one that matters.**
+    Measured 2026-09-12 on 75 refs: the unfiltered sweep found 8 collisions of
+    which 7 were superseded letters on long-merged branches -- a live §Z16
+    against a wall of noise. A merged branch cannot introduce anything the
+    trunk does not already say, so only titles with an unlanded ref can still
+    make an identifier ambiguous. The trunk's own title always counts, since
+    that is the one an inbound reference resolves to today.
+    """
+    claims = {}
+    for ref, rows in per_branch.items():
+        for ident, title in rows:
+            claims.setdefault(ident, {}).setdefault(title, []).append(ref)
+    out = {}
+    for ident, titles in claims.items():
+        live = {
+            t: refs for t, refs in titles.items()
+            if trunk in refs or any(r not in landed for r in refs)
+        }
+        if len(live) > 1:
+            out[ident] = live
+    return out
+
+
+def next_free(per_branch):
+    """`{prefix: n}` -- the lowest number no branch has claimed in each series.
+
+    This is the number the tool exists to print. `--check` cannot supply it:
+    it reads one working tree, so it says a letter is free when the only
+    thing holding it is a branch that has not landed yet. Measured 2026-09-12:
+    a lane filed §Z16 against a register whose highest was §Z15, `--check`
+    passed, and §Z16 was already taken on an unmerged branch.
+    """
+    high = {}
+    for rows in per_branch.values():
+        for ident, _title in rows:
+            s = _series(ident)
+            if s:
+                high[s[0]] = max(high.get(s[0], 0), s[1])
+    return {k: v + 1 for k, v in high.items()}
+
+
+def report_branches(per_branch, missing):
+    """Print the sweep. Returns an exit code: 1 on a collision, 2 if blind.
+
+    **A sweep that read nothing reports no collisions, which looks exactly
+    like a clean result** -- the null this repo keeps paying for. So the
+    branch count is printed unconditionally and an empty sweep is an error,
+    never a pass.
+    """
+    if not per_branch:
+        print("bugindex: --branches read ZERO copies of the register. "
+              "Not a clean result -- the sweep is blind. Is this a git tree, "
+              "and have you fetched?")
+        return 2
+    print(f"bugindex: swept {len(per_branch)} ref(s) carrying the register "
+          f"({missing} ref(s) have no copy). Refs you have NOT fetched are "
+          f"invisible -- `git fetch --all` first if this matters.")
+    free = next_free(per_branch)
+    if free:
+        cols = ", ".join(f"§{k}{v}" for k, v in sorted(free.items()))
+        print(f"bugindex: next free identifier in each series -- {cols}")
+    landed = landed_refs()
+    if landed is None:
+        print("bugindex: collision report SUPPRESSED -- this clone cannot tell "
+              "a landed branch from an unlanded one (shallow), so every "
+              "superseded letter on an old branch would read as live. "
+              "`git fetch --unshallow` to enable it. "
+              "The next-free line above does not depend on it.")
+        return 0
+    dups = branch_collisions(per_branch, landed)
+    for ident, titles in sorted(dups.items()):
+        print(f"bugindex: identifier '{ident}' is titled "
+              f"{len(titles)} different ways and both can still land:")
+        for title, refs in sorted(titles.items()):
+            short = title if len(title) <= 62 else title[:59] + "..."
+            # Name the *unlanded* refs. A merged ref in the list is the same
+            # entry riding along and says nothing about who has to renumber.
+            unlanded = sorted(r for r in refs if r not in landed)
+            where = ", ".join(unlanded[:3]) or "the trunk"
+            if len(unlanded) > 3:
+                where += f" (+{len(unlanded) - 3} more)"
+            print(f"    {short!r}")
+            print(f"        on {where}")
+    if dups:
+        print("bugindex: renumber the entry that has NOT landed on main -- "
+              "`--branches` again after pushing to confirm.")
+        return 1
+    print("bugindex: no identifier is titled two ways on anything unlanded")
+    return 0
+
+
+def selftest(per_branch):
+    """Put the fault back and watch it go red -- over the comparison, not the
+    plumbing. The plumbing's control is the branch count `report_branches`
+    prints, which is why that is unconditional and an empty sweep is fatal.
+    """
+    if not per_branch:
+        print("bugindex: --selftest needs a non-empty sweep")
+        return 2
+    ident = sorted(next_free(per_branch))[0] if next_free(per_branch) else None
+    if ident is None:
+        print("bugindex: --selftest found no numbered series to fake")
+        return 2
+    real = dict(per_branch)
+    taken = sorted(
+        i for rows in per_branch.values() for i, _t in rows if _series(i)
+    )[0]
+    real["refs/synthetic/selftest"] = [(taken, "a title no real entry carries")]
+    landed = landed_refs() or frozenset()
+    if taken not in branch_collisions(real, landed):
+        print(f"bugindex: SELFTEST FAILED -- an injected second title for "
+              f"'{taken}' was not reported. The sweep is blind.")
+        return 1
+    clean = branch_collisions(dict(per_branch), landed)
+    print(f"bugindex: selftest OK -- an injected duplicate of '{taken}' is "
+          f"caught; the unmodified sweep reports {len(clean)} collision(s)")
+    if landed_refs() is None:
+        print("bugindex: note -- this clone is shallow, so `--branches` will "
+              "suppress its collision report. The selftest bypasses that "
+              "filter deliberately: it is a control over the comparison.")
+    return 0
+
+
 def main():
     # `"--check" in sys.argv` was the first version, and it fails the way this
     # repo has already paid for: "an unknown argument is silently ignored"
@@ -211,11 +416,23 @@ def main():
     # who meant to verify it. Unrecognised argv is now an error.
     args = set(sys.argv[1:])
     check = "--check" in args
-    unknown = args - {"--check"}
+    unknown = args - {"--check", "--branches", "--selftest"}
     if unknown:
         print(f"bugindex: unrecognised argument(s): {' '.join(sorted(unknown))}")
-        print("usage: bugindex.py [--check]")
+        print("usage: bugindex.py [--check] [--branches] [--selftest]")
         return 2
+
+    # `--branches` is deliberately NOT run by `docscheck.sh`. Its answer
+    # depends on which refs happen to be fetched, so as a gate it would pass
+    # or fail on the state of somebody's clone rather than on the content --
+    # and a gate whose verdict moves with your fetch state teaches people to
+    # ignore it. It is the command you run *before filing a bug*, which is the
+    # one moment its answer is actionable.
+    if "--branches" in args or "--selftest" in args:
+        per_branch, missing = branch_registers()
+        if "--selftest" in args:
+            return selftest(per_branch)
+        return report_branches(per_branch, missing)
 
     # Explicit newline="" on read and "\n" on write. `Path.read_text` grew a
     # `newline` argument only in 3.13, so both go through `open`. Without this,
