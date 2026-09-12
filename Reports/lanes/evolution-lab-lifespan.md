@@ -38,20 +38,44 @@ after,  life 40,000  27  243  515  161   11    6    7   64  507 1265  733  653  
 ```
 
 The runaway is gone: the control peaks at **760** instead of 3,182 and is
-**extinct by 420,000 frames** instead of holding 108. And on this one
-re-measured seed the lifespan arm peaks **higher** than the control (1,265
-against 760) and also goes extinct, at 460,000 — the opposite sign to
-everything below.
+**extinct by 420,000 frames** instead of holding 108.
 
-The two arms are *identical* to 100,000 frames (21/43/47/57/73 on both trees),
-so this is a slow-accumulating difference and not a broken build; the 60,000-
-frame determinism control could not have caught it, and that is the lesson —
-**a determinism arm shorter than the mechanism's onset proves nothing about the
-run you are about to sweep.**
+**Only half the runs moved, and that is the useful half of this.** Of the six
+paired runs, three are **byte-identical** across the merge — seed 2 at both
+settings and seed 3 immortal — and three change completely: both seed-1 arms and
+seed 3 with a lifespan. Main's change is inert on the small colonies and decisive
+on the large ones, so a lane measuring a quiet bed will find nothing has moved
+while a lane measuring a busy one finds everything has.
 
-Seeds 2 and 3 are re-running on the merged tree. Until they land, **the table
-below is a measurement of a tree that no longer exists** and the mechanism, not
-the ecology figures, is what this branch has established.
+The changed arms are also *identical to 100,000 frames* (21/43/47/57/73 on both
+trees), so this is slow-accumulating and not a broken build. The 60,000-frame
+determinism control could not have caught it, and that is the lesson: **a
+baseline control shorter than the mechanism's onset proves nothing about the run
+you are about to sweep.**
+
+## The sweep, re-measured on the merged tree (`main` at `c7ee0f40`)
+
+| seed | life | peak | at frame | 500k a/p/bank | old age / starved |
+|---|---|---|---|---|---|
+| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 0 / 3,437 |
+| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 1,715 / 7,245 |
+| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 0 / 122 |
+| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 100 / 70 |
+| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 0 / 446 |
+| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 303 / 348 |
+
+**The lifespan does not bound the peak here — on the one seed with a big colony
+it raises it, 760 to 1,265 — and every colony at every setting, 0 included, is
+extinct by 500,000 frames.** The programme's bar is met by nothing.
+
+What it does change is what the colony *leaves*: seed 1 ends with **114 plants
+over a bank of 600** against 14 plants and an empty bank, the only arm to clear
+the bar's bank half and the same direction `labstats` shows. And the deaths move
+as designed — 1,715 of seed 1's 8,960 deaths are age, not hunger.
+
+**The 20,000 and 80,000 arms have not been re-run** on this trunk; their rows
+below are from `f3acaf76`. The cost fork's conclusion (halving flattened no
+further) is therefore not re-established either.
 
 ## The sweep, as measured at `f3acaf76` (superseded)
 
@@ -70,27 +94,12 @@ ants/plants/bank at 500,000, then old-age against starvation deaths:
 | 3 | 40,000 | 171 | 140,000 | 0 / 3 / 5 | 299 / 364 |
 | 3 | 80,000 | 332 | 160,000 | 0 / 50 / 107 | 192 / 749 |
 
-**The runaway is what it bounds, and on the seed that runs away it is bounded
-6.6x** (3,182 → 483). Where the colony never ran away the lifespan barely moves
-the peak (seed 3, 190 → 171), and at 80,000 seed 3 peaks *higher* (332) than at
-0. The cost fork was followed — halved to 20,000, which flattened no further
-(155) and merely killed more (612 of 864 deaths) — so **40,000 ships**.
-
-**But the peak is the wrong headline, and the trajectory is the right one.**
-Ants at each 20,000-frame stop, seed 1, the one seed whose colony survives the
-session:
-
-```
-life 0       73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
-life 40,000  27  464  146   18   69  105  158  152  191  364  269  483  346  314  347  362  375  368  324  190  256
-```
-
-Over the second half (220,000 → 500,000) the control swings between **6 and
-3,182 ants — a 530-fold band** with a cliff from 3,099 to 16 inside one
-20,000-frame step, which is the owner's "they die all at once" to the digit.
-The lifespan arm holds **152 to 483, a 3.2-fold band**, for 280,000 frames.
-*That* is "the colony settles at a size and its fall is a slope", and no
-single-stop figure in the table above shows it.
+**On this trunk the runaway was bounded 6.6x** (3,182 → 483) and the arm held a
+152–483 band for 280,000 frames against a control swinging 6 to 3,182. **Both
+claims are withdrawn** — neither reproduces after the merge; see above. The cost
+fork was followed here — halved to 20,000, which flattened no further (155) and
+merely killed more (612 of 864 deaths) — so **40,000 ships**, and that
+conclusion has not been re-established on the trunk either.
 
 **Card `20260912T092226496Z-07d3ab`** (blind, board `lab`) puts the two whole
 sessions side by side as paired 41-frame sequences — `labgif … frames=500000

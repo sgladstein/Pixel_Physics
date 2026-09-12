@@ -7924,45 +7924,70 @@ it fell on, then ants/plants/bank at 500,000:
 | 3 | 40,000 | 171 | 140,000 | 0 / 3 / 5 | 299 / 364 |
 | 3 | 80,000 | 332 | 160,000 | 0 / 50 / 107 | 192 / 749 |
 
-**Measured against `main` at `f3acaf76`, and superseded — see the note below
-the table before using any of it.** On that trunk the runaway was bounded 6.6x
-(seed 1, 3,182 ants to 483), the lifespan changed the peak little where the
-colony never ran away (seed 3, 190 → 171), and the design's cost fork was
-followed — halved once to 20,000, which flattened no further (155) and merely
-killed more (612 of 864 deaths), so 40,000 ships.
+Re-measured on the current trunk after `main` shipped nest odour and
+`scent_drift` at 0.15, which moved this bed under the first version of this
+table (the before-and-after is below):
 
-**Every figure in that table is from before scent drift landed, and the
-baseline moved when it did.** The sweep above was measured against `main` at
-`f3acaf76`. `main` then shipped nest odour and `scent_drift` on at 0.15, and
-re-running the *identical* control arm across that merge — same binary, same
-seed, same scenario, only `main`'s landed code between them — turns the played
-bed's seed 1 from a 3,182-ant runaway that still holds 108 ants at 500,000
-frames into a colony that peaks at **760** and is **extinct by 420,000**:
+| seed | lifespan | peak ants | at frame | 500k ants/plants/bank | old age / starved |
+|---|---|---|---|---|---|
+| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 0 / 3,437 |
+| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 1,715 / 7,245 |
+| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 0 / 122 |
+| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 100 / 70 |
+| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 0 / 446 |
+| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 303 / 348 |
+
+**On this trunk the lifespan does not bound the peak — on the one seed with a
+big colony it raises it, 760 to 1,265** — and **every colony, at every setting
+including 0, is extinct by 500,000 frames**. The programme's bar (a live colony
+over a bank above ~500) is met by nothing here.
+
+What it does do is leave the bed behind in a far better state. Seed 1 ends with
+**114 plants over a bank of 600** where the immortal arm ends with 14 plants and
+an empty bank — the only arm in the sweep to clear the bar's *bank* half, and
+the same direction the `labstats` bed showed. The deaths move where the design
+said they would: 1,715 of seed 1's 8,960 deaths are age rather than hunger.
+
+So the mechanism is shipped and correct, the graded death is real, and **the
+late-game outcome it was meant to buy is not demonstrated on the current
+trunk.** That is the honest state of it.
+
+**Why that table had to be measured twice, and what it cost.** The first
+version of it was taken against `main` at `f3acaf76`. `main` then shipped nest
+odour and `scent_drift` on at 0.15, and re-running the *identical* control arm
+across that merge — same binary, same seed, same scenario, only `main`'s landed
+code between them — turns the played bed's seed 1 from a 3,182-ant runaway that
+still holds 108 ants at 500,000 frames into a colony that peaks at **760** and
+is **extinct by 420,000**:
 
 ```
 before scent drift, life 0   73  205  339  354  752 1816 2013 1023  943 2079 3182 3099   16   25    6   46  458 1283  848  289  108
 after  scent drift, life 0   73  236  334  254  274  420  676  705  726  760  126  208  129   94  125    2    0    0    0    0    0
 ```
 
-That is not a small revision. It means the sweep table's absolute numbers
-describe a tree that no longer exists, and it means **the claim this section
-carried — that a lifespan bounds the runaway 6.6x and holds the colony in a
-band — is not established on the current trunk**. On the post-merge tree's one
-measured seed the lifespan arm peaks *higher* than the control (1,265 against
-760) and also goes extinct, at 460,000. The re-measurement over the remaining
-seeds is in `Reports/lanes/evolution-lab-lifespan.md`; until it lands, read the
-mechanism below as shipped and correct, and the ecology numbers as pending.
+It is not a small revision, and the claim the first version of this section
+carried — *a lifespan bounds the runaway 6.6x and holds the colony in a band* —
+**is withdrawn**. It was true of `f3acaf76` and is not true of the trunk.
 
-**And the bed still dies, which this build does not claim to fix.** No setting
-— 0 included — meets the late-game programme's bar of a live colony over a
-bank above ~500 at 500,000 frames. The bank is what the mouth takes first
-(`Reports/evolution-lab-late-game-design-2026-09-12.md` §1.1), and that is
-brief 1's mechanism, not this one's. What this build is measured to deliver is
-the *colony*: seed 1 is the only bed of the three still holding ants at 500,000
-frames, and it holds them under **both** settings — 108 without a lifespan and
-256 with one. The difference is not whether the colony is there at the end but
-how it got there, which is the trajectory above: one arm arrived by crashing
-from 3,099 to 16 and re-booming, the other by holding a band.
+**What moved is not the whole bed, which is the useful half of this.** Of the
+six paired runs, three are **byte-identical** across the merge (seed 2 at both
+settings, seed 3 immortal) and three change completely (both seed-1 arms, seed 3
+with a lifespan). Main's change is inert on the small colonies and decisive on
+the large ones, so a lane measuring a quiet bed may find nothing has moved at
+all while a lane measuring a busy one finds everything has.
+
+And the two arms are **identical for the first 100,000 frames** (21/43/47/57/73
+on both trees), diverging only after. A 60,000-frame determinism control could
+not have caught this, which is the rule worth carrying: **a baseline control
+shorter than a mechanism's onset proves nothing about the run you are about to
+sweep.**
+
+**The bed still dies, and this build does not fix it.** The bank is what the
+mouth takes first (`Reports/evolution-lab-late-game-design-2026-09-12.md`
+§1.1), and that is brief 1's mechanism, not this one's. What a lifespan is
+measured to change on the played bed is what the colony *leaves* — seed 1's
+114 plants over a bank of 600 against 14 plants and nothing — not whether the
+colony itself lasts the session. On the current trunk none of them does.
 
 **On a smaller bed it is a straight gain.** `labstats frames=120000 seed=1` on
 the harness bed, lifespan 0 against 40,000: ants alive **18 → 92**, starved
