@@ -1,0 +1,70 @@
+{
+  "id": "20260912T041559012Z-1b7300",
+  "created": "2026-09-12T04:15:59Z",
+  "board": "render",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-zoom-out-r30",
+    "commit": "ccaef282",
+    "agent": null,
+    "session_id": "2995b190-95f7-554b-ac8a-0e6248245e46",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zoomed all the way out: which one still has the plants in it?",
+  "question": "Which of these three reads as crisp, with the plants and the ground both there? Pick one.",
+  "context_md": "You reported that zooming all the way out made pixels of plants and other foreground things disappear. They were disappearing: at the widest zoom-out one screen dot has to stand for a 4x4 square of the world, and the view was drawing whichever cell sat at the corner of that square and throwing the other fifteen away. A stem one cell wide had three chances in four of landing in a gap.\n\nEach pane is the same two worlds at the same moment, top the lab bed and bottom the outdoor coast, magnified 2x. **Same world, same seed, same frame in all three** -- only the choosing rule differs.\n\n**The counts under each pane** say how many screen dots actually have a plant or an animal in them, measured by rendering the same world twice and erasing all the life in the second, so it cannot be fooled by colour. *changed* is how many dots differ from the current build: one of these repaints almost the whole screen and two barely touch it.\n\nWhat I am unsure of and would rather you judged than I argued: whether the busiest option is genuinely better to look at, or just *more*. One pane also softens everything, which I expect you to dislike -- but that is the obvious fix a lot of people would reach for, so it is here to be turned down rather than assumed away.\n\nAll three are live behind **shift and the zoom-out key**, so nothing here is a one-way door.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "current build",
+      "files": [
+        "20260912T041559012Z-1b7300/000-card-stride.png"
+      ],
+      "caption": "",
+      "meta": {
+        "dots with a plant or animal in them": 548,
+        "screen columns with life in them": "189 of 512",
+        "dots changed vs the current build": 0,
+        "milliseconds to redraw while panning": 1.45
+      },
+      "focus": null
+    },
+    {
+      "label": "most-worth-seeing cell",
+      "files": [
+        "20260912T041559012Z-1b7300/001-card-coverage.png"
+      ],
+      "caption": "",
+      "meta": {
+        "dots with a plant or animal in them": 1638,
+        "screen columns with life in them": "323 of 512",
+        "dots changed vs the current build": 1311,
+        "milliseconds to redraw while panning": 4.47
+      },
+      "focus": null
+    },
+    {
+      "label": "blended square",
+      "files": [
+        "20260912T041559012Z-1b7300/002-card-average.png"
+      ],
+      "caption": "",
+      "meta": {
+        "dots with a plant or animal in them": 1637,
+        "screen columns with life in them": "322 of 512",
+        "dots changed vs the current build": 141617,
+        "milliseconds to redraw while panning": 15.6
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
