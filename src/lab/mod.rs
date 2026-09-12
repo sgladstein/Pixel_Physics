@@ -436,13 +436,27 @@ impl Lab {
         // `CycleCreatureColour`'s handler, next to `renderer.creature_colour`
         // itself, so the two can never drift more than one action apart.
         ui.set_creature_colour(renderer.creature_colour);
+        // **The MENU page's five magnify rows and its display-floor row**,
+        // told what `Renderer`/`TimeControl` already hold so the mirror
+        // never opens on a stale reading before the first cycle. See
+        // `Ui::set_magnify`/`set_display_floor`'s own doc for why the mirror
+        // exists at all.
+        ui.set_magnify(
+            renderer.magnify_style,
+            renderer.magnify_notch,
+            renderer.magnify_ink,
+            renderer.magnify_level,
+            renderer.magnify_grain,
+        );
+        let time = time::TimeControl::new();
+        ui.set_display_floor(time.display_floor());
         Self {
             world,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             renderer,
             player_tuning: player::Tuning::default(),
-            time: time::TimeControl::new(),
+            time,
             stats: stats::Stats::new(),
             chronicle_census: Vec::new(),
             ui,
@@ -2885,7 +2899,76 @@ impl Lab {
                 self.spec.rain = self.spec.rain.next();
                 self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
             }
+            // **`F`'s own verb, routed through `Lab::act` now that the MENU
+            // page gives it a second route in.** `Lab::act` exists to
+            // dispatch a verb a button also draws, and until this page
+            // existed this one had no button -- `bin/lab.rs`'s `F` key used
+            // to call `self.lab.time.cycle_display_floor()` directly for
+            // exactly that reason.
+            ui::Action::CycleDisplayFloor => {
+                self.time.cycle_display_floor();
+                self.ui.set_display_floor(self.time.display_floor());
+                self.ui.say(format!("DISPLAY FLOOR MIN {}HZ", self.time.display_floor()));
+            }
+            // `Digit9`'s own verb, `CycleDisplayFloor`'s own reason.
+            ui::Action::WriteChronicle => self.write_chronicle(),
+            // **The outdoor game's own cycle**, `Renderer::cycle_magnify_
+            // style` -- `Shift`+`=` there, this action's key (`0`) and MENU
+            // row here. Reused rather than re-derived so the lab and the
+            // outdoor game step through the identical sequence. Mirrored
+            // into `Ui` in the same action that changes it,
+            // `CycleCreatureColour`'s reason.
+            ui::Action::CycleMagnifyStyle => {
+                self.renderer.cycle_magnify_style();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY STYLE -- {}", self.renderer.magnify_style.label()));
+            }
+            // `Renderer::cycle_magnify_notch` -- `Shift`+`[` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyNotch => {
+                self.renderer.cycle_magnify_notch();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY NOTCH -- {}", self.renderer.magnify_notch.label()));
+            }
+            // `Renderer::cycle_magnify_ink` -- `Shift`+`]` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyInk => {
+                self.renderer.cycle_magnify_ink();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY INK {:.2}", self.renderer.magnify_ink));
+            }
+            // **`magnify_level`/`magnify_grain` have no outdoor-game cycle to
+            // reuse** -- `Renderer` exposes both fields `pub` but no mutator,
+            // and `render.rs` is out of this lane's scope (another round-30
+            // lane owns it). A short preset ladder over the bare field, the
+            // same shape `CycleMagnifyInk` used before `cycle_magnify_ink`
+            // existed: nobody has seen either dial in the lab at all, so a
+            // coarse click-to-advance control is enough to find out whether
+            // it is worth a finer one.
+            ui::Action::CycleMagnifyLevel => {
+                self.renderer.magnify_level = step_ladder(self.renderer.magnify_level, &MAGNIFY_LADDER_LEVEL);
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY LEVEL {:.2}", self.renderer.magnify_level));
+            }
+            ui::Action::CycleMagnifyGrain => {
+                self.renderer.magnify_grain = step_ladder(self.renderer.magnify_grain, &MAGNIFY_LADDER_GRAIN);
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY GRAIN {:.2}", self.renderer.magnify_grain));
+            }
         }
+    }
+
+    /// Push all five `Renderer::magnify_*` fields across to `Ui`'s mirror in
+    /// one call -- `Ui::set_magnify`'s own reason for taking all five rather
+    /// than one.
+    fn sync_magnify(&mut self) {
+        self.ui.set_magnify(
+            self.renderer.magnify_style,
+            self.renderer.magnify_notch,
+            self.renderer.magnify_ink,
+            self.renderer.magnify_level,
+            self.renderer.magnify_grain,
+        );
     }
 
     // ------------------------------------------------------------ the shelf
@@ -3302,6 +3385,31 @@ fn scent_channel_label(channel: Channel) -> &'static str {
         Channel::A => "HOME SCENT (A)",
         Channel::Alarm => "ALARM (UNREACHABLE FROM SCENT)",
     }
+}
+
+/// `Action::CycleMagnifyLevel`'s own ladder -- `render::MAGNIFY_LEVEL`'s own
+/// doc: below 0.5 fattens a thin mass, at 0.5 a one-cell twig shrinks to a
+/// diamond, so the ladder stays under a half.
+const MAGNIFY_LADDER_LEVEL: [f32; 4] = [0.2, crate::render::MAGNIFY_LEVEL, 0.42, 0.49];
+/// `Action::CycleMagnifyGrain`'s own ladder -- `render::MAGNIFY_GRAIN` (0.08)
+/// is the shipped default.
+const MAGNIFY_LADDER_GRAIN: [f32; 4] = [0.0, crate::render::MAGNIFY_GRAIN, 0.16, 0.24];
+
+/// Step `current` to the next stop of `ladder`, wrapping -- the shared shape
+/// behind the three `CycleMagnify*` amplitude actions.
+///
+/// **Nearest stop, not exact match**, because a value can arrive between two
+/// stops (the field was never on this ladder before this action existed) --
+/// `f32::total_cmp` rather than `partial_cmp`, since every ladder here is a
+/// small fixed array with no `NaN` in it and a `PartialOrd::partial_cmp` that
+/// returned `None` would silently pick neither neighbour.
+fn step_ladder(current: f32, ladder: &[f32]) -> f32 {
+    let nearest = ladder
+        .iter()
+        .enumerate()
+        .min_by(|(_, a), (_, b)| (**a - current).abs().total_cmp(&(**b - current).abs()))
+        .map_or(0, |(i, _)| i);
+    ladder[(nearest + 1) % ladder.len()]
 }
 
 /// Squared distance from `(px, py)` to the segment `a`-`b` — `Lab::
