@@ -1,6 +1,7 @@
 # Running a program of sessions (coordinator ↔ lane)
 
-**Status: living. Written 2026-08-24; moved out of `CLAUDE.md` 2026-08-25.**
+**Status: living. Written 2026-08-24; moved out of `CLAUDE.md` 2026-08-25;
+the spawn-sources section added 2026-09-12.**
 
 **Read this if you are coordinating other sessions, or were spawned by one.**
 If you are a single session doing ordinary work, nothing here applies and
@@ -18,6 +19,52 @@ Written 2026-08-24, from one evening in which a coordinating session ran seven
 lanes, merged nine pull requests and lost several hours to four failures that
 had nothing to do with the engine. Everything here is a fact about *this*
 harness, measured, not a guess about how agents ought to work.
+
+### Spawning a lane: the environment is inherited, the repository is not
+
+**This fires before every other rule here, because a lane without a checkout
+cannot do anything at all — including tell you why.** Measured 2026-09-12: two
+lanes spawned in one minute both came up with an empty `/home/user`. No clone,
+no `CLAUDE.md`, no repo. One reported `need_input: "no repository found"` and
+stopped. The other cloned the public tree read-only through the git proxy,
+worked for seven minutes, and only then discovered it could never push:
+
+```
+access denied by the git proxy: sgladstein/Pixel_Physics is not in this
+session's authorized repository set                              (HTTP 403)
+```
+
+**The cause is one omitted argument, and the trap is that the *other* default
+works.** `mcp__Claude_Code_Remote__create_session` with no `source_url`
+inherits the caller's `environment_id` — correctly, every time. It does **not**
+inherit the caller's sources. Compare the returned records of a working lane
+and a dead one from the same coordinator, same minute, same environment:
+
+```
+working:  "sources":[{"git_repository":{"url":".../Pixel_Physics","revision":"main"}}]
+dead:     (no `sources` key at all)
+```
+
+So "it inherits the environment" is true, and it is not the thing you needed.
+
+**The rule: pass `source_url` and `source_revision` on every build-lane spawn,
+then check `sources` is non-empty in the record the call hands back.** The
+tool returns it, so the check is free and it is the only one that runs before
+the lane has burned anything.
+
+**Do not expect the lane to dig itself out.** `add_repo` with `access: "push"`
+is the documented fix and a spawned lane cannot use it: the permission
+classifier declines the grant because it needs a human, and a lane spawned
+without sources also has **no `mcp__github__*` tools**, so it could not open a
+pull request even if it could push. The only recovery is to spawn it again
+correctly and archive the original, so two lanes are not building the same
+thing.
+
+**Carry the dead lane's findings into the relaunch.** The one that got seven
+minutes in had already found three stale line numbers in its own brief and
+confirmed what a just-merged PR did and did not touch. That is real work and
+it is in a session you are about to archive. Fold it into the new brief, and
+verify it yourself first — see *Verify what a lane relays* below.
 
 ### The sessions can talk to each other — and by default they cannot
 
