@@ -10,29 +10,37 @@ name a re-test condition in their own `Re-test when:` clause and **nobody had
 ever swept those conditions** — exactly three carried the file's own
 `CONDITION MET` marker.
 
-This is that sweep. Every one of the 779 entries now carries a verdict, and the
-sweep's own false-negative rate is measured rather than asserted.
+This is that sweep. Every one of the 804 entries now carries a verdict, and
+**both** of the sweep's error rates are measured rather than asserted — the
+false negatives it misses in `DEAD`, and, since the 2026-09-12 review, the
+false positives in its own candidate list.
 
 ## The answer
 
-| | |
-|---|--:|
-| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | **497** |
-| `META` — rejects a harness or a process, not an engine mechanism | 93 |
-| `CONFOUNDED` | 57 |
-| `UNBUILT` — argued and declined, never measured | 41 |
-| `COSTED` | 26 |
-| `EXPIRED` | 12 |
-| `SUSPECT-INSTRUMENT` | 10 |
-| `RE-TESTED` — condition met, retried, still no | 11 |
-| `LANDED` — retried, worked, shipped | 13 |
-| `UNWIRED` | 2 |
+**Revised 2026-09-12**, after the re-key found 19 entries carrying a
+neighbour's verdict, the 19 `main` added were screened, and the relabels of the
+review's §2c and §4 were applied. The 2026-09-11 column is kept so the movement
+is visible.
 
-**111 revival candidates, 14%** — and the adversarial pass below puts the true
-figure nearer **20%**. **The register is right about roughly two thirds of what
-it holds.** That is the headline, and it is worth stating plainly: this is a
-well-kept record, and the value of a sweep is locating the minority precisely
-rather than casting doubt on the whole.
+| | 09-11 | 09-12 |
+|---|--:|--:|
+| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | 497 | **526** |
+| `META` — rejects a harness or a process, not an engine mechanism | 93 | 97 |
+| `CONFOUNDED` | 57 | 57 |
+| `UNBUILT` — argued and declined, never measured | 41 | 42 |
+| `COSTED` | 26 | 30 |
+| `EXPIRED` | 12 | 8 |
+| `SUSPECT-INSTRUMENT` | 10 | 10 |
+| `RE-TESTED` — condition met, retried, still no | 11 | 13 |
+| `LANDED` — retried, worked, shipped | 13 | 18 |
+| `UNWIRED` | 2 | 1 |
+
+**106 rows are labelled as revival candidates, 13% — and a blind re-rating puts
+the number that actually stand at about 37% of those, so roughly 39.** That
+correction is the most important thing on this page and it is explained in full
+below. **The register is right about rather more than two thirds of what it
+holds**, and the value of a sweep is locating the minority precisely rather
+than casting doubt on the whole.
 
 ## The largest actionable class is the owner's own hypothesis
 
@@ -49,10 +57,11 @@ several entries:
 - **`creatures:049`** — the ants' "am I in the open" distinction failed because
   `LightHere` resolves per *field block*, not per cell. The sensor could not
   carry the distinction; the idea was never tested.
-- **`creatures:022`** — `synapse_cost` was held fixed in absolute terms while
-  `start_energy` was cut tenfold, silently reallocating its weight. This is
-  CLAUDE.md's own *"a correct mechanism at inherited constants is a
-  regression"*, inside the register.
+  *(`creatures:022` stood here as the showcase example and has been removed,
+  2026-09-12: it records that the confounded sweep was "invalidated and
+  restarted", which is a process already handled. Question 1 of the rubric
+  claims it as `META` before `CONFOUNDED` can — the first sign that this class
+  was over-assigned.)*
 - **`plants:015`** — "these species all look the same" was judged while every
   species was ~90% wood drawing from one four-brown palette. The lever was fine;
   texture and colour set the silhouette.
@@ -63,17 +72,51 @@ slower" verdict in the register predates `ChunkGrid`, `fxhash.rs`, inlined
 **2.4–5.7× faster, bit-identical**. Several cite precisely the hash-probe cell
 lookups that no longer exist.
 
-## The sweep's own error rate: 3 of 40
+## The sweep's two error rates, and only one of them was measured here
+
+### The false negatives: 3 of 40, and it replicates
 
 40 entries sampled at random from the 495 `DEAD`, labels stripped, handed to a
 fresh rater asked for the strongest honest case to reopen each. **It reopened 3
-— 7.5%**, which over 495 implies about 37 more candidates and a true total near
-**155 of 779**. Full account in
+— 7.5%.** Full account in
 [`data/dead-ends-triage/adversarial.md`](data/dead-ends-triage/adversarial.md).
 
-The screen is therefore tight rather than loose — the safer direction for a
-register whose job is preventing wasted sessions — and the 15% should be read as
-a floor. All three reopens were verified in source:
+**The 2026-09-12 review drew a second sample of 40 with a neutral prompt and
+reopened 4**, pooling to **7 of 80, 8.75%** — so this figure is corroborated and
+the anchoring in the first prompt ("expect most to hold") did not move it. Note
+what the seven are, because it changes what they are worth: **six are stale
+rather than revivable** — the world moved and the entry was resolved or
+superseded elsewhere without a write-back — and only `destruction:034` is a
+condition met with the re-test still owed.
+
+### The false positives: this page did not measure them, and they are the larger error
+
+**The screen was never tested on its own candidates, and blind they mostly do
+not stand.** All 106 candidate rows were re-rated blind against the same rubric,
+labels stripped, blended with 106 `DEAD` controls so the base rate told the
+rater nothing, with the two rules a first review found under-applied quoted in
+the prompt — rule A (delete the suspect number; does the entry still reject?)
+and Question 1 (`META` beats everything).
+
+| | n | |
+|---|--:|---|
+| candidates confirmed blind | 39 | **precision 37%** |
+| candidates closed blind | 67 | |
+| `DEAD` controls reopened | 4 of 106 | 3.8%, so the rater is not simply closing everything |
+
+Two classes carry almost the whole error. `CONFOUNDED` closed to `DEAD` 21 times
+in one batch alone, and `SUSPECT-INSTRUMENT` re-read as `META` six times — the
+thing rejected *was* the instrument. Both are failures of the same two rules.
+
+**So the reading this page originally gave — "the screen is tight rather than
+loose, and the 15% is a floor" — is wrong, and the correction is not a
+tightening of the same number but a different number.** The candidate list is
+roughly 37% precise, so about **39 entries** in it are real, not 106; and the
+~40 the `DEAD` side hides are mostly the write-back kind rather than the
+revivable kind. The true "this idea was never fairly tested" set is **smaller
+than the candidate list and is a different set from it**.
+
+The `DEAD` side reopens were verified in source:
 
 - **`creatures:013` prescribes deleted code.** `hunger_fraction` has **zero**
   live references; all five hits are comments. `creature.rs:5531` now reads
@@ -182,8 +225,13 @@ written nine citations pointing at the wrong code.)
 
 `plants:019` is the one worth noticing: it carries **no `Re-test when:` clause
 at all**, which is why nothing ever asked whether its condition had arrived.
-**71 entries are in that position** — they cannot go stale *visibly*, because
-they never stated what would make them stale.
+**68 entries are in that position** (re-counted 2026-09-12 on the regenerated
+index; this page and the PR body both said 71 and the tables said 65) — they
+cannot go stale *visibly*, because they never stated what would make them
+stale. **50 of the 68 name a source file or an asset**, which is the set where
+writing a clause would actually pay: `deadendindex.py --touching` can only see
+an entry whose clause names the arriving identifier, so these 50 are invisible
+to it by construction and `plants:019` is the control that proves it.
 
 That is the structural gap this sweep found and did not close: **the register is
 read by area and resolved in code.** `creatures:039` fell through it one way — a
@@ -197,11 +245,20 @@ the other, resolved and never written back.
    expected results, a cost tier, and what it buys in ethos terms.
 2. **Run the cheap tier.** Smaller than it looks: only 7 candidates cite a live
    flag, and a live flag is not an arm.
-3. **The loop that is not closed.** `creatures:039` and `hopper` are the same
-   failure twice, and nothing makes a met condition findable by the line that
-   met it. `deadendindex.py --check` is now gated by `docscheck`, which fixes
-   drift in the section counts but not this.
+3. **The loop, half closed 2026-09-12.** `creatures:039` and `hopper` are the
+   same failure twice, and nothing made a met condition findable by the line
+   that met it. `deadendindex.py --touching` now asks the *arrival* question —
+   does this branch's diff add, to a tree that did not have it, an identifier
+   some `Re-test when:` clause names — and `branchcheck.sh --brief` runs it at
+   session start. **Recall is 2 of 5 on replay and silence is not evidence**:
+   it cannot see an entry with no clause (the 68 above), nor a condition met by
+   a value changing rather than a name arriving, which is how `field:027` and
+   `destruction:034` both slipped past it. Specificity is why it ships anyway —
+   0, 0, 0, 0, 1 hits over five unrelated merged PRs. The looser form that
+   catches all five controls scores 43 hits against one true positive on a
+   plant-line commit and is recorded as a dead end.
 
 Machine-readable results: [`data/dead-ends-triage/`](data/dead-ends-triage/) —
-`screened.tsv` (779 verdicts), `candidates.tsv` (the 118), `rubric.md`, and the
+`screened.tsv` (804 verdicts, one per distinct entry), `candidates.tsv` (the 106,
+regenerated from `screened.tsv` rather than maintained), `rubric.md`, and the
 checks above. Regenerate the index with `python3 scripts/deadendindex.py`.
