@@ -4,7 +4,22 @@
 looked stuck: most of the time it is** -- a plant holds an animal up, and it
 also blocks it, so an animal inside a bush cannot move in any direction at
 all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
-when **a seed an ant bites is cargo, not a
+when **ants started dying of old age** -- the
+first thing in this world that does, on the other side of the glass from the
+plants that always have. See "Ants get old" below; it is what turns a colony's
+boom-and-crash into a size it holds. The same day, **a long ant stops waiting
+for a nestmate that is never going to move**. A long ant that is carrying something waits
+out a jam rather than turning for home -- and it used to wait for ever,
+because the ant in its way was often stuck for the same reason. It now waits
+a few beats and then turns round. See "And a long ant can now turn round"
+below. The census that found it also found two things nobody had looked for.
+**Most of what piles up in a long-run colony is not long animals at all**
+but ones whose bodies are a single cell, bred that way rather than cut down,
+and for those turning round is not a move. And **the ant you notice standing
+still is usually just resting**: the most conspicuous standing animals on a
+crowded bed have room to move and no reason to use it, the small shipped ants
+rest for just as long, and the real gap is that resting and stuck look
+identical. The same day, **a seed an ant bites is cargo, not a
 meal** -- a harvester became a sower. Bite a seed off the floor and most of
 the time it survives the mouth whole: the ant keeps only the small provision
 the seed carries for exactly that purpose, the seed itself rides home in the
@@ -344,6 +359,44 @@ comings and goings can make the one open path look blocked for a moment: it
 will wait out a jam from a nestmate rather than turn for home and walk away
 from a door it was about to reach, and only turns end for end when nothing
 in its way is going to move on its own.
+
+**But the wait now ends.** Waiting for a nestmate to move only works if the
+nestmate is going to move, and in a crowded nest it very often is not --
+it is standing still for the same reason, behind an ant that is standing
+still behind an ant. A carrying long ant used to wait out that jam for the
+rest of its life, standing in one place with only its head turning, and a
+group of them locked together made the pile a player actually notices. It
+now gives the ant in front a few beats to move and then turns round anyway.
+A short ant is not affected: it can simply step backwards, so waiting never
+cost it anything.
+
+What that buys and what it costs are both worth saying, because they are
+the same thing. A colony that stops standing still starts walking, and
+walking is what an ant spends its food on: the colony that comes out of a
+long session is smaller and hungrier, and it carries more home. Whether
+that trade is the right one is a question about how much a long ant should
+have to eat, not about turning round, and it has not been settled.
+
+**And a pile is usually not what it looks like.** Follow one for long
+enough and most of the animals wedged in it turn out to be ants whose
+bodies have been cut down to a cell or two -- and for those, turning round
+is not a move at all: there is nothing to turn. They are held in place by
+the bodies around them and nothing they can do changes that. Why a long ant
+ends up one cell long is not yet known.
+
+**And the ant you notice standing still is usually just resting.** Watch a
+crowded bed for a while and the animals that draw the eye are big
+full-length ones that hold one spot for a minute of play or more. Follow one
+and it is not wedged at all: there is open ground beside it, it never once
+tries a step and fails, and it is not waiting on anybody. An ant rests when
+it has no reason to act, and that is how it has always worked -- the small
+ants that come with the game rest for just as long, on every bed, and nobody
+notices, because two motionless pixels look like scenery and a motionless
+seven-segment animal looks like something that has got itself stuck. The ant
+is fine. What is missing is any way to tell resting from stuck by looking,
+which is a question about what a resting ant should be *doing* -- turning its
+head, feeling about with its feelers, shifting a step and coming back -- and
+that has not been decided.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
@@ -792,7 +845,35 @@ is not enough to build a wall out of: walls, pillars and chambers are something
 this preference could in principle grow into rather than something you will
 watch happen.
 
-**Ants starve now, and a colony settles at a size instead of running down.**
+**Ants get old and die of it, and that is what actually settles a colony at
+a size.** Until now nothing in this world died of age. Every death in every
+session was hunger or a fight, so a colony could only shrink by famine: it
+found a bed full of food, bred on it until there were hundreds of them, ate
+the bed down to bare ground, and then went all at once. Watch one long enough
+and you get a boom, a cliff, and a dead bed with the session still to run.
+
+An ant now has a lifespan, and it works the way a plant's does: it is the
+*middle* of a spread, not a stopwatch. Half a brood is still walking at it.
+Nineteen in twenty are alive at a quarter of it. About one in eighty reaches
+two and a half times it. So there is no moment where the colony turns over -- there is
+a steady trickle of ants that simply stop, all through the run, and the
+colony's size settles near how fast it breeds times how long an ant lives,
+instead of climbing until there is nothing left to eat. When it does fall, it
+falls as a slope rather than a cliff.
+
+Each ant that goes leaves a body where it fell, exactly as a starved one does,
+and a body is food -- so a colony that is losing its old is also feeding its
+young on them. A long run is now several generations deep instead of one line
+of animals that outlives the session.
+
+It is a number you can set, on the ANTS page, and it ships on only for the two
+ants. The hopper, the flitter and the beetle are still immortal, because
+nobody has measured what their lifespans should be. At zero -- which is what
+they are -- nothing ever dies of age and you get the old behaviour back
+exactly. It is not inherited yet: every ant of a kind lives the same span, and
+a lineage cannot evolve a longer one until living longer costs something.
+
+**Ants starve too, and that was the first thing that made a colony settle.**
 An ant carries a store of energy, spends it on standing still, walking and
 thinking, and refills it by eating. That store used to be so deep that
 nothing reached the bottom of it inside any run anyone actually watched — so

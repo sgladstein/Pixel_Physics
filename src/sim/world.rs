@@ -4971,6 +4971,7 @@ impl World {
             crossing: None,
             parted: Vec::new(),
             since_nest: 0,
+            traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],

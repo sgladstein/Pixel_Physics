@@ -181,6 +181,16 @@ const RNG_SLOT_BODY_FATE: u64 = 6;
 /// doc in this file argues a *distinct* integer avoids.
 const RNG_SLOT_SEED_SURVIVAL: u64 = 7;
 
+/// The old-age stream: whether this animal's number came up on this tick.
+///
+/// **8, and a slot of its own for `RNG_SLOT_BODY_FATE`'s stated reason**:
+/// `rng::stream` is a pure hash of its four inputs, so a brand new constant
+/// draws from a key nothing has ever read and cannot shift a single existing
+/// draw anywhere in the tree. Keyed on `(seed, organism, frame, SLOT)` -- the
+/// same shape `RNG_SLOT_MOVE` uses, never on the cell's position, because
+/// where an animal happens to be standing must not decide when it dies.
+const RNG_SLOT_OLD_AGE: u64 = 8;
+
 /// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
 /// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
 /// under it, and the cap exists only to bound a mutated genome that never
@@ -3295,6 +3305,32 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // decisions from a chain describing cells that are no longer there.
     if !reconcile_chain(world, organism) {
         return Vec::new();
+    }
+
+    // --- old age ---------------------------------------------------------
+    // **The one thing in this tick that can end it before anything is
+    // decided**, and it is deliberately the first: an animal's age does not
+    // depend on what it was about to do, and putting the roll after the walk
+    // would make a death conditional on whether the step succeeded.
+    //
+    // **Gated on the species field at the call site, which already holds
+    // `def`** -- `CLAUDE.md`'s hot-path rule. Every shipped species but the
+    // ant and the long ant is at 0, so for them this is one `u32` compare per
+    // tick and nothing else: no `World::get`, no body walk, no draw.
+    //
+    // The interval is *this individual's*, not the species' -- see
+    // `plant::old_age_chance_over` for why. `pace` is heritable, so an ant
+    // that takes its turn twice as often rolls twice as often, and dividing
+    // the interval back out is what stops `life_half_life` becoming a
+    // function of a gene nobody meant to point at it.
+    if def.life_half_life > 0 {
+        let age = world.organism(organism).map_or(0, |st| world.frame.saturating_sub(st.born_frame));
+        let interval = organism_tick_interval(world, organism, def);
+        let chance = plant::old_age_chance_over(age as f32, def.life_half_life as f32, interval);
+        if chance > 0.0 && rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_OLD_AGE).chance(chance) {
+            creature_dies(world, organism, organism::DeathCause::OldAge);
+            return Vec::new();
+        }
     }
 
     // --- airborne: integrate, do not decide -----------------------------
@@ -7299,7 +7335,62 @@ fn step_chain(
         // for. A streak of consecutive boxed ticks was tried before that,
         // unconditionally, and cost mobility the same way for the same
         // reason -- see `boxed_by_traffic`'s own doc.
+        // **...and the deferral has to end, which it did not** (round 29;
+        // the owner's playtest of 2026-09-11: *"long ants getting stuck.
+        // Not all of them but it happens regularly. It seems like they get
+        // stuck in a big group/pile of long ants."*).
+        //
+        // `boxed_by_traffic`'s premise is that a jam clears on its own the
+        // moment the other animal takes its own next step. §13g named the
+        // case where that is false and left it open: **the other animal is
+        // boxed too.** Then nothing in the world is going to move, the
+        // question is re-asked and re-answered the same way every tick, and
+        // the animal defers for ever. Measured on the owner's own scene
+        // (`played_bed_longant`, 3 seeds, 120,000 frames): the animal
+        // body-boxed longest at a stop was **laden on 24 of 25 sampled
+        // stops**, its head and tail in the *identical cells* stop after
+        // stop -- only its heading moving, because `tumble` re-aims it every
+        // tick -- for streaks up to 68 stops, 61,200 frames. Connected
+        // clumps of those reached **75 animals** on seed 1.
+        //
+        // **Those two figures were retaken after `84dd9bfc` (nest odour)
+        // landed, and the clump one moved a long way: it read 108 on seed 3
+        // before that merge and 19 after.** Scent drift changes the colony
+        // the pile forms in, so any pile figure quoted here has to name the
+        // tree it came from. Nine seeds on the merged tree put the largest
+        // clump at 6-75 and the longest body-boxed streak at 13-44 stops.
+        //
+        // So the gate becomes a **bounded** wait rather than an unbounded
+        // one: `CLAUDE.md`'s *a size cap must bound work, never gate whether
+        // something happens*, in the time axis. After `traffic_defer_max()`
+        // consecutive deferrals the flip fires anyway -- the animal has
+        // waited out a jam that is not clearing, and turning round is worth
+        // more than facing a wall for the rest of its life.
+        //
+        // **This can only make the flip fire more often, never less**, which
+        // is what keeps it clear of the two gates §13g rejected: a streak
+        // *before* flipping (16.3% blocked on `tunnel` at N=2 against 7.6%)
+        // and the traffic check asked of every animal (77.5%). Both of those
+        // withheld the verb; this one returns it.
+        //
+        // **Gated on the spine being longer than two cells**, and that is the
+        // §13c property rather than a species check: a two-cell body reverses
+        // with an ordinary step onto its own vacating tail, so the flip is
+        // not its only way out and a deferral that never expires costs it
+        // nothing. The shipped ant is therefore bit-identical across this
+        // change, by construction rather than by measurement -- and measured
+        // as well, on `ascii`.
         let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, kin);
+        let waited = world.organism(organism).map_or(0, |s| s.traffic_deferred);
+        let traffic = traffic && deferral_still_applies(spines_of(&chain, &groups).len(), waited, traffic_defer_max(def));
+        // Consecutive, so any tick that is not a deferral clears it --
+        // including the tick the flip finally fires on, and the move path
+        // below, which resets it for an animal that walked away and came
+        // back. A streak that survived an unrelated errand would not be
+        // "this jam has not cleared".
+        if let Some(state) = world.organism_mut(organism) {
+            state.traffic_deferred = if traffic { state.traffic_deferred.saturating_add(1) } else { 0 };
+        }
         if traffic {
             world.creature_stats.reversals_traffic_deferred += 1;
         }
@@ -7461,6 +7552,9 @@ fn step_chain(
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
+        // An animal that walked is not in a jam -- see the traffic gate
+        // above for why the count has to be *consecutive*.
+        state.traffic_deferred = 0;
         // **`segment_groups` becomes the live widths, rewritten with
         // `chain` on every step** (§7f(2)) -- a no-op write for `Chain`/
         // `Rigid`, which pass `groups.to_vec()` straight through
@@ -9430,6 +9524,59 @@ enum ReverseRule {
     Back,
 }
 
+/// **The expiry on `boxed_by_traffic`'s deferral, for this species** --
+/// `CreatureDef::traffic_defer_max`, with `PIXEL_PHYSICS_TRAFFIC_DEFER`
+/// overriding it.
+///
+/// The override is what makes both arms live in one binary -- the same
+/// one-binary A/B `reverse_rule` uses and for the same reason: a recompile
+/// sitting between two arms becomes the thing that actually changed. It is
+/// also what keeps a sweep of this number off the `.ron`, which
+/// `CLAUDE.md`'s `include_str!` gotcha says would sweep nothing at all
+/// unless every arm were rebuilt. **`=65535` is the pre-round-29 rule**
+/// (the deferral that never expires) on every species at once, which is the
+/// ablation every table in `Reports/lanes/evolution-lab-longant-pile.md` is
+/// read against.
+///
+/// Ticks are the *animal's* ticks, not frames: `organism_tick_interval`
+/// decides how often one is even asked, so four here is four chances for
+/// the nestmate ahead to move, not four frames.
+fn traffic_defer_max(def: &CreatureDef) -> Option<u16> {
+    use std::sync::OnceLock;
+    static N: OnceLock<Option<u16>> = OnceLock::new();
+    let over = *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAFFIC_DEFER").ok().and_then(|v| v.parse().ok()));
+    over.or(def.traffic_defer_max)
+}
+
+/// **Should `boxed_by_traffic`'s deferral still be honoured** for a body
+/// with `spine_len` spine cells that has already waited `waited`
+/// consecutive ticks, given this species' `max`?
+///
+/// A pure function, and deliberately so: it is the whole of round 29's
+/// decision, and a scene cannot test the two-cell half of it. A two-cell
+/// body is essentially never *boxed* on the ground -- reversing is an
+/// ordinary step onto its own vacating tail (§13c), and the tail is
+/// standing on something by definition -- so any world built to watch one
+/// defer measures nothing at all, which is exactly the "green is the
+/// default state" case `CLAUDE.md` asks to be made into an assertion on a
+/// deterministic function instead.
+///
+/// Three clauses:
+///
+/// * **`max` is `None`: the deferral never expires.** The rule as it stood,
+///   and what every species but `longant` still authors, which is what
+///   makes them bit-identical across this change.
+/// * **`spine_len <= 2`: it never expires either**, whatever the species
+///   authors. Such a body has another way out, so waiting costs it nothing.
+/// * **Otherwise it expires at `max`.** A jam that has not cleared in that
+///   many of the animal's own ticks is not a jam, it is a wall.
+fn deferral_still_applies(spine_len: usize, waited: u16, max: Option<u16>) -> bool {
+    match max {
+        Some(n) if spine_len > 2 => waited < n,
+        _ => true,
+    }
+}
+
 fn reverse_rule() -> ReverseRule {
     use std::sync::OnceLock;
     static R: OnceLock<u8> = OnceLock::new();
@@ -9628,6 +9775,238 @@ fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i3
             occupant != 0 && !body.chain.contains(&(px, py)) && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
         })
     })
+}
+
+/// **One animal's reading in the pile census -- is it boxed, and by
+/// what?** (Round 29, the owner's playtest report of 2026-09-11: *"long
+/// ants getting stuck. Not all of them but it happens regularly. It seems
+/// like they get stuck in a big group/pile of long ants."*)
+///
+/// `is_boxed` answers *"can I go anywhere"* and that is the only question
+/// the walk needs. It is not enough to say whether a **pile** is the
+/// reason, because `classify_step` reads a cell held by another ant
+/// exactly the way it reads a cell of rock (`boxed_by_traffic`'s own doc
+/// says so) -- so a colony wedged into a blind gallery and a colony
+/// wedged into each other produce the same `boxed_ticks` and want
+/// opposite fixes. The four counters here split the eight headings by
+/// *what refused them*, and `kin_would_open` is the one that decides: it
+/// counts headings that are refused today and would be **legal** if the
+/// other animals' bodies were not there.
+///
+/// **What each counts when nothing is wrong** (`CLAUDE.md`'s standing
+/// question): an animal walking on open ground reads `open` at 3-6,
+/// `by_other` at the rest (the ground under it, and open air above with
+/// nothing to hold on to), and `by_creature`/`kin_would_open` at **0** --
+/// a colony at `COLONY_ANT_SPACING` almost never has a nestmate in any of
+/// its own eight neighbour cells. A two-cell ant additionally cannot be
+/// boxed in an interesting way at all: reversing is one ordinary step for
+/// it (§13c), which is this census's own specificity control.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeadBlock {
+    /// Headings the animal could walk this tick.
+    pub open: u8,
+    /// Headings refused, where the first cell of the landing that failed
+    /// is held by **another living creature**.
+    pub by_creature: u8,
+    /// Headings refused by anything else -- terrain, tissue, the world
+    /// edge, this body's own cells, or no footing.
+    pub by_other: u8,
+    /// Headings refused today that **would be legal with the other
+    /// animals' bodies removed**: the landing places, and the footing that
+    /// remains is terrain rather than the nestmate being removed. This is
+    /// the counterfactual, not a re-reading of `by_creature`: a heading
+    /// whose head cell holds a nestmate but whose landing also runs into
+    /// rock is counted in `by_creature` and **not** here.
+    pub kin_would_open: u8,
+}
+
+impl HeadBlock {
+    /// Refused in all eight headings -- `is_boxed`'s own question, read
+    /// off the same scan rather than by calling it a second time.
+    pub fn boxed(self) -> bool {
+        self.open == 0
+    }
+
+    /// **Boxed, and another animal is what is doing it.** The census's
+    /// pile member: this animal has nowhere to go, and at least one of
+    /// the places it cannot go would be walkable if a nestmate stepped
+    /// aside. An animal boxed by rock alone is stuck in terrain, which is
+    /// §13's problem and not this one.
+    pub fn body_boxed(self) -> bool {
+        self.open == 0 && self.kin_would_open > 0
+    }
+}
+
+/// **The pile census, for one animal** -- run the walk's own predicates
+/// over all eight headings and say what refused each. See `HeadBlock`.
+///
+/// Deliberately built on `classify_step` and `body_after_step`, the same
+/// two calls the walk makes, for the reason §13a gives: a classifier that
+/// disagrees with the code it classifies is worse than none, because its
+/// histogram still looks like an answer.
+///
+/// `None` for an organism that is not a creature, has no live body, or has
+/// gone since the caller listed it.
+pub fn head_block(world: &World, organism: u16) -> Option<HeadBlock> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.clone()?;
+    let chain = state.chain.clone();
+    let groups = state.segment_groups.clone();
+    let fates = state.fates;
+    let heading = state.heading;
+    let &(hx, hy) = chain.first()?;
+    let authored = segment_authored(&def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    let kin = kin_footing(world, organism, &def);
+    let push = parting_enabled();
+    let mut out = HeadBlock::default();
+    for d in 0..8u8 {
+        let (dx, dy) = DIRS[d as usize];
+        let target = (hx + dx, hy + dy);
+        if classify_step(world, &def, body, target, (heading, d), push, kin).is_none() {
+            out.open += 1;
+            continue;
+        }
+        let (landing, _) = body_after_step(world, &def, body, target, heading, d, push);
+        // The **first** cell that refused, in `classify_step`'s own order,
+        // so the attribution and the refusal are the same event.
+        let blocker = landing.iter().enumerate().find_map(|(i, &p)| {
+            if landing[..i].contains(&p) {
+                return Some(None);
+            }
+            if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+                return None;
+            }
+            Some(Some(p))
+        });
+        match blocker {
+            Some(Some(p)) if other_creature_cell(world, p, &chain) => {
+                out.by_creature += 1;
+                if step_clears_without_other_creatures(world, &def, body, &chain, target, (heading, d), push) {
+                    out.kin_would_open += 1;
+                }
+            }
+            _ => out.by_other += 1,
+        }
+    }
+    Some(out)
+}
+
+/// **How many cells this animal's own body plan would unfold to** -- what
+/// it was born as, read off its `FateGenome` rather than off the world.
+///
+/// Round 29's second finding needed exactly this and nothing else. The pile
+/// census says 89% of the animals wedged in a pile have bodies of one or two
+/// cells rather than seven, and there are only two ways a long ant can be
+/// one cell long: **its genome unfolds to one** (a short morph, which a
+/// colony thirty generations deep can evolve, since the fates table is
+/// heritable) or **it was born long and lost cells** (a bite, a dig, a rock).
+/// Those are different bugs for different lanes, and a standing count of
+/// short bodies cannot tell them apart. This against `chain.len()` can.
+///
+/// `None` for anything that is not a creature or has gone.
+pub fn authored_body_cells(world: &World, organism: u16) -> Option<usize> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    let segments = segment_authored(def, state.fates);
+    if segments.is_empty() {
+        // No production rule: the body is `def.body`'s own, authored whole.
+        return Some(def.body.offsets(false).len());
+    }
+    Some(segments.iter().map(|seg| if seg.lateral.is_some() { 2 } else { 1 }).sum())
+}
+
+/// Is `p` a cell of some **other** living creature's body?
+///
+/// `chain` is this animal's own cells, excluded for the same reason
+/// `Kin::is_walkable_nestmate` excludes `self`: a chain's own tail is
+/// permanently inside its head's neighbourhood, so counting own cells
+/// would make every animal its own obstruction *and* its own ladder.
+fn other_creature_cell(world: &World, p: (i32, i32), chain: &[(i32, i32)]) -> bool {
+    if chain.contains(&p) {
+        return false;
+    }
+    let occupant = world.get(p.0, p.1).organism_id();
+    occupant != 0 && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
+}
+
+/// **The counterfactual behind `HeadBlock::kin_would_open`**: would this
+/// heading be a legal step if every other animal's cells were empty?
+///
+/// The landing is the real one (`body_after_step`), and every cell of it
+/// is tested with the walk's own predicate **plus** "or it is another
+/// creature" -- the one term being ghosted. Footing is then asked with
+/// `kin: None`, which is the honest half and is easy to get wrong: an
+/// animal standing *on* the pile has its foothold **from** the pile
+/// (`climbs_over_kin`), so granting kin footing while ghosting kin bodies
+/// would report a step onto a cell that, in the world this counterfactual
+/// describes, has nothing under it at all.
+fn step_clears_without_other_creatures(world: &World, def: &CreatureDef, body: BodyShape, chain: &[(i32, i32)], head: (i32, i32), headings: (u8, u8), push: bool) -> bool {
+    let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
+    let places = landing.iter().enumerate().all(|(i, &p)| {
+        !landing[..i].contains(&p)
+            && (world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) || other_creature_cell(world, p, chain))
+    });
+    places && body_has_foothold(world, def, &landing, head, None)
+}
+
+/// **The pile itself** -- group `members` into connected clumps, two
+/// animals being in the same clump when any cell of one touches any cell
+/// of the other (8-neighbour, the same neighbourhood every walking and
+/// footing rule in this file uses; `CLAUDE.md`: *a traversal must use the
+/// same neighbourhood the writer used*).
+///
+/// Returned largest first, so `piles_of(..).first()` is the largest clump
+/// in the world at this instant -- the number the owner's report is
+/// about. Ids that no longer resolve contribute no cells and come back as
+/// singletons, which is what a census of a dead handle should say.
+pub fn piles_of(world: &World, members: &[u16]) -> Vec<Vec<u16>> {
+    let mut owner: std::collections::HashMap<(i32, i32), usize> = std::collections::HashMap::new();
+    let mut bodies: Vec<Vec<(i32, i32)>> = Vec::with_capacity(members.len());
+    for (i, &id) in members.iter().enumerate() {
+        let cells = world.organism(id).map(|s| s.chain.clone()).unwrap_or_default();
+        for &c in &cells {
+            owner.insert(c, i);
+        }
+        bodies.push(cells);
+    }
+    fn find(parent: &mut [usize], mut a: usize) -> usize {
+        while parent[a] != a {
+            parent[a] = parent[parent[a]];
+            a = parent[a];
+        }
+        a
+    }
+    let mut parent: Vec<usize> = (0..members.len()).collect();
+    for (i, cells) in bodies.iter().enumerate() {
+        for &(x, y) in cells {
+            for (dx, dy) in NEIGHBOURS_8 {
+                let Some(&j) = owner.get(&(x + dx, y + dy)) else { continue };
+                if j == i {
+                    continue;
+                }
+                let (ra, rb) = (find(&mut parent, i), find(&mut parent, j));
+                if ra != rb {
+                    parent[ra] = rb;
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::HashMap<usize, Vec<u16>> = std::collections::HashMap::new();
+    for (i, &id) in members.iter().enumerate() {
+        let r = find(&mut parent, i);
+        groups.entry(r).or_default().push(id);
+    }
+    let mut out: Vec<Vec<u16>> = groups.into_values().collect();
+    // Deterministic ordering: `HashMap` iteration order is not, and a
+    // census that reorders between two runs of the same seed is a census
+    // nobody can diff.
+    for g in &mut out {
+        g.sort_unstable();
+    }
+    out.sort_unstable_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.first().cmp(&b.first())));
+    out
 }
 
 /// The `Chain`-follow rule, alone: the new position list is the new head
@@ -11794,6 +12173,140 @@ mod tests {
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    // --- old age ---------------------------------------------------------
+
+    /// A flat bed and a cohort of ants that **cannot starve and cannot
+    /// breed**, so the only thing that can remove one is the age roll.
+    ///
+    /// Both exclusions are load-bearing rather than tidiness. Leave the costs
+    /// on and the founders' 200-J grant runs out at 12,000 frames, which is
+    /// inside every horizon below and would put starvation deaths in the
+    /// column this test reads. Leave breeding on and the cohort is no longer
+    /// a cohort: a child born at frame 900 rolls its own hazard from its own
+    /// birth, and "how many are alive" stops being a survival curve.
+    /// `reproduce_at_of` returns `None` at a threshold of 0, which is the
+    /// documented off switch and what the ANTS page's own row says.
+    fn age_cohort(life: u32, ants: i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            for y in 120..=160 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.clone().expect("ant is a creature");
+        def.life_half_life = life;
+        // **Every per-tick charge, not just the two obvious ones.** The
+        // metabolism is `idle_cost_per_cell` and `move_cost_per_cell`, and
+        // then five more taxes are levied every tick as fractions of
+        // `start_energy` -- the brain, the eye, the ground sense, the jaw and
+        // the shell (see `apply_creature_energy`'s caller). Zeroing only the
+        // first two leaves an ant that still starves inside this test's
+        // horizon, which would put starvation deaths in the column the
+        // survival curve reads. The `Starved == 0` assertion below is what
+        // catches that if another priced capability is ever added.
+        def.idle_cost_per_cell = 0.0;
+        def.move_cost_per_cell = 0.0;
+        def.exposure_cost_per_cell = 0.0;
+        def.synapse_fraction = 0.0;
+        def.sight_fraction = 0.0;
+        def.curvature_fraction = 0.0;
+        def.force_fraction = 0.0;
+        def.armour_fraction = 0.0;
+        def.digest_fraction = 0.0;
+        def.reproduce_threshold = 0.0;
+        w.species.set_creature(id, def);
+        let placed = w.found_colony_of(128, 120, "ant", ants);
+        assert_eq!(placed as i32, ants, "the bed seated {placed} of {ants} -- the scene is wrong, not the rule");
+        w
+    }
+
+    fn alive_creatures(w: &World) -> usize {
+        w.live_organism_ids().into_iter().filter(|id| w.organism(*id).is_some_and(|st| w.species.get(st.species).creature.is_some())).count()
+    }
+
+    fn aged_deaths(w: &World) -> u64 {
+        w.deaths_by_cause[organism::DeathCause::OldAge.index()]
+    }
+
+    /// **The positive control, as a survival curve rather than as "somebody
+    /// died".**
+    ///
+    /// The hazard's own three numbers, which are the model's and not tuned:
+    /// **96% alive at `T/4`, half at `T`, 1.3% at `2.5T`**. A cohort is the
+    /// only way to see the *shape*, and the shape is the whole point -- a
+    /// flat hazard of the same nominal rate kills the young at the same rate
+    /// as the old, which is a colony that never settles and a death that
+    /// reads as arbitrary.
+    ///
+    /// **Watched going red**, which `CLAUDE.md` asks for before its green is
+    /// cited: with the roll deleted from `creature_tick` this reports 20 / 20
+    /// / 20 alive and `OLDAGE 0`, and fails on the first bar. With the roll
+    /// present but the species left at its authored 40,000 -- the knob
+    /// disconnected from the harness -- it reports 20 / 20 / 20 as well, so
+    /// this covers the write-through and not only the arithmetic.
+    ///
+    /// `T` is 1,200 rather than the authored 40,000 so the horizon is 3,000
+    /// frames: this is `cargo test`'s debug profile, and the shape is
+    /// scale-free (`plant::old_age_chance_over` is a function of `age/T`). 20
+    /// ants rather than the played bed's 52 for the same reason. The
+    /// 52-founder run at `life_half_life: 6000` the design asks for is in
+    /// `Reports/lanes/evolution-lab-lifespan.md`.
+    #[test]
+    fn a_cohort_of_ants_dies_of_age_on_the_plants_own_curve() {
+        const T: u32 = 1_200;
+        const N: usize = 20;
+        let mut w = age_cohort(T, N as i32);
+        assert_eq!(alive_creatures(&w), N, "the cohort must start whole");
+
+        run(&mut w, (T / 4) as usize);
+        let young = alive_creatures(&w);
+        run(&mut w, (T - T / 4) as usize);
+        let middle = alive_creatures(&w);
+        run(&mut w, (T * 5 / 2 - T) as usize);
+        let old = alive_creatures(&w);
+        println!("old-age cohort of {N} at T={T}: {young} alive at T/4, {middle} at T, {old} at 2.5T, OLDAGE {}", aged_deaths(&w));
+
+        // **Bars set from the model with headroom, on a cohort of twenty.**
+        // At 96% survival the expected loss by `T/4` is 0.8 animals, so 18 of
+        // 20 is ~2.5 sigma of slack and still fails flat against a flat
+        // hazard (which leaves ~13). At `T` the expectation is 10 and the
+        // window is 5..=15; at `2.5T` it is 0.08 and 1 is the ceiling.
+        assert!(young >= 18, "96% must still be walking at a quarter of the lifespan: {young} of {N}");
+        assert!((5..=15).contains(&middle), "the half-life must be the median: {middle} of {N} at T");
+        assert!(old <= 1, "almost nobody may reach two and a half lifespans: {old} of {N}");
+        // **The far-side counter, not just the population.** A population
+        // that fell could have starved; only this says the age roll is what
+        // took them -- `CLAUDE.md`, pair every "it fired" counter with an
+        // effect counter from the far side of the call.
+        assert!(
+            aged_deaths(&w) as usize >= N - 1,
+            "every death here must be attributed to old age: OLDAGE {} of {N}",
+            aged_deaths(&w)
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            0,
+            "nothing in this bed may starve -- the scene is wrong if it does"
+        );
+    }
+
+    /// **The immortal default, the pre-2026-09-12 animal exactly.**
+    ///
+    /// Every species but the ant and the long ant ships at 0, and this is
+    /// what that has to mean: not "a very long life" but no roll at all. The
+    /// vacuity check comes first -- a bed whose cohort had died of something
+    /// else would pass the zero, which is `CLAUDE.md`'s *green is the default
+    /// state* exactly.
+    #[test]
+    fn life_half_life_zero_is_immortal() {
+        let mut w = age_cohort(0, 20);
+        run(&mut w, 3_000);
+        assert_eq!(alive_creatures(&w), 20, "at life_half_life 0 nothing may die at all: {} of 20", alive_creatures(&w));
+        assert_eq!(aged_deaths(&w), 0, "an immortal species must not roll the hazard once");
     }
 
     /// **A measurement, not a guard** (hence `#[ignore]`): can a
@@ -16309,6 +16822,260 @@ mod tests {
         step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
         assert_eq!(w.creature_stats.reversals, 0, "a block that is only another animal standing there must not turn the ant round");
         assert_eq!(w.creature_stats.reversals_traffic_deferred, 1, "the deferral counter is what should have fired instead");
+    }
+
+    /// **The deferral expires** (round 29, and the close of the residual
+    /// risk §13g named rather than fixed: *"Two laden animals mutually
+    /// boxing each other in the same dead end, with no other heading open
+    /// to either, would each defer indefinitely rather than ever
+    /// flipping"*). The owner found it by playing, 2026-09-11: *"long ants
+    /// getting stuck. Not all of them but it happens regularly. It seems
+    /// like they get stuck in a big group/pile of long ants."*
+    ///
+    /// The scene is `the_flip_does_not_fire_for_a_block_that_is_only_
+    /// another_animal_standing_there`'s, unchanged, because that is exactly
+    /// the situation: a laden long body, boxed, with one heading held by a
+    /// nestmate that is **never going to move** -- it is a bare handle in a
+    /// one-cell pocket with nothing driving it. The old rule deferred on
+    /// every one of those ticks for ever; this one waits
+    /// `DEFAULT_TRAFFIC_DEFER` of them and then turns the animal round.
+    ///
+    /// **Both halves are asserted, and the first is what keeps §13g's own
+    /// finding**: the early ticks must still defer. A fix that simply
+    /// removed the gate would pass the second assertion and fail this one,
+    /// and it is the gate that put deliveries back from 233 to 290.
+    ///
+    /// Watched red: with `traffic_defer_max()` returning `u16::MAX` (the
+    /// pre-round-29 rule) the flip never fires and the second assertion
+    /// goes red at 0 reversals; with the gate deleted outright the first
+    /// assertion goes red at 0 deferrals.
+    #[test]
+    fn a_laden_long_body_stops_deferring_once_the_jam_has_not_cleared() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        w.set(100, 99, Cell::EMPTY);
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        // **The species under test authors the expiry**, because the
+        // shipped ant does not: the field is data, so a scene that wants
+        // the behaviour has to ask for it, exactly as `longant.ron` does.
+        def.traffic_defer_max = Some(LONGANT_TRAFFIC_DEFER);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("just placed").crop = Some(Crop { material: ant_material, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: None });
+
+        // The nestmate in the one opening -- a bare handle with one painted
+        // cell, exactly as the §13g guard builds it, and deliberately one
+        // that nothing will ever move.
+        let other = w.push_organism(species).expect("a free slot");
+        w.set(100, 99, Cell::new(ant_material, 0).with_organism_id(other));
+        if let Some(s) = w.organism_mut(other) {
+            s.chain = vec![(100, 99)];
+        }
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let n = LONGANT_TRAFFIC_DEFER;
+        for _ in 0..n {
+            let heading = w.organism(ant).expect("live").heading;
+            let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+            step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+            w.frame += 1;
+        }
+        assert_eq!(
+            w.creature_stats.reversals, 0,
+            "the first {n} ticks must still wait the jam out -- that deferral is what put §13g's deliveries back from 233 to 290 and this fix must not remove it"
+        );
+        assert_eq!(w.creature_stats.reversals_traffic_deferred, u64::from(n), "each of those ticks is one deferral");
+
+        let heading = w.organism(ant).expect("live").heading;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+        assert_eq!(
+            w.creature_stats.reversals, 1,
+            "a jam that has not cleared in {n} of the animal's own ticks is not a jam, it is a wall, and the animal must turn round rather than stand there for the rest of its life"
+        );
+    }
+
+    /// `longant.ron`'s own authored expiry, read back out of the registry
+    /// so the guard below is asserting about the shipped file rather than
+    /// about a number retyped beside it.
+    const LONGANT_TRAFFIC_DEFER: u16 = 4;
+
+    /// What a species actually authors for the expiry -- see
+    /// `LONGANT_TRAFFIC_DEFER`'s own guard.
+    fn w_species_defer(name: &str) -> Option<u16> {
+        let w = test_world();
+        let id = w.species.id_of(name).expect("species");
+        w.species.get(id).creature.as_ref().expect("a creature").traffic_defer_max
+    }
+
+    /// **...and the two-cell ant is untouched by it**, asserted on the
+    /// predicate rather than on a world.
+    ///
+    /// A scene cannot make this claim: a two-cell body is essentially never
+    /// boxed standing on ground -- reversing is one ordinary step onto its
+    /// own vacating tail (§13c, and `a_long_body_is_boxed_in_a_dead_end_
+    /// where_a_two_cell_body_is_not` is that property's own guard) -- so a
+    /// world built to watch one defer records **0 deferrals**, measured,
+    /// and would have passed whatever the gate did. `CLAUDE.md` names that
+    /// case exactly: where green is the default state, put the assertion on
+    /// a deterministic function instead.
+    ///
+    /// The shipped colony's real check is the one this cannot give: `cargo
+    /// run --release --example ascii`, byte-for-byte against `main`.
+    #[test]
+    fn the_deferral_expires_for_a_long_spine_and_never_for_a_two_cell_one() {
+        let n = LONGANT_TRAFFIC_DEFER;
+        assert!(n >= 2, "an expiry of 0 or 1 is not a deferral at all, and every assertion below would be vacuous");
+        assert!(deferral_still_applies(6, 0, Some(n)), "a long body's first boxed tick is a jam until proved otherwise -- that is §13g's finding and it stays");
+        assert!(deferral_still_applies(6, n - 1, Some(n)), "...and so is its last waiting tick");
+        assert!(!deferral_still_applies(6, n, Some(n)), "a jam that has not cleared in {n} of the animal's own ticks is a wall, and the flip must fire");
+        assert!(!deferral_still_applies(3, n, Some(n)), "three spine cells is already past the reach of a tail-step, so the expiry applies from there up");
+        assert!(deferral_still_applies(2, u16::MAX, Some(n)), "a two-cell body reverses with an ordinary step; its deferral costs it nothing and must never expire");
+        assert!(deferral_still_applies(1, u16::MAX, Some(n)), "...nor a one-cell one's");
+        assert!(
+            deferral_still_applies(6, u16::MAX, None),
+            "a species that authors no expiry keeps the pre-round-29 rule exactly -- this is what makes every species but longant bit-identical"
+        );
+        assert_eq!(
+            w_species_defer("ant"),
+            None,
+            "the shipped ant must author no expiry; if this ever fails, `ascii` is no longer bit-identical across this change and the claim in the PR body is void"
+        );
+        assert_eq!(w_species_defer("longant"), Some(LONGANT_TRAFFIC_DEFER), "the long ant is the species the owner's report is about, and the one that authors it");
+    }
+
+    /// **The pile census's positive control** (round 29, the owner's
+    /// 2026-09-11 playtest: *"long ants getting stuck ... in a big
+    /// group/pile of long ants"*). Six long bodies nose to tail in a
+    /// one-cell corridor with a blind end, which is the shape the
+    /// complaint describes, hand-built so the answer is known before the
+    /// instrument is asked.
+    ///
+    /// **What it must read, and why the six are not all alike.** All six
+    /// are boxed: each one's only non-rock, non-own-flank heading is the
+    /// body ahead of it, and a body longer than two cells cannot reverse
+    /// (§13c). But the *leader* is boxed by the rock at the blind end and
+    /// the five behind it are boxed by their own colony -- that asymmetry
+    /// **is** the pile, and a census that reported six identical animals
+    /// would have lost the only structure in it. `piles_of` is the other
+    /// half and is asserted separately: connectivity does not care which
+    /// of the six is stuck on what.
+    ///
+    /// Watched red both ways before being trusted: with `kin_would_open`
+    /// left at zero the five read as terrain-boxed like the leader, and
+    /// with the corridor's blind end opened the leader is not boxed at all.
+    #[test]
+    fn six_long_bodies_nose_to_tail_read_as_one_pile() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 50..110 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 60..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+
+        let species = w.species.id_of("longant").expect("longant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("longant is a creature").clone();
+        // `Chain(6)` for the same reason §13's own length controls use it:
+        // a hand-placed `Segmented` body would have to reproduce
+        // `lateral_for`'s side choice by hand, and length -- not width --
+        // is what this scene is about. `climbs_over_kin` and everything
+        // else about the species is left exactly as authored.
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let mat = w.materials.id_of("longant").expect("longant material");
+
+        // Heads at 100, 94, 88, 82, 76, 70, each body running six cells
+        // west of its own head, all facing east (`DIRS[0]`) into the blind
+        // end at x = 101.
+        let mut ants: Vec<u16> = Vec::new();
+        for k in 0..6i32 {
+            let head_x = 100 - k * 6;
+            let id = w.push_organism(species).expect("a free slot");
+            let chain: Vec<(i32, i32)> = (0..6).map(|i| (head_x - i, 100)).collect();
+            for &(x, y) in &chain {
+                w.set(x, y, Cell::new(mat, 0).with_organism_id(id));
+            }
+            if let Some(s) = w.organism_mut(id) {
+                s.chain = chain;
+                s.heading = 0;
+            }
+            ants.push(id);
+        }
+
+        let blocks: Vec<HeadBlock> = ants.iter().map(|&id| head_block(&w, id).expect("a live long ant")).collect();
+        assert!(
+            blocks.iter().all(|b| b.boxed()),
+            "every animal in a one-cell corridor nose to tail must be boxed -- if one is not, this scene is not the situation the complaint is about: {blocks:?}"
+        );
+        assert!(
+            !blocks[0].body_boxed() && blocks[0].by_creature == 0,
+            "the leader is stuck on the rock at the blind end, not on its colony: {:?}",
+            blocks[0]
+        );
+        for (k, b) in blocks.iter().enumerate().skip(1) {
+            assert!(
+                b.body_boxed(),
+                "ant {k} stands directly behind another body and nothing else refuses its way east -- it must read as boxed by a body: {b:?}"
+            );
+            assert!(b.by_creature >= 1 && b.kin_would_open >= 1, "ant {k}: {b:?}");
+        }
+
+        let piles = piles_of(&w, &ants);
+        assert_eq!(piles.len(), 1, "six bodies laid nose to tail touch each other end to end and are one clump, not {}: {piles:?}", piles.len());
+        assert_eq!(piles[0].len(), 6, "the one clump is all six animals");
+
+        // The specificity half, in the same scene: pull the leader out and
+        // the animal behind it is no longer boxed by a body at all. Without
+        // this the assertions above pass for a census that returns
+        // `body_boxed` unconditionally.
+        let leader = w.organism(ants[0]).expect("live").chain.clone();
+        for &(x, y) in &leader {
+            w.set(x, y, Cell::EMPTY);
+        }
+        if let Some(s) = w.organism_mut(ants[0]) {
+            s.chain.clear();
+        }
+        let after = head_block(&w, ants[1]).expect("still live");
+        assert!(!after.boxed(), "with the body ahead removed the corridor is open again: {after:?}");
+        assert_eq!(after.by_creature, 0, "and nothing is refused by a creature any more: {after:?}");
+    }
+
+    /// **The census's other control, and the cheaper one**: one animal on
+    /// open ground reads no creature refusals at all. `by_creature` and
+    /// `kin_would_open` are exactly the two columns that would be silently
+    /// always-zero *or* silently always-on, and the corridor above only
+    /// checks the second failure.
+    #[test]
+    fn a_lone_long_body_on_open_ground_is_boxed_by_nothing() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let ant = spawn(&mut w, "longant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let b = head_block(&w, ant).expect("a live long ant");
+        assert!(!b.boxed(), "an animal standing on flat open ground can walk: {b:?}");
+        assert_eq!(b.by_creature, 0, "there is no other animal in the world, so nothing can be refused by one: {b:?}");
+        assert_eq!(b.kin_would_open, 0, "...and the counterfactual must be zero for the same reason: {b:?}");
+        assert_eq!(piles_of(&w, &[ant]), vec![vec![ant]], "one animal is one clump of one");
     }
 
     /// **§7f(1)'s central invariant, watched red first**: with the old

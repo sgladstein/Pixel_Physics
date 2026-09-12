@@ -59,6 +59,12 @@
         // itself fires; re-deriving `start_energy` for the faster clock is
         // real work this file does not do yet.
         tick_interval: 4,
+        // **No `life_half_life`, so this kind is immortal** -- the field's
+        // default, and the shipped behaviour for every animal before
+        // 2026-09-12. Only the ant and the long ant die of age today, because
+        // the lifespan was authored against the ant colony's own boom period
+        // (a generation on the played bed, the larder's edge) and nobody has
+        // measured what this kind's would be. Set it here when somebody has.
 
         // Scaled from the worm's researched numbers (creature.rs's WORM_*
         // block): idle 0.3, open-ground move 1.0. An ant is smaller and

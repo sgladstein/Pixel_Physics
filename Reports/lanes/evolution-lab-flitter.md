@@ -10,18 +10,16 @@ framing of all three.*
 ## The two round-29 findings that still stand
 
 **A bias on the `Fly` row is a distance threshold, not a taste setting.**
-`BloomNear` is `1 - dist/reach`, so `-B + 4*Energy + 8*BloomNear > 0` opens the
-float inside `4 x (12 - B)` cells at full energy and the energy term slides
-that range shut as the tank empties. Any future gate on a `*Near` sense has
-this shape — a bias tuned as "how eager" is silently "how far", and it
-saturates as soon as the world is dense.
+`BloomNear` is `1 - dist/reach`, so the gate opens inside `4 x (12 - B)` cells
+at full energy and the energy term slides that range shut as the tank empties.
+Any gate on a `*Near` sense has this shape, and it saturates once the world is
+dense.
 
 **What separates a bed the flitter can work from one it cannot is a distance,
-not a density.** Across nine bed-seed pairs the standing-flower count predicts
-nothing (a 43-flower bed takes 108 visits, a 57-flower bed takes 5); the
-nearest flowering clump's distance from the nest does — 138 / 84 / 59 columns
-against median visits 8 / 74 / 69. Inside about ninety columns the whole
-ninefold arrives; closer buys nothing and costs the colony its footing.
+not a density** — the nearest flowering clump's distance from the nest
+predicts visits (138/84/59 columns against medians 8/74/69) where the
+standing-flower count predicts nothing. Both are derived in full in
+`evolution-lab-flitter-bed-2026-09-11.md`.
 
 ## Round 30: the owner judged four cards, all negative
 
@@ -38,7 +36,7 @@ Verbatim, on #332/#334/#339 and then on main:
 
 The first three were still-strips; the fourth was the right instrument.
 
-## **The bed is a cage, and that is what all four verdicts were looking at** (§Z14)
+## **The bed is a cage, and that is what all four verdicts were looking at** (§Z15)
 
 **`translated_if_free` requires every target cell to be empty, and `Plant` is
 not empty — but `Plant` *does* count as support.** So an animal inside a
@@ -61,13 +59,22 @@ the same canopy**, not because anything regressed. `labgif follow=` takes the
 lowest live id, which is disproportionately a long-settled — i.e. caged —
 animal, so **every card this round was aimed at the failure**.
 
-**Filed as §Z14** — renumbered from §Z12 on the final merge, because lane I's
-`#353` had claimed §Z12 and §Z13 on an unmerged branch where
-`scripts/bugindex.py --check` cannot see them. That is the second letter
-collision this branch dodged in one day (§Z11 went to the zoom-out lane the
-same way), and the lesson is that **the letter must be re-checked against the
-remote branch list, not just against `main`**:
-`for b in $(git branch -r); do git show $b:Reports/open-bugs-handoff.md | grep -oE '^### Z[0-9]+\.'; done`.
+**Filed as §Z15, and it took three tries to land on a free letter.** The
+section was written as §Z12, renumbered to §Z14 when lane I's `#353` turned out
+to hold §Z12 and §Z13, and renumbered again to §Z15 when lane O's `#357` took
+§Z14 — plus §Z11 had already gone to the zoom-out lane the same way. **Four
+collisions in one day, and not one of them was a careless pick**: the letter is
+chosen by the author at filing time and `scripts/bugindex.py --check` can only
+see `main`, so every concurrent filing is a guess that goes stale the moment
+another lane pushes.
+
+**The check that works is a sweep of the remote branches, run immediately
+before pushing rather than when the section is written**: fetch all of
+`refs/heads/*`, then `git show $b:Reports/open-bugs-handoff.md | grep -oE
+'^### Z[0-9]+\.'` over `git branch -r`. It caught all three collisions and
+nothing else did. The durable fix is allocating the letter at merge time, or a
+`bugindex.py` mode that sweeps the branches itself — a command rather than a
+discipline.
 
 **This is not fixable inside the flight code and was deliberately not
 attempted.** Letting a body move into a plant cell means `relocate_chain`
@@ -128,12 +135,10 @@ is untouched.
   and the 8-neighbourhood census) and a `CAGE` line. A follow camera holds the
   animal dead centre, so the one thing a still cannot show is whether it is
   travelling. Read the track, not the picture.
-- **`labgif follow=` picks the lowest live id**, which is usually a caged
-  animal. `follow_air=N` picks one that is airborne and holds it.
-- **`labgif` now has `wire=`**, so a genome sweep is one binary.
-- **`labgif` defaults `rain=steady`** and overrides the scenario — pass
-  `rain=off`.
-- **A `carried <= 0.0` test can never fire**: `buoyant_share` is
-  `fluid/body` and air has a density. Four sweep arms including the OFF arm
-  came back byte-identical before this was noticed.
-- Divide a visit rate by the window the animals were **alive**, not the run.
+- **`labgif follow=` picks the lowest live id**, usually a caged animal;
+  `follow_air=N` picks one that is up and holds it.
+- **`labgif` now has `wire=`** (a genome sweep is one binary) and defaults
+  `rain=steady` over the scenario's own rate — pass `rain=off`.
+- **A `carried <= 0.0` test can never fire**: air has a density too. Four
+  sweep arms including the OFF arm came back byte-identical before it showed.
+- Divide a visit rate by the window the animals were **alive**.
