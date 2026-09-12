@@ -1513,13 +1513,67 @@
             // below is summed and squashed and anything at or under zero is
             // a plain ballistic arc.
 
-            // **Nothing, on its own -- the float is not a way of getting
-            // about, it is the last nine cells to a flower.** The bias and
-            // the fuel gauge below are authored to cancel EXACTLY at full
-            // energy, so an animal with nothing in sight reads
-            // `squash(0.0) == 0.0`, is never lifted, pays nothing, and arcs
-            // exactly as it did before this verb existed. Everything this
-            // animal does in the air it does because it can see a flower.
+            // **The distance threshold, and that is what a bias is on this
+            // row.** `BloomNear` is `1 - dist/reach`, so the sum
+            // `-B + 4*Energy + 8*BloomNear > 0` is a *range*: at full energy
+            // the float switches on inside **4 x (12 - B) cells**, and the
+            // fuel gauge slides that range shut as the animal empties. The
+            // bias is therefore not a taste setting -- it is the answer to
+            // "how far away is a flower still worth flying to", and the
+            // energy term is "on the fuel I am carrying".
+            //
+            // **-9.6 is 9.6 cells at full energy**, the design's own closing
+            // distance (`Reports/evolution-lab-flight-design-2026-09-11.md`
+            // §2: nine cells, about 34 frames, ~2 J against a 120 J meal),
+            // and about 1.6 cells at half a tank. An animal with nothing
+            // that close reads `squash(<=0) == 0.0`, is never lifted, pays
+            // nothing, and arcs exactly as it did before this verb existed.
+            // **It comes down and sits**, which costs 0.025 J a frame and
+            // buys 8,000 frames of life on the founding grant.
+            //
+            // **-4.0 shipped first and was wrong for a reason worth keeping:
+            // it made the gate *visibility* rather than *proximity*.** At
+            // -4.0 the range is the whole 32-cell eye, which on a bed worth
+            // flying over is satisfied almost always, so the float never
+            // switched off -- 96% of airborne frames powered, **55% of
+            // everything the colony ate spent on lift, and 29 of 30 deaths
+            // in mid-air with a full bed underneath**
+            // (`Reports/open-bugs-handoff.md` §Z10). A verb with an ON
+            // condition and no OFF is a state, not an outcome; the OFF
+            // condition existed and was keyed on a quantity that saturates.
+            //
+            // **The sweep, 24 runs, two beds x four biases x three seeds,
+            // 120,000 frames, ONE binary** (`wire=Bias:Fly:<b>` replaces this
+            // weight, so the arms differ by exactly one number).
+            // `played_bed_understory`, the bed with flowers near the nest:
+            //
+            //   bias   range   born (sum)   visits/animal (median)   deaths in mid-air
+            //   -4.0   32 c    2/0/3  (5)   3.83 / 1.14 / 2.11 (2.11)   97% / 61% / 37%
+            //   -7.0   20 c    6/1/1  (8)   4.44 / 1.00 / 1.61 (1.61)   24% / 28% / 12%
+            //   -9.6   9.6c    8/2/0 (10)   7.17 / 2.37 / 0.97 (2.37)    8% / 10% /  6%
+            //  -11.0    4 c    4/1/0  (5)   6.22 / 1.38 / 1.88 (1.88)    0% /  7% /  3%
+            //
+            // Longest a colony lasts: 24,000 frames at -4.0, **48,000 at
+            // -9.6**. Lift falls from 55/39/30% of the colony's whole burn
+            // to 36/22/5%.
+            //
+            // **And it costs something on `played_bed`, which is stated
+            // rather than buried**: there the nearest flowering clump is 138
+            // columns from the nest, so a 9.6-cell gate rarely opens and
+            // `flower_visits` go 76/8/5 -> 26/10/22 -- better on the two poor
+            // seeds, a third of the good one. The trade is deliberate: a
+            // wiring that keeps an animal alive on a bed with flowers in it
+            // is worth more than one that wrings a few more visits out of a
+            // bed that cannot feed it either way.
+            //
+            // **What it does NOT fix.** Nobody persists at any setting:
+            // alive at 120,000 is **0 on all 24 runs**. The deaths simply
+            // stop happening in the air and start happening on the ground,
+            // and the visit rate at the best settings is 0.08-0.45 per 1,000
+            // frames per animal against the **1.6** the economy needs. The
+            // next lever is this animal's life on the ground -- resting when
+            // nothing is in sight, the walk (bug R4), the eye -- not its
+            // wings.
             //
             // **This is not the first wiring, and the first one is worth
             // recording.** A positive bias (`-2.0` against `(Energy, Fly,
@@ -1533,7 +1587,7 @@
             // velocity (fixed in `creature::fly_brain_tick`), and nothing in
             // the genome said when to stop flying. A verb with no OFF
             // condition is not a graded outcome, it is a state.
-            (Bias, Fly, -4.0),
+            (Bias, Fly, -9.6),
             // **The fuel gauge, and the sign is the thing to check before
             // copying this line.** `BrainInput::Energy` is
             // `energy / start_energy` clamped to 0..1, so a FULL animal
@@ -1543,20 +1597,28 @@
             // actually normalised. A negative weight here would ground every
             // healthy animal and hold the dying ones up.
             //
-            // 4.0 against the bias above is a **throttle, not a cut-off**:
-            // it takes 4.0 off the sum as the animal empties, so a hungry
-            // flitter flies only to a flower it is already close to and a
-            // fed one will cross the bed for one. The hard OFF is the bias;
-            // this grades the middle, which is what `CLAUDE.md`'s first law
-            // asks of any outcome.
+            // **4.0 is what slides the bias's range shut as the tank
+            // empties**, and that is the whole of "near enough to reach on
+            // the fuel it has": the float opens inside
+            // `4 x (12 - 9.6 + 4*(Energy - 1))` cells, so **9.6 cells on a
+            // full tank, 1.6 at half, and nothing at a quarter**. A hungry
+            // flitter flies only to a flower it is practically standing at;
+            // a fed one will cross nine cells for one. The hard OFF is the
+            // bias, this grades the middle, and a graded middle is what
+            // `CLAUDE.md`'s first law asks of any outcome.
             (Energy, Fly, 4.0),
-            // **The whole reason the animal ever leaves the arc.** This is
-            // the only positive term big enough to clear the bias, so
-            // `BloomNear` is what turns the float on: no flower in sight, no
-            // flight. At a flower nine cells off (`BloomNear` 0.72 at
-            // `sight_range` 32) a fed animal carries 0.85 of its weight and
-            // closes the gap at `flight_speed`; at twenty-five cells it
-            // carries 0.64 and sinks as it goes.
+            // **The whole reason the animal ever leaves the arc**, and the
+            // term the bias is a threshold *on*. `BloomNear` is
+            // `1 - dist/reach`, so 8.0 is what converts a distance into a
+            // lift: at nine cells a fed animal reads `-9.6 + 4.0 + 8*0.72 =
+            // 0.15` and carries **0.13** of its weight -- enough to flatten
+            // the arc and cross, not enough to hover -- at five cells it
+            // reads 1.15 and carries **0.54**, at the flower itself 2.4 and
+            // **0.71**, and at twelve cells it reads -0.6 and carries
+            // nothing at all. **The lift is graded
+            // by how close the flower is**, which is the shape this row
+            // wants: a long glide in, a real float at the end, and no lift
+            // at all for a bloom it cannot afford to chase.
             //
             // **It is also what keeps the fuel gauge from becoming the
             // hopper's recorded dead end.** That do-not-retry reads "do not
@@ -1582,8 +1644,9 @@
             // flower it can see -- so this term has to beat the bloom term
             // AND the fuel gauge at once or the animal hovers one cell above
             // its meal for ever. At the flower on a full stomach the sum is
-            // -4.0 + 4.0 + ~7.8 - 12.0 = -4.2: firmly off. Raise the bloom
-            // weight and this must move with it.
+            // -9.6 + 4.0 + ~7.8 - 12.0 = -9.8: firmly off, and it was
+            // already off at -4.2 before the bias moved to -9.6. Raise the
+            // bloom weight and this must move with it.
             (FoodAdjacent, Fly, -12.0),
         ],
 

@@ -1921,6 +1921,7 @@ fn main() {
          fly_ticks={} fly_frames={} fly_turns={} fly_j={:.1} landed_afloat={} \
          moves_per_launch={:.2} frames_per_launch={:.0} fly_share={:.0} flight_speed={} \
          pips_released_by_digestion={} fruit_dropped_with_seed={} digestion_release_by_dist={digestion_release_by_dist:?} \
+         nest_blends={} share_blends={} nest_sites={} nest_gap_max={:.4} \
          pile_stops={} pile_animal_reads={} pile_boxed={} pile_boxed_terrain={} pile_boxed_creature={} pile_boxed_both={} \
          pile_body_boxed={} pile_largest={} pile_stops_with_3={} pile_streaks={} pile_streak_median={} pile_streak_max={} \
          pile_body_boxed_long={} pile_body_boxed_short={} pile_body_boxed_laden={} pile_largest_long={} \
@@ -2122,6 +2123,15 @@ fn main() {
         // distribution the owner's rule is about.
         world.pips_released_by_digestion,
         world.fruit_dropped_with_seed,
+        // **Appended at the end, keeping `main`'s fields first and in place**
+        // -- this line is contested by every lane and a reordering breaks
+        // everyone's parser. The pair is `CLAUDE.md`'s "it fired" counter and
+        // its far side: `nest_blends` says cohesion ran, `nest_gap_max` says
+        // what it produced.
+        world.creature_stats.nest_blends,
+        world.creature_stats.share_blends,
+        world.nest_sites.len(),
+        world.nest_scent_gaps().iter().map(|(_, _, d)| *d).fold(0.0f32, f32::max),
         // **Round 29's pile census, appended after main's fields** -- see
         // `Piles`. `pile_largest` is the owner's *"big group/pile"* and
         // `pile_streak_median`/`pile_streak_max` are the *"stuck"*: a

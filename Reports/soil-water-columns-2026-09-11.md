@@ -10,6 +10,20 @@ has been swept.** The owner, with the soil moisture overlay on:
 **Short answer: the mechanism is deliberate, its application to the sideways
 face is not, and what a player sees during normal play is nothing at all.**
 
+> **Correction, 2026-09-11, later the same day.** The last clause of that
+> sentence, and §5's whole case for leaving it, are **wrong on a material
+> point**. They rest on the striping being visible only under the overlay.
+> It is — but the *saturation* it produces is not: ground that cannot shed
+> sideways saturates locally, and saturated ground turns away every drop that
+> lands on it, which puts a standing sheet back on top of the planting. That
+> is the owner's *"water is still pooling on top of plants"*, and the dial is
+> a direct lever on it: on the played bed at the shipped rain rate, standing
+> water above the ground **397 cells off against 220 on**, with drops refused
+> by saturated ground falling from 87 to 37. §5 should be read as "the
+> striping is invisible", not as "the rule is cosmetic". It is not cosmetic.
+> The full account of what else was holding water is
+> [`canopy-throughfall-2026-09-07.md`](canopy-throughfall-2026-09-07.md) §8.
+
 ---
 
 ## 1. The picture, and the control that identifies it
