@@ -1,0 +1,60 @@
+{
+  "id": "20260912T051541289Z-3b03d3",
+  "created": "2026-09-12T05:15:41Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-cohesion-r29",
+    "commit": "fbd93ca7",
+    "agent": null,
+    "session_id": "3512293e-b22a-59f0-822f-772f1bd3045b",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Ants now breed a little different from their mothers, and the mound holds them together",
+  "question": "Both are one colony after a full session. At the setting that ships nobody bites. At eight times it the colony survives and is bigger, but 31 of its deaths are its own family. Does the second read as a colony under strain worth keeping, or as one eating itself?",
+  "context_md": "The box has always had a dial for how far a newborn's smell moves from its mother's, and it has always shipped at zero, because any other setting eventually had a colony reading its own children as strangers and eating itself. **The mound now carries a smell of its own.** An ant standing on its nest takes a little of it and leaves a little of its own, every turn it spends at home, so however far its children drift they come back to one family.\n\nThat lets the dial ship **on**. Both arms here ran the played bed for a full session (120,000 frames, seed 1); both are the same box with nothing else changed.\n\n- **A** is what ships: the colony's smells stay inside a third of the distance at which an ant stops recognising family, and the population is identical to the box before this change - same births, same deaths, same generations.\n- **B** is the dial at its top, which is not what ships and is here as the stress case.\n\nWhat I cannot judge from a number: whether B's frontier is something the box should have.\n\nThe HUD says PAUSED because the harness ticks the box directly rather than through the speed dial; it is genuinely running.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A - ships (scent drift 0.15)",
+      "files": [
+        "20260912T051541289Z-3b03d3/000-ants_shipped.png"
+      ],
+      "caption": "one family, nobody bites",
+      "meta": {
+        "nest blends": 2677,
+        "groups minted": 0,
+        "killed by own colony": 0,
+        "alive": 20,
+        "worst ant-to-mound smell gap": 0.3321,
+        "gap at which family ends": 1.0
+      },
+      "focus": null
+    },
+    {
+      "label": "B - the dial at its top (scent drift 1.0)",
+      "files": [
+        "20260912T051541289Z-3b03d3/001-ants_stress.png"
+      ],
+      "caption": "still one group, and 31 of its deaths its own",
+      "meta": {
+        "nest blends": 2670,
+        "groups minted": 0,
+        "killed by own colony": 30,
+        "alive": 32,
+        "worst ant-to-mound smell gap": 1.3899,
+        "gap at which family ends": 1.0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
