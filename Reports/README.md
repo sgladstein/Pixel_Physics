@@ -3107,27 +3107,34 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
 - [dead-ends-revival-2026-09-11.md](dead-ends-revival-2026-09-11.md) — **the
-  sweep `dead-ends.md` had never had, complete.** All 779 entries carry a
-  verdict: **495 are structurally dead, 93 reject an instrument rather than a
-  mechanism, and 118 (15%) are revival candidates** — with an adversarial pass
-  putting the true figure nearer 20%, because 3 of 40 sampled `DEAD` entries
-  reopened on inspection. The largest actionable class is `CONFOUNDED` (57): a
-  mechanism judged on a failure a *neighbouring* subsystem produced, twice over
-  for tree wind-lean alone. One case is verified end to end — `creatures:039`
-  parks the lateral pheromone sensors until "a flier" exists, `flitter` now
-  exists, and no species carries a lateral weight. Read with
-  [dead-ends.md](dead-ends.md); the machine-readable results are in
-  [data/dead-ends-triage/](data/dead-ends-triage/).
-- [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **in flight.**
-  The sweep `dead-ends.md` has never had: which of its rejections were the
+  sweep `dead-ends.md` had never had, complete; numbers revised 2026-09-12.**
+  Every entry carries a verdict: **526 are structurally dead, 97 reject an
+  instrument rather than a mechanism, and 106 (13%) are labelled revival
+  candidates.** Both error rates are now measured and they point opposite ways.
+  Sampling `DEAD` reopens 3 of 40, replicated at 4 of 40 and pooling to 7 of 80
+  — but six of those seven are *stale* rather than revivable, the world having
+  moved with no write-back. Re-rating the **candidates** blind against an equal
+  number of `DEAD` controls comes back **37% precise**, with 4 of 106 controls
+  reopened: so the candidate list is roughly 39 real entries, not 106, and the
+  earlier reading that 15% was "a floor" is withdrawn. `CONFOUNDED` and
+  `SUSPECT-INSTRUMENT` carry nearly all of that error. The durable value is the
+  nine register write-backs and the `creatures:039` correction — its named
+  artifact arrived while the condition stayed unmet, which no textual rule can
+  see. Read with [dead-ends.md](dead-ends.md); the machine-readable results are
+  in [data/dead-ends-triage/](data/dead-ends-triage/).
+- [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **screening
+  complete; the resumable state.** Which of `dead-ends.md`'s rejections were the
   *idea* being wrong, and which were the test being wrong, the experiment
   confounded, or the condition since changed. 97% of entries describe a world
-  older than the 2026-09-06 coupling day, and 708 of them name a re-test
-  condition nobody has checked. 306 entries screened so far, 14% of them
-  revival candidates; the labels, the rubric and the calibration that took
-  three rounds to get right are in [data/dead-ends-triage/](data/dead-ends-triage/).
-  Pick it up from this file — it carries what a later session must not
-  re-derive.
+  older than the 2026-09-06 coupling day, and 708 name a re-test condition
+  nobody had checked. **Every entry now carries a verdict**, `candidates.tsv` is
+  generated from `screened.tsv` rather than maintained, and `deadendindex.py
+  --touching` closes half the loop the sweep found open — it surfaces entries
+  whose clause names an identifier your branch *adds*, at 2-of-5 recall, so its
+  silence is not evidence. What is left is adjudicating the blind re-rating's 71
+  disagreements, then ranking what survives. Pick it up from this file — it
+  carries what a later session must not re-derive, including the two rubric
+  rules that are under-applied by default.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
