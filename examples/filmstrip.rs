@@ -6855,6 +6855,24 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
             world.chunk_bodies.len(),
             world.chunk_bodies.iter().map(|b| b.cells.len()).sum::<usize>(),
         );
+        // **Living tissue and new shoots, on any tile that has a plant in
+        // it.** The cell count is the claim a felling sheet is making --
+        // did the tree come back -- and `buds_flushed` is the discrete
+        // event beside it: a crown rebuilt by ordinary growth and one
+        // rebuilt by mobilised reserves look identical at the zoom a
+        // contact sheet is read at, and only the count separates them.
+        // `CLAUDE.md`'s "did it fire at all needs a counter, not a
+        // picture", applied to the one question this scene exists for.
+        let tissue: usize = world
+            .live_organism_ids()
+            .iter()
+            .filter_map(|&id| world.organism(id))
+            .filter(|st| st.cells.len() >= 2)
+            .map(|st| st.cells.len())
+            .sum();
+        if tissue > 0 {
+            println!("    living tissue {tissue} cells, new shoots started so far {}", world.buds_flushed);
+        }
         // **How fast the pieces are actually going**, which the count
         // above cannot say and which play asked about: *"it falls at
         // slightly odd rates -- a first group of chunks that drop too fast

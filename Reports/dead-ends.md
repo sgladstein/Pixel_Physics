@@ -866,7 +866,23 @@ the "a revert keeps the knowledge" convention, given an address.
 
 So the mobilisation threshold's floor is the control's p90, **851**, and the cut arm sits 2.7x above it at the median — the two separate cleanly. Note the control's own deficit swings 6 → 1,283, which is why this is a p90 and not a mean.
 
-**Still owed**: the mechanism itself (reserves entering the supportable count in proportion to the bole deficit above 851, capped by the deficit, never on `stock`), its arms, and a `seedsweep` before landing. ~~Stock may only enter the equation once a monotone high-water memory (q_peak girth memory) can distinguish a plant that lost foliage from one that never had any; until then mobilising reserves refuses fusion-free tuning.~~ **The fusion bar the old clause protects is unchanged and is the still-dead criterion**: any arm whose `above_ground_width` overshoots control is the 1,723 → 38,605 slab again.
+**BUILT AND MEASURED, and the verdict is the owner's.** `PIXEL_PHYSICS_RESPROUT=<deficit per tip>` in `plant::break_buds` lets the bole deficit above `RESPROUT_DEFICIT_FLOOR` raise `supportable`, still capped by `max_active_tips`. **Off by default**, and the off arm is byte-identical to the pre-mechanism binary over three seeds and 16,000 frames, so nothing shipped changed.
+
+**The floor had to go above the control's *maximum*, not at its p90, and that was measured rather than reasoned.** At 851 — the p90 — the switch moved the **control** arm, on plants that were never cut: total flushes went 475 → 403 → 527 → 519 on seed 1 and 391 → 473 → 435 → 404 on seed 2 as the per-tip price varied. A p90 leaves a tenth of the cycle over the line and the control's own deficit reaches 1,283, so an undamaged tree in its ordinary autumn was buying frontier — exactly the failure the floor exists to prevent. At **1,500** (the control's measured maximum, with headroom) the control arm is an exact no-op on two of three seeds and moves by four flushes with an identical cell count on the third.
+
+**It fires, and the effect is much larger in the counter than on the screen.** Crown arm, three seeds, flushes after the cut and standing cells at frame 16,000 as a share of the paired control:
+
+| seed | off | on | cells vs control, off → on |
+|---|--:|--:|---|
+| 1 | 388 | 465 | 72% → 72% |
+| 2 | 234 | 237 | 91% → 91% |
+| 3 | **111** | **224** | 52% → **57%** |
+
+Seed 3 is the badly damaged one and the flush collapse there (19, 7, 18, 17, 19, 31 per window) becomes 45, 23, 33, 40, 40, 43. **No arm overshoots its control**, so the 1,723 → 38,605 fusion this entry exists to record does not recur. On `scene=fell` with a crown-deep cut the same switch takes new shoots after the cut from **65 to 108 (+66%)** while standing tissue moves 5,095 → 5,141 (**under 1%**).
+
+**So the still-open question is not whether it works but whether it is worth seeing**, which is the owner's to answer: review card `20260912T170408642Z-07fc94`, a blind A/B of the same tree and cut with the switch off and on. Note also that the per-tip price is nearly inert — 50 and 150 give identical results on seed 1 — because `max_active_tips` binds first.
+
+Still owed: the owner's verdict, and a `seedsweep` re-run if the default is ever flipped on. ~~Stock may only enter the equation once a monotone high-water memory (q_peak girth memory) can distinguish a plant that lost foliage from one that never had any; until then mobilising reserves refuses fusion-free tuning.~~ **The fusion bar the old clause protects is unchanged and is the still-dead criterion**: any arm whose `above_ground_width` overshoots control is the 1,723 → 38,605 slab again.
 - **src/sim/plant.rs fn break_buds (and organism.rs Behavior::BudBreak doc)** - A bud-break gated on local 'am I idle' signals (carbon fill, crowding decay, conductance relaxing to basal) was built and reverted: every local resource signal saturates on every mature cell simultaneously the moment growth stops, so budding became proportional to volume and ran away. Replaced by a whole-plant gate on intercepted light (Palubicki's supportable count).
   *Re-test when:* Holds while resource signals equalize at growth stop (the transport clamp fills carbon to cap everywhere, crowding decays within two ticks, conductance relaxes without flux). Only a local signal that provably does not saturate plant-wide would justify retrying.
 - **src/sim/plant.rs fn break_buds doc, property 2** - A bare rate cap ('one bud per organism per tick') as the bound on frontier creation was considered and rejected: it converts exponential growth into linear growth, which still fills the world. It survives only as a rate limit on top of the supportable-count bound.
