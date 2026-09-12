@@ -3055,11 +3055,49 @@ impl World {
     /// deliberate and is the ratio the foraging scene measured 414 deliveries
     /// at: home has to be a *place*, not everywhere, or there is no gradient
     /// to walk up.
+    ///
+    /// **The threshold has drains in it, and that is the whole of
+    /// `open-bugs-handoff.md` §T2.** `nest` is a plain `Solid` with no
+    /// `water_capacity`, so it "holds no water at all, and never absorbs an
+    /// adjacent `Liquid`" -- which made an unbroken patch the *only
+    /// impermeable strip on the surface of a misted bed*, every other ground
+    /// cell around it holding 1,000. The mist soaked in everywhere else and
+    /// stood on the door. An ant cannot step into a liquid
+    /// (`landing_is_placeable_through_tissue` wants `World::is_empty`), so a
+    /// film one cell deep is a **wall**: `adjacent_nest` goes false for every
+    /// animal in the colony at once, and `AtNest`, `nest_visits` and
+    /// `deliveries` freeze on the same frame -- §T2's reported shape exactly,
+    /// two counters identical at 9,000, 30,000 and 120,000 frames while
+    /// `pickups` kept climbing. Measured on the played bed, seed 1: **47-49
+    /// of 53 nest cells standing under water**, and free liquid over the
+    /// patch **89-91 against 17-19 over the same width of ordinary ground
+    /// beside it** -- the excess is the patch's alone, which is what says the
+    /// impermeability did it rather than the terrain.
+    ///
+    /// So every `DRAIN_PERIOD`th column is left as the ground it was. The
+    /// film is thin -- 89-91 liquid cells over 53 columns, so one to two deep
+    /// -- and what keeps it standing is *distance*: across an unbroken patch
+    /// the middle of it is 26 columns from ground that drinks, and a
+    /// one-cell-deep film has almost no head to spread on. With a drain every
+    /// third column it is one cell from ground that drinks, and the bed takes
+    /// it exactly as it does everywhere else.
+    ///
+    /// **Two fixes that look more principled were built first and are worse**
+    /// -- both in `dead-ends.md`, both about `nest.ron` rather than this
+    /// loop. Giving the material a `water_capacity` while it is a `Solid`
+    /// aliases `Cell::aux`, which on a `Solid` is the structural anchor
+    /// distance that `structural::tick` rewrites (and roots at 0 the moment
+    /// powder touches the underside -- so the door becomes a *water sink*,
+    /// not a sponge). Making it a `Powder` to fix that turns
+    /// `player::footing` from `Hard` to `Soft`, and the gnome wades through
+    /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
+    /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let drain_period = nest_drain_period();
         // **The patch is a place that holds an odour, and this is where it
         // becomes one.** Registered before the ground is converted so that a
         // patch which turns out to have no paintable ground under it still
@@ -3069,7 +3107,14 @@ impl World {
         // `NestSite::seeded` for why it cannot be taken here.
         self.register_nest_site(x, y, half_width);
         let mut painted = 0;
-        for cx in (x - half_width)..=(x + half_width) {
+        for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
+            // **Indexed off the loop, not off `cx`**, so the comb is the same
+            // comb wherever on the map the colony is founded -- keyed on the
+            // world x it would shift by one under the cursor and the two ends
+            // of the patch would stop being symmetric.
+            if drain_period > 0 && i % drain_period == drain_period - 1 {
+                continue;
+            }
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
@@ -3083,6 +3128,54 @@ impl World {
         painted
     }
 }
+
+/// **How often the nest patch leaves a column of ordinary ground**, so the
+/// door can drain — every third, so a film has one cell to travel.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=off` lays the unbroken patch that shipped until
+/// 2026-09-12, which is the paired arm for anything measured over this: one
+/// binary, two arms, and the semantic rule held fixed rather than a second
+/// metric added (`CLAUDE.md`). `=<n>` sets the period directly, so the comb
+/// can be swept without a rebuild.
+///
+/// Read once through a `OnceLock`, matching `spoil_kept` and
+/// `lining_enabled`: founding is rare, but the setting cannot change mid-run
+/// and an `env::var` in `World` is a syscall in a place that does not want
+/// one.
+fn nest_drain_period() -> usize {
+    static PERIOD: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *PERIOD.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_DRAINS").as_deref() {
+        Ok("off") => 0,
+        // A period of 1 would paint nothing at all and a period of 2 is a
+        // comb of alternating cells; both are legitimate sweep points, and 0
+        // (the unbroken patch) is what `off` means, so only a parse failure
+        // falls through to the default.
+        Ok(v) => v.parse().unwrap_or(DRAIN_PERIOD),
+        Err(_) => DRAIN_PERIOD,
+    })
+}
+
+/// Every third column of the threshold is left undrained ground.
+///
+/// Three rather than two because two paints only half the door and the patch
+/// is already *deliberately* narrow -- "home has to be a place, not
+/// everywhere". Three rather than four because the film has to *reach* a
+/// drain and at four the middle of a run is two cells from one, while at
+/// three every nest column touches ground that drinks.
+///
+/// Measured on the played bed, seed 1, at three: standing water over the
+/// patch **51 and 48 cells -> 0 and 2**, against 2 and 0 over the same width
+/// of ground beside it, so the door stops being the wettest strip on the bed
+/// and becomes an ordinary piece of it. Nest cells with air beside them
+/// **2 and 7 of 53 -> 33 and 32 of 36**, `nest_visits` over the first 20,000
+/// frames **360 -> 1,428**, deliveries **140 -> 466**.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=<n>` sweeps it without a rebuild, and
+/// `examples/nestdoor.rs` is what reads the result -- its `water_on` against
+/// `water_off` pair is the quantity to sweep on, since the bar is that the
+/// door stops being wetter than the ground beside it rather than that it is
+/// dry (no part of a misted bed is).
+const DRAIN_PERIOD: usize = 3;
 
 /// Where the ground is in one column, for a colony founded at cursor row
 /// `cursor_y`.
@@ -11011,6 +11104,186 @@ mod tests {
             Some(151),
             "a cursor inside a cave must found on the cave floor, not on the surface above it"
         );
+    }
+
+    /// A bed of soil on a stone floor, with a nest patch painted across the
+    /// middle of it — the smallest world in which the door can be rained on.
+    fn bed_with_a_nest_patch() -> (World, Vec<(i32, i32)>) {
+        let mut w = World::new(Rect::new(0, 0, 191, 127));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..=191 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+            for y in 100..127 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.paint_nest_patch(96, 99);
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
+        (w, patch)
+    }
+
+    /// **A film on the threshold has somewhere to go, and the only somewhere
+    /// is a drain** (`open-bugs-handoff.md` §T2).
+    ///
+    /// `nest` holds no water, so an unbroken patch is the only impermeable
+    /// strip on the surface of a misted bed and every misting leaves a film
+    /// standing on it. An ant cannot step into a liquid, so that film is a
+    /// wall and `adjacent_nest` goes false for the whole colony at once --
+    /// which is why `deliveries` and `nest_visits` freeze on one frame while
+    /// `pickups` goes on climbing. `paint_nest_patch` leaves every third
+    /// column as ordinary ground, so the film has **one** cell to travel
+    /// instead of 26.
+    ///
+    /// **The ends of the threshold are walled, and that is what isolates the
+    /// mechanism.** An earlier scene poured on the middle of an open patch
+    /// and went **blind**: `water.ron` carries `flow_rate: 1000`, so a full
+    /// cell walks the 26 columns to the end of an unbroken patch inside the
+    /// frame budget and drains off the end, which is the width of the bed
+    /// rather than the spacing of the drains. Walled, the film's only route
+    /// to ground that drinks is a drain column. What the scene does *not*
+    /// claim is the behaviour on a real bed -- that is emergent over 120,000
+    /// frames of continuous misting and belongs to `examples/nestdoor.rs`,
+    /// which measures it paired against this same switch (standing water
+    /// over the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
+    ///
+    /// **It rains twice, and the second soaking is a different measurement
+    /// from the first -- which is the whole reason this reads volume and not
+    /// occupancy.** Onto dry ground the door sheds the film completely, 0 of
+    /// 36 columns from frame 100 onward. Onto ground that already holds the
+    /// first soaking it sheds **35,610 of the 36,000 units poured on it** and
+    /// keeps the last 1%: 36 cells at fill 8-12 of `LIQUID_FULL`, over drain
+    /// columns sitting at 620 of 1,000 with **not one soil cell saturated**
+    /// (67,612 units in a bed that holds 5,184,000).
+    ///
+    /// So the second film is not standing water, it is the near-empty fringe
+    /// `CLAUDE.md`'s liquid metric trap names, and an occupancy count cannot
+    /// tell the two apart. That is exactly what failed CI on 2026-09-12,
+    /// reading *"36 of 36 nest cells are still under water"* over a door that
+    /// had just drunk 99% of what fell on it. **The saturation reading of
+    /// that failure was wrong** and is recorded here because it is the
+    /// obvious one: the bed is 1.3% full, not out of room.
+    ///
+    /// **The 1% is a real remainder all the same, not an artifact.** A cell
+    /// holding 9 of 1,000 is still a `Liquid`, still fails `World::is_empty`,
+    /// and `is_partable` refuses anything that is not living tissue -- so it
+    /// still walls the column it sits in, and it is why `nestdoor` reads 0-19
+    /// liquid cells over the drained patch on the played bed rather than 0.
+    /// What the drains buy is that the door stops being *the wettest strip on
+    /// the bed*; §T2 carries the number and stays open on the residue.
+    ///
+    /// **Watched going red**, not assumed: at `PIXEL_PHYSICS_NEST_DRAINS=off`
+    /// the first soaking alone leaves **53 of 53** columns under full cells
+    /// for the whole 2,000 frames.
+    #[test]
+    fn a_film_on_the_door_drains_through_the_comb() {
+        let (mut w, patch) = bed_with_a_nest_patch();
+        assert!(patch.len() >= 16, "test setup: the patch should be tens of cells wide, got {}", patch.len());
+        let water = w.materials.id_of("water").expect("water is compiled in");
+        let x0 = patch.iter().map(|c| c.0).min().expect("non-empty");
+        let x1 = patch.iter().map(|c| c.0).max().expect("non-empty");
+        let row = patch[0].1;
+        // **Walls at both ends of the threshold.** Without them the film
+        // simply runs off the patch and the scene measures the width of the
+        // bed rather than the spacing of the drains.
+        for dy in 1..=6 {
+            w.set(x0 - 1, row - dy, Cell::new(material::STONE, 0));
+            w.set(x1 + 1, row - dy, Cell::new(material::STONE, 0));
+        }
+        // **Columns carrying any liquid at all -- which is what an ant runs
+        // into -- and the water actually standing in them.** Both, because
+        // the two answer different questions and the second soaking is where
+        // they separate.
+        let over_the_door = |w: &World| -> (usize, u64) {
+            patch.iter().fold((0, 0), |(columns, volume), &(x, y)| {
+                let held: u64 = (1..=6)
+                    .map(|dy| w.get(x, y - dy))
+                    .filter(|c| w.materials.kind(c.material) == MaterialKind::Liquid)
+                    .map(|c| c.aux() as u64)
+                    .sum();
+                (columns + usize::from(held > 0), volume + held)
+            })
+        };
+        let pour = |w: &mut World| -> u64 {
+            let mut poured = 0;
+            for &(x, y) in &patch {
+                if w.is_empty(x, y - 1) {
+                    w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
+                    poured += u64::from(material::LIQUID_FULL);
+                }
+            }
+            poured
+        };
+        let settle = |w: &mut World| {
+            for _ in 0..2_000 {
+                crate::sim::update::step(w);
+                w.step_active_sites();
+            }
+        };
+
+        // **First soaking, onto dry ground**, and the positive control for
+        // the arrangement comes before it: if the setup could not put a full
+        // cell on every nest column, everything below passes for the wrong
+        // reason and would pass with the drains deleted too.
+        let poured = pour(&mut w);
+        assert_eq!(over_the_door(&w), (patch.len(), poured), "the test failed to put a full cell on every nest column");
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            columns <= 2,
+            "{columns} of {} nest columns still carry a film after 2,000 frames, holding {volume} of the {poured} units poured -- the wall an ant cannot step into. Measured 0 with the drains in and {} without them",
+            patch.len(),
+            patch.len()
+        );
+
+        // **Second soaking, onto ground that is already holding the first.**
+        // The bar is on the water, not on the count: the door sheds 99% of
+        // this one and keeps a fringe of near-empty cells, so an occupancy
+        // assertion here would report a drained door as a drowned one.
+        let poured = pour(&mut w);
+        // Its own positive control, and it is not the one above: a door that
+        // never cleared the first soaking has no empty cell to pour into, so
+        // without this the bar below would go red reading `0 units poured`
+        // and say nothing about the second day.
+        assert_eq!(
+            poured,
+            u64::from(material::LIQUID_FULL) * patch.len() as u64,
+            "the first soaking must clear before a second can be poured; only {poured} units went on"
+        );
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            volume * 20 <= poured,
+            "the door shed only {} of the {poured} units of a second soaking, leaving {volume} standing over {columns} of {} columns",
+            poured.saturating_sub(volume),
+            patch.len()
+        );
+    }
+
+    /// ...and the door is still a *place*.
+    ///
+    /// The drains are a comb, so the obvious way to break this fix is to
+    /// widen them until there is no patch left: "home has to be a place, not
+    /// everywhere, or there is no gradient to walk up". Two of every three
+    /// columns are nest, and every nest cell is within one column of a drain,
+    /// which is the property that makes the film travel one cell.
+    #[test]
+    fn the_nest_patch_is_still_continuous_enough_to_walk_home_to() {
+        let (w, patch) = bed_with_a_nest_patch();
+        let width = 2 * scaled_cells(&w, COLONY_HALF_WIDTH) + 1;
+        assert!(
+            patch.len() * 2 >= width as usize,
+            "at least half the threshold must be nest, got {} of {width} columns",
+            patch.len()
+        );
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let drains: Vec<i32> = (0..=191).filter(|&x| (95..105).all(|y| w.get(x, y).material != nest)).collect();
+        for &(x, _) in &patch {
+            assert!(
+                drains.iter().any(|&d| (d - x).abs() <= 1),
+                "every nest column needs ground it can shed a film onto within one cell; x={x} has none"
+            );
+        }
     }
 
     fn run(w: &mut World, frames: usize) {
