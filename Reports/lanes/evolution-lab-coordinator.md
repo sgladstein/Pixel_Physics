@@ -107,29 +107,29 @@ by poke**, auto-merge off on every lane PR, one merge order for one file,
 `git merge-tree` before CI, the bug letter named in the brief — the mechanics
 are in the record's environment section.
 
-## Round twenty-eight, 2026-09-11 — the pollinator arrives and eats the garden
+## Round thirty, 2026-09-12 — the screen quiets, and two mechanisms turn out not to matter
 
-*Record: [`../evolution-lab-round-28-2026-09-11.md`](../evolution-lab-round-28-2026-09-11.md).*
+*Record: [`../evolution-lab-round-30-2026-09-12.md`](../evolution-lab-round-30-2026-09-12.md).*
+**What binds.** **Neither digging nor fighting shapes the played bed** — 2 of
+384 deaths are attributable to an attacker, two fifths are a plant standing in
+the ant's head (§Z16), and the dig gate's premise is false (#359). **Green CI
+is not mergeability.** Four harness rules it paid for — spawning a lane with its repository, checking a lane's work
+actually left the container, checking a delivered lane closed, and testing a
+same-file gate rather than assuming it — are in [`../session-programs.md`](../session-programs.md).
+
+## Rounds twenty-five to twenty-eight, 2026-09-09 → 2026-09-11
+
+*Records and designs: the earlier-rounds table below.*
+
 **What binds.** `nectar_only` stays: a plant specialist's mouth eats the plant
 and no gut setting avoids it. **A card of a one-cell event is unreadable even
-ringed and zoomed**: show the stand, the door or the colony over a long span,
-or let the playtest judge. **Sonnet refuses a brief dense in genetics vocabulary on a `[bio]`
-classifier** — write it in the world's words or run the lane on Opus.
-
-## Rounds twenty-five to twenty-seven, 2026-09-09 → 2026-09-10
-
-*Records: [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md)
-(twenty-five), [`../evolution-lab-round-26-2026-09-10.md`](../evolution-lab-round-26-2026-09-10.md),
-[`../evolution-lab-round-27-2026-09-10.md`](../evolution-lab-round-27-2026-09-10.md);
-designs of record
-[`../evolution-lab-direction-2026-09-09.md`](../evolution-lab-direction-2026-09-09.md),
-[`../evolution-lab-ecology-design-2026-09-10.md`](../evolution-lab-ecology-design-2026-09-10.md),
-[`../evolution-lab-pollinator-design-2026-09-10.md`](../evolution-lab-pollinator-design-2026-09-10.md).*
-
-**What binds.** Trophallaxis is a brain output the genome can evolve, never a
+ringed and zoomed** — show the stand, the door or the colony over a long span,
+or let the playtest judge. **Sonnet refuses a brief dense in genetics
+vocabulary on a `[bio]` classifier**: write it in the world's words or run the
+lane on Opus. Trophallaxis is a brain output the genome can evolve, never a
 rule; **rest is the absence of a reason to act**; a queen is three authored
 values over mechanisms that exist, **never a type the engine knows**;
-**movement, not stills, is how animals are seen**. The direction is *the
+**movement, not stills, is how animals are seen** — but a *follow camera* ruins a colony-level card (2026-09-12: two unreadable, "shaking gif"), and a scrubbable frame sequence plays for him where a GIF did not. The direction is *the
 colony that gardens survives*; the breeding trade is graded (`e5792206`) and
 ships graded only after `GRADED_MAX_SUPPRESSION` is swept. Ants are not the
 pollinators; the eye is heritable (`TRAIT_SIGHT_RANGE`). **Conserve tokens**
@@ -174,10 +174,8 @@ knowing which is yours is most of the saving:
   caller's. Use `get <id>` rather than trusting an empty inbox.
 - **Several agents in one container makes every timing untrustworthy** —
   pin `RAYON_NUM_THREADS` or compare arms inside one run.
-- **A cloud lane is reached by poke, never by `SendMessage`**:
-  `create_trigger(persistent_session_id, no schedule)` then `fire_trigger`,
-  a fresh trigger per message, and the reply comes back the same way. A poke
-  lands at the lane's *next turn boundary*, so a lane that ends its turn
-  "waiting" is idle until poked. Lanes arm auto-merge on their own PRs —
-  disable it at subscription. Delete every poke at the close. Full protocol:
-  `../session-programs.md` and the round-29 record.
+- **A cloud lane is reached by poke, never by `SendMessage`**, and a poke
+  lands at the lane's *next turn boundary* — a lane that ends its turn
+  "waiting" is idle until poked. Lanes arm auto-merge on their own PRs;
+  disable it at subscription. Delete every poke at the close. Mechanism and
+  the four failures it cost: [`../session-programs.md`](../session-programs.md).
