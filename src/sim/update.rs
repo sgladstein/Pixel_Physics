@@ -3237,6 +3237,94 @@ mod tests {
         );
     }
 
+    /// **The colony's doorstep must not stand under a puddle**
+    /// (`open-bugs-handoff.md` §T2).
+    ///
+    /// `paint_nest_patch` turns ~53 surface columns of a misted bed into
+    /// `nest`, and until 2026-09-12 that material authored no
+    /// `water_capacity` at all -- so the patch was the one impermeable strip
+    /// on the whole surface of a bed whose every other ground cell holds
+    /// 1,000, and the mist that soaked in everywhere else stood on the door
+    /// as free `water`. An ant cannot step into a liquid
+    /// (`creature::landing_is_placeable_through_tissue` wants `is_empty`), so
+    /// the film is a wall: `adjacent_nest` goes false for every animal,
+    /// `AtNest` reads 0 for ever, and `deliveries` and `nest_visits` freeze
+    /// on the same frame. Measured on the played bed, seed 1: 47-49 of 53
+    /// nest cells under water, **89-91 standing water cells over the patch
+    /// against 17-19 over the same width of ground beside it**, and
+    /// deliveries 0 in every window after frame 30,000.
+    ///
+    /// Watched going red, not assumed: with
+    /// `PIXEL_PHYSICS_NEST_DRAINS=off` -- which forces the capacity back to
+    /// the shipped 0 -- this fails on the first assert with the film still
+    /// standing, and so does the ledger test below.
+    #[test]
+    fn the_nest_patch_drinks_the_water_standing_on_it() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        // A door on a soil column, so the water it takes has somewhere to
+        // drain to -- the played bed's doorstep in miniature. The column
+        // matters: a nest cell over bedrock would fill once and then be as
+        // waterproof as it was before, which is the failure this shape is
+        // written to rule out.
+        for y in 11..=20 {
+            w.set(10, y, Cell::new(soil, 0));
+        }
+        w.set(10, 10, Cell::new(nest, 0));
+
+        // Four separate soakings, not one: the question is whether the door
+        // *keeps* draining, and a cell that drinks its first puddle and then
+        // sits at capacity would pass a single-soak test and flood on the
+        // second day.
+        for soak in 0..4 {
+            w.set(10, 9, Cell::new(material::WATER, 0).with_aux(material::LIQUID_FULL));
+            for _ in 0..400 {
+                update_soil_water(&mut w, 10, 10);
+                for y in 11..=20 {
+                    update_soil_water(&mut w, 10, y);
+                }
+            }
+            let above = w.get(10, 9);
+            assert!(
+                w.materials.kind(above.material) != MaterialKind::Liquid,
+                "soak {soak}: a film of {} is still standing on the door, which is exactly the wall an ant cannot step into",
+                w.materials.get(above.material).name
+            );
+        }
+    }
+
+    /// ...and the water it drinks must not leave the books.
+    ///
+    /// `weather::water_equivalents`'s held-water arm matched `Powder` only,
+    /// because `soil` was the only material that had ever opted in. `nest` is
+    /// a `Solid`, so without widening that arm every drop the door absorbed
+    /// would read as a leak on the one line that *is* the conservation law.
+    #[test]
+    fn water_held_in_the_nest_patch_stays_on_the_conservation_books() {
+        let mut w = World::new(Rect::new(0, 0, 31, 31));
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        w.set(10, 10, Cell::new(nest, 0));
+        w.set(10, 9, Cell::new(material::WATER, 0).with_aux(material::LIQUID_FULL));
+
+        let before = crate::sim::weather::water_equivalents(&w);
+        // The positive control for the instrument itself: a ledger that reads
+        // zero with a full water cell in the world is not measuring water,
+        // and a conservation assert over two zeroes passes for ever.
+        assert!(before >= 1.0, "the ledger should see one full water cell before anything moves, saw {before}");
+
+        update_soil_water(&mut w, 10, 10);
+        assert!(
+            w.get(10, 9).is_empty(),
+            "the door should have taken the whole cell in one visit (capacity 1,000 against a fill of 1,000)"
+        );
+        let after = crate::sim::weather::water_equivalents(&w);
+        assert!(
+            (before - after).abs() < 1e-6,
+            "infiltration into the door must be ledger-neutral: {before} before, {after} after"
+        );
+    }
+
     use super::*;
     use crate::sim::parallel;
 
