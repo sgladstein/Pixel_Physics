@@ -18,7 +18,19 @@
 //!
 //! - `cells` moving after the cut is the claim itself — is it still
 //!   building?
-//! - `unreached` is the **positive control on the cut**: `anchor_support`
+//! - `unreached` is the **positive control on the cut** for `sever` and
+//!   `deroot`, and **is not one for `crown`** -- measured 2026-09-12 at
+//!   one-frame resolution. A mid-crown cut disconnects the crown above it,
+//!   `anchor_support` marks it, and `organism_upkeep` sheds it **inside the
+//!   same organism tick**: on seed 1 the whole event is frames 12,011-12,012,
+//!   `unreached` peaks at **3**, and `cells` falls 4,774 -> 4,101 -> 2,699.
+//!   There is no frame at which the marked cells are still standing to be
+//!   counted, so a zero here says nothing about whether the cut bit. What
+//!   does move, immediately and hugely, is `q_now` at the bole: 1,997.95 ->
+//!   1,254.43 -> **409.94** over those two frames. Read that, and `cells`
+//!   against `removed`, for whether a `crown` cut landed.
+//!
+//!   For the arms it does control: `anchor_support`
 //!   writes `u16::MAX` into any cell with no path to an anchor, so a sever
 //!   that leaves this at zero did not sever anything and every number
 //!   beside it is measuring an intact plant. A cut that reads as a cut is
@@ -53,6 +65,22 @@ struct Row {
     demand: f32,
     uptake: f32,
     income: f32,
+    /// **The standing support deficit at the bole**, `q_peak - q_now`, read
+    /// once per organism at the cell the anchor walk starts from.
+    ///
+    /// **Per organism, at the bole, and never per cell.** `accumulate_support`
+    /// walks a *spanning tree*, and a thickened trunk is a blob, so
+    /// `q_now == 0` across most of a trunk's girth means "not on this tick's
+    /// path", not "carries no foliage". `plant.rs`'s die-back records what a
+    /// per-cell rule keyed on that did: a stand from 3,437 cells to 704. At
+    /// the bole -- `support == 0`, where the walk begins -- the basipetal sum
+    /// is the whole live crown and no path artifact exists.
+    ///
+    /// Both halves are kept rather than only the difference, because the
+    /// difference alone cannot tell a plant that lost half a large crown from
+    /// one that lost all of a small one.
+    q_peak: f32,
+    q_now: f32,
 }
 
 /// Every established plant in the world, keyed by organism id.
@@ -72,6 +100,17 @@ fn census(w: &World) -> Vec<(u16, Row)> {
             .keys()
             .filter(|&&(x, y)| w.organism_cell(x, y).is_some_and(|c| c.support == u16::MAX))
             .count();
+        // **The bole**: among the cells the anchor walk starts from
+        // (`support == 0`), the one carrying the most. A plant has several
+        // anchored cells and only one of them is the trunk base; the
+        // basipetal sum is what says which.
+        let bole = st
+            .cells
+            .keys()
+            .filter_map(|&(x, y)| w.organism_cell(x, y))
+            .filter(|c| c.support == 0)
+            .map(|c| (c.q_peak, c.q_now))
+            .max_by(|a, b| a.0.total_cmp(&b.0));
         out.push((
             id,
             Row {
@@ -93,6 +132,8 @@ fn census(w: &World) -> Vec<(u16, Row)> {
                 demand: st.water_demand,
                 uptake: st.water_uptake,
                 income: st.income,
+                q_peak: bole.map_or(0.0, |c| c.0),
+                q_now: bole.map_or(0.0, |c| c.1),
             },
         ));
     }
@@ -126,6 +167,73 @@ fn sever(w: &mut World, ground_y: i32, rows: i32) -> usize {
         w.set(x, y, Cell::EMPTY);
     }
     doomed.len()
+}
+
+/// Cut a band out of the **middle of each plant's own crown**, leaving the
+/// root system attached, and return how many cells that removed.
+///
+/// **The arm `sever` cannot stand in for.** `sever` cuts at the soil line,
+/// which removes the shoot's water path along with its crown, so "did it
+/// rebuild a crown" is confounded with "did it dry out" -- the roots are on
+/// the other side of the cut. Here the roots, the contact cells and the
+/// lower trunk are all untouched: what is removed is foliage-bearing crown,
+/// which is the disturbance a resprout mechanism is supposed to answer and
+/// the one a felled tree actually suffers.
+///
+/// The band is placed at `cut_frac` of **each plant's own height**, not at a
+/// fixed row: a stand is not uniform, and a fixed row cuts one plant at the
+/// waist and another above the top. Height is measured from the plant's own
+/// cells, so a seedling gets a proportionally placed cut or none at all.
+///
+/// This is also the instrument `structural:074` asks for -- a mid-crown
+/// disturbance, to run the positive control on `anchor_support`'s
+/// replacement of the hop-bounded search. Built once, used by both.
+fn crown(w: &mut World, ground_y: i32, rows: i32, cut_frac: f32) -> (usize, Vec<(u16, usize)>) {
+    let mut doomed: Vec<(i32, i32)> = Vec::new();
+    // **Cells strictly above the cut line, per organism**, counted before
+    // the cut. This is what makes `structural:074`'s control an answer
+    // rather than a bound: the question is whether the support search
+    // removes the cut-off subtree *and nothing else*, and without it the
+    // only available claim is "the loss was under some multiple of the
+    // band". **Per organism and not a world sum** -- every other figure on
+    // these rows is a median over the tracked plants, and a world total
+    // beside a per-plant median describes no plant that exists (the same
+    // mistake `fill` records below, made one row further up).
+    let mut above: Vec<(u16, usize)> = Vec::new();
+    for id in w.live_organism_ids() {
+        let Some(st) = w.organism(id) else { continue };
+        if st.cells.len() < 2 {
+            continue;
+        }
+        // y decreases upward, so the top of the plant is its smallest y and
+        // the height above ground is `ground_y - top`.
+        let Some(&top) = st.cells.keys().map(|(_, y)| y).min() else { continue };
+        let height = ground_y - top;
+        if height <= rows {
+            // Nothing to cut in the middle of: the whole plant is shorter
+            // than the band. Skipped rather than flattened, so this arm does
+            // not quietly become `sever` for the seedlings in the bed.
+            continue;
+        }
+        let y_cut = ground_y - (height as f32 * cut_frac) as i32;
+        let mut n_above = 0usize;
+        for &(x, y) in st.cells.keys() {
+            if y < y_cut - rows {
+                n_above += 1;
+            }
+            // Above the cut line by at most `rows`, and never at or below
+            // the soil surface -- the roots are the point of this arm.
+            if y < y_cut && y >= y_cut - rows && y < ground_y {
+                doomed.push((x, y));
+            }
+        }
+        above.push((id, n_above));
+    }
+    doomed.sort_unstable();
+    for &(x, y) in &doomed {
+        w.set(x, y, Cell::EMPTY);
+    }
+    (doomed.len(), above)
 }
 
 /// Remove every root cell from every established plant.
@@ -297,6 +405,16 @@ fn main() {
     // `finefor=` is how long to keep that resolution.
     let fine: u64 = arg("fine", 0);
     let finefor: u64 = arg("finefor", 900);
+    // **Where the `crown` band goes, as a fraction of each plant's own
+    // height.** Echoed below, because an unknown argument is silently
+    // ignored by this harness and a knob nobody can see the value of is a
+    // knob nobody can tell is disconnected.
+    let cut_frac: f32 = arg("cut_frac", 0.5);
+    assert!(
+        cut_frac > 0.0 && cut_frac < 1.0,
+        "cut_frac={cut_frac} must be strictly inside (0,1): at 0 the band is the soil line \
+         (that is `sever`) and at 1 it is above the plant"
+    );
     let arms: String = arg("arms", "control,sever,deroot".to_string());
     assert!(cut < frames, "cut={cut} must be before frames={frames}, or no arm ever differs from its control");
 
@@ -304,7 +422,7 @@ fn main() {
     // seed was written by a binary that never had one (`CLAUDE.md`, the
     // 3.5-hour megastudy that was three populations wearing 24 logs).
     println!(
-        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} track={track} soil={soil} arms={arms}"
+        "plant_severance: species={species} trees={trees} seeds={seeds} frames={frames} cut={cut} rows={rows} cut_frac={cut_frac} track={track} soil={soil} arms={arms}"
     );
 
     for arm in arms.split(',') {
@@ -347,6 +465,7 @@ fn main() {
                 );
             }
 
+            let mut above_cut: Vec<(u16, usize)> = Vec::new();
             let removed = match arm {
                 "control" => 0,
                 "sever" => sever(&mut w, ground_y, rows),
@@ -364,13 +483,29 @@ fn main() {
                     w.plant_load_failure = false;
                     sever(&mut w, ground_y, rows)
                 }
+                // **The mid-crown cut, roots left attached.** The arm
+                // `plants:124` and `structural:074` both need; see `crown`.
+                "crown" => {
+                    let (n, a) = crown(&mut w, ground_y, rows, cut_frac);
+                    above_cut = a;
+                    n
+                }
+                "crown_noload" => {
+                    w.plant_load_failure = false;
+                    let (n, a) = crown(&mut w, ground_y, rows, cut_frac);
+                    above_cut = a;
+                    n
+                }
+                #[allow(unreachable_patterns)]
+                "" => unreachable!(),
                 "deroot" => deroot(&mut w),
                 "deroot_noload" => {
                     w.plant_load_failure = false;
                     deroot(&mut w)
                 }
                 other => panic!(
-                    "unknown arm {other:?}; known: control, sever, sever_noload, deroot, deroot_noload"
+                    "unknown arm {other:?}; known: control, sever, sever_noload, crown, \
+                     crown_noload, deroot, deroot_noload"
                 ),
             };
             // The treatment has to have done something, or the arm is its
@@ -384,15 +519,26 @@ fn main() {
             let mut b_status: Vec<f32> = tracked(&before, &live, |r| r.status);
             println!(
                 "\narm={arm} seed={seed}: {} plants at the cut, median {cells_at_cut:.0} cells, \
-                 median water_status {:.3}; removed {removed} cells",
+                 median water_status {:.3}; removed {removed} cells{}",
                 live.len(),
-                median(&mut b_status)
+                median(&mut b_status),
+                if above_cut.is_empty() {
+                    String::new()
+                } else {
+                    let mut v: Vec<f32> =
+                        above_cut.iter().filter(|(id, _)| live.contains(id)).map(|&(_, n)| n as f32).collect();
+                    format!(", median {:.0} cells stood above the cut", median(&mut v))
+                }
             );
             println!(
-                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   near    far   gap  n_near/n_far"
+                "  frame  plants  cells  d_cells  unreached  shoot   root  contact    fill  cap   status  worst  demand  uptake  income   q_peak    q_now  deficit  flushed   near    far   gap  n_near/n_far"
             );
 
             let mut last = cells_at_cut;
+            // **A world counter, so it is reported as a delta per stop.**
+            // The cumulative total is dominated by the 12,000-frame warm-up
+            // and would hide the whole post-cut window inside it.
+            let mut last_flushed = w.buds_flushed;
             let stops = 6u64;
             // The fine stops first, then the coarse ones past where they
             // stopped -- one ascending list, so the run steps forward only.
@@ -450,11 +596,18 @@ fn main() {
                 let mut demand: Vec<f32> = tracked(&now, &live, |r| r.demand);
                 let mut uptake: Vec<f32> = tracked(&now, &live, |r| r.uptake);
                 let mut income: Vec<f32> = tracked(&now, &live, |r| r.income);
+                // **The deficit is taken inside the plant and then
+                // median'd**, never as a difference of two medians -- that is
+                // the same mistake `fill` records above, and the two medians
+                // would come from different plants.
+                let mut q_peak: Vec<f32> = tracked(&now, &live, |r| r.q_peak);
+                let mut q_now: Vec<f32> = tracked(&now, &live, |r| r.q_now);
+                let mut deficit: Vec<f32> = tracked(&now, &live, |r| r.q_peak - r.q_now);
                 let alive = cells.len();
                 let m = median(&mut cells);
                 let (near, far, n_near, n_far) = depletion_contrast(&w, width, height);
                 println!(
-                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
+                    "  {:>6}  {:>6}  {:>5.0}  {:>+7.0}  {:>9.0}  {:>5.0}  {:>5.0}  {:>7.0}  {:>6.3}  {:>4.0}  {:>6.3}  {:>5.3}  {:>6.2}  {:>6.2}  {:>6.3}  {:>7.2}  {:>7.2}  {:>7.2}  {:>7}  {:>5.3}  {:>5.3}  {:>+5.3}  {}/{}",
                     w.frame,
                     alive,
                     m,
@@ -470,6 +623,10 @@ fn main() {
                     median(&mut demand),
                     median(&mut uptake),
                     median(&mut income),
+                    median(&mut q_peak),
+                    median(&mut q_now),
+                    median(&mut deficit),
+                    w.buds_flushed - last_flushed,
                     near,
                     far,
                     far - near,
@@ -477,6 +634,7 @@ fn main() {
                     n_far,
                 );
                 last = m;
+                last_flushed = w.buds_flushed;
             }
         }
     }

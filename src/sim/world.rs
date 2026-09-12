@@ -3202,6 +3202,20 @@ pub struct World {
     /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
     /// fired -- consequential fall, not a lever of its own.
     pub shed_stranded: u32,
+    /// **Dormant buds broken by `plant::break_buds`** -- the did-it-fire
+    /// counter for the frontier's only source of new growing tips.
+    ///
+    /// Added *before* the mechanism that will need it (`plants:124`, letting
+    /// a damaged plant mobilise reserves), which is the order `CLAUDE.md`
+    /// asks for: an image shows what and where and cannot show whether the
+    /// thing you built is what produced it. A crown rebuilt by ordinary
+    /// growth and a crown rebuilt by reserve mobilisation look identical on
+    /// a contact sheet, and only this number separates them.
+    ///
+    /// Counted where the bud is actually converted, not where a flush is
+    /// scheduled -- `supportable` is a budget and spending none of it is the
+    /// outcome the defect produces.
+    pub buds_flushed: u32,
     /// **Root cells taken by fine-root turnover** — `plant.rs`'s
     /// `ROOT_TURNOVER_PER_TICK`, the did-it-fire counter for a mechanism
     /// that ships at zero.
@@ -4477,6 +4491,7 @@ impl World {
             shed_drought: 0,
             roots_shed: 0,
             shed_stranded: 0,
+            buds_flushed: 0,
             fields_settled: false,
             touched_chunks: ChunkSet::default(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,

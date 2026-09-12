@@ -840,7 +840,51 @@ the "a revert keeps the knowledge" convention, given an address.
 - **src/sim/plant.rs const INCOME_PER_NODE doc (predecessor paragraph)** - Denominating leaf income per leaf cell in raw field-light units (LEAF_INCOME_PER_TICK) was a re-tuning treadmill: 0.05→0.01 when leaf_cluster went to five cells (income quintupled, eight trees fused into a hedge), 0.01→0.004 when sky transmission became graded (mean tree 793→4,983, stand fused). Neither change touched biology yet both invalidated the constant. Currency is now per-node (L_node = MAX_LIGHT × leaf_cluster).
   *Re-test when:* Do not reintroduce constants denominated in raw summed field light; any light-model or cluster-size change invalidates them by construction.
 - **src/sim/plant.rs fn allocate_to_frontier (first-version comment) and fn break_buds known-defect doc** - Dividing the plant's stored carbon (stock) among tips — allocate_to_frontier's first version, and the 'obvious' recovery fix of adding stock to the supportable numerator — was tried: stock grows with mass, so every tip's share stays high forever; the stand fused into one solid canopy, 38,605 cells against 1,723. The quantity divided must be income (bounded by intercepted light).
-  *Re-test when:* Stock may only enter the equation once a monotone high-water memory (q_peak girth memory) can distinguish a plant that lost foliage from one that never had any; until then mobilising reserves refuses fusion-free tuning.
+  *Re-test when:* **CONDITION MET, and the baseline is now measured rather than described (2026-09-12).** The discriminator this clause waits for shipped: `OrganismCell::q_peak` is the monotone high-water girth memory, and `q_now` landed beside it unrequested — *"the same basipetal sum, before the high-water max"* — so the pair can tell a plant that lost foliage from one that never had any. `break_buds` reads neither. What was still missing was an instrument and a number, and both now exist.
+
+**The instrument** is `examples/plant_severance.rs`'s `crown` arm: a band removed at a fraction of each plant's own height with the roots left attached. `sever` cuts at the soil line and takes the root water path with the crown, so it confounds *"did it rebuild"* with *"did it dry out"*.
+
+**The defect, as a number.** Three seeds, `tree`, cut at 50% of height at frame 12,000, run to 16,000, against a paired `control` from the same warm-up. `world.buds_flushed` counts bud conversions, reported per 666-frame window after the cut:
+
+| seed | arm | flushes per window | cells at 16,000 vs at the cut | bole deficit p50 |
+|---|---|---|--:|--:|
+| 1 | control | 78, 80, 78, 78, 78, 83 | 109% | 835 |
+| 1 | **crown** | **60, 41, 59, 58, 73, 97** | 80% | 2,792 |
+| 2 | control | 72, 67, 61, 56, 61, 74 | 116% | 305 |
+| 2 | **crown** | **57, 22, 17, 33, 51, 54** | 108% | 741 |
+| 3 | control | 56, 59, 58, 55, 58, 58 | 120% | 54 |
+| 3 | **crown** | **19, 7, 18, 17, 19, 31** | 64% | 2,449 |
+
+**A cut plant flushes *fewer* buds than an uncut one, on every seed, in every window after the cut** — seed 3 falls to 7 against the control's 59. That is the known defect stated as a measurement for the first time: `supportable` is driven by intercepted light, so losing foliage lowers it, and the event that should most urgently drive rebuilding instead reduces the drive to rebuild. The plants do rebuild (64–108% of their pre-cut size by frame 16,000), but on ordinary growth, not on mobilised reserves.
+
+**The threshold floor, measured before choosing one**, because a healthy tree in steady shed carries a standing deficit and every autumn would otherwise read as damage. The deficit is read **once per organism at the bole** — the cell the anchor walk starts from — never per cell: `accumulate_support` walks a spanning tree, so `q_now == 0` across a thickened trunk's girth means *"not on this tick's path"*, and `plant.rs`'s die-back records what a per-cell rule keyed on it did (a stand from 3,437 cells to 704). Over the post-cut window across six seeds, control against crown:
+
+| arm | min | p50 | p90 | max |
+|---|--:|--:|--:|--:|
+| control | 6 | 95 | **851** | 1,283 |
+| crown | 46 | 2,307 | 2,984 | 3,106 |
+
+So the mobilisation threshold's floor is the control's p90, **851**, and the cut arm sits 2.7x above it at the median — the two separate cleanly. Note the control's own deficit swings 6 → 1,283, which is why this is a p90 and not a mean.
+
+**BUILT AND MEASURED, and the verdict is the owner's.** `PIXEL_PHYSICS_RESPROUT=<deficit per tip>` in `plant::break_buds` lets the bole deficit above `RESPROUT_DEFICIT_FLOOR` raise `supportable`, still capped by `max_active_tips`. **Off by default**, and the off arm is byte-identical to the pre-mechanism binary over three seeds and 16,000 frames, so nothing shipped changed.
+
+**The floor had to go above the control's *maximum*, not at its p90, and that was measured rather than reasoned.** At 851 — the p90 — the switch moved the **control** arm, on plants that were never cut: total flushes went 475 → 403 → 527 → 519 on seed 1 and 391 → 473 → 435 → 404 on seed 2 as the per-tip price varied. A p90 leaves a tenth of the cycle over the line and the control's own deficit reaches 1,283, so an undamaged tree in its ordinary autumn was buying frontier — exactly the failure the floor exists to prevent. At **1,500** (the control's measured maximum, with headroom) the control arm is an exact no-op on two of three seeds and moves by four flushes with an identical cell count on the third.
+
+**It fires, and the effect is much larger in the counter than on the screen.** Crown arm, three seeds, flushes after the cut and standing cells at frame 16,000 as a share of the paired control:
+
+| seed | off | on | cells vs control, off → on |
+|---|--:|--:|---|
+| 1 | 388 | 465 | 72% → 72% |
+| 2 | 234 | 237 | 91% → 91% |
+| 3 | **111** | **224** | 52% → **57%** |
+
+Seed 3 is the badly damaged one and the flush collapse there (19, 7, 18, 17, 19, 31 per window) becomes 45, 23, 33, 40, 40, 43. **No arm overshoots its control**, so the 1,723 → 38,605 fusion this entry exists to record does not recur. On `scene=fell` with a crown-deep cut the same switch takes new shoots after the cut from **65 to 108 (+66%)** while standing tissue moves 5,095 → 5,141 (**under 1%**).
+
+**The owner's verdict is in and it is no: "looks identical"** (blind A/B card `20260912T170408642Z-07fc94`, answered 2026-09-12T18:48, no pane chosen). The card asked the question straight — *"if they look the same to you, say so, that is the answer I need"* — so this is the result rather than a failure to get one. **The switch stays off**, and by this project's own ethos that settles it: an event with no visible consequence is not finished, whatever the counter says.
+
+**And the measurement says where the next attempt should look, which is not here.** The bud-break budget is not what limits a damaged plant's recovery. `max_active_tips` gates `Grow` itself — a tip at the cap is skipped outright (`plant.rs`, the `organism_active_tip_count(..) >= max_active_tips` guard) — so raising `supportable` converts more dormant buds into tips and those tips then cannot all build. The extra flushes are **churn**: +66% new shoots for **under 1%** more standing tissue, and a silhouette the owner cannot tell apart. The tell was in the sweep before the card came back and was read as a curiosity rather than as the diagnosis: **the per-tip price is inert** — 50 and 150 give byte-identical results on seed 1 — which can only happen because something downstream is binding.
+
+*Re-test when:* **Not by tuning this.** The mechanism is correct about *which* plants deserve extra frontier (the bole deficit separates cut from uncut cleanly, control p90 851 against a cut p50 of 2,307) and wrong about frontier being the scarce thing. A successor should ask what a flushed tip *does*, not how many are licensed: the candidates are `max_active_tips` itself, the per-step growth cost, and whatever else rate-limits the rebuild once tips exist. **Anything that only raises the supportable count is this entry again** — and the negative is now cheap to reproduce, since `PIXEL_PHYSICS_RESPROUT` is still in the tree and off. ~~Stock may only enter the equation once a monotone high-water memory (q_peak girth memory) can distinguish a plant that lost foliage from one that never had any; until then mobilising reserves refuses fusion-free tuning.~~ **The fusion bar the old clause protects was never approached** — no arm overshot its control — so the reason this failed is not the one the entry feared. ~~Stock may only enter the equation once a monotone high-water memory (q_peak girth memory) can distinguish a plant that lost foliage from one that never had any; until then mobilising reserves refuses fusion-free tuning.~~ **The fusion bar the old clause protects is unchanged and is the still-dead criterion**: any arm whose `above_ground_width` overshoots control is the 1,723 → 38,605 slab again.
 - **src/sim/plant.rs fn break_buds (and organism.rs Behavior::BudBreak doc)** - A bud-break gated on local 'am I idle' signals (carbon fill, crowding decay, conductance relaxing to basal) was built and reverted: every local resource signal saturates on every mature cell simultaneously the moment growth stops, so budding became proportional to volume and ran away. Replaced by a whole-plant gate on intercepted light (Palubicki's supportable count).
   *Re-test when:* Holds while resource signals equalize at growth stop (the transport clamp fills carbon to cap everywhere, crowding decays within two ticks, conductance relaxes without flux). Only a local signal that provably does not saturate plant-wide would justify retrying.
 - **src/sim/plant.rs fn break_buds doc, property 2** - A bare rate cap ('one bud per organism per tick') as the bound on frontier creation was considered and rejected: it converts exponential growth into linear growth, which still fills the world. It survives only as a rate limit on top of the supportable-count bound.
