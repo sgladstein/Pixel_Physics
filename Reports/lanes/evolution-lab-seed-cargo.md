@@ -68,12 +68,30 @@ switch *and* a build with the two food values put back —
 `scratchpad/runs/revert_assets.py` in the session that built this, or by hand:
 `leaf.ron` 40 → 480, `grassblade.ron` 40 → 0.
 
-## Numbers
+## Numbers, and the two that would surprise a later session
 
-See the PR body for the full tables. The headline shape, `played_bed`,
-`RAYON_NUM_THREADS=1`, seeds 1–3, 500,000 frames, both arms, is in
-[`evolution-lab-late-game-design-2026-09-12.md`](../evolution-lab-late-game-design-2026-09-12.md)
-§0's own columns so the two are directly comparable.
+Full tables in PR #342. `played_bed`, `RAYON_NUM_THREADS=1`, 500,000 frames,
+ants / plants / seed bank at the end, `main` (b9cd1f44) against this build:
+seed 1 **108 / 58 / 39** against **0 / 201 / 1,574**; seed 2 0 / 102 / 368
+against 0 / 230 / 1,090; seed 3 **0 / 2 / 0** against **0 / 114 / 402**.
+
+**`main` reaches 3,182 ants on seed 1 at 300,000 frames** — above the owner's
+own 500–1,000 report, on 13,897 starvation deaths — and leaves the bed at 58
+plants over 39 seeds. This build never leaves single figures on that seed. **It
+saves the bed and it shrinks the colony**; it does not keep a colony alive that
+`main` loses, and on seed 1 `main`'s colony outlives it.
+
+**`DeathCause::Killed` appears in every arm of this build and almost nowhere on
+`main`** — `labforage` at 120,000 frames reads KILLED 56 / 37 / 153 on seeds
+1–3 against 0 / 1 / 0. It is **not** nestmate predation by the food rule
+(`a_colony_does_not_eat_itself` is asserted on the predicate and is green), so
+the likely reading is more colonies meeting each other — but that is a reading
+and not a measurement, and **nobody has looked**. Do it before Brief 2 adds a
+second mortality channel on top, or the two will be inseparable.
+
+**Lineage depth does not move in one direction and a clean story here would
+have been the tell**: deepest generation 10 → 25 on seed 3, 10 → 8 on seed 1,
+7 → 3 on seed 2. Do not quote the seed-3 number alone.
 
 ## For Brief 2 and Brief 3
 
