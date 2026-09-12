@@ -2937,21 +2937,20 @@ impl Lab {
                 self.sync_magnify();
                 self.ui.say(format!("MAGNIFY INK {:.2}", self.renderer.magnify_ink));
             }
-            // **`magnify_level`/`magnify_grain` have no outdoor-game cycle to
-            // reuse** -- `Renderer` exposes both fields `pub` but no mutator,
-            // and `render.rs` is out of this lane's scope (another round-30
-            // lane owns it). A short preset ladder over the bare field, the
-            // same shape `CycleMagnifyInk` used before `cycle_magnify_ink`
-            // existed: nobody has seen either dial in the lab at all, so a
-            // coarse click-to-advance control is enough to find out whether
-            // it is worth a finer one.
+            // **`magnify_level`/`magnify_grain` had no cycle method on
+            // `Renderer` when this lane started** -- `render.rs` was another
+            // round-30 lane's file. That lane closed and #352 merged, so the
+            // blocker lifted mid-lane; `Renderer::cycle_magnify_level`/
+            // `cycle_magnify_grain` now exist beside the three fields that
+            // already had one, `cycle_magnify_ink`'s own shape, so all five
+            // magnify fields share one mechanism rather than three-plus-two.
             ui::Action::CycleMagnifyLevel => {
-                self.renderer.magnify_level = step_ladder(self.renderer.magnify_level, &MAGNIFY_LADDER_LEVEL);
+                self.renderer.cycle_magnify_level();
                 self.sync_magnify();
                 self.ui.say(format!("MAGNIFY LEVEL {:.2}", self.renderer.magnify_level));
             }
             ui::Action::CycleMagnifyGrain => {
-                self.renderer.magnify_grain = step_ladder(self.renderer.magnify_grain, &MAGNIFY_LADDER_GRAIN);
+                self.renderer.cycle_magnify_grain();
                 self.sync_magnify();
                 self.ui.say(format!("MAGNIFY GRAIN {:.2}", self.renderer.magnify_grain));
             }
@@ -3385,31 +3384,6 @@ fn scent_channel_label(channel: Channel) -> &'static str {
         Channel::A => "HOME SCENT (A)",
         Channel::Alarm => "ALARM (UNREACHABLE FROM SCENT)",
     }
-}
-
-/// `Action::CycleMagnifyLevel`'s own ladder -- `render::MAGNIFY_LEVEL`'s own
-/// doc: below 0.5 fattens a thin mass, at 0.5 a one-cell twig shrinks to a
-/// diamond, so the ladder stays under a half.
-const MAGNIFY_LADDER_LEVEL: [f32; 4] = [0.2, crate::render::MAGNIFY_LEVEL, 0.42, 0.49];
-/// `Action::CycleMagnifyGrain`'s own ladder -- `render::MAGNIFY_GRAIN` (0.08)
-/// is the shipped default.
-const MAGNIFY_LADDER_GRAIN: [f32; 4] = [0.0, crate::render::MAGNIFY_GRAIN, 0.16, 0.24];
-
-/// Step `current` to the next stop of `ladder`, wrapping -- the shared shape
-/// behind the three `CycleMagnify*` amplitude actions.
-///
-/// **Nearest stop, not exact match**, because a value can arrive between two
-/// stops (the field was never on this ladder before this action existed) --
-/// `f32::total_cmp` rather than `partial_cmp`, since every ladder here is a
-/// small fixed array with no `NaN` in it and a `PartialOrd::partial_cmp` that
-/// returned `None` would silently pick neither neighbour.
-fn step_ladder(current: f32, ladder: &[f32]) -> f32 {
-    let nearest = ladder
-        .iter()
-        .enumerate()
-        .min_by(|(_, a), (_, b)| (**a - current).abs().total_cmp(&(**b - current).abs()))
-        .map_or(0, |(i, _)| i);
-    ladder[(nearest + 1) % ladder.len()]
 }
 
 /// Squared distance from `(px, py)` to the segment `a`-`b` — `Lab::

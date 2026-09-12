@@ -80,13 +80,12 @@ value nobody has seen in the lab yet did not earn extending that machinery.
   step through the identical order.
 - `MAGNIFY NOTCH`, `MAGNIFY INK` — MENU rows only, reusing `Renderer::
   cycle_magnify_notch`/`cycle_magnify_ink` (outdoor's `Shift+[`/`Shift+]`).
-- `MAGNIFY LEVEL`, `MAGNIFY GRAIN` — MENU rows only. **No outdoor cycle to
-  reuse**: `Renderer` exposes both fields `pub` but no mutator, and
-  `render.rs` is out of this lane's scope (another round-30 lane owns it).
-  Stepped through a small preset ladder over the bare field instead
-  (`step_ladder`, `mod.rs`) — `cycle_magnify_ink`'s own shape before it got
-  a considered one, enough to learn whether either is worth a finer control.
-  Flagged to the coordinator rather than silently left unreachable.
+- `MAGNIFY LEVEL`, `MAGNIFY GRAIN` — MENU rows only, reusing `Renderer::
+  cycle_magnify_level`/`cycle_magnify_grain`. **Added to `render.rs` in this
+  lane**, `cycle_magnify_ink`'s own shape — neither existed when the style
+  lane still owned that file; the coordinator lifted the fence once #352
+  merged and closed it, and the addition was small and symmetric enough to
+  take rather than ship a three-plus-two split. All five share one mechanism.
 
 Default stays `MagnifyStyle::CellArt` (byte-identical to a build without the
 enum) — nothing changes unless the row or key is used.
