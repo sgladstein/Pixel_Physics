@@ -2331,7 +2331,16 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> S
     // not fallen fruit at all. Guarded the same way the roll below already
     // is safe on such a species: exclude the sentinel string rather than
     // trust that reaching this line means a real fruit was bitten.
-    if windfall_name != "seed" {
+    // **`in_flesh`, not the name test this line used to carry, and the two
+    // are identical for every case that reached here before round 29.** The
+    // old guard asked only "does this species author real fruit", which was
+    // sufficient while the only cell that got this far WAS that fruit. A bare
+    // seed of a fruiting species now reaches this line too, and it is not a
+    // fallen fruit -- counting it would put herb's and scrambler's seed bank
+    // into a counter whose whole job is to say how often a mouth met a fallen
+    // fruit. Caught by `a_bare_seed_survives_a_bite_and_reports_itself_as_
+    // bare`, not by review.
+    if in_flesh {
         world.windfall_bitten += 1;
     }
     let survival = world.species.get(species).seed_gut_survival.clamp(0.0, 1.0);
