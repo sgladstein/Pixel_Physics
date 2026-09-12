@@ -3040,15 +3040,17 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   depletion zone was when one census answered it in thirty seconds.
 
 - [evolution-lab-zoom-in-design-2026-09-12.md](evolution-lab-zoom-in-design-2026-09-12.md)
-  — **design + one instrument, verdict pending.** What zooming *in* should
-  look like, rendered six ways at 8x on one scene (`examples/zoomin.rs`,
-  card `20260912T042033946Z-e6bcfa`). Smoothing is the wrong answer: it
-  costs the most and removes the grain. At 8x a cell owns 64 pixels and
-  spends them saying one thing; the recommendation is to **draw** the
-  per-cell state the 1:1 render can only encode — a part-full water cell's
-  fill as a level line, ~1 ns/px, the crack strip's own shape — then a
-  material-aware sub-cell texture and a class-keyed chamfer as modes in
-  lane S's runtime filter selector. Two rejections filed in `dead-ends.md`.
+  — **design + one instrument, verdicts pending.** What zooming *in* should
+  look like — and, after the remit widened mid-lane with the owner's *"I am
+  open to different visual styles"*, what the game should look like with
+  magnification as the entry point. `examples/zoomin.rs` renders filters and
+  *styles* (cell-art, soft, illustrated with curved silhouettes and ink,
+  painted, lit, textured cell-art) at 8x and at play scale, each with its
+  ns/px. Build first, under any style: **draw** the per-cell state the 1:1
+  render can only encode — a part-full water cell's fill as a level line, ~1
+  ns/px. Author's style pick is *illustrated*: the only look that answers
+  "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
+  style question deserves its own round and what it does first. Two cards.
 
 ## Licensing and distribution
 

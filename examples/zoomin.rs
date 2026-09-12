@@ -17,6 +17,17 @@
 //! | `drawn` | `nearest`, plus per-cell state *drawn* at sub-cell resolution instead of encoded in brightness: a liquid cell's fill is a level line inside its block (the bottom `fill` of the block in the undimmed colour, the rest in the colour of the air above) |
 //! | `both` | `contour` + `drawn`, the combination the report recommends |
 //! | `texture` | `nearest`, plus a per-*pixel* brightness grain keyed on world position, the "texture that only appears past some zoom" idea |
+//! | `iso` | a *style* rather than a filter: each sub-pixel belongs to the class whose bilinear occupancy wins there, coloured from the nearest cell of that class — boundaries curve through the lattice, interiors keep their grain |
+//! | `outline` | `iso`, with an ink line where a mass meets air (the illustrated look) |
+//! | `lit` | `iso`, with edge shading from the occupancy field's slope (the lit look) |
+//!
+//! Arms combine with `+`: `iso+outline` is the illustrated look, `smooth+stamp`
+//! the painted one, `iso+lit+outline` the lit one. The remit widened mid-lane
+//! (owner: *"I am open to different visual styles. I don't know if I love the
+//! pixel aesthetic, even given the pixel simulation"*), which is why a
+//! magnifier harness carries styles: the simulation being cellular does not
+//! oblige the renderer to look cellular, and every look here is reachable
+//! from the per-cell data the renderer already holds.
 //!
 //! **Everything here is a pure function of the cell, its 3x3 neighbourhood,
 //! and the pixel's offset inside its block**, so every arm keeps the
@@ -127,6 +138,10 @@ struct Args {
     /// inside corner is rounded and a one-cell notch or hole is left alone;
     /// `cut` never fills, only cuts convex corners.
     notch: String,
+    /// `iso`'s occupancy threshold: a mass wins a sub-pixel where its
+    /// bilinear occupancy clears this. 0.5 is the unbiased contour and
+    /// shrinks a one-cell twig to a diamond; lower keeps thin things fat.
+    level: f32,
     /// Also write every arm's tile as its own file beside `out`
     /// (`<stem>_<arm>.png`), which is what a gallery card wants.
     each: bool,
@@ -148,6 +163,7 @@ impl Default for Args {
             daylight: None,
             notch: "fill".to_string(),
             each: false,
+            level: 0.35,
             out: "zoomin.png".to_string(),
         }
     }
@@ -177,7 +193,28 @@ impl Source<'_> {
 }
 
 /// One output tile: `cw*z` by `ch*z` RGBA pixels of the crop at `(cx, cy)`.
-fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain: f32, notch: &str) -> (Vec<u8>, usize) {
+///
+/// An arm is a `+`-joined set of features. The *filters* (`smooth`,
+/// `contour`, `drawn`, `stamp`, `texture`) each decide a sub-pixel's colour
+/// from the cell it lands in; the *style* features (`iso`, `outline`, `lit`)
+/// first decide which **class** each sub-pixel belongs to, from a bilinear
+/// field of class occupancy between cell centres, so a boundary between two
+/// classes is a curve through the lattice rather than the lattice itself.
+/// Inside a class region the colour is still the nearest contributing cell's
+/// own, so the grain survives and no colour is invented -- `Reports/subpixel-
+/// rendering-2026-08-29.md` §10a's "snap to a colour under it", done with a
+/// 2x2 bilinear rather than a 5x5 kernel. Named looks, as the card labels them:
+///
+/// | look | features |
+/// |---|---|
+/// | cell-art (today) | `nearest` |
+/// | soft | `smooth` |
+/// | illustrated | `iso+outline` |
+/// | painted | `smooth+stamp` |
+/// | lit | `iso+lit+outline` |
+/// | textured cell-art | `stamp+drawn` |
+#[allow(clippy::too_many_lines)]
+fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain: f32, notch: &str, level: f32) -> (Vec<u8>, usize) {
     let (cx, cy, cw, ch) = crop;
     let (tw, th) = (cw * z, ch * z);
     let mut out = vec![0u8; (tw * th * 4) as usize];
@@ -187,8 +224,70 @@ fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain
     let smooth = has("smooth");
     let texture = has("texture");
     let stamp = has("stamp");
+    let iso = has("iso") || has("lit") || has("outline");
+    let outline = has("outline");
+    let lit = has("lit");
     let sub_grain = (z / 4).max(1);
     let mut fired = 0usize;
+
+    // The class field, one entry per output pixel: which class wins here,
+    // the weight it won with, and which of the four contributing cells to
+    // take the colour from. Only built when a style feature asks for it.
+    let class_index = |c: Class| match c {
+        Class::Air => 0,
+        Class::Liquid => 1,
+        Class::Powder => 2,
+        Class::Solid => 3,
+        Class::Plant => 4,
+        Class::Creature => 5,
+    };
+    let mut field: Vec<(u8, f32, (i32, i32))> = Vec::new();
+    if iso {
+        field.resize((tw * th) as usize, (0, 0.0, (0, 0)));
+        for ty in 0..th {
+            for tx in 0..tw {
+                let fx = (tx as f32 + 0.5) / z as f32 - 0.5 + cx as f32;
+                let fy = (ty as f32 + 0.5) / z as f32 - 0.5 + cy as f32;
+                let (x0, y0) = (fx.floor() as i32, fy.floor() as i32);
+                let (u, v) = (fx - x0 as f32, fy - y0 as f32);
+                let cells = [
+                    ((x0, y0), (1.0 - u) * (1.0 - v)),
+                    ((x0 + 1, y0), u * (1.0 - v)),
+                    ((x0, y0 + 1), (1.0 - u) * v),
+                    ((x0 + 1, y0 + 1), u * v),
+                ];
+                let mut w = [0.0f32; 6];
+                let mut best_cell = [(0, 0); 6];
+                let mut best_w = [0.0f32; 6];
+                for (pos, wt) in cells {
+                    let k = class_index(src.class(pos.0, pos.1));
+                    w[k] += wt;
+                    if wt > best_w[k] {
+                        best_w[k] = wt;
+                        best_cell[k] = pos;
+                    }
+                }
+                // A mass wins where its occupancy clears `level`; air is
+                // what is left. Below 0.5 the bias keeps a one-cell twig a
+                // fat bead rather than a vanishing diamond -- "things
+                // disappearing" is the one thing the owner named.
+                let mut win = 0usize;
+                let mut win_w = 0.0f32;
+                for (k, &wk) in w.iter().enumerate().skip(1) {
+                    if wk >= level && wk > win_w {
+                        win = k;
+                        win_w = wk;
+                    }
+                }
+                if win == 0 {
+                    win_w = w[0];
+                }
+                field[(ty * tw + tx) as usize] = (win as u8, win_w, best_cell[win]);
+            }
+        }
+    }
+    let ow = (z / 4).max(1);
+
     for ty in 0..th {
         for tx in 0..tw {
             let (x, y) = (cx + tx / z, cy + ty / z);
@@ -209,8 +308,52 @@ fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain
                     c[k] = (top * (1.0 - v) + bot * v).round() as u8;
                 }
             }
-            if drawn && src.class(x, y) == Class::Liquid && src.class(x, y - 1) != Class::Liquid {
-                let cell = src.world.get(x, y);
+            // The cell whose material the stamp and the level line read: the
+            // pixel's own cell, or under `iso` the cell its class region was
+            // taken from, so a stamped sub-grain follows the curved boundary.
+            let (mx, my) = if iso { field[(ty * tw + tx) as usize].2 } else { (x, y) };
+            if iso {
+                let (win, win_w, from) = field[(ty * tw + tx) as usize];
+                c = src.colour(from.0, from.1);
+                if lit && win != 0 {
+                    // Edge shading from the field's own slope: the winning
+                    // class's occupancy falls toward its boundary, and the
+                    // direction it falls in is the surface normal. Lit from
+                    // the upper left, applied only in the band near the
+                    // edge so an interior stays flat (the quilting `dead-
+                    // ends.md` records for a normalised interior normal).
+                    let at = |px: i32, py: i32| -> f32 {
+                        let px = px.clamp(0, tw - 1);
+                        let py = py.clamp(0, th - 1);
+                        let (k, wk, _) = field[(py * tw + px) as usize];
+                        if k == win { wk } else { 0.0 }
+                    };
+                    let gx = at(tx + ow, ty) - at(tx - ow, ty);
+                    let gy = at(tx, ty + ow) - at(tx, ty - ow);
+                    if win_w < 0.85 {
+                        let s = (1.0 + 0.9 * (gx * 0.6 + gy * 0.8)).clamp(0.6, 1.35);
+                        for q in c.iter_mut().take(3) {
+                            *q = (*q as f32 * s).round().clamp(0.0, 255.0) as u8;
+                        }
+                    }
+                }
+                if outline && win != 0 {
+                    // Ink where a mass meets air within `ow` pixels -- one
+                    // line per silhouette, not per cell.
+                    let edge = [(ow, 0), (-ow, 0), (0, ow), (0, -ow)].iter().any(|(dx, dy)| {
+                        let px = (tx + dx).clamp(0, tw - 1);
+                        let py = (ty + dy).clamp(0, th - 1);
+                        field[(py * tw + px) as usize].0 == 0
+                    });
+                    if edge {
+                        for q in c.iter_mut().take(3) {
+                            *q = (*q as f32 * 0.45).round() as u8;
+                        }
+                    }
+                }
+            }
+            if drawn && src.class(mx, my) == Class::Liquid && src.class(mx, my - 1) != Class::Liquid {
+                let cell = src.world.get(mx, my);
                 let mat = src.world.materials.get(cell.material);
                 let fill = (pixel_physics::sim::update::liquid_fill(cell) as f32 / material::LIQUID_FULL as f32).clamp(0.0, 1.0);
                 if fill < 1.0 {
@@ -219,13 +362,13 @@ fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain
                     // how much water is here, instead of the brightness.
                     let d = mat.fill_dimming.clamp(0.0, 1.0);
                     let strength = (1.0 - d) + d * fill;
-                    let level = (fill * z as f32).round() as i32; // rows of liquid, from the bottom
-                    if sy >= z - level {
+                    let level_rows = (fill * z as f32).round() as i32; // rows of liquid, from the bottom
+                    if sy >= z - level_rows {
                         for k in c.iter_mut().take(3) {
                             *k = ((*k as f32 / strength.max(0.05)).round()).min(255.0) as u8;
                         }
                     } else {
-                        c = src.colour(x, y - 1);
+                        c = src.colour(mx, my - 1);
                     }
                     if sx == 0 && sy == 0 {
                         fired += 1;
@@ -233,8 +376,8 @@ fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain
                 }
             }
             if stamp {
-                let me = src.class(x, y);
-                let cell = src.world.get(x, y);
+                let me = src.class(mx, my);
+                let cell = src.world.get(mx, my);
                 match me {
                     // A mass at 8x is drawn as the material at 1x was: a
                     // field of sub-grains, each picking its own palette entry
@@ -258,13 +401,16 @@ fn render_arm(src: &Source, arm: &str, crop: (i32, i32, i32, i32), z: i32, grain
                             // A leaf is a lobe: any corner facing air on both
                             // sides is given to the air, so a lone leaf cell
                             // is a rounded blob and a run of them a scalloped
-                            // edge, never a row of squares.
-                            for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
-                                if src.class(x + dx, y) == Class::Air && src.class(x, y + dy) == Class::Air {
-                                    let ox = if dx < 0 { sx } else { z - 1 - sx };
-                                    let oy = if dy < 0 { sy } else { z - 1 - sy };
-                                    if ox + oy < z / 2 {
-                                        c = src.colour(x + dx, y);
+                            // edge, never a row of squares. Skipped under
+                            // `iso`, whose boundary is already curved.
+                            if !iso {
+                                for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                                    if src.class(x + dx, y) == Class::Air && src.class(x, y + dy) == Class::Air {
+                                        let ox = if dx < 0 { sx } else { z - 1 - sx };
+                                        let oy = if dy < 0 { sy } else { z - 1 - sy };
+                                        if ox + oy < z / 2 {
+                                            c = src.colour(x + dx, y);
+                                        }
                                     }
                                 }
                             }
@@ -351,6 +497,7 @@ fn main() {
             "daylight" => a.daylight = Some(v.parse().expect("daylight")),
             "notch" => a.notch = v.to_string(),
             "each" => a.each = v != "false" && v != "0",
+            "level" => a.level = v.parse().expect("level"),
             "arms" => a.arms = v.split(',').map(|s| s.to_string()).collect(),
             "look" => {
                 let n: Vec<i32> = v.split(',').map(|s| s.parse().expect("look")).collect();
@@ -366,8 +513,8 @@ fn main() {
     }
     assert!((1..=16).contains(&a.zoom), "zoom wants 1..=16");
     println!(
-        "zoomin: zoom={} frames={} settle={} look={:?} arms={:?} cols={} reps={} grain={} daylight={:?} notch={} out={}",
-        a.zoom, a.frames, a.settle, a.look, a.arms, a.cols, a.reps, a.grain, a.daylight, a.notch, a.out
+        "zoomin: zoom={} frames={} settle={} look={:?} arms={:?} cols={} reps={} grain={} daylight={:?} notch={} level={} out={}",
+        a.zoom, a.frames, a.settle, a.look, a.arms, a.cols, a.reps, a.grain, a.daylight, a.notch, a.level, a.out
     );
 
     let scene = common::PlantScene::default();
@@ -465,7 +612,7 @@ fn main() {
         let mut fired = 0;
         for _ in 0..a.reps.max(1) {
             let t = Instant::now();
-            let (out, n) = render_arm(&src, arm, crop, a.zoom, a.grain, &a.notch);
+            let (out, n) = render_arm(&src, arm, crop, a.zoom, a.grain, &a.notch, a.level);
             best = best.min(t.elapsed().as_secs_f64() * 1e3);
             tile = out;
             fired = n;

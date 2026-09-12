@@ -4,18 +4,51 @@
 instrument (`examples/zoomin.rs`); nothing in `src/` changes here. The owner's
 brief: "explore making zooming in look better, smoothing or upsample the
 resolution, or brainstorm better options." The card that puts the options in
-front of the owner is `20260912T042033946Z-e6bcfa` on board `render`.*
+front of the owner is `20260912T042033946Z-e6bcfa` on board `render`; the
+styles card that followed the widened remit is `20260912T044316700Z-4abaa9`.*
 
-**The short version.** Smoothing is the wrong answer here and the report says
-why with a picture rather than an argument. The right frame is that at 8x a
-cell owns 64 pixels and spends them saying one thing; the engine already
-carries per-cell state that the 1:1 render can only *encode* — water fill as a
-dimming, cracks as a whole-cell darken — and at magnification that state can
-be *drawn*. That is more information and more crisp, not less, and it costs
-about a nanosecond a pixel. Behind it, the one candidate that answers "big
-sharp squares" directly is a material-aware sub-cell texture, and it belongs
-as a mode in lane S's runtime filter selector, not as a replacement for
-anything.
+**The remit widened mid-lane, and it changes the answer.** The brief said
+*this is a pixel game and a proposal that blurs cell edges may fail the taste
+that produced this request*. The coordinator withdrew that with the owner's
+own words: *"I am open to different visual styles. I don't know if I love the
+pixel aesthetic, even given the pixel simulation."* And the zoom-out "crisp"
+was re-read from its source — *"instead of looking crisp, it looks like
+pixels of plants and other foreground things are disappearing"* — so it names
+**definition, the absence of things vanishing**, not blockiness. §0 carries
+what that does to the rest; §2 and §3 were written before it and are kept as
+the *filter* half of the answer, with the *style* half in §2b and the ranking
+redone in §3.
+
+**The short version.** Two questions, one entry point. As a *magnifier*, the
+best thing to build is nearly free: at 8x a cell owns 64 pixels and spends
+them saying one thing, while the engine already carries per-cell state the
+1:1 render can only encode — draw it (a part-full water cell's fill as a level
+line, ~1 ns/px). As a *style*, the simulation being cellular does not oblige
+the renderer to look cellular: the same per-cell data supports a soft look, an
+illustrated look with curved silhouettes and ink, a lit look and a textured
+cell-art look, all rendered here at 8x and at play scale, all keeping the
+render skip, at 30–48 ns/px. The card puts six of them in front of the owner;
+he decides by eye. **The style question deserves its own round** — a look is
+judged at play scale, in motion, with the gnome and the ants in it, and this
+lane's sheet is a still of one crop — and §6 says what that round does first.
+
+## 0. What the widened remit changes
+
+- **Smoothing is no longer rejected on taste.** It stays the most expensive
+  filter on the sheet and it still removes the per-cell grain; what it is not,
+  any more, is disqualified for being soft. Its `dead-ends.md` entry is
+  amended the same day: the cost half stands, the taste half is withdrawn,
+  and the card is the re-test.
+- **"Crisp" is a constraint on every style, not a vote for blocks.** Read
+  as *nothing disappears*, it cuts against the soft look at play scale — at
+  3x, bilinear thins a one-cell twig into haze, which is the zoom-out
+  complaint arriving from the other side — and it cuts *for* the illustrated
+  look, whose ink line makes every twig bolder than today. The sheet at 3x
+  (§2b) is where that is visible.
+- **The option space is styles, not filters**, and the way to get there
+  without touching a simulation rule is to decide each sub-pixel's *class*
+  from a field over the cells and its colour from the cells of that class.
+  Everything in §2b is built that way.
 
 ## 1. What zoom-in does today, and what is wrong with it
 
@@ -93,35 +126,94 @@ settled-world skip is untouched by all of them.
 - **E** is the clearest picture on the sheet, in the wrong direction: the
   grain is gone and the tree is fog.
 
+## 2b. The styles — what the per-cell data supports without a simulation change
+
+Same instrument, same scene, same crop at 8x and a full viewport at 3x (play
+scale); card `20260912T044316700Z-4abaa9` on board `render`. A style here is a rule for
+*which class a sub-pixel belongs to* — air, liquid, powder, solid, plant,
+creature — computed as a bilinear field of class occupancy between cell
+centres, with the colour taken from the nearest contributing cell of the
+winning class. So a boundary is a curve through the lattice, an interior keeps
+its grain, and no colour is invented (the `subpixel` report's §10a snap, done
+with a 2×2 bilinear instead of a 5×5 kernel and six times cheaper). A mass
+wins where its occupancy clears `level` (0.35 on the sheet; 0.5 is the
+unbiased contour and shrinks a one-cell twig to a diamond — the bias is what
+keeps thin things from disappearing).
+
+| look | features | what the player sees | ns/px (8x / 3x) | what it costs beyond the pixel |
+|---|---|---|---|---|
+| **cell-art** (today) | `nearest` | flat squares; at play scale, the game as it is | 6 / 6 | — |
+| **soft** | `smooth` | bilinear over the shipped colours. At 8x a blurred photograph of the 1x picture; at 3x the stand loses definition — thin twigs fade | 36 / 36 | the grain; and at play scale, thin things |
+| **illustrated** | `iso+outline` | curved silhouettes, flat interiors with their grain, an ink line where a mass meets air. At 8x a cartoon; at 3x a bold-outlined illustration in which every twig is *more* present than today | 33 / 35 | two passes (class field, then colour); the ink dilates thin things by a pixel, which is also why nothing disappears |
+| **painted** | `smooth+texture` | soft, with a fine grain laid back over it so a mass reads as material rather than fog | 48 / 45 | the same as soft plus a hash per pixel; still loses thin things |
+| **lit** | `iso+lit+outline` | the illustrated look with edge shading from the field's own slope: leaves become beads, the pool gets a bevel | 42 / 43 | reads as rounded volume — the "3d-ish" the owner rejected for plants twice in the subpixel rounds, offered again because the remit is now open, not because that verdict moved |
+| **textured cell-art** | `stamp+drawn` | the pixel look, kept, with each mass drawn at 8x the way it looked at 1x (sub-grain, bark, leaf lobes) and the water level drawn | 32 / 28 | the palette spread of every material was tuned at 1x |
+
+Two things the 3x sheet says that the 8x sheet cannot:
+
+- **Soft fails "crisp" at play scale.** The one-cell twigs that make a
+  stand read as a stand go to haze under bilinear, which is the *disappearing*
+  the owner complained of, produced by a different mechanism.
+- **Illustrated passes it with margin**, and is the one look on the sheet
+  that is plausibly a *different game* rather than the same game filtered:
+  bold outlines, flat fills, exact palette. It is also the cheapest of the
+  non-pixel looks.
+
+The two columns come from one quiet pass (`reps=3`, both zooms back to back); the labels burned into the sheets are from a loaded run where `nearest` read 10, which is the rank-not-figure caveat of §2 made visible.
+
+All six keep the dirty-rect skip: every one is a pure function of the cell,
+its 3×3 neighbourhood and the pixel offset, so nothing forces a redraw on a
+settled world. The style features read neighbours across chunk borders, the
+same halo caveat as the chamfer in §2. And at 48 ns/px the most expensive look
+is ~8 ms single-threaded for a full 512×320 redraw on this container, against
+~5 ms for the whole 1:1 draw of the same scene — so on the owner's machine,
+where `render_cost` records the full redraw at 12 ms for the shipped world, a
+style is a real fraction of the frame on every frame something moves, and the
+draw being parallel over rows is what makes it affordable.
+
 ## 3. Recommendation, ranked
 
-1. **Build B first: draw per-cell state at sub-cell resolution, starting
-   with the liquid level.** It is the crack strip's own mechanism
-   (`cell_colour` already takes `sub` for exactly this), it fires only on
-   part-full surface cells, it is byte-identical at 1x, and it turns a known
-   trap into a legible surface. Then the same shape for the other encoded
-   state: a burning cell's flame as a strip at the top of the block flickering
-   on the bucket `FLAME_FLICKER_PERIOD` already provides, rather than a whole
-   tinted square; and, with the field overlay on, the `aux` support distance
-   as a mark in the block rather than a tint over it. Each is a per-cell
-   rule with a counter the way `filmstrip` prints `crumbled to grit`. *Not*
-   a selector mode: there is nothing to select between.
-2. **Then C, as a magnify filter mode in lane S's selector**, default
-   `flat` (today) so nothing changes for anyone who does not press the key,
-   `textured` behind it, the sub-grain size a dial (`zoom/4` is what the
-   sheet used). Owner ruling: *for "does this look right", ship a runtime
-   selector rather than choosing.* Its cost is the one to quote: ~24 ns/px
-   over every redrawn pixel, which at 8x is every pixel of every frame with
-   anything moving on screen.
-3. **D as a third mode, `chamfered`, with the notch rule a dial**, because it
-   is cheap when off and the sheet cannot settle whether a setting exists
-   that fixes the twig without octagonising the leaf.
-4. **Not E, not F.** Filed in `dead-ends.md` with the condition each
-   rejection rests on.
+Two lists, because the widened remit made them two questions.
 
-The order is by *ratio of legibility gained to frame cost*, and B wins that
-by two orders of magnitude before taste enters. The thing the card asks the
-owner is whether C or D is a direction at all; B does not need the card.
+**As a magnifier — build now, whatever the style verdict:**
+
+1. **Draw per-cell state at sub-cell resolution, starting with the liquid
+   level.** It is the crack strip's own mechanism (`cell_colour` already
+   takes `sub` for exactly this), it fires only on part-full surface cells,
+   it is byte-identical at 1x, and it turns a known trap into a legible
+   surface. Then the same shape for a burning cell's flame (a strip at the
+   top of the block on the bucket `FLAME_FLICKER_PERIOD` already provides)
+   and, with the overlay on, the `aux` support distance as a mark rather
+   than a tint. It survives every style below unchanged, because it decides
+   what a block *says*, not how its edge is drawn.
+
+**As a style — the owner's call, from the card, and then its own round:**
+
+2. **Illustrated** (`iso+outline`) is the author's pick if one has to be
+   named: it is the only look on the sheet that answers "crisp" *better*
+   than today at play scale, it is the cheapest non-pixel look, it is exact
+   palette by construction, and it is the flat-and-cartoony direction the
+   owner asked for in the subpixel rounds without the rounded shading he
+   rejected there.
+3. **Textured cell-art** (`stamp+drawn`) if the verdict is that the pixel
+   look stays: it answers "big sharp squares" at magnification and changes
+   nothing at 1x.
+4. **Soft / painted** only if the owner wants them despite the play-scale
+   loss of thin things — and then with the `level`-style bias ported to the
+   colour field so twigs are dilated before they are blurred.
+5. **Lit** is on the card to be voted down deliberately rather than by
+   default; the record says it loses.
+
+Whichever wins ships as a **runtime selector** in lane S's shape — a
+`MagnifyFilter`/`Look` enum on `Renderer`, default `cell-art`, folded into
+`last_look` so a change forces a full redraw — with `level`, the outline
+width and the sub-grain size as dials. Owner ruling: *stop balancing, start
+exposing.*
+
+The chamfer (§2, D) drops out of the ranking: `iso` does what it did on
+silhouettes without octagonising single cells, at twice the cost and with no
+notch rule to tune. It stays in the instrument as the cheaper hard-edged
+fallback.
 
 ### What the build lane would do in `src/render.rs`
 
@@ -145,16 +237,26 @@ Said here rather than done, because lane S is in the file.
 - **D**: needs the 3×3 class neighbourhood; hoist it per cell the way
   `ChunkRun` hoists the chunk, and accept the chunk-border halo or widen
   `touched` by one cell ring at `zoom > 1`.
+- **Illustrated / any `iso` look**: two passes per redrawn row — the class
+  field (four cell reads per output pixel, a 2×2 that only changes at cell
+  boundaries, so hoistable per cell the way the chunk is) then the colour,
+  with the ink test reading the field `ow` pixels away. The field is a pure
+  function of the 2×2 cells, so the skip's identity argument holds per
+  chunk with the same one-cell halo as D. At `zoom == 1` the field is the
+  cell grid and the look collapses to today's picture plus the outline —
+  which is the one thing that would change the 1x game, and is exactly what
+  the owner is being asked to judge on the 3x sheet.
 
 ## 4. What was rejected, and why
 
 Filed in `dead-ends.md` under **rendering**, each with its condition:
 
-- **Bilinear smoothing at magnification** — costs the most of any arm and
-  removes the grain and the edge. Holds while palettes carry a deliberate
-  per-cell spread and while "crisp" is the owner's word for what a zoom
-  should keep. If the art direction ever wanted a painted look, this is the
-  cheapest way to get one and would be worth one more card.
+- **Bilinear smoothing at magnification** — filed first as a rejection on
+  cost and on taste; **the taste half was withdrawn the same day** when the
+  remit widened (§0), and the entry now records the cost and the play-scale
+  finding only: it is the most expensive filter, it removes the grain, and
+  at 3x it thins one-cell twigs into haze. The card is the re-test; if the
+  owner picks soft, the twig loss is the thing to fix before it ships.
 - **Per-pixel brightness noise as "texture past some zoom"** — no information
   and no shape; the material-keyed sub-grain (C) is the version of the idea
   that carries meaning. Holds unconditionally: noise cannot say anything a
@@ -178,7 +280,32 @@ Filed in `dead-ends.md` under **rendering**, each with its condition:
   by construction, because the skip cannot help.
 - **The scene is one scene.** Fire, creatures, gas and the gnome are not in
   the crop; the instrument takes `look=` and `span=` so they can be.
+- **The styles are one still each.** A look is judged at play scale in
+  motion, with the gnome, the ants, fire and weather in it, and none of
+  those are on the sheet. The 3x panes are the nearest this lane gets.
 - **B's "cell above" rule is the surface case only.** A part-full cell under
   a full one (mid-flow) keeps the whole-block undimmed colour in the
   instrument; whether that is right is a question for a moving GIF, which is
   the instrument this static sheet is not.
+
+## 6. The style question deserves its own round — and what it does first
+
+The honest answer to the coordinator's last line is yes. A visual style is a
+whole-game decision and this lane can only put a still of one crop in front
+of the owner; the record here says stills have twice got a rejection where a
+GIF got a diagnosis, and that creatures are seen only by moving. So, in
+order, the round that follows the verdict:
+
+1. **Take the owner's pick from the card and render it at play scale in
+   motion** — `filmstrip gif=1` over a scene with the gnome walking, water
+   pouring and a fire, through the same rule, before a line of `render.rs`
+   changes. If it does not hold up moving, no filter setting will save it.
+2. **Land it as a selector mode, default off**, beside lane S's minify
+   selector, with `level`, outline width and sub-grain size as dials on the
+   parameters page — the owner tunes the look in the game, which is the
+   game.
+3. **Only then re-derive what the look breaks**: the palette spreads were
+   set for cell-art at 1x; the gnome sprite and the life marks are drawn
+   *after* the world and would sit un-styled on a styled ground; the crack
+   strip and the fill level are per-block rules that need restating on a
+   curved boundary. Each is a known cost, none is a reason to wait.
