@@ -70,48 +70,42 @@ designs of record
 [`../evolution-lab-fission-design-2026-09-12.md`](../evolution-lab-fission-design-2026-09-12.md).
 Pointer and what binds.*
 
-**Landed on `main`:** eighteen PRs — the flitter floats,
-lands and flies; the seed is cargo and a live leaf is not a meal; the nest
-door drains; one odour per nest with drift on; the chronicle carries a
-census; the traffic deferral expires; ants die of age; the baseline shift is
-attributed; who kills the colony is answered. Round thirty ran beside it on
-the same trunk under a two-coordinator protocol.
+**Landed:** eighteen PRs — the flitter flies; the seed is cargo; the nest door
+drains; one odour per nest with drift on; ants die of age.
 
-**What binds.** **The played bed's baseline moved on 2026-09-12**: nest scent
-drift at 0.15 changes the second half of every large-colony session
-(identical to 100,000 frames, peak 3,182 → 760, extinct by 420,000) —
-**every played-bed population figure past ~100,000 frames taken before #347
-is stale**, the late-game design's §0 among them; the fresh census is in the
-record. No mechanism survived a control (not combat, strangers, sharing
-or the draws): the channel is occasional kin flips, and **the dial is inert
-on today's trunk** (peaks 12 / 12 / 212 on seeds 1–3). **A control shorter than the mechanism's onset proves
-nothing.** **`DeathCause::Killed` is not a killing counter** (§Z16;
-the numbers are in round thirty's block below): the colony is **overwritten,
-not fought**. Which in-place write does it, the `Killed` rename and the
-empty half are open; §Z15/§Z16 may be one repair. **The nest is not where the colony
-lives** on two beds in three (#350): budding, cohesion and the owner's "time
-away turns enemy" all wait on that, and the shipped drift value is his design
-call. **The flitter is caged by the canopy, not broken in flight** (§Z15): a
-design lane from `climbable`; uncaged, the owner read it as flying. **Owner verdicts at the close:** seed cargo and the
-lifespan arm chosen; **the long-ant pile is not visibly fixed** (the fix
-arm read worse) — round thirty's; a follow camera ruins a colony card. **A card paired against a census passes
-`rain=off`, and its `meta` is measured in the window it shows.** **Cloud lanes by poke**, auto-merge off, one merge order per file,
-`git merge-tree` before CI — the record's environment section has the rest.
+**What binds** (the round's detail is in its record; these are the rulings
+that outlive it). **The played bed's baseline moved on 2026-09-12**: nest
+scent drift at 0.15 changes the second half of every large-colony session, so
+**every played-bed population figure past ~100,000 frames taken before #347 is
+stale**, the late-game design's §0 among them. **The dial is inert on today's
+trunk** (peaks 12 / 12 / 212 on seeds 1–3), and **a control shorter than the
+mechanism's onset proves nothing.** **The nest is not where the colony lives**
+on two beds in three (#350): budding, cohesion and the owner's "time away
+turns enemy" all wait on that, and the shipped drift value is his call. **The
+flitter is caged by the canopy, not broken in flight** (§Z15) — a design lane
+from `climbable`. **Owner verdicts:** seed cargo and the lifespan arm chosen;
+**the long-ant pile is not visibly fixed** (the fix arm read worse), which is
+still open; a follow camera ruins a colony card. **A card paired against a
+census passes `rain=off`, and its `meta` is measured in the window it shows.**
 
-## Round thirty, 2026-09-12 — the screen quiets, and two mechanisms turn out not to matter
+## Round thirty, 2026-09-12 — the screen quiets, and both colony lanes were counting the wrong thing
 
 *Record: [`../evolution-lab-round-30-2026-09-12.md`](../evolution-lab-round-30-2026-09-12.md).*
-**What binds.** **Neither digging nor fighting shapes the played bed** — 2 of
-384 deaths are attributable to an attacker, two fifths are a plant standing in
-the ant's head (§Z16), and the dig gate's premise is false (#359). **Green CI
-is not mergeability.** Four harness rules it paid for — spawning a lane with its repository,
-checking its work left the container, checking a delivered lane closed, and
-testing a same-file gate rather than assuming it — are in [`../session-programs.md`](../session-programs.md).
+**What binds.** **Survival was in neither lane's sweep, and it is the variable
+that moves.** 2 of 384 deaths are attributable to an attacker and two fifths
+are a plant written into the ant's head (§Z16 — write site now diagnosed, the
+digestion exit, repair taken by r29); the dig gate does not shrink the mound
+but keeps the colony alive on **5 beds of 12 against 0** (#359). **Green CI is
+not mergeability**, and the harness rules this round paid for are in
+[`../session-programs.md`](../session-programs.md).
 
-**Landed:** #344–#346, #352, #355, #359 anthill, #362 menu,
-#363 the close. **Round thirty-one's first item is floating
-debris, §Z18** — named on two unrelated cards, no lane owns it, and it is in
-every picture of this bed.
+**Landed:** #344–#346, #352, #355, #359, #362, #363.
+
+**Round thirty-one, top two.** **Floating debris, §Z18** — named on two
+unrelated cards, no lane owns it, in every picture of this bed. **The MENU page
+reads as a list** — but the rows are **already clickable**; `Body::Choice` just
+draws pixel-identical to an information row with an invisible tap target. Give
+`Choice` a drawn treatment (fixes every page using it), then two columns.
 
 **Before filing a bug run `python3 scripts/bugindex.py --branches`, not
 `--check`.** `--check` reads one working tree, so it passes on a letter
