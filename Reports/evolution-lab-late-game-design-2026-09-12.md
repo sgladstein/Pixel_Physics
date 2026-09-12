@@ -179,7 +179,9 @@ mechanism between them:
 **2. Lifespan.** `DeathCause` has Starved, StarvedInFlight, Killed, Culled;
 `OrganismState::born_frame` is the age and nothing reads it for a creature.
 `plant::old_age_chance` is a Weibull hazard, median at `life_half_life`, 96%
-survival at a quarter of it, 0.4% at 2.5x — already graded, already tested.
+survival at a quarter of it, **1.31% at 2.5x** (this line said 0.4% until
+2026-09-12; lane M measured the hazard as shipped and the design's figure was
+wrong) — already graded, already tested.
 A `life_half_life` on `CreatureDef` (0 = immortal, every species'
 default, bit-identical) rolled per creature tick with the plant's salted
 stream. Authored for the ant at a measured value — the census's boom takes
