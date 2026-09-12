@@ -1,0 +1,33 @@
+{
+  "card_id": "20260912T045951545Z-6931d4",
+  "answered_at": "2026-09-12T05:05:49Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "This format of gif is way to slow. what you sent last time was much better",
+  "annotations": [
+    {
+      "item": 1,
+      "x": 0.9077540806361607,
+      "y": 0.6414097377232143,
+      "note": "This the most prominent thing that shows no movement in both images"
+    },
+    {
+      "item": 1,
+      "x": 0.6347438267299107,
+      "y": 0.5325230189732143,
+      "note": "also no movement"
+    },
+    {
+      "item": 1,
+      "x": 0.377288818359375,
+      "y": 0.6171526227678571,
+      "note": "no movement"
+    }
+  ],
+  "archived": false,
+  "blind_was": [
+    1,
+    0
+  ]
+}
