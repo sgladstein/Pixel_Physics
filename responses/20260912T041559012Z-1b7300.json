@@ -1,0 +1,15 @@
+{
+  "card_id": "20260912T041559012Z-1b7300",
+  "answered_at": "2026-09-12T04:50:52Z",
+  "choice": null,
+  "choice_label": null,
+  "rating": null,
+  "comment": "A is best, B look blurry; C is worst",
+  "annotations": [],
+  "archived": false,
+  "blind_was": [
+    1,
+    2,
+    0
+  ]
+}
