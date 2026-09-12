@@ -272,6 +272,22 @@ fn main() {
     if lab.stats.showing() {
         lab.stats.toggle();
     }
+    // **`drift=` -- the ant's `scent_drift`, for a card about who is
+    // family.** Appended 2026-09-12 with the nest-cohesion build: a card at
+    // the shipped 0.15 and one at 1.0 are the same picture unless the dial
+    // can be set, and the whole claim of that build is that the second is
+    // still one colony. Applied to the standing ants as well as to what they
+    // breed, `labstats`'s `drift=` does -- a colony placed by the scenario
+    // copied the species' value at founding and would never see a change made
+    // to the species alone.
+    if let Some(v) = arg::<f32>("drift") {
+        if let Some(id) = lab.world.species.id_of("ant") {
+            let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+            def.scent_drift = v;
+            lab.world.species.set_creature(id, def);
+        }
+        println!("  ant scent_drift = {v}");
+    }
     println!(
         "labgif: scenario={scenario_name} seed={seed} colony={} rain={} start={start} frames={frames} every={every} zoom={zoom} crop={} follow={} out={out} mark={mark} png_dir={} up={up}",
         lab.spec.colony_species,
@@ -476,6 +492,25 @@ fn main() {
         water_after as i64 - water_before as i64,
         rain_after - rain_before
     );
+    // **The cohesion counters, for a card the review skill asks to carry a
+    // discrete event count in its `meta`.** A GIF of a nest cannot say
+    // whether the exchange fired or whether the colony ate itself; only
+    // these can. `CLAUDE.md`: "did it fire at all" needs a counter.
+    {
+        let w = &lab.world;
+        let own: u64 = w
+            .group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, k)| *k).sum::<u64>())
+            .sum();
+        println!(
+            "  cohesion: nest blends {} (share blends {}) | group mints {} (labels minted off a drifted lineage, `World::colony_parents`) | killed by own colony {own} | nest odour {:?}",
+            w.creature_stats.nest_blends,
+            w.creature_stats.share_blends,
+            w.colony_parents.len(),
+            w.nest_sites.iter().map(|n| n.scent).collect::<Vec<_>>()
+        );
+    }
 
     // Real playback speed and a loop, `main.rs`'s own `CaptureSequence::
     // finish` convention exactly: 60 ticks/second is the shipped sim rate,

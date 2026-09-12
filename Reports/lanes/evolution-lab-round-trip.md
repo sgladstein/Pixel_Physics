@@ -51,11 +51,35 @@ becomes a water *sink*, and every counter that was looking read it as a clean
 win), and making it a `Powder` to legalise that turns `player::footing` from
 `Hard` to `Soft` so the gnome wades through a nest wall.
 
-Guards in `creature.rs`: `rain_does_not_stand_on_the_nest_patch` (two
+Guards in `creature.rs`: `a_film_on_the_door_drains_through_the_comb` (two
 soakings — a door that drains the first and not the second is the same bug on
 the second day) and `the_nest_patch_is_still_continuous_enough_to_walk_home_to`
 (the obvious way to break this fix is to widen the comb until there is nowhere
-to walk home to). Both watched going red with the drains removed.
+to walk home to). **Both watched going red**, 2026-09-12: at
+`PIXEL_PHYSICS_NEST_DRAINS=off` the first guard leaves 53 of 53 columns under
+48,992 of the 53,000 units poured, and the second fails its within-one-cell
+arm; at `=5` the second fails that arm too, which is the widened comb it is
+named for.
+
+**The film guard reads volume, and the reason is a measurement worth keeping.**
+Its first version counted *columns carrying a liquid* and went red in CI at
+"36 of 36 nest cells are still under water" — over a door that had just drunk
+**35,610 of the 36,000 units poured on it**. The second soaking is shed to 99%
+and no further, leaving 36 cells at fill **8-12 of 1,000**. The obvious
+reading, that the bed had run out of room, is wrong: the drain columns sit at
+620 of 1,000 and **no soil cell in the bed is full** (67,612 units against
+5,184,000, i.e. 1.3%). What stops is a film with almost no head left to push
+it, not the ground's appetite. So the bar on the second soaking is on the
+water and the count is reported beside it — an occupancy count cannot tell a
+drowned door from a drained one, which is `CLAUDE.md`'s liquid metric trap
+arriving in a new costume.
+
+**And that 1% is a remainder, not an artifact.** A cell holding 9 of 1,000 is
+still a `Liquid`, `World::is_empty` is false, and `is_partable` refuses
+anything that is not living tissue — so it still walls its column, and it is
+why `nestdoor` reads 0-19 liquid cells over the drained patch rather than 0.
+The drains stop the door being the wettest strip on the bed; they do not make
+it dry. §T2 carries this and stays open on it.
 
 ## Before and after, at 120,000 frames
 

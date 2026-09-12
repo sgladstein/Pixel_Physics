@@ -22,67 +22,67 @@ whole, then run `python3 scripts/readmetoc.py`.
 | [Running](#running) | 163 |
 | [Finding things](#finding-things) | 171 |
 | [Controls](#controls) | 207 |
-| [Materials](#materials) | 273 |
-| [Architecture](#architecture) | 347 |
-| [The coarse field grid](#the-coarse-field-grid) | 534 |
-| [M12/M13 status](#m12m13-status) | 796 |
-| [Canopy throughfall status — rain drips through a wood](#canopy-throughfall-status--rain-drips-through-a-wood) | 823 |
-| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 952 |
-| [M14 status](#m14-status) | 978 |
-| [M7 status](#m7-status) | 1126 |
-| [M15 status](#m15-status) | 1155 |
-| [M6 deferral](#m6-deferral) | 1286 |
-| [M5 status](#m5-status) | 1296 |
-| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1391 |
-| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1461 |
-| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1513 |
-| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1721 |
-| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1803 |
-| [M16 status](#m16-status) | 1871 |
-| [M17 status](#m17-status) | 2057 |
-| [M18 status](#m18-status) | 2284 |
-| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2691 |
-| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2736 |
-| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2804 |
-| [M8 status — started, not complete](#m8-status--started-not-complete) | 2824 |
-| [M9 status — the gnome](#m9-status--the-gnome) | 2937 |
-| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3377 |
-| [Weather status](#weather-status) | 3547 |
-| [The ant colony — status](#the-ant-colony--status) | 3564 |
-| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 4356 |
-| [Parameter-genome status — a species file is a starting point, and it ships inert](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) | 4459 |
-| [M19 status — started](#m19-status--started) | 4567 |
-| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 4639 |
-| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4876 |
-| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4953 |
-| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 5146 |
-| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 5273 |
-| [Roster status — every plant and every animal, as a list you click through](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) | 5321 |
-| [Plain-speech status — the genome read back as sentences](#plain-speech-status--the-genome-read-back-as-sentences) | 5552 |
-| [Watch status — where one individual has been, and how its numbers moved](#watch-status--where-one-individual-has-been-and-how-its-numbers-moved) | 5677 |
-| [Side-by-side status — two individuals, with what differs marked](#side-by-side-status--two-individuals-with-what-differs-marked) | 5742 |
-| [Lineage overlay status — which founding line is taking the bed](#lineage-overlay-status--which-founding-line-is-taking-the-bed) | 5804 |
-| [Creature groups status — who is who in the box, and who is family](#creature-groups-status--who-is-who-in-the-box-and-who-is-family) | 5884 |
-| [Life record status — what an individual has done, and what killed it](#life-record-status--what-an-individual-has-done-and-what-killed-it) | 6306 |
-| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 6414 |
-| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 6476 |
-| [Lab parameters status — a save that reaches the founders, not just the file](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) | 6564 |
-| [Performance](#performance) | 6614 |
-| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 6811 |
-| [Status](#status) | 6894 |
-| [License](#license) | 7005 |
-| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 7029 |
-| [Lab scenarios status — a saved starting box with a question written on it](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) | 7186 |
-| [Soil nutrient status — ground is worth something water is not](#soil-nutrient-status--ground-is-worth-something-water-is-not) | 7272 |
-| [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 7315 |
-| [Chronicle status — the box tells you who did what, at any population](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) | 7472 |
-| [Event reaction status — the box calls you back](#event-reaction-status--the-box-calls-you-back) | 7540 |
-| [Life marks status — a pause-time mark, and what the owner rejected](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) | 7580 |
-| [Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) | 7615 |
-| [Hopper status — the jump has a species, and it hops itself to death](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) | 7695 |
-| [Creature tools status — a hand in the box: scent, alarm, fling, lamp](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) | 7726 |
-| [Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) | 7783 |
-| [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 7841 |
+| [Materials](#materials) | 274 |
+| [Architecture](#architecture) | 348 |
+| [The coarse field grid](#the-coarse-field-grid) | 535 |
+| [M12/M13 status](#m12m13-status) | 797 |
+| [Canopy throughfall status — rain drips through a wood](#canopy-throughfall-status--rain-drips-through-a-wood) | 824 |
+| [Liquid physics: compressible volume, not discrete occupied cells](#liquid-physics-compressible-volume-not-discrete-occupied-cells) | 953 |
+| [M14 status](#m14-status) | 979 |
+| [M7 status](#m7-status) | 1127 |
+| [M15 status](#m15-status) | 1156 |
+| [M6 deferral](#m6-deferral) | 1287 |
+| [M5 status](#m5-status) | 1297 |
+| [Plant lines merged: the genome, and the ecology](#plant-lines-merged-the-genome-and-the-ecology) | 1392 |
+| [The generation loop: plants die, seeds expire, slots come back](#the-generation-loop-plants-die-seeds-expire-slots-come-back) | 1462 |
+| [The economy re-derived: standing tissue costs something](#the-economy-re-derived-standing-tissue-costs-something) | 1514 |
+| [Stems draw a line: the growth walk renders its heading](#stems-draw-a-line-the-growth-walk-renders-its-heading) | 1722 |
+| [Plants that stop: organs, determinacy, and a price on both](#plants-that-stop-organs-determinacy-and-a-price-on-both) | 1804 |
+| [M16 status](#m16-status) | 1872 |
+| [M17 status](#m17-status) | 2058 |
+| [M18 status](#m18-status) | 2285 |
+| [UI improvements — overnight run, section 9](#ui-improvements--overnight-run-section-9) | 2692 |
+| [Live tunables panel — overnight run, section 10](#live-tunables-panel--overnight-run-section-10) | 2737 |
+| [Rendering performance — overnight run, section 11](#rendering-performance--overnight-run-section-11) | 2805 |
+| [M8 status — started, not complete](#m8-status--started-not-complete) | 2825 |
+| [M9 status — the gnome](#m9-status--the-gnome) | 2938 |
+| [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3378 |
+| [Weather status](#weather-status) | 3548 |
+| [The ant colony — status](#the-ant-colony--status) | 3565 |
+| [Inheritance status — the growth program has no fallback under it](#inheritance-status--the-growth-program-has-no-fallback-under-it) | 4357 |
+| [Parameter-genome status — a species file is a starting point, and it ships inert](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) | 4460 |
+| [M19 status — started](#m19-status--started) | 4568 |
+| [Felling status — the verb works, and what it produces is pieces](#felling-status--the-verb-works-and-what-it-produces-is-pieces) | 4640 |
+| [Bending status — soft tissue lies over, and the wind is what pushes it](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) | 4877 |
+| [Breaking status — a badly grown tree comes down on its own](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) | 4954 |
+| [Lab lighting status — the fixtures are what light the crop](#lab-lighting-status--the-fixtures-are-what-light-the-crop) | 5147 |
+| [Cell page status — the specimen readout is in three groups, and folds](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) | 5274 |
+| [Roster status — every plant and every animal, as a list you click through](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) | 5322 |
+| [Plain-speech status — the genome read back as sentences](#plain-speech-status--the-genome-read-back-as-sentences) | 5553 |
+| [Watch status — where one individual has been, and how its numbers moved](#watch-status--where-one-individual-has-been-and-how-its-numbers-moved) | 5678 |
+| [Side-by-side status — two individuals, with what differs marked](#side-by-side-status--two-individuals-with-what-differs-marked) | 5743 |
+| [Lineage overlay status — which founding line is taking the bed](#lineage-overlay-status--which-founding-line-is-taking-the-bed) | 5805 |
+| [Creature groups status — who is who in the box, and who is family](#creature-groups-status--who-is-who-in-the-box-and-who-is-family) | 5885 |
+| [Life record status — what an individual has done, and what killed it](#life-record-status--what-an-individual-has-done-and-what-killed-it) | 6307 |
+| [Specimen shelf status — an individual's genetics outlive the box](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) | 6415 |
+| [Lab hand-verbs status — what a click puts in the box, and what the view shows](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) | 6477 |
+| [Lab parameters status — a save that reaches the founders, not just the file](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) | 6565 |
+| [Performance](#performance) | 6615 |
+| [World speed — five independent time axes](#world-speed--five-independent-time-axes) | 6812 |
+| [Status](#status) | 6895 |
+| [License](#license) | 7006 |
+| [Lab speed-dial status — what the dial is actually short of](#lab-speed-dial-status--what-the-dial-is-actually-short-of) | 7030 |
+| [Lab scenarios status — a saved starting box with a question written on it](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) | 7187 |
+| [Soil nutrient status — ground is worth something water is not](#soil-nutrient-status--ground-is-worth-something-water-is-not) | 7273 |
+| [Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) | 7316 |
+| [Chronicle status — the box tells you who did what, at any population](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) | 7473 |
+| [Event reaction status — the box calls you back](#event-reaction-status--the-box-calls-you-back) | 7541 |
+| [Life marks status — a pause-time mark, and what the owner rejected](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) | 7581 |
+| [Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) | 7616 |
+| [Hopper status — the jump has a species, and it hops itself to death](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) | 7696 |
+| [Creature tools status — a hand in the box: scent, alarm, fling, lamp](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) | 7727 |
+| [Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) | 7784 |
+| [Trail status — the ant reads its way home, and the food trail is the larder's problem](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) | 7842 |
 
 ### Milestones, in numeric order
 
@@ -91,19 +91,19 @@ order they were written.
 
 | M | Section | Line |
 |---|---|---|
-| 5 | [M5 status](#m5-status) | 1296 |
-| 6 | [M6 deferral](#m6-deferral) | 1286 |
-| 7 | [M7 status](#m7-status) | 1126 |
-| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2824 |
-| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2937 |
-| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3377 |
-| 12 | [M12/M13 status](#m12m13-status) | 796 |
-| 14 | [M14 status](#m14-status) | 978 |
-| 15 | [M15 status](#m15-status) | 1155 |
-| 16 | [M16 status](#m16-status) | 1871 |
-| 17 | [M17 status](#m17-status) | 2057 |
-| 18 | [M18 status](#m18-status) | 2284 |
-| 19 | [M19 status — started](#m19-status--started) | 4567 |
+| 5 | [M5 status](#m5-status) | 1297 |
+| 6 | [M6 deferral](#m6-deferral) | 1287 |
+| 7 | [M7 status](#m7-status) | 1127 |
+| 8 | [M8 status — started, not complete](#m8-status--started-not-complete) | 2825 |
+| 9 | [M9 status — the gnome](#m9-status--the-gnome) | 2938 |
+| 10 | [M10 status — the worldgen half](#m10-status--the-worldgen-half) | 3378 |
+| 12 | [M12/M13 status](#m12m13-status) | 797 |
+| 14 | [M14 status](#m14-status) | 979 |
+| 15 | [M15 status](#m15-status) | 1156 |
+| 16 | [M16 status](#m16-status) | 1872 |
+| 17 | [M17 status](#m17-status) | 2058 |
+| 18 | [M18 status](#m18-status) | 2285 |
+| 19 | [M19 status — started](#m19-status--started) | 4568 |
 
 ### By topic
 
@@ -116,7 +116,7 @@ them is named "plants". A section can appear twice; felling is honestly both
 plant work and structural work.
 
 **Known limitations for every topic are collected in one place**:
-[Status](#status), line 6894 — the *last* section in the
+[Status](#status), line 6895 — the *last* section in the
 file, not the first. Read it before concluding something is broken.
 
 **Which game a topic belongs to** is the third column. `engine` is shared
@@ -127,36 +127,36 @@ about what you may read.
 
 | Topic | Game | Sections, primary first |
 |---|---|---|
-| **plants, trees and moss** | engine | [M16 status](#m16-status) 1871, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7272, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1391, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4356, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4459, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1513, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1803, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1461, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1721, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4639, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4876, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4953, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6414, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5273, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5321, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5552, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6306 |
-| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2284, [The ant colony](#the-ant-colony--status) 3564, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6414, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5321, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5552, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6476, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6306, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7315, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7615, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7695, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 7783, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 7841 |
-| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2057, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4639, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4876, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4953, [M8 status](#m8-status--started-not-complete) 2824 |
-| **fire, heat and phase change** | engine | [M14 status](#m14-status) 978, [Materials](#materials) 273 |
-| **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1155, [M7 status](#m7-status) 1126 |
-| **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 952, [Canopy throughfall status](#canopy-throughfall-status--rain-drips-through-a-wood) 823, [The coarse field grid](#the-coarse-field-grid) 534 |
-| **powders and granular flow** | engine | [Materials](#materials) 273, [Architecture](#architecture) 347, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7315 |
-| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 534, [M12/M13 status](#m12m13-status) 796, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5146 |
-| **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3377, [Architecture](#architecture) 347 |
-| **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2937, [Controls](#controls) 207 |
-| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3547, [M19 status](#m19-status--started) 4567, [World speed](#world-speed--five-independent-time-axes) 6811 |
-| **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2691, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2736, [Rendering performance](#rendering-performance--overnight-run-section-11) 2804, [M6 deferral](#m6-deferral) 1286 |
-| **performance and the parallel sweep** | engine | [Performance](#performance) 6614, [M5 status](#m5-status) 1296, [Architecture](#architecture) 347, [Rendering performance](#rendering-performance--overnight-run-section-11) 2804, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7029 |
-| **materials and the data schema** | engine | [Materials](#materials) 273, [M12/M13 status](#m12m13-status) 796 |
-| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5146, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7315 |
-| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5273 |
-| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6414 |
-| **finding one individual among all of them** | lab | [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5321 |
-| **the genome in plain words** | lab | [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5552 |
-| **what an individual has done, and what killed it** | lab | [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6306 |
-| **watching one individual over time** | lab | [Watch status](#watch-status--where-one-individual-has-been-and-how-its-numbers-moved) 5677 |
-| **comparing two individuals** | lab | [Side-by-side status](#side-by-side-status--two-individuals-with-what-differs-marked) 5742 |
-| **which founding line is winning** | lab | [Lineage overlay status](#lineage-overlay-status--which-founding-line-is-taking-the-bed) 5804 |
-| **who is who in the box, colonies and the rivalry rule** | lab | [Creature groups status](#creature-groups-status--who-is-who-in-the-box-and-who-is-family) 5884 |
-| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6476 |
-| **the chronicle: names, line events, and a clock that reacts** | lab | [Chronicle status](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) 7472, [Event reaction status](#event-reaction-status--the-box-calls-you-back) 7540, [Life marks status](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) 7580 |
-| **a hand in the box: scent, alarm, fling, lamp** | lab | [Creature tools status](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) 7726 |
-| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7029 |
-| **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 6564 |
-| **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7186 |
+| **plants, trees and moss** | engine | [M16 status](#m16-status) 1872, [Soil nutrient status](#soil-nutrient-status--ground-is-worth-something-water-is-not) 7273, [Plant lines merged](#plant-lines-merged-the-genome-and-the-ecology) 1392, [Inheritance status](#inheritance-status--the-growth-program-has-no-fallback-under-it) 4357, [Parameter-genome status](#parameter-genome-status--a-species-file-is-a-starting-point-and-it-ships-inert) 4460, [The economy re-derived](#the-economy-re-derived-standing-tissue-costs-something) 1514, [Plants that stop](#plants-that-stop-organs-determinacy-and-a-price-on-both) 1804, [The generation loop](#the-generation-loop-plants-die-seeds-expire-slots-come-back) 1462, [Stems draw a line](#stems-draw-a-line-the-growth-walk-renders-its-heading) 1722, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4640, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4877, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4954, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6415, [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5274, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5322, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5553, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6307 |
+| **creatures — worms and the ant colony** | engine | [M18 status](#m18-status) 2285, [The ant colony](#the-ant-colony--status) 3565, [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6415, [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5322, [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5553, [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6477, [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6307, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7316, [Hunger status](#hunger-status--a-fed-ant-rests-a-hungry-one-walks-and-the-founding-cliff-is-walking-cost) 7616, [Hopper status](#hopper-status--the-jump-has-a-species-and-it-hops-itself-to-death) 7696, [Trophallaxis status](#trophallaxis-status--the-colonys-stomach-shipped-on-and-a-first-measurement-that-says-wait) 7784, [Trail status](#trail-status--the-ant-reads-its-way-home-and-the-food-trail-is-the-larders-problem) 7842 |
+| **structural collapse, felling and rigid bodies** | outdoor | [M17 status](#m17-status) 2058, [Felling status](#felling-status--the-verb-works-and-what-it-produces-is-pieces) 4640, [Bending status](#bending-status--soft-tissue-lies-over-and-the-wind-is-what-pushes-it) 4877, [Breaking status](#breaking-status--a-badly-grown-tree-comes-down-on-its-own) 4954, [M8 status](#m8-status--started-not-complete) 2825 |
+| **fire, heat and phase change** | engine | [M14 status](#m14-status) 979, [Materials](#materials) 274 |
+| **explosions, particles and debris** | outdoor | [M15 status](#m15-status) 1156, [M7 status](#m7-status) 1127 |
+| **liquids and gases** | engine | [Liquid physics](#liquid-physics-compressible-volume-not-discrete-occupied-cells) 953, [Canopy throughfall status](#canopy-throughfall-status--rain-drips-through-a-wood) 824, [The coarse field grid](#the-coarse-field-grid) 535 |
+| **powders and granular flow** | engine | [Materials](#materials) 274, [Architecture](#architecture) 348, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7316 |
+| **the coarse field grid — pressure, heat, light** | engine | [The coarse field grid](#the-coarse-field-grid) 535, [M12/M13 status](#m12m13-status) 797, [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5147 |
+| **worldgen and world structure** | outdoor | [M10 status](#m10-status--the-worldgen-half) 3378, [Architecture](#architecture) 348 |
+| **the gnome (player character)** | outdoor | [M9 status](#m9-status--the-gnome) 2938, [Controls](#controls) 207 |
+| **weather, sky and the clock** | engine | [Weather status](#weather-status) 3548, [M19 status](#m19-status--started) 4568, [World speed](#world-speed--five-independent-time-axes) 6812 |
+| **rendering, UI and tunables** | engine | [UI improvements](#ui-improvements--overnight-run-section-9) 2692, [Live tunables panel](#live-tunables-panel--overnight-run-section-10) 2737, [Rendering performance](#rendering-performance--overnight-run-section-11) 2805, [M6 deferral](#m6-deferral) 1287 |
+| **performance and the parallel sweep** | engine | [Performance](#performance) 6615, [M5 status](#m5-status) 1297, [Architecture](#architecture) 348, [Rendering performance](#rendering-performance--overnight-run-section-11) 2805, [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7030 |
+| **materials and the data schema** | engine | [Materials](#materials) 274, [M12/M13 status](#m12m13-status) 797 |
+| **the evolution lab — the box and its lights** | lab | [Lab lighting status](#lab-lighting-status--the-fixtures-are-what-light-the-crop) 5147, [Lab soil status](#lab-soil-status--a-hole-that-stays-a-hole-anywhere-in-the-bed-and-a-bed-that-stops-running-out) 7316 |
+| **reading one specimen off the screen** | lab | [Cell page status](#cell-page-status--the-specimen-readout-is-in-three-groups-and-folds) 5274 |
+| **keeping, cloning and mutating an individual** | lab | [Specimen shelf status](#specimen-shelf-status--an-individuals-genetics-outlive-the-box) 6415 |
+| **finding one individual among all of them** | lab | [Roster status](#roster-status--every-plant-and-every-animal-as-a-list-you-click-through) 5322 |
+| **the genome in plain words** | lab | [Plain-speech status](#plain-speech-status--the-genome-read-back-as-sentences) 5553 |
+| **what an individual has done, and what killed it** | lab | [Life record status](#life-record-status--what-an-individual-has-done-and-what-killed-it) 6307 |
+| **watching one individual over time** | lab | [Watch status](#watch-status--where-one-individual-has-been-and-how-its-numbers-moved) 5678 |
+| **comparing two individuals** | lab | [Side-by-side status](#side-by-side-status--two-individuals-with-what-differs-marked) 5743 |
+| **which founding line is winning** | lab | [Lineage overlay status](#lineage-overlay-status--which-founding-line-is-taking-the-bed) 5805 |
+| **who is who in the box, colonies and the rivalry rule** | lab | [Creature groups status](#creature-groups-status--who-is-who-in-the-box-and-who-is-family) 5885 |
+| **putting things in the box, and what the view shows** | lab | [Lab hand-verbs status](#lab-hand-verbs-status--what-a-click-puts-in-the-box-and-what-the-view-shows) 6477 |
+| **the chronicle: names, line events, and a clock that reacts** | lab | [Chronicle status](#chronicle-status--the-box-tells-you-who-did-what-at-any-population) 7473, [Event reaction status](#event-reaction-status--the-box-calls-you-back) 7541, [Life marks status](#life-marks-status--a-pause-time-mark-and-what-the-owner-rejected) 7581 |
+| **a hand in the box: scent, alarm, fling, lamp** | lab | [Creature tools status](#creature-tools-status--a-hand-in-the-box-scent-alarm-fling-lamp) 7727 |
+| **the speed dial, and what a tick costs** | lab | [Lab speed-dial status](#lab-speed-dial-status--what-the-dial-is-actually-short-of) 7030 |
+| **tuning and saving the box's own numbers** | lab | [Lab parameters status](#lab-parameters-status--a-save-that-reaches-the-founders-not-just-the-file) 6565 |
+| **a saved starting box, and replicating it in a rack** | lab | [Lab scenarios status](#lab-scenarios-status--a-saved-starting-box-with-a-question-written-on-it) 7187 |
 
 <!-- END GENERATED TOC -->
 
@@ -216,6 +216,7 @@ here is a cross-repo edit, not a cosmetic one.
 | `Q` / `E` | Cycle material |
 | `[` / `]` or scroll | Brush size |
 | `=` / `-` | Zoom in / out (§9: one continuous scale — zooming out past 1x uses a sample stride instead of shrinking pixels) |
+| `_` (shift `-`) | **What a pixel is when the view is zoomed out** — cycles `render::ZoomOutFilter`. Zooming out past 1x makes one screen pixel stand for a block of up to 4x4 world cells, and this decides which of them it draws: `COVERAGE` (the default) the most salient one, so a one-cell stem or a passing ant survives instead of falling between samples; `STRIDE` the old point sample, kept as the control; `AVERAGE` the area mean, which blurs. Named on the status line whenever the view is zoomed out, silent otherwise. Shift rather than a letter of its own because every letter is bound |
 | `Space` | Pause |
 | `.` | Step one frame while paused |
 | `F` | Force-ignite whatever's under the brush (debug tool) |
