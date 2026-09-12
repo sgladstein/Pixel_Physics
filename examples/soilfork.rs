@@ -557,7 +557,8 @@ fn loosen(world: &mut World, spec: &LabBox, packed: MaterialId, soil: MaterialId
 /// Draw the crop as the game draws it, and -- when `tint` is set -- a second
 /// copy with the two soils painted apart: packed soil (what the colony
 /// made) in orange, loose soil standing above the original surface (what
-/// rot made -- litter and bodies weathered back to ground) in yellow. A
+/// rot made -- litter and bodies weathered back to ground -- or what
+/// weathering made of the spoil) in magenta. A
 /// full replace, not a blend, per `CLAUDE.md`'s overlay rule: at play zoom
 /// worked ground is a slightly darker brown on brown and reads as nothing,
 /// which is how a 541-cell mound came back from the first render of this
@@ -590,7 +591,10 @@ fn render(world: &mut World, spec: &LabBox, crop: (i32, i32, i32, i32), zoom: u3
                     if m == packed {
                         img[d..d + 4].copy_from_slice(&[255, 128, 0, 255]);
                     } else if m == soil && wy < spec.ground_y {
-                        img[d..d + 4].copy_from_slice(&[235, 210, 60, 255]);
+                        // Magenta, not yellow: the lab's first colony wears
+                        // yellow, and a 3,000-ant heap in yellow beside
+                        // loose soil in yellow was one blob on the first card.
+                        img[d..d + 4].copy_from_slice(&[255, 0, 200, 255]);
                     }
                 }
             }

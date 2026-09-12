@@ -56,8 +56,9 @@ tamped spoil should do with time, and what a plant inside one should do.
    calibrated against transparent ground: the germination light gate, the
    ant's own light sense, and every cave in the outdoor game (§3d).
 3. **Do not build the moisture candidate, the richer-soil candidate, or the
-   gated crumb rule.** The mound is *wetter* than the bank beside it (0.29
-   against 0.22 of capacity), the crumb rule that the brief calls untried
+   gated crumb rule.** The mound is as wet as the bank beside it or wetter
+   (0.29 against 0.22 of capacity on seed 3, 0.65 against 0.62 on seed 1),
+   the crumb rule that the brief calls untried
    has been the shipped rule since 2026-09-01, and a richer decomposed soil
    needs a nutrient economy the engine does not have. Each is in §3 with its
    number.
@@ -133,7 +134,8 @@ Three independent readings, all against it:
 
 And the ground itself is not hostile. A pellet carries the water the dug cell
 held, and it comes up from depth: the mound reads **0.29** of water capacity
-against **0.22** in the top four rows of the bank beside it, on both seeds.
+against **0.22** in the top four rows of the bank beside it on seed 3, and
+**0.65 against 0.62** on seed 1, where flooded galleries wet the bank too.
 Roots enter packed soil at 0.95 against 0.8 for tilth, a 1.19x carbon cost.
 Seeds germinate on it when it is wet, and it is wetter than what they
 germinate on elsewhere. Round 28's garden-loop blocker — *452 of 454 pip
@@ -381,9 +383,9 @@ of one question is how the wet rule got argued at two thresholds.
 
 ### 3e. A nest of cavities plants can root into, with the moisture fixed (the owner's candidate 2) — no build
 
-The premise was moisture at the nest. Measured: the mound is **wetter** than
-the bank beside it (0.29 against 0.22 of capacity, both seeds, unchanged by
-weathering). Water is not blocking roots or seeds in spoil; it blocked pips
+The premise was moisture at the nest. Measured: the mound is as wet as the
+bank beside it or wetter (0.29 against 0.22 of capacity on seed 3, 0.65
+against 0.62 on seed 1, neither moved by weathering). Water is not blocking roots or seeds in spoil; it blocked pips
 on the `nest` patch, which holds none, and that is closed (#328). And the
 cavities are already rootable — a root pays 1.19x to enter a packed wall and
 does, which is why `packedsoil` keeps `water_capacity: 1000` (its own header:

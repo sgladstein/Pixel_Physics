@@ -2513,7 +2513,7 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   with the rate a dial whose zero is the owner's towers; then an `opaque`
   material flag with its three re-derivations budgeted; rejects the loose
   end state (a third of the nest in 6,000 frames) and the moisture premise
-  (the mound is wetter than the bank).
+  (the mound is as wet as the bank or wetter).
 - [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
   — **design of record for the late game, 2026-09-12, with the census it is
   measured against.** The owner's report — a colony that booms to hundreds,
