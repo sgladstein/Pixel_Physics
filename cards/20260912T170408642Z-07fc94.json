@@ -1,0 +1,54 @@
+{
+  "id": "20260912T170408642Z-07fc94",
+  "created": "2026-09-12T17:04:08Z",
+  "board": "plants",
+  "origin": {
+    "worktree": "/tmp/claude-0/-home-user-Pixel-Physics/9a6ea545-3813-5ded-be3e-5e69ba81237d/scratchpad/wt-c",
+    "branch": "claude/plants-124-crown",
+    "commit": "e970f076",
+    "agent": null,
+    "session_id": "9a6ea545-3813-5ded-be3e-5e69ba81237d",
+    "user": null,
+    "cwd": "/tmp/claude-0/-home-user-Pixel-Physics/9a6ea545-3813-5ded-be3e-5e69ba81237d/scratchpad/wt-c"
+  },
+  "title": "A felled tree: does mobilising reserves change what you see?",
+  "question": "After the crown comes off, does either of these look like a tree fighting back rather than just surviving? If they look the same to you, say so — that is the answer I need.",
+  "context_md": "Same tree, same seed, same cut: a band taken out of the crown at frame 12,000, roots untouched. Four stills at 1,400-frame intervals — the cut, then three stages of what grows back.\n\nToday a cut tree is **less** able to rebuild than an uncut one: the budget for new shoots comes from intercepted light, so losing foliage lowers it. Measured over three seeds, a cut plant starts fewer shoots than an uncut one in every window after the cut — 7 against 59 on the worst. One arm here adds the opposite pull: a plant that has lost crown may spend reserves it is already holding on new shoots, in proportion to how much it lost.\n\n**What I already know, so you do not have to look for it:** the shoot count moves a lot (65 → 108 after the cut, +66%) and the standing tissue barely moves (5,095 → 5,141, under 1%). So the question is whether 66% more shoots is worth anything *to look at*. I cannot tell, and that is the whole reason for this card.\n\nIgnore the falling leaves and the rain — both arms have them.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "reserves stay locked",
+      "files": [
+        "20260912T170408642Z-07fc94/000-b-off.png"
+      ],
+      "caption": "current behaviour",
+      "meta": {
+        "new shoots started after the cut": 65,
+        "living tissue at the end": 5095,
+        "crown removed by the cut": 1043
+      },
+      "focus": null
+    },
+    {
+      "label": "reserves can be spent",
+      "files": [
+        "20260912T170408642Z-07fc94/001-b-on.png"
+      ],
+      "caption": "proposed",
+      "meta": {
+        "new shoots started after the cut": 108,
+        "living tissue at the end": 5141,
+        "crown removed by the cut": 1043
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
