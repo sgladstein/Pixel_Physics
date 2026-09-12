@@ -80,8 +80,11 @@ fn census(world: &World, spec: &LabBox, frame: u64) {
                 // with the rule twice in one session -- once when the rule
                 // learned to drink soil, once when it learned to merge -- and
                 // each time the stale replay reported a blocker the engine no
-                // longer had. `update::dripstat` counts from inside the rule
-                // and is the cross-check on this.
+                // longer had. **Any change to that rule has to be made here in
+                // the same commit**, or this census quietly starts naming
+                // blockers that no longer exist -- which is how the second
+                // round's numbers were misread. A counter inside the rule
+                // itself is the cross-check when they disagree again.
                 let mut verdict = 3; // out of reach
                 for probe in (y + 1)..(y + 1 + REACH) {
                     let here = world.get(x, probe);
