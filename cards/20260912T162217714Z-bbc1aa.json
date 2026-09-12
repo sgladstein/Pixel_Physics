@@ -1,0 +1,67 @@
+{
+  "id": "20260912T162217714Z-bbc1aa",
+  "created": "2026-09-12T16:22:17Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-master-menu-r30",
+    "commit": "0ed1f983",
+    "agent": null,
+    "session_id": "d3c71fd3-e261-578c-9787-420df9e6064c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The lab gets a master menu -- bar before/after, and the menu itself",
+  "question": "Every page in the lab is now reachable with the mouse from one place. Does the bar read cleaner with MENU in place of the three page chips, and is the menu page itself legible and useful?",
+  "context_md": "Owner, 2026-09-12: \"There are lots of hidden menus that can only be accessed by knowing the F key. There should be a master menu accessible from the main UI that leads to all the other menus.\"\n\n**MENU** (bar chip + key F6) replaces PLANTS/ANTS/BOX on the bar, and PARAMS moves off the bar into a MENU row (P still opens it directly) -- both were pure navigation with no live state on their face, unlike the jar/SHELF chip, which stayed. The bar was measured full (508 of 508px, zero slack, both rows, at the tightest spacing) before this change; after, both rows fit with zero overflow at every spacing including the loosest.\n\nThe menu also carries five `Renderer::magnify_*` fields the style lane (#352) shipped with no route into the lab at all, and R1's `MIN {}HZ` display-floor reading, now retired from the corner per your verdict on that card.\n\nA bare-add alternative (MENU added with nothing removed) was built and measured too: it also passes the bar's own fit guard, but only at the single tightest spacing with zero slack left over -- worse than consolidation on the actual numbers, so that's the one not shown here. Full pixel table in the PR body.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "BEFORE -- bar at rest",
+      "files": [
+        "20260912T162217714Z-bbc1aa/000-before-bar-bar-at-rest.png"
+      ],
+      "caption": "PLANTS/ANTS/BOX/PARAMS each their own chip",
+      "meta": {
+        "row 0 spare at loosest spacing": "-14px (overflow)",
+        "row 1 spare at loosest spacing": "0px",
+        "bar buttons": 29
+      },
+      "focus": null
+    },
+    {
+      "label": "AFTER -- bar at rest",
+      "files": [
+        "20260912T162217714Z-bbc1aa/001-final-rest-bar-at-rest.png"
+      ],
+      "caption": "MENU replaces PLANTS/ANTS/BOX; PARAMS moved to a MENU row",
+      "meta": {
+        "row 0 spare at loosest spacing": "0px (fits)",
+        "row 1 spare at loosest spacing": "0px (fits)",
+        "bar buttons": 26
+      },
+      "focus": null
+    },
+    {
+      "label": "AFTER -- MENU open",
+      "files": [
+        "20260912T162217714Z-bbc1aa/002-after-menu5-page--menu.png"
+      ],
+      "caption": "Every page and every view toggle, with the key that also opens it",
+      "meta": {
+        "pages reachable from MENU": 12,
+        "view/toggle rows": 12,
+        "rejected bare-add: rows kept at same spacing": "same 26 buttons, but 0px spare at only the tightest spacing (vs comfortable at every spacing shown here)"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
