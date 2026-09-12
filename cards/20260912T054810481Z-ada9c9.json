@@ -1,0 +1,104 @@
+{
+  "id": "20260912T054810481Z-ada9c9",
+  "created": "2026-09-12T05:48:10Z",
+  "board": "creatures",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-soil-design-r30",
+    "commit": "01930ed9",
+    "agent": null,
+    "session_id": "e83543bf-4b50-5e98-866f-105fff40466c",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The anthill at 300,000 frames: stand for ever, weather, or go loose?",
+  "question": "Which world do you want? A: the tamped heap and its hanging pieces stand for ever (today). B/C: dumped spoil weathers back to loose soil, fast or slow. D: placed soil goes loose now. Each pane says what it costs the galleries underneath.",
+  "context_md": "**Your report reproduced on the played bed, seed 1, 300,000 frames: 3,182 ants, 6,541 cells of tunnel under the bank, 3,124 cells of tamped spoil heaped above the old surface, a third of it (1,074 cells in 165 pieces) hanging with nothing under it.** The yellow mass is the colony itself. In the tinted panes **orange is ground the ants made** (tamped spoil) and **magenta is loose soil above the old surface** -- what rot made, or what weathering made of the spoil. Same world, forked once, each rule run 6,000 frames.\n\n**What I measured and want you to know before choosing:**\n\n- *A ground new plants don't grow in* did not survive: this bed has 1 of 129 columns bare over the nest with 200 plants standing on and around the heap, and the heap is as wet as the bank beside it. The bare patch on other seeds is there before any mound is -- it is the colony eating seedlings, not the ground.\n- *Buried plants dying of no sun* cannot happen today: soil, packed or loose, is see-through to the lamp (only rock and plant tissue cast shade). A plant inside the heap lives on at the income it had. I measured it against a stone roof, which does starve the plant. Making soil cast shade is a separate, cheap change with three knock-ons, recommended second in the report.\n- The floating-single-pellet rule you asked for on 2026-08-31 is already in and working; what hangs now is spoil on spoil and spoil in branches.\n\n**What each option costs the nest** (roofed tunnel cells 6,000 frames after the fork, against A's 7,190): B weathering fast loses 30%, C weathering slow loses 6% (and is still coning over a session), D loose-now loses 39%. Loose spoil runs back into shallow galleries; that is the cost of every 'let it fall' option and the reason the pellet is tamped at all.\n\n**My recommendation is C as the default with the rate exposed as a dial whose zero is A** -- the towers stay available. Report: Reports/evolution-lab-soil-design-2026-09-12.md (PR #346).",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- today: tamped spoil stands where the ants put it",
+      "files": [
+        "20260912T054810481Z-ada9c9/000-s1c-300k-keep-tint.png"
+      ],
+      "caption": "orange = ant-made ground, magenta = loose soil above the old surface, yellow = the colony",
+      "meta": {
+        "tunnel cells under the bank": 7190,
+        "spoil cells above the old surface": 3144,
+        "spoil hanging with nothing beneath": 1073,
+        "hanging pieces": 169,
+        "plants standing": 180,
+        "plant cells enclosed by spoil": 1023
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- dumped spoil weathers to loose soil, fast (5% per check)",
+      "files": [
+        "20260912T054810481Z-ada9c9/001-s1c-300k-weather-tint.png"
+      ],
+      "caption": "6,000 frames after the fork; the crust runs into the shallow galleries",
+      "meta": {
+        "tunnel cells under the bank": 5056,
+        "spoil cells above the old surface": 1262,
+        "spoil hanging with nothing beneath": 404,
+        "hanging pieces": 117,
+        "plants standing": 212,
+        "plant cells enclosed by spoil": 1144
+      },
+      "focus": null
+    },
+    {
+      "label": "C -- dumped spoil weathers to loose soil, slow (0.5% per check)",
+      "files": [
+        "20260912T054810481Z-ada9c9/002-s1c-300k-weather_slow-tint.png"
+      ],
+      "caption": "6,000 frames after the fork; a heap at this rate cones within a session",
+      "meta": {
+        "tunnel cells under the bank": 6781,
+        "spoil cells above the old surface": 2859,
+        "spoil hanging with nothing beneath": 1201,
+        "hanging pieces": 183,
+        "plants standing": 199,
+        "plant cells enclosed by spoil": 1036
+      },
+      "focus": null
+    },
+    {
+      "label": "D -- placed soil does not stay: every spoil cell above the surface loose now",
+      "files": [
+        "20260912T054810481Z-ada9c9/003-s1c-300k-loose-tint.png"
+      ],
+      "caption": "6,000 frames after the fork; the hanging pieces are gone and so is a third of the nest",
+      "meta": {
+        "tunnel cells under the bank": 4353,
+        "spoil cells above the old surface": 196,
+        "spoil hanging with nothing beneath": 57,
+        "hanging pieces": 41,
+        "plants standing": 338,
+        "plant cells enclosed by spoil": 1154
+      },
+      "focus": null
+    },
+    {
+      "label": "A again, as the game draws it (no tint)",
+      "files": [
+        "20260912T054810481Z-ada9c9/004-s1c-300k-keep.png"
+      ],
+      "caption": "the same frame as A in the shipped colours -- the spoil is a slightly darker brown and reads as almost nothing, which is its own finding",
+      "meta": {
+        "tunnel cells under the bank": 7190,
+        "spoil cells above the old surface": 3144
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": false,
+    "comment": true,
+    "annotations": true
+  }
+}
