@@ -4157,7 +4157,18 @@ impl Ui {
             // rect`'s own doc names `fit_rows` as the thing that actually
             // keeps a page whole, and a page that skips it just draws past
             // the frame buffer's edge with nothing on screen to say so.
-            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
+            Panel::Menu => {
+                let rows = self.menu_rows(world);
+                if std::env::var("PIXEL_PHYSICS_MENU_TRACE").is_ok() {
+                    eprintln!(
+                        "menu trace: {} rows, content {}px, budget {}px",
+                        rows.len(),
+                        rows.iter().map(Row::height).sum::<i32>(),
+                        page_content_budget()
+                    );
+                }
+                fit_rows(rows, page_content_budget())
+            }
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
