@@ -1,4 +1,4 @@
-# The evolution lab, round thirty: the screen gets out of the way, and two lanes find that neither digging nor fighting was doing the work
+# The evolution lab, round thirty: the screen gets out of the way, and two lanes discover they were both counting the wrong thing
 
 *The coordinator's record of one round, 2026-09-12
 (`session_01NEcvi6sUugSuvmitBeeM4V`), written at the round's close and kept
@@ -326,7 +326,36 @@ The menu carries every page, the view toggles, the five magnify dials from
 **It watched the bar guard go red with a deliberately oversized label before
 citing its green.** Most lanes skip that.
 
-## Lane P — the anthill, and a null that retires its own brief (#359, open at close)
+## Lane P — the anthill, and the variable nobody was measuring (#359)
+
+**The gate does not shrink the mound. It keeps the colony alive on five beds
+of twelve where today's behaviour leaves none.**
+
+| colony alive at frame 300,000 | |
+|---|---|
+| crowding at the door (today) | **0 of 12** |
+| room at the door | **5 of 12** — 427, 222, 181, 178 and 46 ants |
+
+Five discordant pairs, all one way: **p ≈ 0.03** one-sided by McNemar, which is
+0.5⁵. Every control colony is extinct. The sweep this lane ran all round
+tracked cells dug, spoil, chambers and bare share, and **did not track whether
+anything was still alive** — so the finding came out of a re-read of the same
+twelve paired runs, not a new one.
+
+It also rescues the owner's blind verdict from the obvious objection, which was
+the coordinator's. He was shown one bed where the control had died and the room
+arm had not, so *"A is bad, B is good"* could have been that bed's luck. It is
+5 of 12 against 0 of 12.
+
+Two honesties the lane put in the record rather than smoothing away. **The bed
+pays for a living colony**: where the room arm survives, the seed bank and the
+standing stand come out lower and starvation deaths are far higher, because
+there are ants alive to starve — though pooled over twelve neither moves
+reliably, at 7 of 12 each way. And **the mechanism is unmeasured**: whether a
+colony that stops digging when it has room spends the saving on foraging is a
+plausible story and nothing here tested it.
+
+The rest of the lane's account stands, and is what it was briefed to find.
 
 Briefed to repair a dig gate whose input was believed pinned at its ceiling —
 a claim resting on a 2026-09-02 census and restated in `dead-ends.md`. The lane
@@ -385,6 +414,14 @@ lived and one that died. **That was the wrong call**: it weighted a real
 confound above the owner's eye, the standing ruling, and the fact that the goal
 the gate was failing had been retired by the lane's own finding.
 
+**The instruction was wrong and the question underneath it was the round's best
+one**, and both halves are worth keeping because they came apart. Asking what
+the owner might have been looking at is what produced the survival re-read; the
+answer made the hold unnecessary and the difference the coordinator called a
+confound turned out to be the signal. The lesson is not "trust the eye and stop
+asking" — it is that **the question a doubt points at should be measured, and
+the doubt should not gate the ship while you measure it**.
+
 Two more traps it paid and recorded: a single seed read first gave a tidy
 "+27% digs, +13% mound" that twelve seeds erased; and it had *already seen* the
 two roofed rules disagree (422 against 289 on one world) and filed it mentally
@@ -412,9 +449,23 @@ This round's anthill lane asked whether a better dig question shrinks the
 mound. It does not, and the question it was replacing was never being asked
 badly in the first place.
 
-**So: not digging, and not fighting.** What remains, and is now the most
-important open question on the trunk, is the undiagnosed half of those deaths —
-something vacates the vital cell and leaves nothing behind.
+**Both lanes measured the wrong variable, and the round only found that out on
+its last afternoon.** Round 29 counted killings and found nobody kills. This
+round counted mound size and found the gate does not shrink it. Both numbers
+are right. Neither is the variable that moves: **the colony's survival was in
+no sweep either lane ran**, and when the anthill lane finally read it off the
+runs it already had, the gate it had just declared a null keeps the colony
+alive on **5 beds of 12 where the control leaves 0**.
+
+So the corrected statement is narrower and more useful than "nothing matters".
+Fighting does not shape the bed, and the dig question does not shape the
+mound — **but the dig question decides whether there is a colony at all**, and
+nothing in either brief asked. The open question is no longer whether the gate
+earns its place; it is *by what route*, since whether a colony that stops
+digging spends the saving on foraging is untested.
+
+What also remains is the undiagnosed half of those deaths — something vacates
+the vital cell and leaves nothing behind.
 
 A correction worth recording because it arrived before the brief was written:
 round 29's first reading was *"the repair is in the plant growth path"*. That
@@ -489,11 +540,16 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
   Note the letter: lane P filed it as §Z16 and had to renumber, because
   round 29's §Z16 was already on `main` and `bugindex.py --check` cannot see
   a letter claimed on another branch. Run `--branches` before filing.
-- **#359** (the anthill null) — merging. Whether the room gate helps a colony
-  *survive* is still unmeasured: the sweep tracked digs, spoil, chambers and
-  bare share, and the one bed the owner judged differed by a colony that lived
-  and one that died. It no longer gates the default, which he has settled, but
-  it is the question his verdict actually points at.
+- **By what route the room gate keeps a colony alive.** The survival result
+  is measured (5 of 12 against 0 of 12, p ≈ 0.03); the mechanism is not.
+  Whether a colony that stops digging when it has room spends the saving on
+  foraging is a plausible story and nothing has tested it. **This is the
+  successor to the anthill brief** and it is a measurement, not a build.
+- **What a living colony costs the bed.** Where the room arm survives, the
+  seed bank and the standing stand come out lower and starvation deaths are
+  far higher — because there are ants alive to starve. Pooled over twelve
+  neither moves reliably (7 of 12 each way), so this is a question, not a
+  finding.
 - **Lane R2's PR** — the menu, plus deleting R1's corner line on the owner's
   instruction.
 - **Floating soil is the soil brief**, not weathering. The design report is on
