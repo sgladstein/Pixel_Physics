@@ -153,7 +153,7 @@ point.
 | Z10 | closed | 10682 | The flitter's float never switches off on a bed that has flowers in it |
 | Z11 | closed | 10779 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 10874 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 10945 | The long ants a player points at are not stuck |
+| Z13 | **OPEN** | 10945 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10942,20 +10942,21 @@ makes the other unnecessary.
 
 Full account: `Reports/lanes/evolution-lab-longant-pile.md` §6.
 
-### Z13. The long ants a player points at are not stuck — they have room to move and never ask (lab) — **OPEN**
+### Z13. Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuck (lab) — **OPEN**
 
 Owner, on review card `20260912T045951545Z-6931d4`, three markers placed on
 one arm of a blind A/B of the long-ant nest band, 2026-09-12: *"this the most
 prominent thing that shows no movement in both images"*, *"also no
 movement"*, *"no movement"*.
 
-**They are three full-length long ants that are not wedged against anything.**
-The markers arrive as normalised image coordinates; mapped back through that
-capture's own crop and zoom (`zoom=4`, `crop=160,120,224,56`, so one world
-cell is a 4x4 pixel block) they are world cells **(363,155)**, **(302,149)**
-and **(244,154)**. `labforage`'s `probe=` census over
-`played_bed_longant` seed 3, frames 28,000–31,000, 50 stops,
-`RAYON_NUM_THREADS=4`, on the tree that rendered the card:
+**All three are full-length long ants that are not wedged against anything —
+they are resting, and resting is what the game shipped.** The markers arrive
+as normalised image coordinates; mapped back through that capture's own crop
+and zoom (`zoom=4`, `crop=160,120,224,56`, so one world cell is a 4x4 pixel
+block) they are world cells **(363,155)**, **(302,149)** and **(244,154)**.
+`labforage`'s `probe=` census over `played_bed_longant` seed 3, frames
+28,000–31,000, 50 stops, `RAYON_NUM_THREADS=4`, on the tree that rendered the
+card:
 
 | | (363,155) | (302,149) | (244,154) |
 |---|---|---|---|
@@ -10968,8 +10969,8 @@ and **(244,154)**. `labforage`'s `probe=` census over
 | `traffic_deferred` at every stop | 0 | 0 | 0 |
 | energy | 616 → **878** | 344 → 265 | 561 → 414 |
 
-**Not one of them is boxed, so none of them is in any column of round 29's
-pile census** — `creature::HeadBlock::body_boxed` requires `open == 0` by
+**Not one of them is boxed, so none is in any column of round 29's pile
+census** — `creature::HeadBlock::body_boxed` requires `open == 0` by
 construction. And `moves_blocked` flat at +0 across 3,000 frames is the half
 that matters: these animals are not shoving at a jam and losing, they are
 **not asking to move at all**. The `bites`/`digs`/`deliveries` counters are
@@ -10978,50 +10979,62 @@ the positive control that the tick is running — the laden one eats and gains
 every sampled line, which rules out the three states that would each explain
 a standing animal without the brain being involved.
 
-Reading `creature_tick`, exactly one branch leaves both `moves` and
-`moves_blocked` untouched: the `BrainOutput::Move` roll failing at
-`src/sim/creature.rs:3357` (`if draw.unit_f32() < p_move`). Every path inside
-`step_chain` increments one counter or the other, including the flip and the
-tumble; the only other no-counter exit is starting a `Crossing`, and the
-probe's flag says that is not happening. So the brain's run probability is
-collapsing for these animals and they stand where they are.
+For a live multi-cell animal that is not crossing or in flight, exactly one
+branch leaves both counters untouched: the `BrainOutput::Move` roll failing
+at `src/sim/creature.rs:3357` (`if draw.unit_f32() < p_move`). Every path
+inside `step_chain` increments one counter or the other, the flip and the
+tumble included; its only other no-counter exit is *starting* a `Crossing`,
+which would leave the flag set. **So this is the rest state, reached as
+designed** — the owner's own ruling, 2026-09-09: *"rest is the absence of a
+reason to act, not the presence of a full stomach"*
+(`Reports/evolution-lab-direction-2026-09-09.md`). An ant with no reason to
+act does not act, and `p_move` collapsing is what that looks like from
+outside.
 
-**What was ruled out by measurement, and is the reason this is filed
-separately rather than as more of §Z12.**
+**The bug is that you cannot see the difference, and the control proves the
+duration is not the long ant's fault.** `idle_with_room` — at least one legal
+heading, head unmoved since the previous stop — and its streak, over 120,000
+frames, `sample=900`, so one stop is 900 frames:
 
-- **Not the traffic deferral.** `traffic_deferred` is 0 at every one of the
-  50 readings, and these bodies are full length. Round 29's expiry cannot
-  reach them.
-- **Not the short bodies.** 7, 7 and 6 cells against an authored 7.
-- **Not the other arm's problem too, despite the owner's wording.** The two
-  arms are different worlds by frame 28,000, so the same screen position is
-  not the same animal. At those three cells the unchanged arm holds bare
-  ground, bare ground and bare nest. Measured from the card's own images
-  rather than only from the sim: the fix arm's three cells are occupied in
-  **151/151** frames, the unchanged arm's in 6/151, 0/151 and 0/151.
-- **Not a rate anybody should quote.** The obvious generalisation —
-  `idle_with_room`, an animal with at least one legal heading whose head did
-  not move since the previous stop — reads **74–76%** of all readings for the
-  long ant and **75%** for the shipped two-cell ant on `played_bed` (seed 3,
-  30,400 frames, 300-frame stops). An ant that is not walking this instant is
-  an ordinary ant. The quantity that separates the complaint from ordinary
-  resting is **duration**, which is why `labforage` reports
-  `idle_streak_p90_long` / `idle_streak_max_long` (consecutive stops one
-  body of three cells or more stays idle-with-room) and not the rate.
-  `CLAUDE.md`'s *ask what your number counts when nothing is wrong*: the
-  control was run before the number was believed, and it killed it.
+| longest idle-with-room streak, stops | s1 | s2 | s3 | s4 | s5 | s6 |
+|---|---|---|---|---|---|---|
+| long ant, unchanged | 45 | 44 | 68 | 64 | 63 | 65 |
+| long ant, with the expiry | 62 | 54 | 54 | 61 | 38 | — |
+| **shipped two-cell ant** | **56** | **68** | **62** | — | — | — |
 
-**Not fixed here, and not this lane's to fix.** `p_move` comes out of the
-brain, and what feeds it is `brain::BrainInput::PheroAAlong` and the rest of
-the input vector — the homing mechanism, not the walk. Round 29 owned the
-walk and the deferral.
+p90 over the same streaks: long ant **11–17** stops, shipped two-cell ant
+**13–20**. **The shipped ant rests exactly as long as the long ant does** —
+50,000-plus frames in one spot on every seed — and nobody has ever reported
+it, because a two-cell body resting is two pixels not moving and a seven-cell
+body resting is a conspicuous shape holding one spot. Nothing about the long
+ant's *behaviour* is anomalous here. What changed is that the body got big
+enough to see.
 
-*Where to start:* print `outputs[BrainOutput::Move]` beside the probe's line
-for a named animal, which needs a read inside `creature_tick` rather than
-from `labforage`, and check whether `p_move` is low because the gradient
-along the heading is flat (an animal that has arrived and has nothing to
-follow) or because the input is saturated. The laden one at (363,155) with
-`since_nest` **4,386** is the sharper case: it is carrying, it is 4,386 ticks
-from the nest, and it has three ways to walk.
+`CLAUDE.md`'s *ask what your number counts when nothing is wrong* got two
+turns on this finding and cut it down both times: the idle **rate** reads
+74–76% for the long ant and **75% for the shipped ant**, and now the idle
+**duration** turns out to match too. Both were run before the number was
+believed, and what survives is not a behaviour claim at all.
+
+**So this is a look problem, not a walk bug**, and it is filed rather than
+fixed because the fix is a question for the owner rather than a mechanic
+anyone should pick: *what should a resting ant do so that it reads as resting
+rather than as stuck?* The cheap candidates, none of which move the animal or
+touch the economy — turning its head, antennating, shuffling one cell every
+so often and coming back. Each is an idle animation with a different cost to
+the dirty-rect render skip, which is the thing to price before building any of
+them (`CLAUDE.md`: an animated grain looked free in every moving scene and
+cost ~10 ms/frame on a settled one). **Put it to the owner as a card first.**
+
+*One loose end worth a measurement rather than a guess:* the same ruling says
+the move bias *"comes down and never off"*, and a body that holds one cell
+for 61,200 frames is evidence that in practice it is reaching zero, or near
+enough that the residual wander never fires. That applies to **both** species
+equally — the control above says so — so it is pre-existing and
+species-independent, not something round 29 introduced. Print
+`outputs[BrainOutput::Move]` beside the probe's line for a named animal, which
+needs a read inside `creature_tick`, and check whether the residual survives
+at all. The laden ant at (363,155) with `since_nest` **4,386** is the sharper
+case: carrying, 4,386 ticks from the nest, three ways to walk, and not going.
 
 Full account: `Reports/lanes/evolution-lab-longant-pile.md`.

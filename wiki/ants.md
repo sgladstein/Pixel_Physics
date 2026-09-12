@@ -9,9 +9,10 @@ round" below. The census that found it also found two things nobody had
 looked for. **Most of what piles up in a long-run colony is not long
 animals at all** but ones whose bodies have been reduced to a cell or two,
 and for those turning round is not a move. And **an ant that has somewhere
-to go does not always go there**: the most conspicuous standing animals on
-a crowded bed are full-length ones with room to move that simply never ask
-for it, which is neither of the above and is not fixed here. Also
+that stands still is usually just resting**: the most conspicuous standing
+animals on a crowded bed have room to move and no reason to use it, the
+small shipped ants rest for exactly as long, and the real gap is that
+resting and stuck look identical. Also
 2026-09-12, when **a nest became a place that holds a
 smell** -- ants blend with the mound they stand on, scent drift ships on at
 last, and two mounds nobody walks between become two colonies within a
@@ -353,15 +354,19 @@ is not a move at all: there is nothing to turn. They are held in place by
 the bodies around them and nothing they can do changes that. Why a long ant
 ends up one cell long is not yet known.
 
-**And the ant you notice standing still may not be stuck at all.** Watch a
+**And the ant you notice standing still is usually just resting.** Watch a
 crowded bed for a while and the animals that draw the eye are big
 full-length ones that hold one spot for a minute of play or more. Follow one
-and it is not wedged: there is open ground beside it, it never once tries a
-step and fails, and it is not waiting on anybody. It eats, it holds its
-load, and it simply does not set off. That is a third thing, separate from
-both the jam and the cut-down bodies, and nothing about turning round
-touches it -- an ant with somewhere to go that never goes there is not
-short of room.
+and it is not wedged at all: there is open ground beside it, it never once
+tries a step and fails, and it is not waiting on anybody. An ant rests when
+it has no reason to act, and that is how it has always worked -- the small
+ants that come with the game rest for just as long, on every bed, and nobody
+notices, because two motionless pixels look like scenery and a motionless
+seven-segment animal looks like something that has got itself stuck. The ant
+is fine. What is missing is any way to tell resting from stuck by looking,
+which is a question about what a resting ant should be *doing* -- turning its
+head, feeling about with its feelers, shifting a step and coming back -- and
+that has not been decided.
 
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than

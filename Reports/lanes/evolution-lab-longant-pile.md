@@ -18,7 +18,7 @@ else has; all were retaken and the pre-merge table is not reproduced.
 |---|---|---|
 | a laden long body waits for a nestmate that will never move | the deferral never expired | **fixed here**, §3 |
 | most of what is wedged is **one-cell ants, bred that way** | a flip is a no-op for them | **§Z12**, OPEN |
-| the long ants a player *points at* have room to move and never ask | the brain's run probability collapses | **§Z13**, OPEN |
+| the long ants a player *points at* are **resting**, and resting looks identical to stuck | a look problem, not a walk bug | **§Z13**, OPEN |
 
 The third was found by answering the owner's own markers, and it is the one
 that matters for reading his verdicts: **what he pointed at was never what
@@ -72,32 +72,46 @@ Card `20260912T045951545Z-6931d4`, three markers on the **fix** arm: *"this
 the most prominent thing that shows no movement in both images"*, *"also no
 movement"*, *"no movement"*.
 
-The card JSON records no capture parameters. They came out of the stored GIF
-itself — uniform 4x4 pixel blocks → `zoom=4`, a 1,660 ms delay → `every=100`
-— and the crop offset from matching a full-frame render against frame 0,
-sharp to one cell. **Do this before answering an annotated card; it also
-settles which arm is which without trusting `blind_was`.**
-
-His markers are world cells **(363,155)**, **(302,149)**, **(244,154)**, and
+The card JSON records no capture parameters: they came out of the stored GIF
+(uniform 4x4 blocks → `zoom=4`, a 1,660 ms delay → `every=100`) and the crop
+offset from matching a full-frame render against frame 0. **Do this before
+answering an annotated card — it also settles which arm is which without
+trusting `blind_was`.** His markers are world cells **(363,155)**, **(302,149)**, **(244,154)**, and
 all three hold **full-length long ants** — 7, 7 and 6 cells against an
-authored 7 — with **3, 1 and 1** of eight headings open, `moves` +0/+0/+1 and
-**`moves_blocked` +0 at all three** across 3,000 frames. `traffic_deferred` 0
-at every reading; `crossing`/`flight`/`senescent` clear on every line. None
-is boxed, so **none appears in any column of §2's census, in either arm.** In
-the unchanged arm those cells are bare ground, bare ground and bare nest —
-the arms are different worlds by frame 28,000, so the same screen position is
-not the same animal. Confirmed from the card's own images: occupied 151/151
-frames in the fix arm, 6/151, 0/151, 0/151 in the other.
+authored 7 — with **3, 1 and 1** of eight headings open, `moves` +0/+0/+1,
+**`moves_blocked` +0 at all three** across 3,000 frames, `traffic_deferred` 0
+at every reading, and `crossing`/`flight`/`senescent` clear on every line.
+None is boxed, so **none appears in any column of §2's census, in either
+arm.** In the unchanged arm those cells are bare ground, bare ground and bare
+nest — the arms are different worlds by frame 28,000, so the same screen
+position is not the same animal (occupied 151/151 frames in one arm against
+6/151, 0/151, 0/151 in the other, read off the card's own images).
 
-**The generalisation, and the control that killed it.** `idle_with_room` — a
-legal heading available, head unmoved since the previous stop — reads
-**74–76%** for the long ant and **75% for the shipped two-cell ant**. An ant
-not walking this instant is an ordinary ant, so the rate says nothing. What
-separates the complaint is **duration**: `idle_streak_*_long`, with
-`idle_streak_*_any` beside it because the 3+-cell gate makes the two-cell
-control vacuous and an always-zero control is not one. Longest a long body
-stood still with room to move, seed 3: **61,200 frames unchanged, 48,600 with
-the expiry.**
+**This is the rest state, and the control says the duration is not the long
+ant's either.** `p_move` collapsing is the owner's own ruling working as
+shipped — *"rest is the absence of a reason to act"*, 2026-09-09. Two turns
+of *ask what your number counts when nothing is wrong* cut the finding down
+both times. The idle **rate** (a legal heading, head unmoved since the last
+stop) reads **74–76%** for the long ant and **75% for the shipped two-cell
+ant**. Then the idle **duration**, longest streak in stops of 900 frames:
+
+| | s1 | s2 | s3 | s4 | s5 | s6 |
+|---|---|---|---|---|---|---|
+| long ant, unchanged | 45 | 44 | 68 | 64 | 63 | 65 |
+| long ant, expiry | 62 | 54 | 54 | 61 | 38 | — |
+| **shipped two-cell ant** | **56** | **68** | **62** | — | — | — |
+
+p90 **11–17** stops for the long ant against **13–20** for the shipped ant.
+**The shipped ant rests just as long — 50,000-plus frames in one spot on
+every seed — and nobody has ever reported it**, because two motionless pixels
+read as scenery and a motionless seven-cell body reads as stuck. Nothing
+about the long ant's behaviour is anomalous. **So §Z13 is a look problem**:
+what should a resting ant *do* so it reads as resting? Candidates that move
+nothing and touch no economy — a head turn, antennating, a one-cell shuffle
+and back — each with a different cost to the dirty-rect render skip, which is
+what to price first. **A card for the owner, not a mechanic to pick.**
+(`idle_streak_*_any` exists because the 3+-cell gate made the two-cell
+control vacuous, and an always-zero control is not one.)
 
 ## 5. The table — and it does not settle the pile
 
