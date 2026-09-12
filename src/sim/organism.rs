@@ -2792,6 +2792,31 @@ pub struct SpeciesDef {
     /// so here rather than let the next session re-derive it from scratch.
     #[serde(default)]
     pub seed_gut_survival: f32,
+    /// **What a bite of a *bare* seed pays the mouth, as a fraction of the
+    /// seed's own `food_energy`**, when that bite did not destroy the seed.
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2, Brief 1.
+    ///
+    /// The seed a `seed_gut_survival` roll has just spared is still there --
+    /// it becomes a `pip` and either rides home in the biter's crop or
+    /// stands where it was bitten. So the mouth cannot have eaten it, and
+    /// crediting the whole 480 J would be the seed counted twice: once as
+    /// food and once as a plant. What an ant really gets off a seed it
+    /// carries is the elaiosome -- the provision the plant attaches
+    /// *precisely* to buy the carriage -- and 0.25 is that provision here.
+    ///
+    /// **A plant trait, like `seed_gut_survival` beside it, and for the same
+    /// reason**: it is the seed that decides how much of itself to give
+    /// away, not the mouth that decides how much to take. A species that
+    /// pays nothing (`0.0`) is a seed nobody profits by carrying; a species
+    /// at `1.0` pays the whole seed and the carriage is free, which is the
+    /// positive control this build's brief asks for by name.
+    ///
+    /// Only read when the bitten cell is the bare `seed`/propagule itself.
+    /// A *windfall* is flesh wrapped round a seed: the flesh is the meal and
+    /// the seed is a passenger inside it, so a bitten windfall goes on
+    /// paying its full face value and this fraction never applies to it.
+    #[serde(default = "default_seed_provision_fraction")]
+    pub seed_provision_fraction: f32,
     /// **What a fully-charged flower pays a feeding animal, in joules** —
     /// `plant::nectar_offer`, credited through `diet_quality` exactly like
     /// every other mouthful
@@ -3823,6 +3848,28 @@ pub struct CreatureDef {
     /// gain pass-through or climb-over"*.
     #[serde(default)]
     pub climbs_over_kin: bool,
+    /// **How many consecutive ticks a laden body waits out a jam before it
+    /// turns round anyway** -- the expiry on `creature::boxed_by_traffic`'s
+    /// deferral. `None`, the default, is the rule as it stood: the deferral
+    /// never expires.
+    ///
+    /// Data rather than a constant because it is exactly one species' bug.
+    /// The owner's playtest, 2026-09-11: *"long ants getting stuck. Not all
+    /// of them but it happens regularly. It seems like they get stuck in a
+    /// big group/pile of long ants."* `boxed_by_traffic` withholds a laden
+    /// animal's flip on the premise that a jam clears on its own the moment
+    /// the other animal takes its next step -- and
+    /// `Reports/creature-articulated-body-2026-09-09.md` §13g named the case
+    /// where that premise is false and left it open: the other animal is
+    /// boxed too, so nothing is going to move, and the deferral repeats for
+    /// ever. This is what ends it.
+    ///
+    /// **Left `None` on every species but `longant`**, so every animal that
+    /// does not author it is bit-identical -- `examples/ascii`, digit for
+    /// digit, when this landed. A two-cell body is additionally unreachable
+    /// by it whatever it authors: see `creature::deferral_still_applies`.
+    #[serde(default)]
+    pub traffic_defer_max: Option<u16>,
     /// Whether this species will bite a **living** member of its own
     /// species.
     ///
@@ -4160,6 +4207,7 @@ impl CreatureDef {
             mutation_rate,
             trait_variance,
             climbs_over_kin,
+            traffic_defer_max,
             eats_kin,
             nectar_only,
             scent_spread,
@@ -4273,6 +4321,9 @@ impl CreatureDef {
             founder_reserve_spread: *founder_reserve_spread,
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
+            // A count of ticks, not a length: scaling a body does not change
+            // how long its patience should last.
+            traffic_defer_max: *traffic_defer_max,
             eats_kin: *eats_kin,
             // A switch, not a length: scaling a body does not change what
             // its mouth will open.
@@ -4370,6 +4421,13 @@ fn default_windfall_material() -> String {
     "seed".to_string()
 }
 
+/// See `SpeciesDef::seed_provision_fraction`. **Not `#[serde(default)]`'s
+/// zero**, which would be "a carried seed feeds nobody" and would make every
+/// species that never authors the field silently unprofitable to harvest.
+fn default_seed_provision_fraction() -> f32 {
+    0.25
+}
+
 /// Set against the measured bank rather than from a target. On the
 /// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
 /// still climbing** — 42 at 28,800, so it was accelerating, not settling —
@@ -4410,6 +4468,8 @@ pub struct Species {
     pub windfall_material: String,
     /// See `SpeciesDef::seed_gut_survival`.
     pub seed_gut_survival: f32,
+    /// See `SpeciesDef::seed_provision_fraction`.
+    pub seed_provision_fraction: f32,
     /// See `SpeciesDef::nectar_yield`.
     pub nectar_yield: f32,
     /// See `SpeciesDef::nectar_refill`.
@@ -4616,6 +4676,7 @@ impl From<SpeciesDef> for Species {
             fruit_material: def.fruit_material,
             windfall_material: def.windfall_material,
             seed_gut_survival: def.seed_gut_survival,
+            seed_provision_fraction: def.seed_provision_fraction,
             nectar_yield: def.nectar_yield,
             nectar_refill: def.nectar_refill,
             flower_bands: def.flower_bands,
@@ -5640,6 +5701,25 @@ pub struct OrganismState {
     /// nest — and a laden ant walking *up* that gradient is walking home.
     /// No creature ever queries the nest's position; the field knows.
     pub since_nest: u16,
+    /// **Consecutive ticks on which this animal's flip has been withheld by
+    /// the traffic gate** -- `creature::boxed_by_traffic`, §13g -- reset to
+    /// 0 the moment it is not.
+    ///
+    /// The gate exists because `is_boxed` cannot tell a dead end from a
+    /// jam, and a laden forager turned round at the door it was about to
+    /// walk through is a real cost (§13g measured deliveries 290 against
+    /// 233 without it). Its premise is that *"a jam clears on its own the
+    /// moment the other animal takes its own next step"* -- and §13g named,
+    /// and did not close, the case where that premise is false: the other
+    /// animal is boxed too, so nothing is going to move, and the deferral
+    /// repeats for ever. The owner found it by playing
+    /// (2026-09-11: *"long ants getting stuck ... in a big group/pile of
+    /// long ants"*). This counter is what lets the deferral **expire**; see
+    /// `creature::traffic_defer_max`.
+    ///
+    /// A `u16` and not a `bool` because the question is *how long*, and a
+    /// tick is the animal's own tick, not a frame.
+    pub traffic_deferred: u16,
     /// **Measurement only — no creature ever reads this, and the moment one
     /// does, the homing model has changed and this doc is a lie.**
     ///

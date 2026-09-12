@@ -1598,7 +1598,24 @@ fn place_creature(
                             world.frame,
                             (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
                         );
-                        if !plant::seed_survives_bite(world, px, py, &mut seed_rng) {
+                        // **Round 29: a bare seed taken to fund a birth is
+                        // spared and priced like any other**, because this is
+                        // a bite and `seed_survives_bite` does not know which
+                        // site called it. `yielded` was read off the standing
+                        // cell before the roll, so a seed the roll spares has
+                        // to be re-priced here or the parent would be paid the
+                        // whole seed *and* leave it standing -- the one shape
+                        // this build must not create, since the seed it
+                        // rescues would otherwise be free food. No passenger
+                        // here: this path has no crop to put one in, so the
+                        // spared seed stands where it was bitten as a `pip`,
+                        // exactly as A1 has always left a surplus survivor.
+                        let bite_outcome = plant::seed_survives_bite(world, px, py, &mut seed_rng);
+                        let yielded = match bite_outcome {
+                            plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
+                            _ => yielded,
+                        };
+                        if !bite_outcome.survived() {
                             world.set(px, py, Cell::EMPTY);
                         }
                         if banked {
@@ -3096,11 +3113,49 @@ impl World {
     /// deliberate and is the ratio the foraging scene measured 414 deliveries
     /// at: home has to be a *place*, not everywhere, or there is no gradient
     /// to walk up.
+    ///
+    /// **The threshold has drains in it, and that is the whole of
+    /// `open-bugs-handoff.md` §T2.** `nest` is a plain `Solid` with no
+    /// `water_capacity`, so it "holds no water at all, and never absorbs an
+    /// adjacent `Liquid`" -- which made an unbroken patch the *only
+    /// impermeable strip on the surface of a misted bed*, every other ground
+    /// cell around it holding 1,000. The mist soaked in everywhere else and
+    /// stood on the door. An ant cannot step into a liquid
+    /// (`landing_is_placeable_through_tissue` wants `World::is_empty`), so a
+    /// film one cell deep is a **wall**: `adjacent_nest` goes false for every
+    /// animal in the colony at once, and `AtNest`, `nest_visits` and
+    /// `deliveries` freeze on the same frame -- §T2's reported shape exactly,
+    /// two counters identical at 9,000, 30,000 and 120,000 frames while
+    /// `pickups` kept climbing. Measured on the played bed, seed 1: **47-49
+    /// of 53 nest cells standing under water**, and free liquid over the
+    /// patch **89-91 against 17-19 over the same width of ordinary ground
+    /// beside it** -- the excess is the patch's alone, which is what says the
+    /// impermeability did it rather than the terrain.
+    ///
+    /// So every `DRAIN_PERIOD`th column is left as the ground it was. The
+    /// film is thin -- 89-91 liquid cells over 53 columns, so one to two deep
+    /// -- and what keeps it standing is *distance*: across an unbroken patch
+    /// the middle of it is 26 columns from ground that drinks, and a
+    /// one-cell-deep film has almost no head to spread on. With a drain every
+    /// third column it is one cell from ground that drinks, and the bed takes
+    /// it exactly as it does everywhere else.
+    ///
+    /// **Two fixes that look more principled were built first and are worse**
+    /// -- both in `dead-ends.md`, both about `nest.ron` rather than this
+    /// loop. Giving the material a `water_capacity` while it is a `Solid`
+    /// aliases `Cell::aux`, which on a `Solid` is the structural anchor
+    /// distance that `structural::tick` rewrites (and roots at 0 the moment
+    /// powder touches the underside -- so the door becomes a *water sink*,
+    /// not a sponge). Making it a `Powder` to fix that turns
+    /// `player::footing` from `Hard` to `Soft`, and the gnome wades through
+    /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
+    /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let drain_period = nest_drain_period();
         // **The patch is a place that holds an odour, and this is where it
         // becomes one.** Registered before the ground is converted so that a
         // patch which turns out to have no paintable ground under it still
@@ -3110,7 +3165,14 @@ impl World {
         // `NestSite::seeded` for why it cannot be taken here.
         self.register_nest_site(x, y, half_width);
         let mut painted = 0;
-        for cx in (x - half_width)..=(x + half_width) {
+        for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
+            // **Indexed off the loop, not off `cx`**, so the comb is the same
+            // comb wherever on the map the colony is founded -- keyed on the
+            // world x it would shift by one under the cursor and the two ends
+            // of the patch would stop being symmetric.
+            if drain_period > 0 && i % drain_period == drain_period - 1 {
+                continue;
+            }
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
@@ -3124,6 +3186,54 @@ impl World {
         painted
     }
 }
+
+/// **How often the nest patch leaves a column of ordinary ground**, so the
+/// door can drain — every third, so a film has one cell to travel.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=off` lays the unbroken patch that shipped until
+/// 2026-09-12, which is the paired arm for anything measured over this: one
+/// binary, two arms, and the semantic rule held fixed rather than a second
+/// metric added (`CLAUDE.md`). `=<n>` sets the period directly, so the comb
+/// can be swept without a rebuild.
+///
+/// Read once through a `OnceLock`, matching `spoil_kept` and
+/// `lining_enabled`: founding is rare, but the setting cannot change mid-run
+/// and an `env::var` in `World` is a syscall in a place that does not want
+/// one.
+fn nest_drain_period() -> usize {
+    static PERIOD: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *PERIOD.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_DRAINS").as_deref() {
+        Ok("off") => 0,
+        // A period of 1 would paint nothing at all and a period of 2 is a
+        // comb of alternating cells; both are legitimate sweep points, and 0
+        // (the unbroken patch) is what `off` means, so only a parse failure
+        // falls through to the default.
+        Ok(v) => v.parse().unwrap_or(DRAIN_PERIOD),
+        Err(_) => DRAIN_PERIOD,
+    })
+}
+
+/// Every third column of the threshold is left undrained ground.
+///
+/// Three rather than two because two paints only half the door and the patch
+/// is already *deliberately* narrow -- "home has to be a place, not
+/// everywhere". Three rather than four because the film has to *reach* a
+/// drain and at four the middle of a run is two cells from one, while at
+/// three every nest column touches ground that drinks.
+///
+/// Measured on the played bed, seed 1, at three: standing water over the
+/// patch **51 and 48 cells -> 0 and 2**, against 2 and 0 over the same width
+/// of ground beside it, so the door stops being the wettest strip on the bed
+/// and becomes an ordinary piece of it. Nest cells with air beside them
+/// **2 and 7 of 53 -> 33 and 32 of 36**, `nest_visits` over the first 20,000
+/// frames **360 -> 1,428**, deliveries **140 -> 466**.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=<n>` sweeps it without a rebuild, and
+/// `examples/nestdoor.rs` is what reads the result -- its `water_on` against
+/// `water_off` pair is the quantity to sweep on, since the bar is that the
+/// door stops being wetter than the ground beside it rather than that it is
+/// dry (no part of a misted bed is).
+const DRAIN_PERIOD: usize = 3;
 
 /// Where the ground is in one column, for a colony founded at cursor row
 /// `cursor_y`.
@@ -6100,7 +6210,27 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // that is not a windfall's seed, so this changes nothing
                 // else the bite verb does.
                 let seed_saved = plant::seed_survives_bite(world, fxx, fyy, draw);
-                if !seed_saved {
+                // **Round 29, Brief 1 -- what a spared *bare* seed pays.**
+                // `Reports/evolution-lab-late-game-design-2026-09-12.md` §2.
+                // A windfall is flesh around a seed, so the mouth ate the
+                // flesh and is paid in full; a bare seed *is* the mouthful,
+                // and sparing it means the mouth got only the provision the
+                // seed attaches to buy its carriage. Charging face value for
+                // a seed that is still there would be the seed counted twice
+                // -- once as food and once as a plant -- which is exactly the
+                // free lunch that would make this build read as "the colony
+                // got richer" rather than "the bank stopped draining".
+                //
+                // Applied whether or not the seed goes on to ride: a survivor
+                // that cannot board (a passenger is already aboard) stands
+                // where it was bitten as a `pip`, and the mouth got the same
+                // provision either way. `worth` is read before the roll
+                // because the roll rewrites the cell.
+                let worth = match seed_saved {
+                    plant::SeedBite::SurvivedBare => worth * plant::seed_provision_fraction(world, fxx, fyy),
+                    _ => worth,
+                };
+                if !seed_saved.survived() {
                     world.set(fxx, fyy, Cell::EMPTY);
                 }
                 // **A2 -- ride home instead of standing.** `seed_saved` just
@@ -6113,7 +6243,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // passenger already aboard is left exactly where A1 always
                 // left it.
                 let passenger =
-                    (seed_saved && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
+                    (seed_saved.survived() && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
+                // **The bare route's own source tag.** `seeds_carried` counts
+                // both routes and cannot say which; this is the half round 29
+                // opened, and the half the seed-bank census is about.
+                if passenger.is_some() && seed_saved == plant::SeedBite::SurvivedBare {
+                    world.bare_seeds_carried += 1;
+                }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
@@ -7292,7 +7428,62 @@ fn step_chain(
         // for. A streak of consecutive boxed ticks was tried before that,
         // unconditionally, and cost mobility the same way for the same
         // reason -- see `boxed_by_traffic`'s own doc.
+        // **...and the deferral has to end, which it did not** (round 29;
+        // the owner's playtest of 2026-09-11: *"long ants getting stuck.
+        // Not all of them but it happens regularly. It seems like they get
+        // stuck in a big group/pile of long ants."*).
+        //
+        // `boxed_by_traffic`'s premise is that a jam clears on its own the
+        // moment the other animal takes its own next step. §13g named the
+        // case where that is false and left it open: **the other animal is
+        // boxed too.** Then nothing in the world is going to move, the
+        // question is re-asked and re-answered the same way every tick, and
+        // the animal defers for ever. Measured on the owner's own scene
+        // (`played_bed_longant`, 3 seeds, 120,000 frames): the animal
+        // body-boxed longest at a stop was **laden on 24 of 25 sampled
+        // stops**, its head and tail in the *identical cells* stop after
+        // stop -- only its heading moving, because `tumble` re-aims it every
+        // tick -- for streaks up to 68 stops, 61,200 frames. Connected
+        // clumps of those reached **75 animals** on seed 1.
+        //
+        // **Those two figures were retaken after `84dd9bfc` (nest odour)
+        // landed, and the clump one moved a long way: it read 108 on seed 3
+        // before that merge and 19 after.** Scent drift changes the colony
+        // the pile forms in, so any pile figure quoted here has to name the
+        // tree it came from. Nine seeds on the merged tree put the largest
+        // clump at 6-75 and the longest body-boxed streak at 13-44 stops.
+        //
+        // So the gate becomes a **bounded** wait rather than an unbounded
+        // one: `CLAUDE.md`'s *a size cap must bound work, never gate whether
+        // something happens*, in the time axis. After `traffic_defer_max()`
+        // consecutive deferrals the flip fires anyway -- the animal has
+        // waited out a jam that is not clearing, and turning round is worth
+        // more than facing a wall for the rest of its life.
+        //
+        // **This can only make the flip fire more often, never less**, which
+        // is what keeps it clear of the two gates §13g rejected: a streak
+        // *before* flipping (16.3% blocked on `tunnel` at N=2 against 7.6%)
+        // and the traffic check asked of every animal (77.5%). Both of those
+        // withheld the verb; this one returns it.
+        //
+        // **Gated on the spine being longer than two cells**, and that is the
+        // §13c property rather than a species check: a two-cell body reverses
+        // with an ordinary step onto its own vacating tail, so the flip is
+        // not its only way out and a deferral that never expires costs it
+        // nothing. The shipped ant is therefore bit-identical across this
+        // change, by construction rather than by measurement -- and measured
+        // as well, on `ascii`.
         let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, kin);
+        let waited = world.organism(organism).map_or(0, |s| s.traffic_deferred);
+        let traffic = traffic && deferral_still_applies(spines_of(&chain, &groups).len(), waited, traffic_defer_max(def));
+        // Consecutive, so any tick that is not a deferral clears it --
+        // including the tick the flip finally fires on, and the move path
+        // below, which resets it for an animal that walked away and came
+        // back. A streak that survived an unrelated errand would not be
+        // "this jam has not cleared".
+        if let Some(state) = world.organism_mut(organism) {
+            state.traffic_deferred = if traffic { state.traffic_deferred.saturating_add(1) } else { 0 };
+        }
         if traffic {
             world.creature_stats.reversals_traffic_deferred += 1;
         }
@@ -7454,6 +7645,9 @@ fn step_chain(
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
+        // An animal that walked is not in a jam -- see the traffic gate
+        // above for why the count has to be *consecutive*.
+        state.traffic_deferred = 0;
         // **`segment_groups` becomes the live widths, rewritten with
         // `chain` on every step** (§7f(2)) -- a no-op write for `Chain`/
         // `Rigid`, which pass `groups.to_vec()` straight through
@@ -8921,6 +9115,59 @@ enum ReverseRule {
     Back,
 }
 
+/// **The expiry on `boxed_by_traffic`'s deferral, for this species** --
+/// `CreatureDef::traffic_defer_max`, with `PIXEL_PHYSICS_TRAFFIC_DEFER`
+/// overriding it.
+///
+/// The override is what makes both arms live in one binary -- the same
+/// one-binary A/B `reverse_rule` uses and for the same reason: a recompile
+/// sitting between two arms becomes the thing that actually changed. It is
+/// also what keeps a sweep of this number off the `.ron`, which
+/// `CLAUDE.md`'s `include_str!` gotcha says would sweep nothing at all
+/// unless every arm were rebuilt. **`=65535` is the pre-round-29 rule**
+/// (the deferral that never expires) on every species at once, which is the
+/// ablation every table in `Reports/lanes/evolution-lab-longant-pile.md` is
+/// read against.
+///
+/// Ticks are the *animal's* ticks, not frames: `organism_tick_interval`
+/// decides how often one is even asked, so four here is four chances for
+/// the nestmate ahead to move, not four frames.
+fn traffic_defer_max(def: &CreatureDef) -> Option<u16> {
+    use std::sync::OnceLock;
+    static N: OnceLock<Option<u16>> = OnceLock::new();
+    let over = *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAFFIC_DEFER").ok().and_then(|v| v.parse().ok()));
+    over.or(def.traffic_defer_max)
+}
+
+/// **Should `boxed_by_traffic`'s deferral still be honoured** for a body
+/// with `spine_len` spine cells that has already waited `waited`
+/// consecutive ticks, given this species' `max`?
+///
+/// A pure function, and deliberately so: it is the whole of round 29's
+/// decision, and a scene cannot test the two-cell half of it. A two-cell
+/// body is essentially never *boxed* on the ground -- reversing is an
+/// ordinary step onto its own vacating tail (§13c), and the tail is
+/// standing on something by definition -- so any world built to watch one
+/// defer measures nothing at all, which is exactly the "green is the
+/// default state" case `CLAUDE.md` asks to be made into an assertion on a
+/// deterministic function instead.
+///
+/// Three clauses:
+///
+/// * **`max` is `None`: the deferral never expires.** The rule as it stood,
+///   and what every species but `longant` still authors, which is what
+///   makes them bit-identical across this change.
+/// * **`spine_len <= 2`: it never expires either**, whatever the species
+///   authors. Such a body has another way out, so waiting costs it nothing.
+/// * **Otherwise it expires at `max`.** A jam that has not cleared in that
+///   many of the animal's own ticks is not a jam, it is a wall.
+fn deferral_still_applies(spine_len: usize, waited: u16, max: Option<u16>) -> bool {
+    match max {
+        Some(n) if spine_len > 2 => waited < n,
+        _ => true,
+    }
+}
+
 fn reverse_rule() -> ReverseRule {
     use std::sync::OnceLock;
     static R: OnceLock<u8> = OnceLock::new();
@@ -9119,6 +9366,238 @@ fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i3
             occupant != 0 && !body.chain.contains(&(px, py)) && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
         })
     })
+}
+
+/// **One animal's reading in the pile census -- is it boxed, and by
+/// what?** (Round 29, the owner's playtest report of 2026-09-11: *"long
+/// ants getting stuck. Not all of them but it happens regularly. It seems
+/// like they get stuck in a big group/pile of long ants."*)
+///
+/// `is_boxed` answers *"can I go anywhere"* and that is the only question
+/// the walk needs. It is not enough to say whether a **pile** is the
+/// reason, because `classify_step` reads a cell held by another ant
+/// exactly the way it reads a cell of rock (`boxed_by_traffic`'s own doc
+/// says so) -- so a colony wedged into a blind gallery and a colony
+/// wedged into each other produce the same `boxed_ticks` and want
+/// opposite fixes. The four counters here split the eight headings by
+/// *what refused them*, and `kin_would_open` is the one that decides: it
+/// counts headings that are refused today and would be **legal** if the
+/// other animals' bodies were not there.
+///
+/// **What each counts when nothing is wrong** (`CLAUDE.md`'s standing
+/// question): an animal walking on open ground reads `open` at 3-6,
+/// `by_other` at the rest (the ground under it, and open air above with
+/// nothing to hold on to), and `by_creature`/`kin_would_open` at **0** --
+/// a colony at `COLONY_ANT_SPACING` almost never has a nestmate in any of
+/// its own eight neighbour cells. A two-cell ant additionally cannot be
+/// boxed in an interesting way at all: reversing is one ordinary step for
+/// it (§13c), which is this census's own specificity control.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeadBlock {
+    /// Headings the animal could walk this tick.
+    pub open: u8,
+    /// Headings refused, where the first cell of the landing that failed
+    /// is held by **another living creature**.
+    pub by_creature: u8,
+    /// Headings refused by anything else -- terrain, tissue, the world
+    /// edge, this body's own cells, or no footing.
+    pub by_other: u8,
+    /// Headings refused today that **would be legal with the other
+    /// animals' bodies removed**: the landing places, and the footing that
+    /// remains is terrain rather than the nestmate being removed. This is
+    /// the counterfactual, not a re-reading of `by_creature`: a heading
+    /// whose head cell holds a nestmate but whose landing also runs into
+    /// rock is counted in `by_creature` and **not** here.
+    pub kin_would_open: u8,
+}
+
+impl HeadBlock {
+    /// Refused in all eight headings -- `is_boxed`'s own question, read
+    /// off the same scan rather than by calling it a second time.
+    pub fn boxed(self) -> bool {
+        self.open == 0
+    }
+
+    /// **Boxed, and another animal is what is doing it.** The census's
+    /// pile member: this animal has nowhere to go, and at least one of
+    /// the places it cannot go would be walkable if a nestmate stepped
+    /// aside. An animal boxed by rock alone is stuck in terrain, which is
+    /// §13's problem and not this one.
+    pub fn body_boxed(self) -> bool {
+        self.open == 0 && self.kin_would_open > 0
+    }
+}
+
+/// **The pile census, for one animal** -- run the walk's own predicates
+/// over all eight headings and say what refused each. See `HeadBlock`.
+///
+/// Deliberately built on `classify_step` and `body_after_step`, the same
+/// two calls the walk makes, for the reason §13a gives: a classifier that
+/// disagrees with the code it classifies is worse than none, because its
+/// histogram still looks like an answer.
+///
+/// `None` for an organism that is not a creature, has no live body, or has
+/// gone since the caller listed it.
+pub fn head_block(world: &World, organism: u16) -> Option<HeadBlock> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.clone()?;
+    let chain = state.chain.clone();
+    let groups = state.segment_groups.clone();
+    let fates = state.fates;
+    let heading = state.heading;
+    let &(hx, hy) = chain.first()?;
+    let authored = segment_authored(&def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    let kin = kin_footing(world, organism, &def);
+    let push = parting_enabled();
+    let mut out = HeadBlock::default();
+    for d in 0..8u8 {
+        let (dx, dy) = DIRS[d as usize];
+        let target = (hx + dx, hy + dy);
+        if classify_step(world, &def, body, target, (heading, d), push, kin).is_none() {
+            out.open += 1;
+            continue;
+        }
+        let (landing, _) = body_after_step(world, &def, body, target, heading, d, push);
+        // The **first** cell that refused, in `classify_step`'s own order,
+        // so the attribution and the refusal are the same event.
+        let blocker = landing.iter().enumerate().find_map(|(i, &p)| {
+            if landing[..i].contains(&p) {
+                return Some(None);
+            }
+            if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+                return None;
+            }
+            Some(Some(p))
+        });
+        match blocker {
+            Some(Some(p)) if other_creature_cell(world, p, &chain) => {
+                out.by_creature += 1;
+                if step_clears_without_other_creatures(world, &def, body, &chain, target, (heading, d), push) {
+                    out.kin_would_open += 1;
+                }
+            }
+            _ => out.by_other += 1,
+        }
+    }
+    Some(out)
+}
+
+/// **How many cells this animal's own body plan would unfold to** -- what
+/// it was born as, read off its `FateGenome` rather than off the world.
+///
+/// Round 29's second finding needed exactly this and nothing else. The pile
+/// census says 89% of the animals wedged in a pile have bodies of one or two
+/// cells rather than seven, and there are only two ways a long ant can be
+/// one cell long: **its genome unfolds to one** (a short morph, which a
+/// colony thirty generations deep can evolve, since the fates table is
+/// heritable) or **it was born long and lost cells** (a bite, a dig, a rock).
+/// Those are different bugs for different lanes, and a standing count of
+/// short bodies cannot tell them apart. This against `chain.len()` can.
+///
+/// `None` for anything that is not a creature or has gone.
+pub fn authored_body_cells(world: &World, organism: u16) -> Option<usize> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    let segments = segment_authored(def, state.fates);
+    if segments.is_empty() {
+        // No production rule: the body is `def.body`'s own, authored whole.
+        return Some(def.body.offsets(false).len());
+    }
+    Some(segments.iter().map(|seg| if seg.lateral.is_some() { 2 } else { 1 }).sum())
+}
+
+/// Is `p` a cell of some **other** living creature's body?
+///
+/// `chain` is this animal's own cells, excluded for the same reason
+/// `Kin::is_walkable_nestmate` excludes `self`: a chain's own tail is
+/// permanently inside its head's neighbourhood, so counting own cells
+/// would make every animal its own obstruction *and* its own ladder.
+fn other_creature_cell(world: &World, p: (i32, i32), chain: &[(i32, i32)]) -> bool {
+    if chain.contains(&p) {
+        return false;
+    }
+    let occupant = world.get(p.0, p.1).organism_id();
+    occupant != 0 && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
+}
+
+/// **The counterfactual behind `HeadBlock::kin_would_open`**: would this
+/// heading be a legal step if every other animal's cells were empty?
+///
+/// The landing is the real one (`body_after_step`), and every cell of it
+/// is tested with the walk's own predicate **plus** "or it is another
+/// creature" -- the one term being ghosted. Footing is then asked with
+/// `kin: None`, which is the honest half and is easy to get wrong: an
+/// animal standing *on* the pile has its foothold **from** the pile
+/// (`climbs_over_kin`), so granting kin footing while ghosting kin bodies
+/// would report a step onto a cell that, in the world this counterfactual
+/// describes, has nothing under it at all.
+fn step_clears_without_other_creatures(world: &World, def: &CreatureDef, body: BodyShape, chain: &[(i32, i32)], head: (i32, i32), headings: (u8, u8), push: bool) -> bool {
+    let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
+    let places = landing.iter().enumerate().all(|(i, &p)| {
+        !landing[..i].contains(&p)
+            && (world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) || other_creature_cell(world, p, chain))
+    });
+    places && body_has_foothold(world, def, &landing, head, None)
+}
+
+/// **The pile itself** -- group `members` into connected clumps, two
+/// animals being in the same clump when any cell of one touches any cell
+/// of the other (8-neighbour, the same neighbourhood every walking and
+/// footing rule in this file uses; `CLAUDE.md`: *a traversal must use the
+/// same neighbourhood the writer used*).
+///
+/// Returned largest first, so `piles_of(..).first()` is the largest clump
+/// in the world at this instant -- the number the owner's report is
+/// about. Ids that no longer resolve contribute no cells and come back as
+/// singletons, which is what a census of a dead handle should say.
+pub fn piles_of(world: &World, members: &[u16]) -> Vec<Vec<u16>> {
+    let mut owner: std::collections::HashMap<(i32, i32), usize> = std::collections::HashMap::new();
+    let mut bodies: Vec<Vec<(i32, i32)>> = Vec::with_capacity(members.len());
+    for (i, &id) in members.iter().enumerate() {
+        let cells = world.organism(id).map(|s| s.chain.clone()).unwrap_or_default();
+        for &c in &cells {
+            owner.insert(c, i);
+        }
+        bodies.push(cells);
+    }
+    fn find(parent: &mut [usize], mut a: usize) -> usize {
+        while parent[a] != a {
+            parent[a] = parent[parent[a]];
+            a = parent[a];
+        }
+        a
+    }
+    let mut parent: Vec<usize> = (0..members.len()).collect();
+    for (i, cells) in bodies.iter().enumerate() {
+        for &(x, y) in cells {
+            for (dx, dy) in NEIGHBOURS_8 {
+                let Some(&j) = owner.get(&(x + dx, y + dy)) else { continue };
+                if j == i {
+                    continue;
+                }
+                let (ra, rb) = (find(&mut parent, i), find(&mut parent, j));
+                if ra != rb {
+                    parent[ra] = rb;
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::HashMap<usize, Vec<u16>> = std::collections::HashMap::new();
+    for (i, &id) in members.iter().enumerate() {
+        let r = find(&mut parent, i);
+        groups.entry(r).or_default().push(id);
+    }
+    let mut out: Vec<Vec<u16>> = groups.into_values().collect();
+    // Deterministic ordering: `HashMap` iteration order is not, and a
+    // census that reorders between two runs of the same seed is a census
+    // nobody can diff.
+    for g in &mut out {
+        g.sort_unstable();
+    }
+    out.sort_unstable_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.first().cmp(&b.first())));
+    out
 }
 
 /// The `Chain`-follow rule, alone: the new position list is the new head
@@ -11097,6 +11576,186 @@ mod tests {
             Some(151),
             "a cursor inside a cave must found on the cave floor, not on the surface above it"
         );
+    }
+
+    /// A bed of soil on a stone floor, with a nest patch painted across the
+    /// middle of it — the smallest world in which the door can be rained on.
+    fn bed_with_a_nest_patch() -> (World, Vec<(i32, i32)>) {
+        let mut w = World::new(Rect::new(0, 0, 191, 127));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..=191 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+            for y in 100..127 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.paint_nest_patch(96, 99);
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
+        (w, patch)
+    }
+
+    /// **A film on the threshold has somewhere to go, and the only somewhere
+    /// is a drain** (`open-bugs-handoff.md` §T2).
+    ///
+    /// `nest` holds no water, so an unbroken patch is the only impermeable
+    /// strip on the surface of a misted bed and every misting leaves a film
+    /// standing on it. An ant cannot step into a liquid, so that film is a
+    /// wall and `adjacent_nest` goes false for the whole colony at once --
+    /// which is why `deliveries` and `nest_visits` freeze on one frame while
+    /// `pickups` goes on climbing. `paint_nest_patch` leaves every third
+    /// column as ordinary ground, so the film has **one** cell to travel
+    /// instead of 26.
+    ///
+    /// **The ends of the threshold are walled, and that is what isolates the
+    /// mechanism.** An earlier scene poured on the middle of an open patch
+    /// and went **blind**: `water.ron` carries `flow_rate: 1000`, so a full
+    /// cell walks the 26 columns to the end of an unbroken patch inside the
+    /// frame budget and drains off the end, which is the width of the bed
+    /// rather than the spacing of the drains. Walled, the film's only route
+    /// to ground that drinks is a drain column. What the scene does *not*
+    /// claim is the behaviour on a real bed -- that is emergent over 120,000
+    /// frames of continuous misting and belongs to `examples/nestdoor.rs`,
+    /// which measures it paired against this same switch (standing water
+    /// over the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
+    ///
+    /// **It rains twice, and the second soaking is a different measurement
+    /// from the first -- which is the whole reason this reads volume and not
+    /// occupancy.** Onto dry ground the door sheds the film completely, 0 of
+    /// 36 columns from frame 100 onward. Onto ground that already holds the
+    /// first soaking it sheds **35,610 of the 36,000 units poured on it** and
+    /// keeps the last 1%: 36 cells at fill 8-12 of `LIQUID_FULL`, over drain
+    /// columns sitting at 620 of 1,000 with **not one soil cell saturated**
+    /// (67,612 units in a bed that holds 5,184,000).
+    ///
+    /// So the second film is not standing water, it is the near-empty fringe
+    /// `CLAUDE.md`'s liquid metric trap names, and an occupancy count cannot
+    /// tell the two apart. That is exactly what failed CI on 2026-09-12,
+    /// reading *"36 of 36 nest cells are still under water"* over a door that
+    /// had just drunk 99% of what fell on it. **The saturation reading of
+    /// that failure was wrong** and is recorded here because it is the
+    /// obvious one: the bed is 1.3% full, not out of room.
+    ///
+    /// **The 1% is a real remainder all the same, not an artifact.** A cell
+    /// holding 9 of 1,000 is still a `Liquid`, still fails `World::is_empty`,
+    /// and `is_partable` refuses anything that is not living tissue -- so it
+    /// still walls the column it sits in, and it is why `nestdoor` reads 0-19
+    /// liquid cells over the drained patch on the played bed rather than 0.
+    /// What the drains buy is that the door stops being *the wettest strip on
+    /// the bed*; §T2 carries the number and stays open on the residue.
+    ///
+    /// **Watched going red**, not assumed: at `PIXEL_PHYSICS_NEST_DRAINS=off`
+    /// the first soaking alone leaves **53 of 53** columns under full cells
+    /// for the whole 2,000 frames.
+    #[test]
+    fn a_film_on_the_door_drains_through_the_comb() {
+        let (mut w, patch) = bed_with_a_nest_patch();
+        assert!(patch.len() >= 16, "test setup: the patch should be tens of cells wide, got {}", patch.len());
+        let water = w.materials.id_of("water").expect("water is compiled in");
+        let x0 = patch.iter().map(|c| c.0).min().expect("non-empty");
+        let x1 = patch.iter().map(|c| c.0).max().expect("non-empty");
+        let row = patch[0].1;
+        // **Walls at both ends of the threshold.** Without them the film
+        // simply runs off the patch and the scene measures the width of the
+        // bed rather than the spacing of the drains.
+        for dy in 1..=6 {
+            w.set(x0 - 1, row - dy, Cell::new(material::STONE, 0));
+            w.set(x1 + 1, row - dy, Cell::new(material::STONE, 0));
+        }
+        // **Columns carrying any liquid at all -- which is what an ant runs
+        // into -- and the water actually standing in them.** Both, because
+        // the two answer different questions and the second soaking is where
+        // they separate.
+        let over_the_door = |w: &World| -> (usize, u64) {
+            patch.iter().fold((0, 0), |(columns, volume), &(x, y)| {
+                let held: u64 = (1..=6)
+                    .map(|dy| w.get(x, y - dy))
+                    .filter(|c| w.materials.kind(c.material) == MaterialKind::Liquid)
+                    .map(|c| c.aux() as u64)
+                    .sum();
+                (columns + usize::from(held > 0), volume + held)
+            })
+        };
+        let pour = |w: &mut World| -> u64 {
+            let mut poured = 0;
+            for &(x, y) in &patch {
+                if w.is_empty(x, y - 1) {
+                    w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
+                    poured += u64::from(material::LIQUID_FULL);
+                }
+            }
+            poured
+        };
+        let settle = |w: &mut World| {
+            for _ in 0..2_000 {
+                crate::sim::update::step(w);
+                w.step_active_sites();
+            }
+        };
+
+        // **First soaking, onto dry ground**, and the positive control for
+        // the arrangement comes before it: if the setup could not put a full
+        // cell on every nest column, everything below passes for the wrong
+        // reason and would pass with the drains deleted too.
+        let poured = pour(&mut w);
+        assert_eq!(over_the_door(&w), (patch.len(), poured), "the test failed to put a full cell on every nest column");
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            columns <= 2,
+            "{columns} of {} nest columns still carry a film after 2,000 frames, holding {volume} of the {poured} units poured -- the wall an ant cannot step into. Measured 0 with the drains in and {} without them",
+            patch.len(),
+            patch.len()
+        );
+
+        // **Second soaking, onto ground that is already holding the first.**
+        // The bar is on the water, not on the count: the door sheds 99% of
+        // this one and keeps a fringe of near-empty cells, so an occupancy
+        // assertion here would report a drained door as a drowned one.
+        let poured = pour(&mut w);
+        // Its own positive control, and it is not the one above: a door that
+        // never cleared the first soaking has no empty cell to pour into, so
+        // without this the bar below would go red reading `0 units poured`
+        // and say nothing about the second day.
+        assert_eq!(
+            poured,
+            u64::from(material::LIQUID_FULL) * patch.len() as u64,
+            "the first soaking must clear before a second can be poured; only {poured} units went on"
+        );
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            volume * 20 <= poured,
+            "the door shed only {} of the {poured} units of a second soaking, leaving {volume} standing over {columns} of {} columns",
+            poured.saturating_sub(volume),
+            patch.len()
+        );
+    }
+
+    /// ...and the door is still a *place*.
+    ///
+    /// The drains are a comb, so the obvious way to break this fix is to
+    /// widen them until there is no patch left: "home has to be a place, not
+    /// everywhere, or there is no gradient to walk up". Two of every three
+    /// columns are nest, and every nest cell is within one column of a drain,
+    /// which is the property that makes the film travel one cell.
+    #[test]
+    fn the_nest_patch_is_still_continuous_enough_to_walk_home_to() {
+        let (w, patch) = bed_with_a_nest_patch();
+        let width = 2 * scaled_cells(&w, COLONY_HALF_WIDTH) + 1;
+        assert!(
+            patch.len() * 2 >= width as usize,
+            "at least half the threshold must be nest, got {} of {width} columns",
+            patch.len()
+        );
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let drains: Vec<i32> = (0..=191).filter(|&x| (95..105).all(|y| w.get(x, y).material != nest)).collect();
+        for &(x, _) in &patch {
+            assert!(
+                drains.iter().any(|&d| (d - x).abs() <= 1),
+                "every nest column needs ground it can shed a film onto within one cell; x={x} has none"
+            );
+        }
     }
 
     fn run(w: &mut World, frames: usize) {
@@ -13653,7 +14312,8 @@ mod tests {
             // the test is about -- `CLAUDE.md`'s *a scene that contradicts
             // the code looks like a bug in the code*, caught by the guard's
             // own placement assertion.
-            let leaf = w.materials.id_of("leaf").unwrap_or(material::STONE);
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").unwrap_or(material::STONE);
             for x in 96..106 {
                 for y in 92..97 {
                     if w.get(x, y).material == material::EMPTY {
@@ -14058,7 +14718,8 @@ mod tests {
         // no longer eats". Swapped for a food this species actually eats,
         // rather than overriding the gut here: a wiring test should not
         // have to know about diet, and it does not now.
-        let food = w.materials.id_of("leaf").expect("leaf");
+        // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+        let food = w.materials.id_of("litter").expect("litter");
         // **A pocket sized exactly to the shipped two-cell body, not a
         // room, 2026-09-11.** A single soil cell in an otherwise open
         // column used to force a dig only because the pre-mobility body
@@ -15737,6 +16398,260 @@ mod tests {
         assert_eq!(w.creature_stats.reversals_traffic_deferred, 1, "the deferral counter is what should have fired instead");
     }
 
+    /// **The deferral expires** (round 29, and the close of the residual
+    /// risk §13g named rather than fixed: *"Two laden animals mutually
+    /// boxing each other in the same dead end, with no other heading open
+    /// to either, would each defer indefinitely rather than ever
+    /// flipping"*). The owner found it by playing, 2026-09-11: *"long ants
+    /// getting stuck. Not all of them but it happens regularly. It seems
+    /// like they get stuck in a big group/pile of long ants."*
+    ///
+    /// The scene is `the_flip_does_not_fire_for_a_block_that_is_only_
+    /// another_animal_standing_there`'s, unchanged, because that is exactly
+    /// the situation: a laden long body, boxed, with one heading held by a
+    /// nestmate that is **never going to move** -- it is a bare handle in a
+    /// one-cell pocket with nothing driving it. The old rule deferred on
+    /// every one of those ticks for ever; this one waits
+    /// `DEFAULT_TRAFFIC_DEFER` of them and then turns the animal round.
+    ///
+    /// **Both halves are asserted, and the first is what keeps §13g's own
+    /// finding**: the early ticks must still defer. A fix that simply
+    /// removed the gate would pass the second assertion and fail this one,
+    /// and it is the gate that put deliveries back from 233 to 290.
+    ///
+    /// Watched red: with `traffic_defer_max()` returning `u16::MAX` (the
+    /// pre-round-29 rule) the flip never fires and the second assertion
+    /// goes red at 0 reversals; with the gate deleted outright the first
+    /// assertion goes red at 0 deferrals.
+    #[test]
+    fn a_laden_long_body_stops_deferring_once_the_jam_has_not_cleared() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        w.set(100, 99, Cell::EMPTY);
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        // **The species under test authors the expiry**, because the
+        // shipped ant does not: the field is data, so a scene that wants
+        // the behaviour has to ask for it, exactly as `longant.ron` does.
+        def.traffic_defer_max = Some(LONGANT_TRAFFIC_DEFER);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("just placed").crop = Some(Crop { material: ant_material, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: None });
+
+        // The nestmate in the one opening -- a bare handle with one painted
+        // cell, exactly as the §13g guard builds it, and deliberately one
+        // that nothing will ever move.
+        let other = w.push_organism(species).expect("a free slot");
+        w.set(100, 99, Cell::new(ant_material, 0).with_organism_id(other));
+        if let Some(s) = w.organism_mut(other) {
+            s.chain = vec![(100, 99)];
+        }
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let n = LONGANT_TRAFFIC_DEFER;
+        for _ in 0..n {
+            let heading = w.organism(ant).expect("live").heading;
+            let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+            step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+            w.frame += 1;
+        }
+        assert_eq!(
+            w.creature_stats.reversals, 0,
+            "the first {n} ticks must still wait the jam out -- that deferral is what put §13g's deliveries back from 233 to 290 and this fix must not remove it"
+        );
+        assert_eq!(w.creature_stats.reversals_traffic_deferred, u64::from(n), "each of those ticks is one deferral");
+
+        let heading = w.organism(ant).expect("live").heading;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+        assert_eq!(
+            w.creature_stats.reversals, 1,
+            "a jam that has not cleared in {n} of the animal's own ticks is not a jam, it is a wall, and the animal must turn round rather than stand there for the rest of its life"
+        );
+    }
+
+    /// `longant.ron`'s own authored expiry, read back out of the registry
+    /// so the guard below is asserting about the shipped file rather than
+    /// about a number retyped beside it.
+    const LONGANT_TRAFFIC_DEFER: u16 = 4;
+
+    /// What a species actually authors for the expiry -- see
+    /// `LONGANT_TRAFFIC_DEFER`'s own guard.
+    fn w_species_defer(name: &str) -> Option<u16> {
+        let w = test_world();
+        let id = w.species.id_of(name).expect("species");
+        w.species.get(id).creature.as_ref().expect("a creature").traffic_defer_max
+    }
+
+    /// **...and the two-cell ant is untouched by it**, asserted on the
+    /// predicate rather than on a world.
+    ///
+    /// A scene cannot make this claim: a two-cell body is essentially never
+    /// boxed standing on ground -- reversing is one ordinary step onto its
+    /// own vacating tail (§13c, and `a_long_body_is_boxed_in_a_dead_end_
+    /// where_a_two_cell_body_is_not` is that property's own guard) -- so a
+    /// world built to watch one defer records **0 deferrals**, measured,
+    /// and would have passed whatever the gate did. `CLAUDE.md` names that
+    /// case exactly: where green is the default state, put the assertion on
+    /// a deterministic function instead.
+    ///
+    /// The shipped colony's real check is the one this cannot give: `cargo
+    /// run --release --example ascii`, byte-for-byte against `main`.
+    #[test]
+    fn the_deferral_expires_for_a_long_spine_and_never_for_a_two_cell_one() {
+        let n = LONGANT_TRAFFIC_DEFER;
+        assert!(n >= 2, "an expiry of 0 or 1 is not a deferral at all, and every assertion below would be vacuous");
+        assert!(deferral_still_applies(6, 0, Some(n)), "a long body's first boxed tick is a jam until proved otherwise -- that is §13g's finding and it stays");
+        assert!(deferral_still_applies(6, n - 1, Some(n)), "...and so is its last waiting tick");
+        assert!(!deferral_still_applies(6, n, Some(n)), "a jam that has not cleared in {n} of the animal's own ticks is a wall, and the flip must fire");
+        assert!(!deferral_still_applies(3, n, Some(n)), "three spine cells is already past the reach of a tail-step, so the expiry applies from there up");
+        assert!(deferral_still_applies(2, u16::MAX, Some(n)), "a two-cell body reverses with an ordinary step; its deferral costs it nothing and must never expire");
+        assert!(deferral_still_applies(1, u16::MAX, Some(n)), "...nor a one-cell one's");
+        assert!(
+            deferral_still_applies(6, u16::MAX, None),
+            "a species that authors no expiry keeps the pre-round-29 rule exactly -- this is what makes every species but longant bit-identical"
+        );
+        assert_eq!(
+            w_species_defer("ant"),
+            None,
+            "the shipped ant must author no expiry; if this ever fails, `ascii` is no longer bit-identical across this change and the claim in the PR body is void"
+        );
+        assert_eq!(w_species_defer("longant"), Some(LONGANT_TRAFFIC_DEFER), "the long ant is the species the owner's report is about, and the one that authors it");
+    }
+
+    /// **The pile census's positive control** (round 29, the owner's
+    /// 2026-09-11 playtest: *"long ants getting stuck ... in a big
+    /// group/pile of long ants"*). Six long bodies nose to tail in a
+    /// one-cell corridor with a blind end, which is the shape the
+    /// complaint describes, hand-built so the answer is known before the
+    /// instrument is asked.
+    ///
+    /// **What it must read, and why the six are not all alike.** All six
+    /// are boxed: each one's only non-rock, non-own-flank heading is the
+    /// body ahead of it, and a body longer than two cells cannot reverse
+    /// (§13c). But the *leader* is boxed by the rock at the blind end and
+    /// the five behind it are boxed by their own colony -- that asymmetry
+    /// **is** the pile, and a census that reported six identical animals
+    /// would have lost the only structure in it. `piles_of` is the other
+    /// half and is asserted separately: connectivity does not care which
+    /// of the six is stuck on what.
+    ///
+    /// Watched red both ways before being trusted: with `kin_would_open`
+    /// left at zero the five read as terrain-boxed like the leader, and
+    /// with the corridor's blind end opened the leader is not boxed at all.
+    #[test]
+    fn six_long_bodies_nose_to_tail_read_as_one_pile() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 50..110 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 60..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+
+        let species = w.species.id_of("longant").expect("longant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("longant is a creature").clone();
+        // `Chain(6)` for the same reason §13's own length controls use it:
+        // a hand-placed `Segmented` body would have to reproduce
+        // `lateral_for`'s side choice by hand, and length -- not width --
+        // is what this scene is about. `climbs_over_kin` and everything
+        // else about the species is left exactly as authored.
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let mat = w.materials.id_of("longant").expect("longant material");
+
+        // Heads at 100, 94, 88, 82, 76, 70, each body running six cells
+        // west of its own head, all facing east (`DIRS[0]`) into the blind
+        // end at x = 101.
+        let mut ants: Vec<u16> = Vec::new();
+        for k in 0..6i32 {
+            let head_x = 100 - k * 6;
+            let id = w.push_organism(species).expect("a free slot");
+            let chain: Vec<(i32, i32)> = (0..6).map(|i| (head_x - i, 100)).collect();
+            for &(x, y) in &chain {
+                w.set(x, y, Cell::new(mat, 0).with_organism_id(id));
+            }
+            if let Some(s) = w.organism_mut(id) {
+                s.chain = chain;
+                s.heading = 0;
+            }
+            ants.push(id);
+        }
+
+        let blocks: Vec<HeadBlock> = ants.iter().map(|&id| head_block(&w, id).expect("a live long ant")).collect();
+        assert!(
+            blocks.iter().all(|b| b.boxed()),
+            "every animal in a one-cell corridor nose to tail must be boxed -- if one is not, this scene is not the situation the complaint is about: {blocks:?}"
+        );
+        assert!(
+            !blocks[0].body_boxed() && blocks[0].by_creature == 0,
+            "the leader is stuck on the rock at the blind end, not on its colony: {:?}",
+            blocks[0]
+        );
+        for (k, b) in blocks.iter().enumerate().skip(1) {
+            assert!(
+                b.body_boxed(),
+                "ant {k} stands directly behind another body and nothing else refuses its way east -- it must read as boxed by a body: {b:?}"
+            );
+            assert!(b.by_creature >= 1 && b.kin_would_open >= 1, "ant {k}: {b:?}");
+        }
+
+        let piles = piles_of(&w, &ants);
+        assert_eq!(piles.len(), 1, "six bodies laid nose to tail touch each other end to end and are one clump, not {}: {piles:?}", piles.len());
+        assert_eq!(piles[0].len(), 6, "the one clump is all six animals");
+
+        // The specificity half, in the same scene: pull the leader out and
+        // the animal behind it is no longer boxed by a body at all. Without
+        // this the assertions above pass for a census that returns
+        // `body_boxed` unconditionally.
+        let leader = w.organism(ants[0]).expect("live").chain.clone();
+        for &(x, y) in &leader {
+            w.set(x, y, Cell::EMPTY);
+        }
+        if let Some(s) = w.organism_mut(ants[0]) {
+            s.chain.clear();
+        }
+        let after = head_block(&w, ants[1]).expect("still live");
+        assert!(!after.boxed(), "with the body ahead removed the corridor is open again: {after:?}");
+        assert_eq!(after.by_creature, 0, "and nothing is refused by a creature any more: {after:?}");
+    }
+
+    /// **The census's other control, and the cheaper one**: one animal on
+    /// open ground reads no creature refusals at all. `by_creature` and
+    /// `kin_would_open` are exactly the two columns that would be silently
+    /// always-zero *or* silently always-on, and the corridor above only
+    /// checks the second failure.
+    #[test]
+    fn a_lone_long_body_on_open_ground_is_boxed_by_nothing() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let ant = spawn(&mut w, "longant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let b = head_block(&w, ant).expect("a live long ant");
+        assert!(!b.boxed(), "an animal standing on flat open ground can walk: {b:?}");
+        assert_eq!(b.by_creature, 0, "there is no other animal in the world, so nothing can be refused by one: {b:?}");
+        assert_eq!(b.kin_would_open, 0, "...and the counterfactual must be zero for the same reason: {b:?}");
+        assert_eq!(piles_of(&w, &[ant]), vec![vec![ant]], "one animal is one clump of one");
+    }
+
     /// **§7f(1)'s central invariant, watched red first**: with the old
     /// always-place-the-lateral rule (`lateral_for` returning a bare
     /// position and the caller's `landing_is_placeable_through_tissue`
@@ -15937,25 +16852,37 @@ mod tests {
     /// arm here would be a sample of one against a remembered number.
     #[test]
     fn a_meat_gut_stops_seeing_leaves() {
-        let leaf_beside_an_ant = |bias: f32| -> f32 {
+        let food_beside_an_ant = |food_name: &str, bias: f32| -> f32 {
             let mut w = test_world();
             for x in 90..110 {
                 w.set(x, 101, Cell::new(material::STONE, 0));
             }
             set_gut(&mut w, "ant", bias);
             let ant = spawn(&mut w, "ant", 100, 100);
-            let leaf = w.materials.id_of("leaf").expect("leaf");
-            w.set(101, 100, Cell::new(leaf, 0));
+            let food = w.materials.id_of(food_name).unwrap_or_else(|| panic!("{food_name} is compiled in"));
+            w.set(101, 100, Cell::new(food, 0));
             let def = w.species.get(w.organism(ant).unwrap().species).creature.as_ref().unwrap().clone();
             let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
             inputs[brain::BrainInput::FoodAdjacent as usize]
         };
 
-        // A leaf is `food_class: -1.0` worth 120. Against a neutral gut the
-        // filter reads 0.25 -> 30, over the bar of 12; against +0.9 it
-        // reads 0.0025 -> 0.3, under it.
-        assert_eq!(leaf_beside_an_ant(0.0), 1.0, "a generalist must see a leaf it is standing next to");
-        assert_eq!(leaf_beside_an_ant(0.9), 0.0, "a meat gut must not see a leaf as food -- the gene has to change what the animal perceives");
+        // **The original claim, on the floor's own food.** `litter` is
+        // `food_class: -1.0` at 480, so a neutral gut's 0.25 filter reads
+        // 120 -- over the bar of 12 -- and a +0.9 gut's 0.0025 reads 1.2,
+        // under it. The gene changes what the animal perceives.
+        assert_eq!(food_beside_an_ant("litter", 0.0), 1.0, "a generalist must see the litter it is standing next to");
+        assert_eq!(food_beside_an_ant("litter", 0.9), 0.0, "a meat gut must not see plant matter as food -- the gene has to change what the animal perceives");
+
+        // **And round 29's leaf dial, which is the same claim one notch
+        // further along the same axis.**
+        // `Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1:
+        // a *live* leaf is `food_energy: 40`, so the neutral gut's 0.25
+        // reads 10 -- under the bar -- and only a gut walked down to -0.8
+        // (0.81 -> 32.4) sees it at all. Grazing the standing stand is a
+        // niche a lineage evolves into, not the default every colony ships
+        // with, and this is the assertion that says so.
+        assert_eq!(food_beside_an_ant("leaf", 0.0), 0.0, "a live leaf must be marginal at the shipped neutral gut: 40 x 0.25 = 10, under EAT_YIELD_THRESHOLD's 12");
+        assert_eq!(food_beside_an_ant("leaf", -0.8), 1.0, "a plant specialist must see the live leaf a generalist cannot: 40 x 0.81 = 32.4, over the bar");
     }
 
     /// **A colony does not eat itself** — asserted on the predicate, not
@@ -16922,7 +17849,8 @@ mod tests {
             // 2026-09-09: the shipped ant's thorax carries a `Leg` cell one
             // row above its spine, so a one-row gap pinned between leaf
             // above and below cannot hold it.
-            let leaf = w.materials.id_of("leaf").expect("leaf");
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").expect("litter");
             for x in 100..122 {
                 for y in [104, 105, 106, 107, 110] {
                     w.set(x, y, Cell::new(leaf, 0).with_attached(true));
@@ -16988,7 +17916,7 @@ mod tests {
         // to the *filter* can fail this.
         let face = {
             let w = test_world();
-            w.materials.get(w.materials.id_of("leaf").expect("leaf")).food_energy as f64
+            w.materials.get(w.materials.id_of("litter").expect("litter")).food_energy as f64
         };
         // The ratio is now dimensionless: a matched gut absorbs all of what
         // it digests, a half-axis gut a quarter of it. The leaf's face value
@@ -17440,6 +18368,86 @@ mod tests {
         run(&mut w, 1200);
         assert!(w.creature_stats.eats + w.creature_stats.pickups > before, "the ant should have taken the carrion it is standing in");
         assert!(w.organism(ant).is_some(), "and should not have starved doing it");
+    }
+
+    /// **Round 29, Brief 1 -- the price of a seed the mouth did not
+    /// destroy, measured at the call site rather than argued.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The bite
+    /// verb is a *pickup*, so what a seed is worth to the animal is the
+    /// `unit` that lands in its `Crop`; that is the quantity asserted here.
+    ///
+    /// **Two arms in one test, and the second is the positive control the
+    /// brief asks for by name**: at `seed_provision_fraction: 1.0` the
+    /// identical run must pay the seed's whole face value, so a green on the
+    /// first arm is evidence about the multiply and not about the
+    /// scaffolding. Both arms set `seed_gut_survival: 1.0`, which makes
+    /// every bare-seed bite a survival and takes the roll out of the
+    /// comparison entirely.
+    #[test]
+    fn a_carried_bare_seed_pays_only_its_provision() {
+        let seed_face = {
+            let w = test_world();
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            w.materials.get(seed_mat).food_energy
+        };
+        let run_arm = |fraction: f32| -> (f32, u64, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let grass = w.species.id_of("grass").expect("grass species must be loaded");
+            w.species.get_mut(grass).seed_gut_survival = 1.0;
+            w.species.get_mut(grass).seed_provision_fraction = fraction;
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            // A floor of bare grass seed for the ant to walk into. Each is a
+            // one-cell organism wearing `CellType::Seed` -- exactly what the
+            // bed's own waiting seed bank is made of.
+            for x in 98..108 {
+                let id = w.push_organism(grass).expect("an organism slot is free");
+                w.set(x, 100, Cell::new(seed_mat, 0).with_organism_id(id).with_aux(organism::pack_cell_type(CellType::Seed)));
+            }
+            let ant = spawn(&mut w, "ant", 95, 100);
+            // **Sampled every frame, not read at the end, and that is the
+            // whole of what the first version got wrong**: an ant digests or
+            // puts down what it picked up, so a crop read 1,200 frames later
+            // is empty far more often than not and the test failed with
+            // `unit = NaN` -- a scene error wearing an assertion failure
+            // (`CLAUDE.md`, *a scene that contradicts the code will look like
+            // a bug in the code*). The quantity this test is named for is
+            // what a seed is worth *when it is taken*, so the first crop the
+            // animal ever holds is the right sample and every later one is a
+            // different question.
+            let mut first_unit = f32::NAN;
+            for _ in 0..1200 {
+                run(&mut w, 1);
+                if first_unit.is_nan() {
+                    if let Some(u) = w.organism(ant).and_then(|st| st.crop).map(|c| c.unit) {
+                        first_unit = u;
+                    }
+                }
+            }
+            (first_unit, w.bare_seeds_spared, w.bare_seeds_carried)
+        };
+
+        let (unit_quarter, spared_q, carried_q) = run_arm(0.25);
+        assert!(spared_q > 0, "the ant never bit a bare seed at all -- what this arm measured is the scene, not the price");
+        assert!(carried_q > 0, "a spared bare seed never became a passenger: the it-fired counter moved and the effect counter did not");
+        assert!(
+            (unit_quarter - seed_face * 0.25).abs() < 0.01,
+            "a bare seed spared at provision 0.25 must enter the crop at a quarter of its {seed_face} J face, not {unit_quarter}"
+        );
+
+        let (unit_whole, spared_w, carried_w) = run_arm(1.0);
+        assert!(spared_w > 0 && carried_w > 0, "the control arm must reach the same code path, or it controls nothing");
+        assert!(
+            (unit_whole - seed_face).abs() < 0.01,
+            "the positive control: at provision 1.0 the carriage is free and the crop must hold the whole {seed_face} J, not {unit_whole}"
+        );
     }
 
     #[test]
@@ -18254,7 +19262,8 @@ mod tests {
             // and below cannot hold it at all -- the same shape as `a_
             // wide_body_cannot_enter_a_one_cell_tunnel...`.
             Larder::Unlimited => {
-                let leaf = w.materials.id_of("leaf").expect("leaf");
+                // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+                let leaf = w.materials.id_of("litter").expect("litter");
                 for x in 100..122 {
                     for y in [104, 105, 106, 107, 110] {
                         w.set(x, y, Cell::new(leaf, 0).with_attached(true));
@@ -20710,7 +21719,8 @@ mod tests {
                 w.set(x, 101, Cell::new(material::STONE, 0));
             }
             let ant = spawn(&mut w, "ant", 100, 100);
-            let leaf = w.materials.id_of("leaf").expect("leaf");
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").expect("litter");
             w.set(99, 99, Cell::new(leaf, 0));
             if flower {
                 let f = w.materials.id_of("flower").expect("flower");

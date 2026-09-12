@@ -115,7 +115,23 @@ pub struct Sample {
     pub mound_bare: usize,
 }
 
-fn is_waiting_seed(world: &World, state: &organism::OrganismState) -> bool {
+fn is_waiting_seed(world: &World, id: u16, state: &organism::OrganismState) -> bool {
+    // **A seed riding in an ant's crop is still bank, and owns no cell at
+    // all while it rides** -- round 29, Brief 1. `plant::take_seed_passenger`
+    // lifts the seed's one cell out of the world and keeps the organism live
+    // (`World::carried_seed_organisms`), so the one-cell test below says no
+    // and the passenger would otherwise be counted as a *plant*. One per
+    // carrying ant, and wrong in the direction that flatters the seed-cargo
+    // build, which is why it is closed here rather than noted.
+    //
+    // **This survived a file move**: the census body moved out of
+    // `examples/latecensus.rs` into this module on the same day the rule was
+    // added, and the version that moved was the one without it. Taking the
+    // moved side wholesale would have put every passenger back in the plant
+    // column without a single test going red.
+    if world.is_carried_seed(id) {
+        return true;
+    }
     state.cells.len() == 1
         && state
             .cells
@@ -135,7 +151,7 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
         let Some(state) = world.organism(id) else { continue };
         if world.species.get(state.species).creature.is_some() {
             s.ants += 1;
-        } else if is_waiting_seed(world, state) {
+        } else if is_waiting_seed(world, id, state) {
             s.seed_bank += 1;
         } else {
             s.plants += 1;
