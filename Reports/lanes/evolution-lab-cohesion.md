@@ -12,52 +12,28 @@ exchanges odour with the nearest one (`creature::blend_with_nest`), a
 trophallaxis contact does the same between two ants, and each site's own
 odour wanders once per 1,000 frames. `ant.ron` ships `scent_drift: 0.15`.
 
-## What not to re-derive
+## What not to re-derive — B1, landed as #347
 
-**The odour half works, measured, and is strong.** At `scent_drift = 1.0` —
-nearly seven times the shipped width, the whole population replaced every
-generation, 500 generations — every ant stays within **0.123** of its nest's
-odour against a tolerance radius of 1.0. With the blend removed the same bed
-spreads to **3.36**, the whole axis. At the shipped 0.15 over ten generations
-(a session) the cloud is **0.0153** and nothing mints. The derivation in §5
-(`0.072 * |u|` after 25 contacts) predicted 0.125 and measured 0.1233; the
-arithmetic is sound and does not need re-checking.
+Full account and numbers: PR #347 and `../evolution-lab-fission-design-2026-09-12.md`.
+The four findings a later session would otherwise pay for again:
 
-**`TRAIT_TOLERANCE` drifts at `scent_drift` too, and cohesion does not blend
-it.** `SCENT_SIDE_SLOTS` is four slots — the three odour axes *and* tolerance
-— so §1's claim that *no setting of `scent_drift` can make a cohered nest eat
-itself* holds for the **odour** and not for the **allele that judges it**. At
-drift 1.0 over 500 generations an individual's tolerance random-walks to the
-bottom of its axis and it reads its own sisters as strangers: measured 911
-ant-generations at a radius under 0.3, and three mints. This is not a defect
-of cohesion and it is arguably selection working. It is out of scope to
-"fix", and blending tolerance would erase the deliberate asymmetry
-`TRAIT_TOLERANCE`'s own doc is built on (a tolerant ant walks up to an
-intolerant one). **At the shipped dial and a session's depth it does not
-arise at all.** Register it; do not tune it.
-
-**§3's divergence arithmetic is a free-nest calculation, and the residents
-damp it.** `gamma * s + beta * G` is conserved by the exchange, so a wander
-step of `sigma` applied to the site alone relaxes to
-`sigma * beta / (gamma * n + beta)` once `n` at-nest contacts have been paid.
-Measured on a six-ant bed over 120 epochs: median gap **0.580** where §3 says
-1.01. At the played bed's forty ants the factor is about a ninth, which is a
-wander that does nothing at all — and **no setting of sigma repairs it**,
-because the scale needed saturates the `[-1, 1]` allele axis and the walk
-stops being diffusive.
-
-**The repair that landed: the wander moves the gestalt, not the substrate.**
-`World::carry_nest_wander` adds each site's step to every animal whose
-nearest site it is, once per interval. Two cut-off nests then part at exactly
-§3's `2*n*sigma^2` — median **1.19** over twelve seeds against a radius of
-1.0, with a per-seed spread of **0.27 to 1.95**. That spread is why the guard
-gates an order statistic. Do not "improve" this into a per-site-only wander;
-it was measured and it does not work.
-
-**One ant a thousand frames really does hold two nests together**, and by an
-order of magnitude: every one of twelve seeds came back under **0.18** with a
-single crossing against a cut-off median of 1.19, and family on all twelve.
-Polydomy is the default outcome, as §2 predicted.
+- **Cohesion of the odour works and is strong.** At `scent_drift = 1.0`, 500
+  generations, every ant stays within **0.123** of its nest's odour against a
+  tolerance radius of 1.0; with the blend removed the same bed spreads to
+  **3.36**, the whole axis. The design's `0.072 * |u|` predicted 0.125.
+- **`TRAIT_TOLERANCE` drifts at `scent_drift` too and is deliberately not
+  blended**, so §1's "no setting can make a cohered nest eat itself" holds for
+  the odour and not for the allele that judges it. Blending it would erase the
+  asymmetry `TRAIT_TOLERANCE` is built around. Register, do not tune.
+- **§3's divergence arithmetic is a free-nest calculation**; a nest's own
+  residents anchor it, so a site-only wander relaxes to
+  `sigma * beta / (gamma * n + beta)` — measured median 0.580 where §3 says
+  1.01, and about a ninth of that at forty ants. No sigma repairs it.
+  `World::carry_nest_wander` is the fix: the wander moves the gestalt. **Do
+  not "improve" it back into a per-site-only wander.**
+- **One crossing ant a thousand frames holds two nests together**, every one
+  of twelve seeds under 0.18 against a cut-off median of 1.19. Polydomy is the
+  default outcome.
 
 ## What the owner's verdict added, 2026-09-12
 
@@ -153,3 +129,72 @@ a budded satellite pushes into. `register_nest_site` treats anything within
 purpose — the ground is painted before a founder exists — so a satellite whose
 party carries the parent's odour needs no `bud_scent_offset` plumbing at all:
 the first ant to stand on it seeds it.
+
+## The played-bed baseline shift, 2026-09-12 — it is #347, and it is chaos
+
+**Full account and every number: `../open-bugs-handoff.md` §Z14.** The short
+form, because three lanes were about to build on the wrong reading:
+
+**Attribution confirmed.** A pair on one commit (`c7ee0f40`, seed 1, 500k,
+`RAYON_NUM_THREADS=1`, differing only in a `drift=` argument that defaults to
+the species file) reproduces lane M's "before" and "after" **digit for digit
+on all 21 stops**. #344–#346 are not involved.
+
+**Three mechanisms proposed, all three measured false**: not combat (the
+shipped arm kills **0** of its own at every stop to 500k; the drift-0 arm
+kills 6), not "the colony became strangers" (**0.00%** of pairs not mutually
+family at the frame they part, 0.18% at its worst), and not suppressed
+trophallaxis — which was *this lane's own* hypothesis, and the drifting colony
+turns out to share **179 times per ant against 91**.
+
+**Not the extra random draws either.** A drift of **0.0001** consumes exactly
+the draws 0.15 does and reproduces the drift-0 arm exactly. The draws are not
+the channel; the magnitude is. Nothing reads a scent slot continuously — the
+only consumer is a threshold at radius 1.0 — so a perturbation either flips a
+kin decision somewhere or does nothing at all.
+
+**What it actually is: this bed's 500k trajectory is chaotic and 0.15
+re-rolled it.** Inside the single drift-0 arm, adjacent stops read
+**3,099 → 16**. A system that swings two hundred-fold on its own cannot have
+one trajectory treated as a baseline. **A single-seed 500k run on this bed is
+not a baseline** and cannot be compared across any change that perturbs
+behaviour; use an order statistic over seeds, paired within one binary.
+
+**And a control shorter than the onset proves nothing** (lane M's rule, worth
+repeating): the two arms are identical for the first fifth of a session and
+part at 120,000 frames. Any check to 100,000 would have called #347 inert.
+
+**The shipped value is not this lane's to change** — the owner's design call.
+What 0.15 costs on a bed where the colony leaves its patch is the §Z14 table;
+the alternatives are drift 0, gating `carry_nest_wander`/the blend on
+proximity (costed above), or a nest that follows the colony.
+
+## The fresh baseline on current main, 2026-09-12 — and the dial is inert on it
+
+`latecensus`, `played_bed`, seeds 1–3, 500,000 frames, `sample=20000`,
+`RAYON_NUM_THREADS=1`, on main `a4359300` (which carries seed cargo #342).
+Shipped arm and `drift=0` arm, paired.
+
+| seed | peak ants | extinct at | born | died | starved | killed | arms identical |
+|---|---|---|---|---|---|---|---|
+| 1 | 12 | 420,000 | 86 | 122 | 40 | **82** | 26 of 26 stops |
+| 2 | 12 | 100,000 | 39 | 55 | 18 | **37** | 26 of 26 stops |
+| 3 | 212 | 220,000 | 835 | 872 | 713 | **159** | 26 of 26 stops |
+
+**This replaces the late-game §0 census, which every lane has found unusable.**
+
+Three things it says, none of them small:
+
+- **`scent_drift` is inert on the current trunk.** Every stop of every seed is
+  identical with the dial on and off. The colony never reaches the size where
+  a kin flip has anything to amplify — peak **12** ants on seeds 1 and 2
+  against the **3,182** the same seed 1 reached at `c7ee0f40`. So §Z14's effect
+  is a property of *that* bed, not of the dial, and re-measuring it on this
+  trunk would have found nothing at all.
+- **The colony now dies on every seed**, by 100,000 frames on seed 2. The
+  late-game boom the design was written around is gone from this bed.
+- **Deaths are now mostly KILLINGS, and it is not scent drift.** Seed 1 is 82
+  killed against 40 starved; seed 3 is **159 killed** — which is lane J's own
+  unexplained figure at 500,000 frames — and the `drift=0` arm reads the same
+  159. **Lane J's KILLED channel is excluded from scent drift by direct
+  control**, on the trunk, at the seed and frame count J measured.
