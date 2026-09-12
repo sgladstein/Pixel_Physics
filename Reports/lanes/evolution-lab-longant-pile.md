@@ -95,13 +95,14 @@ both times. The idle **rate** (a legal heading, head unmoved since the last
 stop) reads **74–76%** for the long ant and **75% for the shipped two-cell
 ant**. Then the idle **duration**, longest streak in stops of 900 frames:
 
-| | s1 | s2 | s3 | s4 | s5 | s6 |
+| longest idle-with-room streak, stops | s1 | s2 | s3 | s4 | s5 | s6 |
 |---|---|---|---|---|---|---|
-| long ant, unchanged | 45 | 44 | 68 | 64 | 63 | 65 |
-| long ant, expiry | 62 | 54 | 54 | 61 | 38 | — |
-| **shipped two-cell ant** | **56** | **68** | **62** | — | — | — |
+| long-ant colony, bodies of **3+ cells**, unchanged | 33 | 40 | 68 | 64 | 63 | 56 |
+| ...with the expiry | 62 | 46 | 54 | 49 | 38 | — |
+| **shipped two-cell ant**, all bodies | **56** | **68** | **62** | — | — | — |
 
-p90 **11–17** stops for the long ant against **13–20** for the shipped ant.
+p90 **11–16** stops for those long bodies against **13–20** for the shipped
+ant — if anything the shipped ant's rests run *longer*.
 **The shipped ant rests just as long — 50,000-plus frames in one spot on
 every seed — and nobody has ever reported it**, because two motionless pixels
 read as scenery and a motionless seven-cell body reads as stuck. Nothing
