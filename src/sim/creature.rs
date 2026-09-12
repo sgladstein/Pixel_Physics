@@ -2070,6 +2070,64 @@ pub const PLASTICITY_DEFAULT: f32 = 1.0;
 /// itself**, which is the whole reason drift can finally ship non-zero.
 pub const NEST_BLEND_DEFAULT: f32 = 0.10;
 
+/// **Cells of roofed void per ant at which the urge to dig is half** --
+/// `World::room_target`'s shipped value, and `NestRoom::occupancy`'s target.
+///
+/// **Derived from the census, not chosen.** `examples/latecensus` on the
+/// shipped bed (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0)
+/// reads **306** cells of roofed void at 500,000 frames on seed 1 and **302**
+/// on seed 3. The unfed control -- the same bed with no colony in it -- reads
+/// **26-143**, which is roots eating soil rather than anything dug, so the
+/// chambers a colony actually cuts net to about **220 cells** on both seeds.
+/// Those colonies peaked at **116 ants** (seed 1, frame 180,000) and **495**
+/// (seed 3, frame 200,000). So room per ant at the peak was
+///
+/// * seed 1: 220 / 116 = **1.90 cells**
+/// * seed 3: 220 / 495 = **0.44 cells**
+///
+/// and neither colony ever stopped digging. 2.0 is the top of that observed
+/// range: it puts the half-urge point just above the most room any colony in
+/// the census ever held, so the whole of today's behaviour sits on the steep
+/// part of the curve rather than against a stop. Seed 3 at its peak reads
+/// occupancy **0.82** -- still digging hard, and 495 ants in 220 cells
+/// genuinely is packed -- seed 1 at its peak **0.51**, and a colony that
+/// reached 4 cells an ant would read **0.33**.
+///
+/// **It is a dial, not a balance constant** (owner: *stop balancing, start
+/// exposing*): the lab's ANTS page carries it and
+/// `PIXEL_PHYSICS_LAB_ROOM_TARGET` sets it from a harness.
+pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
+
+/// `World::room_gate`'s shipped value, overridable per run.
+///
+/// **On by default** -- owner's ruling, *ship new behaviours on by default*.
+/// `PIXEL_PHYSICS_LAB_ROOM=off` is the revert and is bit-exact: `sense`
+/// writes the same 5x5 count it always did and `World::step_nest_room` is
+/// never consulted. An env switch rather than two builds, matching
+/// `spoil_kept` and `trophallaxis_enabled` and for the reason `CLAUDE.md`
+/// gives them -- two arms compared inside one run cannot be the stale-binary
+/// failure.
+pub fn room_gate_default() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
+}
+
+/// `World::room_target`'s shipped value, overridable per run with
+/// `PIXEL_PHYSICS_LAB_ROOM_TARGET`. A value that does not parse, or is not
+/// positive, leaves [`ROOM_TARGET_DEFAULT`] standing rather than silently
+/// disabling the gate -- a target of 0 would pin occupancy at 1.0, which is
+/// the saturated input this whole mechanism exists to get away from.
+pub fn room_target_default() -> f32 {
+    static T: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *T.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_LAB_ROOM_TARGET")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(ROOM_TARGET_DEFAULT)
+    })
+}
+
 /// **gamma -- how far the nest steps toward the odour of the ant standing on
 /// it**, per at-nest tick. `World::nest_uptake`'s shipped value.
 ///
@@ -3220,6 +3278,17 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // wiped out and the colony a quarter its size
     // (`Reports/evolution-lab-fission-design-2026-09-12.md` §0).
     if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+        // **How often an animal is standing at its own door**, counted on
+        // the branch that already tested it -- no new scan, for the reason
+        // the cohesion call above gives.
+        //
+        // It is here for control 4 of the room-per-ant build, and it is the
+        // one number that separates the two readings of a falling dig rate.
+        // A colony that digs less because it has room and a colony that digs
+        // less because its ants never get home are the same `digs` column;
+        // they are not the same `at_nest_ticks`. Read beside `deliveries`,
+        // which says the round trip closes at all.
+        world.creature_stats.at_nest_ticks += 1;
         blend_with_nest(world, organism, x, y);
     }
     let sighting = seen.prey;
@@ -3953,7 +4022,57 @@ fn sense(
             }
         }
     }
-    inputs[I::Crowding as usize] = (crowd as f32 / crowd_scale).min(1.0);
+    let density = (crowd as f32 / crowd_scale).min(1.0);
+
+    // **At the nest, the question is room rather than density**, and that is
+    // the whole of this build.
+    //
+    // The 5x5 count above answers "are we packed?" with "yes" and goes on
+    // saying it: measured over a run it reads median 1.000, 1.000, 0.875,
+    // 0.625 with **p90 and max pinned at 1.000 throughout**
+    // (`Reports/dead-ends.md`, the `(Crowding, Dig, 0.6)` entry, 2026-09-02).
+    // At the owner's scale -- five hundred to a thousand ants -- nothing the
+    // colony digs can lower it, because digging a chamber does not move the
+    // ants out of the ant beside you. That entry's own re-test condition (0)
+    // is this line: *an input that never leaves saturation cannot demonstrate
+    // a mechanism about its low end.* `ant.ron`'s units 5 and 6 gate this
+    // input on `AtNest` and drive `Dig` with it, so the gate was asking a
+    // question that was already answered and the colony dug at a flat rate
+    // for ever -- the owner's *a huge mound that never regreens*.
+    //
+    // Room per ant -- the roofed void the nest holds, over the ants in it --
+    // falls as the nest grows, which is the behaviour the mechanism was
+    // always named for. `World::step_nest_room` takes that census; see its
+    // doc for why it is a census and not the pair of counters this was
+    // briefed as.
+    //
+    // **Away from the nest, `Crowding` is untouched.** `ant.ron` also
+    // authors `(Crowding, Move, -0.3)`, which its own comment calls
+    // load-bearing negative feedback (P-12) -- a colony ossifies without it
+    // -- and that weight is read everywhere, not just here. Substituting at
+    // the nest re-points that term at the nest too, which is `CLAUDE.md`'s
+    // *a term in a weighted sum is not an independent knob* and is the exact
+    // shape of the `phototropism_dir` failure. It is not re-derived, and the
+    // reason is that it cannot be cleanly: one weight reads this slot under
+    // two distributions, so scaling it to hold the nest-side term fixed
+    // would break the away-from-nest feedback it exists for. It is bracketed
+    // by measurement instead -- see `Reports/lanes/evolution-lab-room-per-ant.md`
+    // for the ablated arm and what it found.
+    //
+    // **`None` falls back to density rather than to a number.** A nest whose
+    // census has not run yet, or that holds no ant the census could see, has
+    // no room-per-ant -- that is a division with no answer, not a zero, and a
+    // zero here would read as "infinitely packed" and dig hardest exactly
+    // where the instrument is blindest.
+    inputs[I::Crowding as usize] = if world.room_gate && inputs[I::AtNest as usize] > 0.0 {
+        world
+            .nearest_nest_site(x, y)
+            .and_then(|i| world.nest_room.get(i))
+            .and_then(|room| room.occupancy(world.room_target))
+            .unwrap_or(density)
+    } else {
+        density
+    };
 
     // **The distal sense, and the reason E15 exists.** Everything above
     // this line is contact range or a field read; nothing in it reports
@@ -6274,6 +6393,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // excavation ran toward wetter ground by a rule no lineage could alter.
     // It is `(MoistureGrad, Dig, w)` now, with the sign free.
     if draw.unit_f32() < dig_urge {
+        // **Before any of the target tests below**, which is what makes it
+        // the "it fired" half of the pair: a roll counted only once a cell
+        // came out would be `digs` again under another name. See
+        // `CreatureStats::dig_rolls`.
+        world.creature_stats.dig_rolls += 1;
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
@@ -14262,6 +14386,123 @@ mod tests {
         for slot in [brain::BrainInput::PreyNear, brain::BrainInput::PreyBearing, brain::BrainInput::KinNear, brain::BrainInput::KinBearing] {
             assert_eq!(inputs[slot as usize], 0.0, "{slot:?} must read zero for an animal that cannot see");
         }
+    }
+
+    // --- room at the nest ---------------------------------------------------
+
+    /// An ant on a floor with a nest cell beside it, the nest registered, and
+    /// `nest_room` set by hand to a known pair.
+    ///
+    /// **The census is stubbed on purpose.** `world.rs` already proves the
+    /// census counts a known chamber correctly; what this file has to prove
+    /// is the *substitution* -- that the right number reaches the right slot
+    /// under the right condition. Driving both through one scene would make a
+    /// failure in either look like a failure in the other, which is how a
+    /// scene that contradicts the code comes to read as a dead mechanism.
+    fn ant_at_a_nest(roofed: u32, ants: u32) -> (World, u16, CreatureDef, i32) {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant").clone();
+        let nest = w.materials.id_of(&def.nest).expect("the ant's nest material");
+        w.set(101, 101, Cell::new(nest, 0));
+        w.register_nest_site(101, 101, 4);
+        w.nest_room = vec![crate::sim::world::NestRoom { roofed, ants }];
+        (w, ant, def, 100)
+    }
+
+    /// **At the nest the ant is asked about room; everywhere else it is asked
+    /// about density; and with the gate off it is asked what it always was.**
+    ///
+    /// This is the whole of the build in one assertion set, and the three
+    /// arms are three different failures. The off arm is the revert -- if it
+    /// does not read the bare density then `PIXEL_PHYSICS_LAB_ROOM=off` is
+    /// not a revert and every paired measurement taken against it is void.
+    /// The away-from-nest arm is `ant.ron`'s `(Crowding, Move, -0.3)`: that
+    /// weight reads this slot everywhere, and a substitution that leaked past
+    /// the nest would re-point the colony's negative feedback (P-12) without
+    /// anything saying so. The at-nest arm is the mechanism.
+    ///
+    /// Provable red by dropping the `inputs[AtNest] > 0.0` term, by dropping
+    /// the `world.room_gate` term, or by inverting `occupancy`.
+    #[test]
+    fn the_room_gate_changes_the_crowding_slot_only_at_the_nest() {
+        // 220 cells over 110 ants is 2.0 each, which is the shipped target,
+        // so occupancy is exactly a half -- the one point the dial's own note
+        // promises a player.
+        let (mut w, ant, def, x) = ant_at_a_nest(220, 110);
+        w.room_target = ROOM_TARGET_DEFAULT;
+
+        w.room_gate = true;
+        let (at_nest, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(at_nest[brain::BrainInput::AtNest as usize], 1.0, "the scene must actually put the ant at a nest, or this proves nothing");
+        assert!(
+            (at_nest[brain::BrainInput::Crowding as usize] - 0.5).abs() < 1e-5,
+            "at the nest, 2.0 cells an ant against a 2.0 target is half the urge; read {}",
+            at_nest[brain::BrainInput::Crowding as usize]
+        );
+
+        // **The off arm, at the same cell.** A lone ant is crowded by nobody,
+        // so the old input reads a flat zero here -- which is also what makes
+        // this a sharp assertion rather than a coincidence: 0.0 and 0.5 are
+        // not near each other.
+        w.room_gate = false;
+        let (off, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(off[brain::BrainInput::Crowding as usize], 0.0, "with the gate off the slot is the 5x5 count it always was");
+
+        // **Away from the nest, with the gate on.** Same world, a cell the
+        // nest patch does not touch.
+        w.room_gate = true;
+        let (away, _, _) = probe(&w, 150, 100, ant, &def);
+        assert_eq!(away[brain::BrainInput::AtNest as usize], 0.0, "150 is off the patch");
+        assert_eq!(away[brain::BrainInput::Crowding as usize], 0.0, "away from the nest nothing changed, which is what (Crowding, Move, -0.3) depends on");
+    }
+
+    /// **Control 2 of the brief: the input pinned at 1.0 digs as today.**
+    ///
+    /// `occupancy` tends to 1.0 as the target grows, so a very large target
+    /// is the arm in which the *input* is saturated exactly as the old 5x5
+    /// count was, while every line of the new wiring still runs. It separates
+    /// *the input changed* from *the wiring changed* -- if a result survives
+    /// this arm it was never about room in the first place.
+    ///
+    /// The other end is asserted beside it, because a control that can only
+    /// go one way is half a control: a nest with room to spare must read low.
+    #[test]
+    fn a_very_large_room_target_pins_the_input_at_saturation() {
+        let (mut w, ant, def, x) = ant_at_a_nest(220, 110);
+        w.room_gate = true;
+
+        w.room_target = 1.0e6;
+        let (pinned, _, _) = probe(&w, x, 100, ant, &def);
+        assert!(pinned[brain::BrainInput::Crowding as usize] > 0.999, "a huge target is the saturated arm the old input was stuck in");
+
+        w.room_target = 0.01;
+        let (loose, _, _) = probe(&w, x, 100, ant, &def);
+        assert!(loose[brain::BrainInput::Crowding as usize] < 0.01, "and a tiny one is a colony that is never short of room");
+    }
+
+    /// **A nest the census cannot speak for falls back to density, not to
+    /// zero.**
+    ///
+    /// Room per ant is a division, and a nest with no ants in it has no
+    /// answer rather than an answer of zero. Zero would read as *infinitely
+    /// roomy* -- occupancy 1.0 at any target -- so the colony would dig
+    /// hardest exactly where the instrument is blindest, which is the failure
+    /// mode of every null that looks like a result. The same arm covers the
+    /// first 256 frames of any run, before the census has fired at all.
+    #[test]
+    fn a_nest_the_census_cannot_speak_for_reads_density() {
+        let (mut w, ant, def, x) = ant_at_a_nest(0, 0);
+        w.room_gate = true;
+        w.room_target = ROOM_TARGET_DEFAULT;
+        let (blind, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(blind[brain::BrainInput::Crowding as usize], 0.0, "no ants counted is no answer, so the slot keeps its old meaning");
+
+        // ...and the census having no record at all, which is the world's
+        // state before the first cadence.
+        w.nest_room.clear();
+        let (early, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(early[brain::BrainInput::Crowding as usize], 0.0, "before the first census the slot is the old input, not a guess");
     }
 
     #[test]

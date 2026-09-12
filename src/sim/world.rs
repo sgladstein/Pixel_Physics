@@ -797,6 +797,85 @@ pub struct NestSite {
     pub drift_epoch: u64,
 }
 
+/// **How often the nest-room census runs**, in frames.
+///
+/// The census is a read-only column sweep of the bed (`step_nest_room`), so
+/// unlike `NEST_SCENT_INTERVAL` above this is a *cost* interval rather than a
+/// rate anything is quoted against: nothing is integrated over it and a
+/// missed epoch is not caught up, because the answer is a standing count and
+/// not a sum. 256 puts the amortised cost at about 640 cells a frame on the
+/// 512x320 bed -- a fraction of a percent of the sweep -- while the quantity
+/// it tracks (a colony's standing void) moves by single cells per dig.
+pub const ROOM_INTERVAL: u64 = 256;
+
+/// **How far above a void cell ground may stand and still roof it**, in cells.
+///
+/// A chamber's roof is the soil directly over it, so what this has to
+/// separate is a chamber from a shaft mouth -- and in the lab's own bed those
+/// are 1 row and about 160 rows respectively, since the box is 96 rows of
+/// soil under 160 of air. **It is therefore not a tuned number and is not a
+/// dial**, and `the_roof_reach_is_not_a_tuned_number` sweeps it to show that:
+/// every value from **3 to 150** gives the same answer on this bed.
+///
+/// **Both ends of that range are set by the box rather than by taste, and
+/// they are worth stating because they are what would move it.** Below it the
+/// reach must clear the tallest void a colony cuts, or the *floor* of a tall
+/// chamber stops counting as room -- at a reach of 2 the sweep reads 6 of a
+/// 3-row chamber's 9 cells, which is the rule working and not a bug. Above it
+/// the reach must stay under the sky, or the sealed lid roofs the bed. A
+/// colony that dug a 20-row hall, or a box with a low ceiling, would need
+/// this re-derived; nothing else would. It is here so the rule has a name,
+/// not so it can be moved.
+///
+/// This is the local form of `examples/latecensus.rs`'s own `covered` rule.
+/// That one asks whether a *column* holds ground near the original surface;
+/// this one asks whether *this cell* has ground close above it. They agree on
+/// a chamber and on a pit, which is what the selftest checks.
+pub const ROOF_REACH: i32 = 16;
+
+/// **One nest's standing room** -- the roofed void around it, and the ants in
+/// it. `World::nest_room`, parallel to `World::nest_sites`.
+///
+/// **Keyed by nest site rather than by colony**, which is a refinement of the
+/// brief this was built from and is what the engine already models: a nest is
+/// a *place* (see `NestSite`), and the question the dig gate asks -- "does
+/// this colony have room" -- is asked by an ant standing at one particular
+/// patch. Two nests of one colony are two answers, not an average, which is
+/// also the shape the fission design needs.
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub struct NestRoom {
+    /// Void below the original ground datum with ground within `ROOF_REACH`
+    /// directly above it, in the columns nearest this nest.
+    pub roofed: u32,
+    /// Live creature organisms whose head is nearest this nest.
+    pub ants: u32,
+}
+
+impl NestRoom {
+    /// Cells of roofed void per ant -- `None` while the nest holds no ants,
+    /// which is a division that has no answer rather than a zero.
+    pub fn room_per_ant(&self) -> Option<f32> {
+        (self.ants > 0).then(|| self.roofed as f32 / self.ants as f32)
+    }
+
+    /// **How packed this nest is, on 0..1, with more room reading lower** --
+    /// `target / (target + room_per_ant)`.
+    ///
+    /// A hyperbola rather than a clamped linear ramp for the reason the
+    /// mechanism exists at all: `BrainInput::Crowding`'s 5x5 count is pinned
+    /// at 1.000 through a whole run (`Reports/dead-ends.md`, the
+    /// `(Crowding, Dig, 0.6)` entry), and *an input that never leaves
+    /// saturation cannot demonstrate a mechanism about its low end*. This
+    /// form saturates at neither end: it is 1.0 only at literally zero room
+    /// and reaches 0 only in the limit, so every colony the census has ever
+    /// seen sits somewhere on its slope. `target` is where it reads 0.5,
+    /// which is what makes the dial mean something a player can say out loud.
+    pub fn occupancy(&self, target: f32) -> Option<f32> {
+        let room = self.room_per_ant()?;
+        (target > 0.0).then(|| target / (target + room.max(0.0)))
+    }
+}
+
 /// Per-verb creature counters. Printed beside every scene.
 ///
 /// `trips_completed` is the one that proves the *loop* rather than its
@@ -950,6 +1029,30 @@ pub struct CreatureStats {
     /// approximation.
     pub digested_face: f64,
     pub pickups: u64,
+    /// **How many times an animal rolled the dig gate and won** -- the "it
+    /// fired" counter, and `digs` below is the effect counter from the far
+    /// side of the same call.
+    ///
+    /// The pair is not decoration. `CLAUDE.md`: *pair every "it fired"
+    /// counter with an effect counter from the far side of the call* -- a
+    /// clean counter-based negative in this engine once turned out to be
+    /// **23 swings removing 0 cells**, every one landing in soil the animal
+    /// could not cut. A `dig_rolls` climbing while `digs` holds still is a
+    /// colony swinging at rock; the two moving together is a colony
+    /// excavating. Neither number can say that alone, and this build is
+    /// judged on exactly that ratio -- the claim is *digs per ant fall
+    /// because the colony stops wanting to*, and the way that claim goes
+    /// wrong is the colony still wanting to and merely failing.
+    pub dig_rolls: u64,
+    /// **Creature ticks taken standing at a nest.** Not a rate and not a
+    /// population: a tick count, so it rides the colony's size and its tick
+    /// interval together and is only ever read as a ratio or against a
+    /// paired arm.
+    ///
+    /// The reason it exists is that `digs` falling has two readings and this
+    /// tells them apart -- the colony stopped wanting to dig, or the colony
+    /// stopped reaching the nest to dig at. See its increment site.
+    pub at_nest_ticks: u64,
     pub digs: u64,
     /// **What those digs cost**, in joules, and the far side of the counter
     /// above.
@@ -2212,6 +2315,32 @@ pub struct World {
     /// a branch `BrainInput::AtNest` had already taken.
     /// `Reports/evolution-lab-fission-design-2026-09-12.md` §1.
     pub nest_sites: Vec<NestSite>,
+    /// **What each nest in `nest_sites` holds** -- same length, same order,
+    /// rebuilt every `ROOM_INTERVAL` frames by `step_nest_room`.
+    ///
+    /// Empty in a world with no nest, which is every outdoor world, and that
+    /// is the branch the census returns on before touching a cell.
+    pub nest_room: Vec<NestRoom>,
+    /// **Whether an ant at the nest reads room rather than density.**
+    ///
+    /// On by default (owner: *ship new behaviours on by default*).
+    /// `PIXEL_PHYSICS_LAB_ROOM=off` is the revert, and it is bit-exact: with
+    /// this false, `creature::sense` writes the same 5x5 count into
+    /// `BrainInput::Crowding` it always has and nothing else in this file is
+    /// reached at all.
+    pub room_gate: bool,
+    /// **Cells of roofed void per ant at which the urge to dig is half** --
+    /// `NestRoom::occupancy`'s `target`. `creature::ROOM_TARGET_DEFAULT`.
+    pub room_target: f32,
+    /// **The top-of-ground row per column, frozen on the first census** --
+    /// this census's own datum, and not `World::ground_datum`.
+    ///
+    /// Why not that one is `room_surface`'s doc, and it is a measurement: the
+    /// lab bed marks the whole box underground, so `ground_datum` reads 0 in
+    /// every column and the sealed lid roofs the sky. Frozen once and early,
+    /// for the reason `freeze_ground_datum` itself gives: by the first census
+    /// the bed has been built and almost nothing has been dug.
+    room_datum: Vec<i32>,
     /// **beta: how far an at-nest ant steps toward the nest's odour**, per
     /// at-nest tick. `creature::NEST_BLEND_DEFAULT` (0.10): a newborn enters
     /// at the nest's odour plus its birth drift, and 25 at-nest contacts a
@@ -4168,6 +4297,10 @@ impl World {
             next_colony: 1,
             colony_parents: Vec::new(),
             nest_sites: Vec::new(),
+            nest_room: Vec::new(),
+            room_gate: creature::room_gate_default(),
+            room_target: creature::room_target_default(),
+            room_datum: Vec::new(),
             nest_blend: creature::NEST_BLEND_DEFAULT,
             nest_uptake: creature::NEST_UPTAKE_DEFAULT,
             nest_scent_drift: creature::NEST_SCENT_DRIFT_DEFAULT,
@@ -5552,6 +5685,179 @@ impl World {
                 dx * dx + dy * dy
             })
             .map(|(i, _)| i)
+    }
+
+    /// **Take the standing room census**, once per [`ROOM_INTERVAL`] frames.
+    ///
+    /// In `begin_step` beside `step_nest_scents`, and for that function's
+    /// reason: both drivers and every harness that ticks a world get it, and
+    /// it adds no phase for the tick-sequence hash to notice. **A world with
+    /// no nest returns on the first line**, so the outdoor game pays a
+    /// `Vec::is_empty` per frame and nothing else -- `CLAUDE.md`'s rule about
+    /// guarding hot-path work at the call site that already holds the data.
+    ///
+    /// # Why this is a census and not a pair of counters
+    ///
+    /// The obvious build is to bump a counter in the dig verb and the dump
+    /// verb and never scan anything. **It cannot track this quantity**, and
+    /// the engine says so rather than the design: soil is a `Powder`, so
+    /// galleries collapse and refill on their own, and the spoil drop's own
+    /// predicate (`creature::act`) requires `SPOIL_HEADROOM` of clear air
+    /// above the pellet, so a pellet essentially never lands in a roofed
+    /// cell and the dump would be close to a no-op on the counter. Measured
+    /// on the shipped bed (`Reports/evolution-lab-late-game-design-2026-09-12.md`
+    /// §0): seed 1 logs **1,969 digs** over 500,000 frames and stands at
+    /// **306 roofed + 116 pit**; seed 3 logs **6,109** and stands at
+    /// **302 + 40**. A digs-minus-dumps counter would read five to eighteen
+    /// times the standing void. That is not drift to be corrected, it is a
+    /// different quantity.
+    ///
+    /// # What it counts
+    ///
+    /// Void *below the original ground datum* with ground within
+    /// [`ROOF_REACH`] directly above it, attributed by column to the nearest
+    /// nest; and live creature organisms, attributed by head to the nearest
+    /// nest. The datum is what stops the sealed lab lid roofing the 160 rows
+    /// of air under it -- see `room_datum`.
+    /// `pub` rather than `pub(crate)`, unlike `step_nest_scents` beside it,
+    /// because `examples/latecensus.rs`'s selftest calls it: that harness is
+    /// the positive control for this census, and a control that can only
+    /// exercise a hand-set record proves the arithmetic while a disconnected
+    /// census passes underneath it.
+    pub fn step_nest_room(&mut self) {
+        if self.nest_sites.is_empty() {
+            self.nest_room.clear();
+            return;
+        }
+        // Recount on the cadence, and also whenever the list has changed
+        // length under us -- a nest painted between two censuses would
+        // otherwise index past the end of a stale `nest_room` for up to
+        // `ROOM_INTERVAL` frames, and `sense` reads this by index.
+        if !self.frame.is_multiple_of(ROOM_INTERVAL) && self.nest_room.len() == self.nest_sites.len() {
+            return;
+        }
+        let Some(b) = self.bounds else {
+            self.nest_room = vec![NestRoom::default(); self.nest_sites.len()];
+            return;
+        };
+        self.freeze_room_datum(b);
+        let mut rooms = vec![NestRoom::default(); self.nest_sites.len()];
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some(&(hx, hy)) = state.chain.first() else { continue };
+            if let Some(i) = self.nearest_nest_site(hx, hy) {
+                rooms[i].ants += 1;
+            }
+        }
+        for x in b.min_x..=b.max_x {
+            // **By column, in x only.** A nest's chambers spread sideways
+            // from its shaft, so the column is the natural unit and it is
+            // also what `latecensus`'s own band metric uses; attributing
+            // per cell by true distance would put the floor of one nest's
+            // deep gallery in its neighbour's account.
+            let Some(site) = self
+                .nest_sites
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, s)| ((s.x - x) as i64).abs())
+                .map(|(i, _)| i)
+            else {
+                continue;
+            };
+            rooms[site].roofed += self.roofed_in_column(b, x, ROOF_REACH);
+        }
+        self.nest_room = rooms;
+    }
+
+    /// **Roofed void in one column** -- the inner loop of
+    /// [`Self::step_nest_room`], with the reach as an argument.
+    ///
+    /// Split out **so the reach can be swept**, which is the only way to
+    /// support [`ROOF_REACH`]'s claim that it is a named rule rather than a
+    /// tuned number: `the_roof_reach_is_not_a_tuned_number` runs this over
+    /// two decades of it on a bed with a chamber and a shaft and asserts the
+    /// answer does not move. `CLAUDE.md`'s *check that a guard's inputs
+    /// actually vary what it guards*, applied to a constant instead.
+    fn roofed_in_column(&self, b: Rect, x: i32, reach: i32) -> u32 {
+        let Some(datum) = self.room_surface(b, x) else { return 0 };
+        let mut roofed = 0;
+        let mut since_ground = reach + 1;
+        for y in (datum - reach).max(b.min_y)..=b.max_y {
+            let cell = self.get(x, y);
+            let kind = self.materials.kind(cell.material);
+            // **The same three conditions `latecensus` calls `is_ground`** --
+            // a plant stem or an ant standing in a gallery is not a roof, and
+            // neither is water.
+            if cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0
+            {
+                since_ground = 0;
+                continue;
+            }
+            since_ground = since_ground.saturating_add(1);
+            if y >= datum && since_ground <= reach && cell.material == material::EMPTY {
+                roofed += 1;
+            }
+        }
+        roofed
+    }
+
+    /// Roofed void over the whole box at an arbitrary reach -- the sweep
+    /// handle for `the_roof_reach_is_not_a_tuned_number`, and nothing in
+    /// production calls it.
+    #[cfg(test)]
+    pub(crate) fn roofed_void_at_reach(&mut self, reach: i32) -> u32 {
+        let Some(b) = self.bounds else { return 0 };
+        self.freeze_room_datum(b);
+        (b.min_x..=b.max_x).map(|x| self.roofed_in_column(b, x, reach)).sum()
+    }
+
+    /// The original top-of-ground row for column `x`.
+    ///
+    /// **`World::ground_datum` is deliberately not consulted, and that was
+    /// measured rather than assumed.** The obvious build reads it where
+    /// worldgen has built one and falls back otherwise; in the lab it is
+    /// built *and wrong*. `freeze_ground_datum` walks up each column while
+    /// `was_underground` holds, and the hand-built bed marks the whole box
+    /// underground -- so the datum is **0 in all 512 columns** (measured
+    /// 2026-09-12 on `played_bed`, `distinct=1`). Read as a surface that puts
+    /// the sealed lid one row above the "ground", and the 16 rows of sky
+    /// under it become chambers: the census read **8,544 cells of roofed void
+    /// against `latecensus`'s 26**, a 330x overcount that every unit test
+    /// passed straight through, because the test box has no lid at row 0 and
+    /// no grow lamps. One datum, built here, for every world.
+    fn room_surface(&self, b: Rect, x: i32) -> Option<i32> {
+        self.room_datum.get((x - b.min_x) as usize).copied().filter(|d| *d != i32::MAX)
+    }
+
+    /// **Freeze a top-of-ground row per column, once**, for the boxes
+    /// `freeze_ground_datum` cannot serve. See `room_datum`.
+    fn freeze_room_datum(&mut self, b: Rect) {
+        if !self.room_datum.is_empty() {
+            return;
+        }
+        self.room_datum = (b.min_x..=b.max_x)
+            .map(|x| {
+                for y in b.min_y..=b.max_y {
+                    let cell = self.get(x, y);
+                    if cell.material != material::EMPTY
+                        && matches!(self.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid)
+                        && cell.organism_id() == 0
+                        // **Past the lid.** The first solid in a sealed box is
+                        // the box, not the bed, so the scan starts below any
+                        // ground that is still within `ROOF_REACH` of the top.
+                        && y > b.min_y + ROOF_REACH
+                    {
+                        return y;
+                    }
+                }
+                i32::MAX
+            })
+            .collect();
     }
 
     /// **Walk every nest's own odour**, once per `NEST_SCENT_INTERVAL`
@@ -7655,6 +7961,11 @@ impl World {
         // `frame_step_matches_the_sequence_app_update_ran_before_extraction`
         // holds is untouched. A box with no nest returns on the first line.
         self.step_nest_scents();
+        // **And what each nest holds**, once per `ROOM_INTERVAL` frames, here
+        // for `step_nest_scents`' reason above -- both drivers, every
+        // harness, no new phase. A box with no nest returns on the first
+        // line, so the outdoor game pays one `Vec::is_empty` a frame.
+        self.step_nest_room();
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this
@@ -8838,6 +9149,178 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 127, 127))
+    }
+
+    // --- the nest-room census -----------------------------------------------
+
+    /// The lab's own proportions: a sealed lid, 160 rows of air, then a bed
+    /// of soil. Those numbers are not decoration -- the air column is what
+    /// makes a shaft mouth unmistakably *not* a roof, and a test bed with a
+    /// shallow sky would prove something the shipped box does not do.
+    const BED_SURFACE: i32 = 160;
+
+    /// A sealed box with one nest, built to the lab's proportions and with
+    /// the room datum already frozen against the intact bed -- which is what
+    /// happens in a real run, where the first census fires at frame 256 with
+    /// almost nothing dug.
+    fn bedded_box() -> World {
+        let mut w = World::new(Rect::new(0, 0, 63, 255));
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 0..64 {
+            w.set(x, 0, Cell::new(material::STONE, 0));
+            w.set(x, 255, Cell::new(material::STONE, 0));
+            for y in BED_SURFACE..255 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for y in 0..256 {
+            w.set(0, y, Cell::new(material::STONE, 0));
+            w.set(63, y, Cell::new(material::STONE, 0));
+        }
+        w.register_nest_site(32, BED_SURFACE, 8);
+        w.step_nest_room();
+        w
+    }
+
+    /// Carve `wide` x `high` of void with its top-left at `(x, y)`.
+    fn carve(w: &mut World, x: i32, y: i32, wide: i32, high: i32) {
+        for dy in 0..high {
+            for dx in 0..wide {
+                w.set(x + dx, y + dy, Cell::EMPTY);
+            }
+        }
+    }
+
+    /// **A chamber of known size reads its own size, and a shaft reads
+    /// nothing.**
+    ///
+    /// `CLAUDE.md`'s *ask what your number counts when nothing is wrong*, and
+    /// the half that rule was missing: the intact bed is the specificity
+    /// control (a box nobody has dug must read zero room), the chamber is the
+    /// sensitivity control (a known nine cells must read nine), and the shaft
+    /// is the one that separates this census from the metric trap the
+    /// excavation work already paid for -- *a hole open to the sky is not a
+    /// room*.
+    ///
+    /// Provable red by dropping the `y >= datum` term (the sky above the bed
+    /// starts counting), by dropping the `since_ground <= reach` term (the
+    /// shaft counts), or by letting `freeze_room_datum` start at `b.min_y`
+    /// (the lid roofs the whole sky).
+    #[test]
+    fn a_known_chamber_reads_its_own_size_and_a_shaft_reads_none() {
+        let mut w = bedded_box();
+        assert_eq!(w.nest_room.len(), 1, "one nest, one room record");
+        assert_eq!(w.nest_room[0].roofed, 0, "an intact bed nobody has dug holds no room at all");
+
+        // A 3x3 chamber, ten rows under the surface and roofed by the soil
+        // above it -- `latecensus`'s own selftest geometry.
+        carve(&mut w, 20, BED_SURFACE + 10, 3, 3);
+        w.frame = ROOM_INTERVAL;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a 3x3 chamber under intact soil is nine cells of room");
+
+        // A shaft from the surface down is void, and is not room: it is open
+        // to the sky, which is the distinction the whole metric turns on.
+        carve(&mut w, 40, BED_SURFACE, 1, 12);
+        w.frame = ROOM_INTERVAL * 2;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a shaft open to the sky is a pit, not a chamber -- the count must not have moved");
+
+        // **A hollow inside the mound is not room either**, and this case is
+        // here because the term that excludes it -- `y >= datum` -- stayed
+        // green through its own red-check without it. `CLAUDE.md`: if a guard
+        // does not go red for the fault it is named for it is blind, not
+        // weak. The loop already starts a reach above the datum, so nothing
+        // in the open sky can reach this; what can is exactly what this build
+        // produces, a cemented spoil heap standing over the nest with gaps in
+        // it. `latecensus` draws the same line -- above the original surface
+        // is `mound`, never `roofed`.
+        let soil = w.materials.id_of("soil").expect("soil");
+        w.set(25, BED_SURFACE - 5, Cell::new(soil, 0));
+        w.set(25, BED_SURFACE - 3, Cell::new(soil, 0));
+        w.frame = ROOM_INTERVAL * 3;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a gap inside a spoil heap is not a chamber -- the count must not have moved");
+
+        // ...and widening the chamber moves it, which is the control that
+        // says the number is capable of moving at all.
+        carve(&mut w, 20, BED_SURFACE + 10, 6, 3);
+        w.frame = ROOM_INTERVAL * 4;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 18, "twice the chamber is twice the room");
+    }
+
+    /// **`ROOF_REACH` is a named rule, not a tuned number** -- the answer
+    /// does not move across two decades of it.
+    ///
+    /// This is the claim `ROOF_REACH`'s own doc makes, and a constant whose
+    /// doc says "any value in this range would do" is worth exactly as much
+    /// as the sweep that shows it. `CLAUDE.md`'s *check that a guard's inputs
+    /// actually vary what it guards*, pointed at a constant.
+    ///
+    /// The upper end is set by the box, not by taste: the lab's sky is 160
+    /// rows, so a reach past that would let the lid roof the bed and the
+    /// answer *would* move. That is the rule working, not a limit on it.
+    #[test]
+    fn the_roof_reach_is_not_a_tuned_number() {
+        let mut w = bedded_box();
+        carve(&mut w, 20, BED_SURFACE + 10, 3, 3);
+        carve(&mut w, 40, BED_SURFACE, 1, 12);
+        let readings: Vec<u32> = (3..=150).map(|r| w.roofed_void_at_reach(r)).collect();
+        assert!(
+            readings.iter().all(|&r| r == 9),
+            "the chamber is nine cells at every reach from 3 to 150; got {:?}..{:?}",
+            &readings[..4],
+            &readings[readings.len() - 4..]
+        );
+        // **And the two ends that do move it, asserted rather than asserted
+        // away.** A range quoted without its edges is a claim nobody can
+        // check: below the chamber's own height its floor stops counting,
+        // and past the sky the lid roofs the whole bed.
+        assert_eq!(w.roofed_void_at_reach(2), 6, "a reach shorter than the chamber loses its floor -- the rule working, not a bug");
+        assert!(
+            w.roofed_void_at_reach(BED_SURFACE + 4) > 9,
+            "a reach past the sky lets the sealed lid roof the bed, which is why this is bounded above"
+        );
+    }
+
+    /// **Room per ant is the arithmetic, and occupancy crosses a half at the
+    /// target.**
+    ///
+    /// The pure half of control 3: the census above proves the numerator is
+    /// counted right, this proves the division and the curve are what the
+    /// dial's note promises a player. The three points are the ones quoted in
+    /// `creature::ROOM_TARGET_DEFAULT`'s derivation, so if that derivation is
+    /// ever rewritten this fails and asks for it.
+    #[test]
+    fn room_per_ant_and_occupancy_are_the_arithmetic() {
+        assert_eq!(NestRoom { roofed: 0, ants: 0 }.room_per_ant(), None, "no ants is a division with no answer, not a zero");
+        assert_eq!(NestRoom { roofed: 220, ants: 110 }.room_per_ant(), Some(2.0));
+
+        let at = |roofed: u32, ants: u32| NestRoom { roofed, ants }.occupancy(crate::sim::creature::ROOM_TARGET_DEFAULT).expect("ants");
+        assert!((at(220, 110) - 0.5).abs() < 1e-6, "the target is where the urge is half, by definition");
+        // Seed 3 at its 200,000-frame peak: 220 cells, 495 ants.
+        assert!((at(220, 495) - 0.82).abs() < 0.01, "a packed colony still reads high");
+        // Seed 1 at its 180,000-frame peak: 220 cells, 116 ants.
+        assert!((at(220, 116) - 0.51).abs() < 0.01, "the roomiest colony the census ever saw sits near the middle");
+        // Twice the target's room.
+        assert!((at(220, 55) - 0.33).abs() < 0.01, "a colony with room to spare reads low");
+        // **Neither end saturates**, which is the whole point of the build:
+        // the input it replaces was pinned at 1.000 for a whole run.
+        assert!(at(100_000, 1) < 0.01 && at(0, 500) > 0.99, "the curve reaches both ends only in the limit");
+    }
+
+    /// **A world with no nest pays nothing and reads nothing.**
+    ///
+    /// The outdoor game is every world that never founds a colony, and the
+    /// census must not so much as look at a cell there. Provable red by
+    /// moving the `nest_sites.is_empty()` return below the sweep.
+    #[test]
+    fn a_world_with_no_nest_takes_no_census() {
+        let mut w = test_world();
+        w.step_nest_room();
+        assert!(w.nest_room.is_empty(), "no nest, no room record");
+        assert!(w.ground_datum().is_empty() && w.room_datum.is_empty(), "and no datum frozen, because no column was read");
     }
 
     /// **The log says how much of the story it threw away.**

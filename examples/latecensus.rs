@@ -127,6 +127,19 @@ struct Sample {
     outside_cols: usize,
     plant_cells_in_band: usize,
     plant_cells_outside: usize,
+    /// **Columns whose surface stands above the original ground** -- the
+    /// anthill itself, as a footprint.
+    mound_cols: usize,
+    /// ...of those, the ones carrying no plant cell in the four rows above
+    /// that surface.
+    ///
+    /// **The per-column `bare_in_band` above cannot answer "is the anthill
+    /// green", and this is why it gets its own pair.** A column is "not bare"
+    /// to that metric if a plant stands anywhere in it, floor to lid -- so a
+    /// seedling at the foot of a mound marks the whole column vegetated while
+    /// the cemented slope above it is bare rock. `CLAUDE.md`'s *ask what your
+    /// number counts*, landing on the one question this build is judged by.
+    mound_bare: usize,
 }
 
 fn is_waiting_seed(world: &World, state: &organism::OrganismState) -> bool {
@@ -219,6 +232,50 @@ fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &Ids) 
             } else {
                 s.other_j += j;
             }
+        }
+    }
+    // **Bare on the mound's own surface**, walked as its own pass because it
+    // asks a different question from the column loop above: not "does this
+    // column hold a plant" but "is the ground you can see on the anthill
+    // growing anything".
+    for x in 0..spec.width {
+        // **Inside the band only, which is what makes this the anthill's
+        // surface rather than the bed's.** Measured 2026-09-12 on seed 1 at
+        // 20,000 frames, unbanded: **141 mound columns** with only 19 packed
+        // cells above the surface -- litter rotting to soil high on a drift,
+        // which the late-game report already records as why `mound_high`
+        // reads 24-40 rows on the *unfed* bed. Half the bed is not an
+        // anthill.
+        if nest_cols.iter().map(|c| (c - x).abs()).min().unwrap_or(i32::MAX) > BAND {
+            continue;
+        }
+        // **The same window *and* the same material set the `mound` column
+        // above uses**, and both halves were paid for: a first pass looked
+        // for the topmost `Powder`/`Solid` below the lid and read **9 mound
+        // columns in a bare box**. The window alone did not fix it -- the
+        // grow lamps hang within `MOUND_REACH` of the surface, and a lamp is
+        // not an anthill. A mound is made of the bed's own ground, which is
+        // what `Ids::ground` is.
+        let Some(top) = ((spec.ground_y - MOUND_REACH).max(0)..spec.height).find(|&y| {
+            let cell = world.get(x, y);
+            ids.ground.contains(&cell.material) && cell.organism_id() == 0
+        }) else {
+            continue;
+        };
+        if top >= spec.ground_y {
+            continue;
+        }
+        s.mound_cols += 1;
+        // Four rows, not one: a seedling rooted in the slope stands above the
+        // cell it is rooted in, and a metric that only looked at the surface
+        // cell itself would call every planted mound bare.
+        let green = ((top - 4).max(0)..top).any(|y| {
+            let cell = world.get(x, y);
+            world.materials.kind(cell.material) == MaterialKind::Plant
+                || (cell.organism_id() != 0 && world.organism(cell.organism_id()).is_some_and(|st| world.species.get(st.species).creature.is_none()))
+        });
+        if !green {
+            s.mound_bare += 1;
         }
     }
     for x in 0..spec.width {
@@ -318,6 +375,52 @@ fn selftest() {
     assert_eq!(s.roofed, 9, "a 3x3 chamber under intact soil is nine roofed cells");
     assert_eq!(s.pit, 5, "a five-deep shaft open to the sky is five pit cells");
     assert_eq!((s.mound, s.mound_high, s.packed_above), (2, 2, 2), "two packed cells on the surface are a two-high mound");
+
+    // --- the mound's own surface, and the room the nest holds --------------
+    //
+    // **The bare-on-the-mound pair, against the case whose answer is known.**
+    // One column of this box now stands above the original ground and nothing
+    // is growing on it, so `mound_bare/mound_cols` must read exactly 1/1 --
+    // and the columns beside it, which are bare but *not* mound, must not be
+    // counted at all. That is the whole difference from `bare_in_band`, which
+    // reads every column in the band.
+    println!("  mound surface: bare {} of {} mound column(s) (must be 1 of 1)", s.mound_bare, s.mound_cols);
+    assert_eq!((s.mound_bare, s.mound_cols), (1, 1), "one heaped column, nothing growing on it -- and flat ground is not mound however bare it is");
+
+    // ...and the sensitivity half: stand a plant on the heap and it stops
+    // being bare, while the mound itself is still there. A metric that only
+    // ever went one way would pass the line above with the plant test dead.
+    let leaf = world.materials.id_of("leaf").expect("leaf is registered");
+    world.set(cx + 30, spec.ground_y - 3, Cell::new(leaf, 0));
+    let planted = census(&world, &spec, 0.0, &[cx], &ids);
+    println!("  ...with a leaf on the heap: bare {} of {} (must be 0 of 1)", planted.mound_bare, planted.mound_cols);
+    assert_eq!((planted.mound_bare, planted.mound_cols), (0, 1), "a plant standing on the heap is a regreened mound, and the heap has not gone anywhere");
+
+    // **The room census, against the arithmetic** -- control 3 of the brief,
+    // here rather than in a new harness because this box already carves a
+    // chamber whose size is known. Nine roofed cells over three ants is 3.0
+    // cells each, and `NestRoom::occupancy` at the shipped 2.0 target is
+    // 2/(2+3) = 0.4.
+    world.register_nest_site(cx, spec.ground_y, 8);
+    world.nest_room = vec![pixel_physics::sim::world::NestRoom { roofed: 9, ants: 3 }];
+    let room = world.nest_room[0];
+    let rpa = room.room_per_ant().expect("three ants");
+    let occ = room.occupancy(pixel_physics::sim::creature::ROOM_TARGET_DEFAULT).expect("three ants");
+    println!("  nest room: 9 roofed over 3 ants is {rpa:.2} each, which the dig gate reads as {occ:.3} (must be 3.00 and 0.400)");
+    assert!((rpa - 3.0).abs() < 1e-6, "room per ant is the division and nothing else");
+    assert!((occ - 0.4).abs() < 1e-6, "and occupancy is target/(target+room) at the shipped target");
+
+    // **The counter the census itself keeps, against the same chamber.** The
+    // line above checks the arithmetic on a hand-set record; this checks that
+    // `World::step_nest_room` fills that record with the chamber this box
+    // actually holds. The two halves fail for different reasons and a harness
+    // that only had the first would pass with the census disconnected.
+    world.nest_room.clear();
+    world.frame = pixel_physics::sim::world::ROOM_INTERVAL;
+    world.step_nest_room();
+    println!("  census on the same box: roofed {} (must be 9 -- the chamber, not the shaft)", world.nest_room[0].roofed);
+    assert_eq!(world.nest_room[0].roofed, 9, "the live census must find the same nine cells the footprint column does");
+
     println!("latecensus selftest: PASS -- every footprint column moves for a case whose answer is known");
 }
 
@@ -382,8 +485,32 @@ fn main() {
         "born", "died", "strvd", "killd", "othr", "eats", "digs", "delivs",
         "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut"
     );
+    println!("        (and: rpa=roofed void per ant at the nest, occ=what the dig gate reads for it, mbare/mcols=bare columns on the mound's own surface)");
     println!("        (then, cumulative production: shed=leaves shed, borne=seeds borne, germ=germinations, fdrop=fruit dropped)");
+    // **The realised distribution of the input the dig gate reads.**
+    //
+    // This is the whole premise under measurement, and it is the one number
+    // the withdrawn `(Crowding, Dig, 0.6)` build could not show: its input
+    // read median 1.000 with p90 and max pinned at 1.000 for a whole run, so
+    // a mechanism about the *low end* of that input never had a low end to
+    // work with. A mean and a max alone is exactly the readout that let it
+    // pass its own pre-check, so the order statistics are printed in full.
+    //
+    // Sampled once per `world::ROOM_INTERVAL`, which is when the census that
+    // feeds it actually moves -- every ant at one nest in one frame reads the
+    // same value, so this is the distribution of the signal and not of the
+    // reads.
+    let mut occ_samples: Vec<f32> = Vec::new();
+    let mut rpa_samples: Vec<f32> = Vec::new();
     for f in 0..=frames {
+        if f % pixel_physics::sim::world::ROOM_INTERVAL == 0 {
+            for room in &world.nest_room {
+                if let Some(rpa) = room.room_per_ant() {
+                    rpa_samples.push(rpa);
+                    occ_samples.push(room.occupancy(world.room_target).unwrap_or(1.0));
+                }
+            }
+        }
         let arrived = pixel_physics::lab::scenario::tick_timeline(&scenario, &mut world, &spec);
         if arrived.animals > 0 {
             gut = ant_gut_bias(&world);
@@ -405,6 +532,15 @@ fn main() {
                 s.roofed, s.pit, s.packed_below, s.packed_above, s.mound_high,
                 s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside
             );
+            let rpa = world.nest_room.first().and_then(|r| r.room_per_ant());
+            let occ = world.nest_room.first().and_then(|r| r.occupancy(world.room_target));
+            println!(
+                "        rpa={} occ={} mbare={}/{}",
+                rpa.map_or("-".to_string(), |v| format!("{v:.2}")),
+                occ.map_or("-".to_string(), |v| format!("{v:.3}")),
+                s.mound_bare,
+                s.mound_cols
+            );
             // **Production, cumulative, so a rate is a difference of two
             // rows.** The standing larder above is stock, which is
             // production times residence, and only the rate says what a
@@ -425,5 +561,46 @@ fn main() {
     println!(
         "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0}",
         scenario.name, spec.seed, st.births, st.deaths, st.eats, st.digs, st.spoil_dumped, st.deliveries, world.nectar_paid
+    );
+    // **Appended at the end, in addition to every field above in its own
+    // order** -- this line is contested by every lane of the round and a
+    // reordering breaks whatever is parsing it elsewhere.
+    let s = census(&world, &spec, gut, &nest_cols, &ids);
+    let q = |v: &mut Vec<f32>| -> String {
+        if v.is_empty() {
+            return "n=0".to_string();
+        }
+        v.sort_by(|a, b| a.partial_cmp(b).expect("no NaN in a ratio of counts"));
+        let at = |p: f64| v[(((v.len() - 1) as f64) * p).round() as usize];
+        let mean = v.iter().sum::<f32>() / v.len() as f32;
+        format!(
+            "n={} min={:.3} p10={:.3} med={:.3} mean={:.3} p90={:.3} max={:.3}",
+            v.len(),
+            at(0.0),
+            at(0.10),
+            at(0.50),
+            mean,
+            at(0.90),
+            at(1.0)
+        )
+    };
+    println!("SUMMARY room_gate={} room_target={:.2}", world.room_gate, world.room_target);
+    println!("SUMMARY room_per_ant {}", q(&mut rpa_samples));
+    println!("SUMMARY dig_input    {}", q(&mut occ_samples));
+    println!(
+        "SUMMARY dig_rolls={} digs={} at_nest_ticks={} dug_per_roll={:.3}",
+        st.dig_rolls,
+        st.digs,
+        st.at_nest_ticks,
+        if st.dig_rolls == 0 { 0.0 } else { st.digs as f64 / st.dig_rolls as f64 }
+    );
+    println!(
+        "SUMMARY mound_bare={} mound_cols={} digs_per_1k={:.2} roofed={} packed_above={} mound_high={}",
+        s.mound_bare,
+        s.mound_cols,
+        st.digs as f64 * 1000.0 / (frames.max(1)) as f64,
+        s.roofed,
+        s.packed_above,
+        s.mound_high
     );
 }

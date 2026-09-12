@@ -844,6 +844,27 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         span(0.0, 1.0, 0.01),
         "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
+    // **The two dials of the room gate.** A rule of the box rather than a
+    // property of any animal, for `alarm_decay`'s reason directly above: the
+    // first switches what an ant at the nest is *asked*, and the second is
+    // where that question's answer crosses a half.
+    out.push(toggle(
+        g,
+        Knob::Rule { field: "room_gate" },
+        "colonies",
+        "dig_for_room",
+        world.room_gate,
+        "WHETHER AN ANT STANDING AT THE NEST ASKS HOW MUCH ROOM THE COLONY HAS, OR ONLY HOW MANY ANTS ARE PRESSED AGAINST IT. ON IS THE SHIPPED BEHAVIOUR AND IS WHY AN ANTHILL NOW STOPS GROWING: THE ANT READS THE ROOFED SPACE THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND A COLONY THAT HAS DUG ENOUGH GOES BACK TO FORAGING. OFF IS THE OLD QUESTION -- A HEAD-COUNT OF THE FIVE-BY-FIVE AROUND IT, WHICH AT ANY REAL COLONY SIZE IS PINNED AT ITS CEILING FOR EVER, SO NOTHING THE COLONY DIGS CAN EVER ANSWER IT AND THE MOUND GROWS UNTIL THE BED DIES. IT CHANGES NOTHING AWAY FROM THE NEST, WHERE CROWDING STILL MEANS CROWDING. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+    ));
+    out.push(float(
+        g,
+        Knob::Scalar { field: "room_target" },
+        "colonies",
+        "room_each_ant_wants",
+        world.room_target,
+        span(0.25, 16.0, 0.25),
+        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. THE SHIPPED 2.0 COMES OFF THE CENSUS RATHER THAN OUT OF THE AIR: A COLONY LEFT ALONE FOR HALF A MILLION FRAMES CUTS ABOUT 220 CELLS OF CHAMBER, AND THE TWO RUNS THAT BOOMED PEAKED AT 116 AND 495 ANTS -- SO 1.9 AND 0.44 CELLS EACH, AND NEITHER COLONY EVER STOPPED DIGGING. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER, SO THE MOUND STAYS SMALL AND THE ANTS GO BACK TO THE SURFACE EARLIER. TURN IT UP AND THEY KEEP EXCAVATING -- PAST ABOUT 4 YOU HAVE THE OLD BEHAVIOUR BACK IN EVERYTHING BUT NAME. IT DOES NOTHING AT ALL WITH THE SWITCH ABOVE OFF. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+    ));
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -1109,6 +1130,16 @@ fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
 }
 
+/// As `shipped_trait_reach`, for the room gate -- shipped on.
+fn shipped_room_gate() -> bool {
+    true
+}
+
+/// As `shipped_trait_reach`, for the room the gate measures against.
+fn shipped_room_target() -> f32 {
+    creature::ROOM_TARGET_DEFAULT
+}
+
 /// As `shipped_trait_reach`, for the alarm scent's decay.
 fn shipped_alarm_decay() -> f32 {
     crate::sim::pheromone::ALARM_RHO
@@ -1174,6 +1205,19 @@ pub struct Dials {
     /// mechanism that silently never fires looks exactly like one that did.
     #[serde(default = "shipped_nest_scent_drift")]
     pub nest_scent_drift: f32,
+    /// `World::room_gate`. **A plain `#[serde(default)]` would be wrong here
+    /// for `trait_reach`'s reason and in its sharper form**: `false` is not
+    /// the shipped box, it is the control arm, so a dials file written before
+    /// this key existed would silently switch an ant's dig gate back to the
+    /// saturated head-count and the anthill would grow for ever again --
+    /// quietly, with every gate green. Named default, shipped on.
+    #[serde(default = "shipped_room_gate")]
+    pub room_gate: bool,
+    /// `World::room_target`. Named default for `room_gate`'s reason, and
+    /// here a missing key loading as `0.0` would be worse than the control:
+    /// it pins occupancy at 1.0, which is neither arm.
+    #[serde(default = "shipped_room_target")]
+    pub room_target: f32,
 }
 
 impl Dials {
@@ -1209,6 +1253,8 @@ impl Dials {
             nest_blend: world.nest_blend,
             nest_uptake: world.nest_uptake,
             nest_scent_drift: world.nest_scent_drift,
+            room_gate: world.room_gate,
+            room_target: world.room_target,
         }
     }
 
@@ -1236,6 +1282,8 @@ impl Dials {
         world.nest_blend = self.nest_blend;
         world.nest_uptake = self.nest_uptake;
         world.nest_scent_drift = self.nest_scent_drift;
+        world.room_gate = self.room_gate;
+        world.room_target = self.room_target;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1483,6 +1531,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
                 "soil_capillary_levels" => world.soil_capillary_levels = on,
+                "room_gate" => world.room_gate = on,
                 _ => return false,
             }
             true
@@ -1496,6 +1545,18 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                         return false;
                     }
                     world.pheromones.set_alarm_rho(value);
+                }
+                // **Bounded away from zero, not merely clamped by the span.**
+                // A target of 0 pins `NestRoom::occupancy` at 1.0, which is
+                // the saturated input the whole mechanism exists to escape --
+                // so it is refused here as well as on the row's span, for the
+                // reason `Knob::Rule`'s doc gives: a restored dials file must
+                // not be able to reach a state a live edit could not.
+                "room_target" => {
+                    if value <= 0.0 {
+                        return false;
+                    }
+                    world.room_target = value;
                 }
                 _ => return false,
             }
