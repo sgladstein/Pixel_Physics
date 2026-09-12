@@ -7928,14 +7928,22 @@ Re-measured on the current trunk after `main` shipped nest odour and
 `scent_drift` at 0.15, which moved this bed under the first version of this
 table (the before-and-after is below):
 
-| seed | lifespan | peak ants | at frame | 500k ants/plants/bank | old age / starved |
-|---|---|---|---|---|---|
-| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 0 / 3,437 |
-| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 1,715 / 7,245 |
-| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 0 / 122 |
-| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 100 / 70 |
-| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 0 / 446 |
-| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 303 / 348 |
+| seed | lifespan | peak ants | at frame | 500k ants/plants/bank | starved | killed | old age |
+|---|---|---|---|---|---|---|---|
+| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 3,437 | 0 | 0 |
+| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 7,245 | 0 | **1,715** |
+| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 122 | 3 | 0 |
+| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 70 | 1 | 100 |
+| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 446 | 0 | 0 |
+| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 348 | 1 | 303 |
+
+The three mortality channels are never pooled into a "died", here or in
+`latecensus`'s own `SUMMARY`: hunger, age and whatever the seed-cargo build's
+`Killed` channel turns out to be all move independently on this bed, and a
+colony that settled and a colony that ran out of food are the same population
+line. **The near-zero `killed` column dates these runs** — they were taken on
+`c7ee0f40`, before seed cargo landed, and that build raises the channel from
+about 0 to tens or hundreds per 120,000 frames.
 
 **On this trunk the lifespan does not bound the peak — on the one seed with a
 big colony it raises it, 760 to 1,265** — and **every colony, at every setting

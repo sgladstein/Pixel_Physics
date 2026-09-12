@@ -55,14 +55,22 @@ you are about to sweep.**
 
 ## The sweep, re-measured on the merged tree (`main` at `c7ee0f40`)
 
-| seed | life | peak | at frame | 500k a/p/bank | old age / starved |
-|---|---|---|---|---|---|
-| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 0 / 3,437 |
-| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 1,715 / 7,245 |
-| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 0 / 122 |
-| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 100 / 70 |
-| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 0 / 446 |
-| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 303 / 348 |
+| seed | life | peak | at frame | 500k a/p/bank | starved | killed | old age |
+|---|---|---|---|---|---|---|---|
+| 1 | 0 | 760 | 280,000 | 0 / 14 / 0 | 3,437 | 0 | 0 |
+| 1 | 40,000 | **1,265** | 280,000 | 0 / **114 / 600** | 7,245 | 0 | **1,715** |
+| 2 | 0 | 77 | 60,000 | 0 / 102 / 368 | 122 | 3 | 0 |
+| 2 | 40,000 | 34 | 100,000 | 0 / 103 / 239 | 70 | 1 | 100 |
+| 3 | 0 | 190 | 140,000 | 0 / 2 / 0 | 446 | 0 | 0 |
+| 3 | 40,000 | 171 | 140,000 | 0 / 2 / 0 | 348 | 1 | 303 |
+
+**`killed` is its own column and reads near zero here, which dates these runs.**
+The seed-cargo build (#342) introduces a `Killed` channel that lane J measures
+at 56/37/153 per 120,000 frames on this bed against 0/1/0 without it. These
+numbers were taken on `c7ee0f40`, *before* #342 landed, so the near-zero killed
+column is the tell that they predate it rather than evidence the channel is
+quiet. On a post-#342 tree the lifespan's effect is measured with that channel
+present and the two must stay separable.
 
 **The lifespan does not bound the peak here — on the one seed with a big colony
 it raises it, 760 to 1,265 — and every colony at every setting, 0 included, is

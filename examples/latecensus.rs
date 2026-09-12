@@ -242,7 +242,14 @@ fn main() {
     }
     let st = world.creature_stats;
     println!(
-        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} lifespan={} oldage={} starved={}",
+        // **`starved`, `killed` and `oldage` stay three fields, never a
+        // pooled `died`.** Three mortality channels now move independently on
+        // this bed -- hunger, whatever the seed-cargo build's `Killed` channel
+        // turns out to be, and age -- and a colony that settled and a colony
+        // that ran out of food are the same population line. Only the split
+        // tells them apart, and a later round wants to read the age column
+        // beside the killed one.
+        "\nSUMMARY scenario={} seed={} frames={frames} born={} died={} eats={} digs={} spoil_dumped={} deliveries={} nectar_paid={:.0} lifespan={} oldage={} starved={} killed={}",
         scenario.name,
         spec.seed,
         st.births,
@@ -254,6 +261,7 @@ fn main() {
         world.nectar_paid,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0),
         census::colony_deaths(&world, &spec.colony_species).2,
-        census::colony_deaths(&world, &spec.colony_species).0
+        census::colony_deaths(&world, &spec.colony_species).0,
+        census::colony_deaths(&world, &spec.colony_species).1
     );
 }
