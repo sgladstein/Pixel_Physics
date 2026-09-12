@@ -261,3 +261,103 @@ keying the walk on `MaterialKind::Plant` as well as `organism_id` is the
 obvious next lever. It was left out because it is a second decision about
 what counts as tissue, and this change's job was the 92% that is soil and
 trapped water.
+
+---
+
+## 8. Round three: it was not fully fixed — 2026-09-11
+
+**The owner, after §7 landed: *"This is not fully fixed. water is still
+pooling on top of plants."*** They were right, and §7 had the evidence in it:
+234 drops still standing on tissue at the shipped rain rate, against 523
+before. I reported the fall and under-called the residue.
+
+Three more things were holding water, and the third is the owner's own
+diagnosis rather than mine.
+
+### 8.1 The entry gate still demanded a *living* plant
+
+`drip_through_organism` opens on `below.organism_id() == 0 → return false`.
+A grown bed is full of dead `grassblade` and `grassroot` standing in the mat,
+and a drop resting on one **never entered the rule at all**. Measured at the
+shipped rate: **41 of 213 drops on tissue refused by dead grass.**
+
+It had two gates and fixing one moved nothing — the scan was taught to walk
+through plant matter first, and the numbers did not budge, because the entry
+test rejected the cell before the scan ran. Both read
+`organism_id != 0 || kind == Plant` now. `deadwood`, `log` and `nest` still
+dam a drop on purpose: a snapped branch is chunky enough to hang up in a
+crown, which is `fall_through_organism`'s own existing call for the falling
+side.
+
+### 8.2 A drop is a landing, not a dam
+
+§7 left trapped water to drain on its own beat, reasoning that the column
+above would follow it down. That holds only while the blocking drop has
+somewhere to go; over ground at capacity it has none, and everything above it
+stacks behind it for ever. **66 of 213**, the largest single blocker left,
+with 52 more standing on those. `soak_into_ground` now merges into more of the
+same liquid, on `transfer_liquid_vertical`'s arithmetic to the unit.
+
+### 8.3 A dug tunnel made the bed waterproof — the owner's diagnosis
+
+> *"when creatures dig they create a layer of air under soil, and water
+> doesn't drop down out of soil into air, so a single pixel line of soil gets
+> saturated and then water can pool on top of it."*
+
+Exactly right, and it is **one clause**: `update_soil_water`'s drainage
+required the cell below to be something that *holds* water
+(`below_capacity > 0`), so soil with air underneath had nowhere to send its
+surplus however wet it got. Every gallery an ant digs roofs itself with soil
+that then saturates and stays saturated — and saturated ground turns away
+every drop that lands on it, which is what puts the sheet back on top of the
+planting.
+
+A wet roof now sheds into the void as a falling drop, at the same rate and off
+the same surplus as the soil-to-soil branch beside it. **Damp ground does not
+leak** — the rule fires only above field capacity, which is the clause that
+keeps it *a wet roof drips* rather than *soil leaks*. Measured on
+`played_bed_scrambler`: soil cells perched over air went from **1 of 1
+saturated** to **0 of 7**.
+
+That bed barely digs (27 animals), so it is a poor reproduction of the
+owner's; the mechanism is established by reading the rule and by the guard,
+not by that bed's numbers.
+
+### 8.4 What is left, and it is not this rule
+
+At the shipped rate, of 158 drops still standing on plant matter: **72 are
+over genuinely saturated ground**, 53 over water that is itself full, 19 in
+transit, and 14 on debris or out of reach. The drip rule is close to
+exhausted — nearly everything it now refuses, it refuses because the ground
+or the water below is *full*.
+
+So the remaining pooling is a **water-balance** problem, and the bed under a
+plant has three doors and all of them are shut:
+
+1. it cannot **evaporate** — `evaporation::is_damp_soil_surface` refuses a
+   column whose cell above is not empty, so ground under a plant never dries;
+2. it cannot spread **sideways** — the capillary rest threshold
+   (`soil-water-columns-2026-09-11.md`), whose report claimed this was
+   cosmetic and has been corrected;
+3. it can only drain **down**, into a sealed box with no outlet.
+
+`World::soil_capillary_levels` is a direct lever on (2) and is measurable:
+standing water above the ground **397 → 220**, drops refused by saturated
+ground **87 → 37**. It is off by owner ruling. (1) is untouched and is the
+larger suspect: a dense mat means no column under it dries at all.
+
+### 8.5 Two instrument failures, both the same shape
+
+**The census replayed the rule from outside and went stale twice in one
+session** — once when the rule learned to drink soil and once when it learned
+to merge — each time reporting a blocker the engine no longer had. Counting
+from *inside* the rule is what settled it, and it also killed the chunk-sleep
+hypothesis outright: 625,285 calls over 24,000 frames, 87.4% off-beat exactly
+as the period predicts, and 78.6% of on-beat calls refused rather than never
+reached. `examples/waterstand`'s census mirrors the rule now and says so.
+
+**And "arrived" has to count both doors.** The dead-tissue guard failed on its
+first run reading `0 reached the floor` while the rule worked perfectly: a
+drop that reaches ground with room stops being liquid fill and becomes soil
+moisture. `CLAUDE.md`'s "ask what your number counts", in the shape where the
+number is right and about the wrong quantity.
