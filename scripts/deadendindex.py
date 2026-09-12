@@ -517,6 +517,25 @@ def compare_committed(entries):
     this at its default checkout depth."""
     problems = []
     per, tsv, skel = render_outputs(entries)
+    if SCREENED.exists():
+        rows = SCREENED.read_text(encoding="utf-8").rstrip("\n").split("\n")
+        judged = {r.split("\t")[0] for r in rows[1:]}
+        missing = [e for e in entries if stable_key(e) not in judged]
+        if missing:
+            # An entry added to the register after the screen ran is silently
+            # absent from `candidates.tsv` -- it cannot be a candidate, because
+            # nothing labelled it. That reads as "screened and closed".
+            per_ = Counter()
+            names = []
+            for e in entries:
+                per_[e["section"]] += 1
+                if e in missing:
+                    names.append(ident(e, per_[e["section"]]))
+            problems.append(
+                f"{len(missing)} register entr"
+                f"{'y has' if len(missing) == 1 else 'ies have'} no verdict in "
+                f"{SCREENED.relative_to(ROOT)}: {', '.join(names[:8])}"
+                f"{' ...' if len(names) > 8 else ''}")
     checks = [(TSV, tsv, strip_blame_tsv, "index"),
               (SKEL, skel, strip_blame_skel, "skeleton")]
     cand = render_candidates(entries)
@@ -551,9 +570,141 @@ def heading_problems(headers, per):
     return out
 
 
+# Identifier-shaped tokens: snake_case, CamelCase, or SCREAMING_SNAKE. Plain
+# English words are excluded by construction rather than by a stopword list,
+# which is what the first version needed and still leaked through -- backticked
+# *paths* (`Reports/open-bugs-handoff.md`) tokenise into "Reports", "open",
+# "bugs", and those matched everything.
+_CODEISH = re.compile(
+    r"\b(?:[a-z][a-z0-9]*(?:_[a-z0-9]+)+"      # snake_case
+    r"|[A-Z][a-z0-9]+(?:[A-Z][a-z0-9]+)+"       # CamelCase
+    r"|[A-Z][A-Z0-9]*_[A-Z0-9_]+)\b"           # SCREAMING_SNAKE
+)
+
+
+def clause_identifiers(retest):
+    """Identifier-shaped tokens anywhere in a `Re-test when:` clause.
+
+    **Not only the backticked ones, and that was measured.** Requiring
+    backticks lost four of the five replay controls outright: `plants:124`
+    names its identifier as bare prose (*"a monotone high-water memory
+    (q_peak girth memory)"*), and so does `structural:038`. The house voice
+    backticks a *file* far more reliably than it backticks the thing a clause
+    is waiting for."""
+    return set(_CODEISH.findall(retest or ""))
+
+
+def git_out(args):
+    res = subprocess.run(["git"] + args, cwd=ROOT, capture_output=True, text=True)
+    return None if res.returncode != 0 else res.stdout
+
+
+def _existed(token, rev):
+    return subprocess.run(
+        ["git", "grep", "-qwF", "--", token, rev, "--", "src", "examples", "assets", "scripts"],
+        cwd=ROOT, capture_output=True, text=True).returncode == 0
+
+
+def touching(entries, rev_range):
+    """Which register entries does this branch's diff speak to?
+
+    **The question is event-shaped, and the test is *arrival*, not presence.**
+    An earlier attempt asked a static question -- does the clause name an
+    identifier that exists in the tree today -- and measured **worse than
+    random**: 123 entries matched, one `EXPIRED`, 0.8% against a 1.6% base
+    rate. Clauses name identifiers that already existed far more often than
+    they name a future artifact.
+
+    So an entry surfaces when its clause names a code-shaped identifier that
+    this diff **adds to a tree that did not have it**: in the added lines, and
+    absent from `src`/`examples`/`assets`/`scripts` at the base revision.
+
+    **Presence in the added lines alone is not enough, and the cost of
+    relaxing to it was measured 2026-09-12.** That form finds all five replay
+    controls and is unusable: **43 hits on one plant-line commit against a
+    single true positive**, and 5, 8, 17, 18 and 24 hits on five unrelated
+    merged PRs, every one a false positive. The arrival test scores **0, 0, 0,
+    0, 1** on the same five. It is recorded as a dead end beside the static
+    attempt.
+
+    **Measured recall is 2 of 5, and the three misses are structural rather
+    than tuning.** `plants:124` surfaces on the commit that added `q_peak`
+    (4 hits) and `structural:038` on the one that added `bearing_moment`
+    (2 hits). It cannot see:
+
+    - an entry whose clause never names the identifier (`structural:040`),
+      nor one with no `Re-test when:` clause at all -- `plants:019`'s
+      condition was met when `cross_section_axis` landed and there is nowhere
+      for the name to appear. That control must stay silent, and does.
+    - a condition met by something that is **not** an arrival: `field:027`'s
+      `apply_sky_to` and `destruction:034`'s `ignition_temperature` both
+      already existed, and what changed was behaviour and authored values. No
+      name-matching rule can see "this field now has a finite value".
+
+    Giving the clause-less entries a clause is the only thing that closes the
+    first gap; the second is not closable this way at all."""
+    names = git_out(["diff", "--name-only", rev_range])
+    if names is None:
+        print(f"deadendindex: `git diff --name-only {rev_range}` failed", file=sys.stderr)
+        return None
+    base = rev_range.split("..")[0].rstrip(".") or "origin/main"
+    # Only code and assets, and for a reason that bit on the first run: a diff
+    # that *edits the register* adds every identifier it quotes, so writing a
+    # `Re-test when:` clause made three unrelated entries match it. Scanning
+    # the same paths `_existed` scans keeps the arrival question about the
+    # engine rather than about the prose describing it.
+    body = git_out(["diff", "--unified=0", rev_range, "--",
+                    "src", "examples", "assets", "scripts", "tests"]) or ""
+    added = "\n".join(l[1:] for l in body.split("\n")
+                      if l.startswith("+") and not l.startswith("+++"))
+
+    wanted = set()
+    for e in entries:
+        wanted |= clause_identifiers(e["retest"])
+    in_added = {t for t in wanted if re.search(r"\b" + re.escape(t) + r"\b", added)}
+    arrived = {t for t in in_added if not _existed(t, base)}
+
+    per, hits = Counter(), []
+    for e in entries:
+        per[e["section"]] += 1
+        m = sorted(clause_identifiers(e["retest"]) & arrived)
+        if m:
+            hits.append((ident(e, per[e["section"]]), e, m))
+    return len([n for n in names.split("\n") if n]), arrived, hits
+
+
+def print_touching(entries, rev_range, brief=False):
+    res = touching(entries, rev_range)
+    if res is None:
+        return 1
+    nfiles, arrived, hits = res
+    if brief:
+        if hits:
+            print(f"deadendindex: {len(hits)} register entr"
+                  f"{'y names' if len(hits) == 1 else 'ies name'} something this branch "
+                  f"ADDS -- run `python3 scripts/deadendindex.py --touching`")
+        return 0
+    print(f"deadendindex: {nfiles} file(s) changed in {rev_range}; "
+          f"{len(arrived)} identifier(s) arrived; {len(hits)} entr"
+          f"{'y' if len(hits) == 1 else 'ies'} name one.")
+    print("deadendindex: a met condition is a WRITE-BACK first -- a re-test only where the "
+          "entry asks for one. Recall is 2 of 5 on replay; silence is not evidence.")
+    for eid, e, m in hits:
+        print(f"\n  [{eid}] L{e['line']}  <- {', '.join(m)}")
+        print(f"      {e['address'][:110]}")
+        print(f"      retest: {e['retest'][:220]}")
+    return 0
+
+
 def main():
     args = sys.argv[1:]
     entries, headers = parse()
+
+    if "--touching" in args:
+        i = args.index("--touching")
+        rest = [a for a in args[i + 1:] if not a.startswith("--")]
+        rev_range = rest[0] if rest else "origin/main...HEAD"
+        return print_touching(entries, rev_range, brief="--brief" in args)
 
     if "--skeleton" in args:
         want = set(args[args.index("--skeleton") + 1].split(","))
