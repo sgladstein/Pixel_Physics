@@ -11,7 +11,7 @@ Read `CLAUDE.md` first; it holds the method these bugs keep re-teaching.
 
 <!-- BEGIN GENERATED INDEX -- regenerate with scripts/bugindex.py -->
 
-**53 open, 107 bugs** (plus 20 landing-note items,
+**55 open, 109 bugs** (plus 20 landing-note items,
 marked `note`). Generated from the headings by
 `scripts/bugindex.py` -- a bug's verdict is written into its own heading, so
 this is derived, never maintained by hand. Entries are never moved when they
@@ -26,133 +26,135 @@ point.
 
 | § | Status | Line | What it is |
 |---|---|---|---|
-| 0-z | **OPEN** | 161 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
-| 0-a | closed | 218 | Dark bands under overhangs, objects and open-cast digs (render) |
-| C1 | **OPEN** | 296 | A forest-floor bank is a wall the gnome has no way over |
-| D1 | closed | 333 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
-| D2 | **OPEN** | 490 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
-| D3 | **OPEN** | 513 | Near-surface blasts do not throw chunks into the air |
-| D4 | **OPEN** | 546 | At a bounded reach a collapse can stop part way and leave a slab in open air |
-| 0 | **OPEN** | 583 | Roofed water: ponds fills both sides of an overhang (worldgen) |
-| 0b | closed | 601 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
-| 0c | closed | 723 | Cave light is quantised to 8-cell squares (render) |
-| 0d | **OPEN** | 825 | The organism support search asks the wrong question |
-| 0e | closed | 867 | A decay site does not follow its cell |
-| NEW | closed | 930 | Plants grow nothing on generated terrain |
-| U | closed | 1090 | Water stress makes a tree BIGGER |
-| V | closed | 1135 | A tree with no seedlings under it never stops growing |
-| Z | decided | 1188 | The stand still reads as one mass |
-| Z3 | **OPEN** | 1322 | A settled piece is re-promoted for ever, at about one body every five frames |
-| Z2 | closed | 1381 | A free particle drops Cell::aux, so a blast under-prices a corpse |
-| Y | closed | 1499 | The gnome cannot get through the wood |
-| X | decided | 1650 | A desert with no desert plants |
-| -- | historic | 1699 | X (original). A desert with no desert plants |
-| W | decided | 1776 | The water-cycle branch and this one are two halves of one mechanic |
-| A | **OPEN** | 1850 | The slot-1 root spread has collapsed |
-| B | closed | 2150 | anchor_support runs over creature organisms, unguarded |
-| C | closed | 2237 | grass and creeper root branching is running a retired model |
-| D | closed | 2286 | Two smaller things the merge exposed |
-| E | closed | 2318 | A test scene can outlive the economy it was written for |
-| F | **OPEN** | 2336 | Cross-line seams neither branch's tests exercise |
-| P1 | **OPEN** | 2407 | The water book, the root-tip counter, and what they said about §A and §U |
-| P3 | **OPEN** | 2694 | The generation loop |
-| V3 | **OPEN** | 2890 | Die-back's shed tissue feeds a pile that grows up through the canopy |
-| V2 | closed | 3007 | A tree cannot die of drought |
-| P2 | **OPEN** | 3148 | The economy re-derivation |
-| G | **OPEN** | 3363 | Grassfire arrives with a standing negative verdict |
-| -- | historic | 3426 | G (original). Grassfire arrives with a standing negative verdict |
-| 0f | closed | 3448 | A melting Powder manufactures water |
-| 0g | closed | 3503 | scene=lavapour's pond simmers forever |
-| 0h | **OPEN** | 3565 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
-| 0i | **OPEN** | 3609 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
-| 1 | closed | 3649 | Whiskers on a spreading front |
-| 1l | **OPEN** | 3766 | Boiling never puts a bubble *in* the water |
-| 1m | **OPEN** | 3830 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
-| 1b | **OPEN** | 3901 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
-| 1c | **OPEN** | 3943 | A rigid body loses about a tenth of its cells when it lands |
-| 1d | **OPEN** | 3972 | A large lava lake never finishes solidifying |
-| 1h | closed | 3988 | Falling rock grinds itself to powder in deep water |
-| 1k | **OPEN** | 4094 | A splash droplet loses about 1% of a cell somewhere |
-| 1j | **OPEN** | 4126 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
-| 1i | closed | 4158 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
-| -- | historic | 4170 | (was) 1h. Falling rock grinds itself to powder in deep water |
-| 1e-ter | closed | 4237 | A boulder that never leaves the sky |
-| 1e-bis | closed | 4277 | Slabs of rock hanging over a solidifying lava lake |
-| 1e | **OPEN** | 4310 | One cell in a lava pour is still left hanging, and the route is unknown |
-| 1f | **OPEN** | 4337 | A pond with rock in it never stops shuffling fill |
-| 1g | **OPEN** | 4364 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
-| 2 | **OPEN** | 4380 | Sand-into-water displacement |
-| 3 | closed | 4407 | Scheduler under-enforces max_active_tips |
-| -- | historic | 4425 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
-| 4 | **OPEN** | 4465 | Levelling is O(width²) |
-| 4b | closed | 4485 | A cell alone in the air drops its column's skyline |
-| 5 | **OPEN** | 4518 | Automatic promotion |
-| 6 | **OPEN** | 4547 | The heightfield does not deliver the speed it was built for |
-| H | closed | 4598 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
-| H2 | closed | 4716 | The ascii colony has gone sessile |
-| H3 | closed | 4778 | Both worldgen at-rest tests are red on main, and both are water |
-| I | closed | 4901 | The disturbance-extent guard inverts once rubble stops anchoring |
-| J | **OPEN** | 4966 | A blocked substep still vents the smoke it was only *probing* |
-| Q | **OPEN** | 4996 | Settled debris stands in one-cell vertical needles that never topple |
-| P | **OPEN** | 5181 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
-| K | closed | 5328 | try_step's rotation-fit probe compares every cell against itself |
-| N | **OPEN** | 5410 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
-| O | **OPEN** | 5478 | Litter rots into soil that never leaves, so the floor rises all run |
-| M | closed | 5535 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
-| R | closed | 5745 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
-| -- | historic | 5805 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
-| L | closed | 5884 | The colony has gone sessile: 98 round trips became 2 |
-| R2 | **OPEN** | 6016 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
-| -- | historic | 6072 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
-| S | closed | 6134 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
-| S2 | **OPEN** | 7131 | The brush's anchor rule destroys structures the other two rules leave standing |
-| R3 | **OPEN** | 7295 | A creature chain above two cells overwrites its own head |
-| R4 | **OPEN** | 7408 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
-| V4 | **OPEN** | 7477 | breaking_free_writes_a_pressure_impulse never reaches break_free |
-| T2 | **OPEN** | 7535 | The colony forages and never brings anything home: 1,651 pickups, 4 deliveries |
-| S4 | **OPEN** | 7620 | Rock still crushes itself on an idle world |
-| S5 | closed | 7692 | A fully-cracked chunk stays welded because the load model never finishes asking |
-| T | **OPEN** | 7813 | A starving plant strands a cell: growth races dieback |
-| S3 | closed | 7857 | A world nobody has touched pulls its own ground apart |
-| -- | closed | 7906 | The plant model bounds height and does not bound width FIXED |
-| 1 | note | 7997 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
-| 2 | note | 8011 | Grow into soil destroys the soil's stored water |
-| 3 | note | 8023 | Capillary exchange can push a neighbour above its own capacity |
-| U | note | 8036 | A crown hangs on by its leaves, so a snapped limb never falls |
-| W1a | note | 8155 | creeper.ron's root tips still run the superseded in-tick branch path |
-| W1b | note | 8176 | A material-counting guard cannot see a species |
-| W1c | note | 8189 | generated_terrain_is_already_at_rest went red on main |
-| T1a | note | 8323 | load::grain_is_footing reads *attachment* where it means *supported* |
-| T1b | note | 8401 | The structural opt-out did not hold against bearing |
-| T1d | note | 8412 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
-| T1e | note | 8446 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
-| T1f | note | 8500 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
-| T1g | note | 8554 | A "refixed" claim went out over a settled state that had barely moved |
-| T1c | note | 8583 | §1c's settle loss is now a counter |
-| -- | note | 8600 | What landed |
-| -- | note | 8623 | Do not re-derive these |
-| -- | note | 8651 | Measurements that contradict something written |
-| -- | note | 8671 | Open |
-| -- | note | 8706 | Unmerged at close, and one of it is a fix main needs anyway |
-| 1n | note | 8724 | grass sets zero seeds on main |
-| B2 | **OPEN** | 8917 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
-| Z4 | closed | 8985 | World::germinations can exceed the number of seeds that ever existed |
-| Z5 | closed | 9070 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
-| W2 | **OPEN** | 9275 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
-| W2a | **OPEN** | 9351 | The refutation, measured |
-| E2 | **OPEN** | 9432 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
-| W3 | closed | 9504 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
-| W4 | **OPEN** | 9624 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
-| W5 | **OPEN** | 9684 | The lab's bed grows a water table on its stone floor, and it does not stop |
-| W6 | closed | 9735 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
-| W7 | closed | 10061 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
-| Z6 | **OPEN** | 10167 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10310 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10462 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10583 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10696 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 10793 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z14 | **OPEN** | 10888 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| 0-z | **OPEN** | 163 | Leaves are the only channel a plant has, and four separate "bugs" are all that one fact |
+| 0-a | closed | 220 | Dark bands under overhangs, objects and open-cast digs (render) |
+| C1 | **OPEN** | 298 | A forest-floor bank is a wall the gnome has no way over |
+| D1 | closed | 335 | The brush and fire license nothing, so a burnt trunk leaves its crown in the air |
+| D2 | **OPEN** | 492 | A room's collapse arrives at frame ~350 where it used to arrive at ~150 |
+| D3 | **OPEN** | 515 | Near-surface blasts do not throw chunks into the air |
+| D4 | **OPEN** | 548 | At a bounded reach a collapse can stop part way and leave a slab in open air |
+| 0 | **OPEN** | 585 | Roofed water: ponds fills both sides of an overhang (worldgen) |
+| 0b | closed | 603 | The deep massif reads as television static, and it is a per-cell palette dither (worldgen) |
+| 0c | closed | 725 | Cave light is quantised to 8-cell squares (render) |
+| 0d | **OPEN** | 827 | The organism support search asks the wrong question |
+| 0e | closed | 869 | A decay site does not follow its cell |
+| NEW | closed | 932 | Plants grow nothing on generated terrain |
+| U | closed | 1092 | Water stress makes a tree BIGGER |
+| V | closed | 1137 | A tree with no seedlings under it never stops growing |
+| Z | decided | 1190 | The stand still reads as one mass |
+| Z3 | **OPEN** | 1324 | A settled piece is re-promoted for ever, at about one body every five frames |
+| Z2 | closed | 1383 | A free particle drops Cell::aux, so a blast under-prices a corpse |
+| Y | closed | 1501 | The gnome cannot get through the wood |
+| X | decided | 1652 | A desert with no desert plants |
+| -- | historic | 1701 | X (original). A desert with no desert plants |
+| W | decided | 1778 | The water-cycle branch and this one are two halves of one mechanic |
+| A | **OPEN** | 1852 | The slot-1 root spread has collapsed |
+| B | closed | 2152 | anchor_support runs over creature organisms, unguarded |
+| C | closed | 2239 | grass and creeper root branching is running a retired model |
+| D | closed | 2288 | Two smaller things the merge exposed |
+| E | closed | 2320 | A test scene can outlive the economy it was written for |
+| F | **OPEN** | 2338 | Cross-line seams neither branch's tests exercise |
+| P1 | **OPEN** | 2409 | The water book, the root-tip counter, and what they said about §A and §U |
+| P3 | **OPEN** | 2696 | The generation loop |
+| V3 | **OPEN** | 2892 | Die-back's shed tissue feeds a pile that grows up through the canopy |
+| V2 | closed | 3009 | A tree cannot die of drought |
+| P2 | **OPEN** | 3150 | The economy re-derivation |
+| G | **OPEN** | 3365 | Grassfire arrives with a standing negative verdict |
+| -- | historic | 3428 | G (original). Grassfire arrives with a standing negative verdict |
+| 0f | closed | 3450 | A melting Powder manufactures water |
+| 0g | closed | 3505 | scene=lavapour's pond simmers forever |
+| 0h | **OPEN** | 3567 | Lens-stress at 2048x640 puts gravel and water in motion, with no cave anywhere (worldgen) |
+| 0i | **OPEN** | 3611 | Terrace risers are inert: erosion deletes them at any nonzero world_age (worldgen) |
+| 1 | closed | 3651 | Whiskers on a spreading front |
+| 1l | **OPEN** | 3768 | Boiling never puts a bubble *in* the water |
+| 1m | **OPEN** | 3832 | Damp-soil evaporation barely runs, and the humidity shadow that would switch it off is al... |
+| 1b | **OPEN** | 3903 | diffuse_heat does not conserve heat, and a hot cell is an amplifier |
+| 1c | **OPEN** | 3945 | A rigid body loses about a tenth of its cells when it lands |
+| 1d | **OPEN** | 3974 | A large lava lake never finishes solidifying |
+| 1h | closed | 3990 | Falling rock grinds itself to powder in deep water |
+| 1k | **OPEN** | 4096 | A splash droplet loses about 1% of a cell somewhere |
+| 1j | **OPEN** | 4128 | MAX_LOAD_CELLS_PER_FRAME does not bound the load model's frame cost |
+| 1i | closed | 4160 | The rigid-body rotation probe is vacuous, and a body can turn through a wall |
+| -- | historic | 4172 | (was) 1h. Falling rock grinds itself to powder in deep water |
+| 1e-ter | closed | 4239 | A boulder that never leaves the sky |
+| 1e-bis | closed | 4279 | Slabs of rock hanging over a solidifying lava lake |
+| 1e | **OPEN** | 4312 | One cell in a lava pour is still left hanging, and the route is unknown |
+| 1f | **OPEN** | 4339 | A pond with rock in it never stops shuffling fill |
+| 1g | **OPEN** | 4366 | scene=lavapour leaves one 3-cell raft that a poke does not drop |
+| 2 | **OPEN** | 4382 | Sand-into-water displacement |
+| 3 | closed | 4409 | Scheduler under-enforces max_active_tips |
+| -- | historic | 4427 | (was) Scheduler under-enforces max_active_tips (a tree bug) |
+| 4 | **OPEN** | 4467 | Levelling is O(width²) |
+| 4b | closed | 4487 | A cell alone in the air drops its column's skyline |
+| 5 | **OPEN** | 4520 | Automatic promotion |
+| 6 | **OPEN** | 4549 | The heightfield does not deliver the speed it was built for |
+| H | closed | 4600 | ascii's ants moisture-gradient scene asserts a gradient the scene no longer has |
+| H2 | closed | 4718 | The ascii colony has gone sessile |
+| H3 | closed | 4780 | Both worldgen at-rest tests are red on main, and both are water |
+| I | closed | 4903 | The disturbance-extent guard inverts once rubble stops anchoring |
+| J | **OPEN** | 4968 | A blocked substep still vents the smoke it was only *probing* |
+| Q | **OPEN** | 4998 | Settled debris stands in one-cell vertical needles that never topple |
+| P | **OPEN** | 5183 | scene=worldcrack is not deterministic, so seedsweep.sh cannot compare two models on a cha... |
+| K | closed | 5330 | try_step's rotation-fit probe compares every cell against itself |
+| N | **OPEN** | 5412 | Decayed litter makes soil that does not match the soil around it, and roots will not ente... |
+| O | **OPEN** | 5480 | Litter rots into soil that never leaves, so the floor rises all run |
+| M | closed | 5537 | Two gating worldgen tests are red, and both are the same thing: generated water never com... |
+| R | closed | 5747 | filmstrip scene=colony panics at its own default seed, and degrades badly at others |
+| -- | historic | 5807 | R (original). filmstrip scene=colony panics at its own default seed, and degrades badly a... |
+| L | closed | 5886 | The colony has gone sessile: 98 round trips became 2 |
+| R2 | **OPEN** | 6018 | An ant put down on open water stands on the surface for ever, and found_colony puts them ... |
+| -- | historic | 6074 | R2 (original). An ant put down on open water stands on the surface for ever, and found_co... |
+| S | closed | 6136 | Every destructive verb but the brush leaves the structural scheduler pinned at its cap fo... |
+| S2 | **OPEN** | 7133 | The brush's anchor rule destroys structures the other two rules leave standing |
+| R3 | **OPEN** | 7297 | A creature chain above two cells overwrites its own head |
+| R4 | **OPEN** | 7410 | BrainOutput::Turn is nearly inert for a surface walker on level ground |
+| V4 | **OPEN** | 7479 | breaking_free_writes_a_pressure_impulse never reaches break_free |
+| T2 | **OPEN** | 7537 | The colony forages and never brings anything home: 1,651 pickups, 4 deliveries |
+| S4 | **OPEN** | 7751 | Rock still crushes itself on an idle world |
+| S5 | closed | 7823 | A fully-cracked chunk stays welded because the load model never finishes asking |
+| T | **OPEN** | 7944 | A starving plant strands a cell: growth races dieback |
+| S3 | closed | 7988 | A world nobody has touched pulls its own ground apart |
+| -- | closed | 8037 | The plant model bounds height and does not bound width FIXED |
+| 1 | note | 8128 | MAX_ROOT_FRACTION feeds the staleness counter, permanently retiring roots |
+| 2 | note | 8142 | Grow into soil destroys the soil's stored water |
+| 3 | note | 8154 | Capillary exchange can push a neighbour above its own capacity |
+| U | note | 8167 | A crown hangs on by its leaves, so a snapped limb never falls |
+| W1a | note | 8286 | creeper.ron's root tips still run the superseded in-tick branch path |
+| W1b | note | 8307 | A material-counting guard cannot see a species |
+| W1c | note | 8320 | generated_terrain_is_already_at_rest went red on main |
+| T1a | note | 8454 | load::grain_is_footing reads *attachment* where it means *supported* |
+| T1b | note | 8532 | The structural opt-out did not hold against bearing |
+| T1d | note | 8543 | acceptance.sh's lavadrop sits close enough to its frame budget to flake, and is over it o... |
+| T1e | note | 8577 | "The pieces hit the ground and turn to dust" was not settle, and the measurement says so |
+| T1f | note | 8631 | The felled pile is 74% powder because the tree is 56% leaves. The piece ladder cannot fix... |
+| T1g | note | 8685 | A "refixed" claim went out over a settled state that had barely moved |
+| T1c | note | 8714 | §1c's settle loss is now a counter |
+| -- | note | 8731 | What landed |
+| -- | note | 8754 | Do not re-derive these |
+| -- | note | 8782 | Measurements that contradict something written |
+| -- | note | 8802 | Open |
+| -- | note | 8837 | Unmerged at close, and one of it is a fix main needs anyway |
+| 1n | note | 8855 | grass sets zero seeds on main |
+| B2 | **OPEN** | 9048 | A living plant in the lab pulls its own anchorage out from under itself and is felled whole |
+| Z4 | closed | 9116 | World::germinations can exceed the number of seeds that ever existed |
+| Z5 | closed | 9201 | Every homing odometer in the tree is dead: its charge wire is below W_EPS, so eval_brain ... |
+| W2 | **OPEN** | 9406 | Two soil constants annul each other, and the root depletion zone lost 6.3x of its depth |
+| W2a | **OPEN** | 9482 | The refutation, measured |
+| E2 | **OPEN** | 9563 | Narrowing the CA sweep's region changes the world, and the RNG is not the reason |
+| W3 | closed | 9635 | PlantScene's bed stands on a 512-span slab anchored only at the world edges, and it survi... |
+| W4 | **OPEN** | 9755 | A rooted bank now sheds *more* of its own soil than a bare one, because it still has the ... |
+| W5 | **OPEN** | 9815 | The lab's bed grows a water table on its stone floor, and it does not stop |
+| W6 | closed | 9866 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
+| W7 | closed | 10192 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
+| Z6 | **OPEN** | 10298 | Every shipped bed starves its ant colony inside one play session |
+| Z7 | **OPEN** | 10441 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10593 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10714 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10827 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 10924 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11019 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | **OPEN** | 11099 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z14 | **OPEN** | 11197 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
 
 <!-- END GENERATED INDEX -->
 
@@ -7592,6 +7594,135 @@ the cell dropped on, and the same census outdoors, so "the lab bed's uniform
 soil makes every surface cell look like a boundary" can be confirmed or
 dropped rather than believed.
 
+**2026-09-12 — the larger half is found and fixed, and this stays OPEN for
+what is left.** `examples/nestdoor.rs` (new) gives each candidate cause a
+counter that can move only under it, and censuses the nest patch itself every
+sample: how many of the cells first painted are still `nest`, what is standing
+on the ones that are not, how many have air beside them, and how many have a
+cell an ant could actually stand in. Played bed, `RAYON_NUM_THREADS=1`,
+120,000 frames, sampled every 10,000, seeds 1-3.
+
+**The door was under water.** `creature::paint_nest_patch` converts ~53
+surface columns into `nest`, and `nest.ron` authored **no `water_capacity`** —
+the default 0, "holds none at all, and never absorbs an adjacent `Liquid`" —
+while `soil` and `packedsoil` both hold 1,000. So the doorstep was the one
+impermeable strip on the surface of a misted bed: the mist soaked in
+everywhere else and stood on the patch as free `water`. An ant cannot step
+into a liquid (`creature::landing_is_placeable_through_tissue` wants
+`world.is_empty`), so the film is a **wall** — `adjacent_nest` goes false for
+every animal in the colony at once, and `AtNest`, `nest_visits` and
+`deliveries` freeze on the same frame. That is this entry's own reported
+shape, and it also explains the seed split the entry could not: **seed 1
+floods and seed 3 does not.**
+
+The specificity control is the pair that settles it — free liquid over the
+patch against the same width of ordinary ground beside it, so a nest that
+merely sits in a hollow is told apart from one that floods *because it is
+impermeable*:
+
+| seed 1, 120,000 frames | nest cells with air beside them | water on the patch | ...on the same width beside it |
+|---|---|---|---|
+| shipped | **5-6** of 53 | **89-91** | 17-19 |
+| drained | **18-34** of 36 | **0-19** | 1-3 |
+
+Seed 3, which never floods (2-3 against 0-1) and whose colony booms, is the
+control the bug already had and nobody had read as one.
+
+**What the drains buy**, same instrument, the paired arm being the same binary
+at `PIXEL_PHYSICS_NEST_DRAINS=off`:
+
+| | seed 1 | seed 2 | seed 3 |
+|---|---|---|---|
+| `nest_visits` | **731 -> 2,730** | 5,810 -> 4,530 | **4,320 -> 7,160** |
+| deliveries | **232 -> 608** | 7,967 -> 3,255 | **2,355 -> 8,845** |
+| born / alive at 120k | **139/36 -> 581/174** | 210/129 -> 264/199 | 712/501 -> 693/340 |
+| deepest generation | **7 -> 26** | 7 -> 10 | 20 -> 19 |
+
+Pooled: deliveries 10,554 -> 12,708 and `nest_visits` 10,861 -> **14,420**,
+each up on 2 of 3 seeds. **Read the door rows above these**: the door census
+measures the mechanism and moves the same way on every seed, while
+`deliveries` is this register's noisiest column (`instruments.md` prices it at
+154-980 across six seeds of an *unchanged* ant) and two runs that diverge on
+one frame are different worlds by the next.
+
+**Ruled out by measurement, not by argument.** Not spoil: the cover histogram
+on seed 1 is `water` 47-49 and `packedsoil` **1**. Not the door being dug
+away: `lost 0` for the whole run. Not "only the founders delivered": later
+generations deliver 132 once the door is open. And **this entry's own leading
+hypothesis is stale** — the `drop_urge * moisture_gradient` product it names
+has not existed since 2026-09-02 (`creature-genome-flexibility-2026-09-02.md`
+§2c); the drop is one probability wherever the animal is standing, with the
+moisture term a free weight in the genome.
+
+**The fix**, shipped as default: **drains in the threshold.**
+`paint_nest_patch` leaves every third column as the ordinary ground it was, so
+a one-cell film has **one cell** to travel before the earth drinks it instead
+of 26. Nothing else changes — not the material, not the ledger, not the
+moisture field. Ablate with **`PIXEL_PHYSICS_NEST_DRAINS=off`** (`=<n>` sweeps
+the period), which lays the unbroken patch and reproduces the pre-fix run.
+
+**Two more principled fixes were built first and are worse; both are in
+`dead-ends.md` with their conditions.** Giving `nest` a `water_capacity` while
+it is a `Solid` **aliases `Cell::aux`** — on a `Solid` that field is the
+structural anchor distance, which `structural::tick` rewrites and *roots at 0
+the moment powder touches the underside*, which a surface patch always has, so
+the door becomes a water **sink** that deletes liquid every frame. Every
+counter that was looking read it as a clean win; the tell was in `cell.rs`'s
+union doc, not in any number. Making `nest` a `Powder` so that combination is
+legal turns `player::footing` from `Hard` to `Soft`, and the gnome wades
+through the bottom of a nest wall (`a_nest_still_stops_him`).
+
+**The drains shed the water, not the last 1% of it, and that part is open.**
+Measured 2026-09-12 on the guard's own scene, `RAYON_NUM_THREADS=1`. A first
+soaking onto dry ground clears completely -- 0 of 36 nest columns carry
+anything from frame 100 onward. A *second* soaking, onto ground already
+holding the first, is shed to 99% and no further: the door drinks **35,610 of
+the 36,000 units poured on it** and keeps 36 cells at fill **8-12 of 1,000**.
+It is not saturation, which is the obvious reading and is wrong -- the drain
+columns sit at 620 of 1,000 and **not one soil cell in the bed is full**
+(67,612 units against a capacity of 5,184,000, so 1.3%). What the ground stops
+doing is taking the last of a film that has almost no head left to push it.
+
+That residue is thin enough to be invisible and is **still a wall**: a cell
+holding 9 of 1,000 is a `Liquid`, so `World::is_empty` is false, and
+`is_partable` refuses anything that is not living tissue. It is why the census
+above reads **0-19** liquid cells over the drained patch rather than 0. So the
+drains stop the door being *the wettest strip on the bed*, which is what moved
+the colony numbers, and do not make it dry. Anyone reading a door census
+should read **volume**, not occupancy: an occupancy count reported "36 of 36
+nest cells are still under water" over a door that had just drunk 99% of what
+fell on it, which is this register's own liquid metric trap
+(`CLAUDE.md`: measure fill, not occupancy) and is what failed CI on the first
+version of the guard.
+
+**What is still open, and it is a different bug in the same sentence.**
+Deliveries still fall to zero for long stretches **with the door standing open
+and being reached**: seed 1's last four windows read deliveries 0 with 18-21
+nest cells standing open, 2-5 distinct ants touching the door in each window,
+and *closest anyone came* = **1** in every window of the run. What moves
+instead is the laden ants' distance from home, **54 -> 143 cells** across the
+run as the colony grows past 170. They forage further and do not come back. So
+door *access* and *home-finding* are two causes and only the first was this
+entry's. The residual is in the walk: an ant has no idea where home is, and
+channel A's home trail is laid only by animals that have touched the nest
+recently, so a colony ranging to 143 cells lays a trail nobody is near.
+`nestdoor`'s *closest anyone came* and its laden-distance column are the pair
+to read. **A rule refusing a spoil pellet over a nest cell is still unbuilt**,
+and the case for it is open rather than closed -- seed 1's door does go from
+34 standable cells to 18 as the colony passes 170 ants, with `packedsoil` 8-10
+of the cover, which is real and small beside the 143-cell laden distance in
+the same windows. Measure the walk first;
+`Reports/lanes/evolution-lab-round-trip.md` has both.
+
+**What the fix deliberately does not change**, because the first draft did and
+it reached further than it looked. The patch is still `nest` and still holds
+no water, so `plant.rs`'s midden search still finds the door *dry by
+construction* (`MIDDEN_SEARCH_COLUMNS`' own doc), nothing new germinates on
+it, and `field.rs`'s `moisture_source` reads it exactly as before — so
+`MoistureGrad`, a free weight on `Drop` and `Dig` in the ant genome, is
+untouched. The only visible change is that every third column of the
+threshold is ordinary earth.
+
 
 ## Closed this session
 
@@ -10885,6 +11016,184 @@ inspector and the brush asking the renderer which cell it drew.
 
 Full account: `Reports/lanes/evolution-lab-zoom-out.md`.
 
+### Z12. Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred that way rather than injured (lab) — **OPEN**
+
+Owner, from play, 2026-09-11: *"long ants getting stuck. Not all of them but
+it happens regularly. It seems like they get stuck in a big group/pile of
+long ants."*
+
+Round 29 fixed one half of that (a laden long body waiting for a nestmate
+that was never going to move; see `Reports/lanes/evolution-lab-longant-pile.md`
+§3) and the census it built to find that half found this, which nothing had
+looked for. Splitting `body_boxed` readings by how many cells the animal
+actually has, `played_bed_longant`, 120,000 frames, `RAYON_NUM_THREADS=4`,
+both arms in one binary:
+
+| short share of wedged readings | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 | s9 |
+|---|---|---|---|---|---|---|---|---|---|
+| unchanged | **98%** | 57% | 72% | 72% | 51% | 84% | 80% | 49% | 37% |
+| with the expiry | 85% | 65% | **91%** | 82% | 54% | 90% | **95%** | 72% | 81% |
+
+The share runs **37%–98%** and is over half on **16 of the 18 runs** (nine
+seeds, both arms). The absolute counts behind the worst of them: seed 1
+unchanged, **10,154 of 10,324** body-boxed readings; seed 7 with the expiry,
+**5,917 of 6,260**.
+
+**A one-cell body cannot flip at all** — reversing a list of one changes
+nothing, so `boxed_by_traffic`'s flip is refused every tick for ever, and
+round 29's expiry cannot reach them by construction. Clumps counting only
+bodies of three cells or more never exceed **7** on any seed in either arm,
+against **6–191** for the whole body-boxed population. **So the pile a player sees
+is these animals, and the long-body jam that was fixed is the smaller half.**
+
+**They are an evolved morph, not injured ants, and that is measured rather
+than inferred.** `creature::authored_body_cells` reads how many cells an
+animal's own `FateGenome` *would* unfold to, against how many it has.
+`labforage`'s `pile_short_by_loss` — authored more than two cells and now
+short — reads **0 in 17 of the 18 runs** (nine seeds, both arms), and **2
+readings out of 705** in the eighteenth (seed 8 unchanged). So a wedged short
+body is essentially never a full-length ant that was cut down.
+`pile_short_genome_cells` and `pile_short_have_cells` agree to within 29 of
+10,154 on the widest seed and exactly or to within 2 elsewhere: a mean
+authored length of **1.00 cells against a mean held length of 1.00**, so
+these animals hold what their genome asks for. And `pile_short_max_gen` runs
+6 to 31 across the 18 runs — **never generation 0**. The fates table is
+heritable, so a colony deep enough breeds a one-cell body plan and those
+bodies then wedge.
+
+**The split's own limit, stated because it bounds the claim:** `by_genome` is
+`authored <= 2`, so an animal authored two cells that now holds one counts as
+"by genome" while having in fact lost a cell. The cells-authored-against-held
+gap is what catches those, and it is 29 cells over 10,154 readings at its
+widest. It does not change the reading; it is the reason the reading is
+"essentially never" rather than "never".
+
+They also get wedged **younger**: `pile_short_first_boxed_age` (the animal's
+age in frames at its first body-boxed reading) reads 13,028 / 25,849 / 29,474
+/ 25,053 / 19,151 / 13,484 / 18,911 / 20,906 against 30,550 / 30,103 / 17,496
+/ 26,132 / 27,907 / 23,392 / 28,488 / 25,470 for bodies of three cells or
+more — earlier on six of the eight pairs.
+
+**Not fixed here**, and round 29 deliberately did not touch what produces
+them. Two readings, and they want opposite fixes:
+
+- **Selection is rewarding a one-cell body.** A one-cell animal is cheap to
+  maintain (`idle_cost_per_cell` x 1) and can still eat and breed, so on a
+  bed where food is the binding constraint it may simply out-reproduce a
+  seven-cell one. If so the fix is in the economy, not the body plan, and
+  `CLAUDE.md`'s standing warning applies: `longant.ron`'s costs were
+  calibrated against a colony a large fraction of which was standing still.
+- **The genome's viability floor is too low.** If a one-cell long ant is not
+  a body anybody intended, `FateGenome` should refuse to unfold one — which
+  is a change to what the genome may express, and `examples/fate_viability.rs`
+  is the instrument that already exists for asking it.
+
+*Where to start:* `labforage`'s `pile_short_by_genome` / `pile_short_by_loss`
+/ `pile_short_max_gen` split, and `fate_viability` over the genomes a
+30-generation colony actually holds. **Decide which reading it is before
+building anything** — the two fixes are in different files and one of them
+makes the other unnecessary.
+
+Full account: `Reports/lanes/evolution-lab-longant-pile.md` §6.
+
+### Z13. Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuck (lab) — **OPEN**
+
+Owner, on review card `20260912T045951545Z-6931d4`, three markers placed on
+one arm of a blind A/B of the long-ant nest band, 2026-09-12: *"this the most
+prominent thing that shows no movement in both images"*, *"also no
+movement"*, *"no movement"*.
+
+**All three are full-length long ants that are not wedged against anything —
+they are resting, and resting is what the game shipped.** The markers arrive
+as normalised image coordinates; mapped back through that capture's own crop
+and zoom (`zoom=4`, `crop=160,120,224,56`, so one world cell is a 4x4 pixel
+block) they are world cells **(363,155)**, **(302,149)** and **(244,154)**.
+`labforage`'s `probe=` census over `played_bed_longant` seed 3, frames
+28,000–31,000, 50 stops, `RAYON_NUM_THREADS=4`, on the tree that rendered the
+card:
+
+| | (363,155) | (302,149) | (244,154) |
+|---|---|---|---|
+| body | 7 cells of 7 the genome asks for | 7 of 7 | 6 of 7 |
+| generation | 0 | 1 | 0 |
+| cargo | **laden** | empty | empty |
+| headings **open** of 8 | **3** | **1** | **1** |
+| `moves` over the window | **+0** | **+0** | +1 |
+| `moves_blocked` over the window | **+0** | **+0** | **+0** |
+| `traffic_deferred` at every stop | 0 | 0 | 0 |
+| energy | 616 → **878** | 344 → 265 | 561 → 414 |
+
+**Not one of them is boxed, so none is in any column of round 29's pile
+census** — `creature::HeadBlock::body_boxed` requires `open == 0` by
+construction. And `moves_blocked` flat at +0 across 3,000 frames is the half
+that matters: these animals are not shoving at a jam and losing, they are
+**not asking to move at all**. The `bites`/`digs`/`deliveries` counters are
+the positive control that the tick is running — the laden one eats and gains
+262 J while standing — and `crossing`, `flight` and `senescent` read clear on
+every sampled line, which rules out the three states that would each explain
+a standing animal without the brain being involved.
+
+For a live multi-cell animal that is not crossing or in flight, exactly one
+branch leaves both counters untouched: the `BrainOutput::Move` roll failing
+at `src/sim/creature.rs:3357` (`if draw.unit_f32() < p_move`). Every path
+inside `step_chain` increments one counter or the other, the flip and the
+tumble included; its only other no-counter exit is *starting* a `Crossing`,
+which would leave the flag set. **So this is the rest state, reached as
+designed** — the owner's own ruling, 2026-09-09: *"rest is the absence of a
+reason to act, not the presence of a full stomach"*
+(`Reports/evolution-lab-direction-2026-09-09.md`). An ant with no reason to
+act does not act, and `p_move` collapsing is what that looks like from
+outside.
+
+**The bug is that you cannot see the difference, and the control proves the
+duration is not the long ant's fault.** `idle_with_room` — at least one legal
+heading, head unmoved since the previous stop — and its streak, over 120,000
+frames, `sample=900`, so one stop is 900 frames:
+
+| longest idle-with-room streak, stops | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 | s9 |
+|---|---|---|---|---|---|---|---|---|---|
+| long-ant colony, bodies of **3+ cells**, unchanged | 33 | 40 | 68 | 64 | 63 | 56 | 83 | 61 | 53 |
+| ...with the expiry | 62 | 46 | 54 | 49 | 38 | 71 | 50 | 62 | 35 |
+| **shipped two-cell ant**, all bodies | **56** | **68** | **62** | — | — | — | — | — | — |
+
+p90 over the same streaks: **11–16** stops for those long bodies against
+**13–20** for the shipped two-cell ant — if anything the shipped ant's rests
+run *longer*. **The shipped ant rests as long as a full-length long body
+does** —
+50,000-plus frames in one spot on every seed — and nobody has ever reported
+it, because a two-cell body resting is two pixels not moving and a seven-cell
+body resting is a conspicuous shape holding one spot. Nothing about the long
+ant's *behaviour* is anomalous here. What changed is that the body got big
+enough to see.
+
+`CLAUDE.md`'s *ask what your number counts when nothing is wrong* got two
+turns on this finding and cut it down both times: the idle **rate** reads
+74–76% for the long ant and **75% for the shipped ant**, and now the idle
+**duration** turns out to match too. Both were run before the number was
+believed, and what survives is not a behaviour claim at all.
+
+**So this is a look problem, not a walk bug**, and it is filed rather than
+fixed because the fix is a question for the owner rather than a mechanic
+anyone should pick: *what should a resting ant do so that it reads as resting
+rather than as stuck?* The cheap candidates, none of which move the animal or
+touch the economy — turning its head, antennating, shuffling one cell every
+so often and coming back. Each is an idle animation with a different cost to
+the dirty-rect render skip, which is the thing to price before building any of
+them (`CLAUDE.md`: an animated grain looked free in every moving scene and
+cost ~10 ms/frame on a settled one). **Put it to the owner as a card first.**
+
+*One loose end worth a measurement rather than a guess:* the same ruling says
+the move bias *"comes down and never off"*, and a body that holds one cell
+for 61,200 frames is evidence that in practice it is reaching zero, or near
+enough that the residual wander never fires. That applies to **both** species
+equally — the control above says so — so it is pre-existing and
+species-independent, not something round 29 introduced. Print
+`outputs[BrainOutput::Move]` beside the probe's line for a named animal, which
+needs a read inside `creature_tick`, and check whether the residual survives
+at all. The laden ant at (363,155) with `since_nest` **4,386** is the sharper
+case: carrying, 4,386 ticks from the nest, three ways to walk, and not going.
+
+Full account: `Reports/lanes/evolution-lab-longant-pile.md`.
 ### Z14. The played bed's 500,000-frame trajectory is chaotic, and `scent_drift: 0.15` re-rolled it — **OPEN as a method problem, not a colony bug, found 2026-09-12**
 
 **What it is.** Lane M found the played bed's control arm moving enormously
