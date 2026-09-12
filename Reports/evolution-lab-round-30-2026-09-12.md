@@ -479,11 +479,16 @@ keeps the bed alive, and the 40,000-frame lifespan arm.
 
 ## Open at close
 
-- **Floating debris is the most reported visual defect of the day**, named by
-  the owner on two unrelated cards, and no lane owns it. It is not the soil
+- **Floating debris is the most reported visual defect of the day** — filed
+  by lane P as **§Z18** (dug spoil standing in open sky), named by the owner
+  on two unrelated cards, and no lane owns the repair. It is not the soil
   design question it was filed under. **This is the first thing round 31
   should look at**, because it is in every picture of this bed regardless of
   what the picture is of.
+
+  Note the letter: lane P filed it as §Z16 and had to renumber, because
+  round 29's §Z16 was already on `main` and `bugindex.py --check` cannot see
+  a letter claimed on another branch. Run `--branches` before filing.
 - **#359** (the anthill null) — merging. Whether the room gate helps a colony
   *survive* is still unmeasured: the sweep tracked digs, spoil, chambers and
   bare share, and the one bed the owner judged differed by a colony that lived
