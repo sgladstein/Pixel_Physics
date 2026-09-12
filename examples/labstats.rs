@@ -18,6 +18,7 @@
 //! cargo run--release --example labstats -- control=steady       # is anything riding a day-length cycle
 //! cargo run --release --example labstats -- control=cost        # what one census costs
 //! cargo run --release --example labstats -- png=page.png frames=9000
+//! cargo run --release --example labstats -- drift=0.15 blend=0.1 uptake=0.02 nestdrift=0.065   # the cohesion arm
 //! ```
 //!
 //! **It echoes its own parameters on the first line.** `CLAUDE.md`'s harness
@@ -395,6 +396,29 @@ fn main() {
             }
             println!("labstats: ant scent_drift = {v}");
         }
+        // **The three nest-cohesion dials** -- `blend=` (beta), `uptake=`
+        // (gamma) and `nestdrift=` (sigma). World rules rather than species
+        // fields, so they are set on the world and felt on the next tick.
+        // Echoed unconditionally below whether or not they were passed: the
+        // shipped bed with cohesion on and the same bed with it off are the
+        // same picture, and only the echo says which one was run.
+        if let Some(v) = arg::<f32>("blend") {
+            lab.world.nest_blend = v;
+        }
+        if let Some(v) = arg::<f32>("uptake") {
+            lab.world.nest_uptake = v;
+        }
+        if let Some(v) = arg::<f32>("nestdrift") {
+            lab.world.nest_scent_drift = v;
+        }
+        println!(
+            "labstats: nest_blend = {} nest_uptake = {} nest_scent_drift = {} per {} frames | nest sites = {}",
+            lab.world.nest_blend,
+            lab.world.nest_uptake,
+            lab.world.nest_scent_drift,
+            pixel_physics::sim::world::NEST_SCENT_INTERVAL,
+            lab.world.nest_sites.len()
+        );
         if let Some(v) = crosskin {
             if let Some(id) = lab.world.species.id_of("ant") {
                 let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
@@ -545,6 +569,12 @@ fn main() {
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
     let mut culled = 0usize;
+    // **The split counter, summed rather than only printed when it fires.**
+    // `regroup_by_scent`'s return was going to a conditional line, so a run
+    // that split twice early and never again read the same as one that never
+    // split at all once the log scrolled. This is the number the cohesion
+    // guard is stated over.
+    let mut mints = 0usize;
 
     for f in 0..=frames {
         if f == cull_at {
@@ -560,6 +590,7 @@ fn main() {
         // as `Lab::advance` does; the count is the "did a split fire"
         // counter, printed when it does.
         let minted = lab.world.regroup_by_scent();
+        mints += minted;
         // The ANTS page's own sample ring, so a `page=ants` capture carries
         // the per-group graph and not just the legend. Gated inside on the
         // page's sample interval; two integer compares per frame otherwise.
@@ -836,6 +867,60 @@ fn main() {
             }
             println!("{line}");
         }
+    }
+
+    // **The cohesion account.** Three numbers that a picture cannot give:
+    // whether the exchange fired at all, where each nest's odour actually
+    // sits, and how far apart any two of them have drifted.
+    //
+    // **`nest blends` is read against `nest_visits`, not on its own.** A zero
+    // here with `nest_visits` also frozen is the colony having stopped going
+    // home (`open-bugs-handoff.md` §T2), which is a finding about the bed; a
+    // zero here with `nest_visits` climbing is the mechanism being broken,
+    // which is a finding about this code. They are different bugs and only
+    // the pair separates them.
+    {
+        let w = &lab.world;
+        let st = &w.creature_stats;
+        println!(
+            "\n--- cohesion --- nest blends {} (share blends {}) | nest_visits {} deliveries {} | group mints {mints}",
+            st.nest_blends, st.share_blends, st.nest_visits, st.deliveries
+        );
+        for (i, n) in w.nest_sites.iter().enumerate() {
+            println!("  nest {i} at ({}, {}): odour [{:.4}, {:.4}, {:.4}]{}", n.x, n.y, n.scent[0], n.scent[1], n.scent[2], if n.seeded { "" } else { "  (never visited -- unseeded)" });
+        }
+        for (i, j, d) in w.nest_scent_gaps() {
+            println!("  gap nest {i} <-> nest {j}: {d:.4}  ({} at a tolerance radius of 1.0)", if d > 1.0 { "STRANGERS" } else { "kin" });
+        }
+        // **The scent cloud a living colony actually spreads over**, which is
+        // the quantity the shipped `scent_drift` is judged safe against --
+        // every ant's distance from the nest it is nearest, worst first.
+        let mut worst: f32 = 0.0;
+        let mut n = 0u32;
+        let mut sum = 0.0f64;
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism(id) else { continue };
+            if w.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            let Some(site) = w.nearest_nest_site(x, y) else { continue };
+            let d = pixel_physics::sim::creature::scent_distance_sq(&pixel_physics::sim::creature::scent_of(&state.traits), &w.nest_sites[site].scent).sqrt();
+            worst = worst.max(d);
+            sum += d as f64;
+            n += 1;
+        }
+        if n > 0 {
+            println!("  living cloud around the nearest nest: worst {worst:.4}, mean {:.4} over {n} animals (tolerance radius 1.0)", sum / n as f64);
+        }
+        // **Killings booked to an ant's own colony** -- the number the
+        // design's §0 read `killed by ANT 1 x20` on, as one figure.
+        let own: u64 = w
+            .group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, k)| *k).sum::<u64>())
+            .sum();
+        println!("  killed by own colony: {own}");
     }
 
     println!("\n--- the page, as text ---");
