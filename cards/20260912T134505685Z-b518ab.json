@@ -1,0 +1,58 @@
+{
+  "id": "20260912T134505685Z-b518ab",
+  "created": "2026-09-12T13:45:05Z",
+  "board": "ants",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-room-per-ant-r30",
+    "commit": "f297fd35",
+    "agent": null,
+    "session_id": "da2c6514-8db3-561b-abbb-a591d9ed5e9e",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The anthill at 300,000 frames -- re-shot on today's main",
+  "question": "Which of these reads as an anthill that has stopped growing?",
+  "context_md": "**This replaces the card I posted an hour ago (20260912T115506982Z-6ae8e2) -- please judge this one.** That one's pictures were taken before the seed-cargo and round-trip fixes landed, and those changed the bed under it: the same seed went from 2,053 cells dug to 314. Same question, current code.\n\nBoth panes are frame 300,000 of two runs from an identical start, with one thing changed: **what an ant standing at its own door is asked before it digs.** One pane asks the old question, *how many ants are pressed against me*. The other asks *how much roofed room does this colony have, per ant*, so every chamber cut makes the next one less urgent.\n\n**The loop works. It does not do what it was built for, and I would rather you knew both.** The colony answers the new question sensibly -- it digs hard while the burrow is bare, quietens at a few cells of room each, starts again as the brood outgrows them. But across **twelve beds run twice each** it left a *bigger* mound on nine of them, dug more on eight, and the spread between beds is absurd -- from a twenty-fifth of the mound to seventy times it. Nothing about it is reliable in either direction.\n\n**And the premise it was built on is wrong.** I was told the old question is one an ant can never answer -- always 'yes, we are packed'. Counting what ants actually read at the door, 835,000 moments across twelve beds: **a third of the time there is nobody near the ant at all.** The old gate was never stuck. A mound that never regreens is not the door question; it is a colony outgrowing its rooms faster than it can cut them, which is the *number of ants* -- the lifespan work, not this.\n\n**So I have shipped it off, which goes against your rule that new behaviours ship on.** On costs about 4% of a frame and builds more of the thing it was meant to reduce, and a default is the one form you cannot decline. It is one switch on the ANTS page. Tell me to put it back on and I will.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "room at the door",
+      "files": [
+        "20260912T134505685Z-b518ab/000-s7on_1.png"
+      ],
+      "caption": "frame 300,000, bed 7",
+      "meta": {
+        "cells the colony dug out": 7688,
+        "cemented spoil left standing above ground": 1405,
+        "chambers standing underground (cells)": 258,
+        "bare ground on the mound's own surface": "37 of 110 columns",
+        "ants still alive": 27
+      },
+      "focus": null
+    },
+    {
+      "label": "crowding at the door (today)",
+      "files": [
+        "20260912T134505685Z-b518ab/001-s7off_1.png"
+      ],
+      "caption": "frame 300,000, bed 7",
+      "meta": {
+        "cells the colony dug out": 4727,
+        "cemented spoil left standing above ground": 1223,
+        "chambers standing underground (cells)": 276,
+        "bare ground on the mound's own surface": "128 of 129 columns",
+        "ants still alive": 0
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
