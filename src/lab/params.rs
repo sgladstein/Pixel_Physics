@@ -853,6 +853,26 @@ fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
         span(0.0, 1.0, 0.01),
         "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
+    // **The room gate's one number, and only its number.**
+    //
+    // The switch that arms it is `PIXEL_PHYSICS_LAB_ROOM`, an env var with no
+    // row here, which is the same shape `spoil_kept`, `trophallaxis_enabled`
+    // and `curvature_sense_enabled` already ship in: an ablation switch is for
+    // measuring an arm, not for playing with, and the owner's *expose every
+    // constant* ruling is about constants. **The page also has room for
+    // exactly one more row and this is it** -- `no_page_is_longer_than_two_screens`
+    // caps a page at 20 and ANTS stood at 19, so a toggle here would have put
+    // it at 21 and the guard caught that in CI rather than in review. The next
+    // lane to add an ANTS row has to move something.
+    out.push(float(
+        g,
+        Knob::Scalar { field: "room_target" },
+        "colonies",
+        "room_each_ant_wants",
+        world.room_target,
+        span(0.25, 16.0, 0.25),
+        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. AN ANT AT ITS OWN DOOR READS THE ROOM THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH IT SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. THE SHIPPED 2.0 COMES OFF A CENSUS RATHER THAN OUT OF THE AIR: COLONIES LIVE AT ROUGHLY HALF A CELL TO TWO CELLS OF CHAMBER EACH AND NEVER STOP DIGGING, SO 2.0 PUTS THE HALFWAY POINT JUST ABOVE THE MOST ROOM ANY OF THEM EVER HELD. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER AND GOES BACK TO THE SURFACE EARLIER; TURN IT UP AND IT KEEPS EXCAVATING. WHAT IT DOES NOT DO IS MAKE THE MOUND SMALLER -- MEASURED OVER TWELVE BEDS RUN TWICE EACH IT DIGS MORE ON ELEVEN OF THEM. WHAT IT DOES INSTEAD IS KEEP THE COLONY GOING: ALIVE AT THREE HUNDRED THOUSAND FRAMES ON FIVE OF THE TWELVE, WHERE THE OLD QUESTION LEFT NONE ALIVE AT ALL. THE WHOLE MECHANISM IS ON UNLESS YOU LAUNCH WITH PIXEL_PHYSICS_LAB_ROOM=off, WHICH PUTS THE OLD HEAD-COUNT BACK EXACTLY. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+    ));
 }
 
 /// **Every heritable trait slot, as a table rather than as a call each.**
@@ -1118,6 +1138,19 @@ fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
 }
 
+/// As `shipped_trait_reach`, for the room gate -- shipped **on**, on the
+/// owner's verdict (`creature::room_gate_default`). The derive's `false` is
+/// the control arm rather than the shipped box, which is exactly the trap
+/// `trait_reach` above records, so this one is named.
+fn shipped_room_gate() -> bool {
+    true
+}
+
+/// As `shipped_trait_reach`, for the room the gate measures against.
+fn shipped_room_target() -> f32 {
+    creature::ROOM_TARGET_DEFAULT
+}
+
 /// As `shipped_trait_reach`, for the alarm scent's decay.
 fn shipped_alarm_decay() -> f32 {
     crate::sim::pheromone::ALARM_RHO
@@ -1183,6 +1216,18 @@ pub struct Dials {
     /// mechanism that silently never fires looks exactly like one that did.
     #[serde(default = "shipped_nest_scent_drift")]
     pub nest_scent_drift: f32,
+    /// `World::room_gate`. Named default rather than the derive's, even
+    /// though the two agree today: the shipped value is a live question with
+    /// the owner (`creature::room_gate_default`), and a key whose default is
+    /// spelled out moves with that answer instead of silently tracking
+    /// `bool::default()`.
+    #[serde(default = "shipped_room_gate")]
+    pub room_gate: bool,
+    /// `World::room_target`. Named default for `room_gate`'s reason, and
+    /// here a missing key loading as `0.0` would be worse than the control:
+    /// it pins occupancy at 1.0, which is neither arm.
+    #[serde(default = "shipped_room_target")]
+    pub room_target: f32,
 }
 
 impl Dials {
@@ -1218,6 +1263,8 @@ impl Dials {
             nest_blend: world.nest_blend,
             nest_uptake: world.nest_uptake,
             nest_scent_drift: world.nest_scent_drift,
+            room_gate: world.room_gate,
+            room_target: world.room_target,
         }
     }
 
@@ -1245,6 +1292,8 @@ impl Dials {
         world.nest_blend = self.nest_blend;
         world.nest_uptake = self.nest_uptake;
         world.nest_scent_drift = self.nest_scent_drift;
+        world.room_gate = self.room_gate;
+        world.room_target = self.room_target;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1539,6 +1588,18 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                         return false;
                     }
                     world.pheromones.set_alarm_rho(value);
+                }
+                // **Bounded away from zero, not merely clamped by the span.**
+                // A target of 0 pins `NestRoom::occupancy` at 1.0, which is
+                // the saturated input the whole mechanism exists to escape --
+                // so it is refused here as well as on the row's span, for the
+                // reason `Knob::Rule`'s doc gives: a restored dials file must
+                // not be able to reach a state a live edit could not.
+                "room_target" => {
+                    if value <= 0.0 {
+                        return false;
+                    }
+                    world.room_target = value;
                 }
                 _ => return false,
             }
