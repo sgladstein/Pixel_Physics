@@ -153,7 +153,7 @@ point.
 | Z10 | closed | 10682 | The flitter's float never switches off on a bed that has flowers in it |
 | Z11 | closed | 10779 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 10874 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 10955 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z13 | **OPEN** | 10954 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10884,22 +10884,21 @@ looked for. Splitting `body_boxed` readings by how many cells the animal
 actually has, `played_bed_longant`, 120,000 frames, `RAYON_NUM_THREADS=4`,
 both arms in one binary:
 
-| seed / arm | body-boxed readings | of which 1–2 cells | share |
-|---|---|---|---|
-| 1 unchanged | 10,324 | **10,154** | 98% |
-| 1 expiry | 1,397 | 1,183 | 85% |
-| 2 unchanged | 337 | 193 | 57% |
-| 2 expiry | 1,033 | 667 | 65% |
-| 3 unchanged | 1,964 | 1,408 | 72% |
-| 3 expiry | 3,732 | **3,406** | 91% |
-| 4 unchanged | 2,070 | 1,487 | 72% |
-| 4 expiry | 2,748 | 2,250 | 82% |
+| short share of wedged readings | s1 | s2 | s3 | s4 | s5 | s6 | s7 | s8 | s9 |
+|---|---|---|---|---|---|---|---|---|---|
+| unchanged | **98%** | 57% | 72% | 72% | 51% | 84% | 80% | 49% | 37% |
+| with the expiry | 85% | 65% | **91%** | 82% | 54% | 90% | **95%** | 72% | 81% |
+
+The share runs **37%–98%** and is over half on **16 of the 18 runs** (nine
+seeds, both arms). The absolute counts behind the worst of them: seed 1
+unchanged, **10,154 of 10,324** body-boxed readings; seed 7 with the expiry,
+**5,917 of 6,260**.
 
 **A one-cell body cannot flip at all** — reversing a list of one changes
 nothing, so `boxed_by_traffic`'s flip is refused every tick for ever, and
 round 29's expiry cannot reach them by construction. Clumps counting only
-bodies of three cells or more never exceed **5** on any seed in either arm,
-against 6–75 for the whole body-boxed population. **So the pile a player sees
+bodies of three cells or more never exceed **7** on any seed in either arm,
+against **6–191** for the whole body-boxed population. **So the pile a player sees
 is these animals, and the long-body jam that was fixed is the smaller half.**
 
 **They are an evolved morph, not injured ants, and that is measured rather
