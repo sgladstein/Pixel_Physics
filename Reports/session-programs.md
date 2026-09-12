@@ -1,6 +1,7 @@
 # Running a program of sessions (coordinator ↔ lane)
 
-**Status: living. Written 2026-08-24; moved out of `CLAUDE.md` 2026-08-25.**
+**Status: living. Written 2026-08-24; moved out of `CLAUDE.md` 2026-08-25;
+the spawn-sources, work-durability and same-file-gate sections added 2026-09-12.**
 
 **Read this if you are coordinating other sessions, or were spawned by one.**
 If you are a single session doing ordinary work, nothing here applies and
@@ -18,6 +19,111 @@ Written 2026-08-24, from one evening in which a coordinating session ran seven
 lanes, merged nine pull requests and lost several hours to four failures that
 had nothing to do with the engine. Everything here is a fact about *this*
 harness, measured, not a guess about how agents ought to work.
+
+### Spawning a lane: the environment is inherited, the repository is not
+
+**This fires before every other rule here, because a lane without a checkout
+cannot do anything at all — including tell you why.** Measured 2026-09-12: two
+lanes spawned in one minute both came up with an empty `/home/user`. No clone,
+no `CLAUDE.md`, no repo. One reported `need_input: "no repository found"` and
+stopped. The other cloned the public tree read-only through the git proxy,
+worked for seven minutes, and only then discovered it could never push:
+
+```
+access denied by the git proxy: sgladstein/Pixel_Physics is not in this
+session's authorized repository set                              (HTTP 403)
+```
+
+**The cause is one omitted argument, and the trap is that the *other* default
+works.** `mcp__Claude_Code_Remote__create_session` with no `source_url`
+inherits the caller's `environment_id` — correctly, every time. It does **not**
+inherit the caller's sources. Compare the returned records of a working lane
+and a dead one from the same coordinator, same minute, same environment:
+
+```
+working:  "sources":[{"git_repository":{"url":".../Pixel_Physics","revision":"main"}}]
+dead:     (no `sources` key at all)
+```
+
+So "it inherits the environment" is true, and it is not the thing you needed.
+
+**The rule: pass `source_url` and `source_revision` on every build-lane spawn,
+then check `sources` is non-empty in the record the call hands back.** The
+tool returns it, so the check is free and it is the only one that runs before
+the lane has burned anything.
+
+**Do not expect the lane to dig itself out.** `add_repo` with `access: "push"`
+is the documented fix and a spawned lane cannot use it: the permission
+classifier declines the grant because it needs a human, and a lane spawned
+without sources also has **no `mcp__github__*` tools**, so it could not open a
+pull request even if it could push. The only recovery is to spawn it again
+correctly and archive the original, so two lanes are not building the same
+thing.
+
+**Carry the dead lane's findings into the relaunch.** The one that got seven
+minutes in had already found three stale line numbers in its own brief and
+confirmed what a just-merged PR did and did not touch. That is real work and
+it is in a session you are about to archive. Fold it into the new brief, and
+verify it yourself first — see *Verify what a lane relays* below.
+
+### A lane being healthy is not evidence its work is durable
+
+**Measured 2026-09-12: a lane three hours and $7.85 into a working build had
+never pushed a branch.** `git ls-remote origin 'refs/heads/<its branch>'`
+returned nothing. It was on the branch — locally, on one container, and nowhere
+else.
+
+Nothing looked wrong, and that is the whole point. The coordinator had its
+context size, its running cost, its task summary, a posted review card and two
+progress reports. **Every one of those is a signal from inside the container,
+and not one of them says the work has left it.** The lane was working *and* one
+container failure from losing all of it.
+
+The same coordinator had written a note that morning saying that if the lane
+stalled again, "relaunching from the branch would beat waiting". There was no
+branch. **The insurance had been reasoned about and never checked.**
+
+**So: run `git ls-remote origin 'refs/heads/claude/*'` at every check-in, for
+every live lane, not only for one that has gone quiet.** It costs one command
+and it is the only signal in the system that crosses the container boundary.
+When a lane has nothing pushed, tell it to push as it stands — mid-edit, no
+tidying, no waiting for green. A WIP commit that exists beats a clean one that
+does not.
+
+### A same-file gate is a hypothesis, and one command tests it
+
+**Three times in one morning — twice by a coordinator, once by another
+coordinator advising it — work was serialised because two lanes were "in the
+same file".** In this repo that reasoning is nearly always wrong, because the
+contested files are enormous: `src/lab/ui.rs` is ~10,900 lines and
+`src/sim/creature.rs` over 20,000.
+
+The test is `git diff origin/main...<branch> -- <file> | grep '^@@'`, and it
+answers in seconds:
+
+| gate | claimed | measured |
+|---|---|---|
+| UI lane held for a chronicle lane, both in `ui.rs` | conflict | hunks at 49 / 6053 / 6074 / 9300 against targets near 855 / 3050 / 8068 — **disjoint** |
+| ant lane held for two creature lanes | conflict | hunks nearest 3067 against a target at 3956 — **889 lines clear** |
+
+**What actually predicts a painful merge is diff *size*, not file identity.**
+The one lane genuinely paying repeated conflicts in `creature.rs` had 174 lines
+across eleven sites; the lane being held out of the same file had a few lines at
+one. Advice of the form "stay out of that file" collapses those two cases, and
+holding the small one buys nothing while costing a lane its whole window.
+
+**Two riders, both measured the same morning.**
+
+- **A semantic gate is real where a textual one is not, and no diff finds it.**
+  Two lanes changing what one shared input *means* — one redefining a sensor,
+  the other adding a consumer of it — must be serialised even though they never
+  touch the same line, because each would be calibrated against the other's
+  absence. That is `CLAUDE.md`'s reallocation rule with the halves in different
+  sessions, where no merge and no gate can catch it. Look for a shared *term*,
+  not a shared file.
+- **A CI verdict quoted to a lane has a shelf life of one push.** "9/9 green"
+  was written into a brief and was stale within minutes because the PR's author
+  re-pushed. Date it, name the head SHA it belongs to, or do not send it.
 
 ### The sessions can talk to each other — and by default they cannot
 

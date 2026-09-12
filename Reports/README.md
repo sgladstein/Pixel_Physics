@@ -2499,6 +2499,28 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-30-2026-09-12.md](evolution-lab-round-30-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round thirty: seven
+  lanes on work the owner asked for in his own words that morning (the
+  tooltip, the top-left corner, a master menu, the zoom-out dropout, the
+  zoom-in exploration) plus the soil design and the anthill. What the round
+  overturned: **both lanes chasing the colony were counting a variable that
+  does not move.** The who-kills lane booked 216/98/70 killings against 2/0/0
+  attributable to an attacker, two fifths of the rest a plant standing in the
+  dead ant's head; this round's anthill lane found the dig gate's premise false
+  (a third of at-nest crowding reads sit in the bottom tenth, so an ant at its
+  own door is very often alone) and the gate no help to the mound at all. Then
+  it re-read its own twelve paired runs for the thing neither sweep had
+  tracked: **the colony is alive at 300,000 frames on 5 beds of 12 with the
+  gate on and 0 of 12 without** (p ≈ 0.03, McNemar), so the gate ships **on**,
+  and *by what route* is round 31's question. Also the coordination findings
+  that cost the round real time, several now closed with a command rather than
+  a rule: **a spawned session inherits the environment and not the
+  repository**; **which bug letter is free is a question about every branch**,
+  which `bugindex.py --branches` now answers and `--check` cannot; **a shared
+  budget and a duplicated claim are one failure git cannot see**; a session's
+  status describes the turn that ended, not the one running; a partly-green PR
+  carries almost no information; and green CI is not mergeability.
 - [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
   — **design of record for the two soils, 2026-09-12: what a colony's tamped
   spoil should do with time, and what a plant inside a mound should do.** The
