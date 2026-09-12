@@ -10956,5 +10956,21 @@ identical for the first fifth of a session and part only at 120,000 frames. A
 determinism check, a baseline or an A/B run to 100,000 frames would have
 reported this change as having no effect whatsoever.
 
+**And on the current trunk the dial is inert, which is the other half of the
+finding.** The same census on main `a4359300` (carrying seed cargo #342),
+seeds 1–3, 500,000 frames, paired: **every stop of every seed is identical
+with the dial on and off**, 26 of 26 rows on all three. The colony never
+reaches the size where a kin flip has anything to amplify — peak **12** ants
+on seeds 1 and 2 against the **3,182** the same seed 1 reached at `c7ee0f40`.
+So §Z14's effect belongs to that bed, not to the dial.
+
+**Two further things that census says, both larger than this entry.** The
+colony now **dies on every seed** — extinct by 100,000 frames on seed 2 — so
+the late-game boom the design was written around is gone from this bed. And
+deaths are now mostly **killings** rather than starvation: seed 1 is 82 killed
+against 40 starved, and seed 3 reads **159 killed**, which is lane J's own
+unexplained figure at 500,000 frames. The `drift=0` arm reads the same 159, so
+**lane J's KILLED channel is excluded from scent drift by direct control.**
+
 **Not fixed here, and the shipped value is not this lane's to change** — it is
 the owner's design call, and it is being put to him with what it costs.

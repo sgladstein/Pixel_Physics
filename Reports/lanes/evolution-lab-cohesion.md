@@ -168,3 +168,33 @@ part at 120,000 frames. Any check to 100,000 would have called #347 inert.
 What 0.15 costs on a bed where the colony leaves its patch is the §Z14 table;
 the alternatives are drift 0, gating `carry_nest_wander`/the blend on
 proximity (costed above), or a nest that follows the colony.
+
+## The fresh baseline on current main, 2026-09-12 — and the dial is inert on it
+
+`latecensus`, `played_bed`, seeds 1–3, 500,000 frames, `sample=20000`,
+`RAYON_NUM_THREADS=1`, on main `a4359300` (which carries seed cargo #342).
+Shipped arm and `drift=0` arm, paired.
+
+| seed | peak ants | extinct at | born | died | starved | killed | arms identical |
+|---|---|---|---|---|---|---|---|
+| 1 | 12 | 420,000 | 86 | 122 | 40 | **82** | 26 of 26 stops |
+| 2 | 12 | 100,000 | 39 | 55 | 18 | **37** | 26 of 26 stops |
+| 3 | 212 | 220,000 | 835 | 872 | 713 | **159** | 26 of 26 stops |
+
+**This replaces the late-game §0 census, which every lane has found unusable.**
+
+Three things it says, none of them small:
+
+- **`scent_drift` is inert on the current trunk.** Every stop of every seed is
+  identical with the dial on and off. The colony never reaches the size where
+  a kin flip has anything to amplify — peak **12** ants on seeds 1 and 2
+  against the **3,182** the same seed 1 reached at `c7ee0f40`. So §Z14's effect
+  is a property of *that* bed, not of the dial, and re-measuring it on this
+  trunk would have found nothing at all.
+- **The colony now dies on every seed**, by 100,000 frames on seed 2. The
+  late-game boom the design was written around is gone from this bed.
+- **Deaths are now mostly KILLINGS, and it is not scent drift.** Seed 1 is 82
+  killed against 40 starved; seed 3 is **159 killed** — which is lane J's own
+  unexplained figure at 500,000 frames — and the `drift=0` arm reads the same
+  159. **Lane J's KILLED channel is excluded from scent drift by direct
+  control**, on the trunk, at the seed and frame count J measured.
