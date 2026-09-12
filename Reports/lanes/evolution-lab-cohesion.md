@@ -198,3 +198,18 @@ Three things it says, none of them small:
   unexplained figure at 500,000 frames — and the `drift=0` arm reads the same
   159. **Lane J's KILLED channel is excluded from scent drift by direct
   control**, on the trunk, at the seed and frame count J measured.
+
+## Who kills whom on the played bed, 2026-09-12 — nobody
+
+**Full account: `../open-bugs-handoff.md` §Z16.** The colony's `KILLED`
+deaths, which outnumber its starvations on the trunk, are **not killings**.
+`reconcile_chain` books `DeathCause::Killed` wherever a deciding cell goes
+away, whatever took it — its own comment has always said so — while
+`tally_kill` fires only for an attributable bite. Across seeds 1–3 at 500,000
+frames: **384 booked, 2 attributable**, both ants of the same colony. About
+half the rest is the vital cell going **empty** and about two fifths is a
+**plant growing into the ant's head**. The colony is overgrown, not eaten.
+
+**The positive control that caught it was the pair** — the attacker log read
+against the cause tally. 216 against 2 on the first run. A kill counter with
+no second counter beside it would have been quoted as a war.
