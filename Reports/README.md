@@ -1098,6 +1098,30 @@ drift that two of these documents still reflect.**
   developmental arm as the null (median 50.9% against 51.6%), for two
   reasons that are the bed's — *reachable, connected, gated; not yet
   found*.
+- [evolution-lab-fission-design-2026-09-12.md](evolution-lab-fission-design-2026-09-12.md)
+  — **colony fission: one odour per nest, and how a second nest starts,
+  2026-09-12.** Design, no code. Answers the owner's *"can colonies diverge
+  and become separate colonies?"* by taking the cohesion the signature
+  report's §1f deliberately left out: **a nest is a place that holds an
+  odour**, an ant standing on nest material blends with it (`nest_blend`
+  0.10, `nest_uptake` 0.02, hung off the `AtNest` branch that is already
+  computed), a party buds out on a new `Leave` brain output wired off
+  `AtNest × Crowding` and founds a satellite 120 cells away carrying the
+  parent's odour, and each nest's odour then wanders on its own
+  (`nest_scent_drift` 0.065 per 1,000 frames) so two nests nobody walks
+  between read as strangers after one session while **one crossing ant per
+  1,000 frames holds them one colony** — polydomy the player can see.
+  Ships drift at **0.15** for the first time, with the arithmetic for why a
+  cohered nest cannot eat itself at any drift. **Measured** (`labstats`,
+  played bed, seed 1, 120,000 frames): at drift 0.5 with no cohesion one
+  nest destroys itself — `ANT 1 alive 0, killed 22, 20 of them by ANT 1` —
+  against alive 69 at the shipped dials, and drift 0.15 is byte-identical
+  because ten generations never reach the tolerance radius. **Contradicts
+  its own brief**: birth drift can never separate two cohered nests (~500
+  generations against a session's ten), so the speciation speed has to live
+  in a place dial rather than the birth dial. Two build briefs, B1 cohesion
+  and B2 budding, with the `live_slots` 846 → ~883 `mutation_rate`
+  re-derivation priced in.
 - [creature-movement-modes-2026-09-09.md](creature-movement-modes-2026-09-09.md)
   — **diagnosis plus one instrument, 2026-09-09; nothing under `src/sim/` is
   changed.** The owner's *"I have never seen any movement patterns different
