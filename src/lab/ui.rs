@@ -4150,7 +4150,14 @@ impl Ui {
                 Vec::new()
             }
             Panel::Compare => self.compare_rows(world),
-            Panel::Menu => self.menu_rows(world),
+            // **`fit_rows`, not a bare return.** Every other generic
+            // (non-self-drawing) page here is short enough to always fit and
+            // none of them call it; this is the first one long enough to
+            // risk running off the bottom of the screen silently -- `page_
+            // rect`'s own doc names `fit_rows` as the thing that actually
+            // keeps a page whole, and a page that skips it just draws past
+            // the frame buffer's edge with nothing on screen to say so.
+            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
