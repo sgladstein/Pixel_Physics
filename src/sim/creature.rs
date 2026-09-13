@@ -6597,17 +6597,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // way it came in with the walk abstracted. An ant is two cells at
             // play zoom and nothing about the journey is visible; a mound
             // growing over the nest is.
-            let site = NEIGHBOURS_8
-                .iter()
-                .map(|&(dx, dy)| (x + dx, y + dy))
-                .find(|&(px, py)| open(px, py))
-                .or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            let beside = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
+            // **The lift is counted apart from the drop beside the animal, and
+            // that split is the whole reason §Z18 went unmeasured for a
+            // fortnight.** `spoil_dumped` sums both branches, so a pellet laid
+            // on the ground and one posted ninety rows up read the same.
+            //
+            // Ported from **PR #221** (`claude/creature-plant-pathfinding-rjzkqe`),
+            // which measured the mechanism and never landed: tallest standing
+            // pellet **+52 / +67 / +99 / +94** rows over four seeded beds with a
+            // tree in them, against **+4 / +3 / +2 / +2** with no tree. The ant
+            // never climbs -- there is no path check here -- and `open` counts a
+            // plant cell as a filled cell beneath, so the taller the vegetation
+            // the higher a pellet can be set down, and worked soil then stays
+            // where it was put.
+            let lifted = beside.is_none();
+            let site = beside.or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
+                if lifted {
+                    world.creature_stats.spoil_lifted += 1;
+                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max((y - py).max(0) as u32);
+                }
             }
         }
         // Laden either way: a full mandible is a mandible that cannot cut,
@@ -6735,9 +6750,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // does not stop a colony stacking spoil on its own spoil into a
             // lattice, which a rendered bank shows and which is a standing
             // known limitation rather than a solved problem.
+            // **...and since 2026-09-13 it is `spoil` and not `packedsoil`,
+            // which is §Z18's repair.** A wall cut in place and a pellet set
+            // down in the open air are both tamped and are not the same
+            // ground: `self_supporting` is the rule that says a cell may not
+            // fall, which is correct for a gallery roof held by the bank at
+            // both ends and a promise a pellet has not earned. Dig out from
+            // under a heap of tailings and the overhang used to stand there
+            // for ever. `assets/materials/spoil.ron` carries the reasoning and
+            // the three owner reports.
+            //
+            // `spoils_into` first, `packs_into` as the fallback, so any ground
+            // that names no spoil material behaves exactly as it did before
+            // the field existed -- and so a pellet re-dug stays a pellet
+            // rather than being laundered into lining-grade ground.
             let mut pellet = target;
-            if let Some(packed) = world.materials.get(target.material).packs_into {
-                pellet.material = packed;
+            //
+            // **Gated on `update::spoil_footing` so the ablation arm is
+            // genuinely `main`.** Leaving the pellet as `spoil` with the rule
+            // off looked like a tidier switch and was not a control: `spoil`
+            // carries `packs_into`, so `line_burrow` went on relabelling
+            // worked tailings as wall and the "off" arm read 19 hanging cells
+            // where the pre-change baseline on the same seed read 24.
+            let ground_def = world.materials.get(target.material);
+            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+            if let Some(hauled) = hauled {
+                pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
             if spoil_kept() {
@@ -13288,6 +13326,14 @@ mod tests {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
         let packed = w.materials.id_of("packedsoil").expect("packedsoil");
+        // **And `spoil` since 2026-09-13, or this identity is false by
+        // construction.** A hauled pellet is its own material now (§Z18,
+        // `assets/materials/spoil.ron`), so a census of "ground" that names
+        // only the two it used to be reports every pellet in the world as a
+        // cell that left it -- which is precisely the leak this test is named
+        // for, arriving as a false positive. Both halves of the identity have
+        // to name the same set; that is the 2026-09-05 lesson below.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
         for x in 90..=140 {
             for y in 96..=101 {
                 w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
@@ -13369,7 +13415,7 @@ mod tests {
                 .flat_map(|y| (0..=199).map(move |x| (x, y)))
                 .filter(|&(x, y)| {
                     let m = w.get(x, y).material;
-                    m == soil || m == packed
+                    m == soil || m == packed || m == spoil
                 })
                 .count();
             // **Only GROUND spoil, matching what `standing` counts** -- and
@@ -13393,7 +13439,7 @@ mod tests {
                 .filter(|&&id| {
                     w.organism(id)
                         .and_then(|s| s.spoil)
-                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed)
+                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed || sp.cell.material == spoil)
                 })
                 .count();
             standing + held

@@ -62,6 +62,71 @@ by somebody about to try it on creatures.
   that `Reports/` is neither flat nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
   the biggest document in the repo, overwhelmingly outdoor, and every agent is
   routed to it first.**
+- [held-world-game-concept-2026-09-13.md](held-world-game-concept-2026-09-13.md)
+  — **concept, nothing built, no commitment.** A third game off this engine: a
+  druid in a land where nothing grows, who carries the only time there is and
+  spends it in circles on the ground. Its argument is that the engine is
+  already most of it — the outdoor world is the stage, the lab is the
+  interface, and the missing piece is a **price**, which the owner's own lab
+  ruling (*"give me the tools... that is the game"*) leaves out by design.
+  Three findings drive the design rather than costing it: **an empty lab runs
+  at 1024x**, so a held world is the engine's cheap configuration; **plant cost
+  can be banded and animal cost cannot** (`PLANT_SIZE_CADENCE` divides cost
+  exactly, 2.73x median over ten seeds; *"an ant's tick is its brain rather
+  than an economy that can run slower"*), which makes **a populous place heavy
+  and a grown one light** — the throttle is a population counter, and that is
+  what makes the colony structural rather than resident; **`frame::step`'s "more ticks is exact, faster subsystems is
+  a behaviour change"** (median 0.61x cells at `growth_slowdown: 4`), which
+  makes *regional tick* the only admissible implementation; and the **seed
+  bank** (~9 waiting seeds per standing plant), which dissolves the
+  player-scarcity-versus-ecology-abundance problem by making the scarce thing a
+  *lineage* and the ground already full of seed. **The engineering risk is now answered
+  (§8) and the answer is the best available one**: `field::step` already builds
+  a per-frame subset of tiles and hands it to five of its eight passes, so a
+  region gate is an intersection at one existing seam (`field.rs:1200`), worth
+  **78.3%** of field cost — and the **21% floor is the two sky passes, which a
+  *held* world removes by premise rather than by workaround**, since
+  `sky_light_amplitude_of` already returns 0 with sky lighting off. The
+  cheapest configuration of this engine and the premise of this game are the
+  same configuration. Carries the two documented traps (the sky column must
+  descend *through* the region; a partially-solved tile loses light where a
+  skipped one keeps it — a trap that once faked a 21% win) and the dead end
+  that must be honoured: `skip_momentum` skipped 91% of tiles, moved every
+  per-pass timing, and made the whole frame **0.59 ms slower in 7 of 8 paired
+  runs** — *"the idea is not dead, the accounting is."* Also names the
+  second-law risk (a
+  bubble is a spectator verb; the lab's hand-verbs are the answer and already
+  exist), the one bug on its critical path (the scent tool the shipped ant
+  cannot read), and what to build first — the held render and one ragged rim,
+  judged by eye before a mechanic is specified. **§10 carries the owner's
+  rulings of 2026-09-13**, including the one that repairs a spectator trap the
+  draft authored: the economy is **two dials over one pool** (radius and speed,
+  bought from life-power collected off animals) rather than a radius the income
+  sizes for you. **§10a is the antagonist**, surveyed against the combat
+  machinery and against `dead-ends.md`: the engine has **a fully working fight
+  and no way to start one** (the shipped ant is blind and `Alarm` is a
+  *retaliation* wire only, so the played bed reports `attacks 0` over nine runs
+  of 300,000 frames), which makes a hostile entity the missing *initiator*
+  rather than a new feature. Its first phrasing — *a thing that does not need
+  time* — is **rejected by `dead-ends.md`'s protection-as-exemption entry**
+  (four support models died that way) and replaced by a capacity: it is not
+  stopped by held time, merely slowed by it, **so your speed dial is also its
+  speed dial** and the quickening is what it homes on. **A first draft said it could not be
+  fought and the owner declined that; read at the code he is right and the
+  quoted numbers were pre-fix** — the damage ratio is *clamped*, the quadratic
+  curve is graded and tested, and the "best armour 0.50" figure is at
+  `trait_reach` 1 against a tree that ships **8** (plate 0.1–9.0), landed the
+  same day in response to that very finding. Swarm damage banks on the
+  **victim**, so many weak mouths bring down what one cannot; a long body
+  severs and shortens where a `Chain(2)` worker can only live or die; and
+  `chitin_pale`/`chitin_mid` are an armour ladder needing no code. **What is
+  missing is authorship, not machinery** — nothing wires `ThreatNear` to
+  `Attack`. So the colony is a weapon, workers and soldiers trade against each
+  other in the game's one currency, and what the creep does instead of biting
+  is **un-quicken**. Also names two
+  things it makes reachable that nothing else has: alarm without paying every
+  ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
+  shipped working lever **no species has ever authored**.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so

@@ -1201,6 +1201,14 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
         world.set_sky_hold(Some(pixel_physics::sky::frame_for_daylight(1.0)));
         let soil_id = world.materials.id_of("soil").expect("soil");
         let packed_id = world.materials.id_of("packedsoil").expect("packedsoil");
+        // **The hauled pellet, counted with the wall it is made of.** Since
+        // 2026-09-13 a dumped pellet is `spoil` rather than `packedsoil`
+        // (`assets/materials/spoil.ron`, `Reports/open-bugs-handoff.md` §Z18),
+        // and this harness's whole subject is a colony putting its spoil back
+        // -- so a `packedsoil` column alone would report the tailings as
+        // having left the world, which is the reading `dead-ends.md` records
+        // this probe getting backwards once already.
+        let spoil_id = world.materials.id_of("spoil").expect("spoil");
         let nest_id = world.materials.id_of("nest").expect("nest");
         let floor = h - 8;
         let (bank_x0, bank_x1) = (40i32, 160i32);
@@ -1403,7 +1411,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                             }
                         } else if m == soil_id {
                             soil += 1;
-                        } else if m == packed_id {
+                        } else if m == packed_id || m == spoil_id {
                             packed += 1;
                         }
                     }
@@ -1638,7 +1646,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                     if y >= bank_y0 {
                         let which = if m == soil_id {
                             Some(0)
-                        } else if m == packed_id {
+                        } else if m == packed_id || m == spoil_id {
                             Some(1)
                         } else if m == material::EMPTY {
                             Some(if above > 0 { 2 } else { 3 })
@@ -1717,7 +1725,7 @@ fn colony_arm(seeds: u64, ants: i32, frames: u64, bud_k: f64, png: Option<&str>)
                         ' '
                     } else if m == soil_id {
                         '.'
-                    } else if m == packed_id {
+                    } else if m == packed_id || m == spoil_id {
                         '#'
                     } else {
                         ','

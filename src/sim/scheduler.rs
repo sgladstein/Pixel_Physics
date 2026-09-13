@@ -455,6 +455,30 @@ pub fn step(world: &mut World) {
     // separates them.
     timing.deferred = world.active_site_count();
     for site in due_sites {
+        // **Held ground does not tick.** The whole of the held-world
+        // concept's life gate, at the one place every kind of living work is
+        // dispatched from — growth, creatures, decay, evaporation — so there
+        // is no second copy to keep in step. `World::time_runs_at` is one
+        // bool test when the world is not held, which is every existing
+        // world.
+        //
+        // **Put back on the heap, never dropped**, and this is the part that
+        // matters: a dropped site is gone for good, and the ground would stay
+        // dead after the player quickened it. `HELD_RECHECK` rather than the
+        // next frame because rechecking every held site every frame is
+        // exactly the unbounded per-frame cost this scheduler exists to
+        // avoid — a held world would pay for its whole map, every frame,
+        // to decide to do nothing.
+        //
+        // The latency that buys is not what a player sees: placing a
+        // quickening is meant to be a *lurch*, so the verb that places one
+        // should pull its region's sites forward rather than letting them
+        // trickle in over `HELD_RECHECK`. Not built yet — there is no verb
+        // yet — and noted here because this is where it lands.
+        if !world.time_runs_at(site.x, site.y) {
+            world.schedule_active_site(ActiveSite { next_frame: world.frame + HELD_RECHECK, ..site });
+            continue;
+        }
         let produced = timing.time(&site.kind, || match site.kind {
             ActiveKind::Organism { .. } => plant::tick(world, &site),
             ActiveKind::StructuralCheck => structural::tick(world, &site),
@@ -522,6 +546,20 @@ pub fn step(world: &mut World) {
 /// check flood, even after dedup. Revisit with a real per-site cost
 /// measurement if a scene is ever found where this is either too low
 /// (visibly slows legitimate settling) or too high (still spikes a frame).
+/// **How long a site on held ground waits before asking again.**
+///
+/// A bound on the *cost of being stopped*, not on anything a player waits
+/// for: at 120 frames a held world re-examines each of its sites twice a
+/// second at 60 Hz, which is two heap operations per site per second to
+/// decide to do nothing. One frame instead would make a held map's idle cost
+/// proportional to its whole site count every frame — the exact unbounded
+/// sweep `ActiveKind::Organism`'s `stale_ticks` was introduced to prevent.
+///
+/// **Not a gate on whether the site ever runs**, per `CLAUDE.md`'s rule that
+/// a cap must bound work rather than produce an answer: exhausting this
+/// produces a *later recheck*, never a decision that the cell is finished.
+const HELD_RECHECK: u64 = 120;
+
 const MAX_SITES_PER_FRAME: usize = 2000;
 
 /// The reserved per-frame budget for creature ticks — see

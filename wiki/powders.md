@@ -1,6 +1,8 @@
 # Powders
 
-*Current as of: 2026-09-06, when water stopped taking worked soil apart at
+*Current as of: 2026-09-13, when **a heap of dug spoil stopped standing in
+open sky** — worked ground an animal carried and set down is now its own kind
+of ground, and holds only while something is under it. Earlier, on 2026-09-06, when water stopped taking worked soil apart at
 all — a flooded burrow fills rather than caving in. Before that, the same day:
 worked soil stopped coming apart in ordinary damp ground; 2026-09-01, when it
 stopped holding itself up on nothing; and 2026-08-30, when soil gained a worked
@@ -43,6 +45,33 @@ natural resting angle, the way real loose material does.
   and the tunnel stands because of that and for no other reason (see
   [Ants](ants.md)). Take the tamping away and the same colony digs just as
   hard and leaves a smooth slope with nothing inside it.
+
+- **Spoil** is worked ground that something *carried there*. It is the same
+  colour, the same weight and the same to dig as packed soil, and it behaves
+  the same in every way but one: **it only holds while it is standing on
+  something.** Dig out from underneath a heap of it and the overhang comes
+  down — not all at once, and not as a slab, but a cell at a time off the
+  underside, each one turning back into loose dirt that falls and piles at the
+  foot of the heap. A heap sitting on the ground is a heap and stays one;
+  towers stay towers.
+
+  **The difference is which of the two an animal made, not what shape it is
+  in.** A tunnel roof and a slab of dirt hanging in the sky are the same shape
+  — both are worked ground with air beneath — so nothing about the shape can
+  tell them apart, and four attempts to do it that way all failed. The wall of
+  a gallery was cut where it stands, with the bank still around it. A pellet
+  was put down in the open air by an animal that chose the spot. Only the
+  second one has to keep proving it has a floor.
+
+  **What counts as a floor is ground.** A grass blade is not a floor and
+  neither is the surface of a pool, and dirt resting on either of those is
+  what "floating in the air" actually looks like on screen. So a pellet set
+  down on a leaf stops being worked ground the moment it lands — though it is
+  loose dirt on a leaf afterwards, which a powder is still entitled to do.
+
+  **Tunnel through your own tailings and the tunnel stands**, because an
+  animal that works a pellet into the side of a passage has made a wall out of
+  it, and a wall is the other kind of ground.
 
   **Water does not undo it, and for a while it did.** The idea was that
   soaking a wall past what the ground can hold would put it back to loose
