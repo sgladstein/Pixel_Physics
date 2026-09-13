@@ -166,8 +166,10 @@
         //                              so where a massif crest does break the
         //                              surface it stands as one quiet mass.
         //
-        //   ...and see the note below: the settle has since made the warp
-        //   value free, so this 0 is now a LOOK choice awaiting the owner.
+        //   ...and see the note below: the settle has since made this value
+        //   free, and the owner then looked at both and could not tell them
+        //   apart. Measured: warp moves 41% of pixels and no property of the
+        //   landscape. It stays 0, and that is settled rather than deferred.
         //
         //   warp_strength  12 -> 0     **the at-rest fix, and it costs no
         //   soil_slope_cutoff          soil at all.** Domain warp displaces
@@ -234,11 +236,33 @@
         //   settle 120  rest      rest      rest      rest      rest
         //   settle   0  rest    seed 14      --        --      seed 1
         //
-        // So `warp_strength: 0.0` is now a **look** decision and not a
-        // constraint, and it is the owner's rather than a sweep's. It is left
-        // at 0 because that is the value this branch's composition numbers
-        // were measured at; a card is queued asking which reads better.
-        // Whoever answers it: change this one line, nothing else.
+        // So `warp_strength: 0.0` stopped being a constraint and became a look
+        // decision -- and the owner then settled it in one line, from the
+        // picture: *"After and after + warp look identical in the image you
+        // have shared."*
+        //
+        // **He is right, and the measurement says why.** The two arms differ
+        // in **41.5% of pixels** and their surfaces differ by a mean of 7.2
+        // rows with only 17 of 292 columns identical, so warp is very much
+        // firing. What it does not move is any property of the landscape a
+        // person judges. On the strip the interface does not cover:
+        //
+        //                 relief span   mean column-to-column step
+        //   before          88 rows              1.90
+        //   warp 0          78 rows              1.85
+        //   warp 34         77 rows              1.99
+        //
+        // Warp reshuffles *which* hill is where; it does not change how tall
+        // or how rough the ground is. That is `CLAUDE.md`'s *ask which pixels
+        // a lever moves, before ranking it by silhouette* -- the same shape as
+        // the three plant levers that all fired, all had counters, and all
+        // read as "nothing changed".
+        //
+        // **So it stays at 0 and this is closed, not deferred.** 0 is the
+        // value the composition census above was taken at, and the arm that
+        // needs no settle frames to be at rest. Do not re-litigate it as a
+        // look question: if this ground wants more character, the lever is
+        // relief and the mid-frequency terms, not the warp on top of them.
         "druid": (
             sky_rows: 190.0,
             relief_amplitude: 48.0,
