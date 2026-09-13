@@ -3249,7 +3249,9 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
-- [dead-ends.md](dead-ends.md) — **live index.** 807 tried-and-reverted
+- [dead-ends.md](dead-ends.md) — **live index.** 808 tried-and-reverted (2026-09-13;
+  the live count is the sum of its `##` section headings, which
+  `deadendindex.py --check` gates, so read that rather than this number)
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.

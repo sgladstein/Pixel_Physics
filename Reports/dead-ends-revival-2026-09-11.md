@@ -10,7 +10,11 @@ name a re-test condition in their own `Re-test when:` clause and **nobody had
 ever swept those conditions** — exactly three carried the file's own
 `CONDITION MET` marker.
 
-This is that sweep. Every one of the 807 entries now carries a verdict, and
+This is that sweep. **Every entry carries a verdict, and that is enforced rather
+than asserted** — `deadendindex.py --check` fails when any register entry has no
+row in `screened.tsv`, and `docscheck` runs it, so an entry another lane appends
+turns the gate red until it is screened. The register held 807 when this page was
+revised on 2026-09-12. The counts below are that snapshot, and
 **both** of the sweep's error rates are measured rather than asserted — the
 false negatives it misses in `DEAD`, and, since the 2026-09-12 review, the
 false positives in its own candidate list.

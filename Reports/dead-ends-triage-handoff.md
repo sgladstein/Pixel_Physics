@@ -40,7 +40,11 @@ sums the per-section `##` headings against the entries it parses and `docscheck`
 runs it, so a stale total is a red gate rather than a sentence nobody
 re-counts.
 
-All 807 register entries carry a verdict — 805 distinct keys, and the only two
+All register entries carry a verdict, and **the coverage check is what keeps that
+true**: `deadendindex.py --check` fails when any entry has no row in
+`screened.tsv`, so a lane appending an entry turns the gate red rather than
+silently opening a hole. At the 2026-09-12 revision it was 807 entries and 805
+distinct keys; the only two
 that share are the genuine duplicate pairs the register deliberately carries.
 **The claim that "twelve addresses are listed twice within a section and share
 one" was wrong and cost 19 verdicts.** Of 12 shared keys over 33 rows, only 2
