@@ -107,6 +107,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("SPACE", "PLACE A CIRCLE OF TIME"),
     ("X", "LIFT THE NEAREST CIRCLE"),
     ("Q E", "ITS RADIUS"),
+    ("Z V", "HOW FAST TIME RUNS IN THEM"),
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY AT YOUR FEET"),
@@ -133,6 +134,7 @@ pub struct Readout {
     pub animals_awake: usize,
     pub circles: usize,
     pub radius: i32,
+    pub rate: u32,
     pub held: bool,
     pub paused: bool,
     pub look: &'static str,
@@ -161,7 +163,7 @@ impl Readout {
         // one at play zoom. The gap between the two numbers is the whole
         // reason to walk somewhere.
         lines.push((format!("ANIMALS {}   AWAKE {}", self.animals, self.animals_awake), TEXT));
-        lines.push((format!("CIRCLES {}   NEXT R{}", self.circles, self.radius), TEXT));
+        lines.push((format!("CIRCLES {}   NEXT R{}   SPEED X{}", self.circles, self.radius, self.rate), TEXT));
         // **What T would sow, and how many have gone in.** A seed dropped on
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
@@ -371,6 +373,7 @@ mod tests {
                 animals_awake: 7,
                 circles: 3,
                 radius: 60,
+                rate: 4,
                 held: true,
                 paused,
                 look: "one hue",
@@ -409,6 +412,7 @@ mod tests {
             animals_awake: 4321,
             circles: 12,
             radius: 240,
+            rate: 8,
             held: true,
             paused: true,
             look: "unchanged",

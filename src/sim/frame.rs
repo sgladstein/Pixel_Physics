@@ -96,7 +96,7 @@ pub fn step(
     if world.held {
         world.carried = world.player.as_ref().map(|p| {
             let (x, y) = p.center();
-            crate::sim::world::Quickening { x, y, r: crate::sim::world::CARRIED_RADIUS }
+            crate::sim::world::Quickening::at(x, y, crate::sim::world::CARRIED_RADIUS)
         });
     } else {
         world.carried = None;

@@ -66,6 +66,8 @@ struct Handler {
     /// binaries carry, and the only way to see a rendered window on a
     /// headless box, since this build's swapchain is invisible to OS capture.
     screenshot_countdown: Option<u32>,
+    /// See `PIXEL_PHYSICS_DRUID_CENSUS`.
+    census_after: Option<u64>,
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -95,6 +97,49 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
             game.found_colony();
         }
+        // `PIXEL_PHYSICS_DRUID_CIRCLES=x,y,r,rate;x,y,r,rate` -- place
+        // standing quickenings at startup. Third hook of the same shape and
+        // for the same reason as the two above: a headless run cannot press
+        // `SPACE`, and the speed dial is a claim about what happens over
+        // hundreds of frames, which is not a thing a screenshot can settle.
+        if let Ok(spec) = std::env::var("PIXEL_PHYSICS_DRUID_CIRCLES") {
+            for one in spec.split(';').filter(|s| !s.trim().is_empty()) {
+                let n: Vec<&str> = one.split(',').collect();
+                match n.as_slice() {
+                    [x, y, r, rate] => {
+                        let parsed = (x.trim().parse(), y.trim().parse(), r.trim().parse(), rate.trim().parse::<u32>());
+                        if let (Ok(x), Ok(y), Ok(r), Ok(rate)) = parsed {
+                            game.world.quickenings.push(pixel_physics::sim::world::Quickening::at(x, y, r));
+                            // The dial is one number for the whole game now,
+                            // so the last entry's speed wins -- see
+                            // `Druid::speed`. Kept in the spec's shape so the
+                            // measurement scripts still read.
+                            game.speed = rate.clamp(pixel_physics::druid::SPEED_MIN, pixel_physics::druid::SPEED_MAX);
+                            let woken = game.world.wake_region(x, y, r);
+                            println!("druid: circle at {x},{y} r{r}, world speed x{} — woke {woken} sites", game.speed);
+                        } else {
+                            eprintln!("druid: CIRCLES entry {one:?} is not x,y,r,rate");
+                        }
+                    }
+                    _ => eprintln!("druid: CIRCLES entry {one:?} is not x,y,r,rate"),
+                }
+            }
+        }
+        // `PIXEL_PHYSICS_DRUID_UNLIMITED=1` -- the `U` key, for a run with no
+        // hands on it. Not a convenience: the first attempt to measure the
+        // speed dial reported *no circles at all*, because a rate-8 circle
+        // drains 9/s in base cost before a single plant is counted and the
+        // economy had closed both of them by frame 1,600. Measuring growth
+        // and measuring the price at the same time measures neither.
+        if std::env::var("PIXEL_PHYSICS_DRUID_UNLIMITED").is_ok_and(|v| v != "0") {
+            game.unlimited = true;
+        }
+        // `PIXEL_PHYSICS_DRUID_CENSUS=N` -- after N ticks, print living plant
+        // tissue inside each standing circle and exit. The instrument for the
+        // speed dial: "did it fire" needs a counter, and per-circle is the
+        // only granularity that can tell a working dial from a world that
+        // simply runs fast everywhere.
+        let census_after: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_CENSUS").ok().and_then(|v| v.parse().ok());
         Self {
             window: None,
             pixels: None,
@@ -106,6 +151,7 @@ impl Handler {
             held: HeldKeys::default(),
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
+            census_after,
             result: Ok(()),
         }
     }
@@ -159,6 +205,18 @@ impl Handler {
         self.game.player_input.down = self.held.down;
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
+
+        if let Some(n) = self.census_after {
+            // Player ticks, not `world.frame` -- see `Druid::ticks`. Keying
+            // this on the world's counter is what made the dial's first
+            // measurement read a real-time circle at 2 cells against 45.
+            if self.game.ticks >= n {
+                self.census_after = None;
+                census(&self.game);
+                event_loop.exit();
+                return;
+            }
+        }
 
         self.accumulator += elapsed;
         let mut ticks = 0;
@@ -243,6 +301,10 @@ impl Handler {
             // No note for these two: the radius is on the readout and the
             // preview ring at his feet resizes as he presses them, so a
             // message would be a third copy of a fact already on screen twice.
+            // The speed dial. `Z`/`V` rather than more letters near the
+            // movement keys, and both are free.
+            KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
+            KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
             KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
             KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
             // **Unlimited power, for playtesting.** The economy's numbers are
@@ -340,6 +402,38 @@ impl ApplicationHandler for Handler {
             window.request_redraw();
         }
     }
+}
+
+/// **Living plant tissue inside each standing circle**, and outside all of
+/// them, at whatever frame the caller asked for.
+///
+/// Per circle rather than world-wide, which is the whole point: a world-wide
+/// count cannot tell a speed dial that works from one that runs everything
+/// fast, and those are exactly the two things to distinguish.
+fn census(game: &Druid) {
+    let w = &game.world;
+    let mut inside = vec![0usize; w.quickenings.len()];
+    let mut outside = 0usize;
+    for id in w.live_organism_ids() {
+        let Some(state) = w.organism(id) else { continue };
+        // **Senescent is not living, and in this game that is most of the
+        // world.** `Start::Dead` marks every plant senescent, so a census
+        // that counted them would report a dead wood as thriving -- the
+        // metric answering a different question than the one asked.
+        if w.species.get(state.species).creature.is_some() || state.senescent {
+            continue;
+        }
+        let cells = state.cells.len();
+        match w.quickenings.iter().position(|q| state.cells.keys().next().is_some_and(|(x, y)| q.contains(*x, *y))) {
+            Some(i) => inside[i] += cells,
+            None => outside += cells,
+        }
+    }
+    println!("druid census at frame {} (player ticks {}, speed x{}):", w.frame, game.ticks, game.speed);
+    for (i, q) in w.quickenings.iter().enumerate() {
+        println!("  circle {i} at {},{} r{} : {} living plant cells", q.x, q.y, q.r, inside[i]);
+    }
+    println!("  outside every circle : {outside} living plant cells");
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.

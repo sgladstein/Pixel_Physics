@@ -2034,6 +2034,14 @@ pub struct Quickening {
 pub const CARRIED_RADIUS: i32 = 28;
 
 impl Quickening {
+    /// The plain constructor. Kept after the per-circle `rate` field was
+    /// withdrawn (see `druid::Druid::speed`), because eight call sites now
+    /// read better for it and a future field must not be a silent behaviour
+    /// change at all of them.
+    pub fn at(x: i32, y: i32, r: i32) -> Self {
+        Quickening { x, y, r }
+    }
+
     /// Squared-distance test, so nothing here needs a square root and the
     /// boundary is exact in integers.
     ///

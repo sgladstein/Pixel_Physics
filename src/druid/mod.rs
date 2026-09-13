@@ -201,6 +201,16 @@ const INCOME_PER_ANIMAL: f32 = 0.6;
 /// than sixty times and scales what it charges.
 const ECONOMY_INTERVAL: u64 = 30;
 
+/// **How fast the world may be run inside the circles**, in ticks per frame.
+///
+/// Capped rather than open-ended, and the cap is a frame-cost bound rather
+/// than a design statement: every extra tick is another pass of the whole
+/// shared frame step, and although the held gate means almost all of that
+/// pass does nothing, the sweep overhead is not zero. 8 is a starting cap to
+/// be re-derived against a measured frame once somebody has played with it.
+pub const SPEED_MIN: u32 = 1;
+pub const SPEED_MAX: u32 = 8;
+
 /// Radius a placed quickening starts at, and the range `Q`/`E` walk.
 const PLACE_RADIUS_START: i32 = 60;
 pub const PLACE_RADIUS_MIN: i32 = 20;
@@ -219,13 +229,17 @@ pub const PLACE_RADIUS_MAX: i32 = 240;
 const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 
 /// **How long the interface holds on to the last thing that happened**, in
-/// ticks — three seconds.
+/// player ticks — three seconds.
 ///
-/// Expiry is checked against `world.frame` at draw time rather than ticked
+/// Expiry is checked against [`Druid::ticks`] at draw time rather than ticked
 /// down, which needs no update-phase wiring and has one deliberate
 /// consequence `App::active_toast` records too: a message raised while
 /// *paused* stays up until the world runs again. That is the behaviour worth
 /// having here — paused is exactly when somebody is reading.
+///
+/// **Player ticks, not `world.frame`**: with a fast circle standing, the
+/// world's frame counter advances at that circle's rate, and a message would
+/// vanish in three eighths of a second. See [`Druid::ticks`].
 const MESSAGE_FRAMES: u64 = 180;
 
 /// The whole game: the same quartet `App` and `Lab` each declare, because
@@ -248,6 +262,22 @@ pub struct Druid {
     pub unlimited: bool,
     /// Radius the next placed quickening takes.
     pub place_radius: i32,
+    /// **How fast time runs inside every circle**, in ticks per frame.
+    ///
+    /// **One dial for all of them, not one per circle, and that is a measured
+    /// decision rather than a simplification.** A per-circle rate was built
+    /// first and withdrawn: `World::frame` is a *global* clock and every
+    /// organism's cadence is expressed in it, so running the world eight
+    /// times to speed one circle speeds the scheduling of everything
+    /// everywhere. Measured on two circles over equivalent ground, 1,500
+    /// player ticks, unlimited power — a **rate-1** circle beside a rate-8
+    /// one grew **127** living plant cells against **58** for the same circle
+    /// when both were rate 1. It was running at nothing like real time.
+    /// Per-circle rates need real regional time, not extra whole-world
+    /// passes; `Reports/dead-ends.md` carries the entry.
+    ///
+    /// One dial has no cross-talk to leak, because every circle runs at it.
+    pub speed: u32,
     /// Income and drain as of the last recompute, for the readout. Per
     /// second, so a person can read them against a clock.
     pub income: f32,
@@ -261,6 +291,23 @@ pub struct Druid {
     /// The last thing that happened and the frame it stops being shown on.
     /// Raised by [`Druid::note`]; see [`MESSAGE_FRAMES`].
     pub message: Option<(String, u64)>,
+    /// **Player-time, in ticks.** One per [`Druid::update`], whatever the
+    /// circles are doing.
+    ///
+    /// **`World::frame` is no longer this**, and that is the speed dial's one
+    /// real hazard. An extra pass is a whole `frame::step`, so a rate-8
+    /// circle advances `world.frame` by 8 per update — it has become "how
+    /// much world has happened", which is the right meaning for the *world*
+    /// and the wrong clock for anything the *player* experiences. Measured
+    /// the moment the dial first ran: a census keyed on `world.frame` read a
+    /// real-time circle at 2 living cells against 45 in the control, purely
+    /// because it had had an eighth of the updates.
+    ///
+    /// Two things here were keyed on it and are now keyed on this instead.
+    /// The economy was the dangerous one: `frame % 30 == 0` with frame
+    /// stepping by 8 goes 0, 8, 16, 24, 32 and **never lands on 30**, so a
+    /// single fast circle switched the whole economy off silently.
+    pub ticks: u64,
     /// Animals alive, and animals in running time, as of the last economy
     /// pass. **Fields rather than a census**: `World::live_creature_count`
     /// walks every organism slot, which is thousands, and the readout is
@@ -424,11 +471,13 @@ impl Druid {
             power: POWER_START,
             unlimited: false,
             place_radius: PLACE_RADIUS_START,
+            speed: SPEED_MIN,
             income: 0.0,
             drain: 0.0,
             last_wake: None,
             show_keys: true,
             message: None,
+            ticks: 0,
             animals: 0,
             animals_awake: 0,
             last_ui: None,
@@ -447,12 +496,12 @@ impl Druid {
     /// headless run is read — and this is the same fact put where the player
     /// is looking.
     pub fn note(&mut self, text: impl Into<String>) {
-        self.message = Some((text.into(), self.world.frame + MESSAGE_FRAMES));
+        self.message = Some((text.into(), self.ticks + MESSAGE_FRAMES));
     }
 
     /// The current message, if one is set and has not yet expired.
     pub fn message(&self) -> Option<&str> {
-        self.message.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
+        self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
     }
 
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
@@ -466,6 +515,7 @@ impl Druid {
             animals_awake: self.animals_awake,
             circles: self.world.quickenings.len(),
             radius: self.place_radius,
+            rate: self.speed,
             held: self.world.held,
             paused: self.paused,
             look: self.renderer.held_look.label(),
@@ -596,7 +646,7 @@ impl Druid {
         };
         let (x, y) = player.center();
         let r = self.place_radius;
-        self.world.quickenings.push(crate::sim::world::Quickening { x, y, r });
+        self.world.quickenings.push(crate::sim::world::Quickening::at(x, y, r));
         let woken = self.world.wake_region(x, y, r);
         println!("druid: quickening at {x},{y} r{r} — woke {woken} sites");
         self.note(format!("circle placed r{r} - woke {woken} sites"));
@@ -631,13 +681,52 @@ impl Druid {
         }
     }
 
+    /// **The speed dial: run the world again, for as many ticks as are paid
+    /// for.**
+    ///
+    /// Owner's ask, 2026-09-13: *"You should be able to set the speed of the
+    /// bubble."*
+    ///
+    /// **It needs no regional driver, and that is the whole reason it is
+    /// cheap.** An extra `frame::step` on a *held* world already does work
+    /// only inside the circles, because the held gate stops everything else —
+    /// so "run the circles again" is spelled "run the world again".
+    ///
+    /// **The player is taken out of the world for the extra passes, and that
+    /// is deliberate twice over.** He is always 1x — the concept is explicit:
+    /// *he walks through his own bubble and watches it race around him* — and
+    /// `frame::step` recomputes `World::carried` from him every call, so
+    /// leaving him in would both move him at 8x and drag a fast carried
+    /// circle around with him. `player::step` returns immediately when there
+    /// is no player, so removing him is also what keeps the carried circle
+    /// out of these passes, which is what makes it free.
+    ///
+    /// See [`Druid::speed`] for why this is one dial rather than one per
+    /// circle, and [`Druid::ticks`] for the clock this does *not* advance.
+    fn step_extra_ticks(&mut self) {
+        if self.speed <= 1 || self.world.quickenings.is_empty() {
+            return;
+        }
+        let held_player = self.world.player.take();
+        for _ in 1..self.speed {
+            frame::step(
+                &mut self.world,
+                &mut self.particles,
+                &mut self.blasts,
+                player::PlayerInput::default(),
+                &self.player_tuning,
+            );
+        }
+        self.world.player = held_player;
+    }
+
     /// **Income and drain, and what the pool does about them.**
     ///
     /// One walk over the organisms rather than one per circle: there are
     /// thousands of them and a per-circle walk would be quadratic in the
     /// thing the player is encouraged to accumulate.
     fn step_economy(&mut self) {
-        if !self.world.frame.is_multiple_of(ECONOMY_INTERVAL) {
+        if !self.ticks.is_multiple_of(ECONOMY_INTERVAL) {
             return;
         }
         let seconds = ECONOMY_INTERVAL as f32 / 60.0;
@@ -659,15 +748,31 @@ impl Druid {
                 if self.world.time_runs_at(x, y) {
                     animals_running += 1.0;
                 }
-            } else if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
+            } else {
+                // **Charged at the speed it is being run at.** A plant inside
+                // a rate-4 circle is having four times as much life happen to
+                // it as one in a rate-1 circle, and the concept's whole
+                // economy is *the faster the more expensive* -- so the
+                // multiplier is the honest price rather than a surcharge.
+                // The fastest circle over a plant wins; two circles do not
+                // stack, because the plant is only ticked once per pass.
+                //
                 // Charged only inside a *standing* circle: the carried one is
                 // free, so walking through a wood does not bill you for it.
-                plants_in_circles += 1.0;
+                if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
+                    plants_in_circles += 1.0;
+                }
             }
         }
 
         self.income = INCOME_PER_ANIMAL * animals_running;
-        self.drain = DRAIN_PER_CIRCLE * self.world.quickenings.len() as f32 + DRAIN_PER_PLANT * plants_in_circles;
+        // **Multiplied by the dial, both terms.** A plant in a circle run at
+        // 8x is having eight times as much life happen to it, and an empty
+        // circle at 8x still costs eight times a slow one -- which is what
+        // stops the dial being free until something grows under it. This is
+        // the concept's *the faster the more expensive*, and it is the only
+        // thing standing between the player and leaving it at maximum.
+        self.drain = drain_for(self.speed, self.world.quickenings.len() as f32, plants_in_circles);
         // The readout's two animal numbers, taken from the walk that was
         // happening anyway rather than from a second census per frame.
         self.animals = animals_alive;
@@ -695,10 +800,12 @@ impl Druid {
         if self.paused {
             return;
         }
+        self.ticks += 1;
         frame::step(&mut self.world, &mut self.particles, &mut self.blasts, self.player_input, &self.player_tuning);
         // **Consumed here, or a catch-up burst turns one press into five
         // jumps.** The edge is the caller's to set and this tick's to clear.
         self.player_input.jump_pressed = false;
+        self.step_extra_ticks();
 
         // **Wake the ground he has walked onto, on a distance threshold.**
         // Every frame would be the unbounded heap rebuild `wake_region`'s own
@@ -808,6 +915,14 @@ fn size_from_env() -> (u32, u32) {
     }
 }
 
+/// **What one second of running costs**, given the dial, how many standing
+/// circles there are, and how many plants stand inside them.
+///
+/// A named function so the guard asserts the rule rather than a copy of it.
+fn drain_for(speed: u32, circles: f32, plants_in_circles: f32) -> f32 {
+    speed.max(1) as f32 * (DRAIN_PER_CIRCLE * circles + DRAIN_PER_PLANT * plants_in_circles)
+}
+
 /// **Can this game sow this species?** See the seed-kind list in
 /// [`Druid::new`] for the measurement behind it and the two predicates that
 /// are wrong.
@@ -846,6 +961,36 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **The dial is priced, and priced linearly.**
+    ///
+    /// The one thing standing between the player and leaving the speed at
+    /// maximum for ever, so if it silently stopped scaling the whole mechanic
+    /// would become a free button. Asserted on the arithmetic rather than on
+    /// a played world, because it *is* arithmetic — and asserted at both ends
+    /// (an empty circle and a full one), since an early version multiplied
+    /// only the per-plant term and a bare fast circle cost nothing.
+    #[test]
+    fn the_speed_dial_is_priced_linearly_at_both_ends() {
+        // An empty circle: nothing growing, so only the per-circle term.
+        let empty = |speed: u32| drain_for(speed, 1.0, 0.0);
+        assert!(empty(1) > 0.0, "a standing circle must cost something even empty");
+        for speed in SPEED_MIN..=SPEED_MAX {
+            let want = empty(1) * speed as f32;
+            assert!((empty(speed) - want).abs() < 1e-4, "an empty circle at x{speed} costs {}, not {want}", empty(speed));
+        }
+
+        // ...and with a wood in it, where the per-plant term dominates.
+        let wood = |speed: u32| drain_for(speed, 1.0, 500.0);
+        assert!(wood(1) > empty(1), "plants inside a circle must add to its cost");
+        for speed in SPEED_MIN..=SPEED_MAX {
+            let want = wood(1) * speed as f32;
+            assert!((wood(speed) - want).abs() < 1e-3, "a wood at x{speed} costs {}, not {want}", wood(speed));
+        }
+
+        // The dial cannot be turned to free, and zero is not a discount.
+        assert_eq!(drain_for(0, 1.0, 0.0), drain_for(1, 1.0, 0.0), "speed 0 must be priced as real time, not as nothing");
+    }
 
     /// **The seed list is plants, and nothing but plants.**
     ///
