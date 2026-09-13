@@ -145,6 +145,11 @@ cards, two of them posted that day, are **absent from `inbox` entirely** while
 having no annotations; `get` returns **three marker coordinates with notes**.
 **So `get <id>` is the only authoritative read** — this is the second
 independent reason for that rule, after the `--mark-seen` incident.
+**And as of 2026-09-13 it is finally true**: `get` and `list` did not sync
+before reading, so on a session that had not posted they answered out of a
+stale local queue and reported `"response": null` for an answered card. Fixed
+in `scripts/review.py` with a control in `review_selftest.py`; a raw
+`git fetch origin review-queue` is still **not** a sync and never was.
 **A card can also be archived carrying no stored response at all** even after
 the owner has answered it: round 31's idle card (`20260913T034419970Z-34d562`)
 is archived with no comment and no annotations, though he gave a verdict and

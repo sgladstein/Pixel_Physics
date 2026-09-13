@@ -529,6 +529,19 @@ def cmd_sync(args) -> int:
 
 def cmd_list(args) -> int:
     root = rl.review_root()
+    # **Reads sync too, and this was the one gap that mattered.** `post`,
+    # `inbox` and `wait` all pulled before they answered; `list` and `get` did
+    # not, so on any session that had not posted yet they answered out of a
+    # local queue that could be hours stale -- and answered *confidently*,
+    # with `"response": null` and no warning, which is indistinguishable from
+    # "the owner has not looked at it".
+    #
+    # It cost a real hour on 2026-09-13: two answered cards read as unanswered,
+    # and the tool was very nearly reported as losing verdicts. The lab
+    # coordinator note tells every session "`get <id>` is the only
+    # authoritative read", which is only true once it reads the same queue the
+    # owner is writing into.
+    maybe_sync(args, root)
     cards = rl.load_cards(root)
     if args.board:
         cards = [c for c in cards if c.get("board") == args.board]
@@ -543,6 +556,8 @@ def cmd_list(args) -> int:
 
 def cmd_get(args) -> int:
     root = rl.review_root()
+    # Syncs first -- see `cmd_list` for what this cost when it did not.
+    maybe_sync(args, root)
     card = rl.load_card(root, args.id)
     if card is None:
         print("no such card: %s" % args.id, file=sys.stderr)
@@ -842,11 +857,13 @@ def main(argv=None) -> int:
     sp.add_argument("--board")
     sp.add_argument("--status", choices=("open", "answered", "archived"))
     sp.add_argument("--mine", action="store_true")
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_list)
 
     sp = sub.add_parser("get", help="print one card and its response")
     sp.add_argument("id")
     sp.add_argument("--mark-seen", action="store_true")
+    add_no_sync(sp)
     sp.set_defaults(func=cmd_get)
 
     sp = sub.add_parser("inbox", help="answered cards I posted and have not read")
