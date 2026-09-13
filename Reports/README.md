@@ -3244,8 +3244,8 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   moves 3.8–7.9% against a 5.2% standing control), and the soil-moisture pass
   that a callgrind profile put at 37.8% of all instructions is **flat in ant
   count**, settled by one switch that moves the intercept 1.84x and the slope
-  by 0.3%. Lands two bit-identical cuts worth 2.7% of the tick and says plainly
-  that **2.7% is not measurable on this box** (the slope's own run-to-run
+  by 0.3%. Lands two bit-identical cuts worth 2.41% of the tick and says plainly
+  that **2.41% is not measurable on this box** (the slope's own run-to-run
   spread is 1.39x) and is not the answer. Prices the six things that would be:
   the creature pass has **no parallelism at all** — one thread against four is
   worth 1.09x on the background and 1.20x on the ants — and at the owner's

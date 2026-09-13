@@ -199,17 +199,23 @@ about the change and not the default state.
   stays — removing *that* wants a material id cached on the species, which is
   a registry change rather than a line.
 
-**Priced at 1,406 + ~150 Ir per creature tick: 2.7% of one ant's decision.**
+**Measured, not predicted: the same callgrind run either side of the change.**
+`creature::tick` goes **2,840,928,131 → 2,772,587,023 Ir** over an identical
+49,568 creature ticks — **−1,379 Ir per ant decision, −2.41%** — of which
+`body_mix` is **−40%** (141,069,746 → 84,771,102) and `sense` **−3.5%**. The
+prediction from the before-profile was 1,556 Ir; it came in at 1,379. The run
+also stocks to the identical `151 ants, 8 plants, frame 1320`, which is a
+second determinism signal beside the hashes.
 
 **The first honest thing.** That is a real saving and it is **not a
 measurable speed-up on this box**. §1a put the run-to-run spread of the per-ant
-slope at 1.39x across four runs and 1.18x between two identical ones; 2.7% of
-the creature tick is perhaps 2% of the per-ant term, which is an order of
+slope at 1.39x across four runs and 1.18x between two identical ones; 2.41% of
+the creature tick is perhaps 1.8% of the per-ant term, which is an order of
 magnitude inside the noise. So no whole-frame before/after is quoted for these
 two, because any number that came back would be this container's mood. The
 instruction count is the gate, and it is what the claim rests on.
 
-**The second honest thing.** 2.7% is not the answer to the owner's question,
+**The second honest thing.** 2.41% is not the answer to the owner's question,
 and nothing in §3 adds up to one either. The cost of an ant is five roughly
 equal things, every one of which the long ant's genome actually reads —
 checked, not assumed: a per-species mask of which `BrainInput` slots any wire
