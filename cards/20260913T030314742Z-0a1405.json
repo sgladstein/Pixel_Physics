@@ -1,0 +1,46 @@
+{
+  "id": "20260913T030314742Z-0a1405",
+  "created": "2026-09-13T03:03:14Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-menu-buttons-r31",
+    "commit": "16bab295",
+    "agent": null,
+    "session_id": "13b84b10-2986-5d09-a1a4-180ab7bdb620",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "MENU: buttons instead of a list",
+  "question": "Does the menu now read as a menu of clickable buttons, not a list of information?",
+  "context_md": "Round 30 shipped every lab page and toggle as one clickable list (Body::Choice), but Choice drew pixel-identical to an information row (Body::Value), so the tap target was invisible -- the owner's complaint. This gives Choice the bar button's own face+edge chrome (idle/hover/pressed), which fixes every page that uses it, not just MENU (also seen on ANTS' ANIMAL COLOUR/LIFE MARKS rows and BOX's RAIN/EVENTS rows in the same PR). Then splits MENU into two columns (PAGES / VIEW / TOGGLES -- the font has no '&' glyph, caught by rendering it), which buys back the section headings round 30 cut for a 1px pixel-budget overflow. Panel size: 152x231px (1 column) -> 286x139px (2 columns), both comfortably inside the screen. Blind.",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before (round 30)",
+      "files": [
+        "20260913T030314742Z-0a1405/000-before-page--menu.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "after (round 31, task 3)",
+      "files": [
+        "20260913T030314742Z-0a1405/001-after2-page--menu.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
