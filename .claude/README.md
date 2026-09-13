@@ -20,6 +20,7 @@ by name.
 | `settings.json` | the shared project baseline: the SessionStart hook, and the permission allow/deny/ask lists |
 | `rules/` | gotchas scoped to one part of the tree, loaded **only** when a matching file is read — see below |
 | `skills/review/` | the owner's visual review queue — post a rendered artifact, collect a verdict later |
+| `skills/lab-coordinator/` | running a lab round: spawning lanes, which model each gets, how to reach one, when a message is worth a lane's turn |
 | `workflows/` | multi-agent harnesses, including the ten-agent census that produced `Reports/dead-ends.md` |
 
 `settings.local.json` is yours, per-machine, and gitignored. Put anything
@@ -99,12 +100,12 @@ if a future CLI regresses them, the selftest is what will say so.
 
 <!-- BEGIN GENERATED CONTEXT BUDGET -- regenerate with scripts/contextbudget.py --write -->
 
-**Always-loaded floor: ~21,757 tokens** — `CLAUDE.md` at 87,029 B / 1,321 lines, bytes/4.0. Ceiling 28,000 (6,243 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
+**Always-loaded floor: ~21,860 tokens** — `CLAUDE.md` at 87,442 B / 1,327 lines, bytes/4.0. Ceiling 28,000 (6,140 under). Plus ~430 for the hook, and the harness system prompt and tool schemas on top; this is a floor.
 
-Paid by **every session, agent and subagent** — ten heads is ~217,570 tokens before any of them reads source.
+Paid by **every session, agent and subagent** — ten heads is ~218,600 tokens before any of them reads source.
 
 Consulted by lookup, paid unconditionally: 62% (~13,566 tokens) across Method, Gotchas, Conventions. On demand instead, the floor would be ~8,800. That gap is the work; the ceiling only holds the line.
 
-Cache-prefix churn, distinct versions per day (newest first): 2026-09-08 x1, 2026-09-06 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
+Cache-prefix churn, distinct versions per day (newest first): 2026-09-12 x1, 2026-09-08 x1, 2026-09-06 x1. Each one is a prefix no later session can share. A running session keeps the version it started with, so the remedy is batching edits into one commit near session end, not editing less.
 
 <!-- END GENERATED CONTEXT BUDGET -->
