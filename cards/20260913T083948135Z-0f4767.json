@@ -1,0 +1,67 @@
+{
+  "id": "20260913T083948135Z-0f4767",
+  "created": "2026-09-13T08:39:48Z",
+  "board": "zoom",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "HEAD",
+    "commit": "fc5480f4",
+    "agent": null,
+    "session_id": "0f29addc-d732-5b36-b056-bc32aba2ff6a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zoomed all the way out: the outdoor skyline (companion card)",
+  "question": "Same change, outdoor terrain instead of the lab — does more resolution still improve it here, or does the rock lose its texture?",
+  "context_md": "Companion to the lab card. Same change: grow the render buffer at the widest zoom-out so more world cells reach a pixel of their own, instead of fifteen in sixteen being discarded.\n\n**This scene is why it is worth asking twice.** On the lab bed the finer buffer plainly wins — plants get their real shape back. On bare rock it is not obvious: the per-cell shade jitter that gives stone its grain is drawn at 4x4 blocks today, and at one cell per pixel that grain becomes fine enough to read as **smooth** rather than as texture.\n\nAll three show the identical patch of world at the identical size on screen; the coarse one is magnified back up exactly as your monitor already does it.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "buffer x1 (what ships today)",
+      "files": [
+        "20260913T083948135Z-0f4767/000-stride4_x1.png"
+      ],
+      "caption": "one pixel per 4x4 block of world",
+      "meta": {
+        "cells reaching a pixel": 163840,
+        "cells discarded": 2457600,
+        "share discarded": "94%"
+      },
+      "focus": null
+    },
+    {
+      "label": "buffer x2",
+      "files": [
+        "20260913T083948135Z-0f4767/001-stride2_x2.png"
+      ],
+      "caption": "one pixel per 2x2 block of world",
+      "meta": {
+        "cells reaching a pixel": 655360,
+        "cells discarded": 1966080,
+        "share discarded": "75%"
+      },
+      "focus": null
+    },
+    {
+      "label": "buffer x4 (one pixel per cell)",
+      "files": [
+        "20260913T083948135Z-0f4767/002-stride1_x4.png"
+      ],
+      "caption": "nothing discarded",
+      "meta": {
+        "cells reaching a pixel": 2621440,
+        "cells discarded": 0,
+        "share discarded": "0%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
