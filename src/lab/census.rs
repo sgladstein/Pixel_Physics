@@ -380,6 +380,64 @@ pub fn nest_columns(spec: &LabBox, scenario: Option<&Scenario>) -> Vec<i32> {
     v
 }
 
+/// **How the box was keeping up, sampled beside the census.** `None` on
+/// `ChronicleRow::perf` when no [`crate::lab::time::TimeControl`] is
+/// available at all -- `examples/chronicle.rs`'s own harness drives
+/// `sim::frame::step` directly with no dial, so "achieved against
+/// requested" simply does not apply there. Every field here is a read of
+/// state `TimeControl` already tracks for its own on-screen readout
+/// (`ticks_per_frame`/`requested_ticks_per_frame`/`multiple`/`display_hz`/
+/// `owed_ticks`/`draws_skipped`); nothing here is new measurement, and none
+/// of it costs more than the handful of field reads it looks like --
+/// confirmed against `World::active_chunk_count`/`active_site_count`
+/// (`ChronicleRow`'s own `awake_chunks`/`active_sites`, sampled
+/// unconditionally) before adding either: both are already O(chunks)/O(1),
+/// the same cost the debug overlay pays every drawn frame.
+///
+/// **Round 31's own reason this exists**: `ChronicleRow`'s other fields are
+/// all world *content* -- ants, plants, joules, mound geometry -- and none
+/// of them can say whether a session was ever slow. The owner's next round
+/// is a perf deep-dive on a played box past a thousand ants, and this is
+/// the load a chronicle needs to carry for that to be answerable from a
+/// log rather than reproduced from a guess.
+///
+/// **Read `speed_multiple` beside anything else here before trusting it.**
+/// The same achieved `ticks_per_frame` means "keeping up" at `1X` and
+/// "badly behind" near the top of the speed ladder -- many simulated ticks
+/// run inside one drawn frame at a high multiplier, so the rate alone does
+/// not say which. This is the same caution `autosave_cost`'s own doc gives
+/// for a single call landing inside one displayed frame.
+#[derive(Default, Clone, Copy, Debug)]
+pub struct PerfSample {
+    /// Ticks actually shown per displayed frame -- `TimeControl::
+    /// ticks_per_frame`, what the screen is actually doing.
+    pub ticks_per_frame: u32,
+    /// What the dial's multiplier would put on screen if the box could meet
+    /// it -- `TimeControl::requested_ticks_per_frame`. Diverges from
+    /// `ticks_per_frame` exactly when the box cannot keep up; the gap
+    /// between the two, not either number alone, is "is it keeping up".
+    pub requested_ticks_per_frame: u32,
+    /// The speed dial's multiplier at the moment of the sample --
+    /// `TimeControl::multiple` (`0` while paused). See this struct's own
+    /// doc: required context for every other field here, not optional.
+    pub speed_multiple: u32,
+    /// Displayed frames per second -- `TimeControl::display_hz`.
+    pub display_hz: u32,
+    /// Whole simulated ticks currently owed and not yet run --
+    /// `TimeControl::owed_ticks`. Separates a frame that merely ran a
+    /// little short from a box that has fallen behind and is not catching
+    /// up, which `ticks_per_frame` alone cannot: a debt that keeps growing
+    /// says the box has given up on the dial, not just missed one frame.
+    pub debt_ticks: u32,
+    /// How many displayed frames have been skipped (ticked but not drawn,
+    /// to buy ticks at a high dial) over the whole run so far --
+    /// `TimeControl::draws_skipped`. The sim-bound/render-bound fork: a
+    /// session with a high, climbing skip count spent its time simulating
+    /// rather than painting, which is the first question any perf work
+    /// needs answered and today cannot be, from a log alone.
+    pub draws_skipped: u64,
+}
+
 /// **One CENSUS row**: a `Sample` plus the colony-turnover numbers that live
 /// on `World` rather than in the grid -- everything `examples/latecensus.rs`
 /// prints for one sampled frame, bundled so the lab and the harness call one
@@ -387,6 +445,12 @@ pub fn nest_columns(spec: &LabBox, scenario: Option<&Scenario>) -> Vec<i32> {
 #[derive(Default, Clone, Copy, Debug)]
 pub struct ChronicleRow {
     pub frame: u64,
+    /// Unix seconds at the moment this row was taken. Alongside `frame`
+    /// because a frame count alone cannot be turned into real played
+    /// minutes -- the speed dial and how often the player paused both sit
+    /// between the two, and a perf reader's first question about a session
+    /// is how long it actually ran.
+    pub wall_clock_secs: u64,
     pub sample: Sample,
     pub births: u64,
     pub deaths: u64,
@@ -396,18 +460,57 @@ pub struct ChronicleRow {
     pub eats: u64,
     pub digs: u64,
     pub deliveries: u64,
+    /// Chunks that will be swept next step -- `World::active_chunk_count`,
+    /// the headline number for whether sleeping is working. Always sampled
+    /// (unlike `perf`, this needs no `TimeControl` -- it is a plain read off
+    /// `world`), because it is the missing link between "there are 1,000
+    /// ants" and "are they costing anything": a sleeping ant is free, and
+    /// the census alone cannot tell which this session had.
+    pub awake_chunks: usize,
+    /// Pending active sites -- `World::active_site_count`, the scheduler's
+    /// own headline number for whether its cost is proportional to
+    /// "interesting cells" rather than world size. Read beside
+    /// `awake_chunks` for the same reason.
+    pub active_sites: usize,
+    /// How the box was keeping up at the moment of the sample. `None` for a
+    /// harness with no dial at all -- see [`PerfSample`]'s own doc.
+    pub perf: Option<PerfSample>,
 }
 
 /// Take one `ChronicleRow` off `world` right now, at `world.frame`.
-pub fn take_chronicle_row(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &Ids, colony_species: &str) -> ChronicleRow {
+///
+/// `time` is `None` for a headless harness with no dial (`examples/
+/// chronicle.rs`'s own bare `World` loop) and `Some(&lab.time)` for a real
+/// `Lab` (`Lab::tick`) -- see [`PerfSample`]'s own doc for why the perf
+/// columns cannot be filled in without one.
+pub fn take_chronicle_row(
+    world: &World,
+    spec: &LabBox,
+    gut: f32,
+    nest_cols: &[i32],
+    ids: &Ids,
+    colony_species: &str,
+    time: Option<&crate::lab::time::TimeControl>,
+) -> ChronicleRow {
     let sample = census(world, spec, gut, nest_cols, ids);
     let st = world.creature_stats;
     // The chronicle's row has no old-age column of its own yet, so an age
     // death lands in `other_deaths` here rather than being dropped.
     let (starved, killed, oldage, other) = colony_deaths(world, colony_species);
     let other_deaths = other + oldage;
+    let wall_clock_secs =
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let perf = time.map(|t| PerfSample {
+        ticks_per_frame: t.ticks_per_frame(),
+        requested_ticks_per_frame: t.requested_ticks_per_frame(),
+        speed_multiple: t.multiple(),
+        display_hz: t.display_hz(),
+        debt_ticks: t.owed_ticks(),
+        draws_skipped: t.draws_skipped(),
+    });
     ChronicleRow {
         frame: world.frame,
+        wall_clock_secs,
         sample,
         births: st.births,
         deaths: st.deaths,
@@ -417,32 +520,66 @@ pub fn take_chronicle_row(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i
         eats: st.eats,
         digs: st.digs,
         deliveries: st.deliveries,
+        awake_chunks: world.active_chunk_count(),
+        active_sites: world.active_site_count(),
+        perf,
     }
 }
 
 /// The column-header line, in the exact order and widths
 /// `examples/latecensus.rs` has always printed -- shared so a chronicle row
 /// and a `latecensus` row are the same text or nothing here has done its job.
+///
+/// **The final `| wall awake sites | ach/f req/f x dispHz debt skip` group is
+/// round 31's own addition and `examples/latecensus.rs` does not carry it**
+/// -- that harness has no `TimeControl` at all (it drives `sim::frame::step`
+/// directly), so the perf columns have nothing to read there, and that file
+/// is out of this round's scope besides. The two headers were already not
+/// byte-identical before this (`latecensus.rs` carries `oldag`/`crpss`
+/// `header_line` does not); this widens the gap rather than opening it.
 pub fn header_line() -> String {
     format!(
-        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9} | {:>8} {:>7} {:>7} {:>6} {:>6} {:>7} {:>7} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6} | {:>10} {:>6} {:>6} | {:>5} {:>5} {:>4} {:>6} {:>5} {:>6}",
         "frame", "ants", "plnts", "bank", "edible", "worth(J)",
         "leafJ", "fruitJ", "littrJ", "seedJ", "crpsJ", "flowrJ", "otherJ", "flwrs",
         "born", "died", "strvd", "killd", "othr", "eats", "digs", "delivs",
-        "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut"
+        "roofed", "pit", "pack<", "pack^", "mnd", "bare", "band", "bare", "out", "pcIn", "pcOut",
+        "wall", "awake", "sites",
+        "ach/f", "req/f", "x", "dispHz", "debt", "skip"
     )
 }
 
 /// One data row, in the same columns `header_line` names.
+///
+/// **The last six perf columns read `--` when `row.perf` is `None`** (no
+/// `TimeControl` was available when the row was taken) rather than `0`,
+/// which would read as "the box achieved zero ticks" -- a real and alarming
+/// finding this is not. See [`PerfSample`]'s own doc for what each of the
+/// six means and why `x` (the speed multiple) has to be read beside the
+/// other five, never alone.
 pub fn row_line(row: &ChronicleRow) -> String {
     let s = &row.sample;
+    let dash = || "--".to_string();
+    let (achf, reqf, mult, disp, debt, skip) = match &row.perf {
+        Some(p) => (
+            p.ticks_per_frame.to_string(),
+            p.requested_ticks_per_frame.to_string(),
+            p.speed_multiple.to_string(),
+            p.display_hz.to_string(),
+            p.debt_ticks.to_string(),
+            p.draws_skipped.to_string(),
+        ),
+        None => (dash(), dash(), dash(), dash(), dash(), dash()),
+    };
     format!(
-        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6}",
+        "{:>7} {:>5} {:>5} {:>5} {:>6} {:>9.0} | {:>8.0} {:>7.0} {:>7.0} {:>6.0} {:>6.0} {:>7.0} {:>7.0} {:>5} | {:>5} {:>5} {:>5} {:>5} {:>4} {:>6} {:>6} {:>7} | {:>6} {:>5} {:>6} {:>6} {:>4} | {:>4}/{:<3} {:>4}/{:<3} {:>6} {:>6} | {:>10} {:>6} {:>6} | {:>5} {:>5} {:>4} {:>6} {:>5} {:>6}",
         row.frame, s.ants, s.plants, s.seed_bank, s.edible, s.worth,
         s.leaf_j, s.fruit_j, s.litter_j, s.seed_j, s.corpse_j, s.flower_j, s.other_j, s.standing_flowers,
         row.births, row.deaths, row.starved, row.killed, row.other_deaths, row.eats, row.digs, row.deliveries,
         s.roofed, s.pit, s.packed_below, s.packed_above, s.mound_high,
-        s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside
+        s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside,
+        row.wall_clock_secs, row.awake_chunks, row.active_sites,
+        achf, reqf, mult, disp, debt, skip
     )
 }
 
@@ -482,4 +619,81 @@ pub fn chronicle_section(rows: &[ChronicleRow]) -> String {
         let _ = writeln!(out, "{}", row_addendum(row));
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::lab::scene::LabBox;
+    use crate::lab::time::TimeControl;
+
+    /// A world just built, minimal but real -- enough to call
+    /// `take_chronicle_row` without a scenario or a colony.
+    fn tiny_world() -> World {
+        LabBox { founders: 0, colonies: 0, width: 128, height: 96, ..LabBox::default() }.build()
+    }
+
+    /// **`time: None` produces `perf: None`, and `row_line` prints `--` for
+    /// every perf column rather than `0`.** `examples/chronicle.rs`'s own
+    /// case -- no `Lab`, no dial. Provable red by having `row_line` fall
+    /// back to `p.unwrap_or_default()` instead of the dash: a reader would
+    /// then see a real session's `0` (a genuinely stalled box) and this
+    /// harness's "not sampled" as the identical string.
+    #[test]
+    fn no_time_control_gives_dashes_not_zeros() {
+        let world = tiny_world();
+        let ids = Ids::resolve(&world);
+        let row = take_chronicle_row(&world, &LabBox::default(), 0.0, &[], &ids, "ant", None);
+        assert!(row.perf.is_none(), "no TimeControl was given; perf must be None");
+        // The last `|`-group is exactly the six perf columns (`header_line`'s
+        // own layout: `... | wall awake sites | ach/f req/f x dispHz debt
+        // skip`) -- checked in isolation so a real, non-zero wall-clock
+        // timestamp or chunk count earlier in the line cannot hide a `0`
+        // that should have been a dash.
+        let line = row_line(&row);
+        let perf_columns = line.rsplit('|').next().expect("row_line always has at least one `|`");
+        assert!(
+            perf_columns.split_whitespace().all(|field| field == "--"),
+            "expected every perf column to read '--' with no TimeControl, got: {perf_columns:?}"
+        );
+    }
+
+    /// **`time: Some(..)` fills every perf column from `TimeControl`'s own
+    /// reads, at the exact values it reports** -- the one-function
+    /// guarantee `take_chronicle_row`'s own doc makes (a session's file and
+    /// a headless run can never implement this differently, because there
+    /// is only the one implementation). Provable red by hand-computing any
+    /// one of the five checked values differently from the `TimeControl`
+    /// call it is supposed to mirror.
+    #[test]
+    fn a_real_time_control_fills_every_perf_column() {
+        let world = tiny_world();
+        let ids = Ids::resolve(&world);
+        let mut t = TimeControl::new();
+        t.set_preset(2); // a real, non-default multiplier and display rate
+        let row = take_chronicle_row(&world, &LabBox::default(), 0.0, &[], &ids, "ant", Some(&t));
+        let perf = row.perf.expect("a real TimeControl was given; perf must be Some");
+        assert_eq!(perf.speed_multiple, t.multiple());
+        assert_eq!(perf.display_hz, t.display_hz());
+        assert_eq!(perf.ticks_per_frame, t.ticks_per_frame());
+        assert_eq!(perf.requested_ticks_per_frame, t.requested_ticks_per_frame());
+        assert_eq!(perf.debt_ticks, t.owed_ticks());
+        assert_eq!(perf.draws_skipped, t.draws_skipped());
+        assert!(row_line(&row).contains(&t.multiple().to_string()), "the speed multiple did not reach the printed row");
+    }
+
+    /// **`awake_chunks`/`active_sites` are sampled regardless of `time`** --
+    /// unlike the perf columns, these come straight off `world` and have no
+    /// reason to be `None` for a headless harness. A fresh, empty world has
+    /// nothing awake and nothing active, which doubles as the positive
+    /// control for `World::active_chunk_count`/`active_site_count` reading
+    /// zero on a box with nothing in it.
+    #[test]
+    fn chunk_and_site_counts_need_no_time_control() {
+        let world = tiny_world();
+        let ids = Ids::resolve(&world);
+        let row = take_chronicle_row(&world, &LabBox::default(), 0.0, &[], &ids, "ant", None);
+        assert_eq!(row.awake_chunks, world.active_chunk_count());
+        assert_eq!(row.active_sites, world.active_site_count());
+    }
 }

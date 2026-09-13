@@ -6400,9 +6400,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 if first {
                     // **Left as a direct construction, not `world.log`** --
                     // this site belongs to a different lane's file
-                    // ownership window; the two new fields are filled inline
+                    // ownership window; the new fields are filled inline
                     // because `LogEvent` now requires them to compile, and
-                    // that is the only change made here.
+                    // that is the only change made here. `detail` is the
+                    // chronicle lane's addition (round 31): empty for every
+                    // kind but `PlayerAction`, which this is not.
                     if let Some((born_frame, sp, lineage, generation)) =
                         world.organism(organism).map(|s| (s.born_frame, s.species, s.lineage, s.generation))
                     {
@@ -6415,6 +6417,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                             other: 0,
                             lineage,
                             generation,
+                            detail: String::new(),
                         });
                     }
                 }
