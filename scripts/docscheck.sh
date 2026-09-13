@@ -523,6 +523,21 @@ else
   note "scripts/addrcheck.py missing -- dead-ends.md's cross-document addresses are unenforced"
 fi
 
+# 9b. `dead-ends.md`'s per-section entry counts still match what it holds.
+# The headers are the file's own claim about its size and they went stale in
+# seven of fourteen sections -- `## other  (20 entries)` held 107 -- because
+# every session appends and none recounts. A count nobody can check is worse
+# than none, which is the reasoning the file's own header gives for recounting
+# its total rather than incrementing it.
+if [ -f scripts/deadendindex.py ]; then
+  while read -r line; do
+    [ -z "$line" ] && continue
+    note "${line#deadendindex: }"
+  done < <(python3 scripts/deadendindex.py --check 2>&1)
+else
+  note "scripts/deadendindex.py missing -- dead-ends.md's section counts are unenforced"
+fi
+
 # --- 9. The always-loaded context budget must be recorded and current -------
 # CLAUDE.md is loaded into every session, agent and subagent, so its size is
 # multiplied by every head you run -- the one file with that property. The
