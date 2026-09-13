@@ -124,6 +124,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("SPACE", "PLACE A CIRCLE OF TIME"),
     ("X", "LIFT THE NEAREST CIRCLE"),
     ("Q E", "ITS RADIUS"),
+    ("[ ]", "HOW FAR YOUR OWN CIRCLE REACHES"),
     ("Z V", "HOW FAST TIME RUNS IN THEM"),
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
@@ -153,6 +154,8 @@ pub struct Readout {
     pub circles: usize,
     pub radius: i32,
     pub rate: u32,
+    /// How wide the circle the player carries is.
+    pub carried_radius: i32,
     pub held: bool,
     pub paused: bool,
     pub look: &'static str,
@@ -192,6 +195,7 @@ impl Readout {
         // reason to walk somewhere.
         lines.push((format!("ANIMALS {}   AWAKE {}", self.animals, self.animals_awake), TEXT));
         lines.push((format!("CIRCLES {}   NEXT R{}   SPEED X{}", self.circles, self.radius, self.rate), TEXT));
+        lines.push((format!("YOUR CIRCLE R{}", self.carried_radius), TEXT));
         // **What T would sow, and how many have gone in.** A seed dropped on
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
@@ -594,6 +598,12 @@ mod tests {
                 "ShiftLeft" | "ShiftRight" => "SHIFT".to_string(),
                 "Space" => "SPACE".to_string(),
                 "Slash" => "/".to_string(),
+                // The punctuation keys whose `KeyCode` name is a word. Every
+                // one of these has to be spelled out or the guard fires on a
+                // legend that is perfectly correct -- which it has now done
+                // twice, once for `TAB` and once for these.
+                "BracketLeft" => "[".to_string(),
+                "BracketRight" => "]".to_string(),
                 // `KeyA` .. `KeyZ` and the function keys read straight
                 // across; anything else added later shows up as itself and
                 // fails loudly rather than being silently skipped.
@@ -645,6 +655,7 @@ mod tests {
                 circles: 3,
                 radius: 60,
                 rate: 4,
+                carried_radius: 28,
                 held: true,
                 paused,
                 look: "one hue",
@@ -687,6 +698,7 @@ mod tests {
             circles: 12,
             radius: 240,
             rate: 8,
+            carried_radius: 96,
             held: true,
             paused: true,
             look: "unchanged",

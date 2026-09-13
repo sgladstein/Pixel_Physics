@@ -367,6 +367,16 @@ impl Handler {
             // movement keys, and both are free.
             KeyCode::KeyZ => self.game.speed = (self.game.speed - 1).max(pixel_physics::druid::SPEED_MIN),
             KeyCode::KeyV => self.game.speed = (self.game.speed + 1).min(pixel_physics::druid::SPEED_MAX),
+            // **Your own circle.** `[`/`]` because that is brush size in the
+            // sandbox and this is the same gesture: how far your hand reaches.
+            KeyCode::BracketLeft => {
+                self.game.world.carried_radius =
+                    (self.game.world.carried_radius - 8).max(pixel_physics::sim::world::CARRIED_RADIUS)
+            }
+            KeyCode::BracketRight => {
+                self.game.world.carried_radius =
+                    (self.game.world.carried_radius + 8).min(pixel_physics::druid::CARRIED_RADIUS_MAX)
+            }
             KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
             KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
             // **Unlimited power, for playtesting.** The economy's numbers are

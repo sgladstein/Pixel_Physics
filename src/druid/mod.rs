@@ -246,6 +246,15 @@ const ECONOMY_INTERVAL: u64 = 30;
 pub const SPEED_MIN: u32 = 1;
 pub const SPEED_MAX: u32 = 8;
 
+/// **How far the carried circle may be widened**, in cells.
+///
+/// The floor is [`CARRIED_RADIUS`] itself — the circle you *are* cannot be
+/// made smaller than presence, or the gnome could stand outside his own time.
+/// The ceiling is well under [`PLACE_RADIUS_MAX`]: a carried circle follows
+/// you everywhere and costs nothing at its base size, so an unbounded one is
+/// a free standing circle that never has to be placed.
+pub const CARRIED_RADIUS_MAX: i32 = 96;
+
 /// Radius a placed quickening starts at, and the range `Q`/`E` walk.
 const PLACE_RADIUS_START: i32 = 60;
 pub const PLACE_RADIUS_MIN: i32 = 20;
@@ -597,6 +606,7 @@ impl Druid {
             circles: self.world.quickenings.len(),
             radius: self.place_radius,
             rate: self.speed,
+            carried_radius: self.world.carried_radius,
             held: self.world.held,
             paused: self.paused,
             look: self.renderer.held_look.label(),
@@ -956,7 +966,7 @@ impl Druid {
         // stops the dial being free until something grows under it. This is
         // the concept's *the faster the more expensive*, and it is the only
         // thing standing between the player and leaving it at maximum.
-        self.drain = drain_for(self.speed, self.world.quickenings.len() as f32, plants_in_circles);
+            self.drain = drain_for(self.speed, self.world.quickenings.len() as f32 + carried_cost(&self.world), plants_in_circles);
         // The readout's two animal numbers, taken from the walk that was
         // happening anyway rather than from a second census per frame.
         self.animals = animals_alive;
@@ -1107,6 +1117,27 @@ fn size_from_env() -> (u32, u32) {
     }
 }
 
+/// **What a widened carried circle costs, in standing-circle equivalents.**
+///
+/// **Zero at its base size, and that is load-bearing.** The carried circle is
+/// free because it is *presence* — a colony under your feet charges without
+/// billing you, which is the whole reason walking somewhere is worth doing.
+/// But the owner asked to be able to widen it, and a free circle you can grow
+/// to a standing circle's size is a standing circle you never have to place:
+/// the placement economy would simply stop applying.
+///
+/// So the price is the **area you added**, not the area you have. Doubling
+/// the radius covers four times the ground and costs three circles; leaving
+/// it alone costs nothing, exactly as before.
+fn carried_cost(world: &World) -> f32 {
+    let Some(carried) = world.carried else {
+        return 0.0;
+    };
+    let base = CARRIED_RADIUS.max(1) as f32;
+    let ratio = carried.r as f32 / base;
+    (ratio * ratio - 1.0).max(0.0)
+}
+
 /// **What one second of running costs**, given the dial, how many standing
 /// circles there are, and how many plants stand inside them.
 ///
@@ -1153,6 +1184,40 @@ fn grow_from_env() -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// **Widening the circle you carry is not free, and leaving it alone
+    /// still is.**
+    ///
+    /// The exploit this guards: the carried circle costs nothing because it
+    /// is presence, and the owner asked to be able to widen it. A free circle
+    /// that can grow to a standing circle's size is a standing circle nobody
+    /// ever has to place — the placement economy simply stops applying, and
+    /// nothing else in the game would notice.
+    #[test]
+    fn a_widened_carried_circle_costs_and_an_untouched_one_does_not() {
+        use crate::sim::world::Quickening;
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+
+        assert_eq!(carried_cost(&w), 0.0, "no carried circle is no cost");
+
+        w.carried = Some(Quickening::at(10, 10, CARRIED_RADIUS));
+        assert_eq!(carried_cost(&w), 0.0, "the circle you already are must stay free");
+
+        // Twice the radius is four times the ground, so three circles' worth
+        // of *added* reach.
+        w.carried = Some(Quickening::at(10, 10, CARRIED_RADIUS * 2));
+        assert!((carried_cost(&w) - 3.0).abs() < 1e-4, "double the radius should cost 3, not {}", carried_cost(&w));
+
+        // Monotone all the way up, or some middle setting is a free lunch.
+        let mut last = 0.0;
+        for r in CARRIED_RADIUS..=CARRIED_RADIUS_MAX {
+            w.carried = Some(Quickening::at(10, 10, r));
+            let c = carried_cost(&w);
+            assert!(c >= last, "cost fell from {last} to {c} at r{r}");
+            last = c;
+        }
+        assert!(last > 0.0, "the widest carried circle must cost something");
+    }
 
     /// **The dial is priced, and priced linearly.**
     ///

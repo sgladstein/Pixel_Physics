@@ -3777,6 +3777,16 @@ pub struct World {
     /// bought, and keeping them apart stops a later economy from accidentally
     /// charging for it.
     pub carried: Option<Quickening>,
+    /// **How far the carried circle reaches**, in cells — [`CARRIED_RADIUS`]
+    /// unless a game changes it.
+    ///
+    /// A field rather than the constant, because the owner asked to set the
+    /// size of *both* kinds of bubble and `sim::frame::step` is what builds
+    /// the carried one each tick. `0` and negatives are treated as the
+    /// default rather than as "no circle": having no circle is what an empty
+    /// `player` already means, and a dial that can be turned to *off* by
+    /// accident is a different mechanic.
+    pub carried_radius: i32,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -4793,6 +4803,7 @@ impl World {
             held: false,
             quickenings: Vec::new(),
             carried: None,
+            carried_radius: CARRIED_RADIUS,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
