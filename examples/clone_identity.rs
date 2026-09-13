@@ -31,6 +31,7 @@
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000
 //! cargo run --release --example clone_identity -- species=tree plants=2 frames=8000 gap=200
 //! ```
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::{organism, parallel, plant, World};
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -85,6 +86,40 @@ fn jaccard(a: &Body, b: &Body) -> f32 {
     } else {
         inter / union
     }
+}
+
+/// One plant, rendered in a **fixed window anchored on its own collar**, so
+/// every panel of a column strip is the same size and the same crop.
+///
+/// A per-plant tight crop would be the wrong picture here: the question the
+/// strip asks is *how much do these differ*, and a crop that rescales itself
+/// to each plant hides exactly the difference being asked about -- a plant
+/// twice the size would come back the same size on the card. So the window is
+/// constant and the plant is drawn at whatever fraction of it it fills.
+///
+/// Pinned to noon for the same reason `clone_variance::render_stand` is: the
+/// day/night cycle is a designed oscillator, and a card rendered at an
+/// arbitrary phase is a card about the hour it was taken.
+fn render_window(w: &World, cx: i32, gy: i32, half_w: i32, up: i32, down: i32) -> (Vec<u8>, u32, u32) {
+    let b = w.bounds().expect("the plant scene sets bounds");
+    let (ww, wh) = ((b.max_x - b.min_x + 1) as u32, (b.max_y - b.min_y + 1) as u32);
+    let mut buf = vec![0u8; (ww * wh * 4) as usize];
+    let mut renderer = Renderer::new();
+    renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
+    let particles = pixel_physics::sim::particle::ParticleSystem::new();
+    renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (ww, wh), true);
+    let (x0, x1) = ((cx - half_w).max(b.min_x), (cx + half_w).min(b.max_x));
+    let (y0, y1) = ((gy - up).max(b.min_y), (gy + down).min(b.max_y));
+    let (cw, ch) = ((x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
+    let mut crop = vec![0u8; (cw * ch * 4) as usize];
+    for row in 0..ch {
+        let sy = (y0 - b.min_y) as u32 + row;
+        let sx = (x0 - b.min_x) as u32;
+        let src = ((sy * ww + sx) * 4) as usize;
+        let dst = (row * cw * 4) as usize;
+        crop[dst..dst + (cw * 4) as usize].copy_from_slice(&buf[src..src + (cw * 4) as usize]);
+    }
+    (crop, cw, ch)
 }
 
 fn main() {
@@ -321,7 +356,65 @@ fn main() {
                 wk.step_fields();
             }
             let b = relative_bodies(&wk).remove(&id).unwrap_or_default();
-            println!("  column {cx}: organism id {id}, {} cells", b.len());
+            // **What the count counts, printed beside it.** Column 285 measured
+            // 151 cells and rendered a full tree -- a number and a picture
+            // answering different questions, which is `CLAUDE.md`'s standing
+            // trap. `relative_bodies` counts cells the organism still *owns*;
+            // a senescent plant's tissue keeps rendering as wood and foliage
+            // while `rot_remains` carries it out, and dead cells stop being
+            // owned. So a small count beside a big picture is a plant that
+            // died, not an instrument fault -- but only these three numbers
+            // can tell those apart.
+            let (alive, senescent, owned) = match wk.organism(id) {
+                Some(st) => (true, st.senescent, st.cells.len()),
+                None => (false, false, 0),
+            };
+            println!(
+                "  column {cx}: organism id {id}, {} cells | alive {alive} senescent {senescent} owned {owned}",
+                b.len()
+            );
+            // **Every organism id standing in the world at the end, and the
+            // plant material owned by none.** Column 285 measured 151 cells
+            // and rendered a full crown -- 16 plant pixels per counted cell
+            // where the other eleven columns read 0.92 to 1.04 -- so ~2,300
+            // cells of wood and foliage are standing that this organism does
+            // not own. Either they were disowned or they belong to a second
+            // organism, and `cells` is wrong about the plant's size in both
+            // cases. `dead-ends.md` records the neighbouring failure (a freed
+            // slot leaving 160 orphan cells carrying its id) but not this one.
+            {
+                let mut per_id: BTreeMap<u16, usize> = BTreeMap::new();
+                let mut unowned_plant = 0usize;
+                if let Some(bb) = wk.bounds() {
+                    for x in bb.min_x..=bb.max_x {
+                        for y in bb.min_y..=bb.max_y {
+                            let cell = wk.get(x, y);
+                            let oid = cell.organism_id();
+                            if oid != 0 {
+                                *per_id.entry(oid).or_default() += 1;
+                            } else if wk.materials.kind(cell.material) == pixel_physics::sim::material::MaterialKind::Plant {
+                                unowned_plant += 1;
+                            }
+                        }
+                    }
+                }
+                println!("    ids standing: {per_id:?} | unowned plant cells {unowned_plant}");
+            }
+            if let Some(stem) = sarg("png") {
+                // **The window is an argument because the right one depends on
+                // the age.** At 6,000 frames a `tree` is a whip and a tight
+                // window is generous; at 20,000 it has a crown and the same
+                // window crops it, which would make a big plant *look* the
+                // same size as a small one -- the exact difference the strip
+                // exists to show.
+                let win = sarg("win").unwrap_or_else(|| "70,150,22".to_string());
+                let v: Vec<i32> = win.split(',').map(|n| n.parse().expect("win=halfw,up,down")).collect();
+                assert_eq!(v.len(), 3, "win takes three numbers: halfw,up,down");
+                let (buf, pw, ph) = render_window(&wk, cx, gy, v[0], v[1], v[2]);
+                let path = format!("{stem}_{cx}.png");
+                image::save_buffer(&path, &buf, pw, ph, image::ColorType::Rgba8).expect("write png");
+                println!("    wrote {path} ({pw}x{ph})");
+            }
             bodies.push((cx, id, b));
         }
         let one_id = bodies.iter().all(|b| b.1 == bodies[0].1);
