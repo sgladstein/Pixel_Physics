@@ -1,0 +1,52 @@
+{
+  "id": "20260913T092034527Z-4b4670",
+  "created": "2026-09-13T09:20:34Z",
+  "board": "held-world",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "8bf453ba",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The held world, walkable - and is this the right frame?",
+  "question": "Two thirds of this picture is underground. In the sandbox that is right because you dig; here you never will. Should the camera sit higher, so a walk is mostly sky and canopy?",
+  "context_md": "`cargo run --release --bin druid` now runs. Both panes are the same game, same size (2560x960, five screens across), same 8,000 frames of growing before the world is held - they differ only in the worldgen preset.\n\n- **rolling** is the sandbox's shipped default: a world built so you can tunnel into it\n- **druid** is a new preset for growing things - the screen-high rock walls cut right down, twice the soil depth, soil kept on steeper ground, no caves, no buried lenses, wetter, and more life scattered\n\n**What I already measured, so you do not have to judge it by eye:** the druid preset more than doubles what grows. That part is settled and is not what the card is asking.\n\n**What I am unsure of, and it applies to both panes.** The camera follows the gnome and shows 320 rows of a 960-row world, so most of the frame is a cutaway of rock strata under his feet. It is faithful, and I think it may be wrong for this game - but raising the camera is a taste call and I would rather not guess it.\n\n**Please ignore:** there is no rim yet, the world is held but nothing marks where your carried circle is, and the trees are whatever 8,000 frames produced rather than anything tuned.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "rolling - the sandbox's preset",
+      "files": [
+        "20260913T092034527Z-4b4670/000-world_rolling.png"
+      ],
+      "caption": "built for mining",
+      "meta": {
+        "plants and animals grown": 1691,
+        "time to grow the world": "34.7 s"
+      },
+      "focus": null
+    },
+    {
+      "label": "druid - built for growing",
+      "files": [
+        "20260913T092034527Z-4b4670/001-world_druid.png"
+      ],
+      "caption": "deeper soil, no caves, wetter",
+      "meta": {
+        "plants and animals grown": 3772,
+        "time to grow the world": "53.8 s"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
