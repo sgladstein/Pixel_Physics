@@ -110,15 +110,15 @@ the circles for those passes to advance. Weather and springs are the
 exception — commit `1409bfb3` gated them per position on `time_runs_at` at six
 sites, so those already follow the circles.
 
-**The schedule seam already exists, and it leaks in seven places.**
+**The schedule seam already exists, it already distinguishes growth time
+from physics time, and only two sites are genuinely outside it.**
 `World::organism_due(base)` and `World::creature_due(base)` are the single
 point where a life interval becomes an absolute due frame, and
 `organism_due`'s doc claims *"every `world.frame + INTERVAL` in the plant
-subsystem goes through here."* It does not, today. 23 callers go through
-`organism_due` and 7 go round it:
+subsystem goes through here."* 23 callers do; eight do not, and **six of the
+eight are deliberate**:
 
 ```
-src/sim/plant.rs:2253    let due = world.frame + rebloom_after as u64;
 src/sim/plant.rs:2862    reschedule_organism(.., world.frame + SEED_TICK_INTERVAL)
 src/sim/plant.rs:3802    reschedule_organism(.., world.frame + SEED_TICK_INTERVAL)
 src/sim/plant.rs:4364    reschedule_organism(.., world.frame + SEED_TICK_INTERVAL)
@@ -127,11 +127,36 @@ src/sim/plant.rs:12898   reschedule_organism(.., world.frame + SEED_TICK_INTERVA
 src/sim/rigid.rs:3823    next_frame: world.frame + super::plant::SEED_TICK_INTERVAL
 ```
 
-plus `creature.rs:7766` (the trunk-crossing due, which uses the individual's
-`organism_tick_interval` but not `creature_due`'s clock scaling). Closing
-those seven is **the first commit of any of the options below, and it is
-worth doing on its own merits** — it is what makes `growth_slowdown` honest
-for seeds today, which it currently is not.
+`plant.rs:6388`, in place, with a reverted attempt recorded beside it:
+
+> *"The seed cadence is deliberately **not** scaled by `growth_slowdown`… it
+> is not a statement about how fast a seed grows, it is bookkeeping against
+> how fast a seed **falls** — about a cell a frame, which is the physics rate
+> and does not slow down when growth does. Scaling it was written and
+> reverted: at `growth_slowdown: 8` a falling seed is 32 cells from where its
+> `ActiveSite` says it is."*
+
+`rigid.rs:3823` cites the same reason explicitly. **This is the most useful
+thing in the census and it was very nearly written up as a bug.** The plant
+subsystem has already drawn the exact line a regional clock needs — *is this
+duration a fact about growth, or a fact about physics?* — and it drew it the
+hard way. Anyone touching this seam must not "tidy" those six.
+
+The two that are genuinely outside:
+
+```
+src/sim/plant.rs:2253    let due = world.frame + rebloom_after as u64;
+src/sim/creature.rs:7766 let due = world.frame + thickness * organism_tick_interval(..)
+```
+
+`rebloom_after` is a plant-biology duration stored as an absolute frame in
+`rebloom_pending` and compared against `world.frame` at `plant.rs:9592`, so a
+plant at `growth_slowdown: 4` grows four times slower and reblooms at the
+same wall-clock rate. `creature.rs:7766` sets a trunk-crossing deadline from
+the individual's own `organism_tick_interval` but skips `creature_due`'s
+clock scaling — while the *reschedule* it pairs with, at `:8501`, uses
+`creature_due`. Both are small, both are pre-existing, and both are the same
+one-line change.
 
 The remaining raw sites are `evaporation` (5), `structural` (4),
 `update::dissipation` (1) and `liquid`'s demote cooldown (2). All four kinds
@@ -286,6 +311,17 @@ meets **one eighth** as much world per tick as it does today — the same
 exchange asymmetry, mirrored. `clock.rs` is explicit that the mechanism is
 unproven but the effect is not: *"every exchange a plant has with the world
 outside its own tick is per real frame."*
+
+**And the seed sites make it worse in a way that shows on screen.** Under 3c
+the world's physics still runs once per player update, so a fast circle's
+seeds keep falling at about a cell a frame while its plants grow eight times
+as fast — `SEED_TICK_INTERVAL` is unscaled *because* it tracks the fall
+(§1), and dividing it would reintroduce exactly the drift the revert recorded
+there was withdrawn for. So germination lags growth by the rate: a rate-8
+circle is a place where established plants race and new ones start at walking
+pace. That is a legible defect rather than a subtle one, and it is 3c's, not
+3d's — under 3d the region's physics is strided with everything else, so the
+seed keeps its authored relationship to the fall.
 
 Two honest points in 3c's favour, because it should not be dismissed without
 them. First, **the slow circle stays bit-identical** — at rate 1 the interval
@@ -495,7 +531,8 @@ still does not: a paired two-circle bed whose *slow* arm is the assertion.
 | **Is it "more ticks"?** | yes | **no** — faster subsystems | yes |
 | **Slow circle** | n/a | unchanged, bit-identical | unchanged, bit-identical |
 | **Fast circle** | true 8x world | 8x cadence, ~1/8 the world per tick | true 8x |
-| **Build** | shipped | seven leaks closed, `rate` on `Quickening`, a divide at two seams, ageing accumulator | all of (b), plus fine clock, per-pass liveness, per-chunk sleep gate, per-chunk sweep parity, field subset gate |
+| **Seeds** | correct | **germination lags growth by the rate** (§3c) | correct — the fall is strided too |
+| **Build** | shipped | two real leaks closed, `rate` on `Quickening`, a divide at two seams, ageing accumulator | all of (b), plus fine clock, per-pass liveness, per-chunk sleep gate, per-chunk sweep parity, field subset gate |
 | **Rough size** | 0 | one session | several, and it touches `parallel.rs` and `field.rs` |
 | **Risk** | none | the 0.61x-median behaviour change, unquantified in this direction | the sweep-parity bias (§4c); the field's *"a region more generous than the global boundary goes inert and will look converged"* (§8) |
 | **Against the design of record?** | no | **yes**, concept §1d | no — it *is* §8's answer |
@@ -508,12 +545,14 @@ priced choice rather than an engineering one.**
 
 The two pieces:
 
-1. **Close the seven `world.frame + INTERVAL` leaks** (§1) so
-   `organism_due`/`creature_due` is genuinely the only seam. It makes
-   `organism_due`'s existing doc true, it makes `growth_slowdown` honest for
-   seeds today, and it is a prerequisite for (b) and (c) alike. It is also
-   independently correct: a seed that ignores the growth clock is a bug now,
-   not only later.
+1. **Route `rebloom_after` and the trunk-crossing due through
+   `organism_due`/`creature_due`** (§1), and **leave the six
+   `SEED_TICK_INTERVAL` sites exactly as they are** — they are the growth /
+   physics distinction already drawn, with a revert on record. Small, correct
+   today, and a prerequisite for (b) and (c) alike. The larger value is the
+   audit itself: the seam now has a stated rule — *a growth duration goes
+   through `organism_due`, a physics duration does not* — and every site has
+   been checked against it once.
 2. **Replace `world.frame - born_frame` with a per-individual tick
    accumulator** (§2, §4a). Under *any* per-circle scheme, ageing is `sqrt(m)`
    without it. It is small, it is faster than what it replaces, and it is the
@@ -609,9 +648,11 @@ today" null test that must pass before any of this is believed.
 Stated so a session can pick this up. Each step is independently landable and
 each has something that can go red.
 
-1. **Close the seven leaks** (§1). Guard: a test that `growth_slowdown: 4`
-   changes a seed's due frame — put the raw `world.frame + SEED_TICK_INTERVAL`
-   back and watch it go red.
+1. **Route the two real leaks** (§1), leaving the six seed sites alone.
+   Guard: a test that `growth_slowdown: 4` moves a rebloom's due frame — put
+   the raw `world.frame + rebloom_after` back and watch it go red. And a
+   *negative* guard beside it, because this is the direction the mistake goes:
+   that the same setting does **not** move a seed's.
 2. **`PIXEL_PHYSICS_DRUID_SEED`**, and make the census line name its seed.
 3. **Take §6's measurement.** Twelve seeds minimum. Publish the spread.
 4. **The ageing accumulator** (§4a), behind the owner's ruling on which way

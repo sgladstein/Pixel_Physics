@@ -137,10 +137,15 @@ by somebody about to try it on creatures.
   `World::frame` reads (163 production, 140 test) into seven classes and says
   which need a regional clock: the sky and the weather are legitimately global
   and in a held world already stopped. Three findings drive it. **The schedule
-  seam already exists and leaks in seven places** — `organism_due`'s doc claims
-  every plant interval goes through it and seven `world.frame +
-  SEED_TICK_INTERVAL` sites go round, which makes `growth_slowdown` dishonest
-  for seeds *today*. **Ageing is neither answer you would guess**: the hazard
+  seam already exists and already draws the line a regional clock needs** —
+  eight sites bypass `organism_due`, and **six of them are deliberate**: a
+  seed's cadence tracks how fast a seed *falls*, not how fast it grows, and
+  scaling it *"was written and reverted"* in a comment sitting on the line.
+  The audit's value is the rule it recovers (a growth duration goes through
+  the seam, a physics duration does not) and the two sites that really are
+  outside it — and it is a live case of `CLAUDE.md`'s *source comments are
+  load-bearing*, since the first draft of this report filed all eight as bugs.
+  **Ageing is neither answer you would guess**: the hazard
   is quadratic in age, so a creature at rate `m` dies at `1/sqrt(m)` of the age
   after `sqrt(m)` times as many of its own ticks — 0.353x and 2.83x at 8x,
   wrong in both directions at once, fixed by counting age in the individual's
