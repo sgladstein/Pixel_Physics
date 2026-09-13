@@ -1,0 +1,55 @@
+{
+  "id": "20260913T184509827Z-025737",
+  "created": "2026-09-13T18:45:09Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "d0dd8cb5",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Way more soil, way less rock — and one question left over",
+  "question": "BEFORE is the world you rejected. Is AFTER the ground you wanted? And between AFTER and AFTER+WARP — which shape do you want to walk?",
+  "context_md": "**You said: \"This looks too much like The gnome game. I don't like it. Number one issue is It should be way more soil, way less rock\"**, and on the render, *\"The camera is ok, but it should be mostly soil, little to no rock.\"*\n\nMeasured over 8 player viewports x 3 seeds:\n\n| | before | after |\n|---|---|---|\n| ground that is rock | 79% | **36%** |\n| ground that is loose | 10% | **54%** |\n| soil above the first rock | 22 cells | **115** |\n| columns bare at the surface | 17% | **2.5%** |\n\n**The lever was not what anyone expected.** `soil_depth` is nearly vacuous — taking it 210 -> 1000 moved the visible soil share by **0.1 points**, because soil is denied to any column past the slope cutoff and the blanket only creeps about 0.7 cells outward per column, so a single crag thins it for hundreds of columns either side. What actually moved it was **removing the bare columns**: erosion off, long gentle wavelengths instead of short sharp ones. `soil_depth` only starts binding again once the ground is gentle enough to hold it.\n\n**The third image is the open question, and it is genuinely open.** Domain warp was switched off (`warp_strength: 34 -> 0`) *only* to stop one soil grain sliding, which used to fail a guard. That reason is gone — the world now settles during generation — so warp is free, and it is the term that stops terrain reading as smooth noise. Twenty seeds x every preset, both hold:\n\n| | warp 0 | warp 8 | warp 16 | warp 24 | warp 34 |\n|---|---|---|---|---|---|\n| **with the settle** | rest | rest | rest | rest | rest |\n| **without it** | rest | fails s14 | — | — | fails s1 |\n\nSo this is a look choice and not a constraint. **It is one line to change either way.**",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "BEFORE",
+      "files": [
+        "20260913T184509827Z-025737/000-before.png"
+      ],
+      "caption": "the preset you rejected — 79% rock, striped grey, thin soil caps",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "AFTER",
+      "files": [
+        "20260913T184509827Z-025737/001-after.png"
+      ],
+      "caption": "the revamp — 36% rock, a deep soil bank with roots in the cutaway",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "AFTER + WARP",
+      "files": [
+        "20260913T184509827Z-025737/002-after-warp.png"
+      ],
+      "caption": "the same, with domain warp put back at 34",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
