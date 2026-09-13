@@ -103,8 +103,114 @@ nothing should be built against it until he says.
 
 ## What landed
 
-(filled in as the round runs)
+**#387 — the five dead census columns, and there were two causes, not one.**
+The brief predicted one (*"the nest band is `0/0`, so everything scoped to it
+measures an empty set"*). Lane B found two and said so, which is the right kind
+of disagreement with a brief. **The chronicle can describe a nest again**, which
+gates every log the owner sends from here on.
+
+**#388 — what one ant costs, and why halving it is not a tuning problem.**
+The round's centrepiece.
+
+- **The knee is confirmed independently**, at a different split from the
+  coordinator's: **0.53 µs/ant below 378 ants, 2.66 µs/ant above**. And the
+  lane's bed is **past the knee from a hundred ants**, which makes it *the
+  defect in a box* rather than a replica of the owner's session — the better
+  outcome for what the round is for.
+- **The confound is settled, and from the owner's own log** — which the
+  coordinator had said would need a headless sweep. It does not: frame
+  **340,000** carries **2,334 ants at 6,300 µs**, frame **410,000** carries
+  **1,252 ants at 3,500 µs**. Later, bigger mound, more worked soil, half the
+  ants, half the cost, and **51 such pairs in the file**. Session age is not
+  what is being measured. *The coordinator's caveat was over-stated: a
+  monotone-looking series had non-monotone stretches in it, and looking was
+  cheaper than sweeping.*
+- **The cost is diffuse.** One ant's decision is **57,314 instructions** split
+  five ways with **no term over 31%** — `sense` 30.4%, `step_chain` 16.6%,
+  `eval_brain` 14.1%, `tumble` 12.8%, `act` 11.4%. **There is no lever here
+  that halves it**, which is a real answer and not a failure to find one.
+- **The lever that would: the creature pass has no parallelism at all.** One
+  rayon thread against four is worth 1.09x on the background and 1.20x on the
+  ants; at the owner's population ~86% of the frame is on one core. **Worth
+  more than everything else combined**, and it is round 33's first task.
+- Two **bit-identical** cuts landed: −1,379 instructions per decision,
+  **−2.41%**. **No whole-frame speed-up claimed** — the box's own spread is
+  1.39x, an order of magnitude larger — so the instruction count is the gate.
+  That restraint is the reason to trust the rest of the report.
+- Two hypotheses killed by measurement: the ants are **not jammed** (3.8–7.9%
+  blocked against a 5.2% control), and it is **not the moisture channel** —
+  a callgrind profile putting `visit_soil_water` at 37.8% was taken on a bed
+  with **eight plants in it**, and soil-water visits are *highest at zero
+  ants*.
+
+**#385 and #389 — the zoom-out buffer, priced before it was built.** At the
+widest rung **94% of the cells in view cannot reach a pixel**; §Z11's salience
+rule decided *which of sixteen wins* and could not stop a one-cell stem being
+drawn four cells wide. The buffer now grows on `+`, up to 16x the dots.
+**Sixteen times the pixels costs 1.66x the whole frame**, not sixteen, because
+`pixels x stride²` is constant and only per-pixel colour work grows.
+
+**It ships defaulting off, and that is the correct reading of the ruling
+rather than an exception to it.** *Ship everything on* governs **behaviours**;
+this is a **look**, and the lane's own cards disagree with each other — the lab
+plainly wins, while outdoors the per-cell grain that makes stone read as stone
+goes **smooth**, against a house style that is chunky on purpose. **Three cards
+are open on `board=zoom` and the default is the owner's to set**, which is
+exactly the case the review queue exists for.
+
+**The live check earned its place.** Run in the real app under xvfb it
+**panicked** — `main.rs` sized the buffer from `viewport()` while `draw` pushed
+the budget afterwards, so for one frame the two disagreed. **Every test passed
+through it**, because every test applied the budget before drawing. `CLAUDE.md`'s
+*verify live before declaring done*, paying for itself.
+
+**#386 — the spoil teleport (§Z19) — accepted, waiting on a merge conflict**
+in the register's generated index. A pellet was crossing **up to 116 rows with
+nothing carrying it**; the fix stops the scan where the animal could not have
+gone, and the median seed's longest lift falls **78.5 → 6**. It costs ~7% of
+the digs and **keeps the towers** (452 → 445, where the dig-only clause takes
+them to 418).
 
 ## What the round overturned
 
-(filled in as the round runs)
+**A repair had already removed the picture and left the mechanism, and the
+inherited census hid it.** #221 and §Z18 both argued from pellets standing
+50–99 rows up a tree. On today's trunk that census reads **+2/+4/+3/+2 with a
+tree against +3/+5/+3/+4 without** — PR #379's footing rule means a pellet
+posted into a canopy falls out again. **The heap is gone; the lift was
+untouched and still ran to 116 rows.** A branch that trusted the standing
+census would have reported the bug fixed. Only a counter could say otherwise,
+which is why `spoil_lift_rows` now sits beside `spoil_lifted`/`spoil_lift_max`:
+a max alone cannot separate one freak of 107 from a colony routinely posting
+pellets fifty rows up.
+
+**§Z13 is answered, and the answer is _resting_.** All three animals the owner
+marked were measured from the inside: across 3,000 frames **not one ever tried
+to move and failed — they never asked to move at all**. The ordinary two-cell
+ant nobody has complained about rests just as long. **What changed is not the
+behaviour; the body got big enough to see.** §Z13's *"look problem, not a walk
+bug"* stands and its third explanation is closed. The control that makes it
+stand up: the table reads the **per-animal** `life.moves_blocked` while §Z13
+reasons over the **world** counter, and both increment sites in `step_chain`
+pair — so `+0` means *did not ask*, not *asked and was not counted*.
+
+**Five census columns had two causes, not the one the brief predicted.**
+
+## What round 33 inherits
+
+1. **Parallelise the creature pass.** The single largest item on the table,
+   and the round measured it rather than guessed it.
+2. **`PIXEL_PHYSICS_MOISTURE_MARKS=cells` is already built** and worth
+   1.21–1.40x whole-frame. It needs only the seed sweep its own report says is
+   owed — **the cheapest real millisecond available**. It is an *intercept*
+   change, so it moves the millisecond under the 86% rather than the 86%.
+3. **The three zoom cards**, and the default that follows from them.
+4. **`bin/lab.rs` has its own draw path** and does not have the zoom buffer,
+   though the lab is where the win is clearest.
+5. **A bed that reaches 2,500 ants may not be needed**: `found_colony_of` lays
+   one row at body-derived spacing, so a 512-wide bed saturates at **~460**.
+   The bed is past the knee at 100, so the sub-knee regime is not one that
+   harness has.
+6. **Cache residency is the one surviving knee candidate.** Three of five were
+   struck off; callgrind cannot see it because it counts instructions and not
+   misses. `--cache-sim=yes` either side of the knee is the named measurement.
