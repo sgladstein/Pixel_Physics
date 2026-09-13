@@ -42,6 +42,12 @@ otherwise pay for again:*
   **the repair is costed and not built** (his call): gate `carry_nest_wander`
   and the blend on proximity, and re-derive sigma with it.
 
+## The owner's verdict, 2026-09-12
+
+Promoted to [`../evolution-lab-round-29-2026-09-12.md`](../evolution-lab-round-29-2026-09-12.md),
+Fission B1. **For B2:** a `Leave` gated on a crowded nest cannot fire where
+nobody is at the nest, on two beds in three; `labstats` prints occupancy.
+
 ## Environment notes
 
 - **`cargo test --lib` hits the stale-incremental link error** here

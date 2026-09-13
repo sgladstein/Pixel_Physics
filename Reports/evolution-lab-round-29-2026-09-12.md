@@ -365,6 +365,38 @@ home undoes it, away it neither blends nor drifts. The costed repair (gate
 `carry_nest_wander` and blending on proximity; re-derive σ) is his design
 call.
 
+**How far from "built" it is, as a number** — recovered 2026-09-12 from the
+lane's own branch, which never landed. A lineage that never comes home
+random-walks at `scent_drift` per generation, so at the shipped **0.15 it needs
+about 44 generations** to reach a tolerance radius, against the **5–11 a
+session reaches**. The shape exists and is roughly four times too slow to see.
+At drift 1.0 it is about one generation, which is the only reason that arm has
+own-kills at all.
+
+**And the three-arm ablation, with the trap in reading it.** Seed 3,
+40,000–100,000 frames, one variable each:
+
+| arm | living ants | killed by own colony |
+|---|---|---|
+| drift 0, blending off | 86 | 0 |
+| drift 1.0, blending off | **155** | **675** |
+| drift 1.0, blending on | **32** | **181** |
+
+Blending cuts killings of its own family by **73%** — and the colony that stops
+eating itself is **a fifth the size**. **Do not read that as cohesion costing
+population.** On a bed that starves its colony (§Z6) those 675 killings are
+also 675 meals, so the term is the bed, not the mechanism; at the shipped 0.15
+the arm costs nothing at all on any seed.
+
+**A number quoted from the wrong harness looks exactly like a result**, and
+this lane published one before catching it. A card went out with living-ant
+counts carried over from `labstats` at a different frame span — **133 and 62
+against the true 86 and 155**, wrong in both directions and wrong about which
+colony was the bigger. `labgif` now counts its own living animals beside the
+kill tally. **A kill tally with no population beside it cannot be read at
+all**, which is this file's *ask what your number counts* with the instrument
+being the harness rather than the metric.
+
 ## The round trip — the door stood under a puddle (#343, merged `ccc421ee`)
 
 §T2's frozen deliveries had a mechanism: `nest.ron` authors no
