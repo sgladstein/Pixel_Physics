@@ -2735,6 +2735,41 @@ pub struct Renderer {
     /// skipping cells between samples rather than averaging them (a proper
     /// minify filter is not worth it for a debug/overview zoom level).
     pub zoom_out_stride: i32,
+    /// How many **buffer pixels** one *logical* pixel is given at zoom-out —
+    /// the answer to the owner's *"why my screen resolution can solve all of
+    /// the pixels, why cannot there just be more pixels when you zoom out?"*
+    /// (2026-09-13).
+    ///
+    /// **The constraint was never the monitor.** The renderer draws into a
+    /// fixed `WIDTH`x`HEIGHT` back-buffer which `Pixels` then upscales to the
+    /// window, so the screen's real pixels *magnify* that image rather than
+    /// carrying more of it: at [`MAX_ZOOM_OUT_STRIDE`] the view spans
+    /// 2048x1280 cells through 512x320 pixels and **94% of the cells in view
+    /// cannot reach one**. [`ZoomOutFilter::Coverage`] answers *which of the
+    /// sixteen wins*; a bigger buffer removes the question.
+    ///
+    /// **This is a budget, not the scale in force.** [`Self::pixel_scale`]
+    /// derives the scale actually used, and only ever takes a value that
+    /// *divides* `zoom_out_stride`, so the span stays exactly what the zoom
+    /// ladder says it is: growing the buffer buys resolution, never reach.
+    /// The stride cap carries three separate owner rulings and is untouched
+    /// by any of this.
+    ///
+    /// **1 is what shipped before 2026-09-13 and is still the default.** At
+    /// 1 — and at `zoom > 1`, and at `zoom_out_stride == 1`, which is every
+    /// ordinary frame — `pixel_scale` is 1 and every derived quantity here is
+    /// bit-identical to the old one, which is what makes this safe to carry
+    /// through the whole renderer.
+    ///
+    /// **Priced before it was built** (`Reports/zoom-out-resolution-2026-09-13.md`,
+    /// `examples/zoomout_pixels.rs`): 16x the pixels costs **1.8-2.1x the
+    /// whole frame**, not 16x, because `pixels x stride²` is constant so cell
+    /// reads do not move and only per-pixel work does. The x2 rung carries
+    /// four times the cells for **1.31-1.37x**. Do not read the settled-world
+    /// figures as licence: outdoors the sky is always moving, so the
+    /// dirty-rect skip never fires at this zoom and the full cost is paid
+    /// every frame.
+    pub pixel_budget: i32,
     /// What the one screen pixel covering a `zoom_out_stride`-square block of
     /// cells actually draws — see [`ZoomOutFilter`]. `Coverage` by default,
     /// so pulling back to look at a whole bed stops dropping the thin things;
@@ -2858,7 +2893,7 @@ pub struct Renderer {
     /// in the buffer again. `None` until the first `draw`, so that call is
     /// always full too, for the same reason: an unwritten buffer has nothing
     /// valid to partially build on.
-    last_zoom_state: Option<(i32, i32)>,
+    last_zoom_state: Option<(i32, i32, i32)>,
     /// The look toggles as of the last draw — forces one full repaint when
     /// `F10`/`F11` flip. See the `look_changed` note in `draw`.
     /// The whole-look state the last frame was drawn under — see
@@ -3125,6 +3160,7 @@ impl Renderer {
             show_chunk_overlay: false,
             zoom: 1,
             zoom_out_stride: 1,
+            pixel_budget: 1,
             zoom_out_filter: ZoomOutFilter::default(),
             magnify_style: MagnifyStyle::default(),
             magnify_ink: MAGNIFY_INK,
@@ -3442,8 +3478,62 @@ impl Renderer {
     /// mechanism has to cost nothing measurable; testing three fields 163,840
     /// times a frame to learn that is exactly the shape `CLAUDE.md` means by
     /// *guard hot-path work at the call site that already has the data*.
+    /// The buffer multiplier actually in force — see [`Self::pixel_budget`].
+    ///
+    /// **It only ever returns a power of two that divides `zoom_out_stride`**,
+    /// and that is the whole safety argument: `sampling_stride` is then an
+    /// exact division, so the span the zoom ladder promises
+    /// (`logical viewport x zoom_out_stride`) is the span drawn, to the cell.
+    /// A budget the level cannot absorb is simply not spent — at level 3 only
+    /// 1 and 3 divide it, so a budget of 2 buys nothing there rather than
+    /// quietly widening the view by a third.
+    ///
+    /// Magnifying is excluded outright: at `zoom > 1` a cell already owns more
+    /// than one pixel, so there is nothing to buy back.
+    pub fn pixel_scale(&self) -> i32 {
+        self.pixel_scale_for(self.pixel_budget)
+    }
+
+    /// [`Self::pixel_scale`] against a budget passed in rather than the stored
+    /// one.
+    ///
+    /// **This exists because the stored one is a copy.** `App` owns the
+    /// player's choice and the window's cap and pushes `min` of the two here;
+    /// anything that asks *"how big will the buffer be"* before that push has
+    /// happened gets last frame's answer. That is not hypothetical — it shipped
+    /// for one afternoon and panicked in the HUD 100 lines from its cause,
+    /// because `main.rs` sized the buffer from the stale copy and `draw` then
+    /// drew into it with the fresh one. `App::viewport` calls this with the
+    /// authoritative pair, so there is one derivation and no ordering to get
+    /// right.
+    pub fn pixel_scale_for(&self, budget: i32) -> i32 {
+        if self.zoom > 1 {
+            return 1;
+        }
+        let budget = budget.max(1);
+        let level = self.zoom_out_stride.max(1);
+        let mut scale = 1;
+        while scale * 2 <= budget && level % (scale * 2) == 0 {
+            scale *= 2;
+        }
+        scale
+    }
+
+    /// World cells per **buffer pixel** — what the renderer actually samples
+    /// at, as opposed to [`Self::zoom_out_stride`], which is the rung of the
+    /// zoom ladder the player is on.
+    ///
+    /// The two were one field until 2026-09-13 and are equal whenever
+    /// `pixel_scale` is 1, which is every frame that has not opted in. Reach
+    /// for this anywhere a screen pixel is converted to or from a cell; reach
+    /// for `zoom_out_stride` only where the *ladder* is meant (`adjust_zoom`,
+    /// and the cap in `zoom_within`).
+    pub fn sampling_stride(&self) -> i32 {
+        (self.zoom_out_stride.max(1) / self.pixel_scale()).max(1)
+    }
+
     fn minifying(&self) -> bool {
-        self.zoom <= 1 && self.zoom_out_stride > 1 && self.zoom_out_filter != ZoomOutFilter::Stride
+        self.zoom <= 1 && self.sampling_stride() > 1 && self.zoom_out_filter != ZoomOutFilter::Stride
     }
 
     /// Whether a screen pixel currently stands for **part** of a world cell
@@ -3463,7 +3553,10 @@ impl Renderer {
         if self.zoom > 1 {
             (w / self.zoom, h / self.zoom)
         } else {
-            let stride = self.zoom_out_stride.max(1);
+            // `sampling_stride`, not the ladder: `w` is the *buffer*, which
+            // has already grown by `pixel_scale`, and the two divide out to
+            // leave the span the ladder promised.
+            let stride = self.sampling_stride();
             (w * stride, h * stride)
         }
     }
@@ -3631,7 +3724,7 @@ impl Renderer {
         // (This used to be justified by reversals not having to unwind a debt
         // first; they no longer can, because a reversal clears the residual
         // outright above.)
-        let step = self.zoom_out_stride.max(1);
+        let step = self.sampling_stride();
         let dx = self.pan_residual.0 as i32 / step * step;
         let dy = self.pan_residual.1 as i32 / step * step;
         self.pan_residual.0 -= dx as f32;
@@ -3695,7 +3788,14 @@ impl Renderer {
         let (span_x, span_y) = self.visible_span(viewport);
         let centre = (self.camera_x + span_x / 2, self.camera_y + span_y / 2);
         self.adjust_zoom(delta);
-        self.zoom_out_stride = self.zoom_out_stride.min(max_zoom_out_stride(viewport, bounds));
+        // **The cap is a ladder bound, so it is taken against the logical
+        // viewport**, never the grown buffer. Measured against the buffer it
+        // would shrink as `pixel_scale` grew, and a player who asked for more
+        // pixels would silently lose reach — which is the one thing this
+        // change promised not to touch.
+        let scale = self.pixel_scale().max(1);
+        let logical = ((viewport.0 / scale as u32).max(1), (viewport.1 / scale as u32).max(1));
+        self.zoom_out_stride = self.zoom_out_stride.min(max_zoom_out_stride(logical, bounds));
         let (span_x, span_y) = self.visible_span(viewport);
         self.set_camera(centre.0 - span_x / 2, centre.1 - span_y / 2, viewport, bounds);
     }
@@ -3783,6 +3883,23 @@ impl Renderer {
         // record is half a number. `render_cost` says what a redraw *costs*
         // and `frame_profile` says which simulation phase a frame went to,
         // and between them the largest single cost in the frame had no owner.
+        // **The buffer must be the size the caller says it is.** Cheap once a
+        // frame, and it turns the whole class of "someone resized one of the
+        // two and not the other" from an out-of-bounds deep inside a HUD blend
+        // into a sentence naming both numbers. `Renderer::pixel_budget` made
+        // that class reachable, and it was reached on the first live run.
+        debug_assert_eq!(
+            frame.len(),
+            (width as usize) * (height as usize) * 4,
+            "frame buffer is {} bytes but the caller says it is {width}x{height} ({} bytes) -- resize the buffer before drawing into it",
+            frame.len(),
+            (width as usize) * (height as usize) * 4
+        );
+        assert!(
+            frame.len() >= (width as usize) * (height as usize) * 4,
+            "frame buffer is {} bytes, too small for the {width}x{height} the caller asked for",
+            frame.len()
+        );
         let timing = std::env::var_os("PIXEL_PHYSICS_DRAW_TIMING").is_some();
         let mut mark = std::time::Instant::now();
         let mut split = |name: &str| {
@@ -3792,7 +3909,9 @@ impl Renderer {
             }
         };
         self.refresh_bend_field(world);
-        let zoom_state = (self.zoom, self.zoom_out_stride);
+        // `pixel_scale` rides along: a buffer that changed size has no valid
+        // previous frame to reuse, and the skip must not be offered one.
+        let zoom_state = (self.zoom, self.zoom_out_stride, self.pixel_scale());
         let scale_changed = self.last_zoom_state != Some(zoom_state);
         self.last_zoom_state = Some(zoom_state);
 
@@ -4395,8 +4514,8 @@ impl Renderer {
             // is done by hand and `blend` clips per pixel.
             let project = |wx: f32, wy: f32| {
                 (
-                    (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
-                    (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
+                    (wx.round() as i32 - self.camera_x) / self.sampling_stride() * self.zoom,
+                    (wy.round() as i32 - self.camera_y) / self.sampling_stride() * self.zoom,
                 )
             };
             let (hx, hy) = (drop.from.0 - drop.to.0, drop.from.1 - drop.to.1);
@@ -4464,8 +4583,8 @@ impl Renderer {
     ) {
         let project = |wx: f32, wy: f32| {
             (
-                (wx.round() as i32 - self.camera_x) / self.zoom_out_stride * self.zoom,
-                (wy.round() as i32 - self.camera_y) / self.zoom_out_stride * self.zoom,
+                (wx.round() as i32 - self.camera_x) / self.sampling_stride() * self.zoom,
+                (wy.round() as i32 - self.camera_y) / self.sampling_stride() * self.zoom,
             )
         };
         // Falls off with distance from the strike, so a bolt on the far side
@@ -4529,7 +4648,7 @@ impl Renderer {
                 (world_rect.max_y - self.camera_y) * self.zoom + self.zoom - 1,
             )
         } else {
-            let stride = self.zoom_out_stride.max(1);
+            let stride = self.sampling_stride();
             (
                 (world_rect.min_x - self.camera_x).div_euclid(stride),
                 (world_rect.min_y - self.camera_y).div_euclid(stride),
@@ -7293,7 +7412,8 @@ impl Renderer {
         if self.zoom > 1 {
             (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
         } else {
-            (self.camera_x + sx * self.zoom_out_stride, self.camera_y + sy * self.zoom_out_stride)
+            let stride = self.sampling_stride();
+            (self.camera_x + sx * stride, self.camera_y + sy * stride)
         }
     }
 
@@ -7327,7 +7447,7 @@ impl Renderer {
             let (sx, sy) = ((x0 - self.camera_x) * z, (y0 - self.camera_y) * z);
             return (sx, sy, (x1 - self.camera_x) * z + z - 1, (y1 - self.camera_y) * z + z - 1, z);
         }
-        let stride = self.zoom_out_stride.max(1);
+        let stride = self.sampling_stride();
         let map = |v: i32, c: i32| (v - c).div_euclid(stride);
         (map(x0, self.camera_x), map(y0, self.camera_y), map(x1, self.camera_x), map(y1, self.camera_y), 1)
     }
@@ -7335,7 +7455,8 @@ impl Renderer {
     pub fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
         if self.zoom > 1 {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
-        } else if self.zoom_out_stride > 1 {
+        } else if self.sampling_stride() > 1 {
+            let stride = self.sampling_stride();
             let (dx, dy) = (x - self.camera_x, y - self.camera_y);
             // **`None` only under `ZoomOutFilter::Stride`.** Under the
             // block filters a screen pixel stands for every cell of its
@@ -7350,11 +7471,11 @@ impl Renderer {
             // behaviour, particles included, rather than the old terrain with
             // new debris over it.
             if self.zoom_out_filter == ZoomOutFilter::Stride
-                && (dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0)
+                && (dx.rem_euclid(stride) != 0 || dy.rem_euclid(stride) != 0)
             {
                 return None;
             }
-            Some((dx.div_euclid(self.zoom_out_stride), dy.div_euclid(self.zoom_out_stride)))
+            Some((dx.div_euclid(stride), dy.div_euclid(stride)))
         } else {
             Some((x - self.camera_x, y - self.camera_y))
         }
@@ -7530,7 +7651,7 @@ impl<'a> ChunkRun<'a> {
         y: i32,
         sub: (i32, i32),
     ) -> [u8; 4] {
-        let stride = renderer.zoom_out_stride.max(1);
+        let stride = renderer.sampling_stride();
         if !renderer.minifying() {
             return self.colour(renderer, world, x, y, sub);
         }
@@ -7675,6 +7796,89 @@ impl<'a> ChunkRun<'a> {
             }
         }
         self.near_at = Some((x, y));
+    }
+}
+
+/// The HUD's own coordinate space, which stays `WIDTH`x`HEIGHT` however large
+/// the buffer underneath it is.
+///
+/// **Why this exists.** `Renderer::pixel_budget` lets the buffer grow at
+/// zoom-out so more of the world reaches a pixel. Everything the HUD draws is
+/// positioned in fixed pixel coordinates — panels inset 20, text at `(4,
+/// HEIGHT - 10)`, a 5x7 glyph — and in a 2048x1280 buffer all of that would
+/// land in the top-left eighth at a quarter of the size, which is not a
+/// smaller HUD, it is an unreadable one. So the HUD keeps drawing in logical
+/// pixels and this turns each into a `scale`-square block.
+///
+/// **At `scale == 1` every method here is the free function it wraps**, byte
+/// for byte, which is what makes this safe to route the whole HUD through: the
+/// ordinary frame is unchanged and unmeasurably so.
+///
+/// The glyphs go blocky rather than getting a finer font, deliberately: the
+/// text is meant to read as part of the same picture as the world, and this
+/// game's picture is made of square cells.
+#[derive(Clone, Copy, Debug)]
+pub struct Hud {
+    /// The real buffer, in pixels.
+    width: u32,
+    height: u32,
+    /// Buffer pixels per logical pixel. Always >= 1.
+    scale: i32,
+}
+
+impl Hud {
+    pub fn new(width: u32, height: u32, scale: i32) -> Self {
+        Hud { width, height, scale: scale.max(1) }
+    }
+
+    /// The scale in force, for a caller that has to size something itself —
+    /// `Hud::circle` takes logical units like everything else, but a caller
+    /// reaching past this into `render::put` directly needs the factor.
+    pub fn scale(self) -> i32 {
+        self.scale
+    }
+
+    pub fn put(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4]) {
+        if self.scale == 1 {
+            return put(frame, self.width, self.height, x, y, colour);
+        }
+        // Clipping is left to `put`: a logical x past the logical width maps
+        // to a buffer x past the buffer width, so the bound is the same one.
+        let (bx, by) = (x * self.scale, y * self.scale);
+        for dy in 0..self.scale {
+            for dx in 0..self.scale {
+                put(frame, self.width, self.height, bx + dx, by + dy, colour);
+            }
+        }
+    }
+
+    pub fn blend(self, frame: &mut [u8], x: i32, y: i32, colour: [u8; 4], alpha: f32) {
+        if self.scale == 1 {
+            return blend(frame, self.width, self.height, x, y, colour, alpha);
+        }
+        let (bx, by) = (x * self.scale, y * self.scale);
+        for dy in 0..self.scale {
+            for dx in 0..self.scale {
+                blend(frame, self.width, self.height, bx + dx, by + dy, colour, alpha);
+            }
+        }
+    }
+
+    pub fn text(self, frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
+        if self.scale == 1 {
+            return crate::hud::draw_text(frame, self.width, self.height, x, y, text, colour);
+        }
+        crate::hud::draw_text_scaled(frame, (self.width, self.height), self.scale, (x, y), text, colour);
+    }
+
+    /// The brush outline. **Drawn at buffer resolution rather than as blocks**,
+    /// unlike everything else here: a circle is the one HUD element whose job
+    /// is to say precisely where an edge falls, and a blocky one at scale 4
+    /// says it four cells less precisely. Centre and radius are logical, so
+    /// the ring lands in the same place either way.
+    pub fn circle(self, frame: &mut [u8], cx: i32, cy: i32, radius: i32, colour: [u8; 4]) {
+        let s = self.scale;
+        draw_circle_outline(frame, self.width, self.height, cx * s, cy * s, radius * s, colour);
     }
 }
 
@@ -10214,6 +10418,145 @@ mod tests {
             r.adjust_zoom(-1);
         }
         assert_eq!(r.zoom_out_stride, MAX_ZOOM_OUT_STRIDE, "zoom_out_stride should clamp rather than grow unbounded");
+    }
+
+    /// **The invariant the whole zoom-out buffer change rests on: growing the
+    /// buffer buys resolution, never reach.**
+    ///
+    /// `pixel_scale` may only ever return a power of two that *divides* the
+    /// zoom rung, because `sampling_stride` is `rung / scale` as an integer
+    /// division — a scale that did not divide would silently round the span
+    /// and move how far out the view goes, which is the one thing three owner
+    /// rulings on `MAX_ZOOM_OUT_STRIDE` say not to touch.
+    #[test]
+    fn a_pixel_budget_only_ever_buys_a_scale_that_divides_the_zoom_rung() {
+        for rung in 1..=MAX_ZOOM_OUT_STRIDE {
+            for budget in 1..=8 {
+                let mut r = Renderer::new();
+                r.zoom_out_stride = rung;
+                r.pixel_budget = budget;
+                let scale = r.pixel_scale();
+                assert!(scale >= 1 && scale <= budget, "rung {rung} budget {budget}: scale {scale} out of range");
+                assert_eq!(rung % scale, 0, "rung {rung} budget {budget}: scale {scale} does not divide the rung");
+                assert!((scale as u32).is_power_of_two(), "rung {rung} budget {budget}: scale {scale} is not a power of two");
+                assert_eq!(r.sampling_stride(), rung / scale, "rung {rung} budget {budget}");
+                // ...and it is the *largest* one available, or the budget is
+                // not being spent when it could be.
+                let next = scale * 2;
+                assert!(next > budget || rung % next != 0, "rung {rung} budget {budget}: scale {scale} left {next} on the table");
+            }
+        }
+    }
+
+    /// The same invariant stated where it is actually load-bearing: the span in
+    /// **cells** must not move when the buffer grows.
+    #[test]
+    fn a_grown_buffer_shows_exactly_the_same_span_of_world() {
+        for rung in 1..=MAX_ZOOM_OUT_STRIDE {
+            let mut base = Renderer::new();
+            base.zoom_out_stride = rung;
+            let want = base.visible_span((512, 320));
+            for budget in [1, 2, 4] {
+                let mut r = Renderer::new();
+                r.zoom_out_stride = rung;
+                r.pixel_budget = budget;
+                let scale = r.pixel_scale() as u32;
+                let got = r.visible_span((512 * scale, 320 * scale));
+                assert_eq!(got, want, "rung {rung} budget {budget} (scale {scale}) changed the span");
+            }
+        }
+    }
+
+    /// **The positive control.** The two tests above would both pass on a
+    /// `pixel_scale` hard-wired to 1 — they say the change is *safe*, not that
+    /// it *does* anything. This one says it does: count the distinct world
+    /// cells the buffer can address, which is exactly the quantity the owner's
+    /// question is about ("why cannot there just be more pixels").
+    ///
+    /// At the widest rung a 512x320 buffer addresses one cell in sixteen;
+    /// grown by four it addresses every one of them.
+    #[test]
+    fn a_grown_buffer_addresses_more_of_the_cells_in_view() {
+        let mut carried = Vec::new();
+        for budget in [1, 2, 4] {
+            let mut r = Renderer::new();
+            r.zoom_out_stride = MAX_ZOOM_OUT_STRIDE;
+            r.pixel_budget = budget;
+            let scale = r.pixel_scale();
+            let (w, h) = (512 * scale, 320 * scale);
+            let mut seen = std::collections::HashSet::new();
+            for y in 0..h {
+                for x in 0..w {
+                    seen.insert(r.screen_to_world(x, y));
+                }
+            }
+            // Every buffer pixel addresses a cell of its own -- no two pixels
+            // land on one cell, at any scale.
+            assert_eq!(seen.len(), (w * h) as usize, "budget {budget}: pixels are not addressing distinct cells");
+            carried.push(seen.len());
+        }
+        let in_view = (512 * MAX_ZOOM_OUT_STRIDE * 320 * MAX_ZOOM_OUT_STRIDE) as usize;
+        assert_eq!(carried, vec![in_view / 16, in_view / 4, in_view], "the budget must actually buy cells");
+    }
+
+    /// **Every ordinary frame must be untouched**, which is what makes this
+    /// safe to carry through the whole renderer: at `zoom > 1` a cell already
+    /// owns more than one pixel, and at rung 1 there is nothing being
+    /// discarded to buy back.
+    #[test]
+    fn a_pixel_budget_buys_nothing_at_normal_zoom() {
+        for budget in 1..=4 {
+            let mut r = Renderer::new();
+            r.pixel_budget = budget;
+            assert_eq!(r.pixel_scale(), 1, "budget {budget} grew the buffer at rung 1");
+            assert_eq!(r.sampling_stride(), 1);
+            for zoom in 2..=MAX_ZOOM {
+                r.zoom = zoom;
+                r.zoom_out_stride = MAX_ZOOM_OUT_STRIDE;
+                assert_eq!(r.pixel_scale(), 1, "budget {budget} grew the buffer while magnified at zoom {zoom}");
+            }
+        }
+    }
+
+    /// The `Hud` canvas at scale 1 must be the free functions it wraps, byte
+    /// for byte -- the claim its own doc makes, and the reason the whole HUD
+    /// could be routed through it.
+    #[test]
+    fn the_hud_canvas_is_the_plain_primitives_at_scale_one() {
+        let (w, h) = (64u32, 32u32);
+        let mut a = vec![0u8; (w * h * 4) as usize];
+        let mut b = vec![0u8; (w * h * 4) as usize];
+        let hc = Hud::new(w, h, 1);
+        for (x, y) in [(0, 0), (5, 7), (63, 31), (-1, 4), (64, 0)] {
+            put(&mut a, w, h, x, y, [1, 2, 3, 255]);
+            hc.put(&mut b, x, y, [1, 2, 3, 255]);
+        }
+        crate::hud::draw_text(&mut a, w, h, 3, 9, "AB", [9, 8, 7, 255]);
+        hc.text(&mut b, 3, 9, "AB", [9, 8, 7, 255]);
+        blend(&mut a, w, h, 10, 10, [50, 60, 70, 255], 0.5);
+        hc.blend(&mut b, 10, 10, [50, 60, 70, 255], 0.5);
+        assert_eq!(a, b, "the canvas must be a no-op wrapper at scale 1");
+    }
+
+    /// ...and at scale 2 a logical pixel is a 2x2 block at twice the address,
+    /// which is what keeps the HUD the same apparent size on a grown buffer.
+    #[test]
+    fn the_hud_canvas_draws_blocks_at_scale_two() {
+        let (w, h) = (64u32, 32u32);
+        let mut f = vec![0u8; (w * h * 4) as usize];
+        Hud::new(w, h, 2).put(&mut f, 3, 4, [1, 2, 3, 255]);
+        let at = |x: u32, y: u32| f[((y * w + x) * 4) as usize..][..4].to_vec();
+        for (x, y) in [(6, 8), (7, 8), (6, 9), (7, 9)] {
+            assert_eq!(at(x, y), vec![1, 2, 3, 255], "({x}, {y}) should be inside the block");
+        }
+        for (x, y) in [(5, 8), (8, 8), (6, 7), (6, 10)] {
+            assert_eq!(at(x, y), vec![0, 0, 0, 0], "({x}, {y}) should be outside it");
+        }
+        // Clipping is still in logical space: a logical x past the logical
+        // width writes nothing, rather than wrapping onto the next row.
+        let mut g = vec![0u8; (w * h * 4) as usize];
+        Hud::new(w, h, 2).put(&mut g, 32, 0, [9, 9, 9, 255]);
+        assert!(g.iter().all(|&b| b == 0), "a logical x at the logical width must clip");
     }
 
     #[test]

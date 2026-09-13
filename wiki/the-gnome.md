@@ -1,6 +1,11 @@
 # The Gnome
 
-*Current as of: 2026-09-12. New since the last pass: **the world can be
+*Current as of: 2026-09-13. New since the last pass: **the far view can be
+given more dots instead of fewer cells** — pulled all the way back, the
+picture can now be drawn at up to sixteen times as many dots, so a stem that
+was drawn four cells wide is drawn one cell wide again. It is off by default
+and costs about a third more work at the middle setting. Before that,
+2026-09-12: **the world can be
 drawn in a softer, richer style when you lean in** — five looks on one key,
 from the squares it has always drawn to a painted one with its edges inked
 back on, and nothing changes until you zoom in. Also 2026-09-12: **zooming all
@@ -172,6 +177,27 @@ things survive being pulled away from. Every dot is still some real thing's
 own colour rather than a blend, so the picture stays sharp rather than going
 soft. Two other ways of choosing are available to compare against, and the
 corner readout names whichever is in use whenever the view is zoomed out.
+
+**But one dot per square is a choice, not a law.** Keeping the *most worth
+seeing* thing stops the thin things vanishing; it cannot stop them being drawn
+*fat*, because the dot they win is four cells across. A stem one cell wide
+comes back as a bar four cells wide, and a bed of them reads as a row of
+blobs.
+
+So the far view can be given more dots instead. `+` while pulled back steps
+through three settings — the picture as it has always been drawn, four times
+as many dots, or sixteen times, which is one dot for every single cell in
+sight with nothing left over. The thin things then have their real shape back
+rather than a fattened one, and nothing about *how far* you can see changes:
+the extra dots are spent entirely on the same view, never on a wider one.
+
+Two things worth knowing before reaching for it. It is bounded by the window —
+asking for more dots than the screen can show buys nothing, and the game
+quietly gives you as many as will fit, remembering what you asked for in case
+you make the window bigger. And it is not free: the middle setting costs about
+a third more work per frame and the largest roughly twice, which on a busy
+world is felt. It starts switched off, and the picture at every ordinary zoom
+is untouched by it.
 
 **And leaning in can change how the world is drawn.** Once a cell is bigger
 than a single dot on the screen there are pixels to spend on it, and the

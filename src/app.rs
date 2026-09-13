@@ -199,6 +199,16 @@ enum HelpRow {
     Blank,
 }
 
+/// The most buffer the zoom-out may ask for, as a multiple of `WIDTH`x`HEIGHT`
+/// — see [`render::Renderer::pixel_budget`].
+///
+/// **4, because that is `render::MAX_ZOOM_OUT_STRIDE`**: at the widest rung a
+/// scale of 4 already puts one buffer pixel on every cell in view, and there is
+/// nothing past that to buy. Priced at 1.8-2.1x the whole frame
+/// (`Reports/zoom-out-resolution-2026-09-13.md`), and bounded again at runtime
+/// by what the window can display (`App::pixel_scale_cap`).
+pub const MAX_PIXEL_SCALE: i32 = 4;
+
 pub const WIDTH: u32 = 512;
 pub const HEIGHT: u32 = 320;
 
@@ -460,6 +470,33 @@ pub struct App {
     /// to avoid, and that is only worth paying while someone is actually
     /// asking the question.
     pub show_stress: bool,
+    /// `P` — how many buffer pixels a logical pixel may be given at zoom-out,
+    /// as the *player's* choice. 1, 2 or 4; 1 is what shipped and is still the
+    /// default.
+    ///
+    /// Owner, 2026-09-13: *"why my screen resolution can solve all of the
+    /// pixels, why cannot there just be more pixels when you zoom out?"* — see
+    /// [`render::Renderer::pixel_budget`] for why he was right and what it
+    /// costs. Held here rather than on the renderer because it is one of two
+    /// terms: the renderer is handed `min(this, pixel_scale_cap)`, so a choice
+    /// the window cannot display is remembered rather than clobbered, and
+    /// comes back when the window grows.
+    ///
+    /// **A runtime selector rather than a chosen constant**, per `CLAUDE.md`:
+    /// the two review cards this shipped with disagree — the lab plainly gains
+    /// and outdoor rock arguably loses its grain to smoothness — so the
+    /// default stays at today's look until the owner's verdict says otherwise.
+    pub pixel_budget: i32,
+    /// The most buffer the *window* can actually show, in logical-pixel
+    /// multiples — set by `main.rs` from the surface size, 1 until it is.
+    ///
+    /// **This is the owner's own framing made into a bound**: the point was to
+    /// use the screen's real pixels, and a buffer larger than the window is
+    /// paying full price for pixels the display cannot show. Worse than
+    /// wasteful — the GPU would discard them on the way down, reintroducing
+    /// §Z11's dropout *below* `ZoomOutFilter`, where the salience rule cannot
+    /// reach it.
+    pub pixel_scale_cap: i32,
     /// A short-lived on-screen line, and the frame it stops being drawn on.
     ///
     /// `message` already existed but is only ever *read* from the window
@@ -744,6 +781,8 @@ impl App {
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
+            pixel_budget: 1,
+            pixel_scale_cap: 1,
             toast: None,
             shake_flash: None,
             worldgen: worldgen_presets,
@@ -1658,7 +1697,73 @@ impl App {
     /// `Renderer::draw`'s own §11 dirty-rect skip needs to remember the
     /// zoom/stride it last drew at, to know when the frame buffer it's
     /// about to partially reuse was actually built at a different scale.
+    /// The frame buffer this app wants drawn into, in pixels — `WIDTH`x`HEIGHT`
+    /// times whatever [`Self::pixel_budget`] is buying right now.
+    ///
+    /// **`main.rs` must resize the `Pixels` buffer to match before calling
+    /// [`Self::draw`]**, and the world half of the frame is the only thing that
+    /// grows: the HUD keeps drawing in logical pixels through [`render::Hud`].
+    ///
+    /// At `zoom > 1`, at `zoom_out_stride == 1`, and at budget 1 — which is
+    /// every ordinary frame — this is exactly `(WIDTH, HEIGHT)`.
+    pub fn viewport(&self) -> (u32, u32) {
+        // **Derived from the authoritative pair, never from the renderer's
+        // pushed copy.** Reading `renderer.pixel_scale()` here gave last
+        // frame's answer whenever the choice or the cap had just moved, so
+        // `main.rs` sized the buffer at x1 and `draw` then drew into it at x2
+        // — an out-of-bounds in a HUD blend, a hundred lines from its cause.
+        let s = self.renderer.pixel_scale_for(self.effective_pixel_budget()).max(1) as u32;
+        (WIDTH * s, HEIGHT * s)
+    }
+
+    /// The player's choice, bounded by what the window can show.
+    fn effective_pixel_budget(&self) -> i32 {
+        self.pixel_budget.min(self.pixel_scale_cap).max(1)
+    }
+
+    /// The HUD's canvas over the current buffer. See [`render::Hud`].
+    fn hud_canvas(&self) -> render::Hud {
+        let (w, h) = self.viewport();
+        render::Hud::new(w, h, self.renderer.pixel_scale())
+    }
+
+    /// Push the player's choice, bounded by what the window can show, at the
+    /// renderer. Cheap, and called from `draw` so no caller has to remember:
+    /// both terms can move between frames (a resize, a key) and a stale
+    /// budget would size the buffer against last frame's window.
+    fn apply_pixel_budget(&mut self) {
+        self.renderer.pixel_budget = self.effective_pixel_budget();
+    }
+
+    /// `P`, cycling 1 -> 2 -> 4 -> 1. Returns the new setting so the caller can
+    /// say what happened; the toast is raised here because the *effective*
+    /// scale can differ from the choice on a small window or an odd zoom rung,
+    /// and a selector that silently does nothing is the thing `CLAUDE.md` says
+    /// to name on screen.
+    pub fn cycle_pixel_budget(&mut self) -> i32 {
+        self.pixel_budget = match self.pixel_budget {
+            1 => 2,
+            2 => 4,
+            _ => 1,
+        };
+        self.apply_pixel_budget();
+        let got = self.renderer.pixel_scale();
+        let note = if got == self.pixel_budget {
+            format!("ZOOM-OUT PIXELS x{}", self.pixel_budget)
+        } else if self.pixel_budget > self.pixel_scale_cap {
+            format!("ZOOM-OUT PIXELS x{} - WINDOW ALLOWS x{}", self.pixel_budget, self.pixel_scale_cap)
+        } else {
+            // The remaining case: the budget does not divide the zoom rung, so
+            // it cannot be spent without changing how far out the view reaches
+            // — which is the one thing this feature does not do.
+            format!("ZOOM-OUT PIXELS x{} - x{} AT THIS ZOOM", self.pixel_budget, got)
+        };
+        self.show_toast(note);
+        self.pixel_budget
+    }
+
     pub fn draw(&mut self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
+        self.apply_pixel_budget();
         // Anything `draw_hud` is about to paint over this frame's terrain
         // -- a panel, the hover inspector, or the brush outline that
         // follows the cursor -- has no footprint tracked from one frame to
@@ -1688,7 +1793,7 @@ impl App {
         if let Some(player) = &self.world.player {
             let target = player.center();
             let bounds = self.world.bounds();
-            self.renderer.follow(target, (WIDTH, HEIGHT), bounds);
+            self.renderer.follow(target, self.viewport(), bounds);
         }
         // The census and the trend sample, both behind the same flag as the
         // panel itself: closed, this whole line is one boolean test.
@@ -1696,7 +1801,7 @@ impl App {
             self.colony_sample();
         }
         let touched = self.world.take_touched_chunks();
-        self.renderer.draw(&self.world, &self.particles, &touched, frame, (WIDTH, HEIGHT), force_full);
+        self.renderer.draw(&self.world, &self.particles, &touched, frame, self.viewport(), force_full);
         self.draw_hud(frame, cursor);
     }
 
@@ -1795,6 +1900,7 @@ impl App {
     /// reads as a promise to remove all of it at once, and the first click
     /// then looks like a failure.
     fn draw_bore_preview(&self, frame: &mut [u8], dir: player::Dir, rect: (i32, i32, i32, i32)) {
+        let hc = self.hud_canvas();
         // The pick's own colour for both, so the box is legible as *this
         // tool's* preview and not as a generic selection rectangle.
         const BOX_EDGE: [u8; 4] = PICK_MARK;
@@ -1802,12 +1908,12 @@ impl App {
         let (x0, y0, x1, y1) = rect;
         let (sx0, sy0, sx1, sy1, _) = self.renderer.world_rect_to_screen(x0, y0, x1, y1);
         for x in sx0..=sx1 {
-            render::put(frame, WIDTH, HEIGHT, x, sy0, BOX_EDGE);
-            render::put(frame, WIDTH, HEIGHT, x, sy1, BOX_EDGE);
+            hc.put(frame, x, sy0, BOX_EDGE);
+            hc.put(frame, x, sy1, BOX_EDGE);
         }
         for y in sy0..=sy1 {
-            render::put(frame, WIDTH, HEIGHT, sx0, y, BOX_EDGE);
-            render::put(frame, WIDTH, HEIGHT, sx1, y, BOX_EDGE);
+            hc.put(frame, sx0, y, BOX_EDGE);
+            hc.put(frame, sx1, y, BOX_EDGE);
         }
         // The stroke. Blended rather than filled: a solid block would hide
         // the rock it is about to cut, and what the player is judging is
@@ -1816,7 +1922,7 @@ impl App {
         let (bx0, by0, bx1, by1, _) = self.renderer.world_rect_to_screen(slice.0, slice.1, slice.2, slice.3);
         for y in by0..=by1 {
             for x in bx0..=bx1 {
-                render::blend(frame, WIDTH, HEIGHT, x, y, SLICE, 0.28);
+                hc.blend(frame, x, y, SLICE, 0.28);
             }
         }
     }
@@ -1835,6 +1941,7 @@ impl App {
     /// "what else is there" without a menu — the same reason the tunables
     /// panel draws a tab strip instead of cycling silently.
     fn draw_gnome_hud(&self, frame: &mut [u8], aim: Option<(i32, i32)>) {
+        let hc = self.hud_canvas();
         const BG: [u8; 4] = [10, 10, 16, 255];
         const DIM: [u8; 4] = [120, 128, 145, 255];
         const BODY: [u8; 4] = [225, 228, 235, 255];
@@ -1846,7 +1953,7 @@ impl App {
         let plate_w = belt_w.max(hud::text_width(&second) + SWING_BAR_W + 8).max(60) + 8;
         for y in 1..GNOME_HUD_HEIGHT {
             for x in 1..plate_w {
-                render::blend(frame, WIDTH, HEIGHT, x, y, BG, 0.72);
+                hc.blend(frame, x, y, BG, 0.72);
             }
         }
 
@@ -1856,10 +1963,10 @@ impl App {
             // colour, so the HUD row and the cursor agree without the
             // player having to learn a mapping.
             let colour = if tool == p.tool { belt_colour(tool) } else { DIM };
-            hud::draw_text(frame, WIDTH, HEIGHT, x, 4, tool.label(), colour);
+            hc.text(frame, x, 4, tool.label(), colour);
             x += hud::text_width(tool.label()) + 6;
         }
-        hud::draw_text(frame, WIDTH, HEIGHT, 5, 14, &second, if p.buried { ALERT } else { BODY });
+        hc.text(frame, 5, 14, &second, if p.buried { ALERT } else { BODY });
         let lit = belt_colour(p.tool);
 
         // The swing bar, right of the second line. Empty the instant a blow
@@ -1870,7 +1977,7 @@ impl App {
         for i in 0..SWING_BAR_W {
             let colour = if i < filled { lit } else { DIM };
             for dy in 0..3 {
-                render::put(frame, WIDTH, HEIGHT, bar_x + i, 15 + dy, colour);
+                hc.put(frame, bar_x + i, 15 + dy, colour);
             }
         }
     }
@@ -1983,6 +2090,7 @@ fn belt_colour(tool: player::Tool) -> [u8; 4] {
 
 impl App {
     fn draw_hud(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
+        let hc = self.hud_canvas();
         const WHITE: [u8; 4] = [255, 255, 255, 255];
         const YELLOW: [u8; 4] = [255, 240, 120, 255];
         /// Radius of the shake mark, in world cells. Small: it says *where
@@ -2006,7 +2114,7 @@ impl App {
                 } else {
                     (SHAKE_MARK_RADIUS / self.renderer.zoom_out_stride.max(1)).max(1)
                 };
-                render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, radius, GREEN);
+                hc.circle(frame, mx, my, radius, GREEN);
             }
         }
 
@@ -2049,19 +2157,19 @@ impl App {
             Some(_) => label,
             None => format!("{label}   VIEW {},{}", self.renderer.camera_x, self.renderer.camera_y),
         };
-        hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 10, &label, WHITE);
+        hc.text(frame, 4, HEIGHT as i32 - 10, &label, WHITE);
         self.draw_pin_badge(frame);
         // Directly above the persistent brush label, so a mode change reads
         // as a line about the brush rather than as an unrelated notice
         // somewhere else on screen.
         if let Some(toast) = self.active_toast() {
-            hud::draw_text(frame, WIDTH, HEIGHT, 4, HEIGHT as i32 - 20, toast, YELLOW);
+            hc.text(frame, 4, HEIGHT as i32 - 20, toast, YELLOW);
         }
         // The help panel existed from the start and was invisible unless you
         // already knew the key -- which is the same as not existing. Hidden
         // only while help itself is open, where it would be redundant.
         if !self.show_help {
-            hud::draw_text(frame, WIDTH, HEIGHT, WIDTH as i32 - 56, HEIGHT as i32 - 10, "? HELP", WHITE);
+            hc.text(frame, WIDTH as i32 - 56, HEIGHT as i32 - 10, "? HELP", WHITE);
         }
 
         // The shape being dragged out, so the player can see what they are
@@ -2082,12 +2190,12 @@ impl App {
                     let (x0, x1) = (from.0.min(to.0), from.0.max(to.0));
                     let (y0, y1) = (from.1.min(to.1), from.1.max(to.1));
                     for x in x0..=x1 {
-                        render::put(frame, WIDTH, HEIGHT, x, y0, YELLOW);
-                        render::put(frame, WIDTH, HEIGHT, x, y1, YELLOW);
+                        hc.put(frame, x, y0, YELLOW);
+                        hc.put(frame, x, y1, YELLOW);
                     }
                     for y in y0..=y1 {
-                        render::put(frame, WIDTH, HEIGHT, x0, y, YELLOW);
-                        render::put(frame, WIDTH, HEIGHT, x1, y, YELLOW);
+                        hc.put(frame, x0, y, YELLOW);
+                        hc.put(frame, x1, y, YELLOW);
                     }
                 }
                 Tool::Line => {
@@ -2100,7 +2208,7 @@ impl App {
                     for i in 0..=steps {
                         let x = from.0 + dx * i / steps;
                         let y = from.1 + dy * i / steps;
-                        render::put(frame, WIDTH, HEIGHT, x, y, YELLOW);
+                        hc.put(frame, x, y, YELLOW);
                     }
                 }
                 Tool::Brush | Tool::Dig => {}
@@ -2161,7 +2269,7 @@ impl App {
                 SwingMark::Bore(dir, rect) => self.draw_bore_preview(frame, dir, rect),
                 SwingMark::Ring(at, radius, colour) => {
                     if let Some((mx, my)) = self.renderer.world_to_screen(at.0, at.1) {
-                        render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, to_screen(radius), colour);
+                        hc.circle(frame, mx, my, to_screen(radius), colour);
                         // The hammer's outer ring is what it *damages*,
                         // against the inner ring's what it removes. Drawn
                         // because the gap between the two is the whole
@@ -2169,12 +2277,12 @@ impl App {
                         // in the moment: the cracks show as darkening, not
                         // as a hole. See `rigid::strike`.
                         if let Some(outer) = self.gnome_crack_reach(radius) {
-                            render::draw_circle_outline(frame, WIDTH, HEIGHT, mx, my, to_screen(outer), CRACK_MARK);
+                            hc.circle(frame, mx, my, to_screen(outer), CRACK_MARK);
                         }
                     }
                 }
                 SwingMark::Brush => {
-                    render::draw_circle_outline(frame, WIDTH, HEIGHT, sx, sy, to_screen(self.brush_radius), WHITE);
+                    hc.circle(frame, sx, sy, to_screen(self.brush_radius), WHITE);
                 }
             }
 
@@ -2238,6 +2346,7 @@ impl App {
     /// are — the previous version scrolled silently, so a hundred-row menu
     /// gave no clue whether there were three more entries or eighty.
     fn draw_tunables_panel(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.78;
         /// The selected row is *lifted* out of the panel, not pushed further
@@ -2261,21 +2370,21 @@ impl App {
         let (left, top, right, bottom) = (20, 20, WIDTH as i32 - 20, HEIGHT as i32 - 20);
         for y in top..bottom {
             for x in left..right {
-                render::blend(frame, WIDTH, HEIGHT, x, y, PANEL, PANEL_ALPHA);
+                hc.blend(frame, x, y, PANEL, PANEL_ALPHA);
             }
         }
         // A one-pixel border, so the panel still reads as a panel now that
         // its fill no longer fully hides what is behind it.
         for x in left..right {
-            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+            hc.put(frame, x, top, ACCENT);
+            hc.put(frame, x, bottom - 1, ACCENT);
         }
         for y in top..bottom {
-            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
+            hc.put(frame, left, y, ACCENT);
+            hc.put(frame, right - 1, y, ACCENT);
         }
 
-        hud::draw_text(frame, WIDTH, HEIGHT, left + 8, top + 6, "OPTIONS", SELECTED);
+        hc.text(frame, left + 8, top + 6, "OPTIONS", SELECTED);
 
         // **The tab strip.** Every menu, in `TunableGroup::all()`'s order,
         // which is `next()`'s order -- so the strip reads left to right in
@@ -2289,16 +2398,16 @@ impl App {
             if group == self.tunables_group {
                 for y in top + 16..top + 26 {
                     for x in tab_x..tab_x + w {
-                        render::blend(frame, WIDTH, HEIGHT, x, y, ACCENT, 0.85);
+                        hc.blend(frame, x, y, ACCENT, 0.85);
                     }
                 }
             }
             let colour = if group == self.tunables_group { [12, 16, 24, 255] } else { HEADING };
-            hud::draw_text(frame, WIDTH, HEIGHT, tab_x + 4, top + 18, label, colour);
+            hc.text(frame, tab_x + 4, top + 18, label, colour);
             tab_x += w + 4;
         }
         for x in left + 1..right - 1 {
-            render::put(frame, WIDTH, HEIGHT, x, top + 28, [40, 52, 72, 255]);
+            hc.put(frame, x, top + 28, [40, 52, 72, 255]);
         }
 
         let list = self.tunables_list();
@@ -2317,21 +2426,17 @@ impl App {
         // The footer, drawn whatever the list holds -- an empty menu still
         // needs to say how to leave it.
         for x in left + 1..right - 1 {
-            render::put(frame, WIDTH, HEIGHT, x, rows_bottom + 2, [40, 52, 72, 255]);
+            hc.put(frame, x, rows_bottom + 2, [40, 52, 72, 255]);
         }
-        hud::draw_text(
+        hc.text(
             frame,
-            WIDTH,
-            HEIGHT,
             left + 8,
             rows_bottom + 6,
             "TAB / SHIFT+TAB  MENU     UP/DOWN  SELECT     PGUP/PGDN  PAGE",
             DIM,
         );
-        hud::draw_text(
+        hc.text(
             frame,
-            WIDTH,
-            HEIGHT,
             left + 8,
             rows_bottom + 16,
             "LEFT/RIGHT  CHANGE     ENTER  PIN + CLOSE     S  SAVE     ESC  CLOSE",
@@ -2341,11 +2446,11 @@ impl App {
         // message is a different kind of thing (what just happened, not what
         // the keys do) and has to read as one.
         if let Some(message) = &self.message {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, rows_bottom + 29, message, SELECTED);
+            hc.text(frame, left + 8, rows_bottom + 29, message, SELECTED);
         }
 
         if list.is_empty() {
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, rows_top + 4, "NOTHING REGISTERED", WHITE);
+            hc.text(frame, left + 8, rows_top + 4, "NOTHING REGISTERED", WHITE);
             return;
         }
 
@@ -2394,10 +2499,10 @@ impl App {
                     // set anyway, and in the structural colour: it has to
                     // read as a divider at a glance rather than as another
                     // entry with a blank value.
-                    hud::draw_text(frame, WIDTH, HEIGHT, left + 6, y, category, HEADING);
+                    hc.text(frame, left + 6, y, category, HEADING);
                     let underline_x = left + 8 + hud::text_width(category) + 6;
                     for x in underline_x..bar_x + bar_w {
-                        render::put(frame, WIDTH, HEIGHT, x, y + 3, [40, 52, 72, 255]);
+                        hc.put(frame, x, y + 3, [40, 52, 72, 255]);
                     }
                     continue;
                 }
@@ -2408,7 +2513,7 @@ impl App {
             if selected {
                 for by in y - 1..y + row_height - 1 {
                     for bx in left + 1..right - 1 {
-                        render::blend(frame, WIDTH, HEIGHT, bx, by, ROW_LIFT, ROW_ALPHA);
+                        hc.blend(frame, bx, by, ROW_LIFT, ROW_ALPHA);
                     }
                 }
             }
@@ -2422,12 +2527,12 @@ impl App {
             // column and a half to the right for nothing.
             let name = &t.name;
             let marker = if selected { ">" } else { " " };
-            hud::draw_text(frame, WIDTH, HEIGHT, left + 8, y, &format!("{marker} {name}"), colour);
+            hc.text(frame, left + 8, y, &format!("{marker} {name}"), colour);
             let value = t.display();
             // Right-aligned in its column: numbers line up on their units
             // digit, which is what makes a column of them scannable.
             let value_w = hud::text_width(&value);
-            hud::draw_text(frame, WIDTH, HEIGHT, bar_x - 8 - value_w, y, &value, colour);
+            hc.text(frame, bar_x - 8 - value_w, y, &value, colour);
 
             match &t.options {
                 // **One segment per named option, with the live one lit.**
@@ -2452,7 +2557,7 @@ impl App {
                         };
                         for bx in sx..sx + seg {
                             for by in 1..6 {
-                                render::put(frame, WIDTH, HEIGHT, bx, y + by, c);
+                                hc.put(frame, bx, y + by, c);
                             }
                         }
                     }
@@ -2477,7 +2582,7 @@ impl App {
                         // rather than as a gauge -- caught by looking at the
                         // rendered panel.
                         for by in 2..5 {
-                            render::put(frame, WIDTH, HEIGHT, bar_x + bx, y + by, c);
+                            hc.put(frame, bar_x + bx, y + by, c);
                         }
                     }
                 }
@@ -2493,20 +2598,18 @@ impl App {
             let track_h = rows_bottom - track_top;
             let x = right - 5;
             for y in track_top..track_top + track_h {
-                render::put(frame, WIDTH, HEIGHT, x, y, [34, 44, 62, 255]);
+                hc.put(frame, x, y, [34, 44, 62, 255]);
             }
             let thumb_h = (track_h * visible_rows as i32 / rows.len() as i32).max(6);
             let span = (rows.len() - visible_rows) as i32;
             let thumb_y = track_top + (track_h - thumb_h) * first as i32 / span.max(1);
             for y in thumb_y..thumb_y + thumb_h {
-                render::put(frame, WIDTH, HEIGHT, x, y, ACCENT);
+                hc.put(frame, x, y, ACCENT);
             }
             // How far in, in entries, since that is what the arrows move.
             let counter = format!("{}/{}", self.tunables_selected + 1, list.len());
-            hud::draw_text(
+            hc.text(
                 frame,
-                WIDTH,
-                HEIGHT,
                 right - 10 - hud::text_width(&counter),
                 top + 6,
                 &counter,
@@ -2578,12 +2681,12 @@ impl App {
     /// panel cannot, because most of its text is composed at run time out of
     /// species names and formatted numbers. A `debug_assert` here instead
     /// checks whatever the panel actually built, in every test that draws it.
-    fn colony_text(frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
+    fn colony_text(hc: render::Hud, frame: &mut [u8], x: i32, y: i32, text: &str, colour: [u8; 4]) {
         debug_assert!(
             text.chars().all(hud::has_glyph),
             "the colony panel prints {text:?}, which the font would draw as a blank gap"
         );
-        hud::draw_text(frame, WIDTH, HEIGHT, x, y, text, colour);
+        hc.text(frame, x, y, text, colour);
     }
 
     /// **The colony panel (`SHIFT+Y`).** What the ants are and how they are
@@ -2624,6 +2727,7 @@ impl App {
     /// short colony; and every row needed a "is there still room" test, which
     /// is a check that is only ever wrong once.
     fn draw_colony_panel(&self, frame: &mut [u8], cursor: Option<(i32, i32)>) {
+        let hc = self.hud_canvas();
         const PANEL: [u8; 4] = [10, 10, 16, 255];
         const PANEL_ALPHA: f32 = 0.82;
         const TITLE: [u8; 4] = [255, 220, 100, 255];
@@ -2634,24 +2738,24 @@ impl App {
 
         for y in top..bottom {
             for x in left..right {
-                render::blend(frame, WIDTH, HEIGHT, x, y, PANEL, PANEL_ALPHA);
+                hc.blend(frame, x, y, PANEL, PANEL_ALPHA);
             }
         }
         for x in left..right {
-            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+            hc.put(frame, x, top, ACCENT);
+            hc.put(frame, x, bottom - 1, ACCENT);
         }
         for y in top..bottom {
-            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
+            hc.put(frame, left, y, ACCENT);
+            hc.put(frame, right - 1, y, ACCENT);
         }
 
         let pad = left + 8;
-        Self::colony_text(frame, pad, top + 6, "COLONY", TITLE);
+        Self::colony_text(hc, frame, pad, top + 6, "COLONY", TITLE);
         let close = "SHIFT+Y CLOSE";
-        Self::colony_text(frame, right - 8 - hud::text_width(close), top + 6, close, Self::COLONY_FAINT);
+        Self::colony_text(hc, frame, right - 8 - hud::text_width(close), top + 6, close, Self::COLONY_FAINT);
         for x in left + 1..right - 1 {
-            render::put(frame, WIDTH, HEIGHT, x, top + 17, Self::COLONY_RULE);
+            hc.put(frame, x, top + 17, Self::COLONY_RULE);
         }
 
         let mut y = top + Self::COLONY_HEADER;
@@ -2669,22 +2773,22 @@ impl App {
             }
             match &row.body {
                 ColonyBody::Gap => {}
-                ColonyBody::Text(text, colour) => Self::colony_text(frame, pad, y, text, *colour),
+                ColonyBody::Text(text, colour) => Self::colony_text(hc, frame, pad, y, text, *colour),
                 ColonyBody::Trend => self.draw_colony_trend(frame, pad, y),
                 ColonyBody::Histogram => {
                     if let Some(census) = &self.colony_census {
-                        Self::draw_colony_histogram(frame, census, pad, y);
+                        Self::draw_colony_histogram(hc, frame, census, pad, y);
                     }
                 }
                 ColonyBody::Gauge(fill, label) => {
-                    Self::draw_colony_gauge(frame, pad, y + 4, 118, *fill, Self::COLONY_GOOD, Self::COLONY_RULE);
-                    Self::colony_text(frame, pad + 126, y + 3, label, Self::COLONY_FAINT);
+                    Self::draw_colony_gauge(hc, frame, (pad, y + 4), 118, *fill, Self::COLONY_GOOD, Self::COLONY_RULE);
+                    Self::colony_text(hc, frame, pad + 126, y + 3, label, Self::COLONY_FAINT);
                 }
             }
             y += row.height();
         }
         if let (Some(note), Some(at)) = (hovered, cursor) {
-            Self::draw_colony_note(frame, note, at);
+            Self::draw_colony_note(hc, frame, note, at);
         }
     }
 
@@ -2695,7 +2799,7 @@ impl App {
     /// it is explaining, so you read the explanation having lost the thing it
     /// is about. It sits to the right of the panel instead, top-aligned with
     /// the row, and only steps up when it would run off the bottom.
-    fn draw_colony_note(frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
+    fn draw_colony_note(hc: render::Hud, frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
         const BG: [u8; 4] = [16, 20, 30, 255];
         const ALPHA: f32 = 0.92;
         let (panel_left, _, panel_width) = Self::COLONY_RECT;
@@ -2710,19 +2814,19 @@ impl App {
         let y = (cy - 4).min(HEIGHT as i32 - 10 - height).max(10);
         for py in y..y + height {
             for px in x..x + width {
-                render::blend(frame, WIDTH, HEIGHT, px, py, BG, ALPHA);
+                hc.blend(frame, px, py, BG, ALPHA);
             }
         }
         for px in x..x + width {
-            render::put(frame, WIDTH, HEIGHT, px, y, Self::COLONY_HEADING);
-            render::put(frame, WIDTH, HEIGHT, px, y + height - 1, Self::COLONY_HEADING);
+            hc.put(frame, px, y, Self::COLONY_HEADING);
+            hc.put(frame, px, y + height - 1, Self::COLONY_HEADING);
         }
         for py in y..y + height {
-            render::put(frame, WIDTH, HEIGHT, x, py, Self::COLONY_HEADING);
-            render::put(frame, WIDTH, HEIGHT, x + width - 1, py, Self::COLONY_HEADING);
+            hc.put(frame, x, py, Self::COLONY_HEADING);
+            hc.put(frame, x + width - 1, py, Self::COLONY_HEADING);
         }
         for (i, line) in lines.iter().enumerate() {
-            Self::colony_text(frame, x + 6, y + 5 + i as i32 * Self::COLONY_LINE, line, Self::COLONY_WHITE);
+            Self::colony_text(hc, frame, x + 6, y + 5 + i as i32 * Self::COLONY_LINE, line, Self::COLONY_WHITE);
         }
     }
 
@@ -3034,16 +3138,17 @@ impl App {
     /// headroom above the peak for the same reason — a flat line has to sit
     /// somewhere you can see it is flat.
     fn draw_colony_trend(&self, frame: &mut [u8], x: i32, y: i32) {
+        let hc = self.hud_canvas();
         let (line, faint) = (Self::COLONY_GOOD, Self::COLONY_FAINT);
         const UNDER: [u8; 4] = [30, 52, 38, 255];
         const BASE: [u8; 4] = [50, 62, 78, 255];
         let height = 18;
         let width = 170;
         for px in x..x + width {
-            render::put(frame, WIDTH, HEIGHT, px, y + height, BASE);
+            hc.put(frame, px, y + height, BASE);
         }
         if self.colony_history.len() < 2 {
-            Self::colony_text(frame, x, y + height - 12, "TRACKING FROM NOW", faint);
+            Self::colony_text(hc, frame, x, y + height - 12, "TRACKING FROM NOW", faint);
             return;
         }
         let peak = self.colony_history.iter().map(|s| s.live).max().unwrap_or(1).max(1);
@@ -3057,11 +3162,11 @@ impl App {
             let px = x + width - n as i32 + i as i32;
             let h = (sample.live as i64 * height as i64 / axis as i64) as i32;
             for dy in 0..h {
-                render::put(frame, WIDTH, HEIGHT, px, y + height - 1 - dy, UNDER);
+                hc.put(frame, px, y + height - 1 - dy, UNDER);
             }
-            render::put(frame, WIDTH, HEIGHT, px, y + height - 1 - h.min(height - 1), line);
+            hc.put(frame, px, y + height - 1 - h.min(height - 1), line);
         }
-        Self::colony_text(frame, x + width + 6, y + height - 8, &format!("MAX {peak}"), faint);
+        Self::colony_text(hc, frame, x + width + 6, y + height - 8, &format!("MAX {peak}"), faint);
     }
 
     /// The energy histogram.
@@ -3070,7 +3175,7 @@ impl App {
     /// colour and the line itself is marked, so the split the brain actually
     /// acts on is the split the picture shows — the threshold is
     /// `creature.rs`'s `hungry`, not one invented for the display.
-    fn draw_colony_histogram(frame: &mut [u8], census: &ColonyCensus, x: i32, y: i32) {
+    fn draw_colony_histogram(hc: render::Hud, frame: &mut [u8], census: &ColonyCensus, x: i32, y: i32) {
         let (good, wanting, faint) = (Self::COLONY_GOOD, Self::COLONY_WANTING, Self::COLONY_FAINT);
         let height = 16;
         let bar = 14;
@@ -3086,35 +3191,36 @@ impl App {
             let h = if *count == 0 { 0 } else { ((*count as i64 * height as i64 / tallest as i64) as i32).max(1) };
             for dy in 0..h {
                 for dx in 0..bar {
-                    render::put(frame, WIDTH, HEIGHT, bx + dx, y + height - 1 - dy, colour);
+                    hc.put(frame, bx + dx, y + height - 1 - dy, colour);
                 }
             }
             for dx in 0..bar {
-                render::put(frame, WIDTH, HEIGHT, bx + dx, y + height, faint);
+                hc.put(frame, bx + dx, y + height, faint);
             }
         }
         // The hunger line itself, as a tick through the axis: without it the
         // bar colours say *that* there is a split and not *where*.
         let tick = x + (span as f32 * (census.lean_line / census.energy_axis).clamp(0.0, 1.0)) as i32;
         for dy in 0..4 {
-            render::put(frame, WIDTH, HEIGHT, tick, y + height + dy, wanting);
+            hc.put(frame, tick, y + height + dy, wanting);
         }
     }
 
     /// A filled bar, `fill` in 0..1. Used for the richest bank against the
     /// bar it has to reach to bud, where the *gap* is the point and a
     /// percentage buries it.
-    fn draw_colony_gauge(frame: &mut [u8], x: i32, y: i32, width: i32, fill: f32, on: [u8; 4], off: [u8; 4]) {
+    fn draw_colony_gauge(hc: render::Hud, frame: &mut [u8], (x, y): (i32, i32), width: i32, fill: f32, on: [u8; 4], off: [u8; 4]) {
         let filled = (width as f32 * fill).round() as i32;
         for dx in 0..width {
             for dy in 0..5 {
                 let colour = if dx < filled { on } else { off };
-                render::put(frame, WIDTH, HEIGHT, x + dx, y + dy, colour);
+                hc.put(frame, x + dx, y + dy, colour);
             }
         }
     }
 
     fn draw_pin_badge(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         const BG: [u8; 4] = [10, 10, 16, 255];
         const HELD: [u8; 4] = [255, 220, 100, 255];
 
@@ -3145,19 +3251,20 @@ impl App {
         let height = lines.len() as i32 * 10;
         for by in 1..height + 5 {
             for bx in x - 4..WIDTH as i32 - 1 {
-                render::blend(frame, WIDTH, HEIGHT, bx, by, BG, 0.72);
+                hc.blend(frame, bx, by, BG, 0.72);
             }
         }
         for (i, line) in lines.iter().enumerate() {
             // Right-aligned to each other rather than to the plate, so the
             // two labels start on the same column.
-            hud::draw_text(frame, WIDTH, HEIGHT, x, 4 + i as i32 * 10, line, HELD);
+            hc.text(frame, x, 4 + i as i32 * 10, line, HELD);
         }
     }
 
     /// The pinned-tunable readout — one line, bottom-left, drawn only while
     /// something is pinned and the panel is closed. See `App::pinned`.
     fn draw_pinned_readout(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         const BG: [u8; 4] = [10, 10, 16, 255];
         const SELECTED: [u8; 4] = [255, 220, 100, 255];
         let Some(t) = self.pinned_tunable() else { return };
@@ -3167,10 +3274,10 @@ impl App {
         let (x, y) = (4, HEIGHT as i32 - 40);
         for by in y - 3..y + 11 {
             for bx in x - 3..x + w {
-                render::blend(frame, WIDTH, HEIGHT, bx, by, BG, 0.72);
+                hc.blend(frame, bx, by, BG, 0.72);
             }
         }
-        hud::draw_text(frame, WIDTH, HEIGHT, x + 2, y, &line, SELECTED);
+        hc.text(frame, x + 2, y, &line, SELECTED);
 
         // The same min..max bar the panel draws, so the readout carries the
         // one thing the number alone cannot: how much room is left.
@@ -3181,7 +3288,7 @@ impl App {
         for bx in 0..bar_w {
             let c = if bx < filled { SELECTED } else { [70, 96, 130, 255] };
             for by in 8..10 {
-                render::put(frame, WIDTH, HEIGHT, x + 2 + bx, y + by, c);
+                hc.put(frame, x + 2 + bx, y + by, c);
             }
         }
     }
@@ -3216,6 +3323,7 @@ impl App {
     /// it is up, which is the same trade the animated grain documents and
     /// is why it is off by default.
     fn draw_stress_overlay(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         let mut cache = load::Cache::default();
         let mut budget = u32::MAX;
         let (x0, y0) = self.renderer.screen_to_world(0, 0);
@@ -3233,7 +3341,7 @@ impl App {
                 let colour = [(40.0 + 215.0 * ratio) as u8, (220.0 * (1.0 - ratio)) as u8, 60, 255];
                 for dy in 0..zoom {
                     for dx in 0..zoom {
-                        render::blend(frame, WIDTH, HEIGHT, sx + dx, sy + dy, colour, 0.55);
+                        hc.blend(frame, sx + dx, sy + dy, colour, 0.55);
                     }
                 }
             }
@@ -3286,6 +3394,7 @@ impl App {
     }
 
     fn draw_hover_inspector(&self, frame: &mut [u8], sx: i32, sy: i32, colour: [u8; 4]) {
+        let hc = self.hud_canvas();
         let (wx, wy) = self.renderer.screen_to_world(sx, sy);
         let cell = self.world.get(wx, wy);
         let material = self.world.materials.get(cell.material).display.clone();
@@ -3300,7 +3409,7 @@ impl App {
         // the inspector is the one that can move.
         let top = if self.world.player.is_some() { GNOME_HUD_HEIGHT + 4 } else { 4 };
         for (i, line) in lines.iter().enumerate() {
-            hud::draw_text(frame, WIDTH, HEIGHT, 4, top + i as i32 * 9, line, colour);
+            hc.text(frame, 4, top + i as i32 * 9, line, colour);
         }
     }
 
@@ -3308,6 +3417,7 @@ impl App {
     /// the material picker made visible instead of only inferred from the
     /// number keys or the status line's own material name.
     fn draw_palette(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         const SWATCH: i32 = 7;
         const GAP: i32 = 2;
         let y = HEIGHT as i32 - 24;
@@ -3316,18 +3426,18 @@ impl App {
             let colour = self.world.materials.get(id).palette[0];
             for dy in 0..SWATCH {
                 for dx in 0..SWATCH {
-                    render::put(frame, WIDTH, HEIGHT, x + dx, y + dy, colour);
+                    hc.put(frame, x + dx, y + dy, colour);
                 }
             }
             if i == self.selected {
                 let border = [255, 255, 255, 255];
                 for dx in -1..=SWATCH {
-                    render::put(frame, WIDTH, HEIGHT, x + dx, y - 1, border);
-                    render::put(frame, WIDTH, HEIGHT, x + dx, y + SWATCH, border);
+                    hc.put(frame, x + dx, y - 1, border);
+                    hc.put(frame, x + dx, y + SWATCH, border);
                 }
                 for dy in -1..=SWATCH {
-                    render::put(frame, WIDTH, HEIGHT, x - 1, y + dy, border);
-                    render::put(frame, WIDTH, HEIGHT, x + SWATCH, y + dy, border);
+                    hc.put(frame, x - 1, y + dy, border);
+                    hc.put(frame, x + SWATCH, y + dy, border);
                 }
             }
         }
@@ -3396,7 +3506,7 @@ impl App {
                 Key("SPACE", "PAUSE"),
                 Key(".", "STEP ONE FRAME"),
                 Key("R", "RESET"),
-                Key("= - _", "ZOOM / ZOOM-OUT PIXELS"),
+                Key("= - _ +", "ZOOM / FILTER / PIXELS"),
                 Key("F6 F7 F8", "NEW WORLD / PRESET / SEED"),
                 Key("F5", "RELOAD ASSETS"),
                 Blank,
@@ -3446,6 +3556,7 @@ impl App {
     }
 
     fn draw_help(&self, frame: &mut [u8]) {
+        let hc = self.hud_canvas();
         const BG: [u8; 4] = [10, 10, 16, 255];
         const WHITE: [u8; 4] = [225, 228, 235, 255];
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
@@ -3457,16 +3568,16 @@ impl App {
         // Translucent, matching the tunables panel -- see its own doc.
         for y in top..bottom {
             for x in left..right {
-                render::blend(frame, WIDTH, HEIGHT, x, y, BG, 0.88);
+                hc.blend(frame, x, y, BG, 0.88);
             }
         }
         for x in left..right {
-            render::put(frame, WIDTH, HEIGHT, x, top, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, x, bottom - 1, ACCENT);
+            hc.put(frame, x, top, ACCENT);
+            hc.put(frame, x, bottom - 1, ACCENT);
         }
         for y in top..bottom {
-            render::put(frame, WIDTH, HEIGHT, left, y, ACCENT);
-            render::put(frame, WIDTH, HEIGHT, right - 1, y, ACCENT);
+            hc.put(frame, left, y, ACCENT);
+            hc.put(frame, right - 1, y, ACCENT);
         }
         let (col_a, col_b) = Self::help_columns();
         for (c, rows) in [&col_a[..], &col_b[..]].iter().enumerate() {
@@ -3475,14 +3586,14 @@ impl App {
                 let y = top + Self::HELP_PAD + i as i32 * Self::HELP_LINE;
                 match row {
                     HelpRow::Head(title) => {
-                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, title, ACCENT);
+                        hc.text(frame, x, y, title, ACCENT);
                     }
                     HelpRow::Key(key, what) => {
-                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, key, KEYCAP);
-                        hud::draw_text(frame, WIDTH, HEIGHT, x + Self::HELP_KEY, y, what, WHITE);
+                        hc.text(frame, x, y, key, KEYCAP);
+                        hc.text(frame, x + Self::HELP_KEY, y, what, WHITE);
                     }
                     HelpRow::Note(text) => {
-                        hud::draw_text(frame, WIDTH, HEIGHT, x, y, text, KEYCAP);
+                        hc.text(frame, x, y, text, KEYCAP);
                     }
                     HelpRow::Blank => {}
                 }
@@ -3655,7 +3766,7 @@ impl App {
             return false;
         }
         let bounds = self.world.bounds();
-        self.renderer.pan(dir, seconds, (WIDTH, HEIGHT), bounds);
+        self.renderer.pan(dir, seconds, self.viewport(), bounds);
         true
     }
 
@@ -4202,6 +4313,144 @@ pub fn build_terrain_only(world: &mut World) {
 
 #[cfg(test)]
 mod tests {
+
+    /// The zoom-out pixel budget must be **invisible until asked for**: a
+    /// freshly built app draws into exactly the buffer it always did.
+    #[test]
+    fn the_default_app_draws_into_the_buffer_it_always_did() {
+        let app = App::build(false, (256, 128), &mut |_, _| {});
+        assert_eq!(app.pixel_budget, 1);
+        assert_eq!(app.viewport(), (WIDTH, HEIGHT));
+    }
+
+    /// The two terms, and which one wins. The player's choice is *remembered*
+    /// when the window cannot show it, rather than clobbered — so a maximised
+    /// window gets what was asked for without asking again.
+    #[test]
+    fn the_window_caps_the_budget_without_forgetting_it() {
+        let mut app = App::build(false, (256, 128), &mut |_, _| {});
+        app.renderer.zoom_out_stride = 4;
+        app.pixel_budget = 4;
+
+        app.pixel_scale_cap = 1;
+        app.apply_pixel_budget();
+        assert_eq!(app.viewport(), (WIDTH, HEIGHT), "a window that can only show x1 must get x1");
+        assert_eq!(app.pixel_budget, 4, "the choice must survive being capped");
+
+        app.pixel_scale_cap = 2;
+        app.apply_pixel_budget();
+        assert_eq!(app.viewport(), (WIDTH * 2, HEIGHT * 2));
+
+        app.pixel_scale_cap = 4;
+        app.apply_pixel_budget();
+        assert_eq!(app.viewport(), (WIDTH * 4, HEIGHT * 4), "the choice must come back when the window grows");
+    }
+
+    /// A budget that cannot be *spent* at this zoom rung must buy nothing
+    /// rather than widening the view — rung 3 has no power-of-two divisor
+    /// above 1. Stated as a test because it is the case a reader assumes away.
+    #[test]
+    fn an_odd_zoom_rung_spends_no_budget() {
+        let mut app = App::build(false, (256, 128), &mut |_, _| {});
+        app.pixel_scale_cap = 4;
+        app.pixel_budget = 4;
+        app.renderer.zoom_out_stride = 3;
+        app.apply_pixel_budget();
+        assert_eq!(app.viewport(), (WIDTH, HEIGHT), "rung 3 cannot absorb a power-of-two budget");
+        app.renderer.zoom_out_stride = 4;
+        app.apply_pixel_budget();
+        assert_eq!(app.viewport(), (WIDTH * 4, HEIGHT * 4), "rung 4 can");
+    }
+
+    /// **Regression, 2026-09-13, caught by running the real app and not by any
+    /// test.** `main.rs` sizes the frame buffer from `viewport()` and *then*
+    /// calls `draw`, which pushes the budget at the renderer. While `viewport`
+    /// read the pushed copy, the two disagreed for exactly one frame after any
+    /// change to the choice or the cap: the buffer stayed 512x320, the renderer
+    /// believed it was 1024x640, and the HUD's first `blend` past the halfway
+    /// mark indexed off the end of it.
+    ///
+    /// So: `viewport()` must be correct **before** anything is applied. The
+    /// order below is the order `main.rs` uses, and it is the whole test.
+    #[test]
+    fn the_viewport_is_right_before_the_budget_is_pushed_at_the_renderer() {
+        let mut app = App::build(false, (2048, 1280), &mut |_, _| {});
+        app.renderer.zoom_out_stride = 4;
+        // Both terms move, and nothing is applied -- exactly a key press or a
+        // window resize arriving between two frames.
+        app.pixel_budget = 4;
+        app.pixel_scale_cap = 2;
+        let want = app.viewport();
+        assert_eq!(want, (WIDTH * 2, HEIGHT * 2), "viewport must not lag a frame behind the choice");
+
+        // ...and drawing into a buffer of that size must not read past it.
+        // `draw` itself asserts this now, so this is the case that assert was
+        // written for rather than a second opinion about it.
+        let mut frame = vec![0u8; (want.0 * want.1 * 4) as usize];
+        app.draw(&mut frame, None);
+        assert_eq!(app.viewport(), want, "the draw must not have moved the viewport under the caller");
+    }
+
+    #[test]
+    fn the_pixel_budget_key_cycles_one_two_four() {
+        let mut app = App::build(false, (256, 128), &mut |_, _| {});
+        app.pixel_scale_cap = 4;
+        app.renderer.zoom_out_stride = 4;
+        assert_eq!(app.cycle_pixel_budget(), 2);
+        assert_eq!(app.cycle_pixel_budget(), 4);
+        assert_eq!(app.cycle_pixel_budget(), 1);
+    }
+
+    /// **The HUD has to stay the same apparent size on a grown buffer**, which
+    /// is the half of this change that is not in the renderer at all. Drawn
+    /// into a x2 buffer, the bottom-left status line must sit at the bottom
+    /// left of the *picture*, not in a quarter-size corner of it.
+    ///
+    /// Measured as ink below the halfway line rather than by matching glyphs:
+    /// the claim is about where the HUD lands, and a pixel comparison would
+    /// fail on the terrain behind it.
+    #[test]
+    fn the_hud_stays_the_same_size_when_the_buffer_grows() {
+        let ink_low = |app: &mut App, scale: u32| {
+            let (w, h) = app.viewport();
+            assert_eq!((w, h), (WIDTH * scale, HEIGHT * scale));
+            let mut frame = vec![0u8; (w * h * 4) as usize];
+            app.draw(&mut frame, None);
+            // The bottom eighth of the picture, where the status line lives.
+            let from = (h - h / 8) * w;
+            let lit = (from..w * h).filter(|i| frame[(*i as usize) * 4 + 3] != 0).count();
+            (lit, (w * h / 8) as usize)
+        };
+        let mut a = App::build(false, (2048, 1280), &mut |_, _| {});
+        a.pixel_scale_cap = 4;
+        a.renderer.zoom_out_stride = 4;
+        a.pixel_budget = 1;
+        a.apply_pixel_budget();
+        let (_, band_1) = ink_low(&mut a, 1);
+        a.pixel_budget = 4;
+        a.apply_pixel_budget();
+        let (_, band_4) = ink_low(&mut a, 4);
+        assert_eq!(band_4, band_1 * 16, "the bottom band should have grown with the buffer");
+
+        // The real assertion: the glyphs are where a reader is looking. The
+        // status line's baseline is `HEIGHT - 10` logical, so at scale 4 it
+        // must be at `4 * (HEIGHT - 10)` and NOT at `HEIGHT - 10`, which is
+        // where an unscaled HUD would leave it -- a quarter of the way down.
+        let (w, h) = a.viewport();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        a.draw(&mut frame, None);
+        let row_ink = |y: u32| (0..w).filter(|x| frame[((y * w + x) * 4) as usize + 3] != 0).count();
+        let scaled_band: usize = (4 * (HEIGHT - 10)..4 * (HEIGHT - 10) + 28).map(row_ink).sum();
+        let unscaled_band: usize = (HEIGHT - 10..HEIGHT + 4).map(row_ink).sum();
+        assert!(
+            scaled_band > 0,
+            "no HUD ink where a scaled status line belongs -- the HUD did not follow the buffer"
+        );
+        assert!(
+            scaled_band > unscaled_band,
+            "more HUD ink at the unscaled position ({unscaled_band}) than the scaled one ({scaled_band}) -- the HUD is drawing at logical size in a grown buffer"
+        );
+    }
 
     /// The old flat help list ran three lines past the bottom of its own
     /// panel, so the line naming the key that closes it was drawn
