@@ -1,0 +1,37 @@
+{
+  "id": "20260913T170406324Z-f27903",
+  "created": "2026-09-13T17:04:06Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "6b8c447e",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The held world has an interface",
+  "question": "You said you had no idea how to control anything beyond run and jump. Is this enough to play with — and is the key list in the way, or do you want it up by default?",
+  "context_md": "**Judge the interface, not the ground.** The rock is what you already rejected; the worldgen revamp is in flight and will replace it.\n\n**Bottom left — every key, on by default.** Fourteen of them. `/` or `F1` hides the list. Previously they existed only in a source comment and the window title bar, which is why you found nothing.\n\n**The rings are the new thing, and the one I would not have thought of.** Under the look you picked (`unchanged`), held ground draws *exactly* as running ground does — so a placed circle had no appearance at all. You could drop one, walk off, and never find it again.\n\n- **gold** = the circle of time you carry (r28, free)\n- **faint grey** = what SPACE would place, at the current radius (Q/E)\n- **blue** = a standing circle you are paying for\n\nDeliberately plain — this is UI, not the rim. The rim is arrested matter and it is still its own job.\n\n**Top left — the state.** Power and the two rates that move it (a number alone cannot tell you whether you are winning), animals alive against animals *awake* (an animal in held ground is scenery: it pays nothing), circles and next radius, held/running, and the active look. Bottom line is the last thing that happened, for three seconds — founding a colony on bad ground used to report to a terminal you are not looking at.\n\n**What I want from you:** whether the key list should stay up by default or start hidden, and whether the rings read as *circles of running time* or as debug overlay.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260913T170406324Z-f27903/000-druid-shipped.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
