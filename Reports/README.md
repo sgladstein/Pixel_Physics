@@ -2577,6 +2577,14 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Carries the round's standing rulings: the review queue is for the eye only,
   Fable is twice Opus, and a conservation failure is a question about the
   ruler first.
+- [evolution-lab-round-33-brief-2026-09-13.md](evolution-lab-round-33-brief-2026-09-13.md)
+  — **brief, 2026-09-13.** Round 33's task list, in the owner's priority order.
+  Round 32 measured the late-game creature cost; this round builds against it.
+  Task 1 is **parallelising the creature pass** — the largest single item, at
+  ~86% of the frame on one core, and measured rather than guessed. Task 2 is
+  the millisecond that is already built and owes only a seed sweep. Carries what
+  must not be re-derived: the cost is not linear, it is ant count and not
+  session age, and a repair can remove a picture while leaving the mechanism.
 - [evolution-lab-round-32-2026-09-13.md](evolution-lab-round-32-2026-09-13.md)
   — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
   account of round thirty-two, the performance round: the owner's stated #1
