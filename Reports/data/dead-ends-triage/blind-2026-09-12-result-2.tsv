@@ -1,0 +1,106 @@
+B2-001	CONFOUNDED	2	The new 4,217-failure regression is produced by the neighbouring bearing clamp, which the rubric confirms is still gated on parent.is_none(), and the re-test clause names exactly that clamp.
+B2-002	DEAD	3	Strictly-better superseding mechanism: a per-organism row histogram produces the identical number in O(cells+rows) against a quadratic flood.
+B2-003	COSTED	3	Measured end-to-end cost (settled field 0.0002 -> 3.55 ms, field sleep destroyed) with a named reopening condition: a solver that settles under a steady forcing term.
+B2-004	DEAD	3	Counterexample measured backwards (a sealed room retained less pressure than open air) plus the textbook no-penetration condition that superseded it.
+B2-005	DEAD	3	Arithmetic impossibility: an 8-cell field block cannot resolve trails 4 cells apart, and the CA-resolution plane that supersedes it shipped at 0.0014 ms.
+B2-006	DEAD	3	Superseding mechanism shipped and the flood is gone: rigid.rs now documents load::failing_region answering which cells fail, with label_failing_region removed (verified in source).
+B2-007	DEAD	3	Disjoint call set by construction (0 moved against 452 refused) -- the rubric's named design-fault-in-the-mechanism case, not a measurement fault.
+B2-008	DEAD	3	Arithmetic impossibility: the allele is clamped at the draw site, so a widened resolver can never be handed a wide value; the zero is explained and the injection control moved a guard red.
+B2-009	COSTED	3	Measured on the cell-weighted ratio (13%/2.5%) with a named condition that changes the arithmetic: DENSITY_SUBSTEPS rising, or biomass moving into many small organisms.
+B2-010	DEAD	2	Structural: the early exit in diffuse_heat is keyed on conductivity == 0, so any nonzero default makes every material pay four neighbour reads for nothing; explicit opt-in supersedes.
+B2-011	DEAD	2	Strictly-better superseding mechanism: directed boundary-edge stitching is equivalent and unambiguous on binary occupancy, where marching squares' interpolation machinery has no problem to solve.
+B2-012	DEAD	3	Cadence arithmetic: a per-frame decay zeroes the deposit in ~10 frames before any 45-frame Grow check can read it; per-organism-tick decay supersedes.
+B2-013	DEAD	2	Owner blind A/B counterexample against the session's own prediction, and the named re-test condition is unmet -- Phase 3 cave shape is still unbuilt (Purpose::CaveVariety reserved and unused).
+B2-014	DEAD	2	Measured leak arithmetic (0.27 at magnitude 5, 0.09 at 12, -0.967 only at 30); the flip-side caveat makes the rejection of a shallower gate stricter, not weaker.
+B2-015	DEAD	3	Contradictory requirements: it removes the artifact only by destroying the property the rule exists for (water reads as sand), and LIQUID_SETTLE_DROP supersedes it at films 277 -> 0.
+B2-016	DEAD	3	Geometric counterexample: the perpendicular edge is what separates rock along the ray, so the reversed orientation cuts rings instead of wedges.
+B2-017	DEAD	2	Observed counterexample on screen (one-frame orange flash, no flame) plus the superseding position-and-time-bucket flicker with a heat_ratio hue ramp.
+B2-018	DEAD	3	Structural: while income is per-column sky visibility under a height bound, the light-optimal stand IS the one-cell slab, so upward bias and trunk branching push growth into the artifact.
+B2-019	COSTED	3	Measured at zero end-to-end and bit-identical by construction (verified by world hash), with the real cost driver identified separately; named condition is region count well past 80.
+B2-020	COSTED	3	Paired end-to-end cost of +0.149 ms/tick with two named reopening conditions (wanting order-independent draws for architecture, or cheaper per-visit machinery).
+B2-021	RE-TESTED	2	The named condition is met -- a per-order tropism reference exists as plagiotropic_here in plant.rs -- and plant.rs:1092 records the re-measurement: weeping/upward_weight and tropism both fired and read as nothing.
+B2-022	COSTED	3	Measured whole-frame repaint cost (7.997 ms mean against 0.012 ms settled, linear at 76 ns/pixel) with a named condition: a cell-granular repaint path that does not exist.
+B2-023	DEAD	3	Counterexample on both sides: undercut spalling went to zero because per-cell weakness IS the mechanism, and at the cut the mean equals the minimum so it did not help its own case.
+B2-024	DEAD	3	Structural: a rate knob cannot express a shape, so a lower brow_chance leaves the same comb only sparser -- the shape the owner rejected by name on residual_density.
+B2-025	META	2	Question 1: a withdrawn architectural rule with no mechanism attached -- reviving it would change design policy and documentation, not the engine.
+B2-026	DEAD	3	Owner counterexample on the pattern (one weight everywhere is a binary outcome) plus the fixed-radius ring; the 12-run sweep caveat prices the replacement, not the rejection.
+B2-027	DEAD	2	Superseding mechanism shipped -- DormantBud plus break_buds and a supportable count are in the tree -- and the frontier counterexample survives the LIGHT_DECAY-tuning caveat under rule A.
+B2-028	DEAD	3	Structural: aux 0 is written both by the painter and by rigid::settle, so the guard reinstates the binary immunity four earlier models were rejected for (2 cells evaluated of 15,840).
+B2-029	DEAD	3	Structural: a cell cannot locally distinguish an invalidation from a dead end, so the field ping-pongs at the same throughput; the closed-set reconvergence supersedes it (12.49 -> 0.25 ms).
+B2-030	DEAD	2	Rule A: delete the 1.7x figure (measured when a get was a hash, now a ChunkGrid index) and the redundancy reason survives -- write_cell already returns the old value.
+B2-031	META	3	Question 1: a withdrawn inference with no mechanism attached, refuted by creature_arena's maximal-effect negative control.
+B2-032	COSTED	3	Measured at 4.9% of step_organisms (0.16 ms of a 5.15 ms frame) against a 15% estimate, with named conditions: a pass restructure, or organisms far larger than 5,000 cells.
+B2-033	DEAD	3	Structural: the opacity reader is field.rs's rebuild_blocked, not any plant rule, and the named re-test condition is unmet -- no opaque flag exists on Material (verified).
+B2-034	DEAD	3	Structural: binary immunity means scene=ligament stands forever and one chip levels a castle; the capacity-multiplier form (attached_span_bonus, verified in load.rs) supersedes it.
+B2-035	CONFOUNDED	3	The shared light channel at FIELD_SCALE=8 cannot carry gallery-versus-open; verified that BrainInput still offers only LightHere, with no per-cell light and no in-the-open sense.
+B2-036	DEAD	3	External counterexample (real 2D sandpiles show no BTW power law) plus a superseding two-angle model, and the acceptance suite asserts the Gaussian distribution.
+B2-037	DEAD	3	Structural: one angle cannot express hysteresis, so settled piles relevel to a single slope; two-angle repose supersedes it.
+B2-038	COSTED	2	Two measured packing costs with a named reopening condition that is verified unmet: Cell still asserts 12 bytes and all eight aux flag bits are taken.
+B2-039	COSTED	2	Costed at ~655 KB/frame saved (not a bottleneck) against a named condition -- a crate exposing partial uploads -- and Cargo.lock still pins pixels 0.17.2.
+B2-040	DEAD	3	Structural: paced relaxation lets the count-to-infinity dynamic push cells past their span before the anchor arrives, producing a global collapse on frame one.
+B2-041	DEAD	2	Contradictory requirement stated by the owner (a roof that falls in was declined) plus a monotone rising water table that is a binary arriving slowly, not a middle.
+B2-042	DEAD	3	Contradictory requirements on one constant (player span strong, undercut shelf weak) with no setting that satisfies both -- the entry's own no-setting-exists arithmetic.
+B2-043	DEAD	3	Superseding mechanism: a min-heap with a full total order fixes both the false O(due) claim and the engine's only documented non-determinism source.
+B2-044	CONFOUNDED	2	The guard the rejection rests on is marginal only because #189's capillary and drying-brake constants were never re-derived -- a correct mechanism read at inherited constants.
+B2-045	SUSPECT-INSTRUMENT	2?	The effect sits inside the harness's own published 2.42-3.12x seed-noise floor over six seeds, which the entry states outright; the unequal weight count is named as a second reason to distrust it.
+B2-046	DEAD	3	Counterexample: the any-cover test is correct because whatever covers the cell falls into the vacated spot either way, and the narrow gate left every water-under-sand cell scanning.
+B2-047	DEAD	3	Two attempts failing the same way: penalising the crossing cell relocates the tear as a throttle at the same seam (2236/1948 against 988 for correct ordering), and chunk decomposition is unchanged.
+B2-048	DEAD	3	Counterexample: 63 bites removed only 77 cells because the bore's own spoil shielded the face; reaching past powder to the first hard cell supersedes it.
+B2-049	DEAD	3	Arithmetic impossibility: three octaves concentrate near 0.5 by the central limit theorem, so folding the sum piles mass against the maximum (0.567) instead of producing rare crests.
+B2-050	CONFOUNDED	2	The null is produced by an upstream defect (§R3: no multi-cell body holds a population) that is constant across the paired free/priced control and across flat slab and world alike.
+B2-051	SUSPECT-INSTRUMENT	3	Three seeds at a quarter of the round's frame budget with windfall counts of 0-2 -- below the sweep bar and inside the noise caution the entry itself invokes.
+B2-052	RE-TESTED	3	The entry records its own re-test on P2's flitter: the reach condition was met (35/45/58 rows against a 22-row flower) and flower_visits stayed at 5/2/0, moving the gap from reach to encounter.
+B2-053	DEAD	3	Structural: per-call jitter means the crack-tip bonus can never find a fissure to extend, so blows repeat instead of accumulating; site-keyed jitter supersedes it.
+B2-054	DEAD	3	Arithmetic impossibility: a 175-unit mutation step against herb's authored 60; verified that SpeciesRegistry::param_scale is still corpus-wide with no per-species or relative step.
+B2-055	DEAD	3	Arithmetic: a whole-difference transfer overshoots equality and the alternating scan direction swaps it back forever (active chunks still nonzero at 24,000 frames).
+B2-056	CONFOUNDED	3	A latent, unrelated vault_density overlap defect produced the failing test, isolated exactly by moving that one row back with nothing else changed.
+B2-057	CONFOUNDED	2	The channel-B plane could not carry the gradient to a two-point sensor (31 nonzero cells in a 169-cell neighbourhood), and channel A at 12.7x the mass is the named untried arm.
+B2-058	DEAD	3	Playtest counterexample at the bottom of the range (radius 2 correct in arithmetic and invisible on a cliff); the floor supersedes while keeping the brush scaling that was right.
+B2-059	UNBUILT	2	Never built: full MPM was declined at design time against a ~16 ms CPU frame budget, with only its friction-angle parameterisation kept.
+B2-060	SUSPECT-INSTRUMENT	2	Rule A: the field measurements were all favourable, so the rejection rests entirely on eight starting positions in one sealed corridor, which the entry itself says is not a sweep.
+B2-061	DEAD	3	Playtest counterexample: W is jump and climb, so jump-walking through a wood grabbed every trunk and read as hovering; an explicit grab key supersedes it.
+B2-062	META	3	Question 1: the thing rejected is the labgif harness's own knob interaction -- reviving it changes a rendered sheet's dimensions, not the engine.
+B2-063	DEAD	3	Counterexample with a mechanical cause: loose tilth runs down update_powder's straight-down rule and closes the gallery (2/1 roofed void against 54/58 tamped).
+B2-064	EXPIRED	3	Condition met and unactioned: the 4-bit packing is gone (canopy_density is now an f32 in the organism sidecar) yet CANOPY_DENSITY_DECAY_PER_TICK is still 0.5, with its own doc saying the re-tune was deferred.
+B2-065	COSTED	3	Measured 2.7x frame time (62.56 against 23.06 ms) for an unchanged discrimination table, with a named condition: arching needing to discriminate deeper than 8 cells of cover.
+B2-066	DEAD	2	Contradictory requirement: the only arm that recovers the guard's headline writes the cell at field capacity and mints water, which conservation forbids; the three shippable arms are a wash.
+B2-067	EXPIRED	2	Decision 4's economy has landed -- intercepted-light income, q_peak maintenance and a leaf-declared Photosynthesize are in the tree -- and no cost/rate/reserve re-tune sweep is recorded.
+B2-068	DEAD	3	The constant was sized against one write rather than against the balance the drops actually reach (0.031 of saturation world-wide); re-derivation from the steady state supersedes it.
+B2-069	LANDED	3	Condition met and revived: the score is now divisive (score = preference / (1.0 + density * crowding_weight)) and every shipped species authors crowding_weight 30.0, far past the old cliff.
+B2-070	DEAD	2	External counterexample: grafting experiments falsify meristem senescence, so any timer-based permanent tip retirement models a disproven mechanism.
+B2-071	DEAD	3	Measured superseding mechanism: error diffusion reads 0.41 RMS departure against feedback's 0.65, and feedback makes the visible jitter worse (direction changes 66.5% -> 79.0%).
+B2-072	DEAD	3	Counterexample: any cell buried more than dispersion cells from an opening has no legal move on any frame, so a wide column eroded only from its edges.
+B2-073	DEAD	2	Superseding mechanism measured indistinguishable at 56,640 gas cells (own-tile array index), and the condition still holds -- World::fields is still an FxHashMap (verified).
+B2-074	META	3	Question 1: the thing rejected is the measurement horizon itself, a sweep method -- reviving it changes a comparison, not the engine.
+B2-075	DEAD	3	Disjoint call set: sleeping cells are by definition not visited, so the coupling never fired for the case it was built for -- the rubric's named design-fault case.
+B2-076	DEAD	3	Counterexample: roots are plant cells with the soil bed resting on them, so an ungated shake stirred 1,235 cells of soil against 429 when gated on open air.
+B2-077	DEAD	2	Measured counterexample (35% establishment failure because an order-0 seedling sees only the trunk tier), and the juvenile/adult axis the clause names still does not exist.
+B2-078	DEAD	3	Arithmetic: a max over a population is a statistic about its extreme member, so a threshold fitted above it excludes the exact case the threshold exists for.
+B2-079	EXPIRED	3	Condition met, no re-test recorded: wood.ron and log.ron now ship ignition_temperature 400.0 and deadleaf.ron 320.0, so the heat-only path can light something today.
+B2-080	DEAD	3	Counterexample (a puddle sat on damp ground forever) compounded by the gate making the conservation test pass against dead code; min(fill, room) supersedes it.
+B2-081	COSTED	3	Measured scan cost (82,487 re-scanned primed cells against 1,160 at interval 3) with a named condition: a cheaper primed-site walk.
+B2-082	EXPIRED	2	The named condition was direct chunk-array neighbour access instead of a World::get HashMap lookup per neighbour, and ChunkGrid has since made World::get a dense Vec index -- the ~10 ms figure predates the rebuilt cost baseline.
+B2-083	DEAD	3	Structural: a per-frame-priced verb with a positive resting sum is a state rather than an outcome; the exactly-cancelled bias (squash(0.0) == 0.0) supersedes it.
+B2-084	DEAD	3	Counterexample: 86% of one-frame debris landed immediately and refilled its own crater; staged spawning plus debris_fraction supersedes on both look and cost.
+B2-085	DEAD	3	Structural trap: chunk sleep is keyed on writes, so a deferral that writes nothing lets the chunk settle and freezes the grain mid-water forever.
+B2-086	EXPIRED	2	Condition met, no re-test recorded: the monotone high-water girth memory the clause gates on exists today as OrganismCell::q_peak, explicitly distinguishing a plant that lost foliage from one that never had any.
+B2-087	DEAD	3	Counterexample: 0.000 humidification against 2.310 for the identical body three rows up; the moisture-only read-through exception supersedes it.
+B2-088	CONFOUNDED	2	Measured only on a bed reading 0.000 available in every arm -- a scene with no gradient for the mechanism to express -- and the deep bed where the gate works is named and untested.
+B2-089	DEAD	3	Structural: leaving aux at its default makes an entire generated world read anchored while being structurally invalid, so any scheduling change collapses it globally.
+B2-090	DEAD	2	Rule A: delete the 8.1 -> 12.7 ms figure and the reason survives -- the dispatch site already holds the Cell, so the call-site guard is a Vec index against a per-cell lookup.
+B2-091	DEAD	2	Magnitude arithmetic with the arms verified different (19.4% of the frame redrawn): a median move of 11 of 255 against a ~28-point intra-palette step, and the owner saw no difference.
+B2-092	DEAD	3	Counterexample: total |pressure| after 200 steps went 2.9 -> 2177.8 with the clamp, and the clamp width is fixed by the halo the awake set provides, not chosen as a margin.
+B2-093	DEAD	2	Observed counterexample rather than a null: the rule fires on every one-cell hole in dense tissue, 741 filled corners in a 64x40 crop, and the selector-mode re-test condition is unmet.
+B2-094	DEAD	3	Structural: damage is recorded on boundaries so a face interior carries no mark; the zero is mechanically explained and the per-domain flag moved the numbers (6 -> 14 failures).
+B2-095	DEAD	3	Counterexample: plant_creature_seed refused every site in the world at k=2 because supersampling away from the origin moved the anchor out of the head's block.
+B2-096	DEAD	3	Structural: the load model's only verdicts are holds and fails, so reaching the clamp crushes pieces instead of laying them down; verified that load.rs still has no go-over outcome.
+B2-097	DEAD	3	Structural: a compositional guarantee implemented by fixing the shape is not a parameter, so amplitude knobs cannot vary it; regional layout with a minimum elevation spread supersedes it.
+B2-098	DEAD	3	Arithmetic impossibility: round(0.9*n) == n for n in 1..=5 is a non-decaying limit cycle, so residual flux never reaches a small epsilon.
+B2-099	DEAD	2	Arithmetic: at 150 the levelling budget is unreachable by construction and the residual unevenness is visible, which is the bar this project judges by.
+B2-100	DEAD	2	Arithmetic: at ~8 cells of cover a roof cell's mass is already below the cap, so min(mass, Hp) is the identity; the moment arm is the binding constraint and the A/B switch showed it.
+B2-101	DEAD	3	Structural: relax_region seeds its boundary from stale-low outside values, and the arm that looked like a win was a vanished-work artifact caught by the SETTLE_GROUND control (max aux 142 against 2,482).
+B2-102	DEAD	3	Arithmetic: a floor at grant+1 is not a margin, so a newborn breeds on one unit of energy and the colony becomes a birth-death treadmill visible in live, not in births.
+B2-103	DEAD	3	Structural: leaf count scales with plant size while interception self-bounds via self-shading, so every tip's share never falls and the stand fuses (38,605 against 1,723 cells).
+B2-104	DEAD	2	Three in-repo counterexamples of stale enumerations (light with no writer, canopy density with an always-zero reader, pressure with no consumer) plus the superseding World::set test that shipped.
+B2-105	DEAD	3	Playtest counterexample (a one-row sky-to-dark transition read as way too intense and made every cave mouth a flat cutout); the 24-cell positional ramp supersedes it.
+B2-106	SUSPECT-INSTRUMENT	2?	The rejection is a redundancy syllogism with no published measurement or spread at all, and the entry itself says only a sheet could settle it -- the rubric treats such a null as instrument-limited.
