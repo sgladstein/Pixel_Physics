@@ -49,7 +49,7 @@
 //! cargo run --release --example zoomout_pixels -- game=world settle=1200 seed=7
 //! ```
 
-use pixel_physics::app::{HEIGHT, WIDTH, WORLD_HEIGHT, WORLD_WIDTH};
+use pixel_physics::app::{App, HEIGHT, MAX_PIXEL_SCALE, WIDTH, WORLD_HEIGHT, WORLD_WIDTH};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::lab::Lab;
 use pixel_physics::render::{Renderer, ZoomOutFilter};
@@ -346,6 +346,53 @@ fn write_pngs(dir: &str, arm: &Arm, camera: (i32, i32), cell: (i32, i32, i32, i3
     path
 }
 
+/// **The shipped path, end to end** — `App::update` + `App::draw` at each
+/// `App::pixel_budget`, which is the only arm that includes the HUD and the
+/// buffer the real game actually allocates.
+///
+/// The three arms above drive `Renderer::draw` directly, which is right for
+/// pricing a change *before* it exists and is one call short of the frame the
+/// player waits for. This closes that gap now that the setting is real: same
+/// world, same rung, same camera, and the only thing varying is the budget.
+/// `App::viewport()` sizes the buffer exactly as `main.rs` does.
+fn price_app(reps: usize) {
+    let mut app = App::new();
+    for _ in 0..arg::<u64>("settle").unwrap_or(600) {
+        app.update();
+    }
+    app.renderer.zoom = 1;
+    app.renderer.zoom_out_stride = SPAN_STRIDE as i32;
+    // The window is not in the way here; the question is what the budget
+    // costs, not what a particular window allows.
+    app.pixel_scale_cap = MAX_PIXEL_SCALE;
+
+    println!("\n=== outdoor, the shipped path (App::update + App::draw, HUD included), median of {reps}");
+    println!("{:>8}  {:>12}  {:>10}  {:>10}  {:>10}  {:>9}", "budget", "buffer", "update ms", "draw ms", "frame ms", "vs ship");
+    let mut base = f64::NAN;
+    for budget in [1, 2, 4] {
+        app.pixel_budget = budget;
+        let (w, h) = app.viewport();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        // One warm draw per arm: a budget change resizes the buffer, and the
+        // first draw into a new one has no previous frame to reuse.
+        app.draw(&mut frame, None);
+        let (mut up, mut dr) = (Vec::new(), Vec::new());
+        for _ in 0..reps {
+            let t = std::time::Instant::now();
+            app.update();
+            up.push(t.elapsed().as_secs_f64() * 1000.0);
+            let t = std::time::Instant::now();
+            app.draw(&mut frame, None);
+            dr.push(t.elapsed().as_secs_f64() * 1000.0);
+        }
+        let (u, d) = (median(&mut up), median(&mut dr));
+        if budget == 1 {
+            base = u + d;
+        }
+        println!("{budget:>8}  {:>12}  {u:>9.3}  {d:>9.3}  {:>9.3}  {:>8.2}x", format!("{w}x{h}"), u + d, (u + d) / base);
+    }
+}
+
 fn main() {
     let reps: usize = arg("reps").unwrap_or(9);
     let game: String = arg("game").unwrap_or_else(|| "both".to_string());
@@ -357,6 +404,9 @@ fn main() {
     println!("  'set px' is pixels the dirty-rect skip repainted with nothing touched: a");
     println!("  settled screen should be near 0, and a number near 'carried' means the skip");
     println!("  did not fire and that row's settled figure is a full redraw wearing its name.");
+    if game == "app" {
+        return price_app(reps);
+    }
     if game != "lab" {
         let settle: u64 = arg("settle").unwrap_or(600);
         println!("\n[outdoor] generating {WORLD_WIDTH}x{WORLD_HEIGHT} and settling {settle} frames...");
