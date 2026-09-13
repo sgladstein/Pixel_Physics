@@ -755,6 +755,25 @@ term that measured ten times worse on one scene while nearly halving the worst
 case over 24 seeded runs, are in
 [`Reports/method-worked-cases-2026-09-05.md`](Reports/method-worked-cases-2026-09-05.md).
 
+### A pass/fail read of a graded quantity hides the gradient
+
+The sibling of the mean below, and it produced a **confidently wrong
+diagnosis that was then handed to another session as a finding**. Bisecting a
+guard that asserts *zero* of something, an agent read the test's **exit code**
+rather than the number in its message: the field it had just reverted took the
+failure from **15 wrong cells to 2** and the bisect scored that as "still
+fails, not the cause". It was 13 of the 15. One run would have pointed
+straight at it had the count been read instead of the verdict.
+
+**So when bisecting against any guard whose assertion is `== 0` or `< bar`,
+score the arms on the quantity, not on green/red.** A guard is a threshold by
+design — that is what makes it a guard — and a threshold is exactly the thing
+that cannot rank two failing arms. The same shape reaches every all-or-nothing
+readout in this repo: an acceptance case, a `--check` script's exit status,
+`assert!(x < bar)`. Found by the evolution-lab coordinator on the druid
+preset, 2026-09-13, and recorded here because a PR body is not where a rule
+lives.
+
 ### A mean over *events* is not a mean over the thing you care about
 
 The sibling of the metric traps below, one level up, and it nearly cost a
