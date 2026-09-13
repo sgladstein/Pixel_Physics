@@ -281,14 +281,32 @@ across **fewer draw calls than ticks**; one that draws once per tick cannot
 tell the two counters apart and would be blind, which is this file's standing
 rule about a guard that cannot fail for the fault it is named for.
 
-**And the owner's three markers never arrived.** He placed them on the card and
-both cards read `annotations: []` from the shared queue. So the third reading —
-that the specific ants he pointed at are genuinely stuck, with `moves_blocked`
-climbing — could not be checked at all this round, and is filed in §Z13 as the
-open question with `HeadBlock`/`moves_blocked` named as what settles it. **A
-verdict's free-text comment survives the queue and its annotations did not**,
-which is a fact about the instrument worth knowing before anyone designs
-another card around marker placement.
+**And the owner's three markers: the coordinator got this wrong, published it,
+and then measured it properly.** The claim was that his annotations never
+reached the shared queue while his comment did — read off `review.py inbox`,
+which showed `annotations: []`. **`inbox` is a filtered view, not a listing.**
+Measured afterwards with `get <id>`: all three cards involved are **absent from
+`inbox` entirely**, two of them posted the same day, and round 29's resting card
+`20260912T045951545Z-6931d4` — the same complaint on the same animals — returns
+**three marker coordinates with the owner's notes attached**. So annotations
+survive the queue perfectly well.
+
+What is true is narrower and stranger: **round 31's own idle card
+`20260913T034419970Z-34d562` is archived carrying no stored response at all** —
+no comment, no annotations — although he answered it and said he had placed
+three markers. His verdict reached the lane only because he relayed it in chat.
+So a card can be answered and still hold nothing, and when that happens the
+chat copy is the only one; it belongs in the register rather than as a pointer
+at the card.
+
+**The consequence is a live unblock, not just a correction.** The third reading
+— that the specific animals he pointed at are genuinely stuck, `moves_blocked`
+climbing, which would make §Z13's "look problem, not a walk bug" wrong — was
+filed as uncheckable. It is checkable: round 29's three coordinates are in
+hand, and round 32's brief carries them with the counters to read at those
+cells. **The instrument lesson is `get <id>`, never `inbox`** — the coordinator
+note already carried that rule from the `--mark-seen` incident, and this is a
+second, independent reason for it that cost a false published finding.
 
 ## The round's largest finding: nobody can reproduce the owner's bed
 

@@ -138,9 +138,18 @@ were in `examples/`**, where every measurement here comes from. Grep the
 and **read a conservation failure as a question about the ruler before the
 engine**: both readings fit the number and prescribe opposite work.
 
-**A card's free-text comment survives the review queue; its annotations do
-not** — the owner placed three markers, both cards read `annotations: []`.
-**Never design a card whose answer depends on marker placement.**
+**`review.py inbox` is not a listing of the queue — it is a filtered view, and
+reading a verdict off it gives wrong answers.** Measured 2026-09-13: three
+cards, two of them posted that day, are **absent from `inbox` entirely** while
+`get <id>` returns them in full. Off `inbox` the round-29 resting card reads as
+having no annotations; `get` returns **three marker coordinates with notes**.
+**So `get <id>` is the only authoritative read** — this is the second
+independent reason for that rule, after the `--mark-seen` incident.
+**A card can also be archived carrying no stored response at all** even after
+the owner has answered it: round 31's idle card (`20260913T034419970Z-34d562`)
+is archived with no comment and no annotations, though he gave a verdict and
+placed three markers. **When that happens the verdict he relayed in chat is the
+only copy, so write it into the register rather than pointing at the card.**
 
 **Ask "did it fire at all" of a negative verdict, not only of a harness.** All
 three idle animations read as failures and the mechanism had mostly not run —

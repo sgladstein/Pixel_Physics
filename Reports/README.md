@@ -2638,6 +2638,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   budget and a duplicated claim are one failure git cannot see**; a session's
   status describes the turn that ended, not the one running; a partly-green PR
   carries almost no information; and green CI is not mergeability.
+- [evolution-lab-playtest-2026-09-13.md](evolution-lab-playtest-2026-09-13.md)
+  — **the first playtest log produced by a person rather than a harness, and
+  the measurement of record for late-game frame cost, 2026-09-13.** 560,000
+  frames in 84 minutes, five long-ant colonies, peak 2,982 ants, 72
+  generations; the raw file is committed at
+  `data/playtest-2026-09-13-herb_longant-s1-560k.txt`. **Cost is about 1.0 ms
+  per tick plus 2.1 µs per ant per tick**, fitted on the lower envelope of the
+  wall clock because adjacent samples at equal ant count differ 12–14x (he was
+  using the machine) — so at 3,000 ants the creatures are **86% of the frame**.
+  It is **not** the cell sweep (cost 6.3x against active sites 2.2x, and the
+  two are not monotone together) and **not** the renderer (**10** skipped draws
+  in 560,000 frames). What it cannot do is localise the cost inside the
+  creature pass; that needs a headless replay on a quiet box. Three further
+  findings: **five census columns are dead** — `roofed`, `pit`, `pack<`, `mnd`
+  and the nest band are each one constant across all 56 samples, so the file
+  can say nothing about the nest despite 356,688 digs; **the land does recover**
+  (bare ground 2% → 56% → 6%, plants 277 → 24 → 409, taking ~320,000 frames),
+  which refutes the premise round 32 was first given; and **the mound does not
+  exist until frame 360,000**, which is why round 31's §Z18 card at 150,000
+  frames drew *"none of this reads as an ant hill"*.
 - [evolution-lab-lifespan-rederived-2026-09-13.md](evolution-lab-lifespan-rederived-2026-09-13.md)
   — **measurement of record for the ant lifespan and the played bed after the
   seed cull, round 31 lane A, 2026-09-13.** Everything the creature line knew
