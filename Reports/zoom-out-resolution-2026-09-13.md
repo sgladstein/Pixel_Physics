@@ -103,6 +103,28 @@ paid every frame. `CLAUDE.md`'s warning — a change free in every moving scene
 and ruinous at rest — is inverted here: it is the *moving* number that governs,
 and the settled one that flatters.
 
+### The shipped path, measured after it was built
+
+The three tables above drive `Renderer::draw` directly, which is the right
+instrument for pricing something that does not exist yet and is one call short
+of the frame the player waits for. `zoomout_pixels game=app` closes that gap:
+`App::update` + `App::draw` at each budget, HUD included, buffer sized exactly
+as `main.rs` sizes it. Median of 11, `RAYON_NUM_THREADS=4`.
+
+| budget | buffer | update ms | draw ms | whole frame | vs ships |
+|---|---|---|---|---|---|
+| x1 | 512x320 | 13.31 | 35.03 | 48.34 | 1.00x |
+| x2 | 1024x640 | 13.40 | 48.79 | 62.19 | **1.29x** |
+| x4 | 2048x1280 | 14.00 | 66.28 | 80.28 | **1.66x** |
+
+**It comes in slightly cheaper than the pre-build estimate** (1.31-1.37x and
+1.79-2.07x), and for the reason that should be expected rather than a happy
+one: `App::draw` carries fixed cost the subsystem harness does not — the HUD,
+the particles, the camera follow — so the growing part is a smaller share of a
+bigger frame. The absolute figures are not comparable between the two tables
+and the ratios are; this is the same shape as *an isolated harness overstates
+what the app will see*, arriving at 1.66x where the isolated arm said 1.79x.
+
 ## What the pictures say, which the numbers cannot
 
 Two review cards, both `board=zoom`, posted 2026-09-13, verdicts pending:
@@ -147,6 +169,26 @@ Sized from the numbers rather than from the brief:
    both. Span must stay `512 x level` while the renderer samples at
    `level / scale`, so `scale` must divide `level` — at level 3 only 1 and 3 are
    expressible.
+
+**Built, and it is these numbers that were used to size it.** Shipped
+2026-09-13 as `App::pixel_budget` (`+` while zoomed out, x1 / x2 / x4, default
+x1), with `Renderer::pixel_scale` spending it, `render::Hud` keeping the HUD at
+its logical size, and `App::pixel_scale_cap` bounding it by the window. See
+README's *Zoom-out resolution status*.
+
+**What the live check caught, and no test did.** Run in the real app under
+xvfb, it panicked at the widest rung: `index out of bounds: the len is 655360
+but the index is 700428`, in a HUD blend a hundred lines from its cause.
+`main.rs` sized the buffer from `App::viewport()` and `App::draw` pushed the
+budget at the renderer *afterwards*, so for exactly one frame after any change
+to the choice or the cap the two disagreed — a 512x320 buffer with the renderer
+believing it was 1024x640. Every test passed through it, because every test
+applied the budget before drawing. The fix is one derivation
+(`Renderer::pixel_scale_for`, called by `viewport` with the authoritative pair)
+so there is no ordering to get right, plus an assert in `draw` that the frame is
+the size the caller claims. This is *verify live before declaring done* earning
+its place again: the feature was correct in twelve guards and crashed on the
+first frame of the real thing.
 
 The one cost not in the tables: the HUD is drawn at fixed pixel coordinates
 through 82 call sites in `src/app.rs`, so a grown buffer needs those to scale or

@@ -195,7 +195,7 @@ Two things worth knowing before reaching for it. It is bounded by the window —
 asking for more dots than the screen can show buys nothing, and the game
 quietly gives you as many as will fit, remembering what you asked for in case
 you make the window bigger. And it is not free: the middle setting costs about
-a third more work per frame and the largest roughly twice, which on a busy
+a third more work per frame and the largest about two thirds more, which on a busy
 world is felt. It starts switched off, and the picture at every ordinary zoom
 is untouched by it.
 

@@ -3991,13 +3991,11 @@ impl Renderer {
         // two and not the other" from an out-of-bounds deep inside a HUD blend
         // into a sentence naming both numbers. `Renderer::pixel_budget` made
         // that class reachable, and it was reached on the first live run.
-        debug_assert_eq!(
-            frame.len(),
-            (width as usize) * (height as usize) * 4,
-            "frame buffer is {} bytes but the caller says it is {width}x{height} ({} bytes) -- resize the buffer before drawing into it",
-            frame.len(),
-            (width as usize) * (height as usize) * 4
-        );
+        //
+        // **`>=`, not `==`.** Too *small* is the fault -- it is what panicked --
+        // and an exact check would also reject a caller reusing one oversized
+        // scratch buffer for several sizes, which is a legitimate thing for a
+        // harness to do and nothing to do with this bug.
         assert!(
             frame.len() >= (width as usize) * (height as usize) * 4,
             "frame buffer is {} bytes, too small for the {width}x{height} the caller asked for",
