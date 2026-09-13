@@ -412,9 +412,26 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
     // reads exactly like a rule that does nothing. Waking every chunk each
     // frame is far too expensive to ship and is the cleanest possible
     // separation of the two.
-    for (footing, woken) in [(false, false), (true, false), (true, true)] {
+    // The fourth arm is a **measurement of a candidate, not a proposal.** The
+    // 12-seed whole-run sweep found the footing rule does not move the pooled
+    // standing count on this bed, and the `why` probe says why: most hanging
+    // worked ground is resting on a plant cell or on an ant, and `slumps_into`
+    // turns such a pellet into *loose soil where it stands* -- which then rests
+    // on the same grass blade, because a powder rests on a plant cell. Same
+    // pixels, different material. The engine already has the flag that would
+    // change that (`Material::falls_through_organisms`, carried by water,
+    // litter, windfall, pip and seed), so this arm puts it on both soils and
+    // prints what it buys. It is not shipped here: it changes how every powder
+    // in the world meets every plant, which is a plant-line decision and wants
+    // its own sweep.
+    let soil_id = world.materials.id_of("soil").expect("soil is compiled in");
+    for (footing, woken, through) in [(false, false, false), (true, false, false), (true, true, false), (true, false, true)] {
         let mut w = world.clone();
         w.materials.get_mut(spoil).needs_footing = footing;
+        if through {
+            w.materials.get_mut(soil_id).falls_through_organisms = true;
+            w.materials.get_mut(spoil).falls_through_organisms = true;
+        }
         let mut particles = ParticleSystem::new();
         let mut blasts = Blasts::new();
         for _ in 0..after {
@@ -426,10 +443,11 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
         let f = census(&w, spec.width, spec.height);
         why(&w, spec.width, spec.height, 0);
         let c = census::census(&w, &spec, 0.0, &[spec.width / 2], &ids);
-        let label = match (footing, woken) {
-            (false, _) => "footing OFF (main)",
-            (true, false) => "footing ON (the repair)",
-            (true, true) => "footing ON + every chunk woken",
+        let label = match (footing, woken, through) {
+            (false, ..) => "footing OFF (main)",
+            (true, false, false) => "footing ON (the repair)",
+            (true, true, _) => "footing ON + every chunk woken",
+            (true, false, true) => "footing ON + soil falls through plants",
         };
         row(&format!("+{after} {label}"), f);
         println!(
@@ -437,8 +455,8 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
             "", c.ants, c.roofed, c.pit, c.packed_above, c.mound_high, w.creature_stats.digs, w.creature_stats.spoil_dumped
         );
         println!(
-            "SUMMARY fork footing={} woken={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
-            footing, woken, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
+            "SUMMARY fork footing={} woken={} through={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
+            footing, woken, through, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
             c.roofed, c.pit, c.packed_above, c.mound_high, c.ants, w.creature_stats.digs, spec.seed, shared, after
         );
     }

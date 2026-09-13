@@ -13308,6 +13308,14 @@ mod tests {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
         let packed = w.materials.id_of("packedsoil").expect("packedsoil");
+        // **And `spoil` since 2026-09-13, or this identity is false by
+        // construction.** A hauled pellet is its own material now (§Z18,
+        // `assets/materials/spoil.ron`), so a census of "ground" that names
+        // only the two it used to be reports every pellet in the world as a
+        // cell that left it -- which is precisely the leak this test is named
+        // for, arriving as a false positive. Both halves of the identity have
+        // to name the same set; that is the 2026-09-05 lesson below.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
         for x in 90..=140 {
             for y in 96..=101 {
                 w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
@@ -13389,7 +13397,7 @@ mod tests {
                 .flat_map(|y| (0..=199).map(move |x| (x, y)))
                 .filter(|&(x, y)| {
                     let m = w.get(x, y).material;
-                    m == soil || m == packed
+                    m == soil || m == packed || m == spoil
                 })
                 .count();
             // **Only GROUND spoil, matching what `standing` counts** -- and
@@ -13413,7 +13421,7 @@ mod tests {
                 .filter(|&&id| {
                     w.organism(id)
                         .and_then(|s| s.spoil)
-                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed)
+                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed || sp.cell.material == spoil)
                 })
                 .count();
             standing + held

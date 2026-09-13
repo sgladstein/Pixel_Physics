@@ -158,7 +158,7 @@ point.
 | Z15 | **OPEN** | 11359 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 | Z16 | closed | 11437 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
 | Z18 | **OPEN** | 11578 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11630 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z17 | **OPEN** | 11706 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11626,6 +11626,82 @@ nothing under it; `latecensus`'s `mound`/`packed_above` count cells, supported
 or not. A census of unsupported worked-ground cells is the first thing this
 needs, and `CLAUDE.md`'s own warning applies to writing it: a *standing* count,
 not a creation rate, because the complaint is about what is still there.
+
+**2026-09-13, measured and half repaired — the lever was right, the population
+was not what anybody thought.** Round 31 lane B, branch
+`claude/lab-floating-spoil-r31`.
+
+**The instrument first: `examples/hangcensus`.** A standing census of worked
+ground with no path down to the world floor through ground, where *ground* is a
+non-organism `Powder` or `Solid` — a plant cell is not ground, which is the
+design report's §2c definition. Six controls, and they are why its numbers can
+be quoted: quiet on a lined gallery whose every roof cell has air beneath it
+(**specificity — the reading any shape rule fails**), exactly 4 in 1 piece on a
+hand-placed 2x2 floater, 5 in 2 when a pillar under a cap is deleted
+(**sensitivity**), and `anchors` on every line so a scene with no floor reads as
+a broken harness rather than a world of floating dirt. Its own corner-hung
+control was written wrong first — the cell sat squarely on the bank and every
+column read unchanged, which looked exactly like a pass.
+
+**The repair.** A dumped pellet is now `spoil`, a second worked soil identical
+to `packedsoil` in every field and palette byte but one: `needs_footing`. A
+pellet is a wall only while it is standing on *ground*. `packs_into:
+packedsoil` means an ant that works a pellet into the side of a passage through
+its own mound gets a real wall, so this is not "you cannot tunnel through your
+own spoil". Guard
+`update::a_pellet_needs_ground_under_it_and_a_wall_does_not`, four arms,
+watched red for both faults (the rule off; `needs_footing` put on
+`packedsoil`).
+
+**Forked from one bed so the arms cannot diverge** — `hangcensus mode=fork`,
+played_bed, 60,000 shared frames then 4,000 more per arm, `digs` within 1%
+across arms, one thread, one binary, four seeds:
+
+| seed | hang, main → repair | hanging *spoil* | pieces | roofed void | mound rows |
+|---|---|---|---|---|---|
+| 1 | 15 → **12** | 10 → 4 | 10 → 9 | 27 → 30 | 36 → 36 |
+| 3 | 79 → **68** | 41 → 25 | 17 → 16 | 215 → 184 | 39 → 39 |
+| 6 | 107 → **73** | 30 → 6 | 35 → 28 | 39 → 62 | 35 → 35 |
+| 12 | 21 → **6** | 15 → 0 | 4 → 2 | 79 → 62 | 16 → 16 |
+
+Down on 4 of 4 for the standing count, the hanging-spoil count and the piece
+count; **the towers are untouched on 4 of 4**, which is the one thing the owner
+likes that §3c's answer cost; and roofed void moves both ways (+3, −31, +23,
+−17) rather than the systematic −31%/−39% that rejected 3c.
+
+**But over a whole 60,000-frame run on twelve seeds it is a coin flip**, and
+this is the finding that matters more than the table. Better on 6, worse on 6,
+median `hang` **28 → 29**. The two are not in conflict: the arms of a whole run
+diverge from frame 100, and — the real reason — **most hanging worked ground on
+this bed is not stacked spoil.** The `why` probe (what is each hanging cell
+standing on) says so directly: of 16 hanging cells on seed 1, **zero stand on
+empty**. Five spoil rest on a `grassroot`, four on spoil above those, five
+lining cells on a root, one on an ant, one on water. So the dominant mechanism
+is **worked ground resting on plant tissue and on animals**, which is
+`packedsoil` cut in place as often as it is a pellet, and `needs_footing` on the
+pellet cannot reach the lining half at all.
+
+**And there is a sting the pooled count hides**: a pellet on a leaf slumps to
+loose soil *where it stands*, and loose soil rests on a plant cell like any
+other powder. Same pixels, different material. What would actually clear that
+class is `Material::falls_through_organisms` — the flag water, litter,
+windfall, pip and seed already carry — on the two soils, and it was measured on
+the same four forks as a fourth arm: `hang` 12 → 6, 68 → 58, 73 → 76, 6 → 6,
+i.e. almost nothing, while **`mound_high` collapses from 36/39/35/16 rows to
+11/11/36/9**. It flattens the anthill. Declined here on that number rather than
+argued about, and filed in `dead-ends.md`.
+
+**What is left of this section**, for whoever takes it next: worked ground *cut
+in place* that ends up standing on plant tissue or on an ant. It is a different
+mechanism from the one repaired here, the register's own diagnosis did not
+predict it, and the two candidate levers both look expensive — a support rule on
+the lining is the tunnel collapse `self_supporting` exists to refuse, and making
+dirt fall through plants costs the towers. `hangcensus`'s `hang_spoil` /
+`hang_lining` split is the column to read, and its third fork arm (every chunk
+woken every frame) is there so "the rule is wrong" and "the sweep never looked"
+can never again be confused — it was what found the first version of this repair
+computing its footing test inside a gate that already required the cell below to
+be empty, i.e. as dead code.
 
 ### Z17. `World::ground_datum` is built and wrong inside a sealed lab box, and it reads as "the whole box is underground" — **OPEN, found 2026-09-12**
 

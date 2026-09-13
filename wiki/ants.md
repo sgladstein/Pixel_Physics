@@ -1,6 +1,9 @@
 # Ants
 
-*Current as of: 2026-09-12, when **an ant stopped planting the seed it had
+*Current as of: 2026-09-13, when **a colony's tailings stopped hanging in the
+air** — a dropped pellet is its own kind of ground now and holds only while
+something is under it, so undermining a heap brings the overhang down as loose
+dirt. Earlier, on 2026-09-12, when **an ant stopped planting the seed it had
 just eaten inside its own head.** When a meal that carried a seed was
 finished, the seed was set down at the spot where the ant stood, which is
 the ant, and the ant died of it, booked as a killing that no animal had
@@ -864,6 +867,21 @@ does not slump into a cone the way spilled dirt would. It holds its shape,
 and a worked bank ends up with a shelf of its own spoil out in front of the
 face. Left loose instead, the tailings would pour straight back down the
 tunnels and there would be no nest at all.
+
+**But cemented tailings are not a wall, and for a long time they behaved like
+one.** A dropped pellet held its own weight for ever, so anything that later
+took away what it had been resting on left it standing in mid-air, and a
+colony stacking spoil on its own spoil built lattices of dirt hanging in the
+sky above the anthill — the first thing anyone looking at a picture of the bed
+saw, and reported three times from three different pictures. A heap of
+tailings now holds only where it is standing on something. Cut the base out
+from under an overhang and it comes down a cell at a time off the underside,
+each cell turning back into loose dirt that falls and piles below, so
+undermining your own spoil does something you can watch. The shelf in front of
+the face is still a shelf and a tower is still a tower; what has gone is the
+part that was standing on nothing. And a passage driven through a heap stands,
+because an ant that works a pellet into the side of it has made a wall of
+it.
 
 **An ant will not put a pellet down just anywhere**, and the two things it
 insists on are the two ways spoil otherwise goes wrong. It has to be able to
