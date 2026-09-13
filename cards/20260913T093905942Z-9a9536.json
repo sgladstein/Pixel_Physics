@@ -1,0 +1,52 @@
+{
+  "id": "20260913T093905942Z-9a9536",
+  "created": "2026-09-13T09:39:05Z",
+  "board": "held-world",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "a380bcc1",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "One hue outside the circle",
+  "question": "Does the grey read as land that has been STOPPED - or as a game that has not finished loading?",
+  "context_md": "Treatment **C**, on a key (`L`) beside **E**, which stays the default. Same world, same seed, same frame - the only difference is how held ground is drawn.\n\nOutside the circle the hue is replaced and **the luminance is kept exactly**, which is why every silhouette, shadow and stratum still reads. It is a full replace on a ramp rather than a blend, for the reason `CLAUDE.md` records: a magnitude-scaled blend once produced a sheet that read as blank.\n\nThe colour you can see is the gnome's **carried quickening** - the small free circle that follows him. There is still no drawn rim; that patch of green and brown IS the boundary, which is the first time it has been visible at all.\n\n**Something I did not plan, and it is your call.** The sky stays blue in both - sky is not drawn through the per-cell path, so the transform never touches it. A blue sky over a grey land might be exactly right, or it might be the thing that breaks it.\n\n**Please ignore:** the gnome is standing where the terrain put him, there is no HUD, and E is still the default so nothing changes unless you press `L`.",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "E - unchanged (the default)",
+      "files": [
+        "20260913T093905942Z-9a9536/000-world_druid.png"
+      ],
+      "caption": "held, but nothing says so",
+      "meta": {
+        "plants and animals in the world": 3772,
+        "tells that the world is stopped": "motion and the sky only"
+      },
+      "focus": null
+    },
+    {
+      "label": "C - one hue",
+      "files": [
+        "20260913T093905942Z-9a9536/001-look_onehue.png"
+      ],
+      "caption": "colour only where time runs",
+      "meta": {
+        "plants and animals in the world": 3772,
+        "radius of the carried circle": "28 cells"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
