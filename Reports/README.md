@@ -3251,6 +3251,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ns/px. Author's style pick is *illustrated*: the only look that answers
   "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
   style question deserves its own round and what it does first. Two cards.
+- [zoom-out-resolution-2026-09-13.md](zoom-out-resolution-2026-09-13.md)
+  — **measurement, 2026-09-13, verdicts pending.** What it costs to give the
+  zoomed-out view its own pixels, for the owner's *"why my screen resolution
+  can solve all of the pixels, why cannot there just be more pixels when you
+  zoom out?"*. The renderer draws into a fixed 512x320 buffer and the screen
+  magnifies it, so the widest zoom-out discards **94% of the cells in view**.
+  `examples/zoomout_pixels.rs` holds the span fixed and trades stride against
+  resolution — `pixels x stride²` constant, so cell reads are equal and only
+  per-pixel work varies. **16x the pixels costs 1.8–2.1x the whole frame, not
+  16x**, and the x2 rung carries 4x the cells for 1.31–1.37x. The brief's
+  hypothesis (the dirty-rect skip absorbs it) is **wrong outdoors** — the sky
+  moves, so the skip never fires there and the moving number governs; in the
+  lab it fires and the cost is flat across a 16x pixel range. Two cards, and
+  they do not agree: the lab plainly gains (Coverage keeps a one-cell stem but
+  draws it four cells wide), outdoor rock arguably loses its grain to
+  smoothness. Says what to build and what the HUD costs.
 - [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
   — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
   eighteen pull requests from nine cloud lanes, merged in one order because
