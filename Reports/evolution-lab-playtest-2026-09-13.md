@@ -119,9 +119,28 @@ number that cannot move, which is the same rule from the other side.
 The likely common cause is the last row: the nest band is `0/0`, so anything
 scoped to it is measuring an empty set. That is one fix, not five.
 
+> **Corrected 2026-09-13 (round 32 Lane B, PR #387).** It is **two** fixes,
+> not one, and they are independent — the band reads `0/0` on a bed whose
+> spec and world agree perfectly, and the four footprint columns read their
+> constants on a bed that has a band. `lab::census` took "the original
+> surface" from `LabBox::ground_y`, which describes the bed that will be
+> built on the *next* REBUILD; the owner raised the box height during setup,
+> `ground_y` rode the height by design, and the census spent the session
+> measuring a datum 96 rows down in the stone base. Separately,
+> `census::nest_columns` built the band from the bed spec and the scenario,
+> and his five colonies were founded by hand (`FOUNDERS 0  COLONIES 0`).
+> **And `pack^` was not working either** — see the correction under §4.
+> Full account: [`evolution-lab-census-datum-2026-09-13.md`](evolution-lab-census-datum-2026-09-13.md).
+
 **Until this is repaired the chronicle cannot say anything about the nest**,
 which is most of what the owner wants to know from it. `pack^` (mound cells
 above the surface) *does* work and is the only structural column that does.
+
+> **Withdrawn 2026-09-13 (PR #387): `pack^` does not work either.** Under
+> the same datum drift it counted worked soil in rows `[surface+48,
+> surface+96)` — the bottom half of the soil bed, the deep gallery lining —
+> as mound standing above the surface. It is *differently* wrong rather than
+> dead, which is why it looked alive.
 
 ## 3. The land does recover, and it takes about 320,000 frames
 
@@ -147,6 +166,16 @@ every previous look at this question was taken before it happened.
 long"**, which is a judgement for the owner and not a bug to fix blind.
 
 ## 4. The anthill does not exist until frame 360,000
+
+> **This whole section is withdrawn, 2026-09-13 (PR #387).** It rests
+> entirely on `pack^`, which the §2 correction shows was measuring the deep
+> gallery lining rather than the mound. The 8,352 cells are a real count of
+> worked soil; what they are not is a count of mound, so neither the
+> 360,000-frame onset below nor its consequence — that a nest-structure card
+> must be taken at 400,000+ frames rather than 150,000 — follows from this
+> log. **Both need re-taking on a chronicle written after #387.** The
+> paragraph is left standing rather than deleted because the owner's §Z18
+> verdict it reinterprets is real and the re-take has to start somewhere.
 
 `pack^` — mound cells standing above the surface — is **exactly zero for the
 first 350,000 frames**, then 33 at 360,000, and climbs to **8,352** by 560,000.
@@ -181,6 +210,16 @@ churn evicting *line* events, and it did work — 64 line-ended and 47 milestone
 events survived — but the individual ring is being overrun by two orders of
 magnitude at this population. The cap needs re-deriving against a real colony
 rather than against a harness.
+
+> **Done 2026-09-13 (round 32 Lane B), with one correction to the sentence
+> above.** *"At this population"* attributes the overrun to the colony, and
+> at most half of it is: the ring took **81,690** events, of which at most
+> ~46,300 can be animal (15,905 births + 14,203 deaths + `FirstFeed`, which
+> fires once per animal), so **~35,400 are the plant stand** — a plant
+> pushes `Born` at germination and `Died` when freed, exactly as an ant
+> does. The cap moved 2048 → 8192; the load-bearing fix is that `COUNTS:`
+> no longer censuses the ring at all. See
+> [`evolution-lab-chronicle-counts-2026-09-13.md`](evolution-lab-chronicle-counts-2026-09-13.md).
 
 ## 6. What the dial says, and why `debt` is useless here
 

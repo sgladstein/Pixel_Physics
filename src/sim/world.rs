@@ -256,6 +256,39 @@ pub enum LogKind {
 }
 
 impl LogKind {
+    /// **Every kind, once**, so [`RunLog`]'s cumulative tally can be a fixed
+    /// array rather than a map and so a kind added later fails to compile
+    /// here instead of silently never being counted.
+    pub const ALL: [LogKind; 9] = [
+        LogKind::Born,
+        LogKind::Died,
+        LogKind::FirstFeed,
+        LogKind::FirstSeed,
+        LogKind::LineEnded,
+        LogKind::GroupSplit,
+        LogKind::LineMilestone,
+        LogKind::LineRecord,
+        LogKind::PlayerAction,
+    ];
+
+    /// This kind's slot in [`Self::ALL`] -- the index [`RunLog`]'s tally is
+    /// kept by. Written as an exhaustive `match` rather than a search of
+    /// `ALL` so that adding a variant is a compile error rather than a
+    /// lookup that quietly returns the wrong slot.
+    pub fn index(self) -> usize {
+        match self {
+            LogKind::Born => 0,
+            LogKind::Died => 1,
+            LogKind::FirstFeed => 2,
+            LogKind::FirstSeed => 3,
+            LogKind::LineEnded => 4,
+            LogKind::GroupSplit => 5,
+            LogKind::LineMilestone => 6,
+            LogKind::LineRecord => 7,
+            LogKind::PlayerAction => 8,
+        }
+    }
+
     pub fn label(self) -> &'static str {
         match self {
             LogKind::Born => "BORN",
@@ -352,19 +385,76 @@ pub struct RunLog {
     /// auditing which ring is under pressure can still tell them apart,
     /// even though `dropped()` itself does not.
     dropped_lines: u64,
+    /// **How many of each kind have ever been pushed**, indexed by
+    /// [`LogKind::index`]. Never trimmed, so it answers "how many were
+    /// born" for a session of any length at a ring of any size.
+    ///
+    /// **This exists because a count off a trimmed log is not a count of
+    /// events, and the lab already knew it.** The LOG page's own `OLDER`
+    /// row says so in as many words -- *"nothing in the lab is ever counted
+    /// off this page -- the counts come from each individual's own totals,
+    /// which are never trimmed"* -- and the chronicle's `COUNTS:` line was
+    /// the one place that did it anyway, tallying `RunLog::recent()`. In the
+    /// owner's 560,000-frame playtest that printed **`BORN 664`** for a bed
+    /// that had had 15,905 animal births in it: not a count of births, a
+    /// census of the ring, which was full at exactly `RUN_LOG_CAP`.
+    ///
+    /// Nine `u64`s, incremented once per push. No cap can do this job
+    /// instead: to make a ring census true you would have to hold the whole
+    /// session, which `RUN_LOG_CAP`'s own doc prices.
+    pushed: [u64; LogKind::ALL.len()],
 }
 
 /// **How many `Born`/`Died`/`FirstFeed`/`FirstSeed` lines the individuals'
-/// ring holds**, set from measurement with headroom.
+/// ring holds**, re-derived 2026-09-13 against a played session rather than
+/// a harness.
 ///
-/// Roughly 640 notable events per 90,000 frames of the shipped bed (see
-/// `LogKind`) split across both rings, so 2048 on this ring alone is several
-/// sessions of headroom even on a colony far bigger than the shipped one.
+/// **What the old number was, and why it was wrong.** It was 2048, from
+/// "roughly 640 notable events per 90,000 frames of the shipped bed ...
+/// several sessions of headroom even on a colony far bigger than the
+/// shipped one". The shipped bed is not a colony: measured here, one colony
+/// on the default 512-wide box starves to **5 ants by 60,000 frames**, so
+/// that estimate was taken on a population that had collapsed. The owner's
+/// 560,000-frame playtest pushed **81,690** individual events -- 79,642
+/// dropped plus a ring full at exactly 2,048 -- which is **forty times** the
+/// cap, and the ring covered the last ~2.5% of the session.
+///
+/// **What is in those 81,690, because it is not what it looks like.** The
+/// census on that log counts 15,905 animal births and 14,203 animal deaths
+/// (`creature_stats`, animals only), and `FirstFeed` fires at most once per
+/// animal (`state.life.bites == 1`), so at most ~46,300 of them are the
+/// colony at all. **The remaining ~35,400 are the plant stand**: a plant
+/// pushes `Born` when it germinates (`plant.rs`) and `Died` when it is
+/// freed, exactly as an ant does. So "the individual ring is overrun by this
+/// ant population" is at most half the story -- the bed's own turnover is
+/// the other half, and it does not go away by founding fewer colonies.
+///
+/// **Why this is not sized to hold a session.** That would be 131,072
+/// (2^17 > 81,690), and it costs twice: **7.3 MB** per world at
+/// `size_of::<LogEvent>()` = 56 bytes -- once per chamber on the rack, and
+/// `RunLog` is `Clone` -- and **~0.95 ms of every painted frame the LOG page
+/// is open**, because `Ui::log_rows` collects the whole merged ring into a
+/// `Vec` and then scans it again for its `OLDER` row. Measured paired in one
+/// process, four ring lengths alternating: 2,048 -> 0.012 ms, 8,192 ->
+/// 0.041, 32,768 -> 0.209, 131,072 -> **0.945**. Linear, as the code says it
+/// must be. Six percent of a 16.7 ms frame to back-fill a page that shows
+/// fourteen rows is not a trade this engine makes.
+///
+/// **And it is no longer the thing that makes the counts true.** The reason
+/// a session-sized ring looked necessary is that the chronicle's `COUNTS:`
+/// line was a census of the ring; `RunLog::pushed` now tallies every kind
+/// cumulatively for 72 bytes, so the counts are exact at *any* cap. What the
+/// ring is left holding is scrollback and one pinned individual's timeline.
+///
+/// **8192**, then: four times the depth for 459 KB and 0.041 ms, which is
+/// ~56,000 frames of the owner's own event rate (81,690 / 560,000 = 0.146
+/// per frame) against the old 14,000 -- minutes of his wall clock rather
+/// than seconds, and still free.
 ///
 /// **Not decimated**, unlike `lab::stats`' sample ring. A decimated *series*
 /// is the same shape at lower resolution; a decimated *narrative* is a story
 /// with every other sentence removed.
-pub const RUN_LOG_CAP: usize = 2048;
+pub const RUN_LOG_CAP: usize = 8192;
 
 /// **How many line events and player actions the line ring holds.** Same
 /// value as `RUN_LOG_CAP` and the same reasoning, on a ring that fills far
@@ -573,6 +663,9 @@ impl RunLog {
     /// **Routes on `LogKind::is_line_event`** -- see `RunLog`'s own doc for
     /// why the two rings exist and what each holds.
     pub fn push(&mut self, event: LogEvent) {
+        // **Before the routing, and outside it**: the tally is about what
+        // happened in the box, not about which ring absorbed it.
+        self.pushed[event.kind.index()] += 1;
         if event.kind.is_line_event() {
             self.lines.push_back(event);
             while self.lines.len() > LINE_LOG_CAP {
@@ -621,6 +714,27 @@ impl RunLog {
         self.dropped_individuals + self.dropped_lines
     }
 
+    /// **How many of this kind have ever happened**, trimmed or not -- see
+    /// the `pushed` field. This is the number a reader means by "how many
+    /// were born"; counting [`Self::recent`] answers "how many are still in
+    /// the ring", which is a different and much smaller question on any
+    /// busy bed.
+    pub fn pushed(&self, kind: LogKind) -> u64 {
+        self.pushed[kind.index()]
+    }
+
+    /// Every kind that has ever happened, with its count, in
+    /// [`LogKind::ALL`] order. Kinds that never fired are omitted rather
+    /// than printed as zero -- the chronicle's `COUNTS:` line has always
+    /// listed only what occurred, and a wall of `FIRST SEED 0` would bury
+    /// the rows that did.
+    pub fn pushed_by_kind(&self) -> impl Iterator<Item = (LogKind, u64)> + '_ {
+        LogKind::ALL.into_iter().filter_map(move |k| {
+            let n = self.pushed(k);
+            (n > 0).then_some((k, n))
+        })
+    }
+
     /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
     /// so a caller can tell "something happened this tick" from a
     /// before/after difference without holding a copy of the log or walking
@@ -636,6 +750,12 @@ impl RunLog {
         self.lines.clear();
         self.dropped_individuals = 0;
         self.dropped_lines = 0;
+        // **The tally goes too.** It is "what happened in this box", and a
+        // batch copy that starts again has had nothing happen in it yet --
+        // keeping the parent's counts would give the child a history it did
+        // not live, which is the same lie the ring census told from the
+        // other direction.
+        self.pushed = [0; LogKind::ALL.len()];
     }
 }
 
@@ -9901,6 +10021,72 @@ mod tests {
 
         log.clear();
         assert!(log.is_empty() && log.dropped() == 0, "a cleared log still claims a past");
+    }
+
+    /// **The tally survives eviction, and a census of the ring does not.**
+    ///
+    /// The defect this closes, in miniature: the owner's 560,000-frame
+    /// playtest printed `COUNTS: BORN 664` for a bed that had had 15,905
+    /// animal births in it, because `chronicle_text` counted
+    /// `RunLog::recent()` and the ring was simply full. A full ring reads
+    /// exactly like a complete tally.
+    ///
+    /// Both halves. The positive: push far past the cap and `pushed` still
+    /// names every event. The negative, which is the one that matters: the
+    /// old reading -- counting the ring -- is asserted to be *wrong* on the
+    /// same log, so this test cannot pass with the fix reverted, and cannot
+    /// pass vacuously on a run that never overflowed either.
+    #[test]
+    fn the_tally_counts_what_happened_and_the_ring_counts_what_is_left() {
+        let mut log = RunLog::default();
+        let at = |frame: u64, kind: LogKind| LogEvent {
+            frame,
+            id: 1,
+            born_frame: 0,
+            species: organism::SpeciesId(0),
+            kind,
+            other: 0,
+            lineage: 0,
+            generation: 0,
+            detail: String::new(),
+        };
+        const OVER: u64 = 3;
+        let births = RUN_LOG_CAP as u64 * OVER;
+        for f in 0..births {
+            log.push(at(f, LogKind::Born));
+        }
+        assert_eq!(log.pushed(LogKind::Born), births, "the tally lost what the ring trimmed");
+        let in_ring = log.recent().filter(|e| e.kind == LogKind::Born).count() as u64;
+        assert_eq!(in_ring, RUN_LOG_CAP as u64, "the ring is meant to be full here, or this test is not testing eviction");
+        assert!(
+            in_ring < log.pushed(LogKind::Born),
+            "counting the ring gave the same answer as the tally ({in_ring}), so this control cannot tell the fix from the defect"
+        );
+
+        // Per kind, not in aggregate -- a single total would hide a kind
+        // whose slot was never wired up.
+        for (i, kind) in LogKind::ALL.into_iter().enumerate() {
+            if kind == LogKind::Born {
+                continue;
+            }
+            assert_eq!(log.pushed(kind), 0, "{kind:?} was never pushed and is being counted anyway");
+            // ...and it moves when it is pushed, which is the half that
+            // catches a slot wired to the wrong index.
+            for _ in 0..=i {
+                log.push(at(births, kind));
+            }
+            assert_eq!(log.pushed(kind), i as u64 + 1, "{kind:?} did not count its own pushes -- check LogKind::index");
+        }
+        assert_eq!(log.pushed(LogKind::Born), births, "pushing another kind moved the birth count");
+
+        // The closing identity: every push landed in exactly one slot.
+        let tallied: u64 = LogKind::ALL.into_iter().map(|k| log.pushed(k)).sum();
+        assert_eq!(tallied, log.total(), "the tally and len+dropped disagree about how many lines were ever pushed");
+
+        log.clear();
+        for kind in LogKind::ALL {
+            assert_eq!(log.pushed(kind), 0, "a cleared log still claims {kind:?} happened in it");
+        }
     }
 
     /// **A big colony's own birth/death churn must not evict the story.**

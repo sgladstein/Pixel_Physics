@@ -6435,14 +6435,27 @@ pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, 
         let _ = writeln!(out, "{}", legend_paragraph(e));
     }
     out.push('\n');
-    let mut counts = std::collections::BTreeMap::<&'static str, u32>::new();
-    for e in world.run_log.recent() {
-        *counts.entry(e.kind.label()).or_insert(0) += 1;
-    }
+    // **The tally, not a census of the ring** -- `RunLog::pushed`'s own doc
+    // for what this line used to say and why. It counted `recent()`, so the
+    // owner's 560,000-frame playtest printed `BORN 664` for a bed that had
+    // had 15,905 animal births in it: the ring was simply full, and a full
+    // ring reads as a complete tally. `LOG DROPPED` beside it was the only
+    // hint, and it is the number this line now makes unnecessary to reason
+    // about -- kept, because "how much of the story is gone" is still worth
+    // saying even once the counts are exact.
     let _ = writeln!(
         out,
         "COUNTS: {} | LINES ENDED {} | LINEAGES CLAIMED {} | LOG DROPPED {}",
-        counts.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "),
+        {
+            // **Sorted by label, which is the order the `BTreeMap` this
+            // replaced happened to produce.** Kept deliberately: a chronicle
+            // is a file the owner uploads and an agent reads, and reordering
+            // a line that already exists in landed logs costs more than the
+            // `LogKind::ALL` order is worth.
+            let mut counts: Vec<(&'static str, u64)> = world.run_log.pushed_by_kind().map(|(k, n)| (k.label(), n)).collect();
+            counts.sort_unstable_by_key(|(label, _)| *label);
+            counts.iter().map(|(label, n)| format!("{label} {n}")).collect::<Vec<_>>().join(", ")
+        },
         ended.len(),
         world.lineages_claimed(),
         world.run_log.dropped()
@@ -9695,6 +9708,73 @@ mod tests {
 
         let name = names::line_name(w.seed, lineages[1]);
         assert!(text.contains(&name), "the chronicle never names {name:?}, one of the lines that ended");
+    }
+
+    /// **The chronicle's `COUNTS:` line reports what happened, not what is
+    /// still in the ring.**
+    ///
+    /// The owner's 560,000-frame playtest printed `COUNTS: BORN 664` for a
+    /// bed that had had 15,905 animal births in it: the line tallied
+    /// `RunLog::recent()`, and the individuals ring was full at exactly
+    /// `RUN_LOG_CAP`, so a full ring read as a complete count. The LOG
+    /// page's own `OLDER` row already stated the rule this broke --
+    /// *"nothing in the lab is ever counted off this page"*.
+    ///
+    /// Both halves, on one world: the printed number must equal the true
+    /// push count, **and** must differ from the ring census, so the test
+    /// cannot pass with the fix reverted and cannot pass vacuously on a run
+    /// that never overflowed.
+    #[test]
+    fn the_chronicle_counts_are_the_tally_not_a_census_of_the_ring() {
+        let mut w = world();
+        let born = world::RUN_LOG_CAP as u64 * 2 + 17;
+        for f in 0..born {
+            w.frame = f;
+            w.run_log.push(world::LogEvent {
+                frame: f,
+                id: 1,
+                born_frame: 0,
+                species: crate::sim::organism::SpeciesId(0),
+                kind: world::LogKind::Born,
+                other: 0,
+                lineage: 0,
+                generation: 0,
+                detail: String::new(),
+            });
+        }
+        let in_ring = w.run_log.recent().filter(|e| e.kind == world::LogKind::Born).count();
+        assert!(
+            (in_ring as u64) < born,
+            "the fixture did not overflow the ring ({in_ring} of {born}), so it cannot tell a tally from a census"
+        );
+
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("the chronicle always ends with a COUNTS line");
+        assert!(
+            counts.contains(&format!("BORN {born}")),
+            "COUNTS reports the ring, not the box: wanted BORN {born}, line reads {counts:?}"
+        );
+        assert!(
+            !counts.contains(&format!("BORN {in_ring}")),
+            "COUNTS still carries the ring census {in_ring}, which is the number that made a 15,905-birth session read as 664"
+        );
+        // ...and the line still says how much of the *story* is gone, which
+        // exact counts do not make redundant.
+        assert!(counts.contains(&format!("LOG DROPPED {}", w.run_log.dropped())), "the drop count left the line: {counts:?}");
+    }
+
+    /// **A kind that never happened is not printed as zero**, and one that
+    /// did is printed once -- the negative half of the line above. Without
+    /// it `pushed_by_kind` could emit all nine kinds every time and the
+    /// assertions above would still pass.
+    #[test]
+    fn the_chronicle_counts_omit_kinds_that_never_fired() {
+        let (w, _) = world_with_ended_lines(2);
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        let counts = text.lines().find(|l| l.starts_with("COUNTS:")).expect("a COUNTS line");
+        assert!(counts.contains("LINE ENDED 2"), "the two ended lines are not counted: {counts:?}");
+        assert!(!counts.contains("FIRST SEED"), "nothing set a seed in this fixture, yet the line reports it: {counts:?}");
+        assert!(!counts.contains("ACTION"), "the player did nothing in this fixture, yet the line reports it: {counts:?}");
     }
 
     /// **`ended_lines` matches the log's own `LineEnded` events one to
