@@ -404,26 +404,41 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
     if at_fork.hang == 0 {
         println!("  !! the shared bed holds no hanging ground at all -- this fork cannot distinguish the two arms. Run it longer or on a seed that grows a heap.");
     }
-    for footing in [false, true] {
+    // **Three arms, and the third is `World::wake_all`'s own documented job:**
+    // *the control in tests that separates "the movement rules are wrong" from
+    // "the sweep never looked".* A `self_supporting` cell does not move, so it
+    // does not keep its chunk awake, so a cell stranded in the past is never
+    // re-examined -- and a rule that is right about every one of those cells
+    // reads exactly like a rule that does nothing. Waking every chunk each
+    // frame is far too expensive to ship and is the cleanest possible
+    // separation of the two.
+    for (footing, woken) in [(false, false), (true, false), (true, true)] {
         let mut w = world.clone();
         w.materials.get_mut(spoil).needs_footing = footing;
         let mut particles = ParticleSystem::new();
         let mut blasts = Blasts::new();
         for _ in 0..after {
+            if woken {
+                w.wake_all();
+            }
             frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
         }
         let f = census(&w, spec.width, spec.height);
         why(&w, spec.width, spec.height, 0);
         let c = census::census(&w, &spec, 0.0, &[spec.width / 2], &ids);
-        let label = if footing { "footing ON (the repair)" } else { "footing OFF (main)" };
+        let label = match (footing, woken) {
+            (false, _) => "footing OFF (main)",
+            (true, false) => "footing ON (the repair)",
+            (true, true) => "footing ON + every chunk woken",
+        };
         row(&format!("+{after} {label}"), f);
         println!(
             "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",
             "", c.ants, c.roofed, c.pit, c.packed_above, c.mound_high, w.creature_stats.digs, w.creature_stats.spoil_dumped
         );
         println!(
-            "SUMMARY fork footing={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
-            footing, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
+            "SUMMARY fork footing={} woken={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
+            footing, woken, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
             c.roofed, c.pit, c.packed_above, c.mound_high, c.ants, w.creature_stats.digs, spec.seed, shared, after
         );
     }

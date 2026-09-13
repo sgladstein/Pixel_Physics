@@ -989,55 +989,64 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // Cheap by short-circuit and by the gate: only a `self_supporting`
         // powder reaches it, only one with air beneath pays the ring, and the
         // count stops at three.
-        let unsupported = crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
         // **...and for a pellet, touching is not enough -- §Z18.**
         //
-        // The contact count above is the survivor of four attempts to tell a
+        // The contact count below is the survivor of four attempts to tell a
         // wall from a heap by *shape*, and it cannot reach the thing the owner
-        // actually sees: a 2x2 block of spoil in mid-air sits at three
-        // contacts each and stands for ever, and so does every lattice built
-        // out of those. It cannot be fixed by raising the number either,
-        // because a gallery roof and a hanging slab **are the same shape** --
-        // both are worked ground with air beneath -- which is exactly the
-        // finding `CLAUDE.md` records from those four models.
+        // actually sees: a 2x2 block of spoil in mid-air sits at three contacts
+        // each and stands for ever, and so does every lattice built out of
+        // those. Raising the number cannot fix it either, because a gallery
+        // roof and a hanging slab **are the same shape** -- both are worked
+        // ground with air beneath -- which is exactly the finding `CLAUDE.md`
+        // records from those four models.
         //
         // So the difference is `needs_footing`, data on the material, set on
         // `spoil` and on nothing else: ground an ant *placed* is a wall only
-        // while something is directly beneath it. The ring is skipped
-        // entirely for such a cell, so this branch is strictly *cheaper* than
-        // the one it joins -- nothing it is touching can hold it, so there is
-        // nothing to count.
+        // while it is standing on ground.
+        //
+        // **And "under it" means *ground*, not merely a cell.** A pellet posted
+        // into a canopy is held up by leaves, and one on a pool by water;
+        // neither is a footing, and both read on screen as exactly the
+        // dirt-in-the-air being reported. `Reports/evolution-lab-soil-design-
+        // 2026-09-12.md` §2c counts spoil on leaves as hanging for the same
+        // reason. So the test is the censuses': a non-organism `Powder` or
+        // `Solid`.
+        //
+        // **Computed beside `unsupported` and not inside it, which is the whole
+        // of the first version's bug.** Nested under a condition that already
+        // requires the cell below to be `EMPTY`, the ground test is dead code
+        // -- it can only fire where the first clause has already fired -- and
+        // it read from outside as a rule that was merely never *reached*:
+        // `CLAUDE.md`'s *a gate can hide a second bug by making it
+        // unreachable*. What separated the two was `hangcensus mode=fork`'s
+        // third arm, which wakes every chunk every frame so that "the rule is
+        // wrong" and "the sweep never looked" cannot be confused (`World::
+        // wake_all`'s own documented job): **woken, the count still did not
+        // move**, and nine hanging cells resting on a `grassroot` were what it
+        // was refusing to see.
+        //
+        // Gated on `spoil_footing()` alone rather than on `crumb_rule()` too,
+        // so the two ablations stay independent. Free for every other material
+        // in the world -- `needs_footing` short-circuits first, and only a
+        // `needs_footing` cell pays the read.
         //
         // **Why this is graded and not the binary the first law warns about:**
-        // only the cells with air actually under them go, so a heap still
-        // stands as a heap and the towers the owner likes are still towers.
-        // An overhang erodes from its underside a cell at a time, and each
-        // cell that goes becomes loose dirt that falls and piles at the foot
-        // of the heap -- so undermining your own tailings has a visible
-        // consequence, which is the second law.
-        // **...and what counts as "under it" is *ground*, not merely a cell.**
-        // A pellet posted into a canopy is held up by leaves, and a pellet on
-        // the surface of a pool is held up by water; neither is a footing, and
-        // both read on screen as exactly the dirt-in-the-air the owner is
-        // reporting -- `Reports/evolution-lab-soil-design-2026-09-12.md` §2c
-        // counts spoil on leaves as hanging for the same reason. So the test
-        // is the one the censuses use: a non-organism `Powder` or `Solid`.
-        //
-        // Paid only by a `needs_footing` cell that has *something* beneath it,
-        // which is the common case and one `Vec` index.
-        let no_footing = unsupported
-            && needs_footing
+        // only the cells with nothing under them go, so a heap still stands as a
+        // heap and the towers the owner likes are still towers. An overhang
+        // erodes from its underside a cell at a time, and each cell that goes
+        // becomes loose dirt that falls and piles at the foot of the heap -- so
+        // undermining your own tailings has a visible consequence, which is the
+        // second law.
+        let no_footing = needs_footing
             && spoil_footing()
             && {
                 let under = surface.get(x, y + 1);
                 under.material == material::EMPTY
                     || under.organism_id() != 0
-                    || !matches!(
-                        surface.materials().get(under.material).kind,
-                        MaterialKind::Powder | MaterialKind::Solid
-                    )
+                    || !matches!(surface.materials().get(under.material).kind, MaterialKind::Powder | MaterialKind::Solid)
             };
-        let contacts = if unsupported && !no_footing {
+        let unsupported = !no_footing && crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
+        let contacts = if unsupported {
             crate::sim::structural::NEIGHBOURS_8
                 .iter()
                 .filter(|(dx, dy)| surface.get(x + dx, y + dy).material != material::EMPTY)
