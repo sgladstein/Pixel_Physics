@@ -1,0 +1,70 @@
+{
+  "id": "20260913T044639577Z-4e0ecb",
+  "created": "2026-09-13T04:46:39Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-floating-spoil-r31",
+    "commit": "c5355e88",
+    "agent": null,
+    "session_id": "e4bef852-e4cc-5624-bb9b-304da8b1f181",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The floating stuff over the anthill: is it dirt, or is it plant?",
+  "question": "In the third picture every cell of dug-out soil is painted orange. All of it is lying on the ground; the pale lattice up in the sky is plant. When you say the bed has lots of stuff floating in the air, is it the pale plant material you mean, or dirt?",
+  "context_md": "Same bed, the sealed box at seed 3, 150,000 frames in, 74 ants, camera fixed and identical in all three.\n\nYou have named floating ground twice on cards that asked about something else, and the repair I built is real: worked soil an ant carries out and sets down now only holds while something is under it, so overhangs come down as loose dirt and the towers are untouched. **But the first two pictures are the same bed under the two rules and I cannot tell them apart, and I do not think you can either** — the change is 22 cells out of about ninety thousand on screen, in dark brown against dark brown ground.\n\nThe third picture is why. Orange is every cell of worked soil in frame. There is none of it in the sky. Whatever is hanging up there over this bed is plant, and if that is what you have been seeing then this whole line of work has been aimed at the wrong material and should stop.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — a pellet holds itself up for ever",
+      "files": [
+        "20260913T044639577Z-4e0ecb/000-card-main.png"
+      ],
+      "caption": "today's rule",
+      "meta": {
+        "dirt standing on nothing (cells)": 90,
+        "...in separate floating pieces": 40,
+        "of those, carried spoil": 41,
+        "height of the heap (rows)": 48,
+        "enclosed nest space (cells)": 186
+      },
+      "focus": null
+    },
+    {
+      "label": "after — a pellet needs a floor",
+      "files": [
+        "20260913T044639577Z-4e0ecb/001-card-repair.png"
+      ],
+      "caption": "the repair, same bed 4,000 frames on",
+      "meta": {
+        "dirt standing on nothing (cells)": 68,
+        "...in separate floating pieces": 29,
+        "of those, carried spoil": 16,
+        "height of the heap (rows)": 48,
+        "enclosed nest space (cells)": 191
+      },
+      "focus": null
+    },
+    {
+      "label": "the same frame with every cell of dug soil painted orange",
+      "files": [
+        "20260913T044639577Z-4e0ecb/002-card-main-marked.png"
+      ],
+      "caption": "before, marked",
+      "meta": {
+        "dirt standing on nothing (cells)": 90,
+        "dug soil on screen (cells)": 653
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
