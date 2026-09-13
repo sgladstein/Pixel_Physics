@@ -642,9 +642,49 @@ fn generate_reported_with(
                     ctx.deposits.wall_time_ms,
                 );
             }
+            settle(world, params.settle_frames);
             report
         }
     }
+}
+
+/// **Run the world until it has stopped moving, at the very end of
+/// generation.**
+///
+/// `WorldgenParams::settle_frames` carries the whole argument for why this
+/// exists and why it is `0.0` for every preset but `druid`; read that first.
+/// In one line: a generated world is supposed to arrive at rest, and a preset
+/// with enough loose material near the surface cannot promise that from
+/// placement alone.
+///
+/// **The weather is held still for the duration.** This is not a
+/// convenience — it is the same rule
+/// `tests/worldgen.rs::generated_terrain_is_already_at_rest` states for
+/// `spring_flow`: *a live process is not a placement defect*. `weather::at`
+/// is a pure function of `(seed, frame)` and some seeds precipitate from
+/// frame 0, so without this a settle would hand over a world with fresh snow
+/// on it — which is not a settled world, it is a snowing one. The previous
+/// override is restored, so a caller that had set one keeps it.
+///
+/// The four calls are exactly what one frame of "everything that can move
+/// material" is, and they are in the order `sim::frame::step` runs them.
+/// Deliberately *not* `frame::step`: that also ticks life, and a world that
+/// grew a tree during its own generation is a different world, not a settled
+/// one.
+fn settle(world: &mut World, frames: f32) {
+    let frames = frames.round().max(0.0) as u32;
+    if frames == 0 {
+        return;
+    }
+    let previous = world.weather_override;
+    world.weather_override = Some(crate::sim::weather::Weather::CLEAR);
+    for _ in 0..frames {
+        crate::sim::parallel::step(world);
+        world.step_liquid_bodies();
+        world.step_active_sites();
+        world.step_fields();
+    }
+    world.weather_override = previous;
 }
 
 /// Names of the generation passes, in order — the ablation harness's
@@ -783,6 +823,78 @@ mod tests {
         let global: Vec<&str> =
             pass_summary().into_iter().filter(|(_, m)| *m == GLOBAL).map(|(n, _)| n).collect();
         assert_eq!(global, vec!["ponds", "soil_moisture", "moisture_init"]);
+    }
+
+    /// **The settle runs, and it settles.**
+    ///
+    /// The positive control for `WorldgenParams::settle_frames`, built by
+    /// hand rather than generated: a column of sand hanging in the air is a
+    /// case whose answer is known, which is what makes this a control rather
+    /// than a restatement of whatever the terrain happened to do. Without it
+    /// a `settle` that silently did nothing — an early return on the wrong
+    /// condition, a `frames` that rounded to zero — would look exactly like a
+    /// preset that did not need settling.
+    #[test]
+    fn a_settle_actually_settles_and_zero_frames_does_nothing() {
+        // **Walled, so the sand can only fall.** Unwalled it lands on the
+        // stone and spreads sideways, which is the powder rules working
+        // correctly and makes "did it move down" unreadable from a column
+        // count -- the first version of this test asserted 16 and measured
+        // 12, and the four missing cells were a heap forming, not material
+        // lost.
+        let hanging = || {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            let stone = crate::sim::material::STONE;
+            for y in 0..32 {
+                w.set(15, y, crate::sim::cell::Cell::new(stone, 0));
+                w.set(17, y, crate::sim::cell::Cell::new(stone, 0));
+            }
+            for y in 20..32 {
+                w.set(16, y, crate::sim::cell::Cell::new(stone, 0));
+            }
+            let sand = w.materials.id_of("sand").expect("sand is compiled in");
+            for y in 4..8 {
+                w.set(16, y, crate::sim::cell::Cell::new(sand, 0));
+            }
+            w
+        };
+        let column = |w: &World| (0..32).filter(|&y| w.get(16, y).material != crate::sim::material::EMPTY).count();
+
+        let mut none = hanging();
+        let before = column(&none);
+        settle(&mut none, 0.0);
+        assert_eq!(column(&none), before, "0 frames must not move anything");
+        assert!(none.get(16, 4).material != crate::sim::material::EMPTY, "0 frames must leave the sand where it was");
+
+        let mut settled = hanging();
+        settle(&mut settled, 60.0);
+        assert_eq!(
+            settled.get(16, 4).material,
+            crate::sim::material::EMPTY,
+            "60 frames must have let the hanging sand fall — the settle did not run"
+        );
+        assert_eq!(column(&settled), before, "the settle must move material, not lose it");
+        let sand = settled.materials.id_of("sand").expect("sand is compiled in");
+        assert_eq!(settled.get(16, 19).material, sand, "the sand should be resting on the stone it fell onto");
+    }
+
+    /// **The settle holds the weather still and puts it back.**
+    ///
+    /// The claim `settle`'s doc makes, asserted rather than described. If the
+    /// restore were dropped, every world generated from a settling preset
+    /// would come out of generation pinned to CLEAR for ever, and nothing
+    /// else in the suite would notice — the weather would simply never turn.
+    #[test]
+    fn the_settle_restores_whatever_weather_override_it_found() {
+        let mut w = World::new(Rect::new(0, 0, 15, 15));
+        assert_eq!(w.weather_override, None);
+        settle(&mut w, 2.0);
+        assert_eq!(w.weather_override, None, "a settle must not leave the weather pinned behind it");
+
+        let storm = crate::sim::weather::Weather { intensity: 0.5, ..crate::sim::weather::Weather::CLEAR };
+        w.weather_override = Some(storm);
+        settle(&mut w, 2.0);
+        assert_eq!(w.weather_override, Some(storm), "a caller's own override must survive the settle");
     }
 
     #[test]
