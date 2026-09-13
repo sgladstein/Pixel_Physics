@@ -100,6 +100,7 @@ pub mod surface;
 pub mod update;
 pub mod weather;
 pub mod world;
+pub mod writewatch;
 
 pub use cell::Cell;
 pub use chunk::{ChunkCoord, Rect, CHUNK_SIZE};

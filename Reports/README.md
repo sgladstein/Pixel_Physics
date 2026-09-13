@@ -3372,6 +3372,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   population that leaves ~86% of the frame single-threaded. Harness:
   `examples/antcost.rs`.
 
+- [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
+  — **the build the report above asked for: it works exactly, and it does not
+  pay.** `sense` and `eval_brain` are pure reads of an immutable `&World`, so
+  they are computed for many animals at once ahead of their turn while every
+  *write* stays serial in `ActiveSite`'s `Ord` order — **the engine's one
+  determinism surface is untouched**, and a speculation is consumed only over
+  ground nothing has written since. World and field hashes hold at 6, 150, 300
+  and 450 ants and move under the control that skips the check. **It ships
+  off.** The economics are one line — a speculation costs `c/S` and saves `c`
+  when used, so it pays iff **hit rate x parallel speedup > 1** — and on four
+  cores `S` is **2.1**, needing 48%, against a hit rate of **61% at 150 ants
+  and 32% at 450** that falls with density because the colony itself is what
+  invalidates it: `KinNeed` reads a touching nestmate's energy and metabolism
+  rewrites it every tick. Whole-frame, paired inside one process: **+2.7% at
+  450 ants, a wash at 150 and 300**. Carries the three-map write watch
+  (`src/sim/writewatch.rs`), the `unchecked` sensitivity control, and
+  **`verify`** — a differential that recomputes every accepted speculation and
+  names the brain input that differs, which is what found this scheme's one
+  hole (`evaporation::tick` damping the air two field blocks wide, visible at
+  450 ants and not at 150 or 300) where a hash could only say *no*. Prices the
+  two ways out: raise `S` (more cores, unmeasured here and therefore
+  unclaimed), or drop the read-phase split for an exact independent-set
+  partition of whole ticks. Harness: `examples/antcost.rs` `par=on,off`.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
