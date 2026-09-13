@@ -6732,9 +6732,24 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // does not stop a colony stacking spoil on its own spoil into a
             // lattice, which a rendered bank shows and which is a standing
             // known limitation rather than a solved problem.
+            // **...and since 2026-09-13 it is `spoil` and not `packedsoil`,
+            // which is §Z18's repair.** A wall cut in place and a pellet set
+            // down in the open air are both tamped and are not the same
+            // ground: `self_supporting` is the rule that says a cell may not
+            // fall, which is correct for a gallery roof held by the bank at
+            // both ends and a promise a pellet has not earned. Dig out from
+            // under a heap of tailings and the overhang used to stand there
+            // for ever. `assets/materials/spoil.ron` carries the reasoning and
+            // the three owner reports.
+            //
+            // `spoils_into` first, `packs_into` as the fallback, so any ground
+            // that names no spoil material behaves exactly as it did before
+            // the field existed -- and so a pellet re-dug stays a pellet
+            // rather than being laundered into lining-grade ground.
             let mut pellet = target;
-            if let Some(packed) = world.materials.get(target.material).packs_into {
-                pellet.material = packed;
+            let ground_def = world.materials.get(target.material);
+            if let Some(hauled) = ground_def.spoils_into.or(ground_def.packs_into) {
+                pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
             if spoil_kept() {

@@ -816,6 +816,30 @@ fn crumb_rule() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_CRUMB").as_deref() != Ok("off"))
 }
 
+/// **The ablation switch for the footing rule** -- `Material::needs_footing`,
+/// on by default.
+///
+/// `PIXEL_PHYSICS_SPOIL_FOOTING=off` makes a dumped pellet stand on nothing
+/// again -- `main`'s behaviour up to 2026-09-13 -- and changes **nothing
+/// else**: the pellet is still `spoil`, ants still dig at the same rate, the
+/// crumb rule above still reverts a crumb, `line_burrow` still upgrades a
+/// worked pellet into a wall.
+///
+/// It exists because what this rule governs is a **standing** quantity -- how
+/// much ground a colony leaves hanging in open sky -- and a standing quantity
+/// has no baseline of its own (`lining_enabled`'s reasoning, and `CLAUDE.md`'s
+/// after the `relax_region` night: *the control is to hold the semantic rule
+/// fixed, not to add another metric*). `examples/hangcensus.rs` runs the same
+/// binary twice across this switch, which makes the two arms differ in one
+/// thing rather than in a rebuild.
+///
+/// Read once per process through a `OnceLock`: this sits in the powder sweep,
+/// where an `env::var` would be a syscall per cell.
+fn spoil_footing() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref() != Ok("off"))
+}
+
 fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, rightward: bool) -> bool {
     // Water first: a grain that is about to move should carry the moisture
     // it just absorbed with it, and `move_cell` copies the whole cell.
@@ -837,6 +861,10 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
     let holds_water = def.water_capacity > 0;
     let clings = def.clings_to_wood;
     let self_supporting = def.self_supporting;
+    // Copied out beside `self_supporting` rather than re-fetched below,
+    // because `def` borrows the registry and the crumb branch writes through
+    // `surface`. One `bool` off a cache line already loaded.
+    let needs_footing = def.needs_footing;
     // **Only in the control arm.** With the phase on, moisture is
     // `World::step_soil_water`'s business and running it here as well would
     // both double the transport rate and put every wetness change back on the
@@ -957,7 +985,33 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // powder reaches it, only one with air beneath pays the ring, and the
         // count stops at three.
         let unsupported = crumb_rule() && surface.get(x, y + 1).material == material::EMPTY;
-        let contacts = if unsupported {
+        // **...and for a pellet, touching is not enough -- §Z18.**
+        //
+        // The contact count above is the survivor of four attempts to tell a
+        // wall from a heap by *shape*, and it cannot reach the thing the owner
+        // actually sees: a 2x2 block of spoil in mid-air sits at three
+        // contacts each and stands for ever, and so does every lattice built
+        // out of those. It cannot be fixed by raising the number either,
+        // because a gallery roof and a hanging slab **are the same shape** --
+        // both are worked ground with air beneath -- which is exactly the
+        // finding `CLAUDE.md` records from those four models.
+        //
+        // So the difference is `needs_footing`, data on the material, set on
+        // `spoil` and on nothing else: ground an ant *placed* is a wall only
+        // while something is directly beneath it. The ring is skipped
+        // entirely for such a cell, so this branch is strictly *cheaper* than
+        // the one it joins -- nothing it is touching can hold it, so there is
+        // nothing to count.
+        //
+        // **Why this is graded and not the binary the first law warns about:**
+        // only the cells with air actually under them go, so a heap still
+        // stands as a heap and the towers the owner likes are still towers.
+        // An overhang erodes from its underside a cell at a time, and each
+        // cell that goes becomes loose dirt that falls and piles at the foot
+        // of the heap -- so undermining your own tailings has a visible
+        // consequence, which is the second law.
+        let no_footing = unsupported && needs_footing && spoil_footing();
+        let contacts = if unsupported && !no_footing {
             crate::sim::structural::NEIGHBOURS_8
                 .iter()
                 .filter(|(dx, dy)| surface.get(x + dx, y + dy).material != material::EMPTY)
@@ -966,7 +1020,7 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         } else {
             usize::MAX
         };
-        if contacts < 3 {
+        if no_footing || contacts < 3 {
             let loose = surface.materials().get(here.material).slumps_into;
             if let Some(loose) = loose {
                 // Everything but the material rides across, for the reason

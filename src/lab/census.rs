@@ -47,6 +47,14 @@ pub struct Ids {
     /// Public: `examples/latecensus.rs`'s `selftest` places a packed-soil
     /// cell by hand to carve its known mound, and needs the id directly.
     pub packed: Option<MaterialId>,
+    /// **Every worked ground, for the `packed_above`/`packed_below` columns.**
+    /// `packedsoil` is the wall an ant cut in place and `spoil` is the pellet
+    /// it hauled out (`assets/materials/spoil.ron`, §Z18); both are tamped and
+    /// both belong in a count of worked ground, so this is a set and `packed`
+    /// above stays the single lining id the selftest plants by hand. Without
+    /// it, splitting the pellet out of `packedsoil` would have silently taken
+    /// `packed_above` -- the mound column every lane reads -- to near zero.
+    packed_any: Vec<MaterialId>,
 }
 
 impl Ids {
@@ -59,8 +67,9 @@ impl Ids {
             seed: ids(&["seed", "pip"]),
             corpse: ids(&["corpse"]),
             flower: ids(&["flower"]),
-            ground: ids(&["soil", "packedsoil", "nest"]),
+            ground: ids(&["soil", "packedsoil", "spoil", "nest"]),
             packed: world.materials.id_of("packedsoil"),
+            packed_any: ids(&["packedsoil", "spoil"]),
         }
     }
 }
@@ -191,7 +200,7 @@ pub fn census(world: &World, spec: &LabBox, gut: f32, nest_cols: &[i32], ids: &I
                     s.mound += 1;
                     s.mound_high = s.mound_high.max(spec.ground_y - y);
                 }
-                if ids.packed == Some(cell.material) {
+                if ids.packed_any.contains(&cell.material) {
                     if y < spec.ground_y {
                         s.packed_above += 1;
                     } else {

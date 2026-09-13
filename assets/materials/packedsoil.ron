@@ -97,6 +97,12 @@
     // throughout. `PIXEL_PHYSICS_WET_COLLAPSE=waterlogged|fieldcapacity`
     // brings either old line back from one binary.
     slumps_into: "soil",
+    // **What a pellet of this, hauled out and set down, becomes.** A wall cut
+    // in place and a pellet dropped in the open air are not the same ground,
+    // and `spoil.ron` is where that is written down; §Z18 is the three
+    // owner reports that say so. `creature.rs`'s dig branch reads this in
+    // preference to `packs_into`.
+    spoils_into: "spoil",
     self_supporting: true,
     // Three families of four tones in `soil.ron`'s own layout, so a nest
     // keeps the regional palette the bank around it was generated in

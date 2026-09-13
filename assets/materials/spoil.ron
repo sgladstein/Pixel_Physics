@@ -1,0 +1,100 @@
+// **The pellet an ant carries out of its own tunnel** — tamped ground that
+// has been *placed* rather than cut, and the difference between those two
+// things is the whole reason this file exists.
+//
+// `packedsoil` is the wall of a gallery: soil an ant worked *in situ*, with
+// the bank still around it. It is `self_supporting` so that a tunnel roof
+// cannot fall in, and that is exactly right for a roof — a roof has air
+// beneath it by definition and is held by the bank at both ends.
+//
+// A dumped pellet is the same act on a cell in the open air, and it inherits
+// a promise it has not earned: nothing may make it fall. So whatever it was
+// resting on can be dug away, slump, or wash out, and the pellet stands there
+// for ever. Stack spoil on spoil and the result is a lattice of dirt hanging
+// in the sky over the anthill, which the owner has now reported three times
+// from three different pictures — 2026-08-31 (*"it looks like there's a lot of
+// dirt just floating in the midair"*), and twice in round thirty on cards that
+// asked about something else entirely (`Reports/open-bugs-handoff.md` §Z18).
+//
+// **Four attempts to fix that by asking about the *shape* of the lattice are
+// on the record and none of them worked**, which is `CLAUDE.md`'s oldest
+// finding about this engine: geometry cannot tell a wall from a heap, because
+// a gallery roof and a hanging slab are the same shape. `update.rs`'s crumb
+// rule is the survivor of that family and it only reaches a cell touching
+// almost nothing — a 2x2 block in mid-air sits at three contacts and stands.
+//
+// So the difference is stated as **data**, the same remedy `packedsoil.ron`
+// itself records: `needs_footing`. A pellet is a wall only while something is
+// directly beneath it. Dig out from under your own tailings and the overhang
+// comes down, a cell at a time, as loose dirt — which is what a spoil heap
+// does and what the player expects when they undermine one.
+//
+// **What it deliberately is *not*:**
+//
+// * **Not loose.** Putting the pellet back as tilth was measured on 2026-08-31
+//   and it is the difference between a nest and no nest: loose soil set down
+//   near a gallery runs along it and closes it, `labnest` roofed void **2/1
+//   against 54/58**. Recorded in `Reports/dead-ends.md`. A heap of this still
+//   stands as a heap; only the parts with nothing under them come down.
+// * **Not a decay path, yet.** `Reports/evolution-lab-soil-design-2026-09-12.md`
+//   §3b wants dumped spoil to weather back to `soil` over a session, on
+//   `decays_into` plus the two chances, and that is the substrate it needs —
+//   the whole reason weathering could not be scoped onto `packedsoil` is that
+//   sites are scheduled by *material* at chunk settle, so a gallery lining
+//   would weather with the tailings. Left unset here: this file's change is
+//   the support rule, and a clock on top of it is that lane's to set from a
+//   sweep.
+// * **Not a different colour.** Byte-identical to `packedsoil`'s palette on
+//   purpose, so the paired card shows the floating ground going away and
+//   nothing else. `soilfork mode=fork` tints the two soils apart when the
+//   question is which is which.
+//
+// Every other field is `packedsoil`'s, because every other thing about a
+// pellet is true of a wall: it is still ground a root can thread (the same
+// `penetration_resistance`, so a species that can cut a lining can cut this),
+// it still holds the water the dug cell carried up from depth, and
+// `packs_into` means an ant that works a pellet into the side of a tunnel
+// through its own mound gets a real wall out of it — which is what stops this
+// rule from being "you cannot tunnel through your own spoil".
+(
+    name: "spoil",
+    display: "Spoil",
+    kind: Powder,
+    density: 1.5,
+    friction_angle: 45.0,
+    penetration_resistance: 0.95,
+    water_capacity: 1000,
+    blast_resistance: 0.6,
+    slumps_into: "soil",
+    // **The wall an ant makes of a pellet it has worked in place.**
+    // `line_burrow` reads this on the eight cells around every dig, so a
+    // tunnel driven through a heap of tailings has `packedsoil` walls and a
+    // `packedsoil` roof, and stands like any other gallery. Without it the
+    // roof of that tunnel would be spoil with air beneath it and would come
+    // straight back down.
+    packs_into: "packedsoil",
+    // A pellet re-dug is still a pellet. Without this, hauling spoil twice
+    // would launder it into lining-grade ground and the lattice would come
+    // back through the second dig.
+    spoils_into: "spoil",
+    self_supporting: true,
+    // **The one field that separates this from `packedsoil`.** See the header,
+    // and `update_powder`'s crumb rule for the reading.
+    needs_footing: true,
+    // `packedsoil`'s own palette, byte for byte -- see the header.
+    colors: [
+        (48, 38, 32),
+        (56, 45, 38),
+        (42, 33, 28),
+        (62, 50, 42),
+        (39, 30, 23),
+        (45, 36, 28),
+        (33, 25, 19),
+        (51, 41, 32),
+        (74, 64, 54),
+        (84, 73, 61),
+        (65, 56, 47),
+        (92, 80, 67),
+    ],
+    base_colors: 4,
+)
