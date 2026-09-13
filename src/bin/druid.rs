@@ -12,7 +12,7 @@
 //!
 //! Keys: `A`/`D` walk, `W` jump, `S` down, `Shift` hold on to a tree,
 //! `P` pause, `H` release or re-hold the world, `L` how held ground is drawn,
-//! `Esc` quit.
+//! `C` found a colony at your feet, `Esc` quit.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -85,6 +85,13 @@ impl Handler {
         if std::env::var("PIXEL_PHYSICS_DRUID_LOOK").is_ok_and(|v| v.eq_ignore_ascii_case("onehue")) {
             game.renderer.held_look = pixel_physics::render::HeldLook::OneHue;
         }
+        // `PIXEL_PHYSICS_DRUID_FOUND=1` -- found a colony at startup, for the
+        // same reason as the look above: a headless screenshot cannot press
+        // `C`, and "did the founding place anybody" is a question with a
+        // number rather than a picture.
+        if std::env::var("PIXEL_PHYSICS_DRUID_FOUND").is_ok_and(|v| v != "0") {
+            game.found_colony();
+        }
         Self {
             window: None,
             pixels: None,
@@ -108,13 +115,17 @@ impl Handler {
     fn title(&self) -> String {
         let q = self.game.world.quickenings.len();
         format!(
-            "The Held World — {:.0} fps — {} — look {} — {} standing quickening{}{}",
+            "The Held World — {:.0} fps — {} — look {} — {} animals — {} standing quickening{}{}",
             self.fps,
             if self.game.world.held { "HELD" } else { "running" },
             // Named on screen, per `CLAUDE.md`'s rule for a runtime selector:
             // an option nobody can see the value of is one nobody can tell is
             // disconnected.
             self.game.renderer.held_look.label(),
+            // **The count, not just the fact.** A founding that placed nobody
+            // and a founding that took look identical on screen at play zoom,
+            // which is `CLAUDE.md`'s "did it fire at all needs a counter".
+            self.game.world.live_creature_count(),
             q,
             if q == 1 { "" } else { "s" },
             if self.game.paused { " — PAUSED" } else { "" },
@@ -188,6 +199,12 @@ impl Handler {
             // decision, because this is precisely the question no amount of
             // argument settles -- see `render::HeldLook`.
             KeyCode::KeyL => self.game.renderer.cycle_held_look(),
+            // **Found a colony where you are standing.** It has to be inside
+            // running time to tick at all, and the circle you carry is at
+            // your feet -- see `Druid::found_colony`.
+            KeyCode::KeyC => {
+                self.game.found_colony();
+            }
             // **Release the world, or hold it again.** The single most useful
             // key for judging this game: the look the owner picked has no
             // colour tell, so whether "held" reads at all is a question you

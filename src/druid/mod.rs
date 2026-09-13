@@ -96,6 +96,22 @@ pub const PRESET: &str = "druid";
 /// produces a stale-binary comparison.
 const PRESET_ENV: &str = "PIXEL_PHYSICS_DRUID_PRESET";
 
+/// **What a founding releases.** `ant` rather than `ancestor`: the outdoor ant
+/// declares a nest, forages, and is the species the shipped instincts were
+/// authored for, so generation zero works on day one. `ancestor` is the lab's
+/// no-home control and would make "does a colony form at all" the question,
+/// which is the lab's question rather than this game's.
+const COLONY_SPECIES: &str = "ant";
+
+/// How many animals a founding places.
+///
+/// **Not tuned, and it should not be until the economy exists.** The lab's own
+/// measurement says the founding *moment* matters more than the count anyway —
+/// dropped on seedlings a colony collapses at once, founded on grown plants it
+/// seats fewer and holds (5 against 39 at frame 6,000 on the same bed) — and
+/// this world is grown before it is held, so that condition is already met.
+const COLONY_SIZE: i32 = 12;
+
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
 /// three callers would be the larger change.
@@ -194,6 +210,36 @@ impl Druid {
             player_input: player::PlayerInput::default(),
             paused: false,
         }
+    }
+
+    /// **Found a colony at the player's feet.**
+    ///
+    /// The concept's central act: a colony is how you eat, how you reach past
+    /// your own circle, and what you pay for in time. Nothing in worldgen
+    /// places one — `found_colony_of` is called only by tests and the lab —
+    /// so without this the world has plants and no animals, and an economy
+    /// whose only income is animal metabolism could only ever drain.
+    ///
+    /// **It lands at his feet on purpose, and that is a rule rather than a
+    /// convenience.** A colony in held ground does not tick: creatures run on
+    /// the active-site schedule, which `scheduler::step` gates on
+    /// `time_runs_at`. So a colony has to be founded *inside* running time or
+    /// it stands there as scenery — and the carried quickening is exactly the
+    /// circle at his feet. The rule needs no code; it falls out of the gate.
+    ///
+    /// Returns how many animals were placed. **Zero is a real answer** and is
+    /// reported rather than swallowed: `found_colony_of` declines when there
+    /// is no ground, no such species, or the species' nest material is
+    /// missing, and a silent no-op is indistinguishable from a broken
+    /// feature.
+    pub fn found_colony(&mut self) -> usize {
+        let Some(player) = &self.world.player else {
+            return 0;
+        };
+        let (x, y) = player.center();
+        let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
+        println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        placed
     }
 
     /// One tick.
