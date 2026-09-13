@@ -113,4 +113,13 @@ it landed. `clippy --all-targets --release --locked -D warnings`: **101 → 0**.
 | PR | what |
 |---|---|
 | #370 | round 31's brief, two stale handoff items, first model-choice guidance |
+| #371 | the withdrawn clone "tight band" finding, recovered from a branch with no PR |
+
+**Post-merge check, and it is the round's own rule paying off.** #371's CI ran
+against `16bab295`; #370 landed at `047df5c6` while it was still running, so
+**the merged result is a combination CI never tested** — the conflict-free
+merge again, one layer up. Verified by hand on `a9c571fd`: `docscheck` clean,
+`clippy --all-targets --release --locked -D warnings` clean, `cargo test --lib
+--release` **1,664 passed / 0 failed / 70 ignored**, identical to the
+pre-merge baseline.
 
