@@ -123,6 +123,21 @@ says only *no*. Three things narrowed it, in order:
 `verify` is kept for the next person who touches `sense`. It is the only
 instrument here that answers *which read* rather than *whether*.
 
+**And it has already been used once in anger by someone other than its
+author** — which is the evidence that it is usable rather than merely
+present. While this branch was open, `main` landed
+`BrainInput::Stillness`: a new input, read inside `sense`, off the animal
+rather than off the world. That is exactly the change that can silently put a
+read outside the enumerated rectangles. Merged in and run at 450 ants,
+`par=verify` came back **0 mismatches**, and the gate held —
+`par=on` and `par=off` both `0x2ea88e9292a56d45` against `unchecked`'s
+`0xfbd67688ba6cc3e7`, with the counter columns identical between the two
+arms. The reason it is safe is worth stating so the next input can be checked
+by eye first: `still_ticks` is this animal's own state and is written at the
+*end* of its own tick, so a speculation taken before the tick reads the same
+value the serial path would — and had it not been, the animal's own
+`organism_mut` would have marked its own body and rejected the cache.
+
 ## 3. Why it does not pay
 
 **The arithmetic is one line.** Speculating for one animal costs `c / S` of
