@@ -72,6 +72,31 @@ const DAYLIGHT: f32 = 1.0;
 const BIN_SHIFT: u32 = 4;
 const BINS: usize = 1 << (3 * (8 - BIN_SHIFT));
 
+/// **The world this run builds, which is not always the sandbox's.**
+///
+/// `world=WxH` exists because there are now three games on this engine and
+/// only one of them ships an 8192x2560 world: the held world (`src/druid`)
+/// builds 2560x960, and at 190 absolute `sky_rows` that is a completely
+/// different ground-to-sky ratio and a completely different depth for the
+/// soil blanket to sit in. Pinning this file to `app::WORLD_*` made every
+/// number here a statement about the sandbox, so a druid preset could only
+/// be judged by rebuilding the game and squinting.
+///
+/// A `OnceLock` rather than a threaded parameter: it replaces a `const` that
+/// nine call sites already read as a global, and threading a size through
+/// `camera_positions`, `build_settled`, `build_reported` and four modes would
+/// be a larger diff than the feature. Set once in `main`, before any mode
+/// runs, and the run echoes it.
+static WORLD_SIZE: std::sync::OnceLock<(i32, i32)> = std::sync::OnceLock::new();
+
+fn ww() -> i32 {
+    WORLD_SIZE.get_or_init(|| (WORLD_WIDTH as i32, WORLD_HEIGHT as i32)).0
+}
+
+fn wh() -> i32 {
+    WORLD_SIZE.get_or_init(|| (WORLD_WIDTH as i32, WORLD_HEIGHT as i32)).1
+}
+
 fn luma(px: &[u8]) -> f32 {
     0.299 * px[0] as f32 + 0.587 * px[1] as f32 + 0.114 * px[2] as f32
 }
@@ -108,7 +133,7 @@ fn surface_y(world: &World, x: i32, h: i32) -> Option<i32> {
 /// ablation arm paired: a pass that lowers the terrain would otherwise move
 /// the camera as well, and the diff would be measuring the pan.
 fn camera_positions(world: &World, n: usize) -> Vec<(i32, i32)> {
-    let (ww, wh) = (WORLD_WIDTH as i32, WORLD_HEIGHT as i32);
+    let (ww, wh) = (self::ww(), self::wh());
     let (vw, vh) = (WIDTH as i32, HEIGHT as i32);
     let span = (ww - vw).max(0);
     (0..n)
@@ -182,6 +207,27 @@ struct Census {
     /// does not need a PNG round trip. Texture, as opposed to palette.
     mad_sum: f64,
     mad_n: u64,
+    /// Viewport cells by [`material::MaterialKind`] — rock, loose cover,
+    /// water — so "is this mostly rock or mostly soil" is one number rather
+    /// than a sum the reader has to do over six rock names.
+    ///
+    /// On an ungrown world (`settle=0`, the default) `Solid` *is* rock: the
+    /// only other solids this engine has are plant tissue, and nothing has
+    /// grown yet. Settle a long run and wood joins this bucket.
+    kinds: [u64; 4],
+    /// Per viewport column, cells of non-`Solid` material between the
+    /// surface and the first rock. Zero means bare rock at the surface.
+    cover: Vec<i32>,
+}
+
+/// Index into [`Census::kinds`].
+fn kind_slot(k: material::MaterialKind) -> usize {
+    match k {
+        material::MaterialKind::Solid => 0,
+        material::MaterialKind::Powder => 1,
+        material::MaterialKind::Liquid => 2,
+        _ => 3,
+    }
 }
 
 /// Skyline steps are binned to +-`SLOPE_CAP` cells per column, with an
@@ -211,29 +257,55 @@ impl Census {
                 self.luma_sq += l * l;
             }
             *self.cells.entry(v.behind[i].0).or_default() += 1;
+            if v.behind[i] != material::EMPTY {
+                self.kinds[kind_slot(world.materials.kind(v.behind[i]))] += 1;
+            }
         }
         // The skin: walking down each column of the viewport from the first
-        // cell that holds material.
+        // cell that holds material. The same walk collects the cover depth —
+        // how far down you get before the first rock — because both want the
+        // first material cell in the column and neither is worth a second
+        // pass over the viewport.
         let (cx, cy) = cam;
         for px in 0..vw as i32 {
             let x = cx + px;
             let mut taken = 0usize;
+            let mut started = false;
+            let mut cover = 0i32;
+            let mut hit_rock = false;
             for py in 0..vh as i32 {
-                if taken >= SKIN {
-                    break;
-                }
                 let m = world.get(x, cy + py).material;
                 if m == material::EMPTY {
+                    // Air *inside* the ground (a cave mouth, an overhang)
+                    // does not end the cover run: what ends it is rock.
+                    if started && !hit_rock {
+                        cover += 1;
+                    }
                     continue;
                 }
-                *self.skin.entry(m.0).or_default() += 1;
-                taken += 1;
+                started = true;
+                if taken < SKIN {
+                    *self.skin.entry(m.0).or_default() += 1;
+                    taken += 1;
+                }
+                if !hit_rock {
+                    if world.materials.kind(m) == material::MaterialKind::Solid {
+                        hit_rock = true;
+                    } else {
+                        cover += 1;
+                    }
+                }
+            }
+            // A column of pure sky says nothing about how deep the ground is
+            // and would drag every percentile toward zero.
+            if started {
+                self.cover.push(cover);
             }
         }
         // The skyline of this view, and the steps between its columns.
         let mut prev: Option<i32> = None;
         for px in 0..vw as i32 {
-            let Some(sy) = surface_y(world, cx + px, WORLD_HEIGHT as i32) else {
+            let Some(sy) = surface_y(world, cx + px, wh()) else {
                 prev = None;
                 continue;
             };
@@ -283,6 +355,29 @@ impl Census {
 
     fn mad(&self) -> f64 {
         self.mad_sum / self.mad_n.max(1) as f64
+    }
+
+    /// Share of the viewport cells holding material that are of this kind.
+    fn kind_share(&self, k: material::MaterialKind) -> f64 {
+        let total: u64 = self.kinds.iter().sum();
+        self.kinds[kind_slot(k)] as f64 / total.max(1) as f64
+    }
+
+    /// `(p10, p50, p90, % of columns bare at the surface)` over cover depth.
+    ///
+    /// Percentiles rather than a mean, for CLAUDE.md's reason: a mean over a
+    /// blanket that is zero on every steep column and deep on every flat one
+    /// describes neither, and it is the *low* end that decides whether the
+    /// player sees rock.
+    fn cover_profile(&self) -> (i32, i32, i32, f64) {
+        if self.cover.is_empty() {
+            return (0, 0, 0, 0.0);
+        }
+        let mut v = self.cover.clone();
+        v.sort_unstable();
+        let at = |f: f64| v[((v.len() - 1) as f64 * f) as usize];
+        let bare = v.iter().filter(|&&c| c == 0).count() as f64 * 100.0 / v.len() as f64;
+        (at(0.10), at(0.50), at(0.90), bare)
     }
 
     fn ground_hist(&self) -> Vec<f64> {
@@ -352,7 +447,7 @@ fn build(params: &worldgen::WorldgenParams, seed: u64, skip: &str) -> World {
 /// own loop phase for phase — including `step_fields`, without which a long
 /// settle dries every lake and the picture is of a bug in the harness.
 fn build_settled(params: &worldgen::WorldgenParams, seed: u64, skip: &str, settle: usize) -> World {
-    let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
+    let bounds = Rect::new(0, 0, ww() - 1, wh() - 1);
     let mut world = World::new(bounds);
     if skip.is_empty() {
         worldgen::generate(&mut world, worldgen::Spec::Generated { params, seed });
@@ -466,8 +561,11 @@ fn strip(presets: &worldgen::WorldgenPresets, a: &Args) {
             image::save_buffer(&path, &sheet, sw as u32, sh as u32, image::ColorType::Rgb8)
                 .expect("write png");
             println!(
-                "  {path}  {preset} seed {seed}: {} viewports of {WIDTH}x{HEIGHT} across a {WORLD_WIDTH}x{WORLD_HEIGHT} world, settle {}",
-                a.views, a.settle
+                "  {path}  {preset} seed {seed}: {} viewports of {WIDTH}x{HEIGHT} across a {}x{} world, settle {}",
+                a.views,
+                ww(),
+                wh(),
+                a.settle
             );
             print_report(&report);
         }
@@ -480,7 +578,7 @@ fn build_reported(
     seed: u64,
     settle: usize,
 ) -> (World, Vec<(&'static str, usize)>) {
-    let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
+    let bounds = Rect::new(0, 0, ww() - 1, wh() - 1);
     let mut world = World::new(bounds);
     let report = worldgen::generate_reported(&mut world, worldgen::Spec::Generated { params, seed });
     for _ in 0..settle {
@@ -658,6 +756,11 @@ struct Args {
     view: usize,
     /// `mode=strip`: tiles per row on the contact sheet.
     cols: usize,
+    /// `world=WxH` — the world to build, defaulting to the sandbox's shipped
+    /// size. See [`WORLD_SIZE`]: the held world is 2560x960 and every number
+    /// here moves with the size, so a run that does not name one is a
+    /// statement about the sandbox.
+    world: (i32, i32),
 }
 
 fn main() {
@@ -670,6 +773,7 @@ fn main() {
         settle: 0,
         view: 4,
         cols: 2,
+        world: (WORLD_WIDTH as i32, WORLD_HEIGHT as i32),
     };
     for arg in std::env::args().skip(1) {
         let Some((k, v)) = arg.split_once('=') else { continue };
@@ -682,9 +786,18 @@ fn main() {
             "settle" => a.settle = v.parse().expect("settle=N"),
             "view" => a.view = v.parse().expect("view=N"),
             "cols" => a.cols = v.parse().expect("cols=N"),
+            "world" => {
+                let (w, h) = v.split_once(['x', 'X']).expect("world=WxH");
+                a.world = (w.trim().parse().expect("world=WxH"), h.trim().parse().expect("world=WxH"));
+                assert!(a.world.0 > 0 && a.world.1 > 0, "world=WxH must be positive");
+            }
             _ => panic!("unknown argument {arg:?}"),
         }
     }
+    // Set before any mode runs and before anything calls `ww()`/`wh()`, or
+    // the lock takes its default and `world=` silently does nothing —
+    // exactly the disconnected-knob failure CLAUDE.md's harness gotcha names.
+    WORLD_SIZE.set(a.world).expect("world size is set once");
     let (presets, err) = worldgen::WorldgenPresets::load();
     if let Some(e) = err {
         panic!("{e}");
@@ -701,8 +814,8 @@ fn main() {
         a.seeds,
         a.views,
         a.settle,
-        WORLD_WIDTH,
-        WORLD_HEIGHT,
+        ww(),
+        wh(),
         WIDTH,
         HEIGHT,
         1 << (8 - BIN_SHIFT)
@@ -852,6 +965,10 @@ fn composition(presets: &worldgen::WorldgenPresets, a: &Args) {
             for (k, v) in c.skin {
                 *agg.skin.entry(k).or_default() += v;
             }
+            for (a, b) in agg.kinds.iter_mut().zip(c.kinds) {
+                *a += b;
+            }
+            agg.cover.extend(c.cover);
             agg.ground_px += c.ground_px;
             agg.all_px += c.all_px;
         }
@@ -889,6 +1006,28 @@ fn composition(presets: &worldgen::WorldgenPresets, a: &Args) {
         }
         let stop2: f64 = skin_rows.iter().take(2).map(|r| r.0).sum();
         println!("   [top two = {stop2:.1}%]");
+        // The roll-up the per-material list cannot give, because rock arrives
+        // under six names (stone, mudstone, limestone, sandstone, basalt,
+        // ironstone) and reads as one grey thing. "Is this world mostly rock
+        // or mostly soil" is a two-number question and the eight-way split
+        // hides it -- the held world sat at 8.4% soil while showing four
+        // separate rock rows, none of them alarming on its own.
+        println!(
+            "  ground:  ROCK {:.1}%   loose {:.1}%   water {:.1}%   (of the cells that hold material)",
+            100.0 * agg.kind_share(material::MaterialKind::Solid),
+            100.0 * agg.kind_share(material::MaterialKind::Powder),
+            100.0 * agg.kind_share(material::MaterialKind::Liquid),
+        );
+        // How far down you can go before hitting rock, per viewport column.
+        // **This is the quantity `column::taper_cover` actually governs**, and
+        // it is not `soil_depth`: the blanket may only deepen by one repose
+        // step per column away from any bare column, so a preset can raise
+        // `soil_depth` 4.8x and move this by nothing at all (measured
+        // 2026-09-13: 210 -> 1,000 moved the viewport soil share 8.4% ->
+        // 8.5%). Read this, not the parameter, when asking how deep the
+        // ground is.
+        let (p10, p50, p90, bare) = agg.cover_profile();
+        println!("  cover to rock:  p10 {p10}  p50 {p50}  p90 {p90} cells   bare-at-surface {bare:.1}% of columns");
         println!();
     }
 }
@@ -1053,7 +1192,7 @@ fn passes(presets: &worldgen::WorldgenPresets, a: &Args) {
     println!("  Median over {} seeds.", a.seeds);
     println!();
     let names = worldgen::pass_names();
-    let bounds = Rect::new(0, 0, WORLD_WIDTH as i32 - 1, WORLD_HEIGHT as i32 - 1);
+    let bounds = Rect::new(0, 0, ww() - 1, wh() - 1);
     for preset in &a.presets {
         let Some(params) = presets.get(preset) else { continue };
         println!("### {preset}");

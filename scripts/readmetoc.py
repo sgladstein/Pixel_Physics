@@ -204,6 +204,9 @@ TOPICS = {
         # the passage its owner died in.
         "Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out",
         "Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost",
+        # ...and the sibling of the line above: rest still needs a reason, and
+        # standing still long enough is now one of them.
+        "Rest status — a rest that ends, so a resting animal is not a stopped one",
         "Hopper status — the jump has a species, and it hops itself to death",
         "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
         "Trail status — the ant reads its way home, and the food trail is the larder's problem",
