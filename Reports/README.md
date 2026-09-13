@@ -2577,6 +2577,27 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   Carries the round's standing rulings: the review queue is for the eye only,
   Fable is twice Opus, and a conservation failure is a question about the
   ruler first.
+- [evolution-lab-round-33-brief-2026-09-13.md](evolution-lab-round-33-brief-2026-09-13.md)
+  — **brief, 2026-09-13.** Round 33's task list, in the owner's priority order.
+  Round 32 measured the late-game creature cost; this round builds against it.
+  Task 1 is **parallelising the creature pass** — the largest single item, at
+  ~86% of the frame on one core, and measured rather than guessed. Task 2 is
+  the millisecond that is already built and owes only a seed sweep. Carries what
+  must not be re-derived: the cost is not linear, it is ant count and not
+  session age, and a repair can remove a picture while leaving the mechanism.
+- [evolution-lab-round-32-2026-09-13.md](evolution-lab-round-32-2026-09-13.md)
+  — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
+  account of round thirty-two, the performance round: the owner's stated #1
+  priority, sized before the round opened by his own 560,000-frame playtest.
+  Four lanes — the late-game creature cost, the five dead census columns, the
+  spoil teleport with §Z13, and zoom-out, which he raised to a priority
+  mid-round. What it overturned before any lane reported: **the cost is not
+  linear in ant count.** Refitting the raw log puts an ant at **0.27 µs below
+  ~450** and **2.6–2.9 µs above ~600**, so the handed-over `2.1 µs/ant` is an
+  average across a bend that describes neither side of it — and a lane
+  calibrating below the knee would have read its own harness as broken. Also
+  records two owner verdicts that existed only in the review queue, including
+  *"Are they resting or stuck?"* — the question asked back at us.
 - [evolution-lab-round-31-2026-09-13.md](evolution-lab-round-31-2026-09-13.md)
   — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
   account of round thirty-one: five lanes on the brief's five tasks. What it
@@ -2593,6 +2614,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [evolution-lab-rest-with-an-end-2026-09-13.md](evolution-lab-rest-with-an-end-2026-09-13.md)
+  — **record, 2026-09-13, round 33 lane F. `engine`, not `lab`** — it changes
+  every creature in both games. **§Z13 re-aimed and fixed**, on the owner
+  overruling his own *"rest is the absence of a reason to act"*: *"If they
+  never ask to move that is still stuck, it is just because the rest mechanism
+  needs fixing."* `p_move` is `squash(sum).clamp(0.0, 1.0)` and `squash`
+  returns a negative number for a negative sum, so **every** degree of "would
+  rather not" collapses onto the same exact zero, from which no roll can
+  produce a step — **48.7–64.0% of long-ant decision ticks and 54.4–77.5% of
+  *shipped two-cell ant* ticks** sat there. Per animal, **18.5% and 21.9% go quiet and
+  are never seen moving again**, having stood a median 8,100–13,500 frames and
+  up to 43,200: a latch, and the measurement that settles the owner's *"some
+  creatures got frozen"* against the pooled 75% that could not. Fixed with
+  `BrainInput::Stillness`, a **squared** ramp — the linear one repealed the
+  homing mechanism, because `Move`'s negative half is run-and-tumble
+  steering (deliveries 4,908 → 54) and that is the transferable lesson: **ask
+  what an output's existing low values are already used for before adding a
+  term to it.** Also carries §Z20, `labgif wire=` having been a silent no-op
+  for every card it ever produced. Owner's blind verdict on the fixed arm:
+  *"A looks way better"*.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the
@@ -3311,6 +3352,30 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   worth 1.09x on the background and 1.20x on the ants — and at the owner's
   population that leaves ~86% of the frame single-threaded. Harness:
   `examples/antcost.rs`.
+
+- [evolution-lab-creature-parallelism-2026-09-13.md](evolution-lab-creature-parallelism-2026-09-13.md)
+  — **the build the report above asked for: it works exactly, and it does not
+  pay.** `sense` and `eval_brain` are pure reads of an immutable `&World`, so
+  they are computed for many animals at once ahead of their turn while every
+  *write* stays serial in `ActiveSite`'s `Ord` order — **the engine's one
+  determinism surface is untouched**, and a speculation is consumed only over
+  ground nothing has written since. World and field hashes hold at 6, 150, 300
+  and 450 ants and move under the control that skips the check. **It ships
+  off.** The economics are one line — a speculation costs `c/S` and saves `c`
+  when used, so it pays iff **hit rate x parallel speedup > 1** — and on four
+  cores `S` is **2.1**, needing 48%, against a hit rate of **61% at 150 ants
+  and 32% at 450** that falls with density because the colony itself is what
+  invalidates it: `KinNeed` reads a touching nestmate's energy and metabolism
+  rewrites it every tick. Whole-frame, paired inside one process: **+2.7% at
+  450 ants, a wash at 150 and 300**. Carries the three-map write watch
+  (`src/sim/writewatch.rs`), the `unchecked` sensitivity control, and
+  **`verify`** — a differential that recomputes every accepted speculation and
+  names the brain input that differs, which is what found this scheme's one
+  hole (`evaporation::tick` damping the air two field blocks wide, visible at
+  450 ants and not at 150 or 300) where a hash could only say *no*. Prices the
+  two ways out: raise `S` (more cores, unmeasured here and therefore
+  unclaimed), or drop the read-phase split for an exact independent-set
+  partition of whole ticks. Harness: `examples/antcost.rs` `par=on,off`.
 
 ## Licensing and distribution
 
