@@ -611,8 +611,8 @@ impl Stats {
         self.census = Some(census);
     }
 
-    pub fn draw(&self, frame: &mut [u8], world: &World) {
-        self.draw_at(frame, world, None);
+    pub fn draw(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World) {
+        self.draw_at(hc, frame, world, None);
     }
 
     /// The page, with the row under `cursor` explaining itself beside it.
@@ -621,7 +621,7 @@ impl Stats {
     /// holds for the renderer. [`Stats::draw`] is the cursor-less form, kept
     /// for harnesses (`examples/labstats.rs`) that render the page with no
     /// pointer in the world.
-    pub fn draw_at(&self, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>) {
+    pub fn draw_at(&self, hc: crate::render::Hud, frame: &mut [u8], world: &World, cursor: Option<(i32, i32)>) {
         if !self.show {
             return;
         }
@@ -629,31 +629,30 @@ impl Stats {
         const PANEL_ALPHA: f32 = 0.82;
         const TITLE: [u8; 4] = [255, 220, 100, 255];
         const ACCENT: [u8; 4] = [90, 170, 240, 255];
-        let (w, h) = (super::WIDTH, super::HEIGHT);
 
         let rows = self.rows(world);
         let (left, top, right, bottom) = self.rect(world);
 
         for y in top..bottom {
             for x in left..right {
-                crate::render::blend(frame, w, h, x, y, PANEL, PANEL_ALPHA);
+                hc.blend(frame, x, y, PANEL, PANEL_ALPHA);
             }
         }
         for x in left..right {
-            crate::render::put(frame, w, h, x, top, ACCENT);
-            crate::render::put(frame, w, h, x, bottom - 1, ACCENT);
+            hc.put(frame, x, top, ACCENT);
+            hc.put(frame, x, bottom - 1, ACCENT);
         }
         for y in top..bottom {
-            crate::render::put(frame, w, h, left, y, ACCENT);
-            crate::render::put(frame, w, h, right - 1, y, ACCENT);
+            hc.put(frame, left, y, ACCENT);
+            hc.put(frame, right - 1, y, ACCENT);
         }
 
         let pad = left + 8;
-        text(frame, pad, top + 6, "BIOSPHERE", TITLE);
+        text(hc, frame, pad, top + 6, "BIOSPHERE", TITLE);
         let close = "TAB CLOSE";
-        text(frame, right - 8 - crate::hud::text_width(close), top + 6, close, FAINT);
+        text(hc, frame, right - 8 - crate::hud::text_width(close), top + 6, close, FAINT);
         for x in left + 1..right - 1 {
-            crate::render::put(frame, w, h, x, top + 17, RULE);
+            hc.put(frame, x, top + 17, RULE);
         }
 
         let mut y = top + HEADER;
@@ -672,24 +671,24 @@ impl Stats {
             }
             match &row.body {
                 Body::Gap => {}
-                Body::Text(s, colour) => text(frame, pad, y, s, *colour),
+                Body::Text(s, colour) => text(hc, frame, pad, y, s, *colour),
                 Body::Strip(series, colour, label) => {
-                    self.draw_strip(frame, pad, y, *series, *colour, label)
+                    self.draw_strip(hc, frame, (pad, y), *series, *colour, label)
                 }
                 Body::Generations => {
                     if let Some(census) = &self.census {
-                        draw_generations(frame, census, pad, y);
+                        draw_generations(hc, frame, census, pad, y);
                     }
                 }
                 Body::Gauge(fill, label, colour) => {
-                    draw_gauge(frame, pad, y + 4, 108, *fill, *colour);
-                    text(frame, pad + 116, y + 3, label, FAINT);
+                    draw_gauge(hc, frame, pad, y + 4, 108, *fill, *colour);
+                    text(hc, frame, pad + 116, y + 3, label, FAINT);
                 }
             }
             y += row.height();
         }
         if let (Some(note), Some(at)) = (hovered, cursor) {
-            draw_note(frame, note, at);
+            draw_note(hc, frame, note, at);
         }
     }
 
@@ -1065,26 +1064,25 @@ impl Stats {
     /// reads as a line.
     fn draw_strip(
         &self,
+        hc: crate::render::Hud,
         frame: &mut [u8],
-        x: i32,
-        y: i32,
+        (x, y): (i32, i32),
         series: Series,
         colour: [u8; 4],
         label: &str,
     ) {
-        const UNDER: [u8; 4] = [26, 34, 44, 255];
-        let (w, h) = (super::WIDTH, super::HEIGHT);
+            const UNDER: [u8; 4] = [26, 34, 44, 255];
         let height = 16;
         let width = 168;
         for px in x..x + width {
-            crate::render::put(frame, w, h, px, y + height, RULE);
+            hc.put(frame, px, y + height, RULE);
         }
         let value = |s: &Sample| match series {
             Series::Plants => s.plants,
             Series::Animals => s.animals,
         };
         if self.history.len() < 2 {
-            text(frame, x, y + height - 12, "TRACKING FROM NOW", FAINT);
+            text(hc, frame, x, y + height - 12, "TRACKING FROM NOW", FAINT);
             return;
         }
         let peak = self.history.iter().map(value).max().unwrap_or(1).max(1);
@@ -1103,9 +1101,9 @@ impl Stats {
         for sample in &self.history {
             let (px, ph) = (column(sample), bar(sample));
             for dy in 0..ph {
-                crate::render::put(frame, w, h, px, y + height - 1 - dy, UNDER);
+                hc.put(frame, px, y + height - 1 - dy, UNDER);
             }
-            crate::render::put(frame, w, h, px, y + height - 1 - ph.min(height - 1), colour);
+            hc.put(frame, px, y + height - 1 - ph.min(height - 1), colour);
             // Join to the previous point: with a decimated ring the columns
             // are not adjacent, and isolated dots do not read as a line.
             if let Some((qx, qh)) = previous {
@@ -1113,19 +1111,19 @@ impl Stats {
                     let t = (cx - qx) as f32 / (px - qx).max(1) as f32;
                     let ch = qh + ((ph - qh) as f32 * t).round() as i32;
                     for dy in 0..ch {
-                        crate::render::put(frame, w, h, cx, y + height - 1 - dy, UNDER);
+                        hc.put(frame, cx, y + height - 1 - dy, UNDER);
                     }
-                    crate::render::put(frame, w, h, cx, y + height - 1 - ch.min(height - 1), colour);
+                    hc.put(frame, cx, y + height - 1 - ch.min(height - 1), colour);
                 }
             }
             previous = Some((px, ph));
         }
-        text(frame, x + width + 6, y + 1, label, FAINT);
+        text(hc, frame, x + width + 6, y + 1, label, FAINT);
         // **`MAX 43` rather than `43`.** Read off the rendered page, a bare
         // number beside a strip whose headline says `PLANTS 41` looks like a
         // second population count and invites the reader to reconcile two
         // figures that are not the same quantity.
-        text(frame, x + width + 6, y + height - 7, &format!("MAX {peak}"), colour);
+        text(hc, frame, x + width + 6, y + height - 7, &format!("MAX {peak}"), colour);
     }
 }
 
@@ -1401,8 +1399,7 @@ fn breed_margin(
 /// stand of two thousand founders and a stand that has entirely turned over
 /// read the same in `DEEPEST`, and they are the difference between a lucky
 /// seed and a population that is evolving.
-fn draw_generations(frame: &mut [u8], census: &Census, x: i32, y: i32) {
-    let (w, h) = (super::WIDTH, super::HEIGHT);
+fn draw_generations(hc: crate::render::Hud, frame: &mut [u8], census: &Census, x: i32, y: i32) {
     let height = 15;
     let bar = 14;
     let gap = 2;
@@ -1415,25 +1412,24 @@ fn draw_generations(frame: &mut [u8], census: &Census, x: i32, y: i32) {
         let ph = if *count == 0 { 0 } else { ((*count as i64 * height as i64 / tallest as i64) as i32).max(1) };
         for dy in 0..ph {
             for dx in 0..bar {
-                crate::render::put(frame, w, h, bx + dx, y + height - 1 - dy, colour);
+                hc.put(frame, bx + dx, y + height - 1 - dy, colour);
             }
         }
         for dx in 0..bar {
-            crate::render::put(frame, w, h, bx + dx, y + height, RULE);
+            hc.put(frame, bx + dx, y + height, RULE);
         }
     }
-    text(frame, x, y + height + 2, "0  1  2  3  4  5  6  7+", FAINT);
+    text(hc, frame, x, y + height + 2, "0  1  2  3  4  5  6  7+", FAINT);
 }
 
 /// A filled bar, `fill` in 0..1. Used for the organism ceiling, where the
 /// *headroom* is the point and a percentage buries it.
-fn draw_gauge(frame: &mut [u8], x: i32, y: i32, width: i32, fill: f32, on: [u8; 4]) {
-    let (w, h) = (super::WIDTH, super::HEIGHT);
+fn draw_gauge(hc: crate::render::Hud, frame: &mut [u8], x: i32, y: i32, width: i32, fill: f32, on: [u8; 4]) {
     let filled = (width as f32 * fill).round() as i32;
     for dx in 0..width {
         for dy in 0..5 {
             let colour = if dx < filled { on } else { RULE };
-            crate::render::put(frame, w, h, x + dx, y + dy, colour);
+            hc.put(frame, x + dx, y + dy, colour);
         }
     }
 }
@@ -1445,10 +1441,9 @@ fn draw_gauge(frame: &mut [u8], x: i32, y: i32, width: i32, fill: f32, on: [u8; 
 /// having lost the thing it is about. The page is on the right, so the note
 /// opens to its **left**, which is the mirror of the colony panel's choice
 /// and the same reasoning.
-fn draw_note(frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
+fn draw_note(hc: crate::render::Hud, frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
     const BG: [u8; 4] = [16, 20, 30, 255];
     const ALPHA: f32 = 0.92;
-    let (w, h) = (super::WIDTH, super::HEIGHT);
     let (panel_left, _, _) = RECT;
     let width = panel_left - 12;
     let inner = width - 12;
@@ -1461,19 +1456,19 @@ fn draw_note(frame: &mut [u8], note: &str, (_, cy): (i32, i32)) {
     let y = (cy - 4).min(super::HEIGHT as i32 - 10 - height).max(10);
     for py in y..y + height {
         for px in x..x + width {
-            crate::render::blend(frame, w, h, px, py, BG, ALPHA);
+            hc.blend(frame, px, py, BG, ALPHA);
         }
     }
     for px in x..x + width {
-        crate::render::put(frame, w, h, px, y, HEADING);
-        crate::render::put(frame, w, h, px, y + height - 1, HEADING);
+        hc.put(frame, px, y, HEADING);
+        hc.put(frame, px, y + height - 1, HEADING);
     }
     for py in y..y + height {
-        crate::render::put(frame, w, h, x, py, HEADING);
-        crate::render::put(frame, w, h, x + width - 1, py, HEADING);
+        hc.put(frame, x, py, HEADING);
+        hc.put(frame, x + width - 1, py, HEADING);
     }
     for (i, line) in lines.iter().enumerate() {
-        text(frame, x + 6, y + 5 + i as i32 * LINE, line, WHITE);
+        text(hc, frame, x + 6, y + 5 + i as i32 * LINE, line, WHITE);
     }
 }
 
@@ -1504,12 +1499,12 @@ fn wrap_words(text: &str, columns: usize) -> Vec<String> {
 /// names and formatted numbers, so a test over literals cannot see them; a
 /// `debug_assert` checks whatever the page actually built, in every test that
 /// draws it.
-fn text(frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
+fn text(hc: crate::render::Hud, frame: &mut [u8], x: i32, y: i32, s: &str, colour: [u8; 4]) {
     debug_assert!(
         s.chars().all(crate::hud::has_glyph),
         "the biosphere page prints {s:?}, which the font would draw as a blank gap"
     );
-    crate::hud::draw_text(frame, super::WIDTH, super::HEIGHT, x, y, s, colour);
+    hc.text(frame, x, y, s, colour);
 }
 
 /// **The page as text**, one line per row, for a harness.
@@ -1545,6 +1540,11 @@ pub fn notes(stats: &Stats, world: &World) -> Vec<String> {
 
 #[cfg(test)]
 mod tests {
+    /// See `ui::tests::hud` -- scale 1, so these assertions are unchanged.
+    fn hud() -> crate::render::Hud {
+        crate::render::Hud::new(super::super::WIDTH, super::super::HEIGHT, 1)
+    }
+
     use super::*;
     use crate::lab::scene::LabBox;
 
@@ -1863,7 +1863,7 @@ mod tests {
         let world = bed(4, 1);
         let stats = censused(&world);
         let mut frame = blank_frame();
-        stats.draw(&mut frame, &world);
+        stats.draw(hud(), &mut frame, &world);
 
         let (left, top, right, bottom) = stats.rect(&world);
         let content: i32 = stats.rows(&world).iter().map(Row::height).sum();
@@ -1908,12 +1908,12 @@ mod tests {
         let world = bed(4, 1);
         let mut stats = censused(&world);
         let mut open = blank_frame();
-        stats.draw(&mut open, &world);
+        stats.draw(hud(), &mut open, &world);
         assert!(open.iter().any(|b| *b != 0));
 
         stats.toggle();
         let mut shut = blank_frame();
-        stats.draw(&mut shut, &world);
+        stats.draw(hud(), &mut shut, &world);
         assert!(shut.iter().all(|b| *b == 0), "a shut page painted something");
     }
 
@@ -1930,14 +1930,14 @@ mod tests {
         let (left, top, ..) = stats.rect(&world);
 
         let mut plain = blank_frame();
-        stats.draw_at(&mut plain, &world, None);
+        stats.draw_at(hud(), &mut plain, &world, None);
         let mut hovered = blank_frame();
-        stats.draw_at(&mut hovered, &world, Some((left + 20, top + HEADER + 2)));
+        stats.draw_at(hud(), &mut hovered, &world, Some((left + 20, top + HEADER + 2)));
         assert_ne!(plain, hovered, "hovering the first row explained nothing");
 
         // Left of the page entirely: no row is under the cursor.
         let mut outside = blank_frame();
-        stats.draw_at(&mut outside, &world, Some((2, top + HEADER + 2)));
+        stats.draw_at(hud(), &mut outside, &world, Some((2, top + HEADER + 2)));
         assert_eq!(plain, outside, "a cursor off the page opened a note anyway");
     }
 
@@ -1957,7 +1957,7 @@ mod tests {
                 );
             }
             let mut frame = blank_frame();
-            stats.draw_at(&mut frame, &world, Some((super::super::WIDTH as i32 - 200, 40)));
+            stats.draw_at(hud(), &mut frame, &world, Some((super::super::WIDTH as i32 - 200, 40)));
         }
     }
 }

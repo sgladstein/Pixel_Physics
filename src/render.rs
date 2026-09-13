@@ -3767,10 +3767,21 @@ impl Renderer {
         if self.zoom > 1 {
             (w / self.zoom, h / self.zoom)
         } else {
-            // `sampling_stride`, not the ladder: `w` is the *buffer*, which
-            // has already grown by `pixel_scale`, and the two divide out to
-            // leave the span the ladder promised.
-            let stride = self.sampling_stride();
+            // **The ladder, and a *logical* viewport.** The camera is about
+            // cells, so nothing in it may depend on how many buffer pixels
+            // carry them: `logical x zoom_out_stride` is the same number as
+            // `buffer x sampling_stride` whenever the two agree, and is still
+            // right when they do not — which they do not for exactly as long
+            // as a rung change is in flight.
+            //
+            // **That distinction cost two bugs in one afternoon**, both the
+            // same shape: something derived the scale from the renderer's
+            // pushed `pixel_budget` while its viewport came from the
+            // authoritative pair, and the pair described two different frames.
+            // The camera functions below take the logical viewport for that
+            // reason, and `draw` — the one caller that genuinely holds a
+            // buffer — divides by the scale on the way in.
+            let stride = self.zoom_out_stride.max(1);
             (w * stride, h * stride)
         }
     }
@@ -3999,17 +4010,17 @@ impl Renderer {
     pub fn zoom_within(&mut self, delta: i32, viewport: (u32, u32), bounds: Option<Rect>) {
         // The world cell under the middle of the screen, before the scale
         // moves under it.
+        // The world cell under the middle of the screen, before the scale
+        // moves under it.
         let (span_x, span_y) = self.visible_span(viewport);
         let centre = (self.camera_x + span_x / 2, self.camera_y + span_y / 2);
+
         self.adjust_zoom(delta);
-        // **The cap is a ladder bound, so it is taken against the logical
-        // viewport**, never the grown buffer. Measured against the buffer it
-        // would shrink as `pixel_scale` grew, and a player who asked for more
-        // pixels would silently lose reach — which is the one thing this
-        // change promised not to touch.
-        let scale = self.pixel_scale().max(1);
-        let logical = ((viewport.0 / scale as u32).max(1), (viewport.1 / scale as u32).max(1));
-        self.zoom_out_stride = self.zoom_out_stride.min(max_zoom_out_stride(logical, bounds));
+        // The cap is a **ladder** bound over a *logical* viewport, which is
+        // what this function is handed — so it is unaffected by how many
+        // buffer pixels are carrying the view, and a player who asks for more
+        // pixels never loses reach. Three owner rulings sit on this cap.
+        self.zoom_out_stride = self.zoom_out_stride.min(max_zoom_out_stride(viewport, bounds));
         let (span_x, span_y) = self.visible_span(viewport);
         self.set_camera(centre.0 - span_x / 2, centre.1 - span_y / 2, viewport, bounds);
     }
@@ -5305,7 +5316,10 @@ impl Renderer {
             self.sky_light_grid.clear();
             return had;
         };
-        let (span_x, span_y) = self.visible_span(viewport);
+        // `viewport` here is the *buffer*, so it is divided back to logical
+        // before asking for a span — see `visible_span`.
+        let scale = self.pixel_scale().max(1) as u32;
+        let (span_x, span_y) = self.visible_span((viewport.0 / scale, viewport.1 / scale));
         // Snapped **down** to a block multiple in world coordinates -- see
         // `sky_light_rect`. `div_euclid` rather than `/`, so a negative
         // world origin snaps the same way a positive one does instead of
@@ -7857,10 +7871,31 @@ impl Renderer {
     }
 
     pub fn screen_to_world(&self, sx: i32, sy: i32) -> (i32, i32) {
+        self.to_world(sx, sy, self.sampling_stride())
+    }
+
+    /// `screen_to_world` from a **logical** pixel rather than a buffer one.
+    ///
+    /// **The two differ only when `pixel_scale > 1`, and then by exactly that
+    /// factor.** A buffer pixel is `sampling_stride` cells; a logical pixel is
+    /// `zoom_out_stride` cells, which is the same thing multiplied back up by
+    /// the scale — so this is, by construction, the transform every caller had
+    /// before the buffer could grow.
+    ///
+    /// **Which one a caller wants is decided by where its coordinate came
+    /// from**, and in the lab that is nearly always *logical*: the bar is laid
+    /// out in logical pixels, the cursor is converted to them at the window
+    /// boundary, and the marks drawn over the box are positioned with the same
+    /// numbers the bar uses. `screen_to_world` stays right for anything
+    /// indexing the buffer itself.
+    pub fn logical_to_world(&self, lx: i32, ly: i32) -> (i32, i32) {
+        self.to_world(lx, ly, self.zoom_out_stride.max(1))
+    }
+
+    fn to_world(&self, sx: i32, sy: i32, stride: i32) -> (i32, i32) {
         if self.zoom > 1 {
             (self.camera_x + sx.div_euclid(self.zoom), self.camera_y + sy.div_euclid(self.zoom))
         } else {
-            let stride = self.sampling_stride();
             (self.camera_x + sx * stride, self.camera_y + sy * stride)
         }
     }
@@ -7895,9 +7930,32 @@ impl Renderer {
             let (sx, sy) = ((x0 - self.camera_x) * z, (y0 - self.camera_y) * z);
             return (sx, sy, (x1 - self.camera_x) * z + z - 1, (y1 - self.camera_y) * z + z - 1, z);
         }
-        let stride = self.sampling_stride();
+        self.rect_to(x0, y0, x1, y1, self.sampling_stride())
+    }
+
+    /// [`Self::world_rect_to_screen`] in **logical** pixels — see
+    /// [`Self::logical_to_world`] for which of the two a caller wants.
+    pub fn world_rect_to_logical(&self, x0: i32, y0: i32, x1: i32, y1: i32) -> (i32, i32, i32, i32, i32) {
+        if self.zoom > 1 {
+            return self.world_rect_to_screen(x0, y0, x1, y1);
+        }
+        self.rect_to(x0, y0, x1, y1, self.zoom_out_stride.max(1))
+    }
+
+    fn rect_to(&self, x0: i32, y0: i32, x1: i32, y1: i32, stride: i32) -> (i32, i32, i32, i32, i32) {
         let map = |v: i32, c: i32| (v - c).div_euclid(stride);
         (map(x0, self.camera_x), map(y0, self.camera_y), map(x1, self.camera_x), map(y1, self.camera_y), 1)
+    }
+
+    /// [`Self::world_to_screen`] in **logical** pixels — see
+    /// [`Self::logical_to_world`] for which of the two a caller wants.
+    pub fn world_to_logical(&self, x: i32, y: i32) -> Option<(i32, i32)> {
+        let (sx, sy) = self.world_to_screen(x, y)?;
+        if self.zoom > 1 {
+            return Some((sx, sy));
+        }
+        let scale = self.pixel_scale().max(1);
+        Some((sx.div_euclid(scale), sy.div_euclid(scale)))
     }
 
     pub fn world_to_screen(&self, x: i32, y: i32) -> Option<(i32, i32)> {
@@ -10957,21 +11015,34 @@ mod tests {
         }
     }
 
-    /// The same invariant stated where it is actually load-bearing: the span in
-    /// **cells** must not move when the buffer grows.
+    /// The same invariant stated where it is actually load-bearing: **the span
+    /// in cells must not move when the buffer grows.**
+    ///
+    /// **The contract this asserts changed on 2026-09-13 and the change is the
+    /// point.** `visible_span` used to take the *buffer* and multiply by
+    /// `sampling_stride`; it now takes the **logical** viewport and multiplies
+    /// by the ladder. The two are the same number whenever the buffer and the
+    /// scale agree — and they disagree for exactly as long as a rung change is
+    /// in flight, which is how the lab's widest zoom-out came to be clamped to
+    /// rung 2 at budget 2. The camera is about *cells*, so nothing in it may
+    /// depend on how many buffer pixels carry them.
     #[test]
     fn a_grown_buffer_shows_exactly_the_same_span_of_world() {
         for rung in 1..=MAX_ZOOM_OUT_STRIDE {
             let mut base = Renderer::new();
             base.zoom_out_stride = rung;
             let want = base.visible_span((512, 320));
+            assert_eq!(want, (512 * rung, 320 * rung), "the span is the logical viewport times the rung");
             for budget in [1, 2, 4] {
                 let mut r = Renderer::new();
                 r.zoom_out_stride = rung;
                 r.pixel_budget = budget;
-                let scale = r.pixel_scale() as u32;
-                let got = r.visible_span((512 * scale, 320 * scale));
-                assert_eq!(got, want, "rung {rung} budget {budget} (scale {scale}) changed the span");
+                assert_eq!(
+                    r.visible_span((512, 320)),
+                    want,
+                    "rung {rung} budget {budget} (scale {}) changed the span",
+                    r.pixel_scale()
+                );
             }
         }
     }

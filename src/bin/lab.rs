@@ -53,9 +53,22 @@
 //! no pointer in it, so the bar's hover state and everything a click opens are
 //! invisible to the only instrument this binary has on a headless box:
 //!
-//! - `PIXEL_PHYSICS_LAB_CURSOR=x,y` holds the pointer at one framebuffer pixel;
+//! - `PIXEL_PHYSICS_LAB_CURSOR=x,y` holds the pointer at one **logical** pixel
+//!   — the bar's own coordinate space, which is the framebuffer only while
+//!   `Lab::pixel_budget` is x1 (see `Lab::to_logical`);
 //! - `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` clicks each position in turn, one per
-//!   rendered frame, before the shot is taken.
+//!   rendered frame, before the shot is taken, in the same logical space;
+//! - `PIXEL_PHYSICS_LAB_BOX=W,H` opens a bed of that size instead of the
+//!   shipped one, `PIXEL_PHYSICS_LAB_ZOOM_OUT=N` pulls the view back N rungs
+//!   on the first frame, and `PIXEL_PHYSICS_LAB_PIXELS=N` starts at that
+//!   zoom-out pixel budget. **All three are needed together to photograph the
+//!   grown buffer**, and the reason is the feature's own shape: the budget is
+//!   only ever spent at a zoom rung that can divide it, so on a bed that has
+//!   not been pulled back it correctly buys nothing. Both exist for the same reason as the two above: a headless
+//!   box has no keyboard and no parameters page, and **the shipped 512x320 bed
+//!   cannot zoom out at all** — it is no bigger than the viewport — so without
+//!   a way to open a larger one there is no way to photograph the thing
+//!   `Lab::pixel_budget` changes.
 //!
 //! Both are debug hooks. A real pointer overrides the first the moment it
 //! moves, and the second is spent after its last click.
@@ -102,7 +115,18 @@ fn parse_at(v: impl AsRef<str>) -> Option<(i32, i32)> {
 /// `Lab::reset` rebuilds from this same spec, so `REBUILD` empties the box
 /// rather than restocking it.
 fn empty_bed() -> LabBox {
-    LabBox { founders: 0, colonies: 0, ..LabBox::default() }
+    let base = LabBox::default();
+    let (width, height) = std::env::var("PIXEL_PHYSICS_LAB_BOX")
+        .ok()
+        .and_then(|v| {
+            let (w, h) = v.split_once(',')?;
+            Some((w.trim().parse().ok()?, h.trim().parse().ok()?))
+        })
+        .unwrap_or((base.width, base.height));
+    // The ground rides the height, as it does on the parameters page: at the
+    // shipped `ground_y` a tall box puts its soil in the top eighth.
+    let ground_y = base.ground_y * height / base.height.max(1);
+    LabBox { founders: 0, colonies: 0, width, height, ground_y, ..base }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -150,6 +174,11 @@ struct Handler {
     /// headless screenshot can show the bar's hover state. Debug only; a real
     /// pointer overwrites it the moment it moves.
     forced_cursor: Option<(i32, i32)>,
+    /// `PIXEL_PHYSICS_LAB_PIXELS=N` — the zoom-out pixel budget to open at,
+    /// applied once on the first frame. A debug hook, like the two above.
+    start_pixels: Option<i32>,
+    /// `PIXEL_PHYSICS_LAB_ZOOM_OUT=N` — rungs to pull back on the first frame.
+    start_zoom_out: Option<i32>,
     /// `PIXEL_PHYSICS_LAB_CLICK=x,y;x,y` — clicks to play back, one per
     /// rendered frame. Stored reversed so the next one is a `pop`.
     scripted_clicks: Vec<(i32, i32)>,
@@ -238,6 +267,8 @@ impl Handler {
             // ...and this presses it. Oldest first, one per rendered frame, so
             // a headless shot can show what a click actually opened rather
             // than only what the bar looks like unpressed.
+            start_pixels: std::env::var("PIXEL_PHYSICS_LAB_PIXELS").ok().and_then(|v| v.parse().ok()),
+            start_zoom_out: std::env::var("PIXEL_PHYSICS_LAB_ZOOM_OUT").ok().and_then(|v| v.parse().ok()),
             scripted_clicks: std::env::var("PIXEL_PHYSICS_LAB_CLICK")
                 .ok()
                 .map(|v| v.split(';').filter_map(parse_at).rev().collect())
@@ -269,6 +300,10 @@ impl Handler {
         );
         if dir != (0, 0) {
             let bounds = self.lab.world.bounds();
+            // **The real viewport, not the logical one.** `visible_span` is
+            // buffer x sampling stride, so handing it the logical size at a
+            // grown buffer would make a screenful a quarter of a screenful and
+            // the map scroll at a quarter speed.
             self.lab.renderer.pan(dir, dt.min(0.1), (WIDTH, HEIGHT), bounds);
         }
 
@@ -291,6 +326,14 @@ impl Handler {
             }
         }
 
+        if let Some(n) = self.start_pixels.take() {
+            self.lab.pixel_budget = n.clamp(1, pixel_physics::app::MAX_PIXEL_SCALE);
+        }
+        if let Some(n) = self.start_zoom_out.take() {
+            for _ in 0..n {
+                self.zoom(-1);
+            }
+        }
         let advance = self.lab.advance(elapsed);
 
         // **The display rate is decoupled from the frame loop**, and this is
@@ -309,6 +352,36 @@ impl Handler {
         // the tick costs 7.3 ms against the draw's 4.7 and it is the tick the
         // dial is short of. See
         // `Reports/evolution-lab-frame-cost-2026-09-01.md`.
+        // **How many logical pixels the window can actually resolve.** The
+        // buffer may grow at zoom-out up to what the display can show and no
+        // further: pixels past that are paid for in full and then discarded by
+        // the GPU on the way down, which would put the zoom-out dropout back
+        // somewhere `ZoomOutFilter` cannot reach. Same rule as `main.rs`.
+        if let Some(window) = &self.window {
+            let size = window.inner_size();
+            let mut cap = 1;
+            while cap * 2 <= pixel_physics::app::MAX_PIXEL_SCALE
+                && WIDTH * (cap as u32) * 2 <= size.width
+                && HEIGHT * (cap as u32) * 2 <= size.height
+            {
+                cap *= 2;
+            }
+            self.lab.pixel_scale_cap = cap;
+        }
+        let want = self.lab.viewport();
+        // `resize_buffer` before `frame_mut`, or the slice is last frame's
+        // size. Guarded on an actual change, so an unchanged budget is one
+        // tuple comparison.
+        let resize_error = match &mut self.pixels {
+            Some(pixels) if (pixels.texture().width(), pixels.texture().height()) != want => {
+                pixels.resize_buffer(want.0, want.1).err().map(|e| format!("buffer resize failed: {e}"))
+            }
+            _ => None,
+        };
+        if let Some(message) = resize_error {
+            return self.fail(event_loop, message);
+        }
+
         let render_error = if !advance.draw {
             None
         } else {
@@ -322,8 +395,8 @@ impl Handler {
                         match image::save_buffer(
                             &path,
                             pixels.frame(),
-                            WIDTH,
-                            HEIGHT,
+                            want.0,
+                            want.1,
                             image::ColorType::Rgba8,
                         ) {
                             Ok(()) => eprintln!("lab screenshot saved: {}", path.display()),
@@ -655,6 +728,16 @@ impl Handler {
             // and it zooms about the origin rather than about what you are
             // looking at. See `Renderer::zoom_within`.
             KeyCode::Minus => self.zoom(-1),
+            // **`Shift`+`=` cycles the zoom-out pixel budget**, the same
+            // binding and the same reasoning as the sandbox: you reach for the
+            // control while you are already looking at the thing it changes.
+            // Unconditional here, unlike `main.rs`, because the lab has no
+            // magnify styles competing for the shifted key.
+            KeyCode::Equal if self.shift => {
+                let got = self.lab.cycle_pixel_budget();
+                let live = self.lab.pixel_scale();
+                eprintln!("zoom-out pixels: x{got} (x{live} in force)");
+            }
             KeyCode::Equal => self.zoom(1),
             _ => {}
         }
@@ -695,11 +778,18 @@ impl ApplicationHandler for Handler {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
+                // **Converted to logical pixels here, once.** `Pixels` maps
+                // the window position into *buffer* pixels, and the buffer can
+                // now be up to four times the bar's own coordinate space
+                // (`Lab::pixel_budget`). Everything downstream — the bar's hit
+                // tests, the hover explanations, `Lab::press`/`drag`, and the
+                // world lookups through `Renderer::logical_to_world` — works in
+                // logical pixels, so this is the one place the two meet.
                 self.cursor = self
                     .pixels
                     .as_ref()
                     .and_then(|p| p.window_pos_to_pixel(position.into()).ok())
-                    .map(|(x, y)| (x as i32, y as i32));
+                    .map(|(x, y)| self.lab.to_logical(x as i32, y as i32));
                 self.lab.set_cursor(self.cursor);
                 // ...and a live brush stroke follows it. `Lab::drag` no-ops
                 // unless a button is actually down, so this is unconditional
