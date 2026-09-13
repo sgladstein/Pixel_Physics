@@ -34,6 +34,35 @@ const BOUNDS: (i32, i32) = (511, 319);
 /// Seeds every preset is checked against. Five is a sample, not a proof —
 /// mashing `F6` in the app is still the real sweep — but it is enough to
 /// catch a rule that only holds for the seed it was tuned on.
+///
+/// **Measured 2026-09-13, before you widen this: at twenty seeds
+/// (`1..=20`) four tests in this file go red, and none of them is the one
+/// you are probably here about.** `generated_terrain_is_already_at_rest`
+/// holds at twenty; these do not:
+///
+/// - `a_cave_system_survives_a_pocket_lens_inside_its_envelope`
+/// - `every_pass_writes_something` — *"springs cut a basin at 512x320,
+///   where no cliff-and-shelf fits"*
+/// - `soil_moisture_never_rises_with_distance_from_water`
+/// - `speleothems_never_bridge_a_passage`
+///
+/// So **four guards over procedural content are green partly because they
+/// sample five seeds**, which is exactly the shape `CLAUDE.md` names when it
+/// says *six seeds is not a sweep* and asks a guard over a procedure to gate
+/// an order statistic. Widening this constant alone therefore turns the
+/// trunk red on four unrelated tests; each needs its own look first, and
+/// whether each is a real defect or an over-tight assertion is **not
+/// established** — nobody has read them.
+///
+/// Cost, so the trade is on the table rather than assumed: the at-rest guard
+/// runs 2.1 s at five seeds and 8.3 s at twenty, and the whole binary goes
+/// 160 s to 259 s. The seeds are affordable. The four tests are the work.
+///
+/// This was found sideways, sweeping `warp_strength` for the druid preset,
+/// and is recorded here rather than in the bug register because **here is
+/// where somebody about to change this number will read it** — and because
+/// `bugindex.py --branches` answers differently depending on what you have
+/// fetched, so a letter claimed from one tree is not safe.
 const SEEDS: [u64; 5] = [1, 2, 3, 4, 5];
 
 fn build(params: &WorldgenParams, seed: u64) -> World {
