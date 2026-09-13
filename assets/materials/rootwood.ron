@@ -15,7 +15,18 @@
     // through soil used to stop a tunnel dead, since `mine` will not cut an
     // organism cell and `displace_disc` will not shove one. It still cannot
     // be dug -- it simply is not a wall any more.
+    //
+    // **It is no longer what the character's footing reads**, though: that
+    // is `underfoot` below, tested first. This flag is still live for the
+    // shake's plant flood, `creature::crossable` and the tree-depth
+    // occlusion, which is why it stays.
     climbable: true,
+    // **A root is ground.** A tree's root plate is threaded through the
+    // bank he is walking on, so it answers his feet the way the soil beside
+    // it does -- he wades into it to the knee and stands, instead of
+    // dropping through the forest floor and jamming in the root mass. The
+    // owner's report and the measurement are on `MaterialDef::underfoot`.
+    underfoot: true,
     // Denser than trunk wood -- root tissue is water-saturated.
     density: 1.05,
     // Pale tan, not dark brown. Real roots are cream-to-tan and read pale

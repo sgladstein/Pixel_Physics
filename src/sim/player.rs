@@ -1582,6 +1582,23 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
     if material.scenery {
         return Footing::Scenery;
     }
+    // **Root tissue is ground, not scenery.** He treads on a root mat the
+    // way he treads on the soil it grew through -- `Footing::Soft`, which
+    // is exactly what that soil already is, so the bank answers one way
+    // across its whole width instead of opening a hole wherever a root
+    // surfaced. `Material::underfoot` holds the measurement this exists
+    // for and why the answer is not `Hard`.
+    //
+    // **Before the climb arm, and the order is the rule rather than
+    // tidiness**: the two are opposite claims about one cell, and `grip`
+    // compares `Footing::Climb` by equality, so reaching that arm first
+    // would hand him a ladder down into the bank. Root materials keep
+    // `climbable: true` for the four systems that still read it -- the
+    // shake's plant flood, `creature::crossable`, and the tree-depth
+    // occlusion -- so the flag cannot be dropped to say "not a ladder".
+    if cell.organism_id() != 0 && material.underfoot {
+        return Footing::Soft;
+    }
     if cell.organism_id() != 0 && material.climbable {
         return Footing::Climb;
     }
@@ -5340,23 +5357,39 @@ mod tests {
         world
     }
 
-    /// Where his feet come to rest after a long drop onto the bank, and how
-    /// many of the cells his body ends up occupying are living root.
-    fn settle_on_the_bank(world: &mut World) -> (i32, usize) {
+    /// Where his feet come to rest after a long drop onto the bank, how
+    /// much of his 7x14 box ends up buried in it, and how much of *that* is
+    /// living root.
+    ///
+    /// The middle number is the one the assertion is on and the last is for
+    /// the message. **A count of root cells inside him cannot be the claim**
+    /// — he wades into a bank to the knee by design, so the cells in his
+    /// wade rows are root on the laced arm and soil on the bare one, and
+    /// zero is the answer for a gnome standing on pavement rather than for
+    /// one standing on ground. What "like the ground" says is that the two
+    /// arms bury the *same amount of him*.
+    fn settle_on_the_bank(world: &mut World) -> (i32, usize, usize) {
         world.player = Some(Player::at(64, 40));
         for _ in 0..200 {
             tick(world, PlayerInput::default());
         }
         let p = world.player.as_ref().expect("a gnome");
         let (x0, y0, x1, y1) = p.bounds();
-        let inside = (y0..=y1)
-            .flat_map(|y| (x0..=x1).map(move |x| (x, y)))
-            .filter(|&(x, y)| {
+        let mut buried = 0;
+        let mut root = 0;
+        for y in y0..=y1 {
+            for x in x0..=x1 {
                 let c = world.get(x, y);
-                c.organism_id() != 0 && world.materials.get(c.material).reinforces_powder
-            })
-            .count();
-        (y1, inside)
+                if c.material == material::EMPTY {
+                    continue;
+                }
+                buried += 1;
+                if c.organism_id() != 0 && world.materials.get(c.material).underfoot {
+                    root += 1;
+                }
+            }
+        }
+        (y1, buried, root)
     }
 
     #[test]
@@ -5370,17 +5403,173 @@ mod tests {
         // grew through is what "like the ground" means, and it is the only
         // bar this can be read against.
         let mut bare = world_with_a_root_laced_bank(8, 0);
-        let (bare_feet, _) = settle_on_the_bank(&mut bare);
+        let (bare_feet, bare_buried, bare_root) = settle_on_the_bank(&mut bare);
+        assert_eq!(bare_root, 0, "the control bank must have no roots in it -- this scene is not what it claims");
 
         let mut laced = world_with_a_root_laced_bank(8, 2);
-        let (laced_feet, inside) = settle_on_the_bank(&mut laced);
+        let (laced_feet, laced_buried, laced_root) = settle_on_the_bank(&mut laced);
+        assert!(laced_root > 0, "the laced bank must have roots in reach of him -- otherwise this test proves nothing");
 
         assert_eq!(
             laced_feet, bare_feet,
             "roots must be ground: he rests at {laced_feet} on the root-laced bank \
-             against {bare_feet} on the same bank of bare soil, {inside} root cells inside him"
+             against {bare_feet} on the same bank of bare soil, {laced_root} root cells inside him"
         );
-        assert_eq!(inside, 0, "and he should not be standing inside the root mass at all");
+        assert_eq!(
+            laced_buried, bare_buried,
+            "and no more of him should be in the bank than on bare soil: \
+             {laced_buried} of his cells buried against {bare_buried}"
+        );
+    }
+
+    #[test]
+    fn a_root_threading_a_tunnel_is_still_not_a_wall() {
+        // **The obvious wrong answer to the complaint is `Hard`, and this
+        // is the case that rules it out.** `wiki/the-gnome.md` names a root
+        // threading a tunnel as something he walks through; making one
+        // masonry so that a root mat becomes a floor would put a portcullis
+        // across every bore that clips a tree, and no root *mat* scene can
+        // see it, because a flat mat reads the same at `Hard` and at
+        // `Soft`.
+        //
+        // What lets a strand through is the same `shoulder_grains` count
+        // that lets a stray grain of soil through -- see
+        // `a_stray_grain_at_chest_height_is_not_a_wall`, which this is the
+        // living-tissue twin of. A *bank* of root still stops him, for the
+        // same reason a bank of soil does.
+        let tuning = Tuning::default();
+        let mut world = world_with_floor();
+        let root = world.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species).expect("an organism slot is free");
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        // Two strands hanging into the corridor, at the chest row step-up
+        // cannot lift him past -- `world_with_a_stray_grain` records why
+        // y=79 is that row and not an arbitrary one.
+        for x in [40, 41, 60, 61] {
+            for y in 76..80 {
+                world.set(x, y, Cell::new(root, 0).with_organism_id(organism).with_aux(aux));
+            }
+        }
+        world.player = Some(Player::at(10, 81));
+        let went = distance_walked(&mut world, &tuning, 200);
+        assert!(went > 60.0, "a root strand must not fence a tunnel; he covered {went:.1} cells");
+    }
+
+    #[test]
+    fn a_living_branch_is_still_not_a_floor() {
+        // **The replacement-artifact guard** (`CLAUDE.md`: a guard must be
+        // able to fail for the fix, not only for the bug). The cheap wrong
+        // version of "roots are ground" is "living tissue is ground", and
+        // it is invisible in every root scene — it shows up here, where a
+        // branch over open air becomes something he stands on. Standing on
+        // a limb is what "a tree holds you because you are gripping it"
+        // forbids, and the same rule would put him on top of a leaf.
+        let mut world = world_with_floor();
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species).expect("an organism slot is free");
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        // A limb lying across his path, well clear of the floor at y=88.
+        for x in 0..=127 {
+            world.set(x, 70, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        }
+        world.player = Some(Player::at(64, 40));
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().expect("a gnome");
+        let (_, _, _, feet) = p.bounds();
+        assert_eq!(feet, 87, "he must fall through a living branch to the floor, not stand on it at {feet}");
+    }
+
+    #[test]
+    fn a_root_is_ground_but_never_a_ladder() {
+        // `grip` compares `Footing::Climb` by equality, so a root that
+        // reached the climb arm would be a rope down into the bank — take
+        // hold in a forest floor and ride it. Which arm `footing` reaches
+        // first is the whole of this, and nothing else would catch it: he
+        // is standing on the bank either way.
+        let mut world = world_with_a_root_laced_bank(8, 2);
+        world.player = Some(Player::at(64, 40));
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let stood_at = world.player.as_ref().expect("a gnome").y;
+        for _ in 0..60 {
+            tick(&mut world, PlayerInput { grab: true, jump_held: true, ..Default::default() });
+        }
+        let p = world.player.as_ref().expect("a gnome");
+        assert!(!p.climbing, "he took hold of the ground at y={:.1}", p.y);
+        assert!(p.grounded, "and he should still be standing on it");
+        assert!(p.y >= stood_at - 0.5, "he climbed the bank: {stood_at:.1} -> {:.1}", p.y);
+    }
+
+    #[test]
+    fn painted_root_is_masonry_rather_than_ground() {
+        // The organism gate, stated the way `a_painted_wooden_wall_still_
+        // stops_him` states it for `wood`: same material, no organism, so
+        // this is something a player built and `Plant => Hard` must still
+        // catch it.
+        //
+        // **As a *floor* rather than as a wall, and the first draft was the
+        // wall.** That version was blind: a 5-wide painted column stops him
+        // at `Soft` as well as at `Hard`, because five cells in a row is
+        // already over `shoulder_grains`, so it passed with the organism
+        // gate deliberately removed. A slab he lands on separates all three
+        // readings in one number — masonry puts his feet at 69, ground
+        // wades him to 73, and scenery drops him through to the stone at
+        // 87.
+        let mut world = world_with_floor();
+        let root = world.materials.id_of("rootwood").expect("rootwood is compiled in");
+        for y in 70..77 {
+            for x in 0..=127 {
+                world.set(x, y, Cell::new(root, 0));
+            }
+        }
+        world.player = Some(Player::at(64, 40));
+        for _ in 0..200 {
+            tick(&mut world, PlayerInput::default());
+        }
+        let (_, _, _, feet) = world.player.as_ref().expect("a gnome").bounds();
+        assert_eq!(feet, 69, "painted root must be masonry: his feet rest at {feet}, not on top of the slab at 69");
+    }
+
+    #[test]
+    fn the_bank_holds_him_at_the_same_depth_under_both_drivers() {
+        // **`CLAUDE.md`: the app runs the parallel driver**, and the tests
+        // above run no sweep at all — they hold the grid still and ask the
+        // predicate. This runs the real thing, because what he is standing
+        // on is a bank of powder and a driver is what may move it.
+        //
+        // Both drivers against each other *and* against the still grid, so
+        // a disagreement says which of the three moved.
+        fn settled_feet(sweep: Option<fn(&mut World)>) -> i32 {
+            let mut world = world_with_a_root_laced_bank(8, 2);
+            world.player = Some(Player::at(64, 40));
+            for _ in 0..200 {
+                if let Some(sweep) = sweep {
+                    sweep(&mut world);
+                }
+                tick(&mut world, PlayerInput::default());
+            }
+            let (_, _, _, feet) = world.player.as_ref().expect("a gnome").bounds();
+            feet
+        }
+        let still = settled_feet(None);
+        let serial = settled_feet(Some(crate::sim::update::step));
+        let parallel = settled_feet(Some(crate::sim::parallel::step));
+        // Pinned to the value rather than only to each other, because three
+        // arms agreeing is the *default* state here -- the flag is a player
+        // property and no driver reads it, so a bare cross-check would stay
+        // green with the fix taken out and with roots made masonry alike.
+        // The surface is y=70, so standing on it is feet at 69 and wading
+        // the knee-deep allowance in is `69 + wade`, the same arithmetic
+        // `he_sinks_into_a_deep_drift_but_only_to_the_knee` asserts on sand.
+        let wade = Tuning::default().wade_rows as i32;
+        assert_eq!(still, 69 + wade, "he is not standing on the forest floor the way he stands on a drift");
+        assert_eq!(serial, still, "the serial sweep moved the bank under him");
+        assert_eq!(parallel, serial, "the two drivers disagree about the forest floor");
     }
 
     #[test]
