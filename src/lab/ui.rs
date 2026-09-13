@@ -5838,6 +5838,19 @@ pub fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], 
                 "THE FIRST OF ITS LINE TO DRIFT THIS FAR FROM THE FOUNDER ON ONE TRAIT, IN EITHER DIRECTION. AT MOST FOUR OF THESE PER TRAIT PER LINE, EVER -- THE AXIS IS TWO UNITS WIDE END TO END.".to_string(),
             )
         }
+        // **The player did this, not the box.** `e.detail` is the whole
+        // sentence -- written once, at the push site that already knows
+        // exactly what happened (`Lab::release_at`/`wall_at`/`adjust_param`/
+        // the speed dial/`reset`, or a water pour) -- because a jar, a wall
+        // column, a dial's name and value, and a speed have no one shape to
+        // encode into `other` the way a milestone or a trait step does.
+        // Round 31's own reason this kind exists at all: a jump in the
+        // census could previously only be *guessed* at as an intervention.
+        world::LogKind::PlayerAction => (
+            e.detail.clone(),
+            VALUE,
+            "SOMETHING THE PLAYER DID TO THE BOX -- A JAR PLACED, A WALL, A DIAL, A POUR, A SPEED CHANGE OR A REBUILD. WITHOUT THIS, A JUMP IN THE CENSUS ELSEWHERE IN THE STORY CAN ONLY BE GUESSED AT AS SOMEONE'S OWN INTERVENTION RATHER THAN READ AS ONE.".to_string(),
+        ),
     }
 }
 
@@ -9208,6 +9221,7 @@ mod tests {
                 other: 0,
                 lineage: 3,
                 generation: 4,
+                detail: String::new(),
             });
             // A matching grave, so the CAUSE column draws a real
             // `DeathCause::label()` rather than the empty-cause dash --
@@ -9252,6 +9266,7 @@ mod tests {
                 other: 0,
                 lineage: 5,
                 generation: 2,
+                detail: String::new(),
             });
             w.graveyard.push(world::Grave {
                 id: 9,
@@ -9419,21 +9434,28 @@ mod tests {
             other: 0,
             lineage: 200, // near the top of `names::STEMS`' wrap-free range
             generation: 200,
+            detail: String::new(),
         };
         let events = [
-            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
-            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
-            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
-            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
-            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
-            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
-            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
-            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base.clone() },
             world::LogEvent {
                 kind: world::LogKind::LineRecord,
                 other: ((crate::sim::organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4,
-                ..base
+                ..base.clone()
             },
+            // **A representative player action, deliberately near the
+            // longest real sentence** (`{name} = {shown}` from
+            // `Lab::adjust_param`) rather than the shortest ("POURED
+            // WATER") -- the trap this guard exists for is a phrase that
+            // grows past the budget, and the short cases cannot find it.
+            world::LogEvent { kind: world::LogKind::PlayerAction, detail: "LIGHT INTENSITY = 128.500".to_string(), ..base },
         ];
         for e in events {
             world.run_log.push(e);

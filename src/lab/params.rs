@@ -2139,6 +2139,12 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
                         if is_population { format!("LINE NUMBERS {threshold}") } else { format!("LINE REACHES GEN {threshold}") }
                     }
                     world::LogKind::LineRecord => crate::lab::plainspeak::describe_record(e.other),
+                    // Never actually reached: `RunLog::about` excludes
+                    // `PlayerAction` by name (it is not about any
+                    // individual, so it cannot be *this* individual's own
+                    // line) -- kept exhaustive rather than a wildcard so a
+                    // future kind added here cannot fall through silently.
+                    world::LogKind::PlayerAction => e.detail.clone(),
                 },
                 "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S LOG LIST IS THE SAME LOG WITH EVERYBODY IN IT, IN FULL SENTENCES.".to_string(),
             )
@@ -2949,17 +2955,18 @@ mod tests {
             other: 0,
             lineage: 200,
             generation: 200,
+            detail: String::new(),
         };
         let events = [
-            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
-            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
-            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
-            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
-            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
-            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
-            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
-            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
-            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4, ..base },
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base.clone() },
+            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4, ..base.clone() },
         ];
         for e in events {
             world.run_log.push(e);
