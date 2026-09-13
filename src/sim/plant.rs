@@ -6750,6 +6750,23 @@ pub fn step_organisms(world: &mut World) {
         if !(world.frame + organism_id as u64).is_multiple_of(interval) {
             continue;
         }
+        // **The held-world life gate, second half.** `scheduler::step` gates
+        // per *cell*; this pass is per *organism*, so it needs its own — a
+        // held tree that kept running this would go on photosynthesising,
+        // banking resource and moving its colour (which is a health readout,
+        // not decoration) while the world around it was stopped.
+        //
+        // **`cell_count > 0` is load-bearing and is not a micro-optimisation.**
+        // Slot reclamation lives further down this same loop body, past this
+        // gate, so an organism whose cells were destroyed has to be allowed
+        // through or its slot never comes back. Held ground is not immune to
+        // physics — a rock falls on a tree in the grey, the player takes an
+        // axe to one — so without this the grey would leak organism slots for
+        // as long as a session ran. It costs nothing: `cell_count` is already
+        // in hand from the lookup above.
+        if cell_count > 0 && !world.time_runs_for_organism(organism_id) {
+            continue;
+        }
         // **The plant passes are for plants.** Creatures share this
         // storage -- they are organisms too, and `live_organism_ids`
         // rightly returns them -- but every pass below this point is
