@@ -4298,9 +4298,10 @@ is what this measures rather than the rule"
     ///    *filter*, not an off switch, and this arm is what says so: a
     ///    wholesale `if held { return }` passes arm 2 and fails here.
     ///
-    /// Put the fault back and watch it go red, per `CLAUDE.md`: remove any
-    /// one of `weather::step`'s four position gates and arm 2 fires with a
-    /// count in the hundreds.
+    /// **Watched going red, 2026-09-13**, per `CLAUDE.md` — with every one of
+    /// the seven position gates stripped out of `weather.rs` and `spring.rs`
+    /// and the tests left standing, arm 2 fires at **383 cells of weather on
+    /// a world with no quickening in it**, and both spring guards fire too.
     #[test]
     fn weather_does_not_run_where_time_does_not_run() {
         let bounds = Rect::new(0, 0, 255, 191);
@@ -4430,9 +4431,13 @@ is what this measures rather than the rule"
     /// loop or moved a `hint` would diverge here even though every cell it
     /// gates is running.
     ///
-    /// Watched going red: gating the *whole* of `weather::step` on
-    /// `world.held` (the shape this deliberately is not) fails this test on
-    /// the first precipitating frame.
+    /// **Watched going red, 2026-09-13**, against the fault it is named for
+    /// rather than against the general one: stripping the position gates
+    /// leaves this test **green**, correctly — a world with no gates and a
+    /// world entirely inside a circle both get weather everywhere. What
+    /// fails it is the shape this deliberately is *not*, a wholesale
+    /// `if world.held { return }` at the top of [`step`], which diverges at
+    /// **157 cells**.
     #[test]
     fn a_world_entirely_inside_a_quickening_weathers_exactly_like_an_unheld_one() {
         let bounds = Rect::new(0, 0, 255, 191);
