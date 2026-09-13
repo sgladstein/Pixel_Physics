@@ -6395,7 +6395,7 @@ impl Renderer {
                     && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head))
                 {
                     if let Some(track) = self.idle_tracks.get(&cell.organism_id()) {
-                        let idle_for = self.frame.saturating_sub(track.since);
+                        let idle_for = world.frame.saturating_sub(track.since);
                         if idle_for >= Self::IDLE_ANIM_DELAY {
                             let phase = idle_for - Self::IDLE_ANIM_DELAY;
                             const PERIOD: u64 = 90;
@@ -6899,6 +6899,20 @@ impl Renderer {
     /// every gap in a normal walk — `Reports/open-bugs-handoff.md` §Z13
     /// measures real rests in the tens of thousands of frames, so the exact
     /// value here only has to clear the gait, not match the rest.
+    ///
+    /// **Counted in `World::frame` (simulation ticks), not `Renderer::
+    /// frame` (draw calls) — that was a real bug, found post-verdict.**
+    /// `App::update`'s own catch-up loop can run several world ticks before
+    /// one `draw`, and every headless capture harness in this repo
+    /// (`labgif`'s `every=`, this file's own `render_stress_scene`) draws
+    /// on a sample of ticks, not all of them -- so counting draw calls
+    /// silently multiplies the wait by however many ticks a draw stands
+    /// for. Measured on the posted card's own capture (`every=10`,
+    /// `played_bed_longant` seed 3): before this fix, 60 render-frames of
+    /// `IDLE_ANIM_DELAY` cost 600 world ticks, eating 40% of the 1,500-tick
+    /// window before any animal could be flagged at all, and only 8 of 22
+    /// full-length long ants ever were. Ticks, not draws, is what makes the
+    /// constant mean what its own doc says it means.
     const IDLE_ANIM_DELAY: u64 = 60;
 
     /// Rebuilds this frame's [`IdleTrack`]s and, for `Antennae`/`Shuffle`,
@@ -6926,7 +6940,9 @@ impl Renderer {
         // out) must not sit in it forever -- a session runs for hours and
         // breeds and starves continuously.
         self.idle_tracks.retain(|id, _| live_set.contains(id));
-        let frame = self.frame;
+        // `world.frame`, not `self.frame` -- see `IDLE_ANIM_DELAY`'s own
+        // doc on why counting draw calls instead of ticks was a bug.
+        let frame = world.frame;
         for id in live {
             let Some(state) = world.organism(id) else { continue };
             if world.species.get(state.species).creature.is_none() {
@@ -12669,6 +12685,14 @@ mod tests {
         let mut worst_recomputed = 0usize;
         const RUNS: u32 = 400;
         for _ in 0..RUNS {
+            // `IDLE_ANIM_DELAY` and the per-mode periods are counted in
+            // `World::frame` (real ticks), not draw calls -- see that
+            // constant's own doc. This scene never calls `World::step`
+            // (matching `render_stress_scene`'s "static scene" contract:
+            // no cell ever actually changes), so the tick counter has to
+            // be advanced by hand or every animal sits at `idle_for == 0`
+            // forever and no candidate ever switches on.
+            world.frame += 1;
             let touched = world.take_touched_chunks();
             let started = std::time::Instant::now();
             let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
@@ -12772,5 +12796,104 @@ mod tests {
     #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
     fn probe_idle_anim_cost_shuffle_fullheight() {
         price_idle_anim("shuffle, scattered top to bottom of the view", Some("shuffle"), 300, 316);
+    }
+
+    /// **Round 31 lane E, verdict day: "the creatures that I think look
+    /// stuck are stuck in all of them."** Before building a fourth
+    /// candidate, check the cheap explanation first -- did the mechanism
+    /// even reach the animals he was looking at? Drives the real
+    /// `played_bed_longant` scenario, seed 3, through the exact frames and
+    /// the exact `every=10` sampling the posted card used, and tallies
+    /// every organism `refresh_idle_anim` ever marked past
+    /// `Renderer::IDLE_ANIM_DELAY`, split by spine length -- a full-length
+    /// long body is what the owner's own markers were on both times
+    /// (round 29's card and this round's).
+    ///
+    /// **What this probe found on its first run, before `IDLE_ANIM_DELAY`
+    /// was fixed to count `World::frame` instead of `Renderer::frame`**:
+    /// only 8 of 22 full-length long ants ever animated in the posted
+    /// card's own window, because the delay was counted in *draw calls*
+    /// and `labgif`'s `every=10` meant one draw stood for ten ticks -- 60
+    /// render-frames of delay was actually 600 world ticks, eating 40% of
+    /// the 1,500-tick window before any animal could be flagged at all.
+    /// That bug is fixed (see `IDLE_ANIM_DELAY`'s own doc); this probe
+    /// re-runs the identical window afterward so the two numbers are on
+    /// the record together.
+    #[test]
+    #[ignore = "probe: prints, never asserts -- needs the real lab scenario asset, run manually"]
+    fn probe_idle_anim_fired_on_long_ants_in_the_posted_window() {
+        std::env::set_var("PIXEL_PHYSICS_IDLE_ANIM", "head");
+        let mut sc = crate::lab::scenario::Scenario::load("played_bed_longant").expect("played_bed_longant.ron ships in assets/lab_scenarios");
+        sc.bed.seed = 3;
+        // Matches `labgif`'s own sequence exactly, which is what generated
+        // the posted card: rain off for the whole warm-up, armed to
+        // `Steady` only at the window this probe starts capturing --
+        // `labgif`'s own `rain=` default. Skipping this left the whole run
+        // on the scenario file's own rain setting from frame 0, and the
+        // colony diverged from the card's (67 alive here against the
+        // card's own printed 107) -- a different run, not a shorter look
+        // at the same one.
+        sc.bed.rain = crate::lab::rain::Rain::Off;
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.show_help = false;
+        lab.load_scenario(sc);
+        if lab.stats.showing() {
+            lab.stats.toggle();
+        }
+
+        const START: u64 = 28_000;
+        const WINDOW: u64 = 1_500;
+        const EVERY: u64 = 10;
+
+        for _ in 0..START {
+            lab.tick_for_harness();
+        }
+        lab.spec.rain = crate::lab::rain::Rain::Steady;
+
+        let (w, h) = (crate::lab::WIDTH, crate::lab::HEIGHT);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let mut ever_animated: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let mut draws = 0u32;
+        for f in 0..=WINDOW {
+            if f.is_multiple_of(EVERY) {
+                lab.draw(&mut buf, 60.0);
+                draws += 1;
+                let frame = lab.world.frame;
+                for (&id, track) in &lab.renderer.idle_tracks {
+                    if frame.saturating_sub(track.since) >= Renderer::IDLE_ANIM_DELAY {
+                        ever_animated.insert(id);
+                    }
+                }
+            }
+            lab.tick_for_harness();
+        }
+
+        // By spine length at the window's end: total live of that length,
+        // and how many of them were ever flagged animated during the
+        // window. A full-length longant is 7; anything reading near-zero
+        // there while `off`'s own colony numbers matched the posted card
+        // is explanation (b) confirmed.
+        let mut by_len: std::collections::BTreeMap<usize, (usize, usize)> = std::collections::BTreeMap::new();
+        let live = lab.world.live_organism_ids();
+        let mut live_creatures = 0usize;
+        for id in &live {
+            let Some(state) = lab.world.organism(*id) else { continue };
+            if lab.world.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            live_creatures += 1;
+            let entry = by_len.entry(state.chain.len()).or_insert((0, 0));
+            entry.0 += 1;
+            if ever_animated.contains(id) {
+                entry.1 += 1;
+            }
+        }
+        println!(
+            "idle-anim (mode=head) fired at least once on {} of {live_creatures} live creature organisms over {draws} draws spanning {WINDOW} ticks from frame {START}",
+            ever_animated.len()
+        );
+        for (len, (total, animated)) in &by_len {
+            println!("  spine length {len}: {animated} of {total} animated at least once");
+        }
     }
 }
