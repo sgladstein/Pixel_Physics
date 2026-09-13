@@ -294,6 +294,25 @@ def test_cross_machine_transport(base: Path, art: Path) -> None:
         "annotations": [{"item": 0, "x": 0.5, "y": 0.5, "note": "here"}],
         "archived": False})
     _clone_run(b, "sync")
+
+    # **`get` must pull before it answers, and this pair is the fault and the
+    # fix in one.** Until 2026-09-13 only `post`, `inbox` and `wait` synced;
+    # `get` and `list` read the local queue and said nothing about it. On a
+    # session that had not posted, `get` returned `"response": null` for a
+    # card answered hours earlier -- indistinguishable from "the owner has not
+    # looked at it", and it cost an hour and very nearly a bug report that the
+    # queue was losing verdicts.
+    #
+    # The `--no-sync` read runs FIRST on purpose: it is the positive control.
+    # After a syncing read the local copy is warm and the opt-out would pass
+    # for the wrong reason, so the order here is load-bearing.
+    stale = json.loads(_clone_run(a, "get", card_id, "--no-sync").stdout)
+    check((stale.get("response") or {}).get("comment") is None,
+          "the control: --no-sync really does read only what is on disk")
+    fresh = json.loads(_clone_run(a, "get", card_id).stdout)
+    check((fresh.get("response") or {}).get("comment") == "it crossed",
+          "`get` pulls the verdict rather than answering out of a stale local queue")
+
     inbox = json.loads(_clone_run(a, "inbox").stdout)
     match = [c for c in inbox if c["id"] == card_id]
     check(bool(match), "the verdict comes back to the clone that asked")
