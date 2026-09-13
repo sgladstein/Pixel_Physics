@@ -2499,6 +2499,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-31-2026-09-13.md](evolution-lab-round-31-2026-09-13.md)
+  — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
+  account of round thirty-one: five lanes on the brief's five tasks. What it
+  overturned before any lane reported: **the instrument §Z18 says nobody has
+  built has been sitting in an open pull request since 2026-09-03.** PR #221
+  carries `spoil_destination`, its no-tree positive control, and the
+  `spoil_lifted`/`spoil_lift_max` split that `spoil_dumped` cannot make — and
+  names a mechanism the register does not, `SPOIL_LIFT = 160` at
+  `creature.rs:6601` teleporting a pellet up to 160 rows with no path check, so
+  a spoil lattice satisfies "two of three beneath filled" for itself and
+  bootstraps upward. It was invisible because its section was filed under a
+  letter already closed on main, and because **a branch having a PR reads as
+  owned rather than as stalled**. Also a worked instance of the round's own
+  warning that the dangerous merge is the conflict-free one: a clean
+  `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
+  touched.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the
