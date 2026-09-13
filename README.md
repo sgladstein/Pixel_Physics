@@ -8196,7 +8196,7 @@ are scheduled differently:
 |---|---|---|
 | `scheduler::step` | per cell | a site outside every circle is re-dated `HELD_RECHECK` (120) frames on and skipped |
 | `plant::step_organisms` | per organism | an organism whose first cell is outside every circle does not grow |
-| `weather::step` | per position | four sites — the gust dipole, the sealed-box drip, the frost sweep's swept column, and each drop's landing column — ask `time_runs_at` before writing |
+| `weather::step` | per position | five sites — the gust dipole (both poles), the sealed-box drip, the frost sweep's swept column, each drop's landing column, and the snow chill's neighbour columns — ask `time_runs_at` before writing |
 | `spring::step` | per cell | an outlet emits nothing and a drain takes nothing outside every circle |
 
 The organism gate tests `cell_count > 0` first, and that clause is
