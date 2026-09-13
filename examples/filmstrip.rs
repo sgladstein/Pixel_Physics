@@ -3171,6 +3171,21 @@ struct Args {
     /// than a hypothetical one, and the value used is printed under the
     /// tile either way.
     wind: Option<f32>,
+    /// `held=1` -- run the world **held**: nothing grows, breeds, ages, rots
+    /// or weathers except inside a `bubble=`. Physics is untouched.
+    ///
+    /// Also pins the sky, because a held world whose sun keeps moving is not
+    /// held: shadows would crawl across stopped ground, which is the one tell
+    /// that gives the whole thing away in the treatment the owner picked
+    /// (no colour change -- the only signals are that nothing moves and the
+    /// sky does not turn).
+    held: bool,
+    /// `quicken=x,y,r` -- a circle of running time. Repeatable.
+    ///
+    /// Not `bubble=`: `bubbles` is already liquid-bubble mode on this
+    /// harness, and two knobs a letter apart on one command line is how a
+    /// sheet gets rendered with the wrong one.
+    quickenings: Vec<(i32, i32, i32)>,
     /// Write an animated GIF of every frame in the range instead of a grid.
     /// The grid is for *me* to read; motion is for a human to watch, and
     /// some of these artifacts only read correctly in motion.
@@ -3673,6 +3688,8 @@ fn parse() -> Args {
         exposure: false,
         wind: None,
         gif: false,
+        held: false,
+        quickenings: Vec::new(),
         explosions: Vec::new(),
         blasts: Vec::new(),
         panels: None,
@@ -3798,6 +3815,12 @@ fn parse() -> Args {
                 a.out = v.into();
             }
             "gif" => a.gif = v != "false",
+            "held" => a.held = v != "false" && v != "0",
+            "quicken" => {
+                let n: Vec<i32> = v.split(',').map(|p| p.trim().parse().expect("quicken=x,y,r wants three integers")).collect();
+                assert_eq!(n.len(), 3, "quicken=x,y,r takes exactly three integers, got {v:?}");
+                a.quickenings.push((n[0], n[1], n[2]));
+            }
             // `skylight=off|4|2|1` -- the `F12` selector, by block
             // size, which is the only thing that differs between the
             // propagated modes.
@@ -6087,8 +6110,15 @@ fn main() {
     // sheet whose caption is missing this line is from an older build.
     let c = &args.clock;
     println!(
-        "filmstrip: scene={} clock(day={} weather={} growth={} creatures={} gnome={})",
-        args.scene, c.day_minutes, c.weather_slowdown, c.growth_slowdown, c.creature_slowdown, c.gnome_slowdown
+        "filmstrip: scene={} clock(day={} weather={} growth={} creatures={} gnome={}) held={} quicken={:?}",
+        args.scene,
+        c.day_minutes,
+        c.weather_slowdown,
+        c.growth_slowdown,
+        c.creature_slowdown,
+        c.gnome_slowdown,
+        args.held,
+        args.quickenings
     );
     // Repeated runs are for the *timing* only -- the image and the
     // expectations come from the last one, which is a full run like any
@@ -6410,6 +6440,21 @@ fn run_once(args: &Args, render: bool) -> (f64, World, Gnome, (usize, usize), (i
     // After `build`, which may construct the world several different ways --
     // one place to set it means a scene cannot silently opt out.
     world.clock = args.clock;
+    // **The held world, and the sky pin that has to come with it.** Two
+    // things, not one: `held` stops life, and the sky pin stops the sun. In
+    // the treatment picked on 2026-09-13 the world keeps its full colour and
+    // the only tells are that nothing moves and the sky does not turn -- so a
+    // held world under a running sun crawls its shadows across stopped ground
+    // and gives itself away as a bug rather than reading as a state.
+    //
+    // Noon rather than a live frame: `SkyPin::Noon` is frame 0 by `field.rs`'s
+    // own convention, so a held sheet is reproducible rather than depending on
+    // what hour `build` happened to leave the clock at.
+    world.held = args.held;
+    world.quickenings = args.quickenings.iter().map(|&(x, y, r)| pixel_physics::sim::world::Quickening { x, y, r }).collect();
+    if args.held {
+        world.set_sky_hold(pixel_physics::sim::clock::SkyPin::Noon.hold());
+    }
     // scene=fight's defender and its starting cell count, read before any
     // frame runs -- CLAUDE.md: "size a problem at the moment it starts, not
     // after it has been running". Reading this even one frame late could

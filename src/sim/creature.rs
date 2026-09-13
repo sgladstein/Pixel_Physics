@@ -2329,6 +2329,27 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
 pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
     let Some(st) = world.organism(organism) else { return 0 };
     let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
+    // **A blind animal does not pay for the body walk that scales an eye it
+    // does not have**, and this returns the identical value rather than an
+    // approximation of it: the expression below is `0.0 * mix`, which is
+    // `0.0` for every finite `mix`, and `f32::max(NaN, 0.0)` is `0.0`, so a
+    // NaN or infinite mix lands on 0 here too. Nothing about *which* animals
+    // cast changes -- `base` is still the full trait-shifted reach, so a
+    // lineage that evolves `TRAIT_SIGHT_RANGE` off a species authored at 0
+    // falls through to the mix exactly as before.
+    //
+    // It is worth a guard clause because `body_mix` walks the animal's whole
+    // body and this is called **twice per tick** -- once by `creature_tick`'s
+    // cast gate and once inside `sense` -- for every animal in the world,
+    // while every shipped species but the beetle authors `sight_range: 0`.
+    // Measured by callgrind on the played bed's species (`antcost`, 49,568
+    // creature ticks): 1,406 Ir per creature tick, 2.5% of the tick, spent
+    // deciding that a long ant still cannot see. `CLAUDE.md`'s "guard
+    // hot-path work at the call site that already has the data" -- the datum
+    // here is `base`, which the line above has just computed.
+    if base == 0 {
+        return 0;
+    }
     let mix = composition_mix(body_mix(world, organism).head, BASELINE_HEAD_FRAC);
     (base as f32 * mix).round().max(0.0) as i32
 }
@@ -3377,7 +3398,13 @@ pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 /// congested dead ends accumulate trail and the colony ossifies pointing
 /// into a wall.
 fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
-    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name.clone()) else {
+    // **No `String` clone here, and that is not tidiness.** `materials` and
+    // `species` are separate fields of `World`, so both can be borrowed
+    // immutably at once and the clone that used to stand between them was
+    // buying nothing but a `malloc`/`free` pair per animal per tick. The
+    // `id_of` hash stays -- removing that wants a material id cached on the
+    // species, which is a registry change rather than a line.
+    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name) else {
         return Vec::new();
     };
     let cell = world.get(x, y);
@@ -6597,17 +6624,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // way it came in with the walk abstracted. An ant is two cells at
             // play zoom and nothing about the journey is visible; a mound
             // growing over the nest is.
-            let site = NEIGHBOURS_8
-                .iter()
-                .map(|&(dx, dy)| (x + dx, y + dy))
-                .find(|&(px, py)| open(px, py))
-                .or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            let beside = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
+            // **The lift is counted apart from the drop beside the animal, and
+            // that split is the whole reason §Z18 went unmeasured for a
+            // fortnight.** `spoil_dumped` sums both branches, so a pellet laid
+            // on the ground and one posted ninety rows up read the same.
+            //
+            // Ported from **PR #221** (`claude/creature-plant-pathfinding-rjzkqe`),
+            // which measured the mechanism and never landed: tallest standing
+            // pellet **+52 / +67 / +99 / +94** rows over four seeded beds with a
+            // tree in them, against **+4 / +3 / +2 / +2** with no tree. The ant
+            // never climbs -- there is no path check here -- and `open` counts a
+            // plant cell as a filled cell beneath, so the taller the vegetation
+            // the higher a pellet can be set down, and worked soil then stays
+            // where it was put.
+            let lifted = beside.is_none();
+            let site = beside.or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
+                if lifted {
+                    world.creature_stats.spoil_lifted += 1;
+                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max((y - py).max(0) as u32);
+                }
             }
         }
         // Laden either way: a full mandible is a mandible that cannot cut,
@@ -6735,9 +6777,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // does not stop a colony stacking spoil on its own spoil into a
             // lattice, which a rendered bank shows and which is a standing
             // known limitation rather than a solved problem.
+            // **...and since 2026-09-13 it is `spoil` and not `packedsoil`,
+            // which is §Z18's repair.** A wall cut in place and a pellet set
+            // down in the open air are both tamped and are not the same
+            // ground: `self_supporting` is the rule that says a cell may not
+            // fall, which is correct for a gallery roof held by the bank at
+            // both ends and a promise a pellet has not earned. Dig out from
+            // under a heap of tailings and the overhang used to stand there
+            // for ever. `assets/materials/spoil.ron` carries the reasoning and
+            // the three owner reports.
+            //
+            // `spoils_into` first, `packs_into` as the fallback, so any ground
+            // that names no spoil material behaves exactly as it did before
+            // the field existed -- and so a pellet re-dug stays a pellet
+            // rather than being laundered into lining-grade ground.
             let mut pellet = target;
-            if let Some(packed) = world.materials.get(target.material).packs_into {
-                pellet.material = packed;
+            //
+            // **Gated on `update::spoil_footing` so the ablation arm is
+            // genuinely `main`.** Leaving the pellet as `spoil` with the rule
+            // off looked like a tidier switch and was not a control: `spoil`
+            // carries `packs_into`, so `line_burrow` went on relabelling
+            // worked tailings as wall and the "off" arm read 19 hanging cells
+            // where the pre-change baseline on the same seed read 24.
+            let ground_def = world.materials.get(target.material);
+            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+            if let Some(hauled) = hauled {
+                pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);
             if spoil_kept() {
@@ -13288,6 +13353,14 @@ mod tests {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
         let packed = w.materials.id_of("packedsoil").expect("packedsoil");
+        // **And `spoil` since 2026-09-13, or this identity is false by
+        // construction.** A hauled pellet is its own material now (§Z18,
+        // `assets/materials/spoil.ron`), so a census of "ground" that names
+        // only the two it used to be reports every pellet in the world as a
+        // cell that left it -- which is precisely the leak this test is named
+        // for, arriving as a false positive. Both halves of the identity have
+        // to name the same set; that is the 2026-09-05 lesson below.
+        let spoil = w.materials.id_of("spoil").expect("spoil");
         for x in 90..=140 {
             for y in 96..=101 {
                 w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
@@ -13369,7 +13442,7 @@ mod tests {
                 .flat_map(|y| (0..=199).map(move |x| (x, y)))
                 .filter(|&(x, y)| {
                     let m = w.get(x, y).material;
-                    m == soil || m == packed
+                    m == soil || m == packed || m == spoil
                 })
                 .count();
             // **Only GROUND spoil, matching what `standing` counts** -- and
@@ -13393,7 +13466,7 @@ mod tests {
                 .filter(|&&id| {
                     w.organism(id)
                         .and_then(|s| s.spoil)
-                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed)
+                        .is_some_and(|sp| sp.cell.material == soil || sp.cell.material == packed || sp.cell.material == spoil)
                 })
                 .count();
             standing + held
@@ -16017,6 +16090,57 @@ mod tests {
     }
 
     // --- body plans ---------------------------------------------------------
+
+    /// **A held world does not tick animals outside a quickening**, and the
+    /// held-world guards did not cover this until now.
+    ///
+    /// `a_held_world_grows_only_inside_a_quickening` and
+    /// `a_held_plant_does_not_refill_its_water` are both about *plants*.
+    /// Creatures reach the same gate — `scheduler::step` tests
+    /// `World::time_runs_at` at the one point every kind of living work is
+    /// dispatched — but "reaches the same gate" is an argument, and the two
+    /// kingdoms take different paths to get there. This is the measurement.
+    ///
+    /// **The signal is movement, not a counter.** An animal that ticks walks,
+    /// and a head that has not moved after two thousand frames did not think.
+    /// A counter would need pairing with an effect counter from the far side
+    /// of the call to mean anything (`CLAUDE.md`), and position *is* that far
+    /// side.
+    ///
+    /// Three arms, so the middle one cannot pass for an off switch: the third
+    /// puts the circle over the animal and it must move again.
+    #[test]
+    fn a_held_world_does_not_tick_animals_outside_a_quickening() {
+        fn arm(held: bool, circles: &[crate::sim::world::Quickening]) -> bool {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 60..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let ant = spawn(&mut w, "ant", 100, 119);
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            let start = w.organism(ant).and_then(|st| st.chain.first().copied());
+            assert!(start.is_some(), "test setup: the ant has no head to watch");
+
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            run(&mut w, 2_000);
+
+            let now = w.organism(ant).and_then(|st| st.chain.first().copied());
+            // A dead ant is not a still one -- if the slot is gone the arm
+            // says nothing about the gate, so that is a failure rather than
+            // a quiet "it did not move".
+            assert!(now.is_some(), "the ant died, so this arm measures nothing");
+            now != start
+        }
+
+        assert!(arm(false, &[]), "test setup: an ant in a running world has to move, or the arms below compare nothing");
+        assert!(!arm(true, &[]), "an ant on held ground moved, so the gate does not reach creatures");
+        assert!(
+            arm(true, &[crate::sim::world::Quickening { x: 100, y: 119, r: 40 }]),
+            "an ant inside a quickening must think again -- otherwise this gate is an off switch rather than a place"
+        );
+    }
 
     fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
         plant_creature_seed(w, x, y, species).map(|site| {

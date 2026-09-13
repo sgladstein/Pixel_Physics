@@ -25,6 +25,11 @@
     // frames without it. A property of the ground rather than a list in the
     // digger: `snow` is diggable at 1.0 too and must not become packed soil.
     packs_into: "packedsoil",
+    // **...and what it becomes when an ant hauls it out instead of working it
+    // into a wall where it lay.** See `spoil.ron`: the pellet is tamped either
+    // way, and only one of the two has earned the promise that nothing may
+    // make it fall.
+    spoils_into: "spoil",
     // Three families of four tones, `family * 4 + tone`, keyed by the
     // region's aridity at genesis (`worldgen::passes::palette_family`).
     // Family 0 is exactly what this file shipped before families existed and

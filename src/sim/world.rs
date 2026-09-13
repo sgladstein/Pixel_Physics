@@ -1343,6 +1343,26 @@ pub struct CreatureStats {
     /// exists to make visible — matter that entered an animal and did not
     /// leave it — and neither counter alone can see it.
     pub spoil_dumped: u64,
+    /// **Of those, the ones the drop could not place beside the animal and
+    /// sent *up the column* instead** — and the largest such lift in rows.
+    ///
+    /// `spoil_dumped` sums both placement branches, so a pellet laid on the
+    /// ground beside an ant and one posted ninety rows into a canopy are the
+    /// same number today, which is why nothing had ever measured
+    /// `Reports/open-bugs-handoff.md` §Z18. The split is **PR #221's**
+    /// (`claude/creature-plant-pathfinding-rjzkqe`, open since 2026-09-03 and
+    /// never merged because its register letter collided); ported here with
+    /// its reasoning rather than re-derived.
+    ///
+    /// What it is for: `creature::act`'s spoil drop falls back to the first
+    /// cell **straight up** that has two of three filled beneath it, as far as
+    /// `SPOIL_LIFT` rows — **with no check that a path exists**. The ant never
+    /// climbs. A plant cell counts as filled, so a pellet can be set down on a
+    /// leaf far above the ground, and being worked soil it stays there. A
+    /// `spoil_lift_max` well above a single row is that rule firing.
+    pub spoil_lifted: u64,
+    /// See `spoil_lifted`. Rows, largest single lift in the run.
+    pub spoil_lift_max: u32,
     /// **Pellets that died with their carrier and had nowhere to land** —
     /// cells that genuinely left the world, and the only way one still can
     /// through this path.
@@ -1969,6 +1989,54 @@ pub struct SoilWaterStats {
     pub soil: u64,
     pub changed: u64,
 }
+
+/// **A circle of running time in a held world** — the player's verb, and the
+/// unit the whole held-world economy is priced in
+/// (`Reports/held-world-game-concept-2026-09-13.md`).
+///
+/// Radius and rate are the two dials the owner settled on 2026-09-13: you buy
+/// a wide slow circle or a narrow fast one out of one pool. Only the radius
+/// lives here — the rate is how many times a caller steps the world, per
+/// `sim::frame::step`'s standing rule that *more ticks is exact where faster
+/// subsystems is a behaviour change*.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quickening {
+    pub x: i32,
+    pub y: i32,
+    pub r: i32,
+}
+
+/// **How far the player's own quickening reaches**, in cells.
+///
+/// Sized as *presence*, not as power: big enough that the ground he is
+/// standing on and the plant beside him are running, small enough that he
+/// cannot grow a wood by loitering. The placed quickenings are the ones with
+/// a radius the player buys.
+///
+/// A constant rather than a tunable until there is a game to tune it in —
+/// `Reports/design-philosophy.md` settles which of the two a number should be,
+/// and a knob nobody has played with yet is a knob with no evidence behind it.
+pub const CARRIED_RADIUS: i32 = 28;
+
+impl Quickening {
+    /// Squared-distance test, so nothing here needs a square root and the
+    /// boundary is exact in integers.
+    ///
+    /// **The drawn rim is deliberately not this circle.** A constant-level
+    /// disc reads as a soap bubble — the owner rejected exactly that shape on
+    /// sight for foliage (`Reports/dead-ends.md`), and the repair recorded
+    /// there is a coherent value noise keyed to *world* position so it does
+    /// not crawl with the camera. That belongs in the renderer; the
+    /// simulation's own membership stays a clean circle, because a ragged
+    /// gate would make every quantity measured across it depend on the
+    /// texture.
+    #[inline]
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        let (dx, dy) = (x - self.x, y - self.y);
+        dx * dx + dy * dy <= self.r * self.r
+    }
+}
+
 
 #[derive(Clone)]
 pub struct World {
@@ -3645,6 +3713,47 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
+    /// weathers except inside a [`Quickening`].**
+    ///
+    /// The premise of the held-world game concept
+    /// (`Reports/held-world-game-concept-2026-09-13.md`): the land is not
+    /// running slowly, it is stopped, and the player carries the only time
+    /// there is. **Physics is untouched** — rock still falls, water still
+    /// flows, a pick still cuts — exactly as `sim::clock`'s five rate knobs
+    /// leave the CA sweep alone. What this gates is *life*: the active-site
+    /// schedule and the per-organism economy.
+    ///
+    /// Defaults **off**, so every existing world, test, harness and
+    /// acceptance scene is byte-identical to the tree before this existed.
+    pub held: bool,
+    /// **Where time is running**, when [`held`](Self::held) is set. Empty is
+    /// a legal and completely stopped world.
+    ///
+    /// A `Vec` rather than one circle because the concept's endgame is a map
+    /// of standing gardens, and because the cost of testing membership is
+    /// linear in a list the player is expected to keep short — the frame
+    /// budget is what caps it, which is the whole point of that design.
+    pub quickenings: Vec<Quickening>,
+    /// **The quickening the player carries** — small, slow and *free*, as
+    /// against the placed ones in [`quickenings`](Self::quickenings), which
+    /// are the economy.
+    ///
+    /// Owner's ruling 2026-09-13, direction (c): a druid is a walking spring
+    /// and cannot help it. It exists to solve a problem placed bubbles alone
+    /// have badly — **a held world is completely inert to walk through**, so
+    /// without this nothing answers the player until they have spent
+    /// something, and every interaction starts with a menu. It also hands the
+    /// scouting loop over for nothing: walk dead ground and see what the seed
+    /// bank still has in it.
+    ///
+    /// **Presence, not power.** Kept deliberately small and at the world's own
+    /// rate, so it makes the land respond to you without doing your work.
+    /// Separate from `quickenings` rather than pushed onto it because the two
+    /// are different resources: this one is what you *are* and is never
+    /// bought, and keeping them apart stops a later economy from accidentally
+    /// charging for it.
+    pub carried: Option<Quickening>,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -4658,6 +4767,9 @@ impl World {
             soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
+            held: false,
+            quickenings: Vec::new(),
+            carried: None,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
@@ -4743,6 +4855,51 @@ impl World {
     /// `scheduler::step` for why growth reads/writes go through the
     /// ordinary `World::get`/`set` rather than needing any of M5's
     /// parallel-sweep machinery.
+    /// **Does time run at this cell?** The one question every held-world
+    /// gate asks, and the only place the rule is written.
+    ///
+    /// `true` everywhere when the world is not [`held`](Self::held), which is
+    /// what keeps this free for every existing caller: one bool test, and the
+    /// `quickenings` list is never walked.
+    #[inline]
+    pub fn time_runs_at(&self, x: i32, y: i32) -> bool {
+        if !self.held {
+            return true;
+        }
+        self.carried.is_some_and(|q| q.contains(x, y)) || self.quickenings.iter().any(|q| q.contains(x, y))
+    }
+
+    /// [`time_runs_at`](Self::time_runs_at) for a whole organism, resolved at
+    /// **one** cell rather than by walking its body.
+    ///
+    /// A creature answers at its head, which is the cell its own tick is
+    /// keyed on anyway. A plant answers at whichever cell its map yields
+    /// first — arbitrary, but `PosMap` is `fxhash`-backed and unrandomised,
+    /// so it is the *same* arbitrary cell run to run, and a held plant does
+    /// not mutate, so the choice cannot wobble underneath the gate.
+    ///
+    /// **Known gap, deliberately not solved here: a plant straddling a rim
+    /// is all-in or all-out.** Whether a half-quickened tree should grow on
+    /// one side is a design question the concept has not answered, and
+    /// guessing at it in a resolver would bury the decision.
+    pub fn time_runs_for_organism(&self, organism: u16) -> bool {
+        if !self.held {
+            return true;
+        }
+        match self.organism(organism) {
+            // No cells anywhere is not "held" -- it is an empty slot on its
+            // way to reclamation, and it must not be gated out of reaching
+            // it. See `plant::step_organisms`.
+            Some(state) => state
+                .chain
+                .first()
+                .copied()
+                .or_else(|| state.cells.keys().next().copied())
+                .is_none_or(|(x, y)| self.time_runs_at(x, y)),
+            None => true,
+        }
+    }
+
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
         // Mature organism cells are no longer on that schedule at all --
@@ -6130,6 +6287,27 @@ impl World {
     /// no grow lamps. One datum, built here, for every world.
     fn room_surface(&self, b: Rect, x: i32) -> Option<i32> {
         self.room_datum.get((x - b.min_x) as usize).copied().filter(|d| *d != i32::MAX)
+    }
+
+    /// [`Self::room_surface`] for a caller that holds the world but not its
+    /// `Rect` -- `lab::census`, which reads the same datum this module's own
+    /// nest census does.
+    ///
+    /// **It exists so there is one answer to "where was the ground", not
+    /// two.** `lab::census` read `LabBox::ground_y` instead until
+    /// 2026-09-13, and a spec is not the world: `params::write_bed` moves
+    /// the spec the moment a bed row is nudged and the world is only
+    /// reshaped on REBUILD (`raising_the_width_and_rebuilding_gives_a_wider_
+    /// world` asserts exactly that separation). The owner raised the box
+    /// height mid-setup in the 560,000-frame playtest, `ground_y` rode the
+    /// height to 96 rows below the surface the world actually had, and
+    /// `roofed`/`pit`/`pack<` read **0 in all 56 samples** of a session with
+    /// 356,688 digs in it -- every void was above a datum sitting in the
+    /// stone base. `None` when the datum has not been frozen yet (a world
+    /// that has never been stepped) or when the column holds no ground at
+    /// all.
+    pub fn room_surface_at(&self, x: i32) -> Option<i32> {
+        self.room_surface(self.bounds?, x)
     }
 
     /// **Freeze a top-of-ground row per column, once**, for the boxes
