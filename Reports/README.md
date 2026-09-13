@@ -127,6 +127,35 @@ by somebody about to try it on creatures.
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
+- [regional-time-scope-2026-09-13.md](regional-time-scope-2026-09-13.md) —
+  **scope, nothing built, no option recommended for immediate build.** What it
+  would take to give each held-world quickening its own speed, after a
+  per-circle dial was built and withdrawn the same day (`dead-ends.md`
+  `other:124`). The concept report's §8 answered the **spatial** half — can a
+  tick be restricted to a region; this is the **temporal** half, which nobody
+  had written down and which is what killed the dial. Censuses all **303**
+  `World::frame` reads (163 production, 140 test) into seven classes and says
+  which need a regional clock: the sky and the weather are legitimately global
+  and in a held world already stopped. Three findings drive it. **The schedule
+  seam already exists and leaks in seven places** — `organism_due`'s doc claims
+  every plant interval goes through it and seven `world.frame +
+  SEED_TICK_INTERVAL` sites go round, which makes `growth_slowdown` dishonest
+  for seeds *today*. **Ageing is neither answer you would guess**: the hazard
+  is quadratic in age, so a creature at rate `m` dies at `1/sqrt(m)` of the age
+  after `sqrt(m)` times as many of its own ticks — 0.353x and 2.83x at 8x,
+  wrong in both directions at once, fixed by counting age in the individual's
+  own ticks. **And a region ticking N times inside one `world.frame` keeps its
+  event *rate* and loses its *distribution*** — measured against a reproduced
+  positive control, the cells a p=0.02 event ever reaches fall from 200/200 to
+  **4/200** and a p=0.002 event stops happening at all, while the total fire
+  count moves under 2%. Prices one global speed against a per-circle interval
+  divisor (cheap, and against the concept's own *"more ticks, never faster
+  subsystems"* ruling) against a fine clock with a per-region stride (§8's own
+  answer, and it needs no per-region counter). Names the bias nobody would look
+  for: a gated region sweeps `rightward` on every pass it is awake for, for
+  ever. The first measurement is the **spread** of a single 1x circle over
+  twelve seeds, because every number in the record is n = 1 and the acceptance
+  bar for every option is *"the slow circle is unchanged"*.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
