@@ -32,14 +32,15 @@
 
 use serde::{Deserialize, Serialize};
 
-/// **29, not 27, since 2026-09-10.** `BloomNear`/`BloomBearing` appended --
-/// see the two variants themselves and
-/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3. Lawful
+/// **30, not 29, since 2026-09-13.** `Stillness` appended -- see that
+/// variant, and `open-bugs-handoff.md` §Z13 for the ruling that asked for
+/// it. Before it, 29 since 2026-09-10 (`BloomNear`/`BloomBearing`, and
+/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3). Lawful
 /// under the reserve for the same reason `PreyNear`/`PreyBearing` were:
-/// `INPUT_SLOTS` is 64 against a live count of 27 before this, so lighting
-/// up two more rows moves no existing weight and `GENOME_LEN` does not
+/// `INPUT_SLOTS` is 64 against a live count of 29 before this, so lighting
+/// up one more row moves no existing weight and `GENOME_LEN` does not
 /// change.
-pub const BRAIN_INPUTS: usize = 29;
+pub const BRAIN_INPUTS: usize = 30;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -271,6 +272,7 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "KinNeed",
     "BloomNear",
     "BloomBearing",
+    "Stillness",
 ];
 pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
     "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
@@ -842,6 +844,46 @@ pub enum BrainInput {
     /// input clear of `CLAUDE.md`'s block-nearest degeneracy, hit four
     /// times on three lines and never once caught by a test.
     BloomBearing = 28,
+
+    /// **How long this animal has stood in one place**, 0.0 the tick after
+    /// it last moved its body and 1.0 once it has been still for
+    /// `creature::STILL_SATURATION` decision ticks — the input that gives
+    /// resting an *end*.
+    ///
+    /// **It exists because rest had no exit an animal could reach.**
+    /// `p_move` is `squash(sum).clamp(0.0, 1.0)`, and `squash` returns a
+    /// genuinely negative number for a negative sum, so every degree of
+    /// "would rather not" — the ant that is mildly disinclined and the one
+    /// that is emphatically so — collapses onto the same **exact zero**,
+    /// after which `draw.unit_f32() < p_move` can never be true. Measured
+    /// 2026-09-13 over 120,000-frame beds, `CreatureStats::p_move_hist`:
+    /// **48.7–64.0%** of long-ant decision ticks and **54.4–77.5%** of
+    /// shipped two-cell ant ticks sat at that exact zero, and the longest
+    /// runs of standing still reached 33,300 frames. An animal there is not
+    /// unlikely to move, it *cannot*, and nothing it does itself changes
+    /// that — only the world moving one of its other inputs does.
+    ///
+    /// Owner, 2026-09-13, overruling his own 2026-09-09 *"rest is the
+    /// absence of a reason to act"*: **"How long do they go without asking
+    /// to move. If they never ask to move that is still stuck, it is just
+    /// because the rest mechanism needs fixing."**
+    ///
+    /// **This does not contradict the older ruling, it supplies it.** Rest
+    /// is still the absence of a reason to act; having stood in one spot
+    /// long enough is now one of the reasons. Wired
+    /// `(Stillness, Move, 1.5)` in every shipped creature, a term large
+    /// enough to carry the worst standing sum (a fed ant beside food, about
+    /// -0.91 to -1.21) back over zero before saturation — so a rest *ends*,
+    /// the animal shifts, `still_ticks` resets and it settles again. That
+    /// is the graded outcome `CLAUDE.md`'s first law asks for: not walking
+    /// or frozen, but a distribution of rest lengths with a middle.
+    ///
+    /// **The weight is the genome's, which is the point of putting it
+    /// here** rather than as a floor in Rust: a lineage can breed itself
+    /// more or less restless, and one that mutates this to zero gets the
+    /// old pathology back and has to pay for it in the same currency as
+    /// anything else.
+    Stillness = 29,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -1225,6 +1267,7 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::KinNeed,
     BrainInput::BloomNear,
     BrainInput::BloomBearing,
+    BrainInput::Stillness,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1941,7 +1984,12 @@ mod tests {
         // `brain::mutate` draws one `unit_f32` per live slot: that is not a
         // regression and it cannot be checked by a diff -- the remedy is a
         // seed sweep (`CLAUDE.md`).
-        assert_eq!(live, 846, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 846 -> 870 on 2026-09-13 with `Stillness` (an input column, 24
+        // slots: 16 outputs + 8 hidden) -- the input that gives a rest an
+        // end, `open-bugs-handoff.md` §Z13 and the owner's ruling that day.
+        // No output moved. Every species' `mutation_rate` re-derived to
+        // `3.18 / 870 = 0.0036552` in the same change.
+        assert_eq!(live, 870, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -2059,7 +2107,19 @@ mod tests {
         // `INPUT_SLOTS` is the stride. `live_slots` 809 -> 846 and every
         // species' `mutation_rate` is re-derived to `3.18 / 846 = 0.0037589`
         // in the same change.
-        assert_eq!(genome_manifest(), 1_694_868_324);
+        //
+        // **Moved again 2026-09-13 by `Stillness`**, the one input that is
+        // read off the animal rather than off the world (`open-bugs-handoff.
+        // md` §Z13, the owner's ruling that day). Lawful on the input axis
+        // exactly as the appends above: `BRAIN_INPUTS` 29 -> 30 lights up one
+        // column of the 64-wide reserve that already existed and was already
+        // zero, `GENOME_LEN` is unchanged, and not one existing weight moves.
+        // `live_slots` 846 -> 870 and every species' `mutation_rate` is
+        // re-derived to `3.18 / 870 = 0.0036552` in the same change. **Every
+        // breeding scene's numbers move with it from birth 1**, because
+        // `brain::mutate` draws one `unit_f32` per live slot -- see the
+        // live-slot pin above; the remedy is a seed sweep, not a diff.
+        assert_eq!(genome_manifest(), 477_694_432);
     }
 
     #[test]

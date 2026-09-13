@@ -806,7 +806,7 @@
         // from birth 1: `brain::mutate` draws one `unit_f32` per live slot,
         // so this cannot be checked by a diff and the remedy is a seed
         // sweep.
-        mutation_rate: 0.0037589,
+        mutation_rate: 0.0036552,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -1156,6 +1156,11 @@
             // here is load-bearing, and it is the first thing to check if
             // trails ever stop adapting.
             (Crowding, Move, -0.3),
+            // **Rest with an end to it** -- see `ant.ron`'s note on this
+            // same row for the measurement and the arithmetic. Without it
+            // `p_move` clamps to an exact zero from which no roll can produce
+            // a step, and this species inherits that Move row unchanged.
+            (Stillness, Move, 1.5),
             // **Walk toward a bloom on the ground, same as it would walk
             // toward ordinary food.** `BloomNear` is unsigned proximity, so
             // this is a positive pull (`Move`'s sign convention here is the
