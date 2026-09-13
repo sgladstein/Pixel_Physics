@@ -127,6 +127,25 @@ by somebody about to try it on creatures.
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
+- [held-world-zoom-plan-2026-09-13.md](held-world-zoom-plan-2026-09-13.md)
+  — **plan, not built.** How the held world gets a zoom control, on the owner's
+  instruction that it should have one. The number that makes it worth
+  building: `max_zoom_out_stride` over druid's 2560x960 world gives **rung 4**,
+  the widest rung, where a power-of-two pixel budget is spent in full — so the
+  widest view draws every cell into its own pixel instead of discarding fifteen
+  in sixteen. Two of the three costs the lab paid do not arise here (no cursor
+  conversion — the held world is keyboard-only; no ring arithmetic —
+  `druid::hud::rings` already routes through `Renderer::world_to_screen`, which
+  answers in buffer pixels). **The recommendation is to extract before adding
+  the third copy**: `App` and `Lab` each hold the same `pixel_budget` /
+  `viewport()` / `cycle_pixel_budget()` / `resize_buffer` shape, and writing it
+  a third time is exactly how the lab inherited the sandbox's discard and none
+  of its fix. Names the constraint that makes "just store it on `Renderer`"
+  wrong (`pixel_scale_for`'s copy is stale by design and sizing a buffer from
+  it once panicked in the HUD 100 lines from its cause). Raises **the rung-3
+  hole** as a decision for all three games rather than for druid: the ladder is
+  1,2,3,4 and 3 has no power-of-two divisor, so the budget buys nothing there
+  and a player walking out gets sharp, sharp, blurry, sharp.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
