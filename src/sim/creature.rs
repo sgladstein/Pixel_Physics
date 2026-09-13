@@ -389,7 +389,9 @@ pub fn plant_worm_seed(world: &mut World, x: i32, y: i32) -> Option<ActiveSite> 
 
 /// Dispatch a due `ActiveKind::Creature` site to `worm_tick`. `scheduler::step`
 /// never routes any other `ActiveKind` here.
-pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
+/// `ahead` is this speculation window's precomputed read phases — see the
+/// round-33 section above `ParMode`. Empty is the serial path, unchanged.
+pub fn tick(world: &mut World, site: &ActiveSite, ahead: &SpecWindow) -> Vec<ActiveSite> {
     let ActiveKind::Creature { organism } = site.kind else {
         unreachable!("scheduler::step only routes ActiveKind::Creature to creature::tick");
     };
@@ -419,7 +421,7 @@ pub fn tick(world: &mut World, site: &ActiveSite) -> Vec<ActiveSite> {
     // the section header above `plant_creature_seed` for why these are
     // deliberately two locomotion models rather than one parameterised one.
     match world.species.get(state.species).creature.clone() {
-        Some(def) => creature_tick(world, site.x, site.y, organism, &def),
+        Some(def) => creature_tick(world, site.x, site.y, organism, &def, ahead),
         None => worm_tick(world, site.x, site.y, organism),
     }
 }
@@ -3397,7 +3399,7 @@ pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 /// succeeded (P-11) — a blocked agent that still reinforces is how
 /// congested dead ends accumulate trail and the colony ossifies pointing
 /// into a wall.
-fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
+fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, ahead: &SpecWindow) -> Vec<ActiveSite> {
     // **No `String` clone here, and that is not tidiness.** `materials` and
     // `species` are separate fields of `World`, so both can be borrowed
     // immutably at once and the clone that used to stand between them was
@@ -3478,7 +3480,46 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     }
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
-    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    // **The read phase, taken from this window's speculation when it is still
+    // a true reading and recomputed here when it is not.** `sensed_ahead` is
+    // the whole of the validity test; the `None` arm is the pre-round-33 code
+    // and is what every unusual case falls back to.
+    let (inputs, seen, sight_reads, curvature_reads, precomputed_brain) = match sensed_ahead(world, ahead, organism, x, y, heading) {
+        Some(a) => {
+            SENSE_CACHED.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            if world.creature_par.mode == ParMode::Verify {
+                let (fresh, _, _, _) = sense(world, x, y, organism, heading, def);
+                for (i, (c, f)) in a.inputs.iter().zip(fresh.iter()).enumerate() {
+                    if c.to_bits() != f.to_bits() {
+                        VERIFY_FAILS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                        let (fresh2, _, _, _) = sense(world, x, y, organism, heading, def);
+                        let so = def.sensor_offset;
+                        let (dx, dy) = DIRS[heading as usize % 8];
+                        let (fx, fy) = (x + dx * so, y + dy * so);
+                        println!(
+                            "  [verify] frame {} org {organism} at ({x},{y}) h{heading}: slot {i} cached {c} fresh {f} fresh2 {} | front ({fx},{fy}) field {} bilin {} | cell {:?} org {}",
+                            world.frame,
+                            fresh2[i],
+                            world.field_at(fx, fy).moisture,
+                            world.field_at_bilinear(fx as f32, fy as f32).moisture,
+                            world.get(x, y).material,
+                            world.get(x, y).organism_id()
+                        );
+                        break;
+                    }
+                }
+                let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+                (inputs, seen, sight_reads, curvature_reads, None)
+            } else {
+                (a.inputs, a.seen, a.sight_reads, a.curvature_reads, Some((a.outputs, a.active_synapses, a.brain_state)))
+            }
+        }
+        None => {
+            SENSE_FRESH.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+            (inputs, seen, sight_reads, curvature_reads, None)
+        }
+    };
     // **Cohesion, on the branch `AtNest` had already taken.** `sense` has
     // just run `adjacent_nest` for the brain input; reading the input back
     // rather than re-testing the neighbourhood is the whole of "no new
@@ -3543,17 +3584,32 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
             }
         }
     }
-    let (outputs, active_synapses) = {
-        let Some(state) = world.organism_mut(organism) else {
-            return Vec::new();
-        };
-        let genome = std::mem::take(&mut state.genome);
-        let mut brain_state = state.brain_state;
-        let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
-        let state = world.organism_mut(organism).expect("still live");
-        state.genome = genome;
-        state.brain_state = brain_state;
-        result
+    // **The brain rides on the sense and is valid exactly when it is.**
+    // `eval_brain` reads the genome, the inputs and this animal's own hidden
+    // state and nothing else, and the only thing between `sense` and here is
+    // `blend_with_nest`, which writes scent traits -- not the genome, not the
+    // hidden state. So a sense that is still true carries its evaluation with
+    // it, and the write-back is the same one line the serial arm makes.
+    let (outputs, active_synapses) = match precomputed_brain {
+        Some((outputs, active_synapses, brain_state)) => {
+            let Some(state) = world.organism_mut(organism) else {
+                return Vec::new();
+            };
+            state.brain_state = brain_state;
+            (outputs, active_synapses)
+        }
+        None => {
+            let Some(state) = world.organism_mut(organism) else {
+                return Vec::new();
+            };
+            let genome = std::mem::take(&mut state.genome);
+            let mut brain_state = state.brain_state;
+            let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
+            let state = world.organism_mut(organism).expect("still live");
+            state.genome = genome;
+            state.brain_state = brain_state;
+            result
+        }
     };
 
     let mut draw = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_MOVE);
@@ -4450,6 +4506,570 @@ fn sense(
     }
 
     (inputs, seen_all, sight_reads, curvature_reads)
+}
+
+// ---------------------------------------------------------------------------
+// The creature pass's parallelism (round 33)
+// ---------------------------------------------------------------------------
+//
+// **Read `Reports/evolution-lab-creature-parallelism-2026-09-13.md` before
+// changing anything here. It ships OFF, and that is the measured result.**
+//
+// **Why it exists.** `parallel::step` runs the CA sweep on every core;
+// `scheduler::step` dispatches every creature site on one, in `ActiveSite`'s
+// `Ord` order. At the population the owner plays at that leaves ~86% of the
+// frame single-threaded (`Reports/evolution-lab-creature-cost-2026-09-13.md`
+// §5 item 1), and round 32 established there is no serial lever worth half of
+// it: one decision is 57,314 instructions split five ways with no term over
+// 31%.
+//
+// **What is parallel and what is not.** `sense` and `brain::eval_brain` —
+// 44.5% of a decision between them — are *pure reads* of an immutable
+// `&World` returning a value. `act`, `step_chain` and `tumble` mutate shared
+// cells and stay exactly where they were, dispatched one at a time in `Ord`
+// order. So the engine's one determinism surface is untouched: **who reaches
+// a contested cell first is still decided by the serial dispatch**.
+//
+// **The invariant, which is the whole of the safety argument.** A creature's
+// sense is a read of the world *as it stands when that creature's turn
+// comes*. Computing it early may stand in for that read only if nothing it
+// read has been written since. `writewatch::WriteWatch` is that test: every
+// speculation records the rectangles its reads went through, every write in
+// the engine marks (at the `World::set` / `organism_mut` /
+// `deposit_pheromone` / field seams, not at a list of callers), and a cached
+// sense is consumed only over clean ground. **Anything else falls back to the
+// serial `sense`**, which is the unchanged code — a miss costs the
+// speculation, never correctness.
+//
+// **Three maps, because the reads have three different reaches**, and
+// collapsing them was measurably wrong twice. Cells (the grid and the
+// pheromone planes) are read out to the crowding and curvature discs and the
+// sight cast; another organism's *state* is read only where one of its body
+// cells touches this animal's own ring; the field is read bilinearly and so
+// belongs at the field's own resolution. `writewatch` has the numbers.
+//
+// **How the completeness of that enumeration was established**, since an
+// argument about it is worth nothing: `ParMode::Verify` consumes the cached
+// sense's *validation* and then recomputes the sense anyway and compares,
+// naming the brain input that differs. It found a hole the hash gate could
+// only report as a bit — `evaporation::tick` damps the air over a surface it
+// has just dried, from inside this very site loop, and the moisture inputs
+// read it two field blocks away. It shows only where an evaporating surface
+// and a colony are that close, which is why 150 and 300 ants were clean and
+// 450 was not. Run it after touching `sense`.
+//
+// **Why it is off.** It is correct and it does not pay, on a four-core box.
+// The arithmetic is one line: a speculation costs `c / S` of wall clock and
+// saves `c` when it is used, so the mechanism pays iff **hit rate x parallel
+// speedup > 1**. Measured on this container: the speculation phase gets
+// **S = 2.1** from four cores (610 µs/frame at one thread, 291 at four, 450
+// ants), so the hit rate has to clear **48%**. It does not, and the reason is
+// the colony itself — ants stand touching, and `BrainInput::KinNeed` reads a
+// nestmate's energy, which every one of them rewrites every tick. Measured
+// hit rates: **61% at 150 ants, 32% at 450**, falling with density, against
+// an owner who plays at a thousand and more. Whole-frame, paired and
+// alternating inside one process: **+2.7% at 450 ants, and a wash at 150 and
+// 300** (slope 3.739 against 3.670 µs/ant/tick). Declining to speculate for
+// animals with a near neighbour removes the waste and the benefit together —
+// 6.5% cached, still +3.7%.
+//
+// Both terms are properties of the box and of the bed, not of this code, so
+// the switch stays: `examples/antcost.rs` takes `par=on,off` and puts both
+// arms in one process, which is how to re-run the arithmetic somewhere with
+// more cores. With the mechanism off, every hook above is one `bool` test;
+// measured at zero ants against the pre-change binary, three alternating runs
+// each, the difference is inside a 5% spread.
+
+/// How the creature pass's read phase is scheduled. **`Unchecked` is a
+/// control, not a setting** — see the section header.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ParMode {
+    /// Serial, exactly as before round 33.
+    Off,
+    /// Speculate in parallel, consume only over a clean rectangle.
+    Checked,
+    /// Speculate in parallel and consume regardless. **Deliberately wrong**:
+    /// it is how the hash gate is shown to be sensitive rather than merely
+    /// green.
+    Unchecked,
+    /// Speculate, validate, and then **recompute anyway and compare** —
+    /// naming the brain input that differs. The world it produces is the
+    /// serial one, so this is a diagnostic that cannot itself change an
+    /// outcome: it answers "is the validity test complete?" directly instead
+    /// of through a hash that only says yes or no.
+    Verify,
+}
+
+impl Default for ParMode {
+    fn default() -> Self {
+        par_mode_default()
+    }
+}
+
+/// **Everything the creature pass's read phase is tuned by, in one place on
+/// `World`.**
+///
+/// A field rather than four process-wide `OnceLock`s so a harness can hold
+/// two arms in one process — `CLAUDE.md`'s "compare two arms inside one run",
+/// which matters more than usual here because the thing under test *is* the
+/// parallelism and a counter is only load-independent at fixed parallelism.
+/// It is also what lets a guard put the two knobs somewhere a stale read can
+/// actually be observed; see
+/// `a_speculated_read_phase_reproduces_the_serial_world_exactly`.
+#[derive(Clone, Copy, Debug)]
+pub struct ParTuning {
+    pub mode: ParMode,
+    /// `par_near`.
+    pub near: i32,
+    /// `par_window`.
+    pub window: usize,
+    /// `par_min_sites`.
+    pub min_sites: usize,
+}
+
+impl Default for ParTuning {
+    fn default() -> Self {
+        Self { mode: par_mode_default(), near: par_near(), window: par_window(), min_sites: par_min_sites() }
+    }
+}
+
+/// `PIXEL_PHYSICS_CREATURE_PAR` — `off` (default), `on`, `unchecked`, `verify`.
+///
+/// **Off by default, and that is a measurement rather than caution.** See
+/// the section header: on the four-core container this was built on the
+/// mechanism is correct and costs 3-4% of the frame, because
+/// `hit rate x parallel speedup` comes out below 1 on a bed dense enough to
+/// matter. It ships wired up and switchable so the arithmetic can be re-run
+/// where the two terms are different — `examples/antcost.rs` takes
+/// `par=on,off` and puts both arms in one process.
+///
+/// **The value a fresh `World` starts at, not the value it uses.** The mode
+/// lives on `World::creature_par` so a harness can put both arms in one
+/// process and alternate between them — `CLAUDE.md`'s "compare two arms
+/// inside one run", which a process-wide `OnceLock` makes impossible, and
+/// which matters more than usual here because the thing under test *is* the
+/// parallelism and a counter is only load-independent at fixed parallelism.
+pub fn par_mode_default() -> ParMode {
+    static M: std::sync::OnceLock<ParMode> = std::sync::OnceLock::new();
+    *M.get_or_init(|| match std::env::var("PIXEL_PHYSICS_CREATURE_PAR").as_deref() {
+        Ok("on") | Ok("1") => ParMode::Checked,
+        Ok("unchecked") => ParMode::Unchecked,
+        Ok("verify") => ParMode::Verify,
+        _ => ParMode::Off,
+    })
+}
+
+/// How many creature sites one speculation window covers.
+///
+/// **Default 4,096 — that is, all of them, one dispatch per frame — and the
+/// reason is that the window turned out not to be a hit-rate knob at all.**
+/// It reads the same at 16, 32 and 64 (57.8% at 150 ants for all three) and
+/// again at 1,000 versus 32 at 450 ants, because what spoils a speculation
+/// is a *neighbour* acting, not the length of the run. What the window does
+/// change is the number of rayon dispatches, and those are dear: at 450 ants
+/// the same work measured **474 µs/frame over three dispatches and 236 over
+/// one**. `PIXEL_PHYSICS_CREATURE_PAR_WINDOW` overrides.
+pub fn par_window() -> usize {
+    static W: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *W.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_CREATURE_PAR_WINDOW").ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(4096)
+    })
+}
+
+/// **Did the speculation actually get used?** Two counters rather than one,
+/// for the reason every counter in this repo is paired: a parallel read phase
+/// that is always invalidated is the same wall-clock as no parallel read phase
+/// at all, and only the ratio separates "the window is too long" from "the
+/// rectangles are too wide" from "this bed has no creatures in it".
+static SENSE_CACHED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SENSE_FRESH: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// Why a miss missed: no speculation was produced for this animal at all,
+/// it has moved or turned since, or something wrote inside what it read.
+/// **Three counters rather than one**, because the three want completely
+/// different fixes and the wall clock cannot tell them apart.
+static MISS_ABSENT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static MISS_MOVED: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static MISS_DIRTY: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// **Wall time inside `speculate_window`.** The phase's own clock, because
+/// a parallel phase that is not actually parallel is invisible in the frame
+/// total: it looks exactly like an expensive one.
+/// Cached senses that `ParMode::Verify` found to differ from a fresh read.
+static VERIFY_FAILS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static SPEC_NS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// ...of which, the share that failed on the field map.
+static MISS_DIRTY_FIELD: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+/// ...of which, the share that failed on the organism-state map alone.
+static MISS_DIRTY_ORG: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+/// `(senses taken from the window, senses recomputed serially)` since the
+/// process started. Read by `examples/antcost.rs` and by `SCHED_PASS`.
+pub fn speculation_census() -> (u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (SENSE_CACHED.load(Relaxed), SENSE_FRESH.load(Relaxed))
+}
+
+/// `(no speculation produced, moved or turned since, something wrote inside
+/// it)` — the three ways a cached sense is declined.
+/// Nanoseconds spent inside `speculate_window` since the process started.
+pub fn speculation_nanos() -> u64 {
+    SPEC_NS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Cached senses `ParMode::Verify` found stale.
+pub fn verify_fails() -> u64 {
+    VERIFY_FAILS.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+pub fn speculation_misses() -> (u64, u64, u64, u64, u64) {
+    use std::sync::atomic::Ordering::Relaxed;
+    (MISS_ABSENT.load(Relaxed), MISS_MOVED.load(Relaxed), MISS_DIRTY.load(Relaxed), MISS_DIRTY_ORG.load(Relaxed), MISS_DIRTY_FIELD.load(Relaxed))
+}
+
+/// **How close an earlier due creature has to be for this one not to be
+/// worth speculating**, in cells, Chebyshev from head to head.
+///
+/// Derived rather than guessed: a creature's read rectangles reach its own
+/// body's extent plus its widest sense radius, and a neighbour's writes
+/// reach its own body's extent plus one. For the shipped long ant that is
+/// about 9 and 8 cells from the respective heads, so anything closer than
+/// their sum is very likely to spoil the cache.
+/// **Zero by default — the filter is off, and that is measured.** It works:
+/// at 450 ants and a reach of 18 it takes the thrown-away speculations from
+/// two thirds down to almost none. It also takes the benefit with them, for
+/// the reason the round's report gives — at that density almost every animal
+/// *has* a neighbour, so the filter declines almost every animal — and the
+/// frame came out **+3.7% against +2.7% without it**. Kept as a knob rather
+/// than deleted because the two numbers it trades move in opposite directions
+/// with density, and neither term is a property of this code.
+/// `PIXEL_PHYSICS_CREATURE_PAR_NEAR` overrides.
+pub fn par_near() -> i32 {
+    static N: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_CREATURE_PAR_NEAR").ok().and_then(|v| v.parse().ok()).unwrap_or(0))
+}
+
+/// **Creature sites a window must hold before it is worth a rayon
+/// dispatch.** Below it the window is swept serially and the watch is never
+/// armed, so a world with two ants in it pays neither the join nor the
+/// marking.
+///
+/// Measured on `lab_cost`'s six-ant bed, where an unconditional dispatch put
+/// `active_sites` at **0.146 ms against 0.093** — a 57% regression on a phase
+/// with almost no creatures in it, entirely rayon's fixed cost. The same
+/// shape as `parallel::par_min_chunks`, and for the same reason.
+/// `PIXEL_PHYSICS_CREATURE_PAR_MIN` overrides; `0` means always dispatch.
+pub fn par_min_sites() -> usize {
+    static N: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *N.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_CREATURE_PAR_MIN").ok().and_then(|v| v.parse().ok()).unwrap_or(6)
+    })
+}
+
+/// Slack on every read rectangle, over and above the widest reach `sense`
+/// actually uses.
+///
+/// **One cell, not more, and the reason is that the reaches above are
+/// derived rather than guessed.** Every scan `sense` performs is enumerated
+/// at `sense_read_rects` and each one is bounded by a value passed to it
+/// from this same function's inputs. The margin is there for the off-by-one
+/// a reader of this code should not have to verify, not to cover a scan
+/// nobody listed — a wider one would only trade hit rate for a false sense
+/// of safety, and the thing that actually catches a missed scan is
+/// `ParMode::Verify` — which is also how this number was shown not to be the
+/// problem when the scheme did have a hole: widening it to 12 changed
+/// nothing, and the miss was a write with no mark rather than a read outside
+/// a rectangle. `PIXEL_PHYSICS_CREATURE_PAR_MARGIN` is that bisection, kept
+/// runnable.
+fn sense_rect_margin() -> i32 {
+    static M: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *M.get_or_init(|| std::env::var("PIXEL_PHYSICS_CREATURE_PAR_MARGIN").ok().and_then(|v| v.parse().ok()).unwrap_or(1))
+}
+
+/// One creature's read phase, computed off `&World` before its site is
+/// dispatched.
+pub struct SensedAhead {
+    organism: u16,
+    x: i32,
+    y: i32,
+    heading: u8,
+    /// **What this speculation read** — the thing the validity test is taken
+    /// over. Several small rectangles rather than one bounding box, and that
+    /// is not tidiness: the ant's `sensor_offset` is 6, so a single box
+    /// around the body and its three pheromone sample points is 25x20 cells
+    /// for a footprint that is really the body, two 5x5 discs and four
+    /// isolated samples. The box costs hit rate in exactly the dense colony
+    /// the whole change is for.
+    read: SenseFootprint,
+    inputs: [f32; brain::BRAIN_INPUTS],
+    seen: Sightings,
+    sight_reads: u64,
+    curvature_reads: u64,
+    outputs: [f32; brain::BRAIN_OUTPUTS],
+    active_synapses: u32,
+    brain_state: [f32; brain::BRAIN_HIDDEN],
+}
+
+/// `moisture_gradient`'s sample offset — named rather than repeated so the
+/// head rectangle and the sampler cannot drift apart. The gradient is read
+/// four cells out on each axis, which is further than any of the discs.
+const MOISTURE_GRADIENT_SPAN: i32 = 4;
+
+/// The body ring, the head's discs, and one per off-body pheromone sample.
+const SENSE_RECTS: usize = 5;
+
+/// **Where one `sense` read, split by which of the watch's three maps the
+/// reads belong to.** Three reaches, not one — see the section header.
+#[derive(Clone, Copy)]
+struct SenseFootprint {
+    /// Cell and pheromone reads: the body ring, the head's discs, and the
+    /// three pheromone sensors. `used` says how many entries are live.
+    rects: [(i32, i32, i32, i32); SENSE_RECTS],
+    used: u8,
+    /// Where another organism's *state* was read — one cell off the body,
+    /// plus the eye's reach.
+    org: (i32, i32, i32, i32),
+    /// Where the field was read. Tested against the field-resolution map.
+    field: (i32, i32, i32, i32),
+}
+
+/// **Where `sense` reads, for this animal**, as a short list of rectangles.
+///
+/// **Derived from the reaches, never guessed.** Every term is the same value
+/// `sense` itself passes to the scan that uses it, so a species that evolves
+/// a wider eye or a longer sensor arm widens this in the same step.
+///
+/// **The field reads are covered from the write side, not from here.**
+/// `MoistureFront`, `MoistureLateral` and `moisture_gradient` sample
+/// `FieldTile`s bilinearly, so a rectangle that covered them would need a
+/// two-`FIELD_SCALE` skirt on every sample point. `World::paint_field` marks
+/// its own reach instead, which is the same coverage for a fraction of the
+/// area — and it is a live case, not a hypothetical: `plant::absorb_water`
+/// returns moisture to the soil from inside this very site loop. The sample
+/// *points* still have to be inside a rectangle, which is what
+/// `MOISTURE_GRADIENT_SPAN` in the head reach and the sensor rectangles
+/// below are for.
+fn sense_read_rects(
+    world: &World,
+    x: i32,
+    y: i32,
+    organism: u16,
+    def: &CreatureDef,
+    state: &organism::OrganismState,
+) -> SenseFootprint {
+    let (mut x0, mut y0, mut x1, mut y1) = (x, y, x, y);
+    if state.chain.is_empty() {
+        for &(cx, cy) in state.cells.keys() {
+            x0 = x0.min(cx);
+            y0 = y0.min(cy);
+            x1 = x1.max(cx);
+            y1 = y1.max(cy);
+        }
+    } else {
+        for &(cx, cy) in &state.chain {
+            x0 = x0.min(cx);
+            y0 = y0.min(cy);
+            x1 = x1.max(cx);
+            y1 = y1.max(cy);
+        }
+    }
+    let eye = organism_sight_range(world, organism, def);
+    // **The body ring and the head's discs are two rectangles, not their
+    // union.** Only `adjacent_food_counted` walks the whole *body*, and it
+    // reaches one cell; the crowding scan, `surface_curvature`, the sight
+    // cast and the pheromone read at `(x, y)` are all centred on the
+    // **head**. A seven-cell chain's union of the two is 13x7 where the
+    // parts are 9x3 and 5x5, and every extra cell in it is another place a
+    // neighbour can invalidate this from.
+    let ring = 1 + sense_rect_margin();
+    let head = [scaled_cells(world, CROWDING_RADIUS), curvature_radius_of(def, &traits_of(world, organism, def)), eye, 1]
+        .into_iter()
+        .max()
+        .unwrap_or(1)
+        .max(1)
+        + sense_rect_margin();
+    // The state reach: one cell off the body for the kin scan the mouth
+    // makes, and the eye's own reach when there is an eye.
+    let om = eye.max(1) + sense_rect_margin();
+    let org_rect = (x0 - om, y0 - om, x1 + om, y1 + om);
+    // The field reads: the three sensors at `sensor_offset`, the gradient's
+    // four cells at `MOISTURE_GRADIENT_SPAN`, and the light and temperature
+    // at the head. All from the head, none from the body.
+    let fr = def.sensor_offset.max(MOISTURE_GRADIENT_SPAN) + sense_rect_margin();
+    let field_rect = (x - fr, y - fr, x + fr, y + fr);
+    let mut rects = [(0, 0, 0, 0); SENSE_RECTS];
+    rects[0] = (x0 - ring, y0 - ring, x1 + ring, y1 + ring);
+    rects[1] = (x - head, y - head, x + head, y + head);
+    // The three pheromone sensors, each a single sample `sensor_offset`
+    // away along the heading and its two neighbours.
+    let so = def.sensor_offset;
+    let heading = state.heading;
+    let p = sense_rect_margin();
+    let mut used = 2u8;
+    for dir in [heading, (heading + AHEAD_LEFT) % 8, (heading + AHEAD_RIGHT) % 8] {
+        let (dx, dy) = DIRS[dir as usize % 8];
+        let (sx, sy) = (x + dx * so, y + dy * so);
+        rects[used as usize] = (sx - p, sy - p, sx + p, sy + p);
+        used += 1;
+    }
+    SenseFootprint { rects, used, org: org_rect, field: field_rect }
+}
+
+/// Compute one creature's read phase, or decline.
+///
+/// **Declining is free and is the normal answer for anything unusual.** Every
+/// early return below is a precondition `creature_tick` tests before it
+/// reaches `sense` — a stale handle, a lost head, fire, a creature mid-flight
+/// or inside a trunk, a chain that `reconcile_chain` is about to trim. Getting
+/// one of them wrong costs a wasted speculation and nothing else: the serial
+/// path re-reads the world from scratch.
+fn sense_ahead(world: &World, site: &ActiveSite) -> Option<SensedAhead> {
+    let ActiveKind::Creature { organism } = site.kind else {
+        return None;
+    };
+    let state = world.organism(organism)?;
+    let species = world.species.get(state.species);
+    let def = species.creature.as_ref()?;
+    let material_id = world.materials.id_of(&species.name)?;
+    let (x, y) = (site.x, site.y);
+    let cell = world.get(x, y);
+    if cell.material != material_id || cell.organism_id() != organism || cell.is_burning() {
+        return None;
+    }
+    if state.crossing.is_some() || state.flight.is_some() {
+        return None;
+    }
+    // `reconcile_chain` runs before `sense` and mutates when a chain cell has
+    // gone missing. Speculating through that would sense off a body the
+    // dispatch is about to trim.
+    if state.chain.iter().any(|p| !state.cells.contains_key(p)) {
+        return None;
+    }
+    let heading = state.heading;
+    let read = sense_read_rects(world, x, y, organism, def, state);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    let mut brain_state = state.brain_state;
+    let (outputs, active_synapses) = brain::eval_brain(&state.genome, &inputs, &mut brain_state);
+    Some(SensedAhead { organism, x, y, heading, read, inputs, seen, sight_reads, curvature_reads, outputs, active_synapses, brain_state })
+}
+
+/// One window's speculations, plus their organism ids held separately.
+///
+/// **The ids are a separate `Vec` and that is a measured decision, not a
+/// tidy one.** A `SensedAhead` is ~420 bytes — 29 inputs, 8 outputs and a
+/// 64-wide hidden state — so a linear scan of 32 of them touches 13 KB to
+/// compare 32 `u16`s, once per creature per frame. Scanning the ids alone
+/// touches 64 bytes, and the entry is then read once.
+#[derive(Default)]
+pub struct SpecWindow {
+    ids: Vec<u16>,
+    entries: Vec<SensedAhead>,
+    /// The sites that survived the neighbour filter — reused, so the filter
+    /// costs no allocation.
+    keep: Vec<ActiveSite>,
+    /// Scratch for the indexed collect — reused, so a window costs no
+    /// allocation after the first.
+    slots: Vec<Option<SensedAhead>>,
+}
+
+impl SpecWindow {
+    pub fn clear(&mut self) {
+        self.ids.clear();
+        self.entries.clear();
+    }
+
+    /// How many of the window's creatures were speculated for.
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+
+    fn find(&self, organism: u16) -> Option<&SensedAhead> {
+        let i = self.ids.iter().position(|&id| id == organism)?;
+        Some(&self.entries[i])
+    }
+}
+
+/// Compute the read phase of every creature site in `sites`, across every
+/// core. Called by `scheduler::step` with `&World` and nothing else borrowed.
+pub fn speculate_window(world: &World, sites: &[ActiveSite], out: &mut SpecWindow) {
+    use rayon::prelude::*;
+    let t = std::time::Instant::now();
+    out.clear();
+    // **Do not speculate for an animal a nestmate is about to stand next
+    // to.** A speculation that is then invalidated is pure loss — the work
+    // is done twice, once on a worker and once serially — and in a colony
+    // most of them are: measured at 450 ants, two thirds of speculations
+    // were thrown away, and the arithmetic for this whole mechanism is
+    // `hit rate x parallel speedup > 1`. A creature's cache can only be
+    // spoiled by one dispatched *earlier* in this window, so dropping every
+    // creature with an earlier neighbour within `PAR_NEAR` costs the hit
+    // rate nothing it was going to keep and removes the wasted half of the
+    // bill. `cached%` in `examples/antcost.rs` is the number that says
+    // whether the reach is wide enough: it should sit high among whatever
+    // survives this filter.
+    out.keep.clear();
+    let near = world.creature_par.near;
+    for (i, site) in sites.iter().enumerate() {
+        let clash = sites[..i].iter().any(|e| (e.x - site.x).abs() <= near && (e.y - site.y).abs() <= near);
+        if !clash {
+            out.keep.push(*site);
+        }
+    }
+    let sites: &[ActiveSite] = &out.keep;
+    // **`collect_into_vec` over an *indexed* iterator**, not `par_extend`
+    // over a filtered one: a `filter_map` is unindexed, so rayon collects it
+    // through a linked list of per-task `Vec`s and concatenates, which
+    // allocates per task for a result that is at most `window` long. This
+    // writes straight into a reused buffer.
+    sites.par_iter().map(|site| sense_ahead(world, site)).collect_into_vec(&mut out.slots);
+    for e in out.slots.drain(..).flatten() {
+        out.ids.push(e.organism);
+        out.entries.push(e);
+    }
+    SPEC_NS.fetch_add(t.elapsed().as_nanos() as u64, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// The cached read phase for this creature, **if it is still a true reading
+/// of the world**.
+///
+/// Three things have to hold, and the third is the one that matters: the
+/// speculation has to be about this animal, it has to have been taken with the
+/// animal standing where and facing how it stands now, and **nothing inside
+/// the rectangle it read may have been written since**.
+fn sensed_ahead<'a>(world: &World, ahead: &'a SpecWindow, organism: u16, x: i32, y: i32, heading: u8) -> Option<&'a SensedAhead> {
+    use std::sync::atomic::Ordering::Relaxed;
+    let Some(a) = ahead.find(organism) else {
+        MISS_ABSENT.fetch_add(1, Relaxed);
+        return None;
+    };
+    if a.x != x || a.y != y || a.heading != heading {
+        MISS_MOVED.fetch_add(1, Relaxed);
+        return None;
+    }
+    if world.creature_par.mode != ParMode::Unchecked {
+        // **Split, because the two maps want different fixes.** A miss on
+        // the state map is a nestmate that merely updated its own energy; a
+        // miss on the cell map is one that actually moved, dug or laid a
+        // trail. Only the pair says which.
+        let r = &a.read;
+        if !world.write_watch.clean_organisms(r.org.0, r.org.1, r.org.2, r.org.3) {
+            MISS_DIRTY.fetch_add(1, Relaxed);
+            MISS_DIRTY_ORG.fetch_add(1, Relaxed);
+            return None;
+        }
+        if !r.rects[..r.used as usize].iter().all(|c| world.write_watch.clean(c.0, c.1, c.2, c.3)) {
+            MISS_DIRTY.fetch_add(1, Relaxed);
+            return None;
+        }
+        if !world.write_watch.clean_field(r.field.0, r.field.1, r.field.2, r.field.3) {
+            MISS_DIRTY.fetch_add(1, Relaxed);
+            MISS_DIRTY_FIELD.fetch_add(1, Relaxed);
+            return None;
+        }
+    }
+    Some(a)
 }
 
 /// **What one cell is worth to *this gut*** — S5's matched filter, and the
@@ -11569,6 +12189,99 @@ mod tests {
 
     fn test_world() -> World {
         World::new(Rect::new(0, 0, 199, 199))
+    }
+
+    /// **A smoke test for the speculated read phase, and explicitly not the
+    /// gate for it.** Said that way round because the gate it looks like is
+    /// one this bed cannot provide, and citing its green as evidence would be
+    /// the mistake `CLAUDE.md` names.
+    ///
+    /// What it does check: the machinery runs (the census assertion below
+    /// fails if no cached sense is ever consumed, which is how it would read
+    /// if the window, the filter or the validity test quietly stopped
+    /// producing anything), and the two arms end with the same world and the
+    /// same colony.
+    ///
+    /// **What it cannot check, measured rather than assumed: it is blind to
+    /// the validity test itself.** Run the first arm as `ParMode::Unchecked`
+    /// — validation disabled, every cache consumed stale — and this test
+    /// stays green, at animals 24 cells apart *and* at 4 with food between
+    /// them. 1,524 of its 1,574 declines are on the organism-state map, and
+    /// on a bed this quiet the state a neighbour would have read is the same
+    /// either way, so nothing a stale cache carries actually differs.
+    ///
+    /// **The real gate is `examples/antcost.rs`**, whose `par=on,off` arms
+    /// hash a bed with hundreds of animals standing in contact and must
+    /// agree; its `par=unchecked` arm is the control that shows they can
+    /// disagree, and `ParMode::Verify` is the differential that names the
+    /// brain input when they do. That is what found this scheme's one hole —
+    /// at 450 ants, where 150 and 300 were clean.
+    #[test]
+    fn a_speculated_read_phase_reproduces_the_serial_world_exactly() {
+        fn run(mode: ParMode) -> (u64, usize) {
+            // **The animals stand close, and `near` is turned off so they
+            // are speculated for anyway.** This guard is about whether the
+            // validity test is doing its job, and a bed where no animal can
+            // reach another cannot answer that: with the shipped `near` of
+            // 18 and animals 24 apart, the whole test stays green with the
+            // validity test *disabled* — a blind guard of exactly the shape
+            // `CLAUDE.md` says to replace rather than widen. Put the fault
+            // back here by running the first arm as `ParMode::Unchecked` and
+            // watch it go red.
+            let mut w = World::new(Rect::new(0, 0, 1023, 159));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            let fruit = w.materials.id_of("fruit").expect("fruit is compiled in");
+            for x in 0..=1023 {
+                for y in 100..=140 {
+                    w.set(x, y, Cell::new(soil, 0));
+                }
+                // A meal every few cells, so the animals have a reason to
+                // eat, dig and feed each other — the verbs that make one
+                // animal's tick change what its neighbour would have read.
+                if x % 7 == 0 {
+                    w.set(x, 99, Cell::new(fruit, 0));
+                }
+            }
+            w.creature_par.mode = mode;
+            w.creature_par.near = 0;
+            let mut placed = 0;
+            for i in 0..40 {
+                if let Some(site) = plant_creature_seed(&mut w, 24 + i * 4, 98, "ant") {
+                    w.schedule_active_site(site);
+                    placed += 1;
+                }
+            }
+            assert!(placed >= 30, "the bed did not take the colony this guard is about: {placed} of 40 placed");
+            for _ in 0..150 {
+                crate::sim::update::step(&mut w);
+                w.step_active_sites();
+            }
+            let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+            for y in 0..=159 {
+                for x in 0..=1023 {
+                    let c = w.get(x, y);
+                    for v in [c.material.0 as u64, c.aux() as u64, c.organism_id() as u64] {
+                        h = (h ^ v).wrapping_mul(0x0000_0100_0000_01b3);
+                    }
+                }
+            }
+            (h, w.live_creature_count())
+        }
+
+        let before = speculation_census().0;
+        let (parallel_hash, parallel_ants) = run(ParMode::Checked);
+        let used = speculation_census().0 - before;
+        assert!(
+            used > 0,
+            "the parallel arm never consumed a single cached sense, so this guard is comparing two serial runs"
+        );
+
+        let (serial_hash, serial_ants) = run(ParMode::Off);
+        assert_eq!(
+            parallel_hash, serial_hash,
+            "the speculated read phase changed the world: {used} senses were taken from the window and at least one of them was stale"
+        );
+        assert_eq!(parallel_ants, serial_ants, "...and the two arms must end with the same colony standing");
     }
 
     /// A bed with the three obstructions that broke colony founding, laid
@@ -19628,7 +20341,7 @@ mod tests {
 
         let species = w.organism(ant).expect("live").species;
         let def = w.species.get(species).creature.clone().expect("an ant is a creature");
-        creature_tick(&mut w, 20, 100, ant, &def);
+        creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
 
         assert!(w.organism(ant).expect("live").crop.is_none(), "test setup: digesting the crop's only cell must empty it, or this proves nothing about the release");
         assert_eq!(w.pips_released_by_digestion, 1, "the it-fired counter must move when digestion empties a crop carrying a passenger");
@@ -19680,7 +20393,7 @@ mod tests {
 
         let species = w.organism(ant).expect("live").species;
         let def = w.species.get(species).creature.clone().expect("an ant is a creature");
-        creature_tick(&mut w, 20, 100, ant, &def);
+        creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
 
         assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired, or the guard below is checking nothing");
         assert_eq!(w.get(head.0, head.1).organism_id(), ant, "the pip was written over the ant's own head -- this is §Z16, the 'killed' death that was never a killing");
@@ -19736,7 +20449,7 @@ mod tests {
 
         let species = w.organism(ant).expect("live").species;
         let def = w.species.get(species).creature.clone().expect("an ant is a creature");
-        creature_tick(&mut w, 20, 100, ant, &def);
+        creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
 
         assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired");
         assert_eq!(w.get(head.0, head.1).organism_id(), ant, "no room anywhere must never mean 'write it into the ant'");
@@ -19775,7 +20488,7 @@ mod tests {
 
         let species = w.organism(ant).expect("live").species;
         let def = w.species.get(species).creature.clone().expect("an ant is a creature");
-        creature_tick(&mut w, 20, 100, ant, &def);
+        creature_tick(&mut w, 20, 100, ant, &def, &SpecWindow::default());
 
         let crop = w.organism(ant).expect("live").crop.expect("digesting one of two cells must leave the crop standing, not empty it");
         assert_eq!(crop.cells, 1, "test setup: digestion must actually have consumed a cell, or this proves nothing about the passenger");
@@ -21212,7 +21925,7 @@ mod tests {
                 // `CLAUDE.md` opens its measurement section with.
                 closest = closest.min(((hx - bx).abs() - 2).max(0).max(((hy - by).abs() - 1).max(0)));
                 if w.frame >= next {
-                    let sites = creature_tick(&mut w, hx, hy, organism, &def);
+                    let sites = creature_tick(&mut w, hx, hy, organism, &def, &SpecWindow::default());
                     next = sites.first().map_or(u64::MAX, |s| s.next_frame);
                 }
                 w.frame += 1;
@@ -22574,7 +23287,7 @@ mod tests {
             let (mut w, organism) = priced_ant(cells, idle);
             let before = w.organism(organism).expect("live").energy;
             let def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("creature");
-            creature_tick(&mut w, 20, 100, organism, &def);
+            creature_tick(&mut w, 20, 100, organism, &def, &SpecWindow::default());
             before - w.organism(organism).map_or(0.0, |s| s.energy)
         };
         let two = energy_after_one_tick(2);

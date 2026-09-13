@@ -342,6 +342,14 @@ impl SchedTiming {
             .filter(|((_, ms), n)| **n > 0 || **ms > 0.0)
             .map(|((name, ms), n)| format!("{name} {ms:.2}/{n}"))
             .collect();
+        // **The speculation's own pair**, because a parallel read phase that
+        // is always invalidated is the same wall clock as no parallel read
+        // phase at all. Cumulative over the process, like every other census
+        // in this line.
+        let (cached, fresh) = creature::speculation_census();
+        if cached + fresh > 0 {
+            println!("  [spec]  frame {frame:>6} senses from the window {cached:>8} recomputed serially {fresh:>8} ({:.1}% cached)", 100.0 * cached as f64 / (cached + fresh) as f64);
+        }
         println!(
             "  [sched] frame {frame:>6} sites {:>5} produced {:>5} deferred {:>6} total {total:>7.2}ms | staged {:.2} | {}",
             self.n.iter().sum::<u32>(),
@@ -454,46 +462,111 @@ pub fn step(world: &mut World) {
     // from one that is expensive and falling behind, and only this number
     // separates them.
     timing.deferred = world.active_site_count();
-    for site in due_sites {
-        // **Held ground does not tick.** The whole of the held-world
-        // concept's life gate, at the one place every kind of living work is
-        // dispatched from — growth, creatures, decay, evaporation — so there
-        // is no second copy to keep in step. `World::time_runs_at` is one
-        // bool test when the world is not held, which is every existing
-        // world.
-        //
-        // **Put back on the heap, never dropped**, and this is the part that
-        // matters: a dropped site is gone for good, and the ground would stay
-        // dead after the player quickened it. `HELD_RECHECK` rather than the
-        // next frame because rechecking every held site every frame is
-        // exactly the unbounded per-frame cost this scheduler exists to
-        // avoid — a held world would pay for its whole map, every frame,
-        // to decide to do nothing.
-        //
-        // The latency that buys is not what a player sees: placing a
-        // quickening is meant to be a *lurch*, so the verb that places one
-        // should pull its region's sites forward rather than letting them
-        // trickle in over `HELD_RECHECK`. Not built yet — there is no verb
-        // yet — and noted here because this is where it lands.
-        if !world.time_runs_at(site.x, site.y) {
-            world.schedule_active_site(ActiveSite { next_frame: world.frame + HELD_RECHECK, ..site });
-            continue;
+
+    // **The creature pass's read phase, computed across every core a window
+    // of sites at a time.** The whole argument is in `creature.rs`'s round-33
+    // section; the two things worth knowing here are that **dispatch order is
+    // untouched** — `sense` and `eval_brain` are pure reads returning a value,
+    // and every write still happens one site at a time in `ActiveSite`'s `Ord`
+    // order — and that a speculation is consumed only over ground nothing has
+    // written since the window opened (`World::write_watch`).
+    //
+    // Nothing is armed and no window is opened on a world with no creature
+    // sites due, which is most worlds most frames.
+    let speculating = world.creature_par.mode != creature::ParMode::Off
+        && due_sites.iter().any(|s| matches!(s.kind, ActiveKind::Creature { .. }));
+    if speculating {
+        if let Some(b) = world.bounds() {
+            world.write_watch.fit(b.min_x, b.min_y, b.max_x - b.min_x, b.max_y - b.min_y);
         }
-        let produced = timing.time(&site.kind, || match site.kind {
-            ActiveKind::Organism { .. } => plant::tick(world, &site),
-            ActiveKind::StructuralCheck => structural::tick(world, &site),
-            ActiveKind::Creature { .. } => creature::tick(world, &site),
-            ActiveKind::Decay => decay::tick(world, &site),
-            ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
-            ActiveKind::Dissipate => update::dissipation_tick(world, &site),
-        });
-        // Routed through the one canonical insertion point -- `world.
-        // active_sites` is live for the whole loop now, so there's no
-        // longer a separate "taken out" case to special-case here.
-        timing.produced += produced.len();
-        for produced_site in produced {
-            world.schedule_active_site(produced_site);
+    }
+    let speculating = speculating && world.write_watch.fitted();
+    let window = world.creature_par.window;
+    let mut ahead = creature::SpecWindow::default();
+
+    // **A window is a run of `window` *creature* sites, not of due sites.**
+    // Chunking the whole due list instead was measured and was the wrong
+    // shape: a bed whose background work outnumbers its creatures paid a
+    // rayon dispatch per chunk and got one or two creatures' worth of work
+    // out of each. Here the number of dispatches is exactly
+    // `ceil(creatures / window)` however much else is due, and the hit rate
+    // is unchanged -- it reads the same at windows of 16, 32 and 64, because
+    // what invalidates a speculation is a *neighbour* acting, not the length
+    // of the run.
+    let creature_at: Vec<usize> = if speculating {
+        due_sites.iter().enumerate().filter(|(_, s)| matches!(s.kind, ActiveKind::Creature { .. })).map(|(i, _)| i).collect()
+    } else {
+        Vec::new()
+    };
+    let mut window_buf: Vec<ActiveSite> = Vec::new();
+    let mut next_window = 0usize;
+
+    {
+        for (i, site) in due_sites.iter().copied().enumerate() {
+            if speculating && next_window < creature_at.len() && creature_at[next_window] == i {
+                let hi = (next_window + window).min(creature_at.len());
+                window_buf.clear();
+                window_buf.extend(creature_at[next_window..hi].iter().map(|&j| due_sites[j]));
+                next_window = hi;
+                if window_buf.len() >= world.creature_par.min_sites {
+                    // Opened *before* the speculation, so every write the
+                    // dispatch below makes lands in this window's generation
+                    // and can invalidate it. `&World` here and `&mut World`
+                    // below: two sequential phases, no shared mutable state,
+                    // no `unsafe`.
+                    world.write_watch.open_window();
+                    creature::speculate_window(world, &window_buf, &mut ahead);
+                } else {
+                    // Too few creatures left to be worth a rayon dispatch --
+                    // and closing the watch is what makes the marking free
+                    // again for the sites that are about to run.
+                    ahead.clear();
+                    world.write_watch.close();
+                }
+            }
+            // **Held ground does not tick.** The whole of the held-world
+            // concept's life gate, at the one place every kind of living work is
+            // dispatched from — growth, creatures, decay, evaporation — so there
+            // is no second copy to keep in step. `World::time_runs_at` is one
+            // bool test when the world is not held, which is every existing
+            // world.
+            //
+            // **Put back on the heap, never dropped**, and this is the part that
+            // matters: a dropped site is gone for good, and the ground would stay
+            // dead after the player quickened it. `HELD_RECHECK` rather than the
+            // next frame because rechecking every held site every frame is
+            // exactly the unbounded per-frame cost this scheduler exists to
+            // avoid — a held world would pay for its whole map, every frame,
+            // to decide to do nothing.
+            //
+            // The latency that buys is not what a player sees: placing a
+            // quickening is meant to be a *lurch*, so the verb that places one
+            // should pull its region's sites forward rather than letting them
+            // trickle in over `HELD_RECHECK`. Not built yet — there is no verb
+            // yet — and noted here because this is where it lands.
+            if !world.time_runs_at(site.x, site.y) {
+                world.schedule_active_site(ActiveSite { next_frame: world.frame + HELD_RECHECK, ..site });
+                continue;
+            }
+            let produced = timing.time(&site.kind, || match site.kind {
+                ActiveKind::Organism { .. } => plant::tick(world, &site),
+                ActiveKind::StructuralCheck => structural::tick(world, &site),
+                ActiveKind::Creature { .. } => creature::tick(world, &site, &ahead),
+                ActiveKind::Decay => decay::tick(world, &site),
+                ActiveKind::Evaporate { .. } => evaporation::tick(world, &site),
+                ActiveKind::Dissipate => update::dissipation_tick(world, &site),
+            });
+            // Routed through the one canonical insertion point -- `world.
+            // active_sites` is live for the whole loop now, so there's no
+            // longer a separate "taken out" case to special-case here.
+            timing.produced += produced.len();
+            for produced_site in produced {
+                world.schedule_active_site(produced_site);
+            }
         }
+    }
+    if speculating {
+        world.write_watch.close();
     }
     // A collapse too big to fracture in one tick comes down over several,
     // and this is what advances it. Outside the site loop above on purpose:

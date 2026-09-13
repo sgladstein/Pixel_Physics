@@ -58,6 +58,8 @@
 //! headline whole-frame figure must be quoted from a run **without** it.
 
 use pixel_physics::lab::scene::LabBox;
+use pixel_physics::sim::world::World;
+use pixel_physics::sim::creature;
 use pixel_physics::lab::Lab;
 use std::time::Instant;
 
@@ -68,8 +70,45 @@ fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
 }
 
 /// One population under test, with its own live box.
+/// FNV-1a over every cell in the box — material, `aux` and organism id.
+///
+/// **The determinism gate, and it is here rather than only in `lab_cost`
+/// because of what this harness's bed has in it.** `lab_cost colonies=1`
+/// stands six ants up; the whole point of round 33's change is what happens
+/// when a bed holds hundreds, and a colony that dense is exactly where two
+/// animals contend for the same cell in the same tick. Two `par` arms of one
+/// ant count are the same bed stocked by the same deterministic loop, so
+/// **their hashes must match exactly** — and the `unchecked` arm is the
+/// control that shows the comparison can fail.
+///
+/// The same arithmetic as `lab_cost`'s `world_hash`, deliberately: two gates
+/// that hash differently cannot be compared to each other.
+fn world_hash(w: &World) -> u64 {
+    fn fnv1a(h: u64, v: u64) -> u64 {
+        (h ^ v).wrapping_mul(0x0000_0100_0000_01b3)
+    }
+    let b = w.bounds().expect("the lab box sets bounds");
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for y in b.min_y..=b.max_y {
+        for x in b.min_x..=b.max_x {
+            let c = w.get(x, y);
+            h = fnv1a(h, c.material.0 as u64);
+            h = fnv1a(h, c.aux() as u64);
+            h = fnv1a(h, c.organism_id() as u64);
+        }
+    }
+    h
+}
+
 struct Arm {
     want: usize,
+    /// **Which read-phase schedule this arm runs** — round 33's creature-pass
+    /// parallelism. Held per arm rather than per process precisely so both
+    /// arms sit in one run: the thing under test is the parallelism, and
+    /// `CLAUDE.md` says a counter is only load-independent at fixed
+    /// parallelism, so a serial and a parallel arm measured in two processes
+    /// are two different machines' worth of noise apart.
+    par: creature::ParMode,
     lab: Lab,
     /// What the stocking loop actually got onto the bed.
     stocked: usize,
@@ -77,6 +116,15 @@ struct Arm {
     rep_ns: Vec<u128>,
     /// Mean standing ant count over each rep's timed window.
     rep_ants: Vec<f64>,
+    /// `(senses taken from the speculation window, senses recomputed
+    /// serially)` over each rep — the "did it fire" pair for the parallel
+    /// read phase. A parallel arm whose cached share is near zero is a
+    /// serial arm wearing a label.
+    rep_spec: Vec<(u64, u64)>,
+    /// Wall time inside the parallel read phase, per rep. **The number that
+    /// says whether it is parallel at all**: run the same arm at one thread
+    /// and at four and read this, not the frame total.
+    rep_spec_ns: Vec<u64>,
     /// Creature ticks dispatched over each rep's window — the "did it fire"
     /// counter, paired with the wall clock beside it. An arm whose cost rose
     /// while this stayed flat is not measuring creatures.
@@ -154,6 +202,21 @@ fn stock(lab: &mut Lab, species: &str, want: usize, ground_y: i32, width: i32, r
 fn main() {
     let ants_arg: String = arg("ants").unwrap_or_else(|| "0,150,400,800,1400".to_string());
     let wants: Vec<usize> = ants_arg.split(',').map(|s| s.parse().expect("an ant count")).collect();
+    // **`par=on,off` is the paired arm round 33 exists to measure**, and the
+    // pairing is the point: the two arms are the same bed, stocked by the
+    // same deterministic loop, interleaved rep by rep on one box. Anything
+    // less is a timing from one machine against a timing from another one.
+    let par_arg: String = arg("par").unwrap_or_else(|| "on".to_string());
+    let pars: Vec<creature::ParMode> = par_arg
+        .split(',')
+        .map(|m| match m {
+            "off" => creature::ParMode::Off,
+            "unchecked" => creature::ParMode::Unchecked,
+            "verify" => creature::ParMode::Verify,
+            "on" => creature::ParMode::Checked,
+            other => panic!("par= takes on, off or unchecked, not {other:?}"),
+        })
+        .collect();
     let frames: u64 = arg("frames").unwrap_or(400);
     let reps: usize = arg("reps").unwrap_or(3);
     let seed: u64 = arg("seed").unwrap_or(1);
@@ -207,30 +270,36 @@ fn main() {
 
     let mut arms: Vec<Arm> = Vec::new();
     for &want in &wants {
-        let mut lab = Lab::new(spec.clone());
-        lab.world.plant_load_failure = plant_load;
-        for _ in 0..grow {
-            lab.tick_for_harness();
+        for &par in &pars {
+            let mut lab = Lab::new(spec.clone());
+            lab.world.plant_load_failure = plant_load;
+            lab.world.creature_par.mode = par;
+            for _ in 0..grow {
+                lab.tick_for_harness();
+            }
+            let stocked = stock(&mut lab, &colony_species, want, ground_y, width, rounds, settle);
+            println!(
+                "  stocking: want {want:>5} par {par:?} -> standing {stocked:>5} ants, {:>5} plants, frame {}",
+                lab.world.live_organism_count() - stocked,
+                lab.world.frame
+            );
+            arms.push(Arm {
+                want,
+                par,
+                lab,
+                stocked,
+                rep_ns: Vec::new(),
+                rep_ants: Vec::new(),
+                rep_spec: Vec::new(),
+                rep_spec_ns: Vec::new(),
+                rep_ticks: Vec::new(),
+                rep_moves: Vec::new(),
+                rep_blocked: Vec::new(),
+                rep_awake: Vec::new(),
+                rep_swvisited: Vec::new(),
+                rep_swsoil: Vec::new(),
+            });
         }
-        let stocked = stock(&mut lab, &colony_species, want, ground_y, width, rounds, settle);
-        println!(
-            "  stocking: want {want:>5} -> standing {stocked:>5} ants, {:>5} plants, frame {}",
-            lab.world.live_organism_count() - stocked,
-            lab.world.frame
-        );
-        arms.push(Arm {
-            want,
-            lab,
-            stocked,
-            rep_ns: Vec::new(),
-            rep_ants: Vec::new(),
-            rep_ticks: Vec::new(),
-            rep_moves: Vec::new(),
-            rep_blocked: Vec::new(),
-            rep_awake: Vec::new(),
-            rep_swvisited: Vec::new(),
-            rep_swsoil: Vec::new(),
-        });
     }
 
     // **Round-robin, and the reps interleave rather than nest per arm.** A
@@ -239,6 +308,8 @@ fn main() {
     // minimum over reps then reads the quietest window each arm saw.
     for rep in 0..reps {
         for arm in arms.iter_mut() {
+            let spec_before = creature::speculation_census();
+            let spec_ns_before = creature::speculation_nanos();
             let ants_before = arm.lab.world.live_creature_count();
             let ticks_before = arm.lab.world.creature_stats.ticks;
             let moves_before = arm.lab.world.creature_stats.moves;
@@ -265,6 +336,9 @@ fn main() {
             let ants_after = arm.lab.world.live_creature_count();
             arm.rep_ns.push(ns);
             arm.rep_ants.push((ants_before + ants_after) as f64 / 2.0);
+            let spec_after = creature::speculation_census();
+            arm.rep_spec.push((spec_after.0 - spec_before.0, spec_after.1 - spec_before.1));
+            arm.rep_spec_ns.push(creature::speculation_nanos() - spec_ns_before);
             arm.rep_ticks.push(arm.lab.world.creature_stats.ticks - ticks_before);
             arm.rep_moves.push(arm.lab.world.creature_stats.moves - moves_before);
             arm.rep_blocked.push(arm.lab.world.creature_stats.moves_blocked - blocked_before);
@@ -276,11 +350,11 @@ fn main() {
     }
 
     println!(
-        "\n{:>6} {:>7} {:>8} {:>10} {:>10} {:>9} {:>9} {:>7}",
-        "want", "stocked", "ants", "µs/tick", "min/med", "crtick/f", "µs/ant", "spread"
+        "\n{:>6} {:>9} {:>7} {:>8} {:>10} {:>8} {:>9} {:>8} {:>6} {:>8} {:>10} {:>10} {:>9} {:>7} {:>8} {:>10}",
+        "want", "par", "stocked", "ants", "µs/tick", "min/med", "crtick/f", "moves/f", "blk%", "awake/f", "sw seen", "sw soil", "µs/ant", "spread", "cached%", "spec µs/f"
     );
     // Points for the fit: (mean ants over the quietest rep, µs/tick).
-    let mut pts: Vec<(f64, f64)> = Vec::new();
+    let mut pts: Vec<(creature::ParMode, f64, f64)> = Vec::new();
     for arm in &arms {
         let mut us: Vec<f64> = arm.rep_ns.iter().map(|&n| n as f64 / 1000.0 / frames as f64).collect();
         let best = us.iter().cloned().fold(f64::INFINITY, f64::min);
@@ -301,9 +375,16 @@ fn main() {
         } else {
             f64::NAN
         };
+        // **The "did it fire" pair for the parallel read phase.** A parallel
+        // arm whose cached share is near zero has measured the overhead and
+        // none of the benefit, and the wall clock alone cannot say so.
+        let (cached, fresh) = arm.rep_spec[best_i];
+        let spec_us = arm.rep_spec_ns[best_i] as f64 / 1000.0 / frames as f64;
+        let cached_pct = if cached + fresh > 0 { 100.0 * cached as f64 / (cached + fresh) as f64 } else { f64::NAN };
         println!(
-            "{:>6} {:>7} {:>8.0} {:>10.1} {:>10.2} {:>9.1} {:>8.1} {:>6.1} {:>8.1} {:>10.0} {:>10.0} {:>9.3} {:>7.2}",
+            "{:>6} {:>9} {:>7} {:>8.0} {:>10.1} {:>8.2} {:>9.1} {:>8.1} {:>6.1} {:>8.1} {:>10.0} {:>10.0} {:>9.3} {:>7.2} {:>8.1} {:>10.1}",
             arm.want,
+            format!("{:?}", arm.par),
             arm.stocked,
             ants,
             best,
@@ -315,16 +396,33 @@ fn main() {
             arm.rep_swvisited[best_i] as f64 / frames as f64,
             arm.rep_swsoil[best_i] as f64 / frames as f64,
             per,
-            us[us.len() - 1] / best
+            us[us.len() - 1] / best,
+            cached_pct,
+            spec_us
         );
-        pts.push((ants, best));
+        pts.push((arm.par, ants, best));
+    }
+
+    // **The gate, printed per arm and read across them.** Arms of one ant
+    // count must agree bit for bit; see `world_hash`.
+    println!("\n  world hash after the run, by arm (arms of one ant count must match):");
+    for arm in &arms {
+        println!("    want {:>5} par {:>9} -> {:#018x}", arm.want, format!("{:?}", arm.par), world_hash(&arm.lab.world));
     }
 
     // **Ordinary least squares over the arms' lower envelope**, which is the
     // same fit the playtest report ran on the owner's octiles. Two arms is
     // the minimum that defines a line and three is the minimum that can
     // disagree with one.
-    if pts.len() >= 2 {
+    // **One fit per `par` arm, never one fit across them.** Pooling a serial
+    // and a parallel arm into one regression measures their average and
+    // describes neither -- the same error the round-32 report had to repair
+    // when it fitted one line through the owner's two regimes.
+    for &mode in &pars {
+        let pts: Vec<(f64, f64)> = pts.iter().filter(|(m, _, _)| *m == mode).map(|&(_, x, y)| (x, y)).collect();
+        if pts.len() < 2 {
+            continue;
+        }
         let n = pts.len() as f64;
         let (sx, sy): (f64, f64) = pts.iter().fold((0.0, 0.0), |(a, b), (x, y)| (a + x, b + y));
         let (mx, my) = (sx / n, sy / n);
@@ -334,12 +432,11 @@ fn main() {
             let slope = sxy / sxx;
             let intercept = my - slope * mx;
             println!(
-                "\n  fit: cost ≈ {:.0} µs/tick + {:.3} µs per ant per tick   ({} arms)",
+                "\n  fit [{mode:?}]: cost ≈ {:.0} µs/tick + {:.3} µs per ant per tick   ({} arms)",
                 intercept,
                 slope,
                 pts.len()
             );
-            println!("  playtest §1, on the owner's own wall clock: ≈ 1000 µs/tick + 2.100 µs per ant per tick");
             // Residuals, because a two-point fit through a noisy intercept
             // can reproduce a slope it has not measured.
             print!("  residuals (measured - fitted, µs/tick):");
@@ -348,7 +445,12 @@ fn main() {
             }
             println!();
         } else {
-            println!("\n  fit: every arm reports the same ant count -- nothing to regress");
+            println!("\n  fit [{mode:?}]: every arm reports the same ant count -- nothing to regress");
         }
+    }
+    println!("  playtest §1, on the owner's own wall clock: ≈ 1000 µs/tick + 2.100 µs per ant per tick");
+    let (absent, moved, dirty, dirty_org, dirty_field) = creature::speculation_misses();
+    if absent + moved + dirty > 0 {
+        println!("  speculation misses over the whole run: no speculation {absent}, moved or turned {moved}, written into {dirty} (of which state {dirty_org}, field {dirty_field})");
     }
 }
