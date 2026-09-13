@@ -1,0 +1,160 @@
+{
+  "id": "20260913T034419970Z-34d562",
+  "created": "2026-09-13T03:44:19Z",
+  "board": "lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-resting-reads-r31",
+    "commit": "047df5c6",
+    "agent": null,
+    "session_id": "d7f26b75-c43b-5b26-846c-202f11293d05",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A resting long ant: three ways to not look stuck",
+  "question": "Which of head/antennae/shuffle (if any) reads as resting rather than stuck? off is today's shipped look.",
+  "context_md": "**Reports/open-bugs-handoff.md #Z13.** On card `20260912T045951545Z-6931d4` you marked three long ants \"shows no movement\" / \"also no movement\" / \"no movement\". Traced: all three are full-length (7/7, 7/7, 6/7 cells), not wedged, `moves` and `moves_blocked` both flat at +0 across 3,000 frames -- they are not stuck, they are resting, and rest is `p_move` collapsing to zero exactly as designed (your own ruling, 2026-09-09: \"rest is the absence of a reason to act\"). The shipped two-cell ant rests just as long (idle rate 75% vs the long ant's 74-76%) -- nobody ever noticed, because two motionless pixels read as scenery and a seven-cell motionless body reads as stuck. **The body got big enough to see; the walk was never the bug.**\n\nSo this is a look question, and it's the one #Z13 itself asks: what should a resting animal *do* so it reads as resting? Three candidates behind `PIXEL_PHYSICS_IDLE_ANIM=head|antennae|shuffle`, none of which move the animal or touch its economy (verified: byte-identical colony trajectory across all four arms, same seed):\n\n- **head** -- the head cell pulses brighter and back, like a glint as it turns to catch the light.\n- **antennae** -- a brief bright twitch just past the head, on a short cycle.\n- **shuffle** -- the body reaches one cell forward and pulls back, on a slower cycle. **Approximate by necessity**: `Renderer::draw` takes `&World`, not `&mut World`, so it cannot relocate the animal's own cells for a few frames without leaving the true position looking exactly as occupied as ever -- it can only draw an extra mark where the reach lands, the same shape as antennae but slower and larger. A true relocate-and-return needs write access to the grid, out of this lane's render-only scope.\n\nAll four sequences are the same run (`played_bed_longant`, seed 3, frames 28,000-29,500, `rain=STEADY`), same crop/zoom as your original card (`zoom=4 crop=160,120,224,56`), differing only in the render-side selector -- so any difference you see is the animation, not the colony.\n\n**Cost, worst-frame `Renderer::draw` alone (`CLAUDE.md`'s animated-grain method), off vs each mode, on a settled bed at the colony's realistic depth (a 60-row band, matching the shipped 40-row soil bed) and at a scattered-corner-to-corner worst case:** at a realistic colony depth all three add well under 1ms worst-frame (2.3ms off -> ~3.0-3.1ms). If idle animals are found scattered from the top of the view to the bottom of it (which none of your play sessions look like, but worth stating), all three degrade toward a near-full redraw (~5-8ms worst) -- a property of the existing single-rectangle dirty-region union shared with chunk bodies and the moon, not something particular to one candidate over another. None is disqualified; flagged so it isn't discovered by surprise.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "off (shipped)",
+      "files": [
+        "20260913T034419970Z-34d562/000-00.png",
+        "20260913T034419970Z-34d562/001-01.png",
+        "20260913T034419970Z-34d562/002-02.png",
+        "20260913T034419970Z-34d562/003-03.png",
+        "20260913T034419970Z-34d562/004-04.png",
+        "20260913T034419970Z-34d562/005-05.png",
+        "20260913T034419970Z-34d562/006-06.png",
+        "20260913T034419970Z-34d562/007-07.png",
+        "20260913T034419970Z-34d562/008-08.png",
+        "20260913T034419970Z-34d562/009-09.png",
+        "20260913T034419970Z-34d562/010-10.png",
+        "20260913T034419970Z-34d562/011-11.png",
+        "20260913T034419970Z-34d562/012-12.png",
+        "20260913T034419970Z-34d562/013-13.png",
+        "20260913T034419970Z-34d562/014-14.png",
+        "20260913T034419970Z-34d562/015-15.png",
+        "20260913T034419970Z-34d562/016-16.png",
+        "20260913T034419970Z-34d562/017-17.png",
+        "20260913T034419970Z-34d562/018-18.png",
+        "20260913T034419970Z-34d562/019-19.png",
+        "20260913T034419970Z-34d562/020-20.png",
+        "20260913T034419970Z-34d562/021-21.png"
+      ],
+      "caption": "PIXEL_PHYSICS_IDLE_ANIM unset -- what shipped through round 30",
+      "meta": {
+        "resting ants at frame 29,500": "~58 of 107 (idle_with_room 1449 / (idle_with_room+moving) 2673 = 54%, labforage scenario=played_bed_longant seed=3 frames=29500)",
+        "worst-frame ms, 60-row colony depth": 2.3
+      },
+      "focus": null
+    },
+    {
+      "label": "head",
+      "files": [
+        "20260913T034419970Z-34d562/022-00.png",
+        "20260913T034419970Z-34d562/023-01.png",
+        "20260913T034419970Z-34d562/024-02.png",
+        "20260913T034419970Z-34d562/025-03.png",
+        "20260913T034419970Z-34d562/026-04.png",
+        "20260913T034419970Z-34d562/027-05.png",
+        "20260913T034419970Z-34d562/028-06.png",
+        "20260913T034419970Z-34d562/029-07.png",
+        "20260913T034419970Z-34d562/030-08.png",
+        "20260913T034419970Z-34d562/031-09.png",
+        "20260913T034419970Z-34d562/032-10.png",
+        "20260913T034419970Z-34d562/033-11.png",
+        "20260913T034419970Z-34d562/034-12.png",
+        "20260913T034419970Z-34d562/035-13.png",
+        "20260913T034419970Z-34d562/036-14.png",
+        "20260913T034419970Z-34d562/037-15.png",
+        "20260913T034419970Z-34d562/038-16.png",
+        "20260913T034419970Z-34d562/039-17.png",
+        "20260913T034419970Z-34d562/040-18.png",
+        "20260913T034419970Z-34d562/041-19.png",
+        "20260913T034419970Z-34d562/042-20.png",
+        "20260913T034419970Z-34d562/043-21.png"
+      ],
+      "caption": "head cell brightness pulse, ~1.5s period",
+      "meta": {
+        "worst-frame ms, 60-row colony depth": 3.14,
+        "worst-frame ms, scattered top-to-bottom": 4.91
+      },
+      "focus": null
+    },
+    {
+      "label": "antennae",
+      "files": [
+        "20260913T034419970Z-34d562/044-00.png",
+        "20260913T034419970Z-34d562/045-01.png",
+        "20260913T034419970Z-34d562/046-02.png",
+        "20260913T034419970Z-34d562/047-03.png",
+        "20260913T034419970Z-34d562/048-04.png",
+        "20260913T034419970Z-34d562/049-05.png",
+        "20260913T034419970Z-34d562/050-06.png",
+        "20260913T034419970Z-34d562/051-07.png",
+        "20260913T034419970Z-34d562/052-08.png",
+        "20260913T034419970Z-34d562/053-09.png",
+        "20260913T034419970Z-34d562/054-10.png",
+        "20260913T034419970Z-34d562/055-11.png",
+        "20260913T034419970Z-34d562/056-12.png",
+        "20260913T034419970Z-34d562/057-13.png",
+        "20260913T034419970Z-34d562/058-14.png",
+        "20260913T034419970Z-34d562/059-15.png",
+        "20260913T034419970Z-34d562/060-16.png",
+        "20260913T034419970Z-34d562/061-17.png",
+        "20260913T034419970Z-34d562/062-18.png",
+        "20260913T034419970Z-34d562/063-19.png",
+        "20260913T034419970Z-34d562/064-20.png",
+        "20260913T034419970Z-34d562/065-21.png"
+      ],
+      "caption": "a bright tick just past the head, on for a tenth of a ~0.8s period",
+      "meta": {
+        "worst-frame ms, 60-row colony depth": 3.03,
+        "worst-frame ms, scattered top-to-bottom": 7.57
+      },
+      "focus": null
+    },
+    {
+      "label": "shuffle",
+      "files": [
+        "20260913T034419970Z-34d562/066-00.png",
+        "20260913T034419970Z-34d562/067-01.png",
+        "20260913T034419970Z-34d562/068-02.png",
+        "20260913T034419970Z-34d562/069-03.png",
+        "20260913T034419970Z-34d562/070-04.png",
+        "20260913T034419970Z-34d562/071-05.png",
+        "20260913T034419970Z-34d562/072-06.png",
+        "20260913T034419970Z-34d562/073-07.png",
+        "20260913T034419970Z-34d562/074-08.png",
+        "20260913T034419970Z-34d562/075-09.png",
+        "20260913T034419970Z-34d562/076-10.png",
+        "20260913T034419970Z-34d562/077-11.png",
+        "20260913T034419970Z-34d562/078-12.png",
+        "20260913T034419970Z-34d562/079-13.png",
+        "20260913T034419970Z-34d562/080-14.png",
+        "20260913T034419970Z-34d562/081-15.png",
+        "20260913T034419970Z-34d562/082-16.png",
+        "20260913T034419970Z-34d562/083-17.png",
+        "20260913T034419970Z-34d562/084-18.png",
+        "20260913T034419970Z-34d562/085-19.png",
+        "20260913T034419970Z-34d562/086-20.png",
+        "20260913T034419970Z-34d562/087-21.png"
+      ],
+      "caption": "a reach one cell forward, out for ~1.5s of a ~4s cycle",
+      "meta": {
+        "worst-frame ms, 60-row colony depth": 2.96,
+        "worst-frame ms, scattered top-to-bottom": 5.98
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
