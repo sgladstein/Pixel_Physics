@@ -1,0 +1,92 @@
+{
+  "id": "20260913T064436264Z-920eda",
+  "created": "2026-09-13T06:44:36Z",
+  "board": "held-world",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "717f17ed",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "A wood that only grows inside the circle",
+  "question": "Scrub both. Does the still half read as land that has been STOPPED, or as land where the game is broken?",
+  "context_md": "First build of the held-world idea: outside a quickening nothing grows, breeds, ages or rots, and the sky is pinned. **Physics is untouched** either side.\n\nFour seeds land on bare ground at the same four spots in both runs. In **quickened**, a circle of running time covers the middle two only.\n\n- **living** - the whole ground is running, all four trees come up\n- **quickened** - only the middle two ever sprout; the outer two sit as seeds for the whole run\n\n**What I am unsure of, and what the card is for.** You picked the treatment where nothing changes colour - the only tells are that nothing moves and the sky does not turn. I cannot judge from stills whether that reads as eerie or as a bug, and this is the cheapest thing that could tell us.\n\n**Please ignore:** there is no rim yet, so nothing marks where the circle is - you are meant to infer it from what grows. Seedlings are ugly at this age; that is the scene, not the mechanic. Held ground here is bare rather than a grown wood that stopped, which is the *harder* case and the one to render next.",
+  "kind": "frames",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "living - nothing held",
+      "files": [
+        "20260913T064436264Z-920eda/000-00.png",
+        "20260913T064436264Z-920eda/001-01.png",
+        "20260913T064436264Z-920eda/002-02.png",
+        "20260913T064436264Z-920eda/003-03.png",
+        "20260913T064436264Z-920eda/004-04.png",
+        "20260913T064436264Z-920eda/005-05.png",
+        "20260913T064436264Z-920eda/006-06.png",
+        "20260913T064436264Z-920eda/007-07.png",
+        "20260913T064436264Z-920eda/008-08.png",
+        "20260913T064436264Z-920eda/009-09.png",
+        "20260913T064436264Z-920eda/010-10.png",
+        "20260913T064436264Z-920eda/011-11.png",
+        "20260913T064436264Z-920eda/012-12.png",
+        "20260913T064436264Z-920eda/013-13.png",
+        "20260913T064436264Z-920eda/014-14.png",
+        "20260913T064436264Z-920eda/015-15.png",
+        "20260913T064436264Z-920eda/016-16.png",
+        "20260913T064436264Z-920eda/017-17.png",
+        "20260913T064436264Z-920eda/018-18.png",
+        "20260913T064436264Z-920eda/019-19.png"
+      ],
+      "caption": "every seed runs",
+      "meta": {
+        "trees that came up": "4 of 4",
+        "living plant tissue, last frame": "1,101 cells",
+        "frames spanned": 2835
+      },
+      "focus": null
+    },
+    {
+      "label": "quickened - circle over the middle two",
+      "files": [
+        "20260913T064436264Z-920eda/020-00.png",
+        "20260913T064436264Z-920eda/021-01.png",
+        "20260913T064436264Z-920eda/022-02.png",
+        "20260913T064436264Z-920eda/023-03.png",
+        "20260913T064436264Z-920eda/024-04.png",
+        "20260913T064436264Z-920eda/025-05.png",
+        "20260913T064436264Z-920eda/026-06.png",
+        "20260913T064436264Z-920eda/027-07.png",
+        "20260913T064436264Z-920eda/028-08.png",
+        "20260913T064436264Z-920eda/029-09.png",
+        "20260913T064436264Z-920eda/030-10.png",
+        "20260913T064436264Z-920eda/031-11.png",
+        "20260913T064436264Z-920eda/032-12.png",
+        "20260913T064436264Z-920eda/033-13.png",
+        "20260913T064436264Z-920eda/034-14.png",
+        "20260913T064436264Z-920eda/035-15.png",
+        "20260913T064436264Z-920eda/036-16.png",
+        "20260913T064436264Z-920eda/037-17.png",
+        "20260913T064436264Z-920eda/038-18.png",
+        "20260913T064436264Z-920eda/039-19.png"
+      ],
+      "caption": "outer two seeds never start",
+      "meta": {
+        "trees that came up": "2 of 4",
+        "living plant tissue, last frame": "368 cells",
+        "frames spanned": 2835
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
