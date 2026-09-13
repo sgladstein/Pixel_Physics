@@ -1,0 +1,56 @@
+{
+  "id": "20260913T205859179Z-f63cac",
+  "created": "2026-09-13T20:58:59Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-add2e33688b7ed83b",
+    "branch": "claude/roots-are-ground",
+    "commit": "c7650981",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-add2e33688b7ed83b"
+  },
+  "title": "Roots as ground: the gnome on the forest floor",
+  "question": "B is the fix. Does he now sit at the right height in a root-laced forest floor -- or does he read as standing on top of it rather than in it?",
+  "context_md": "A grown wood, the same world in both arms, the same two frames, both drawn at noon. Both come out of one binary: `PIXEL_PHYSICS_ROOT_FOOTING=off` is arm A, so nothing differs between them but the rule.\n\n**The top tile is frame 6,150 and is identical in both** -- he is on the surface, walking right. **The bottom tile is 25 frames later**, where he reaches the root plate of the first big tree. The pale cream stuff in the bank is root.\n\nRoots were scenery he walked *through*, the same as a trunk. They are ground now: he wades into a root mat to the knee and stands on it, exactly as he does in the soil beside it. Your report this morning -- *\"roots are considered plant instead of ground, so the gnome falls into the root mass instead of walking over it like the ground.\"*",
+  "kind": "ab",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "A -- roots as scenery (today)",
+      "files": [
+        "20260913T205859179Z-f63cac/000-card_root_before.png"
+      ],
+      "caption": "he drops into the root plate and never moves again",
+      "meta": {
+        "cells of him inside living tissue": "60 of 98",
+        "rows below the soil line": 5,
+        "cells travelled before he stopped": 126,
+        "cells travelled in the whole 2,400-frame run": 126
+      },
+      "focus": null
+    },
+    {
+      "label": "B -- roots as ground (the fix)",
+      "files": [
+        "20260913T205859179Z-f63cac/001-card_root_after.png"
+      ],
+      "caption": "he walks over it and carries on down the wood",
+      "meta": {
+        "cells of him inside living tissue": "49 of 98",
+        "rows below the soil line": 0,
+        "cells travelled by this frame": 129,
+        "cells travelled in the whole 2,400-frame run": 496
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
