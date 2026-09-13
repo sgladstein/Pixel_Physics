@@ -94,16 +94,60 @@ evidence this repo has:
   lane is the case for it: its re-read of its own runs overturned the round.
 - **Sonnet for a bounded build with a clear acceptance test** — UI work, an
   instrument with a defined output. The master menu is the case for it, and it
-  found two runtime defects no gate would have.
-- **Fable for design exploration whose deliverable is a report a human judges**
-  — three to five times cheaper, and both round-30 design reports were
-  substantive. **Check its factual claims**: the soil lane reported a
-  review-queue collision that one command disproved.
+  found two runtime defects no gate would have. Its known limit is recorded in
+  the coordinator note: **Sonnet refuses a brief dense in genetics vocabulary**
+  on a `[bio]` classifier, so write such a brief in the world's words or run
+  the lane on Opus.
+- **Fable's two round-30 reports were substantive**, and **the reason they were
+  cheap was not the model.** See the price table below: Fable is the most
+  expensive tier here, not the cheapest. **Check its factual claims** either
+  way — the soil lane reported a review-queue collision that one command
+  disproved.
 
-**Cost tracks how long a lane ran and how much it measured at least as much as
-which model it was**, so read the table as a prior and not a price list. The
-round totalled about **$294**, which is the number to weigh before deciding how
-many lanes to run at once.
+**The table is an invoice, not a price list, and reading it as one produces a
+confident wrong answer.** This section said until 2026-09-13 that Fable was
+*"three to five times cheaper"*, inferred from two Fable lanes at $22 and $15
+against an Opus lane at $105. The published rates say the opposite:
+
+| model | id | input $/MTok | output $/MTok |
+|---|---|---|---|
+| Fable 5.1 | `claude-fable-5-1` | **$10.00** | **$50.00** |
+| Opus 5 | `claude-opus-5` | $5.00 | $25.00 |
+| Sonnet 5 | `claude-sonnet-5` | $2.00 | $10.00 |
+| Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 |
+
+**Fable is twice Opus per token.** Those two lanes were cheap because they were
+short and read little — one design report each — while the anthill lane ran a
+12-seed paired sweep. **What the invoice measured was run length, not model
+rate**, which is this repo's own *ask what your number counts* trap, walked
+into by the session that had just spent a day documenting it. Budget the round
+by how much each lane will **measure**; model rate is second order. Round 30
+totalled about **$294** across seven lanes.
+
+**Anthropic's own guidance runs the other way from the bullet above**, and is
+worth knowing before anyone reaches for Fable: start on **Opus 5** for most
+workloads, and move *up* to Fable 5.1 only for demanding reasoning or
+long-horizon agentic work, or when Opus at higher effort has already been
+measured falling short. Fable is the escalation tier.
+
+**And the lever their guidance leans on is one we do not have.** The docs say
+tuning **effort** is usually better than switching models — but
+`create_session` accepts `model` and no effort or thinking parameter, and
+neither does the in-process `Agent` tool. For a lane, **the model is the whole
+dial**, which makes the choice more consequential here than that guidance
+assumes.
+
+**Standing rule, unchanged and now more load-bearing: every spawn passes
+`model:` explicitly.** `CLAUDE.md`'s *never inherited from the coordinator*
+was written after three workers silently inherited a premium tier and ran
+$25–71 each in ninety minutes. With Fable at twice Opus, a Fable coordinator
+spawning inheriting lanes is that accident with a bigger multiplier.
+
+**What would settle the two open questions** — whether Sonnet is adequate for
+report-shaped work, and whether Fable is ever worth 2x here — is a paired run
+of the *same* brief shape at two models. Model is confounded with task shape
+in every row of the table above: the Fable lanes were short design work and
+the Opus lanes were long measurement work, so the invoice cannot separate them.
 
 ### A lane being healthy is not evidence its work is durable
 
