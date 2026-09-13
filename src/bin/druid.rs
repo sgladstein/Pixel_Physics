@@ -39,6 +39,12 @@ const TICK: Duration = Duration::from_nanos(1_000_000_000 / TICKS_PER_SECOND as 
 /// frame simulate the whole missing interval and stall further.
 const MAX_TICKS_PER_FRAME: u32 = 5;
 
+/// Frames to wait after a scripted absorb before the screenshot, so the flow
+/// is caught in mid-air rather than before it starts or after it lands.
+/// `druid::DRAW_FRAMES` is 42 player ticks; a third of the way along shows the
+/// stream strung out with its head near the player.
+const DRAW_FRAMES_TO_CATCH: u32 = 4;
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoop::new()?;
     // `Poll` plus the `request_redraw` in `about_to_wait`: without both, a
@@ -68,6 +74,10 @@ struct Handler {
     screenshot_countdown: Option<u32>,
     /// See `PIXEL_PHYSICS_DRUID_CENSUS`.
     census_after: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
+    absorb_at: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_WALK`.
+    walk: (u64, u64),
     result: Result<(), Box<dyn std::error::Error>>,
 }
 
@@ -140,6 +150,27 @@ impl Handler {
         // only granularity that can tell a working dial from a world that
         // simply runs fast everywhere.
         let census_after: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_CENSUS").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_ABSORB_AT=N` -- press `F` at player tick N.
+        // The drawn energy is in flight for `DRAW_FRAMES` and then gone, so
+        // catching it needs the press and the screenshot to be scheduled
+        // together; a headless run cannot press anything.
+        let absorb_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_ABSORB_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_WALK=N` -- hold `D` for the first N player
+        // ticks. A colony is founded at the gnome's feet, so a scripted
+        // absorb has about five cells for the stream to cross and the flow
+        // reads as a flash; walking him off first is the difference between
+        // rendering the feature and rendering a sparkle.
+        // A range, not a prefix: the colony has to charge *first*, and it
+        // only charges while it is inside running time -- which, when he is
+        // standing with it, is his own carried circle. So the script is
+        // stand, then step off, then pull.
+        let walk: (u64, u64) = std::env::var("PIXEL_PHYSICS_DRUID_WALK")
+            .ok()
+            .and_then(|v| {
+                let (a, b) = v.split_once(',')?;
+                Some((a.trim().parse().ok()?, b.trim().parse().ok()?))
+            })
+            .unwrap_or((0, 0));
         Self {
             window: None,
             pixels: None,
@@ -152,6 +183,8 @@ impl Handler {
             jump_pressed: false,
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             census_after,
+            absorb_at,
+            walk,
             result: Ok(()),
         }
     }
@@ -200,12 +233,30 @@ impl Handler {
         // Held state copied fresh; the jump press ORs in, so a press made on
         // a frame that ran zero ticks survives until a tick consumes it.
         self.game.player_input.left = self.held.left;
-        self.game.player_input.right = self.held.right;
+        self.game.player_input.right = self.held.right || (self.game.ticks >= self.walk.0 && self.game.ticks < self.walk.1);
         self.game.player_input.jump_held = self.held.jump;
         self.game.player_input.down = self.held.down;
         self.game.player_input.grab = self.held.grab;
         self.game.player_input.jump_pressed |= std::mem::take(&mut self.jump_pressed);
 
+        if let Some(n) = self.absorb_at {
+            if self.game.ticks >= n {
+                self.absorb_at = None;
+                if self.game.absorb() > 0.0 {
+                    // **The pull schedules its own screenshot**, because the
+                    // two clocks do not line up: `screenshot_countdown` counts
+                    // *drawn frames* and this counts *player ticks*, and on a
+                    // software rasteriser a drawn frame is worth several
+                    // ticks. Scheduling both by hand produced two renders
+                    // with no flow in them and a wrong story about why (I
+                    // blamed the colony starving; it had 68 charge).
+                    // `PIXEL_PHYSICS_DRUID_CATCH=N` picks how far along the
+                    // stream is when the shutter opens.
+                    let n = std::env::var("PIXEL_PHYSICS_DRUID_CATCH").ok().and_then(|v| v.parse().ok());
+                    self.screenshot_countdown = Some(n.unwrap_or(DRAW_FRAMES_TO_CATCH));
+                }
+            }
+        }
         if let Some(n) = self.census_after {
             // Player ticks, not `world.frame` -- see `Druid::ticks`. Keying
             // this on the world's counter is what made the dial's first
@@ -236,6 +287,12 @@ impl Handler {
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
+                        println!(
+                            "druid: shutter at tick {} — {} draws in flight, {} motes drawn",
+                            self.game.ticks,
+                            self.game.draws.len(),
+                            pixel_physics::druid::hud::mote_count(&self.game)
+                        );
                         save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
                     } else {
                         self.screenshot_countdown = Some(n - 1);
@@ -289,6 +346,11 @@ impl Handler {
             // `Druid::plant_seed`.
             KeyCode::KeyT => {
                 self.game.plant_seed();
+            }
+            // **Draw the colony's charge.** The verb the economy is built on
+            // -- see `Druid::absorb`.
+            KeyCode::KeyF => {
+                self.game.absorb();
             }
             KeyCode::Tab => self.game.cycle_seed_kind(),
             // The economy's verb: a circle that runs while you are elsewhere.
@@ -434,6 +496,8 @@ fn census(game: &Druid) {
         println!("  circle {i} at {},{} r{} : {} living plant cells", q.x, q.y, q.r, inside[i]);
     }
     println!("  outside every circle : {outside} living plant cells");
+    let (charge, holders) = game.charge_in_reach();
+    println!("  animals {} ({} awake), charge {charge:.0} in {holders} within reach", game.animals, game.animals_awake);
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.

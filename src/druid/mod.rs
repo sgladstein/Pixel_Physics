@@ -193,9 +193,44 @@ const DRAIN_PER_CIRCLE: f32 = 1.0;
 /// ...and per plant standing inside one. A mature wood is expensive to keep
 /// running; bare ground is nearly free.
 const DRAIN_PER_PLANT: f32 = 0.02;
-/// Paid per animal per second, wherever time is running for it. The carried
-/// circle is free, so a colony under your feet pays without costing.
-const INCOME_PER_ANIMAL: f32 = 0.6;
+/// **What an animal stores, per second, while time is running for it.**
+///
+/// Owner's ruling, 2026-09-13, replacing a flat per-animal trickle over the
+/// whole world: *"you don't automatically fill your bar based on all
+/// creatures in the world. You fill based on number of creatures near you...
+/// creatures build up a reserve that you absorb and they have to regenerate
+/// before you can absorb again."*
+///
+/// **This is the loop closing.** Before it, income and expenditure were two
+/// unrelated taps: you spent power to run time, and you were paid for animals
+/// existing somewhere. Now the colony is a **battery you charge by spending**
+/// — a creature only stores while it is *running*, which means inside a
+/// circle, which means you paid for it. "Quicken my colony or my wood?"
+/// becomes a real question every minute, and it is the same question the
+/// whole game is about.
+///
+/// **That rule needs no code.** `World::time_runs_at` already decides it, the
+/// same way it already decides that a colony must be founded inside running
+/// time and that a sown seed waits for a circle to reach it. Three mechanics,
+/// one gate.
+const RESERVE_PER_SECOND: f32 = 1.5;
+
+/// **How much one animal can hold.** ~27 seconds of running to fill, so a
+/// colony of twelve is worth ~480 against a starting pool of 600: a lump
+/// worth walking for rather than a trickle worth ignoring.
+///
+/// The number this is really setting is *how often you press the key*, and
+/// the owner's warning shapes it: a button pressed every few seconds is worse
+/// than no button. A cap this size makes the pull a slow one.
+const RESERVE_CAP: f32 = 40.0;
+
+/// **How near you have to be.** Deliberately smaller than
+/// [`CARRIED_RADIUS`]: you have to stand *in* the colony, not near it.
+const ABSORB_RADIUS: i32 = 60;
+
+/// How long the drawn energy takes to reach you, in player ticks. Long enough
+/// to read as a flow rather than a flash.
+const DRAW_FRAMES: u32 = 42;
 /// How often the economy is recomputed, in ticks. Walking every organism is
 /// `O(organisms)` and there are thousands, so this runs twice a second rather
 /// than sixty times and scales what it charges.
@@ -241,6 +276,22 @@ const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 /// world's frame counter advances at that circle's rate, and a message would
 /// vanish in three eighths of a second. See [`Druid::ticks`].
 const MESSAGE_FRAMES: u64 = 180;
+
+/// **Energy on its way from an animal to the player.**
+///
+/// Owner: *"There should be a visual for when creatures have built up energy
+/// to drain and a really cool visual when you drain it. It should flow into
+/// you."* So a draw is not a number that changes — it is a thing that
+/// travels, and it takes [`DRAW_FRAMES`] to arrive.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Draw {
+    /// Where it came from, in world cells.
+    pub from: (i32, i32),
+    /// Ticks since it was pulled; it lands at [`DRAW_FRAMES`].
+    pub age: u32,
+    /// How much, which sets how heavy the flow looks.
+    pub amount: f32,
+}
 
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
@@ -330,6 +381,17 @@ pub struct Druid {
     /// writes `assets/species/fern.ron`.
     pub seed_kinds: Vec<String>,
     pub seed_kind: usize,
+    /// **What each animal is holding**, keyed by organism id.
+    ///
+    /// On the game rather than on `OrganismState`, deliberately: this is the
+    /// held world's economy and no part of it belongs to the sandbox or the
+    /// lab, which share every line of `sim`. Slots are reused when an
+    /// organism dies, so the map is pruned to the ids seen on each pass —
+    /// otherwise a dead ant's charge would be inherited by whatever is
+    /// allocated its slot next.
+    pub reserves: std::collections::HashMap<u16, f32>,
+    /// Energy in flight from an animal to the player — see [`Draw`].
+    pub draws: Vec<Draw>,
     /// How many seeds the player has sown, for the readout — *"did it fire at
     /// all needs a counter"*, and a seed dropped outside a quickening does
     /// nothing visible until time reaches it, so the picture cannot say.
@@ -485,6 +547,8 @@ impl Druid {
             seed_kinds,
             seed_kind: 0,
             sown: 0,
+            reserves: std::collections::HashMap::new(),
+            draws: Vec::new(),
         }
     }
 
@@ -504,6 +568,23 @@ impl Druid {
         self.message.as_ref().filter(|(_, until)| self.ticks < *until).map(|(text, _)| text.as_str())
     }
 
+    /// **Where the charged animals are, in world cells, and how full each
+    /// is.** For the tell over their heads — see [`hud`].
+    ///
+    /// Only those with something worth taking: a mark over every ant in a
+    /// colony of two hundred is not a tell, it is a texture.
+    pub fn charged_animals(&self) -> Vec<((i32, i32), f32)> {
+        self.reserves
+            .iter()
+            .filter(|(_, held)| **held > RESERVE_CAP * 0.15)
+            .filter_map(|(id, held)| {
+                let state = self.world.organism(*id)?;
+                let at = state.chain.first().copied().or_else(|| state.cells.keys().next().copied())?;
+                Some((at, (held / RESERVE_CAP).clamp(0.0, 1.0)))
+            })
+            .collect()
+    }
+
     /// Everything the corner readout says, as numbers. See [`hud::Readout`].
     pub fn readout(&self) -> hud::Readout {
         hud::Readout {
@@ -521,6 +602,9 @@ impl Druid {
             look: self.renderer.held_look.label(),
             seed_kind: self.seed_kind_name().to_string(),
             sown: self.sown,
+            charge: self.charge_in_reach(),
+            reserve_cap: RESERVE_CAP,
+            power_full: POWER_START,
             message: self.message().map(str::to_string),
         }
     }
@@ -589,6 +673,89 @@ impl Druid {
     /// What `T` would sow, for the readout.
     pub fn seed_kind_name(&self) -> &str {
         self.seed_kinds.get(self.seed_kind).map_or("none", String::as_str)
+    }
+
+    /// **Total charge standing within reach**, for the readout and for the
+    /// key's own decision.
+    pub fn charge_in_reach(&self) -> (f32, usize) {
+        let Some(player) = &self.world.player else {
+            return (0.0, 0);
+        };
+        let (px, py) = player.center();
+        let mut total = 0.0;
+        let mut n = 0;
+        for (id, held) in &self.reserves {
+            if *held <= 0.0 {
+                continue;
+            }
+            let Some(state) = self.world.organism(*id) else { continue };
+            let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
+                continue;
+            };
+            let (dx, dy) = (x - px, y - py);
+            if dx * dx + dy * dy <= ABSORB_RADIUS * ABSORB_RADIUS {
+                total += *held;
+                n += 1;
+            }
+        }
+        (total, n)
+    }
+
+    /// **Draw the charge out of every animal within reach.**
+    ///
+    /// A key rather than a trickle, and that is the point: `CLAUDE.md`'s
+    /// second law is *there must be a verb, and it must deliver something*.
+    /// An automatic drip is weather; walking into your colony and pulling is
+    /// a moment.
+    ///
+    /// Returns what was taken. Zero is a real answer and is said out loud —
+    /// standing in an uncharged colony and standing in no colony look
+    /// identical otherwise.
+    pub fn absorb(&mut self) -> f32 {
+        let Some(player) = &self.world.player else {
+            return 0.0;
+        };
+        let (px, py) = player.center();
+        let mut taken = 0.0;
+        let mut from: Vec<((i32, i32), f32)> = Vec::new();
+        let ids: Vec<u16> = self.reserves.keys().copied().collect();
+        for id in ids {
+            let held = self.reserves.get(&id).copied().unwrap_or(0.0);
+            if held <= 0.0 {
+                continue;
+            }
+            let Some(state) = self.world.organism(id) else { continue };
+            let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
+                continue;
+            };
+            let (dx, dy) = (x - px, y - py);
+            if dx * dx + dy * dy > ABSORB_RADIUS * ABSORB_RADIUS {
+                continue;
+            }
+            taken += held;
+            from.push(((x, y), held));
+            // **Emptied, not reduced.** They regenerate from nothing, and
+            // only while running — which is what stops you camping one
+            // colony and makes the map worth walking.
+            self.reserves.insert(id, 0.0);
+        }
+        for (at, amount) in from {
+            self.draws.push(Draw { from: at, age: 0, amount });
+        }
+        if taken > 0.0 {
+            self.power += taken;
+            println!("druid: drew {taken:.0} from {} animals", self.draws.len());
+            self.note(format!("drew {taken:.0} from the colony"));
+        } else {
+            // **Said out loud, like every other refusal here.** Standing in
+            // an uncharged colony, standing in a starved one and standing
+            // nowhere near a colony are three different situations and one
+            // silent key.
+            let (charge, holders) = self.charge_in_reach();
+            println!("druid: absorb took nothing — {charge:.0} charge in {holders} animals within {ABSORB_RADIUS}, {} alive", self.animals);
+            self.note("nothing charged within reach");
+        }
+        taken
     }
 
     /// **Found a colony at the player's feet.**
@@ -734,6 +901,10 @@ impl Druid {
         let mut animals_running = 0.0f32;
         let mut animals_alive = 0usize;
         let mut plants_in_circles = 0.0f32;
+        // Rebuilt rather than updated in place: organism slots are reused, so
+        // an entry left behind by a dead animal would be inherited by
+        // whatever is allocated its slot next.
+        let mut fresh: std::collections::HashMap<u16, f32> = std::collections::HashMap::with_capacity(self.reserves.len());
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
             let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
@@ -742,11 +913,18 @@ impl Druid {
             let creature = self.world.species.get(state.species).creature.is_some();
             if creature {
                 animals_alive += 1;
+                let held = self.reserves.get(&id).copied().unwrap_or(0.0);
                 // **Anywhere time runs, carried circle included.** A colony
-                // under his feet pays without costing, which is what makes
+                // under his feet charges without costing, which is what makes
                 // the carried circle worth walking somewhere with.
                 if self.world.time_runs_at(x, y) {
                     animals_running += 1.0;
+                    fresh.insert(id, (held + RESERVE_PER_SECOND * seconds).min(RESERVE_CAP));
+                } else {
+                    // A frozen animal keeps what it had and earns nothing --
+                    // the owner's question answered by the gate that already
+                    // exists rather than by a rule of its own.
+                    fresh.insert(id, held);
                 }
             } else {
                 // **Charged at the speed it is being run at.** A plant inside
@@ -765,7 +943,13 @@ impl Druid {
             }
         }
 
-        self.income = INCOME_PER_ANIMAL * animals_running;
+        self.reserves = fresh;
+        // **Income is what you *drew*, per second, not what is out there.**
+        // The readout has to answer "am I winning", and with an absorb-driven
+        // economy the honest answer is a rate over the recent past rather
+        // than a census of stored charge that may never be collected.
+        let drawn: f32 = self.draws.iter().filter(|d| d.age == 0).map(|d| d.amount).sum();
+        self.income = drawn / seconds;
         // **Multiplied by the dial, both terms.** A plant in a circle run at
         // 8x is having eight times as much life happen to it, and an empty
         // circle at 8x still costs eight times a slow one -- which is what
@@ -821,6 +1005,14 @@ impl Druid {
                 self.world.wake_region(carried.x, carried.y, carried.r);
             }
         }
+
+        // Energy in flight ages toward the player and lands. Kept before the
+        // economy so a draw made this tick is still `age == 0` when the
+        // economy reads it as this pass's income.
+        for d in &mut self.draws {
+            d.age += 1;
+        }
+        self.draws.retain(|d| d.age <= DRAW_FRAMES);
 
         self.step_economy();
     }

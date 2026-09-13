@@ -80,6 +80,19 @@ const RING_STANDING: [u8; 4] = [150, 220, 255, 255];
 /// What the next `SPACE` would place. Faint: it is not there yet.
 const RING_PREVIEW: [u8; 4] = [96, 116, 140, 255];
 
+/// **An animal with something worth taking.** Warm gold, the same family as
+/// the carried circle, because both are *yours*: the mark says "this is
+/// energy that belongs to you and is waiting".
+const CHARGED: [u8; 4] = [255, 226, 120, 255];
+/// ...and the same at a low charge, so the mark reads as filling rather than
+/// switching on. Interpolated toward [`CHARGED`] by how full the animal is.
+const CHARGED_LOW: [u8; 4] = [150, 120, 60, 255];
+/// Energy in flight. Brighter than the charged mark, because it is the event
+/// and the mark is only the promise.
+const FLOW: [u8; 4] = [255, 250, 225, 255];
+/// The halo around a mote, and what the landing ring fades to.
+const FLOW_FAINT: [u8; 4] = [190, 150, 70, 255];
+
 /// One row of text. 7-pixel glyphs and two of air, the same step
 /// `App::HELP_LINE` and `lab::stats::LINE` use.
 const LINE: i32 = hud::GLYPH_HEIGHT + 2;
@@ -88,6 +101,10 @@ const MARGIN: i32 = 4;
 /// Pixels from a legend row's left edge to its description. `SHIFT` and
 /// `SPACE` are the widest keys at five glyphs, so 34 clears both with air.
 const KEY_COL: i32 = 34;
+/// The power bar's box, in logical pixels. As wide as the panel's widest row
+/// so it reads as the panel's own gauge rather than as a widget in it.
+const BAR_W: i32 = 150;
+const BAR_H: i32 = 5;
 
 /// **Every key the game binds, and what it does in the world's own words.**
 ///
@@ -111,6 +128,7 @@ pub const KEYS: &[(&str, &str)] = &[
     ("T", "SOW A SEED WHERE YOU STAND"),
     ("TAB", "WHICH SEED"),
     ("C", "FOUND A COLONY AT YOUR FEET"),
+    ("F", "DRAW THE CHARGE OUT OF THEM"),
     ("H", "HOLD OR RELEASE THE WORLD"),
     ("L", "HOW HELD GROUND IS DRAWN"),
     ("U", "UNLIMITED POWER (PLAYTEST)"),
@@ -140,6 +158,13 @@ pub struct Readout {
     pub look: &'static str,
     pub seed_kind: String,
     pub sown: usize,
+    /// Charge standing within reach, and how many animals hold it.
+    pub charge: (f32, usize),
+    pub reserve_cap: f32,
+    /// What a full pool looks like, for the bar. Power can exceed it; the bar
+    /// clamps rather than rescaling, because a gauge whose full mark moves is
+    /// not a gauge.
+    pub power_full: f32,
     pub message: Option<String>,
 }
 
@@ -158,6 +183,9 @@ impl Readout {
             lines.push((format!("POWER {:.0}  {net:+.1}/S", self.power), if net < 0.0 { WARN } else { GOOD }));
             lines.push((format!("IN {:.1}/S   OUT {:.1}/S", self.income, self.drain), DIM));
         }
+        // The bar is drawn, not written -- this row reserves its line so the
+        // panel sizes itself around it, and `draw` paints over the blanks.
+        lines.push((String::new(), TEXT));
         // **Awake, not just alive.** An animal in held ground is scenery: it
         // pays nothing and does nothing, and it looks identical to a working
         // one at play zoom. The gap between the two numbers is the whole
@@ -168,6 +196,13 @@ impl Readout {
         // held ground is invisible until time reaches it, so without the
         // count a working key and a broken one look the same.
         lines.push((format!("SEED {}   SOWN {}", self.seed_kind.to_uppercase(), self.sown), TEXT));
+        // **What `F` would give you, and from how many.** The number is the
+        // whole decision: walk to the colony now, or leave it charging.
+        let (charge, holders) = self.charge;
+        lines.push((
+            format!("CHARGE {charge:.0} IN {holders} NEAR YOU"),
+            if charge >= self.reserve_cap { GOOD } else { DIM },
+        ));
         lines.push((
             format!("WORLD {}   LOOK {}", if self.held { "HELD" } else { "RUNNING" }, self.look.to_uppercase()),
             if self.held { TEXT } else { WARN },
@@ -180,6 +215,24 @@ impl Readout {
         }
         lines
     }
+}
+
+/// A charged animal, in screen pixels, with how full it is.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Mark {
+    x: i32,
+    y: i32,
+    fullness: f32,
+}
+
+/// One mote of drawn energy, in screen pixels, on its way to the player.
+#[derive(Clone, Copy, PartialEq, Debug)]
+struct Mote {
+    x: i32,
+    y: i32,
+    /// 0..1, how hot this particular mote burns. Varies per mote and rises as
+    /// it nears the player, so the stream shimmers instead of marching.
+    bright: f32,
 }
 
 /// A circle of running time, in screen pixels.
@@ -196,13 +249,28 @@ struct Ring {
 #[derive(Clone, PartialEq, Debug)]
 pub struct Interface {
     status: Vec<(String, [u8; 4])>,
+    /// 0..1 of the pool, or `None` while power is unlimited.
+    power_bar: Option<f32>,
     keys: bool,
     rings: Vec<Ring>,
+    marks: Vec<Mark>,
+    motes: Vec<Mote>,
+    /// Screen position and 0..1 age of each arrival bloom.
+    landings: Vec<(i32, i32, f32)>,
 }
 
 impl Interface {
     pub fn build(game: &Druid, viewport: (u32, u32)) -> Self {
-        Interface { status: game.readout().lines(), keys: game.show_keys, rings: rings(game, viewport) }
+        let readout = game.readout();
+        Interface {
+            power_bar: (!readout.unlimited).then(|| (readout.power / readout.power_full).clamp(0.0, 1.0)),
+            status: readout.lines(),
+            keys: game.show_keys,
+            rings: rings(game, viewport),
+            marks: marks(game),
+            motes: motes(game),
+            landings: landings(game),
+        }
     }
 
     pub fn draw(&self, frame: &mut [u8], viewport: (u32, u32)) {
@@ -220,11 +288,82 @@ impl Interface {
             hc.circle(frame, ring.cx, ring.cy, ring.r, ring.colour);
         }
 
-        let status_w = self.status.iter().map(|(t, _)| hud::text_width(t)).max().unwrap_or(0) + PAD * 2;
+        // **The promise: a mark over an animal holding charge.** A chevron
+        // rather than a dot, and it grows with how full the animal is, so a
+        // colony reads as *filling* across a glance instead of switching on
+        // one ant at a time. Drawn over the head, not on the body: an ant is
+        // two cells and a dot on it is an ant of a different colour.
+        for m in &self.marks {
+            let tint = lerp(CHARGED_LOW, CHARGED, m.fullness);
+            let arms = 2 + (m.fullness * 4.0) as i32;
+            for i in 0..=arms {
+                for w in 0..2 {
+                    hc.put(frame, m.x - i, m.y - 5 - i + w, tint);
+                    hc.put(frame, m.x + i, m.y - 5 - i + w, tint);
+                }
+            }
+        }
+
+        // **The event: energy on its way in.** Brighter and larger as it
+        // arrives, so the flow reads as gathering rather than as a line of
+        // dots — the last few pixels before it lands are the loudest thing on
+        // screen, which is where the satisfaction has to be.
+        // **Many small particles, not a few orbs.** Owner, on the first
+        // attempt: *"It should look like individual particles of energy
+        // flowing. Not a couple big orbs."* So each mote is one or two
+        // pixels and there are dozens of them, each on its own phase with its
+        // own lateral wander — the flow is in the *count* and the spread, not
+        // in the size of any one of them.
+        for m in &self.motes {
+            hc.put(frame, m.x, m.y, lerp(FLOW_FAINT, FLOW, m.bright));
+            // A second pixel only on the brightest, so the stream has grain
+            // rather than being uniform dust.
+            if m.bright > 0.78 {
+                hc.put(frame, m.x, m.y - 1, FLOW);
+            }
+        }
+
+        // **It lands on you.** A ring that blooms outward from the player as
+        // the head of each stream arrives, so the energy visibly *enters*
+        // rather than merely stopping. Without it the motes vanish at his
+        // feet and the moment has no punctuation.
+        for (cx, cy, t) in &self.landings {
+            let r = (2.0 + t * 14.0).round() as i32;
+            hc.circle(frame, *cx, *cy, r, lerp(FLOW, FLOW_FAINT, *t));
+            if *t < 0.4 {
+                hc.circle(frame, *cx, *cy, r / 2, FLOW);
+            }
+        }
+
+        let status_w = self.status.iter().map(|(t, _)| hud::text_width(t)).max().unwrap_or(0).max(BAR_W) + PAD * 2;
         let status_h = self.status.len() as i32 * LINE + PAD * 2 - 2;
         panel(hc, frame, viewport, (MARGIN, MARGIN, status_w, status_h));
         for (i, (text, colour)) in self.status.iter().enumerate() {
-            hc.text(frame, MARGIN + PAD, MARGIN + PAD + i as i32 * LINE, text, *colour);
+            let y = MARGIN + PAD + i as i32 * LINE;
+            if text.is_empty() {
+                // **The pool as a bar you watch move.** Owner: *"the power
+                // should be a bar that you can see drain and fill."* A number
+                // tells you where you are; a bar tells you which way you are
+                // going without reading anything, which is what you want
+                // while you are looking at the world instead of the corner.
+                if let Some(fill) = self.power_bar {
+                    let lit = (BAR_W as f32 * fill).round() as i32;
+                    for x in 0..BAR_W {
+                        let on = x < lit;
+                        let c = if on {
+                            // Green with room, amber as it runs down.
+                            lerp(WARN, GOOD, (fill * 2.0).min(1.0))
+                        } else {
+                            EDGE
+                        };
+                        for dy in 0..BAR_H {
+                            hc.put(frame, MARGIN + PAD + x, y + dy, c);
+                        }
+                    }
+                }
+                continue;
+            }
+            hc.text(frame, MARGIN + PAD, y, text, *colour);
         }
 
         if !self.keys {
@@ -239,6 +378,119 @@ impl Interface {
             hc.text(frame, MARGIN + PAD + KEY_COL, y, what, TEXT);
         }
     }
+}
+
+fn lerp(a: [u8; 4], b: [u8; 4], t: f32) -> [u8; 4] {
+    let t = t.clamp(0.0, 1.0);
+    let mix = |i: usize| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t).round().clamp(0.0, 255.0) as u8;
+    [mix(0), mix(1), mix(2), 255]
+}
+
+/// **Which animals are worth walking to**, in screen pixels.
+fn marks(game: &Druid) -> Vec<Mark> {
+    game.charged_animals()
+        .into_iter()
+        .filter_map(|((x, y), fullness)| {
+            let (sx, sy) = game.renderer.world_to_screen(x, y)?;
+            Some(Mark { x: sx, y: sy, fullness })
+        })
+        .collect()
+}
+
+/// **The flow: dozens of small particles streaming from each animal to the
+/// player.**
+///
+/// Owner: *"It should look like individual particles of energy flowing. Not a
+/// couple big orbs."* So the stream's weight comes from **count and spread**
+/// rather than from the size of any one mote — [`PER_DRAW`] of them, each on
+/// its own phase, each wandering sideways off the line by its own amount.
+///
+/// Three things make it read as energy rather than as a dotted line, and all
+/// three are cheap:
+///
+/// - **Staggered phases**, so particles are strung along the whole journey at
+///   once instead of arriving as a pulse.
+/// - **A lateral wander** perpendicular to the path, unique per mote and
+///   *narrowing* as it nears the player — the stream converges on him, which
+///   is what makes it look drawn in rather than merely travelling.
+/// - **A bow** on the path, because a straight line between two points on
+///   level ground reads as a wire.
+///
+/// Everything is derived from the mote's index, so it is deterministic and
+/// stable frame to frame — a particle wanders along a fixed curve rather than
+/// jittering, which is the difference between a flow and static.
+fn motes(game: &Druid) -> Vec<Mote> {
+    /// Enough that the stream has body at any distance. One animal's draw is
+    /// a thread; a colony's is a river, which is the point.
+    const PER_DRAW: i32 = 26;
+    let Some(player) = &game.world.player else {
+        return Vec::new();
+    };
+    let (px, py) = player.center();
+    let mut out = Vec::new();
+    for d in &game.draws {
+        let head = d.age as f32 / super::DRAW_FRAMES as f32;
+        let (dx, dy) = ((px - d.from.0) as f32, (py - d.from.1) as f32);
+        let len = (dx * dx + dy * dy).sqrt().max(1.0);
+        // Perpendicular to the path, for the wander.
+        let (nx, ny) = (-dy / len, dx / len);
+        for i in 0..PER_DRAW {
+            let seed = i as f32;
+            // Spread over the journey, and let the leaders run ahead of the
+            // head so the stream has a ragged front rather than a wall.
+            let t = head * 1.3 - (seed / PER_DRAW as f32) * 0.62 - (seed * 0.37).fract() * 0.06;
+            if !(0.0..=1.0).contains(&t) {
+                continue;
+            }
+            let ease = t * t * (3.0 - 2.0 * t);
+            // Narrows to nothing at the player: the stream converges on him.
+            let spread = (1.0 - ease) * 7.0;
+            let wander = ((t * 7.0 + seed * 2.399).sin() + (seed * 1.7).sin()) * 0.5 * spread;
+            let arc = (t * std::f32::consts::PI).sin() * 11.0;
+            let wx = d.from.0 as f32 + dx * ease + nx * wander;
+            let wy = d.from.1 as f32 + dy * ease + ny * wander - arc;
+            if let Some((sx, sy)) = game.renderer.world_to_screen(wx.round() as i32, wy.round() as i32) {
+                // Brightest as it lands, with a per-mote offset so the stream
+                // shimmers rather than fading uniformly.
+                let bright = (0.35 + 0.65 * ease + (seed * 3.1).sin() * 0.18).clamp(0.0, 1.0);
+                out.push(Mote { x: sx, y: sy, bright });
+            }
+        }
+    }
+    out
+}
+
+/// **Where energy is arriving, and how far through its bloom.**
+///
+/// One per draw whose head has reached the player, over the last stretch of
+/// its life — so several animals drained together give several overlapping
+/// blooms rather than one, which is what makes a big pull feel bigger.
+fn landings(game: &Druid) -> Vec<(i32, i32, f32)> {
+    const BLOOM: f32 = 0.28;
+    let Some(player) = &game.world.player else {
+        return Vec::new();
+    };
+    let (px, py) = player.center();
+    let Some((sx, sy)) = game.renderer.world_to_screen(px, py) else {
+        return Vec::new();
+    };
+    game.draws
+        .iter()
+        .filter_map(|d| {
+            let head = d.age as f32 / super::DRAW_FRAMES as f32;
+            (head >= 1.0 - BLOOM).then(|| (sx, sy, ((head - (1.0 - BLOOM)) / BLOOM).clamp(0.0, 1.0)))
+        })
+        .collect()
+}
+
+/// **How many motes the flow is drawing right now**, for a headless run that
+/// has to tell "too faint to see" from "not there at all".
+///
+/// A pixel test cannot answer it: the first attempt filtered for warm bright
+/// pixels and counted the **dead-root texture**, whose bounding box was the
+/// whole frame. Asking the thing that draws them is the only honest reading.
+pub fn mote_count(game: &Druid) -> usize {
+    motes(game).len()
 }
 
 /// The legend panel's own size, derived from its rows rather than written
@@ -274,6 +526,19 @@ fn panel(hc: Hud, frame: &mut [u8], viewport: (u32, u32), (left, top, w, h): (i3
 /// about: `Renderer::world_to_screen` already owns that arithmetic in three
 /// branches (zoom, stride, 1:1), and a second copy of it here is the side
 /// table that goes stale.
+/// **What a circle looks like at speed.**
+///
+/// Owner: *"there should be different visuals for bubbles of faster speeds."*
+/// The ring runs from its cool standing blue toward a hot white as the dial
+/// climbs, and above real time it gains a second ring inside it — so speed
+/// reads two ways at once, by colour at a glance and by *count* when you are
+/// looking straight at it. Colour alone is the single-channel readout this
+/// repo keeps learning not to rely on.
+fn speed_tint(base: [u8; 4], speed: u32) -> [u8; 4] {
+    let t = ((speed.max(1) - 1) as f32 / (super::SPEED_MAX - 1).max(1) as f32).clamp(0.0, 1.0);
+    lerp(base, FLOW, t)
+}
+
 fn rings(game: &Druid, _viewport: (u32, u32)) -> Vec<Ring> {
     let renderer = &game.renderer;
     let on_screen = |x: i32, y: i32, r: i32, colour: [u8; 4]| -> Option<Ring> {
@@ -282,8 +547,14 @@ fn rings(game: &Druid, _viewport: (u32, u32)) -> Vec<Ring> {
         Some(Ring { cx, cy, r: ex - cx, colour })
     };
     let mut rings = Vec::new();
+    let tint = speed_tint(RING_STANDING, game.speed);
     for q in &game.world.quickenings {
-        rings.extend(on_screen(q.x, q.y, q.r, RING_STANDING));
+        rings.extend(on_screen(q.x, q.y, q.r, tint));
+        // One extra ring inside per two steps of the dial, so a fast circle
+        // is visibly *thicker* and not merely a different colour.
+        for i in 1..=(game.speed.saturating_sub(1) / 2) as i32 {
+            rings.extend(on_screen(q.x, q.y, q.r - i * 3, tint));
+        }
     }
     if let Some(q) = game.world.carried {
         rings.extend(on_screen(q.x, q.y, q.r, RING_CARRIED));
@@ -379,6 +650,9 @@ mod tests {
                 look: "one hue",
                 seed_kind: "conifer".to_string(),
                 sown: 3,
+                charge: (123.0, 7),
+                reserve_cap: 40.0,
+                power_full: 600.0,
                 message: Some("no ground here - nothing founded".to_string()),
             };
             for (text, _) in readout.lines() {
@@ -418,6 +692,9 @@ mod tests {
             look: "unchanged",
             seed_kind: "scrambler".to_string(),
             sown: 999,
+            charge: (4321.0, 210),
+            reserve_cap: 40.0,
+            power_full: 600.0,
             message: Some("out of power - a standing circle closed".to_string()),
         };
         let lines = readout.lines();
@@ -446,9 +723,13 @@ mod tests {
             px.copy_from_slice(&[120, 170, 230, 255]);
         }
         let ui = Interface {
-            status: vec![("POWER 600  +0.0/S".to_string(), TEXT), ("WORLD HELD".to_string(), TEXT)],
+            power_bar: Some(0.62),
+            status: vec![("POWER 600  +0.0/S".to_string(), TEXT), (String::new(), TEXT), ("WORLD HELD".to_string(), TEXT)],
             keys: true,
             rings: vec![Ring { cx: 200, cy: 150, r: 28, colour: RING_CARRIED }],
+            marks: vec![Mark { x: 120, y: 140, fullness: 0.8 }],
+            motes: vec![Mote { x: 160, y: 130, bright: 0.5 }],
+            landings: vec![(200, 150, 0.3)],
         };
         ui.draw(&mut frame, (w, h));
         let once = frame.clone();
@@ -462,7 +743,15 @@ mod tests {
     /// the readout and a smear burned into settled ground.
     #[test]
     fn a_changed_readout_compares_unequal() {
-        let mut a = Interface { status: vec![("POWER 600".to_string(), TEXT)], keys: true, rings: Vec::new() };
+        let mut a = Interface {
+            power_bar: Some(0.5),
+            status: vec![("POWER 600".to_string(), TEXT)],
+            keys: true,
+            rings: Vec::new(),
+            marks: Vec::new(),
+            motes: Vec::new(),
+            landings: Vec::new(),
+        };
         let b = a.clone();
         assert_eq!(a, b, "an unchanged interface must compare equal, or the render skip never fires at all");
 
@@ -479,5 +768,17 @@ mod tests {
         let mut e = d.clone();
         e.rings[0].cx += 1;
         assert_ne!(e, d, "a ring that moved one pixel must force the repaint -- this is the smear");
+
+        // The two that move every frame while they exist, and would smear
+        // worst: a mote is drawn over settled ground and travels.
+        let mut f = b.clone();
+        f.motes = vec![Mote { x: 10, y: 10, bright: 0.1 }];
+        assert_ne!(f, b, "energy in flight must force the repaint");
+        let mut g = f.clone();
+        g.motes[0].bright += 0.05;
+        assert_ne!(g, f, "a mote that only brightened must still force the repaint");
+        let mut h = b.clone();
+        h.marks = vec![Mark { x: 10, y: 10, fullness: 0.5 }];
+        assert_ne!(h, b, "a charged animal appearing must force the repaint");
     }
 }
