@@ -2696,6 +2696,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ant and dumped spoil weathers back to soil. Also names `labforage`'s
   `plants` column as plants **plus** the bank, which relabels every earlier
   count on this bed.
+- [evolution-lab-census-datum-2026-09-13.md](evolution-lab-census-datum-2026-09-13.md)
+  — **built and landed, 2026-09-13: the five dead chronicle columns, and why
+  they are two bugs rather than one.** The owner's 560,000-frame playtest read
+  `roofed`, `pit`, `pack<` at **0** and `mnd` at exactly `MOUND_REACH` in all
+  56 samples of a session with 356,688 digs. **Cause A**: `lab::census` took
+  "the original surface" from `LabBox::ground_y`, and a spec is not the world
+  — `params::write_bed` moves it on every keystroke and the world is only
+  reshaped on REBUILD. He raised the box height mid-setup, `ground_y` rode the
+  height (by design), and the census spent the session measuring a datum 96
+  rows down in the stone base. **Cause B, independent**: `census::nest_columns`
+  built the band from the bed spec and the scenario, and his five colonies were
+  founded by hand (`FOUNDERS 0  COLONIES 0` in the header), so the band divided
+  by an empty set. Repaired by reading `World::room_datum` — the datum
+  `World::step_nest_room` already uses — and `World::nest_sites`. **Overturns
+  two claims of the playtest report it closes**: `pack^` was not the working
+  control it is named as there (under the drift it counted the deep gallery
+  lining as mound), so §4's "the anthill does not exist until frame 360,000"
+  does not follow from that log and needs re-taking.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;

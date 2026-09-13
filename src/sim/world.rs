@@ -6274,6 +6274,27 @@ impl World {
         self.room_datum.get((x - b.min_x) as usize).copied().filter(|d| *d != i32::MAX)
     }
 
+    /// [`Self::room_surface`] for a caller that holds the world but not its
+    /// `Rect` -- `lab::census`, which reads the same datum this module's own
+    /// nest census does.
+    ///
+    /// **It exists so there is one answer to "where was the ground", not
+    /// two.** `lab::census` read `LabBox::ground_y` instead until
+    /// 2026-09-13, and a spec is not the world: `params::write_bed` moves
+    /// the spec the moment a bed row is nudged and the world is only
+    /// reshaped on REBUILD (`raising_the_width_and_rebuilding_gives_a_wider_
+    /// world` asserts exactly that separation). The owner raised the box
+    /// height mid-setup in the 560,000-frame playtest, `ground_y` rode the
+    /// height to 96 rows below the surface the world actually had, and
+    /// `roofed`/`pit`/`pack<` read **0 in all 56 samples** of a session with
+    /// 356,688 digs in it -- every void was above a datum sitting in the
+    /// stone base. `None` when the datum has not been frozen yet (a world
+    /// that has never been stepped) or when the column holds no ground at
+    /// all.
+    pub fn room_surface_at(&self, x: i32) -> Option<i32> {
+        self.room_surface(self.bounds?, x)
+    }
+
     /// **Freeze a top-of-ground row per column, once**, for the boxes
     /// `freeze_ground_datum` cannot serve. See `room_datum`.
     ///
