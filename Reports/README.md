@@ -89,7 +89,22 @@ by somebody about to try it on creatures.
   rulings of 2026-09-13**, including the one that repairs a spectator trap the
   draft authored: the economy is **two dials over one pool** (radius and speed,
   bought from life-power collected off animals) rather than a radius the income
-  sizes for you.
+  sizes for you. **§10a is the antagonist**, surveyed against the combat
+  machinery and against `dead-ends.md`: the engine has **a fully working fight
+  and no way to start one** (the shipped ant is blind and `Alarm` is a
+  *retaliation* wire only, so the played bed reports `attacks 0` over nine runs
+  of 300,000 frames), which makes a hostile entity the missing *initiator*
+  rather than a new feature. Its first phrasing — *a thing that does not need
+  time* — is **rejected by `dead-ends.md`'s protection-as-exemption entry**
+  (four support models died that way) and replaced by a capacity: it is not
+  stopped by held time, merely slowed by it, **so your speed dial is also its
+  speed dial** and the quickening is what it homes on. It cannot be fought —
+  ant-vs-ant damage is one-shot at every allele, and an inedible predator
+  collapsed the colony on 4 of 4 seeds — so it is slowed, burned or routed
+  around, and what it does instead of biting is **un-quicken**. Also names two
+  things it makes reachable that nothing else has: alarm without paying every
+  ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
+  shipped working lever **no species has ever authored**.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so

@@ -724,11 +724,140 @@ subsidises big bubbles by a factor of r. Three ways to settle it:
    and it makes *"is it outpacing you"* a race between two curves coming out of
    the same growing thing.
 
+## 10a. Something in the grey — the antagonist
+
+*Surveyed 2026-09-13 against the engine's actual combat machinery and against
+`dead-ends.md`. The first phrasing of this idea — "something that does not need
+time" — is **rejected by an existing dead end** and is replaced below by a
+version that is better anyway.*
+
+### What the survey found, and the fact that reframes everything
+
+**The engine has a fully working fight and no way to start one.** `Attack` is
+implemented, priced, counted, guarded, and authored into 9 of 20 shipped
+species (`creature.rs:5912-5981`). Put a non-kin animal in reach and it works
+hard — 296–478 attacks over 9,000 frames on three seeds. On the bed the owner
+plays it reports `attacks 0`, every death starvation, over nine runs of 300,000
+frames.
+
+The reason is a single structural gap: **the shipped ant is blind**
+(`sight()` = 0 on every ant variant) and its only route to `Attack` is
+`Alarm`, which **only a landed bite can raise**. So the wire is *retaliation*,
+never *initiation*. `ThreatNear` and `ThreatBearing` exist, are written and
+read, and **carry zero authored weight in any species file**.
+
+So an antagonist is not a feature bolted onto a peaceful engine. It is **the
+missing initiator for a combat layer that is already built and idle.**
+
+### The rejection that changes the design
+
+`dead-ends.md` (:272, :276, :403): **protection as an exemption rather than a
+capacity multiplier.** Four successive support models died this way. *"A hostile
+entity with an invulnerable state repeats it exactly"* — and "a thing that does
+not need time" is precisely an exemption from the one rule that governs every
+other object in the game.
+
+**The repair, and it is a better idea than the thing it replaces: it is not
+exempt from held time, it is just not stopped by it.** It runs at a small
+fraction rather than at zero. Same axis as everything else, a different value
+on it — a capacity, not a boolean.
+
+Three consequences, and the second is the whole design:
+
+1. **In the grey it creeps.** You see it coming from a long way off, moving at
+   a speed that is almost but not quite still. The dread is that it is the only
+   other thing moving.
+2. **Inside your bubble it runs at your bubble's rate**, like everything else.
+   **So your speed dial is also its speed dial.** Winding time up to force a
+   wood to maturity turns the intruder loose at the same multiple, and pulling
+   the radius in to shed it is the same dial you set your economy with. The two
+   knobs stop being purely economic and become tactical in the same motion.
+3. **It finds you by the quickening.** Not by scent and not by sight: a running
+   bubble is the loudest thing in a dead world. So the dial that funds the
+   garden is the dial that calls them, and every knob in the game now cuts both
+   ways.
+
+That third point also clears two dead ends by construction. **A random-walking
+predator is not selection pressure** (`dead-ends.md`:986) — it must be able to
+*find* prey, and this one can. And **following the prey's pheromone trail**
+(:988) is not being retried: the rejection there rests on the two-sample sensor
+being unable to resolve a 31-cell trail, and a bearing to a known bubble centre
+is a cast like `KinBearing`, not a lateral difference of coarse-field samples.
+
+### It cannot be beaten by fighting, and the measurements say why
+
+Two findings make a straight fight the wrong answer:
+
+- **Ant-versus-ant does not grade.** Damage is `(bite/armour)²`, best authored
+  armour is 0.50 against a bite of 1.00, so it is **one-shot at every allele**
+  (`lanes/creature-fight-handoff-2026-09-06.md`). A binary outcome fails the
+  first law outright.
+- **An inedible predator collapses the colony** 17–21 ants → 3–5 on **4 of 4
+  seeds** (`selective-environments-2026-09-05.md`). Toughness is not a knob
+  with a safe setting; it was never swept against the graded bite.
+
+**So you do not kill it. You slow it, burn it, or route around it**, and the
+verbs are the druid's rather than the colony's:
+
+- **Shrink the bubble** and it falls back toward held time. It does not die, it
+  creeps again. Graded, reversible, and it uses a dial that already exists.
+- **Fire.** The only authored non-starvation killer that reaches both kingdoms,
+  and corpses burn (`fire.rs:632-650`). A druid cutting a firebreak against a
+  slow thing is the best verb in this whole document.
+- **The world.** Drop a ceiling on it with the hammer, wall it in, flood it.
+  This engine's fight should be terrain and time, never a health bar.
+- **The colony delays it**, and cannot win. Their deaths are a real loss because
+  population is both your income and your weight.
+
+### What it does instead of biting
+
+**It un-quickens.** Where it walks, time stops again: colour drains, the leaf
+freezes mid-fall, an ant stops with one leg up. It attacks your *economy and
+your time* rather than your hit points, which is novel, thematically exact —
+these are what holds the world, or its agents — and it satisfies the ethos's
+demand for a mark left behind, because the mark is **a scar of stillness
+through your garden** that you must spend time to warm again.
+
+**Cheap implementation, and it looks better than the expensive one.** It does
+not punch a hole in the bubble — it **pushes the rim in where it touches**, so
+the region stays connected and your circle takes a crescent bite out of it.
+Far easier than a hole, and a better image.
+
+**And the frozen wood is still worth felling** — grim, and correct: your dead
+garden is principal.
+
+### Two mechanisms this makes reachable that nothing else has
+
+- **Alarm without eyes.** The un-quickening itself raises alarm — an ant that
+  feels time stop beside it cries out. That supplies the missing *initiation*
+  above without paying every ant the measured **4% of a life** an eye costs, and
+  the colony's response is then emergent rather than authored.
+- **`Caution` finally gets a reason to exist.** It is a shipped, working
+  consumer with a footing bonus up to 1.2 that **no species authors**, so every
+  animal in the tree sits at the silent 0.6. Under a persistent, findable,
+  non-one-shotting pressure it becomes a trait selection can actually move —
+  which is the thing thirty rounds of the lab have been trying to obtain, and
+  which `dead-ends.md`:986 says a random walker cannot provide. **This may be
+  worth more to the lab line than to this game.**
+
+### Risks
+
+- **An enemy that attacks your economy is often the least fun kind.** This is
+  the first thing to playtest, and the concept should not be built out before
+  it is answered.
+- Two new brain slots (a bearing to the quickening; the un-quicken verb) on
+  append-only enums. Modest, but not free.
+- Rejection 3 in the survey is **parked, not cleared**: predator toughness
+  collapsed the colony when the bite was binary, and has never been swept since
+  the bite became graded. If this creature is ever given armour, that sweep is
+  the precondition.
+- Quarter turns or mirrored templates only if it is ever a rigid body
+  (`dead-ends.md`:464, :943 — arbitrary-angle resampling leaks cells).
+
 ### Still open
 
-**Is there anything in the grey?** A held world containing something that does
-not need time would be a strong antagonist, and `ThreatNear`, `Attack` and the
-alarm plane exist. Not pushed — it is a whole second design.
+Whether it is one creature, a slow tide of many, or a *condition* the land has
+that walks. Not argued here.
 
 ## 11. What could kill this
 
