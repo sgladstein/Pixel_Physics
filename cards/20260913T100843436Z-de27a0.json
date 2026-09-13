@@ -1,0 +1,46 @@
+{
+  "id": "20260913T100843436Z-de27a0",
+  "created": "2026-09-13T10:08:43Z",
+  "board": "zoom",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/zoom-out-resolution",
+    "commit": "16bab295",
+    "agent": null,
+    "session_id": "0f29addc-d732-5b36-b056-bc32aba2ff6a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "The real game at the widest zoom-out, x1 vs x2 buffer",
+  "question": "Same view, same window, same HUD size — is the one with four times the cells the better picture, or has the rock lost its grain?",
+  "context_md": "",
+  "kind": "ab",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "buffer x1 (ships today)",
+      "files": [
+        "20260913T100843436Z-de27a0/000-real_x1_up2.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    },
+    {
+      "label": "buffer x2 (shipped as an option, default off)",
+      "files": [
+        "20260913T100843436Z-de27a0/001-app_x2_real.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": true,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
