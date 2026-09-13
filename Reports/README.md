@@ -2709,6 +2709,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ant and dumped spoil weathers back to soil. Also names `labforage`'s
   `plants` column as plants **plus** the bank, which relabels every earlier
   count on this bed.
+- [evolution-lab-census-datum-2026-09-13.md](evolution-lab-census-datum-2026-09-13.md)
+  — **built and landed, 2026-09-13: the five dead chronicle columns, and why
+  they are two bugs rather than one.** The owner's 560,000-frame playtest read
+  `roofed`, `pit`, `pack<` at **0** and `mnd` at exactly `MOUND_REACH` in all
+  56 samples of a session with 356,688 digs. **Cause A**: `lab::census` took
+  "the original surface" from `LabBox::ground_y`, and a spec is not the world
+  — `params::write_bed` moves it on every keystroke and the world is only
+  reshaped on REBUILD. He raised the box height mid-setup, `ground_y` rode the
+  height (by design), and the census spent the session measuring a datum 96
+  rows down in the stone base. **Cause B, independent**: `census::nest_columns`
+  built the band from the bed spec and the scenario, and his five colonies were
+  founded by hand (`FOUNDERS 0  COLONIES 0` in the header), so the band divided
+  by an empty set. Repaired by reading `World::room_datum` — the datum
+  `World::step_nest_room` already uses — and `World::nest_sites`. **Overturns
+  two claims of the playtest report it closes**: `pack^` was not the working
+  control it is named as there (under the drift it counted the deep gallery
+  lining as mound), so §4's "the anthill does not exist until frame 360,000"
+  does not follow from that log and needs re-taking.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
@@ -3246,6 +3264,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ns/px. Author's style pick is *illustrated*: the only look that answers
   "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
   style question deserves its own round and what it does first. Two cards.
+- [zoom-out-resolution-2026-09-13.md](zoom-out-resolution-2026-09-13.md)
+  — **measurement, 2026-09-13, verdicts pending.** What it costs to give the
+  zoomed-out view its own pixels, for the owner's *"why my screen resolution
+  can solve all of the pixels, why cannot there just be more pixels when you
+  zoom out?"*. The renderer draws into a fixed 512x320 buffer and the screen
+  magnifies it, so the widest zoom-out discards **94% of the cells in view**.
+  `examples/zoomout_pixels.rs` holds the span fixed and trades stride against
+  resolution — `pixels x stride²` constant, so cell reads are equal and only
+  per-pixel work varies. **16x the pixels costs 1.8–2.1x the whole frame, not
+  16x**, and the x2 rung carries 4x the cells for 1.31–1.37x. The brief's
+  hypothesis (the dirty-rect skip absorbs it) is **wrong outdoors** — the sky
+  moves, so the skip never fires there and the moving number governs; in the
+  lab it fires and the cost is flat across a 16x pixel range. Two cards, and
+  they do not agree: the lab plainly gains (Coverage keeps a one-cell stem but
+  draws it four cells wide), outdoor rock arguably loses its grain to
+  smoothness. Says what to build and what the HUD costs.
 - [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
   — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
   eighteen pull requests from nine cloud lanes, merged in one order because
@@ -3262,6 +3296,34 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   1.31%, not 0.4%. Carries the cloud-lane mechanics (poke, auto-merge,
   merge-tree serialisation, bug-letter collisions) the next coordinator pays
   for otherwise.
+
+- [evolution-lab-creature-cost-2026-09-13.md](evolution-lab-creature-cost-2026-09-13.md)
+  — **what one ant costs per tick, and why halving it is not a tuning
+  problem.** The headless replay the playtest report asked for, on a quiet box
+  with threads pinned and arms round-robin inside one run. **The played
+  session's curve has a knee and this bed sits past it from a hundred ants** —
+  refitted from the raw log, the owner's marginal cost is **0.53 µs/ant** below
+  ~400 ants and **2.66 µs/ant** above, so the report's single 2.1 figure
+  averages two regimes and describes neither. This harness measures 5.14, which
+  matches his *expensive* regime through the box scalar and misses his cheap one
+  by four — making it the defect in a box rather than a replica. The
+  transferable quantity is the **share**: **86.5% of the frame is the
+  creatures** at 2,709 ants, read straight off the log. Settles ant count
+  against session age from that log alone — frame 340,000 at 2,334 ants costs
+  6,300 µs against frame 410,000 at 1,252 ants at 3,500, and 51 such pairs. **One ant's decision costs 57,314 instructions,
+  split five ways with no term over 31%**: `sense` 30%, `step_chain` 17%, the
+  brain 14%, `tumble` 13%, `act` 11%. Two hypotheses that would each have given
+  one big lever were refuted by measurement — the ants are not jammed (blocked
+  moves 3.8–7.9% against a 5.2% standing control), and the soil-moisture pass
+  that a callgrind profile put at 37.8% of all instructions is **flat in ant
+  count**, settled by one switch that moves the intercept 1.84x and the slope
+  by 0.3%. Lands two bit-identical cuts worth 2.41% of the tick and says plainly
+  that **2.41% is not measurable on this box** (the slope's own run-to-run
+  spread is 1.39x) and is not the answer. Prices the six things that would be:
+  the creature pass has **no parallelism at all** — one thread against four is
+  worth 1.09x on the background and 1.20x on the ants — and at the owner's
+  population that leaves ~86% of the frame single-threaded. Harness:
+  `examples/antcost.rs`.
 
 ## Licensing and distribution
 

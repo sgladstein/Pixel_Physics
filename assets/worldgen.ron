@@ -80,6 +80,96 @@
             grass_density: 0.50,
             life_cluster_wavelength: 70.0,
         ),
+        // **The held world's country** (`cargo run --release --bin druid`,
+        // `Reports/held-world-game-concept-2026-09-13.md`). A land for
+        // *growing things in*, which is close to the inverse of every preset
+        // above: those exist so you can tunnel into rock, and that game has
+        // no mining, no caving and no destruction to spend it on.
+        //
+        // **Expressed as preset data rather than as a `Spec` variant, and
+        // that was a deliberate choice.** A new enum arm would need a match
+        // in `generate_ablated` and `generate_reported_with`, and
+        // `worldgencheck.sh` gates *presets* -- it sweeps every preset at the
+        // shipped size -- so a `Spec` would have been the one route that is
+        // NOT checked for a pass eating another's output.
+        //
+        // Six changes from `rolling`, each with a reason:
+        //
+        //   massif_amplitude 260 -> 70   the screen-high rock walls, gone. On
+        //                                the first generated druid world the
+        //                                gnome spawned in a gorge between two
+        //                                of them, which is a mining world's
+        //                                silhouette rather than a garden's.
+        //   soil_depth      105 -> 210   soil depth IS the resource here --
+        //                                ants burrow and roots go deep -- so
+        //                                the bed is thick and the rock under
+        //                                it is thin.
+        //   soil_slope_cutoff .8 -> 1.1  soil stays on steeper ground, so
+        //                                hillsides are plantable rather than
+        //                                bare stone.
+        //   vault_density   1.6 -> 0     no caving, so no cave systems.
+        //   pocket_density   .6 -> 0     a buried sand lens exists to be found
+        //                                by digging.
+        //   aridity         .35 -> .15   wetter ground, nearer water table,
+        //   + water table/pond/fringe    more and shallower ponds. The concept
+        //                                wants water and the plants need it.
+        //
+        // Life densities are raised too: this world is judged on what grows
+        // in it, and `rolling`'s scatter is tuned for a sandbox where plants
+        // are scenery. Terracing is softened rather than removed -- benches
+        // read as geology and give a walk somewhere to stand -- and
+        // `residual_density` is halved rather than zeroed, because tors and
+        // stacks are the landmarks a five-screen walk navigates by.
+        "druid": (
+            sky_rows: 190.0,
+            relief_amplitude: 34.0,
+            massif_amplitude: 70.0,
+            massif_wavelength: 2600.0,
+            hill_amplitude: 30.0,
+            hill_wavelength: 150.0,
+            detail_amplitude: 2.5,
+            detail_wavelength: 28.0,
+            warp_strength: 34.0,
+            warp_wavelength: 130.0,
+            terrace_step: 26.0,
+            terrace_strength: 0.35,
+            riser_roughness: 0.45,
+            mask_wavelength: 150.0,
+            terrace_slope_lo: 0.6,
+            terrace_slope_hi: 2.0,
+            soil_depth: 210.0,
+            soil_slope_cutoff: 1.1,
+            bedrock_band: 4.0,
+            strata_thickness: 9.0,
+            strata_tilt: 0.06,
+            strata_fold: 6.0,
+            pocket_density: 0.0,
+            lens_roughness: 1.0,
+            talus_max_height: 12.0,
+            residual_density: 0.7,
+            spring_flow: 7.0,
+            brow_chance: 0.4,
+            table_damping: 0.35,
+            table_offset: 6.0,
+            capillary_fringe: 36.0,
+            pond_min_depth: 1.5,
+            pond_min_width: 3.0,
+            aridity: 0.15,
+            dune_amplitude: 14.0,
+            dune_wavelength: 46.0,
+            dune_variation: 0.7,
+            aridity_table_drop: 90.0,
+            region_variation: 0.75,
+            palette_field: 0.30,
+            vault_density: 0.0,
+            vault_min_depth: 200,
+            vault_bedrock_margin: 16,
+            world_age: 0.8,
+            moss_density: 0.18,
+            tree_density: 0.50,
+            grass_density: 0.72,
+            life_cluster_wavelength: 70.0,
+        ),
         // Benched country: bluffs over most of the relief instead of in
         // patches. The preset for judging whether terracing reads as geology
         // or as a flight of stairs — if it ever reads as stairs, it will read
