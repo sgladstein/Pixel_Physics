@@ -442,18 +442,24 @@ identical. Full account, and the case it happened to, in
 `Reports/session-programs.md`: how a coordinator reaches a lane (the
 mechanism is not the obvious one — `SendMessage` fails, a poke-only trigger
 works), why a woken lane cannot reply, why the return path must be files,
-and the four failures that cost an evening.
+and the four failures that cost an evening. **Running a lab round
+specifically — spawning, model choice, when a message is worth a lane's turn
+— is the `lab-coordinator` skill**, which carries the same mechanics as
+runnable recipes.
 
 It is a report rather than a section here because it applies to a minority
 of sessions and cost every one of them ~2,200 always-loaded tokens.
 `CLAUDE.md` is read before any work begins, so anything most sessions do not
 need belongs behind a pointer.
 
-**One line of it is load-bearing enough to keep here.** Spawned worker
-sessions run on Opus (`model: "claude-opus-5"` on the `create_session`
-call), **never inherited from the coordinator** — owner cost policy,
-2026-08-23. The default inherits the caller's model, and three workers once
-silently inherited a premium tier and ran $25–71 each inside ninety minutes.
+**One line of it is load-bearing enough to keep here.** Every
+`create_session` call passes `model:` explicitly — **never inherited from the
+coordinator** — owner cost policy, 2026-08-23. The default inherits the
+caller's model, and three workers once silently inherited a premium tier and
+ran $25–71 each inside ninety minutes. **Opus (`claude-opus-5`) is the
+default**; step down to Sonnet only where being wrong is cheap and loud, and
+up to Fable — which is *twice* Opus per token — only where being wrong is
+silent and compounds. Which is which: the `lab-coordinator` skill.
 
 ## Method
 
