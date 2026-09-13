@@ -2499,6 +2499,16 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
+  — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
+  `16bab295`: re-derive the ant lifespan and every played-bed number on the
+  trunk that no longer culls its colony (#366 moved ants alive from 0/8/29 to
+  52/10/135, so the 40,000-frame lifespan, the seed-cargo census, §Z6 and round
+  30's own room-gate result are all unknown); the chronicle carrying the
+  playtest rather than only the census; the MENU page reading as a list when
+  its rows are already clickable; floating debris (§Z18); and five smaller
+  items. Every path and constant in it was checked against that trunk, and one
+  handed-over task was already done.
 - [evolution-lab-round-30-2026-09-12.md](evolution-lab-round-30-2026-09-12.md)
   — **record, 2026-09-12.** The coordinator's account of round thirty: seven
   lanes on work the owner asked for in his own words that morning (the
