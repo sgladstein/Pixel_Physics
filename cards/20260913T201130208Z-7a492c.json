@@ -1,0 +1,67 @@
+{
+  "id": "20260913T201130208Z-7a492c",
+  "created": "2026-09-13T20:11:30Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics/.claude/worktrees/agent-ac87ce784867947dd",
+    "branch": "held-world-weather-gate",
+    "commit": "48b7793d",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics/.claude/worktrees/agent-ac87ce784867947dd"
+  },
+  "title": "Weather in a stopped country",
+  "question": "The pond skins over with ice only inside your circle and stays open water everywhere else. Does that band of ice read as the rim doing its job, or does it look like a bug?",
+  "context_md": "Seed 3's sky opens on snow, so this is the worst case for a land that is supposed to be a photograph.\n\n- **Top** is what it did before: the whole pond skins over inside about four seconds of play, and nothing you can do stops it.\n- **Middle** is the same world now with nothing placed. Open water — and **no chunk anywhere in the world is awake**, which is the \"outside is a photograph and draws for free\" promise, measured rather than claimed.\n- **Bottom** is the same world with one circle sitting over the middle of the pond.\n\nThe circle covers **110 of the pond's 177 columns** and freezes **109** of them. It gets the weather it would have had if the whole world were running — the same shower cut to the size of the circle, not a thinned one.\n\n**What I have not done, and you can see it in all three panels:** the snow is still *drawn* falling over the whole map. The concept has it hanging as beads outside the rim and falling inside, which is a change to the renderer rather than to the simulation. If falling streaks over stopped ground read wrong, say so and that is the next thing.\n\n**The other option was to switch weather off entirely while the land is held** — then the bottom panel would look like the middle one, and calling up rain or frost over a circle would never be possible. Say the word and it becomes that instead.",
+  "kind": "gallery",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "before — the sky reached the whole map",
+      "files": [
+        "20260913T201130208Z-7a492c/000-hw_before.png"
+      ],
+      "caption": "held, nothing placed. Frames 100 / 450 / 800.",
+      "meta": {
+        "cells of ice": 1045,
+        "pond columns iced over": "177 of 177",
+        "chunks still awake": "11 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — held, nothing placed",
+      "files": [
+        "20260913T201130208Z-7a492c/001-hw_nocircle.png"
+      ],
+      "caption": "the same frames, the same sky.",
+      "meta": {
+        "cells of ice": 0,
+        "pond columns iced over": "0 of 177",
+        "chunks still awake": "0 of 40"
+      },
+      "focus": null
+    },
+    {
+      "label": "after — held, one circle over the middle of the pond",
+      "files": [
+        "20260913T201130208Z-7a492c/002-hw_circle.png"
+      ],
+      "caption": "circle of radius 55, sat on the water.",
+      "meta": {
+        "cells of ice": 650,
+        "pond columns iced over": "109 of 177",
+        "chunks still awake": "3 of 40"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
