@@ -2499,6 +2499,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-32-brief-2026-09-13.md](evolution-lab-round-32-brief-2026-09-13.md)
+  — **brief, 2026-09-13.** Round 32's ordered work, and it is ordered around
+  one finding: **no bed this project can generate resembles the one the owner
+  plays.** He runs 1000+ long ants; `played_bed` at shipped settings medians
+  111 and maxes 408, and the largest run in a 75-run sweep reached 1,067 once.
+  So task 1 is to build a reproducing bed from a real chronicle file, and the
+  late-game performance deep-dive he asked for waits on it rather than
+  starting on a 400-ant bed. Then land recovery behind a colony (dispersal is
+  only 1.4x against a 2.8x seed-predation loss and a bigger parent-plant seed
+  trap), and §Z13, where three idle animations all failed the owner's eye.
+  Carries the round's standing rulings: the review queue is for the eye only,
+  Fable is twice Opus, and a conservation failure is a question about the
+  ruler first.
+- [evolution-lab-round-31-2026-09-13.md](evolution-lab-round-31-2026-09-13.md)
+  — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
+  account of round thirty-one: five lanes on the brief's five tasks. What it
+  overturned before any lane reported: **the instrument §Z18 says nobody has
+  built has been sitting in an open pull request since 2026-09-03.** PR #221
+  carries `spoil_destination`, its no-tree positive control, and the
+  `spoil_lifted`/`spoil_lift_max` split that `spoil_dumped` cannot make — and
+  names a mechanism the register does not, `SPOIL_LIFT = 160` at
+  `creature.rs:6601` teleporting a pellet up to 160 rows with no path check, so
+  a spoil lattice satisfies "two of three beneath filled" for itself and
+  bootstraps upward. It was invisible because its section was filed under a
+  letter already closed on main, and because **a branch having a PR reads as
+  owned rather than as stalled**. Also a worked instance of the round's own
+  warning that the dangerous merge is the conflict-free one: a clean
+  `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
+  touched.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the

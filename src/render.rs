@@ -2769,16 +2769,26 @@ pub struct Renderer {
     /// repaint and leaves the previous pose on screen until something else
     /// happens to dirty it.
     last_player_pose: Option<(Rect, bool, bool)>,
+    /// Which [`IdleAnim`] this instance draws — read once from
+    /// `PIXEL_PHYSICS_IDLE_ANIM` in [`Renderer::new`] and stored as a plain
+    /// field rather than re-read through `idle_anim_mode()`'s `OnceLock` at
+    /// every call site. Two reasons, not one: it is cheaper (a field read
+    /// against an atomic check), and it is what makes the mechanism
+    /// testable at all -- `idle_anim_mode()`'s `OnceLock` latches to
+    /// whatever the *first* caller in the process saw, which in a shared
+    /// `cargo test` binary is almost always `Off` before any test can force
+    /// otherwise. A test sets this field directly instead.
+    idle_anim: IdleAnim,
     /// Per-organism [`IdleTrack`]s for [`IdleAnim`] — empty and untouched
-    /// whenever `idle_anim_mode()` is `Off`, so this costs nothing on the
-    /// frame everybody actually plays. Pruned every `draw` against
-    /// `World::live_organism_ids` rather than left to grow across a session
-    /// that breeds and starves continuously.
+    /// whenever `idle_anim` is `Off`, so this costs nothing on the frame
+    /// everybody actually plays. Pruned every `draw` against `World::
+    /// live_organism_ids` rather than left to grow across a session that
+    /// breeds and starves continuously.
     idle_tracks: std::collections::HashMap<u16, IdleTrack>,
     /// World cells this frame's idle animation draws into that are not the
     /// animal's own body — the antenna tip or the shuffle reach. Rebuilt
-    /// every `draw`; empty whenever `idle_anim_mode()` is `Off` or `Head`,
-    /// which is what keeps the per-pixel check in `cell_colour` free then.
+    /// every `draw`; empty whenever `idle_anim` is `Off` or `Head`, which
+    /// is what keeps the per-pixel check in `cell_colour` free then.
     idle_extra: std::collections::HashMap<(i32, i32), [u8; 4]>,
     /// `idle_extra`'s keys as of the *previous* `draw` — a mark that moved,
     /// turned off, or belonged to an animal that started walking again
@@ -3204,6 +3214,7 @@ impl Renderer {
             frame: 0,
             last_body_rects: Vec::new(),
             last_player_pose: None,
+            idle_anim: idle_anim_mode(),
             idle_tracks: std::collections::HashMap::new(),
             idle_extra: std::collections::HashMap::new(),
             last_idle_extra_cells: Vec::new(),
@@ -4373,7 +4384,7 @@ impl Renderer {
             // world dirtied -- a resting animal's cells never move, which is
             // the whole finding -- so these have to be found and unioned in
             // by hand, the same reason the liquid-grain loop above exists.
-            // Both empty whenever `idle_anim_mode()` is `Off`.
+            // Both empty whenever `idle_anim` is `Off`.
             for &(hx, hy) in &self.idle_head_cells {
                 if let Some(r) = self.world_rect_to_screen_rect(Rect::point(hx, hy), width, height) {
                     dirty = Some(match dirty {
@@ -6391,11 +6402,11 @@ impl Renderer {
                 // because it has to work identically at `zoom == 1`, where a
                 // head is one pixel with no sub-cell room to draw a turn
                 // into.
-                if idle_anim_mode() == IdleAnim::Head
+                if self.idle_anim == IdleAnim::Head
                     && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head))
                 {
                     if let Some(track) = self.idle_tracks.get(&cell.organism_id()) {
-                        let idle_for = self.frame.saturating_sub(track.since);
+                        let idle_for = world.frame.saturating_sub(track.since);
                         if idle_for >= Self::IDLE_ANIM_DELAY {
                             let phase = idle_for - Self::IDLE_ANIM_DELAY;
                             const PERIOD: u64 = 90;
@@ -6899,6 +6910,20 @@ impl Renderer {
     /// every gap in a normal walk — `Reports/open-bugs-handoff.md` §Z13
     /// measures real rests in the tens of thousands of frames, so the exact
     /// value here only has to clear the gait, not match the rest.
+    ///
+    /// **Counted in `World::frame` (simulation ticks), not `Renderer::
+    /// frame` (draw calls) — that was a real bug, found post-verdict.**
+    /// `App::update`'s own catch-up loop can run several world ticks before
+    /// one `draw`, and every headless capture harness in this repo
+    /// (`labgif`'s `every=`, this file's own `render_stress_scene`) draws
+    /// on a sample of ticks, not all of them -- so counting draw calls
+    /// silently multiplies the wait by however many ticks a draw stands
+    /// for. Measured on the posted card's own capture (`every=10`,
+    /// `played_bed_longant` seed 3): before this fix, 60 render-frames of
+    /// `IDLE_ANIM_DELAY` cost 600 world ticks, eating 40% of the 1,500-tick
+    /// window before any animal could be flagged at all, and only 8 of 22
+    /// full-length long ants ever were. Ticks, not draws, is what makes the
+    /// constant mean what its own doc says it means.
     const IDLE_ANIM_DELAY: u64 = 60;
 
     /// Rebuilds this frame's [`IdleTrack`]s and, for `Antennae`/`Shuffle`,
@@ -6907,12 +6932,12 @@ impl Renderer {
     /// every empty pixel on the chance it is someone's antenna target would
     /// cost far more than the animation it draws.
     ///
-    /// Free when `idle_anim_mode()` is `Off`, the same "zero cost until
+    /// Free when `self.idle_anim` is `Off`, the same "zero cost until
     /// opted in" shape `field_overlay` and `organism_overlay` already use.
     fn refresh_idle_anim(&mut self, world: &World) {
         self.idle_extra.clear();
         self.idle_head_cells.clear();
-        let mode = idle_anim_mode();
+        let mode = self.idle_anim;
         if mode == IdleAnim::Off {
             if !self.idle_tracks.is_empty() {
                 self.idle_tracks.clear();
@@ -6926,7 +6951,9 @@ impl Renderer {
         // out) must not sit in it forever -- a session runs for hours and
         // breeds and starves continuously.
         self.idle_tracks.retain(|id, _| live_set.contains(id));
-        let frame = self.frame;
+        // `world.frame`, not `self.frame` -- see `IDLE_ANIM_DELAY`'s own
+        // doc on why counting draw calls instead of ticks was a bug.
+        let frame = world.frame;
         for id in live {
             let Some(state) = world.organism(id) else { continue };
             if world.species.get(state.species).creature.is_none() {
@@ -12669,6 +12696,14 @@ mod tests {
         let mut worst_recomputed = 0usize;
         const RUNS: u32 = 400;
         for _ in 0..RUNS {
+            // `IDLE_ANIM_DELAY` and the per-mode periods are counted in
+            // `World::frame` (real ticks), not draw calls -- see that
+            // constant's own doc. This scene never calls `World::step`
+            // (matching `render_stress_scene`'s "static scene" contract:
+            // no cell ever actually changes), so the tick counter has to
+            // be advanced by hand or every animal sits at `idle_for == 0`
+            // forever and no candidate ever switches on.
+            world.frame += 1;
             let touched = world.take_touched_chunks();
             let started = std::time::Instant::now();
             let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
@@ -12682,6 +12717,115 @@ mod tests {
             worst.as_secs_f64() * 1000.0,
             total.as_secs_f64() * 1000.0 / RUNS as f64,
             w * h,
+        );
+    }
+
+    /// **The guard for the clock-basis bug** (`Reports/open-bugs-handoff.md`
+    /// §Z13, round 31): `IDLE_ANIM_DELAY` and the per-mode periods must be
+    /// counted in `World::frame` (ticks), never in `Renderer::frame` (draw
+    /// calls) — a real regression that reached a posted review card and
+    /// went undetected for a whole round because every idle-anim test in
+    /// this file until now was a `#[ignore]`d `probe_*` that prints and
+    /// never asserts.
+    ///
+    /// **Draws fewer times than the world ticks, and that ratio is the
+    /// entire point.** A guard that ticks once per draw cannot tell the two
+    /// counters apart — they would move together and the bug would still
+    /// pass. Ten ticks per draw is `labgif`'s own `every=10`, the exact
+    /// ratio that hid the bug in the posted card, so a regression here
+    /// reproduces the original failure rather than a synthetic one.
+    ///
+    /// Sets `renderer.idle_anim` directly rather than through the
+    /// `PIXEL_PHYSICS_IDLE_ANIM`-backed `idle_anim_mode()` — that function's
+    /// `OnceLock` latches to whichever mode the *first* caller in the
+    /// process saw, which in a shared `cargo test` binary is `Off` before
+    /// any single test can force otherwise (see `idle_anim` field's own
+    /// doc). Bypassing it is what makes this test able to fail at all,
+    /// which the guard rule (`CLAUDE.md`: "put the fault back and watch it
+    /// go red") requires before its green means anything. Verified by
+    /// hand: swapping `world.frame` back to `self.frame` in `refresh_idle_
+    /// anim` and the `Head` pulse turns this red, `idle_for` reading a few
+    /// draw-widths short of the threshold instead of comfortably past it.
+    #[test]
+    fn idle_anim_is_measured_in_world_ticks_not_draw_calls() {
+        // World (8,8) is screen (8,8): `Renderer::new` defaults to zoom 1
+        // and camera (0,0), both untouched here.
+        let (w, h) = (16u32, 16u32);
+        let wood = World::new(Rect::new(0, 0, 15, 15)).materials.id_of("wood").expect("wood is compiled in");
+        let aux = organism::pack_cell_type(organism::CellType::Head);
+        let particles = ParticleSystem::new();
+        let pixel = |buf: &[u8]| -> [u8; 4] {
+            let idx = ((8u32 * w + 8) * 4) as usize;
+            [buf[idx], buf[idx + 1], buf[idx + 2], buf[idx + 3]]
+        };
+        let luma = |c: [u8; 4]| c[0] as u32 + c[1] as u32 + c[2] as u32;
+
+        // The idle arm: the organism sits for enough *ticks* to clear
+        // `IDLE_ANIM_DELAY`, spread over far fewer *draws* -- ten ticks per
+        // draw, matching `labgif`'s own `every=10`, the exact ratio that hid
+        // the bug in the posted card. A guard that ticked once per draw
+        // could not tell the two counters apart and would pass either way.
+        let mut world = World::new(Rect::new(0, 0, 15, 15));
+        let species = world.species.id_of("ant").expect("ant is compiled in");
+        let organism = world.push_organism(species).expect("a fresh world has a free organism slot");
+        if let Some(state) = world.organism_mut(organism) {
+            state.chain = vec![(8, 8)];
+        }
+        world.set(8, 8, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        world.end_step();
+        world.end_step();
+        let mut renderer = Renderer::new();
+        renderer.idle_anim = IdleAnim::Head;
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let warm_up = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up, &mut buf, (w, h), true);
+        const TICKS_PER_DRAW: u64 = 10;
+        let draws = Renderer::IDLE_ANIM_DELAY / TICKS_PER_DRAW + 2;
+        for _ in 0..draws {
+            world.frame += TICKS_PER_DRAW;
+            let touched = world.take_touched_chunks();
+            renderer.draw(&world, &particles, &touched, &mut buf, (w, h), false);
+        }
+        let track = renderer.idle_tracks.get(&organism).expect("idle_anim on and a live creature organism -- it must be tracked");
+        let idle_for = world.frame.saturating_sub(track.since);
+        assert!(
+            idle_for >= Renderer::IDLE_ANIM_DELAY,
+            "organism should read idle after {draws} draws x {TICKS_PER_DRAW} ticks each ({} world ticks): idle_for={idle_for}, needed >= {}. \
+             If this fails, the delay is being counted against Renderer::frame (draw calls, {draws} of them) rather than World::frame (ticks) again.",
+            draws * TICKS_PER_DRAW,
+            Renderer::IDLE_ANIM_DELAY,
+        );
+        let idle_colour = pixel(&buf);
+
+        // The control: a fresh world and a fresh organism (its own,
+        // `push_organism`-allocated id -- reusing the idle arm's id here
+        // without allocating it in this world would silently fail to look
+        // up the organism at all, not exercise "not yet idle"), rendered
+        // once with `force_full` and never drawn again, so it is exactly
+        // as far from `IDLE_ANIM_DELAY` as an animal can be.
+        let mut rest_world = World::new(Rect::new(0, 0, 15, 15));
+        let rest_organism = rest_world.push_organism(species).expect("a fresh world has a free organism slot");
+        if let Some(state) = rest_world.organism_mut(rest_organism) {
+            state.chain = vec![(8, 8)];
+        }
+        rest_world.set(8, 8, Cell::new(wood, 0).with_organism_id(rest_organism).with_aux(aux));
+        rest_world.end_step();
+        rest_world.end_step();
+        let mut rest_renderer = Renderer::new();
+        rest_renderer.idle_anim = IdleAnim::Head;
+        let mut rest_buf = vec![0u8; (w * h * 4) as usize];
+        let touched = rest_world.take_touched_chunks();
+        rest_renderer.draw(&rest_world, &particles, &touched, &mut rest_buf, (w, h), true);
+        let rest_colour = pixel(&rest_buf);
+
+        // End to end, not just the bookkeeping: the head pixel itself must
+        // actually have brightened, or `idle_tracks` could be right for a
+        // reason `cell_colour` no longer reads.
+        assert!(
+            luma(idle_colour) > luma(rest_colour),
+            "the head pixel should read brighter once idle-anim has kicked in: idle {idle_colour:?} (luma {}) against a fresh, not-yet-idle {rest_colour:?} (luma {})",
+            luma(idle_colour),
+            luma(rest_colour),
         );
     }
 
@@ -12772,5 +12916,104 @@ mod tests {
     #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
     fn probe_idle_anim_cost_shuffle_fullheight() {
         price_idle_anim("shuffle, scattered top to bottom of the view", Some("shuffle"), 300, 316);
+    }
+
+    /// **Round 31 lane E, verdict day: "the creatures that I think look
+    /// stuck are stuck in all of them."** Before building a fourth
+    /// candidate, check the cheap explanation first -- did the mechanism
+    /// even reach the animals he was looking at? Drives the real
+    /// `played_bed_longant` scenario, seed 3, through the exact frames and
+    /// the exact `every=10` sampling the posted card used, and tallies
+    /// every organism `refresh_idle_anim` ever marked past
+    /// `Renderer::IDLE_ANIM_DELAY`, split by spine length -- a full-length
+    /// long body is what the owner's own markers were on both times
+    /// (round 29's card and this round's).
+    ///
+    /// **What this probe found on its first run, before `IDLE_ANIM_DELAY`
+    /// was fixed to count `World::frame` instead of `Renderer::frame`**:
+    /// only 8 of 22 full-length long ants ever animated in the posted
+    /// card's own window, because the delay was counted in *draw calls*
+    /// and `labgif`'s `every=10` meant one draw stood for ten ticks -- 60
+    /// render-frames of delay was actually 600 world ticks, eating 40% of
+    /// the 1,500-tick window before any animal could be flagged at all.
+    /// That bug is fixed (see `IDLE_ANIM_DELAY`'s own doc); this probe
+    /// re-runs the identical window afterward so the two numbers are on
+    /// the record together.
+    #[test]
+    #[ignore = "probe: prints, never asserts -- needs the real lab scenario asset, run manually"]
+    fn probe_idle_anim_fired_on_long_ants_in_the_posted_window() {
+        std::env::set_var("PIXEL_PHYSICS_IDLE_ANIM", "head");
+        let mut sc = crate::lab::scenario::Scenario::load("played_bed_longant").expect("played_bed_longant.ron ships in assets/lab_scenarios");
+        sc.bed.seed = 3;
+        // Matches `labgif`'s own sequence exactly, which is what generated
+        // the posted card: rain off for the whole warm-up, armed to
+        // `Steady` only at the window this probe starts capturing --
+        // `labgif`'s own `rain=` default. Skipping this left the whole run
+        // on the scenario file's own rain setting from frame 0, and the
+        // colony diverged from the card's (67 alive here against the
+        // card's own printed 107) -- a different run, not a shorter look
+        // at the same one.
+        sc.bed.rain = crate::lab::rain::Rain::Off;
+        let mut lab = crate::lab::Lab::new(sc.bed.clone());
+        lab.show_help = false;
+        lab.load_scenario(sc);
+        if lab.stats.showing() {
+            lab.stats.toggle();
+        }
+
+        const START: u64 = 28_000;
+        const WINDOW: u64 = 1_500;
+        const EVERY: u64 = 10;
+
+        for _ in 0..START {
+            lab.tick_for_harness();
+        }
+        lab.spec.rain = crate::lab::rain::Rain::Steady;
+
+        let (w, h) = (crate::lab::WIDTH, crate::lab::HEIGHT);
+        let mut buf = vec![0u8; (w * h * 4) as usize];
+        let mut ever_animated: std::collections::HashSet<u16> = std::collections::HashSet::new();
+        let mut draws = 0u32;
+        for f in 0..=WINDOW {
+            if f.is_multiple_of(EVERY) {
+                lab.draw(&mut buf, 60.0);
+                draws += 1;
+                let frame = lab.world.frame;
+                for (&id, track) in &lab.renderer.idle_tracks {
+                    if frame.saturating_sub(track.since) >= Renderer::IDLE_ANIM_DELAY {
+                        ever_animated.insert(id);
+                    }
+                }
+            }
+            lab.tick_for_harness();
+        }
+
+        // By spine length at the window's end: total live of that length,
+        // and how many of them were ever flagged animated during the
+        // window. A full-length longant is 7; anything reading near-zero
+        // there while `off`'s own colony numbers matched the posted card
+        // is explanation (b) confirmed.
+        let mut by_len: std::collections::BTreeMap<usize, (usize, usize)> = std::collections::BTreeMap::new();
+        let live = lab.world.live_organism_ids();
+        let mut live_creatures = 0usize;
+        for id in &live {
+            let Some(state) = lab.world.organism(*id) else { continue };
+            if lab.world.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            live_creatures += 1;
+            let entry = by_len.entry(state.chain.len()).or_insert((0, 0));
+            entry.0 += 1;
+            if ever_animated.contains(id) {
+                entry.1 += 1;
+            }
+        }
+        println!(
+            "idle-anim (mode=head) fired at least once on {} of {live_creatures} live creature organisms over {draws} draws spanning {WINDOW} ticks from frame {START}",
+            ever_animated.len()
+        );
+        for (len, (total, animated)) in &by_len {
+            println!("  spine length {len}: {animated} of {total} animated at least once");
+        }
     }
 }

@@ -154,11 +154,11 @@ point.
 | Z11 | closed | 11029 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 11124 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
 | Z13 | **OPEN** | 11204 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11366 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11458 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11536 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11677 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11887 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z14 | **OPEN** | 11420 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11512 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11590 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11731 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11941 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11363,6 +11363,60 @@ Not done in this pass, and still open for whoever reads this next: the
 residual-move-bias probe this section already asked for (`outputs
 [BrainOutput::Move]` beside the probe's line, inside `creature_tick`) —
 still belongs to whoever owns `src/sim/creature.rs`.
+
+**Verdict day, 2026-09-13: all three failed, and the reason was a real bug
+in the clock, not the look.** Owner, verbatim: *"The creatures that I
+think look stuck are stuck in all of them. Although this is a very short
+gif to have to judge this on."* He also placed three markers on the card;
+those annotations had not synced at the time of this entry.
+
+Three explanations were on the table (fires-but-subtle, never-fired, or
+genuinely stuck) and the second was checked first because it needs no
+markers: **`IDLE_ANIM_DELAY` was counted in `Renderer::frame` — draw
+calls — not in world ticks.** `Lab::draw` is only called on a harness's
+*sampled* ticks (`labgif`'s `every=`), so the posted card's `every=10`
+meant 60 render-frames of delay was actually **600 world ticks**, eating
+40% of the card's 1,500-tick window before any animal could be flagged at
+all. A new probe drives the real scenario and counts directly
+(`src/render.rs`'s `probe_idle_anim_fired_on_long_ants_in_the_posted_window`,
+`#[ignore]`d): **8 of 22 full-length long ants ever animated in that
+window.** That is very likely why the fix read as doing nothing to the
+ants he pointed at — it mostly was not running on them. This also
+generalises past the harness: `App::update`'s own catch-up loop can run
+several world ticks before one `draw`, so the same undercount was live in
+the real game, not only in a capture tool.
+
+**Fixed**: `IDLE_ANIM_DELAY` and the per-mode periods now read `World::
+frame` instead of `Renderer::frame` — one counter swap in `refresh_idle_
+anim` and the `Head` pulse in `cell_colour`, no change to what any
+candidate draws. Same probe, same window, after the fix: **21 of 22**.
+The frame-cost table in the PR that landed this section is unaffected
+(re-measured, same numbers within noise) — the fix changes *when*
+animation starts, not what it costs once it has.
+
+**A second, 6,000-tick card (4x the first) is posted with the fix**:
+`20260913T052938222Z-c7bc21`, same scene, seed, crop and zoom as the
+first card, addressing the owner's own second point — a resting ant's
+idle streaks run tens of thousands of frames, and a card a fifth as long
+as the shortest of those can show neither the animation cycling nor the
+stillness it is meant to contrast with.
+
+**The coordinator checked the queue directly: the owner's three markers
+never reached it.** Both cards' stored responses read `annotations: []`.
+So explanation (c) — that the specific ants he pointed at are genuinely
+stuck (`moves_blocked` climbing) rather than resting, a different and
+bigger bug in the walk itself rather than the look — **cannot be checked
+from either card, and is left here as an open question rather than
+chased further this round.** What would settle it, for whoever picks this
+up: map his marker coordinates back through the card's own crop and zoom
+to world cells (`zoom=4 crop=160,120,224,56` on both cards posted so
+far), then probe those specific animals for `moves`, `moves_blocked`,
+`traffic_deferred`, `HeadBlock`/`head_block`'s open-heading count, and
+`crossing`/`flight`/`senescent` — the same pipeline §Z13's own first
+pass already ran on round 29's three markers. `head_block`
+(`src/sim/creature.rs`) is what that needs, and belongs to whoever holds
+that file. The second (6,000-tick) card is posted and unanswered; it does
+not need to be waited on, and can be collected in a later round.
 ### Z14. The played bed's 500,000-frame trajectory is chaotic, and `scent_drift: 0.15` re-rolled it — **OPEN as a method problem, not a colony bug, found 2026-09-12**
 
 **What it is.** Lane M found the played bed's control arm moving enormously
