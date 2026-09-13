@@ -85,7 +85,11 @@ by somebody about to try it on creatures.
   bubble is a spectator verb; the lab's hand-verbs are the answer and already
   exist), the one bug on its critical path (the scent tool the shipped ant
   cannot read), and what to build first — the held render and one ragged rim,
-  judged by eye before a mechanic is specified.
+  judged by eye before a mechanic is specified. **§10 carries the owner's
+  rulings of 2026-09-13**, including the one that repairs a spectator trap the
+  draft authored: the economy is **two dials over one pool** (radius and speed,
+  bought from life-power collected off animals) rather than a radius the income
+  sizes for you.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so

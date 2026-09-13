@@ -15,7 +15,12 @@ cost cannot.** The corrected law is *a **populous** place is heavy*, and it
 does the work §4 was missing. The owner also rejected felling as the economy
 (§5) and asked for creatures to be load-bearing rather than resident (§4a).
 The inversion itself stands — the owner's word is *"I loved the time inversion
-bubble idea"*.
+bubble idea"*. **§10 is now a rulings section rather than a question list**:
+income comes from animals only, the interface starts simple with the door held
+open, base-versus-walk is deferred to playtest, and the economy is **two dials
+over one pool** rather than the draft's automatic radius — the owner's
+correction, and it repairs a spectator trap the draft authored two sections
+after naming it.
 
 **One line: the land is not slow, it is *held*. Nothing grows, breeds, rots or
 weathers anywhere in the world. You carry the only time there is, you spend it
@@ -613,42 +618,87 @@ Working titles: **Quickening**, **The Held World**, **Still Country**,
 
 ---
 
-## 10. Open questions for the owner
+## 10. Owner rulings, 2026-09-13
 
-**Two of the first draft's five are now settled** and are recorded here rather
-than asked again. **The inversion is right** — *"I loved the time inversion
-bubble idea"*. **The axe stays, narrowed**: felling is principal, leaching is
-interest (§5), and the barren ending is reachable only by losing.
+**The inversion is confirmed** — *"I loved the time inversion bubble idea"*.
+Everything below was settled the same day, in one pass, and only one item is
+still open.
 
-Live, in the order they change the most work:
+### Settled
 
-1. **Is a standing garden a base, or is the game a walk?** A permanent
-   quickening you return to makes this a colony-sim with a map of holdings; a
-   forward walk through a dead country, leaving circles you will never see
-   again, is a very different and possibly better game. Everything about
-   progression, saving and the map depends on the answer.
-2. **Do you drink from animals, or from the whole system?** §4a's strongest
-   claim is that a plant pays nothing and only animal metabolism produces what
-   a druid can take — which is what makes the colony structural rather than
-   decorative. The cost is that a wood alone is worthless, which may be too
-   harsh.
-3. **How much of the lab's instrument comes across?** Rosters, specimen shelf,
-   plain-speech genome, life record, lineage overlay. Enormous assets that
-   would take this well past *watch a garden grow* — and a lot of screen, in a
-   game whose UI has been kept thin on purpose.
-4. **Is the circle's radius the score?** Income funds the rim, so winning is
-   the circle growing and losing is it closing over your own wood. It is a
-   HUD-free readout of the whole economy; it also commits the game to circles
-   as the permanent shape of everything.
-5. **Does founding a colony need a ritual, or is it a menu?** The measured
-   founding cliff — 5 against 39 at frame 6,000 on the same bed — says *when*
-   you found matters as much as *what*, which argues for a moment with a cost
-   rather than a button that is always lit.
+**The axe stays, narrowed.** Leach is interest, felling is principal (§5). The
+barren ending is reachable only by losing.
 
-Standing question, not yet argued: **is there anything in the grey?** A held
-world with something in it that does not need time would be a strong
-antagonist, and the engine has `ThreatNear`, `Attack` and the alarm plane
-already. Not pushed — it is a whole second design.
+**You drink from animals only.** A plant turns light into tissue; only animal
+metabolism produces what a druid can take, so **a wood with no colony pays
+nothing**. This is the ruling that makes §4a structural rather than
+decorative, and it was taken with its cost understood: a beautiful forest you
+cannot afford a colony for is worth zero.
+
+**The interface starts simple and must not be shut.** Owner: *"start simple
+but we leave the door open for expanding."* So: hand-verbs first, no rosters,
+no shelf. **The engineering consequence is the part that has a deadline** —
+the lab's instrument (rosters, specimen shelf, plain-speech genome, life
+record, lineage overlay) lives in `src/lab/`, and *leaving the door open* means
+not building these views in a way that welds them to one binary. Cheap to
+respect now, expensive to retrofit. Same lesson `sim::frame::step` already
+carries for the tick sequence.
+
+**Base-versus-walk is deferred to playtest**, and the owner's reading that it
+*"doesn't hold anything up"* checks out: the held render, the regional tick,
+the economy and the founding all work identically either way. The only thing
+downstream of it is whether a bubble keeps running with the camera elsewhere,
+and that is the same regional-tick machinery in both games.
+
+### The economy: two dials, and the owner's model beats the first draft's
+
+The draft said income funds the radius, so the circle's size *is* the score
+and there is no HUD. The owner's counter:
+
+> *"I lean you control the radius and the speed, cost = speed x radius. You
+> continue to collect life power from creatures and you can spend it how you
+> want — a large slow area or a tiny really fast area. BUT I don't want to
+> rule out your suggestion, the simplicity could be more fun."*
+
+**Taken, and the reason is one the draft should have caught itself.** In the
+draft the player does not *choose* anything — income arrives, the circle sizes
+itself, and you watch. That is precisely the spectator failure §5 warns about,
+authored into the economy two sections after naming it. Two dials over one pool
+restores the decision, and *wide-and-slow* versus *narrow-and-fast* are
+genuinely different instruments: a broad gentle circle to run a whole valley's
+ecology, a tiny fast one to force a single tree to maturity or push a colony
+through a generation crisis.
+
+The draft's simplicity is not lost, because **the readout survives the
+change**: what you can afford still sets the envelope, so a failing garden
+still visibly narrows your options and a thriving one still visibly widens
+them. You slide along a curve; the ecology decides where the curve sits.
+Sustained play picks a point on it, and exceeding it burns reserve — which is
+what a burst *is*.
+
+**One sub-decision this opens, and it should be made deliberately rather than
+by default.** `cost = speed x radius` is linear in radius; the engine's cost
+is closer to **area x rate**, since awake chunks go as r². Charging radius
+subsidises big bubbles by a factor of r. Three ways to settle it:
+
+1. **Charge radius** (the owner's line as written). Friendliest — doubling the
+   circle doubles the bill. Diverges from the engine, so a big slow bubble can
+   be *cheap to buy and expensive to run*, which is the failure mode where the
+   game's number and the frame rate disagree.
+2. **Charge area.** Honest, and punishing: a 3x radius costs 9x.
+3. **Charge what is actually awake inside** — recommended. It is what the
+   engine truly costs, it is *interesting*, and it collapses into the §2a law:
+   a circle over bare rock is nearly free and **the same circle gets dearer as
+   your colony grows in it**. Your success raises your own bills, and the
+   income has to outrun them. That is the whole game expressed as one number,
+   and it makes *"is it outpacing you"* a race between two curves coming out of
+   the same growing thing.
+
+### Still open
+
+**Is there anything in the grey?** A held world containing something that does
+not need time would be a strong antagonist, and `ThreatNear`, `Attack` and the
+alarm plane exist. Not pushed — it is a whole second design.
 
 ## 11. What could kill this
 
