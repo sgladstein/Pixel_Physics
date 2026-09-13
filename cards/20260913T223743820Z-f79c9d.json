@@ -1,0 +1,38 @@
+{
+  "id": "20260913T223743820Z-f79c9d",
+  "created": "2026-09-13T22:37:43Z",
+  "board": "druid",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/determined-ramanujan-c9szc5",
+    "commit": "0a3ecc0d",
+    "agent": null,
+    "session_id": "79abafe2-f617-546c-9fed-7bebff67abba",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Drawing the colony's charge — judge it in motion",
+  "question": "Does the energy read as individual particles flowing into you? And is the pull worth walking for, or does it want to be bigger?",
+  "context_md": "**This is the third attempt and the first one you can actually judge.** The two before it were stills, and a still is the wrong instrument for a flow — you called the last one *\"a couple big orbs\"*, which was fair, because that is what a photograph of a stream looks like. This is 34 frames at the speed it really runs.\n\n**What is happening.** He stands with the colony while it charges (creatures store energy *only* while their time is running, which means inside a circle, which means you paid for it), steps off, and presses `F`. Every animal within 60 cells empties completely and has to regenerate.\n\n**What to look at:**\n\n- do the motes read as **individual particles**, or still as blobs\n- does the stream **converge on you** or just travel past\n- the chevrons over the ants before the pull — do they read as *charged and waiting*\n- is **56 power from three ants** a lump worth crossing the map for, or too small to feel\n\n**What I know is still weak:** three ants is a thin stream. A real colony is twelve or more and should read as a river rather than a thread — I could not found a bigger one in this scene. If the density is the problem rather than the particles, say so and I will raise the count per animal rather than the size of each.",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260913T223743820Z-f79c9d/000-drain.gif"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null,
+      "gif_frames": 34
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
