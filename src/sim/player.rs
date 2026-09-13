@@ -5307,6 +5307,82 @@ mod tests {
         assert!(!p.buried, "knee-deep is not buried");
     }
 
+    /// A forest-floor bank: deep soil with living root tissue threaded
+    /// through its top `rows`.
+    ///
+    /// **This is the ground the held world is made of**, not a contrived
+    /// case: `druid`'s bank is 54% soil with roots all through it, and a
+    /// grown stand leaves the same thing under a wood. `lace` is the period
+    /// of the root lattice — 2 is a checkerboard, i.e. about half the cells
+    /// in those rows — and `lace == 0` laces nothing, which is the paired
+    /// control: the same bank, same depth, no roots in it.
+    ///
+    /// Hand-built rather than grown, for the reason `world_with_tree` gives:
+    /// these tests are about the collision predicate, and a grown root
+    /// system is a different shape every run.
+    fn world_with_a_root_laced_bank(rows: i32, lace: i32) -> World {
+        let mut world = world_with_floor();
+        let soil = world.materials.id_of("soil").expect("soil is compiled in");
+        let root = world.materials.id_of("rootwood").expect("rootwood is compiled in");
+        let species = world.species.id_of("tree").expect("tree is compiled in");
+        let organism = world.push_organism(species).expect("an organism slot is free");
+        let aux = crate::sim::organism::pack_cell_type(crate::sim::organism::CellType::MatureBody);
+        for y in 70..88 {
+            for x in 0..=127 {
+                let laced = lace > 0 && y < 70 + rows && (x + y) % lace == 0;
+                let cell = match laced {
+                    true => Cell::new(root, 0).with_organism_id(organism).with_aux(aux),
+                    false => Cell::new(soil, 0),
+                };
+                world.set(x, y, cell);
+            }
+        }
+        world
+    }
+
+    /// Where his feet come to rest after a long drop onto the bank, and how
+    /// many of the cells his body ends up occupying are living root.
+    fn settle_on_the_bank(world: &mut World) -> (i32, usize) {
+        world.player = Some(Player::at(64, 40));
+        for _ in 0..200 {
+            tick(world, PlayerInput::default());
+        }
+        let p = world.player.as_ref().expect("a gnome");
+        let (x0, y0, x1, y1) = p.bounds();
+        let inside = (y0..=y1)
+            .flat_map(|y| (x0..=x1).map(move |x| (x, y)))
+            .filter(|&(x, y)| {
+                let c = world.get(x, y);
+                c.organism_id() != 0 && world.materials.get(c.material).reinforces_powder
+            })
+            .count();
+        (y1, inside)
+    }
+
+    #[test]
+    fn root_laced_ground_is_walked_over_rather_than_fallen_into() {
+        // **The owner's complaint, 2026-09-13**: *"roots are considered
+        // plant instead of ground, so the gnome falls into the root mass
+        // instead of walking over it like the ground."*
+        //
+        // Paired, because a sink depth on its own is a number with no
+        // scale: the same bank with the roots replaced by the soil they
+        // grew through is what "like the ground" means, and it is the only
+        // bar this can be read against.
+        let mut bare = world_with_a_root_laced_bank(8, 0);
+        let (bare_feet, _) = settle_on_the_bank(&mut bare);
+
+        let mut laced = world_with_a_root_laced_bank(8, 2);
+        let (laced_feet, inside) = settle_on_the_bank(&mut laced);
+
+        assert_eq!(
+            laced_feet, bare_feet,
+            "roots must be ground: he rests at {laced_feet} on the root-laced bank \
+             against {bare_feet} on the same bank of bare soil, {inside} root cells inside him"
+        );
+        assert_eq!(inside, 0, "and he should not be standing inside the root mass at all");
+    }
+
     #[test]
     fn wading_is_slower_than_running_on_rock() {
         let mut world = world_with_floor();
