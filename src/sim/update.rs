@@ -2931,6 +2931,111 @@ mod tests {
         );
     }
 
+    /// **A pellet is a wall only while it is standing on ground -- §Z18, and
+    /// the case the crumb rule above provably cannot reach.**
+    ///
+    /// Owner, judging a blind A/B of two anthills at 300,000 frames and not
+    /// answering the question the card asked: *"Both look bad and have lots of
+    /// stuff floating in the air."* Third report of the same thing, from the
+    /// third unrelated picture.
+    ///
+    /// **Four arms, and three of them exist to make this able to go red for the
+    /// replacement rather than only for the original.** A test of the falling
+    /// half alone is green for a change that puts `needs_footing` on
+    /// `packedsoil`, which is the tunnel collapse `self_supporting` was built to
+    /// refuse -- so the lining arms assert the identical geometry in the
+    /// identical place *holds*.
+    ///
+    /// * a **2x2 block of `spoil`** in mid-air comes down. Three contacts each,
+    ///   so the crumb rule leaves it standing for ever, and a lattice of these
+    ///   is what the three reports are of.
+    /// * the **same block in `packedsoil`** does not. If this arm ever goes red,
+    ///   worked *wall* has been given a footing requirement and every gallery
+    ///   roof in the world is coming down with it.
+    /// * a **`spoil` cell on a plant cell** stops being worked ground: a pellet
+    ///   posted into a canopy is held up by leaves, which is not a footing.
+    ///   **This is the arm the dead-code gate could not fail** -- the ground
+    ///   test was nested inside a gate that already required the cell below to
+    ///   be `EMPTY`, so it was unreachable, and nothing in the harness could
+    ///   tell that from a rule the sweep never reached.
+    ///
+    ///   It asserts the cell is **loose soil**, not that it is gone, and the
+    ///   difference is the mechanic rather than a detail of the test: `slumps_
+    ///   into` turns the pellet back into tilth *where it stands*, and tilth
+    ///   rests on a plant cell like any other powder. So a pellet on a leaf
+    ///   becomes dirt on a leaf, and a pellet over open air becomes dirt that
+    ///   falls -- which is the graded outcome, and the first version of this
+    ///   arm asserted `EMPTY` and failed on the engine being right.
+    /// * a **`spoil` cell on soil** does not. A heap standing on the bank is a
+    ///   heap, the towers the owner likes are towers, and without this arm the
+    ///   rule could be "all spoil dissolves" and read as a pass.
+    #[test]
+    fn a_pellet_needs_ground_under_it_and_a_wall_does_not() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        let mut w = World::new(Rect::new(0, 0, 63, 63));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let packed = w.materials.id_of("packedsoil").expect("packedsoil is compiled in");
+        let spoil = w.materials.id_of("spoil").expect("spoil is compiled in");
+        assert!(w.materials.get(spoil).needs_footing, "the whole rule is this field; if it is unset the four arms below are vacuous");
+        assert!(!w.materials.get(packed).needs_footing, "worked wall must not need a footing -- that is the tunnel collapse, not the repair");
+
+        // A floor to land on, well below everything.
+        for x in 0..64 {
+            w.set(x, 60, Cell::new(material::STONE, 0));
+        }
+        // The two blocks, far enough apart that neither can touch the other.
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            w.set(10 + dx, 20 + dy, Cell::new(spoil, 0));
+            w.set(30 + dx, 20 + dy, Cell::new(packed, 0));
+        }
+        // A plant cell with a pellet on it, and a pellet on the bank beside it.
+        // `organism_id` is what says *tissue* rather than mineral, exactly as
+        // `plant.rs`'s own mineral test reads it -- and the material has to be
+        // real tissue too: the first version used `soil` with an organism id,
+        // which is a `Powder` and simply fell out from under the pellet, so the
+        // arm failed for a reason that had nothing to do with the rule.
+        // `grassroot` is the material the measured cases were actually resting
+        // on (`hangcensus mode=fork`'s `why` probe, played_bed seed 1).
+        let root = w.materials.id_of("grassroot").expect("grassroot is compiled in");
+        w.set(50, 40, Cell::new(root, 0).with_organism_id(7));
+        w.set(50, 39, Cell::new(spoil, 0));
+        // **Wide and shallow, standing on the stone**, which is the lesson the
+        // crumb test below this one already paid for: a tall narrow column of
+        // loose soil spreads into a cone by repose and walks across the floor,
+        // so the cell the pellet was resting on empties and the arm fails on
+        // the bank rather than on the rule. The first version of this arm was
+        // an 8x10 block and did exactly that.
+        for x in 16..60 {
+            for y in 56..60 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.set(40, 55, Cell::new(spoil, 0));
+
+        for _ in 0..200 {
+            step(&mut w);
+        }
+
+        for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
+            assert_eq!(
+                w.get(10 + dx, 20 + dy).material,
+                material::EMPTY,
+                "a 2x2 block of spoil in mid-air held itself up at three contacts each -- which is the lattice in every picture of this bed"
+            );
+            assert_eq!(
+                w.get(30 + dx, 20 + dy).material,
+                packed,
+                "worked *wall* was taken down by the footing rule: every gallery roof in the world has air beneath it, and this is that collapse"
+            );
+        }
+        assert_eq!(w.get(50, 39).material, soil, "a pellet resting on a plant cell is still worked ground -- a leaf is not a footing, and this arm is the one the dead-code gate could not fail");
+        assert!(!w.materials.get(w.get(50, 39).material).self_supporting, "...and what it became must not be self-supporting, or the lattice is legal again under another name");
+        assert_eq!(w.get(50, 40).material, root, "...and it must come down without eating the plant it was sitting on");
+        assert_eq!(w.get(40, 55).material, spoil, "a pellet standing on the bank is standing on something: if this arm goes red the rule is 'all spoil dissolves' and the heap is gone");
+    }
+
     /// **A worked cell hanging on nothing is a crumb and falls; one that is
     /// part of a wall does not.**
     ///
