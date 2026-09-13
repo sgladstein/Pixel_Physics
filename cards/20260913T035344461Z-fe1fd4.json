@@ -1,0 +1,37 @@
+{
+  "id": "20260913T035344461Z-fe1fd4",
+  "created": "2026-09-13T03:53:44Z",
+  "board": "evolution-lab",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "claude/lab-chronicle-playtest-r31",
+    "commit": "7187733d",
+    "agent": null,
+    "session_id": "2a0442b3-c49f-5846-970d-6c1e17b8dab6",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Chronicle now records what you did",
+  "question": "Round 31: I gave the chronicle a memory of the playtest, not just the sim -- pouring, walling, dials, speed, rebuilds, and a jar placed all get their own frame-stamped line now, and it autosaves every census row so a crash doesn't lose the run. Could you send me one real chronicle file from a session you've played (a .txt under assets/chronicles/ on your machine, probably the newest one)? I want to show you exactly what an agent can now tell from it that it couldn't before.",
+  "context_md": "Pictured: `labshot` on `played_bed` at frame 0 and frame 90,000 (no player in this run, so no player-action lines -- this is here to anchor the ask, not to demonstrate the new lines themselves; those need a real session). PR: https://github.com/sgladstein/Pixel_Physics/pull/374",
+  "kind": "single",
+  "blind": false,
+  "blocking": false,
+  "items": [
+    {
+      "label": "",
+      "files": [
+        "20260913T035344461Z-fe1fd4/000-lab.png"
+      ],
+      "caption": "",
+      "meta": {},
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
