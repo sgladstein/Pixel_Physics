@@ -62,6 +62,27 @@ by somebody about to try it on creatures.
   that `Reports/` is neither flat nor 14 MB of prose. Names the largest miss: **`README.md` is 71,561 tokens,
   the biggest document in the repo, overwhelmingly outdoor, and every agent is
   routed to it first.**
+- [held-world-game-concept-2026-09-13.md](held-world-game-concept-2026-09-13.md)
+  — **concept, nothing built, no commitment.** A third game off this engine: a
+  druid in a land where nothing grows, who carries the only time there is and
+  spends it in circles on the ground. Its argument is that the engine is
+  already most of it — the outdoor world is the stage, the lab is the
+  interface, and the missing piece is a **price**, which the owner's own lab
+  ruling (*"give me the tools... that is the game"*) leaves out by design.
+  Three findings drive the design rather than costing it: **a box costs 0.006
+  ms empty and 7.03 ms with eight plants in it**, so a held world is the
+  engine's cheap configuration and *a rich place is expensive to run fast* —
+  pacing for free; **`frame::step`'s "more ticks is exact, faster subsystems is
+  a behaviour change"** (median 0.61x cells at `growth_slowdown: 4`), which
+  makes *regional tick* the only admissible implementation; and the **seed
+  bank** (~9 waiting seeds per standing plant), which dissolves the
+  player-scarcity-versus-ecology-abundance problem by making the scarce thing a
+  *lineage* and the ground already full of seed. Names the engineering risk
+  (gating the field regionally — 59% of the frame), the second-law risk (a
+  bubble is a spectator verb; the lab's hand-verbs are the answer and already
+  exist), the one bug on its critical path (the scent tool the shipped ant
+  cannot read), and what to build first — the held render and one ragged rim,
+  judged by eye before a mechanic is specified.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
