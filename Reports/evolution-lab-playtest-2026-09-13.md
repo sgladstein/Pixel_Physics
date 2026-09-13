@@ -7,7 +7,10 @@ carrying the load columns. The file is committed beside this report at
 [`data/playtest-2026-09-13-herb_longant-s1-560k.txt`](data/playtest-2026-09-13-herb_longant-s1-560k.txt).*
 
 **Read §1 before anything else in round 32.** Performance is the owner's
-stated first priority and this log sizes it.
+stated first priority and this log sizes it. **Then read §1a**, which refits
+§1's line and finds it bends: an ant costs ~0.27 µs below ~450 of them and
+~2.6–2.9 µs above ~600, so the single `2.1 µs/ant` below is an average across
+a knee and describes neither side of it.
 
 ## 0. What the session was
 
@@ -97,6 +100,61 @@ loop. **The next step is to replay this bed headlessly on a quiet box** with
 `RAYON_NUM_THREADS` pinned and `scale_probe phases=`, which is the instrument
 that already exists for exactly this. The chronicle's job was to say *what bed
 to build*; it did that and the numbers above are the target to beat.
+
+## 1a. The line is not straight, and the bend is the finding
+
+*Added by round 32's coordinator, 2026-09-13, refitting the same file before
+briefing three lanes against §1's number. The conclusion of §1 stands —
+creatures are the frame at the population he plays at — but `1.0 ms + 2.1
+µs/ant` is a straight line through something that bends, and a lane sampling
+on the wrong side of the bend would have read its own harness as broken.*
+
+**The floor is measured, not fitted.** Frames 10,000 / 20,000 / 30,000 carry
+`ants 0`, at **1,100 and 1,000 µs/tick**. That is worth stating separately
+because a least-squares line through the envelope puts the intercept anywhere
+between **234 and 930 µs** depending only on how many bands you cut it into —
+the intercept is the least determined thing in the fit, and it happens not to
+need fitting at all.
+
+**The slope is two slopes.** On the lower envelope of the same 55 intervals:
+
+| regime | marginal cost | evidence |
+|---|---|---|
+| **1–450 ants** | **≈ 0.27 µs/ant** | envelope flat at 1,100–1,400 µs across 59 → 454 ants |
+| **600–1,400 ants** | **≈ 2.88 µs/ant** | 2,000 µs at 664 ants → 3,500 at 1,246 |
+| **800+ ants** (the regime he plays) | **≈ 2.6 µs/ant** | 3,000 at 1,044 → 7,400 at 2,731 |
+
+**Below roughly 450–700 ants the frame sits on its floor and ants are very
+nearly free; above it each ant costs about ten times as much.** The single
+2.1 µs figure is an average over both regimes and describes neither. The
+slope itself is robust — every estimator tried (4/6/8/10/12-band envelope
+least squares, Theil–Sen over the band medians, and the chord between the
+extreme bands) lands between **2.1 and 2.8 µs/ant**, centred near 2.4 — so
+§1's headline is the right order and the right target. What it hides is the
+**knee**.
+
+**Why the knee is worth more than the coefficient.** A constant per-ant cost
+says *shave the brain*. A bend says something changes **character** with
+population, and the bend sits almost exactly where he stops being able to
+play. Pushing it outward is a different and probably larger win than a
+percentage off the flat part.
+
+**The confound, stated rather than resolved.** In this log ant count is not
+independent of session age — the population grows roughly monotonically, so
+every high-ant sample is also a late sample with a bigger mound, more standing
+plants and more dug ground. The best evidence the file itself offers against
+a pure age effect is the **250–450 ant band, which spans frames 120,000 →
+230,000 with the envelope flat at 1,100–1,400 µs**: 110,000 frames of session
+age buying nothing. That is suggestive and it is not proof. **Only a
+controlled headless sweep — population set rather than grown, bed age held
+fixed — separates them**, which is the first thing round 32's perf lane was
+told to build.
+
+**A third refutation of the cell sweep, for free.** In the 1,600–1,900 ant
+band `sites` goes 2,324 → 4,238 → 3,350 while cost goes 26,400 → 9,900 →
+13,400 — **inversely**. §1 already refutes the sweep two ways; this is a
+third, and it is the strongest of the three because the two quantities move in
+opposite directions rather than merely at different rates.
 
 ## 2. Five chronicle columns are dead, and four of them are the nest
 

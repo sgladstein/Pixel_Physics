@@ -78,29 +78,22 @@ that gardens survives*.
 §18.5): the **~21% in the kernel and rayon**, then the moisture pass, then the
 pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline binary after every merge.**
 
-## Rounds twenty-nine and thirty, 2026-09-12
+## Rounds twenty-nine and thirty, 2026-09-12 — archived
 
-*Records: [`../evolution-lab-round-29-2026-09-12.md`](../evolution-lab-round-29-2026-09-12.md)
-(18 PRs; designs `../evolution-lab-flight-design-2026-09-11.md`,
-`../evolution-lab-late-game-design-2026-09-12.md`,
-`../evolution-lab-fission-design-2026-09-12.md`) and
-[`../evolution-lab-round-30-2026-09-12.md`](../evolution-lab-round-30-2026-09-12.md)
-(#344–#346, #352, #355, #359, #362, #363).*
+*Both records moved to [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md)
+on 2026-09-13. Round 29 is 18 PRs and three designs; round 30 is colony
+survival. **What still binds is here; the narrative is there.***
 
-**What still binds.** **Every played-bed figure past ~100,000 frames taken
-before #347 is stale** (nest scent drift 0.15); **a control shorter than the
-mechanism's onset proves nothing.** **The nest is not where the colony lives**
-on two beds in three (#350): budding, cohesion and "time away turns enemy" all
-wait on that. **The flitter is caged by the canopy, not broken in flight**
-(§Z15). **The long-ant pile is not visibly fixed** — owner's verdict, and the
-fix arm read *worse*. **A card paired against a census passes `rain=off`, and
-its `meta` is measured in the window it shows.** **Survival was in neither
-colony lane's sweep and it is the variable that moves**: 2 of 384 deaths are
-attributable to an attacker and two fifths were a plant written into the ant's
-head (§Z16, repaired in r29). **Green CI is not mergeability**; the harness
-rules round 30 paid for are in [`../session-programs.md`](../session-programs.md).
-(#359's own justification was re-taken and replaced in r31 — see below.)
-
+**Every played-bed figure past ~100,000 frames taken before #347 is stale**
+(nest scent drift 0.15), and **a control shorter than the mechanism's onset
+proves nothing**. **The nest is not where the colony lives** on two beds in
+three (#350) — budding, cohesion and "time away turns enemy" all wait on that.
+**The flitter is caged by the canopy, not broken in flight** (§Z15). **The
+long-ant pile is not visibly fixed** — owner's verdict, and the fix arm read
+*worse*. **A card paired against a census passes `rain=off`, and its `meta` is
+measured in the window it shows.** **Survival was in neither colony lane's
+sweep and it is the variable that moves.** **Green CI is not mergeability**
+([`../session-programs.md`](../session-programs.md)).
 ## Round thirty-one, 2026-09-13 — the bed the complaints come from does not exist here
 
 *Record: [`../evolution-lab-round-31-2026-09-13.md`](../evolution-lab-round-31-2026-09-13.md);
