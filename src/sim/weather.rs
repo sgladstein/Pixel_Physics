@@ -4239,6 +4239,15 @@ is what this measures rather than the rule"
     /// temperature, a soak writes only `aux`, and only a spawned flake
     /// writes a material; an instrument that misses any one of the three
     /// reads a gated channel as a working one.
+    ///
+    /// **And what it counts is "the world changed", not "the sky wrote".**
+    /// `structural::tick` also keeps a `Solid`'s support distance in `aux`,
+    /// so an *unheld* arm's count is weather plus settling support. That is
+    /// exactly what a control needs — it only has to be non-zero for the
+    /// instrument to be trusted — and it is why the sky's own contribution
+    /// is read separately below, off `World::atmospheric_bank`, which
+    /// `spend_atmosphere` debits for every cell and every soak the sky
+    /// deposits and nothing else touches on a world with no standing water.
     fn cells_differing(before: &World, after: &World, bounds: Rect) -> Vec<(i32, i32)> {
         let mut out = Vec::new();
         for y in bounds.min_y..=bounds.max_y {
@@ -4295,7 +4304,7 @@ is what this measures rather than the rule"
     #[test]
     fn weather_does_not_run_where_time_does_not_run() {
         let bounds = Rect::new(0, 0, 255, 191);
-        const FRAMES: usize = 400;
+        const FRAMES: usize = 1_200;
         let run = |held: bool, circles: &[Quickening]| {
             let mut w = held_weather_world();
             w.held = held;
@@ -4306,48 +4315,60 @@ is what this measures rather than the rule"
                 w.step_active_sites();
                 w.step_fields();
             }
-            cells_differing(&before, &w, bounds)
+            // The bank spend is the sky's own contribution, exactly: this
+            // scene holds no standing water, so nothing credits it back.
+            (cells_differing(&before, &w, bounds), STORM_RESERVE - w.atmospheric_bank)
         };
 
         // Arm 1, the control. Read first: every assertion below is about a
         // sky that is doing something.
-        let unheld = run(false, &[]);
+        let (unheld, unheld_spend) = run(false, &[]);
         assert!(
             unheld.len() > 100,
-            "seed 3 wrote only {} cells in {FRAMES} unheld frames -- the control is dead and this guard is blind",
+            "seed 3 changed only {} cells in {FRAMES} unheld frames -- the control is dead and this guard is blind",
             unheld.len()
         );
+        assert!(unheld_spend > 0.0, "the sky deposited nothing at all in the control arm");
 
         // Arm 2, the bug.
-        let held = run(true, &[]);
+        let (held, held_spend) = run(true, &[]);
         assert!(
             held.is_empty(),
             "a held world with no quickening took {} cells of weather (first at {:?}); it is meant to be a photograph",
             held.len(),
             held.first()
         );
+        assert_eq!(held_spend, 0.0, "a held world's sky spent {held_spend} cell-equivalents on a world nothing may reach");
 
         // Arm 3: the gate is a filter. A circle well clear of the world's
         // edges, so "outside" is a real region in every direction.
         let circle = Quickening { x: 128, y: 150, r: 40 };
-        let quickened = run(true, &[circle]);
+        let (quickened, quickened_spend) = run(true, &[circle]);
         assert!(
             !quickened.is_empty(),
             "a quickened circle got no weather at all -- the gate is an off switch, not a rim"
         );
         let outside: Vec<(i32, i32)> = quickened.iter().copied().filter(|&(x, y)| !circle.contains(x, y)).collect();
-        // The soak reaches `SOAK_DEPTH` cells below the landing cell and the
-        // chill run reaches `WATER_CHILL_RADIUS` columns either side, so a
-        // drop landing just inside the rim writes a little way past it. That
-        // is the rim being soft rather than the gate leaking: what must not
-        // happen is weather arriving somewhere no drop landed.
+        // **The rim is soft by exactly one drop's reach, and that is not the
+        // gate leaking.** A drop landing just inside it writes past it in
+        // three directions: the soak walks `SOAK_DEPTH` cells *down* from
+        // the landing cell, the flake is placed one cell *up* from it, and
+        // the snow chill runs `WATER_CHILL_RADIUS` columns to either
+        // *side*. So the claim is not "nothing outside the circle changed",
+        // which would be false and would have to be weakened until it meant
+        // nothing — it is that every cell outside is within one drop of a
+        // landing cell that was inside. Weather arriving somewhere no drop
+        // could have landed is the failure this catches.
+        let reach = SOAK_DEPTH.max(WATER_CHILL_RADIUS) + 1;
         for &(x, y) in &outside {
-            let near = (-(WATER_CHILL_RADIUS + 1)..=(WATER_CHILL_RADIUS + 1))
-                .any(|dx| (0..=SOAK_DEPTH).any(|dy| circle.contains(x + dx, y - dy)));
+            let near = (-reach..=reach).any(|dx| (-reach..=reach).any(|dy| circle.contains(x + dx, y + dy)));
             assert!(near, "weather reached ({x}, {y}), which is not within one drop's reach of the circle");
         }
         println!(
-            "weather cells written in {FRAMES} frames: unheld {}, held {}, held+circle {} ({} of them just past the rim)",
+            "in {FRAMES} frames -- cells the world changed / cell-equivalents the sky deposited:\n  \
+             unheld {:>6} / {unheld_spend:.1}\n  \
+             held   {:>6} / {held_spend:.1}\n  \
+             circle {:>6} / {quickened_spend:.1}   ({} of those cells just past the rim)",
             unheld.len(),
             held.len(),
             quickened.len(),
@@ -4402,6 +4423,98 @@ is what this measures rather than the rule"
             !cells_differing(&bare, &unheld, bounds).is_empty(),
             "neither arm's sky did anything, so this comparison proves nothing"
         );
+    }
+
+
+    /// **What still moves in a held world, by channel** — the probe behind
+    /// README's "what was deliberately left running" table, and the reason
+    /// that table has numbers in it rather than arguments.
+    ///
+    /// A probe rather than a guard: it asserts only that the arms differ, and
+    /// prints the rest. The question it answers is not "is weather gated"
+    /// (the guard above owns that) but *"having gated weather and springs,
+    /// what is left changing on a held map"* — which is a scoping question
+    /// and reopens every time a phase is added to `frame::step`.
+    ///
+    /// The scene deliberately has **soil and standing water in it**, which
+    /// the guard above deliberately does not: `World::step_soil_water` is the
+    /// one remaining ungated phase that writes cells, and a bare-stone world
+    /// cannot see it at all.
+    ///
+    /// **It settles the world before holding it, and that is the whole
+    /// measurement rather than a nicety.** The first version censused from
+    /// frame 0 on a hand-filled bed and reported 1,450 wet cells moving in a
+    /// held world — a real count, of a soil column relaxing out of the
+    /// initial condition *I* wrote, not of anything the held world does.
+    /// `Druid::new` runs `GROW_FRAMES` of full ticks and *then* sets `held`,
+    /// so a held world is by construction a settled one, and settling here
+    /// is what makes the arms comparable to it. Both arms fork from the same
+    /// settled world, so the comparison is paired.
+    #[test]
+    fn probe_what_still_moves_in_a_held_world() {
+        let build = || {
+            let mut w = World::new(Rect::new(0, 0, 255, 191));
+            w.seed = 3;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..256 {
+                for y in 170..192 {
+                    w.set(x, y, Cell::new(material::STONE, 0));
+                }
+                // A damp soil bed on the rock. `aux` on a Powder is wetness
+                // and 0 means dry -- the opposite of the Liquid convention,
+                // and getting it backwards hands every root a full drink.
+                for y in 150..170 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(material::SOIL_SATURATED / 2));
+                }
+            }
+            // A pond standing on the bed, so evaporation and freezing both
+            // have something to reach.
+            for x in 100..140 {
+                for y in 146..150 {
+                    w.set(x, y, Cell::new(material::WATER, 0));
+                }
+            }
+            w
+        };
+        let census = |before: &World, after: &World| {
+            let (mut mat, mut aux, mut temp) = (0u32, 0u32, 0u32);
+            for y in 0..192 {
+                for x in 0..256 {
+                    let (a, b) = (before.get(x, y), after.get(x, y));
+                    mat += u32::from(a.material != b.material);
+                    aux += u32::from(a.aux() != b.aux());
+                    temp += u32::from(a.temperature() != b.temperature());
+                }
+            }
+            (mat, aux, temp)
+        };
+        let advance = |w: &mut World, frames: usize| {
+            for _ in 0..frames {
+                parallel::step(w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+        };
+        let mut settled = build();
+        advance(&mut settled, SETTLE);
+        let run = |held: bool| {
+            let mut w = settled.clone();
+            w.held = held;
+            // The clone carries the settled world's frame with it, so both
+            // arms see the same weather over the same window.
+            let before = w.clone();
+            advance(&mut w, WINDOW);
+            census(&before, &w)
+        };
+        const SETTLE: usize = 3_000;
+        const WINDOW: usize = 600;
+        let (m0, a0, t0) = run(false);
+        let (m1, a1, t1) = run(true);
+        println!("after {SETTLE} frames of settling, what moves in the next {WINDOW}, by channel:");
+        println!("           material     wetness  temperature");
+        println!("  unheld  {m0:>9} {a0:>11} {t0:>12}");
+        println!("  held    {m1:>9} {a1:>11} {t1:>12}");
+        assert!(m0 + a0 + t0 > 0, "the unheld arm changed nothing, so this probe is measuring a dead scene");
     }
 
 }
