@@ -82,6 +82,20 @@ const SIZE_ENV: &str = "PIXEL_PHYSICS_DRUID_SIZE";
 /// `PIXEL_PHYSICS_DRUID_GROW=N` — override [`GROW_FRAMES`].
 const GROW_ENV: &str = "PIXEL_PHYSICS_DRUID_GROW";
 
+/// The worldgen preset this game builds from — see `assets/worldgen.ron`,
+/// where the reasoning for each value that differs from `rolling` is written
+/// beside it.
+pub const PRESET: &str = "druid";
+
+/// `PIXEL_PHYSICS_DRUID_PRESET=name` — build from a different preset.
+///
+/// Exists so the preset can be judged the way this repo judges anything
+/// visual: two renders side by side rather than one against a remembered
+/// impression. Without it, comparing `druid` against `rolling` means editing
+/// a constant and rebuilding between the two arms, which is the shape that
+/// produces a stale-binary comparison.
+const PRESET_ENV: &str = "PIXEL_PHYSICS_DRUID_PRESET";
+
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
 /// three callers would be the larger change.
@@ -117,8 +131,16 @@ impl Druid {
         let _ = world.materials.reload(material::ASSET_DIR);
         let _ = world.species.reload(organism::ASSET_DIR);
 
+        // **The druid preset, not the shipped default.** `rolling` is a
+        // mining world -- the first druid build generated one and put the
+        // gnome in a gorge between two screen-high rock walls, which is the
+        // wrong silhouette for a game about growing things. Falls back to the
+        // default rather than failing, so a stripped or edited asset set
+        // still starts.
         let (presets, _err) = WorldgenPresets::load();
-        let preset = presets.default_name();
+        let wanted = std::env::var(PRESET_ENV).unwrap_or_else(|_| PRESET.to_string());
+        let preset = if presets.get(&wanted).is_some() { wanted } else { presets.default_name() };
+        println!("druid: preset {preset}");
         match presets.get(&preset) {
             // `generate`, never `generate_only`: the latter skips
             // `compute_world_distances`, so the world would have no
