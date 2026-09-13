@@ -154,11 +154,11 @@ point.
 | Z11 | closed | 10994 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 11089 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
 | Z13 | **OPEN** | 11169 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11267 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11359 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11437 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11578 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11630 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z14 | **OPEN** | 11331 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11423 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11501 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11642 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11694 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11264,6 +11264,70 @@ at all. The laden ant at (363,155) with `since_nest` **4,386** is the sharper
 case: carrying, 4,386 ticks from the nest, three ways to walk, and not going.
 
 Full account: `Reports/lanes/evolution-lab-longant-pile.md`.
+
+**Round 31, lane E, 2026-09-13: the three candidates are built, priced, and
+on the owner's queue as one card — still OPEN, waiting on his eye.**
+`PIXEL_PHYSICS_IDLE_ANIM=head|antennae|shuffle` (default `off`, today's
+shipped look), entirely in `src/render.rs`: `head` pulses the head cell's
+brightness on a ~1.5 s cycle, `antennae` puts a brief bright tick just past
+the head on a ~0.8 s cycle, `shuffle` draws a reach one cell forward on a
+~4 s cycle. Render-side only, keyed off `OrganismState::chain`/`heading`/
+`life.moves`/`life.moves_blocked` that already exist — no change to the
+brain, the economy, `p_move`, or any file this round assigns to another
+lane. Verified byte-identical colony trajectories across all four arms on
+`played_bed_longant` seed 3 (same births, deaths, `alive` at every stop) —
+the selector cannot be steering the simulation, only the paint.
+
+**`shuffle` cannot truly relocate the body**, and this is a real
+architectural finding rather than a shortcut: `Renderer::draw` takes
+`&World`, not `&mut World`, so nothing in `render.rs` can move a creature's
+own cells for a few frames and back without leaving the true position
+looking exactly as occupied as ever (there is nothing else there to reveal
+underneath it). What ships instead is the same shape as `antennae` — an
+extra mark drawn where the reach lands — just slower and larger. A true
+relocate-and-return needs write access to the grid, which belongs to
+whichever lane owns `src/sim/creature.rs`.
+
+**Priced before posting, per this file's own instruction.** Worst-frame
+`Renderer::draw` alone (the `CLAUDE.md` animated-grain method), off vs each
+mode, 300 idle single-cell animals on a settled 512x320 floor,
+`RAYON_NUM_THREADS=4` pinned:
+
+| layout | off | head | antennae | shuffle |
+|---|---|---|---|---|
+| one row (cheapest) | 2.45 ms | 2.36 ms | 2.74 ms | 2.65 ms |
+| 60-row band (the shipped 40-row soil bed's own depth, with headroom) | 2.35 ms | 3.14 ms | 3.03 ms | 2.96 ms |
+| scattered top to bottom of the view | 2.23 ms | 4.91 ms | 7.57 ms | 5.98 ms |
+
+At a realistic colony depth all three add well under 1 ms worst-frame. The
+third row is the honest bad case, and it is **not particular to which
+candidate is chosen**: all three route idle cells through the same
+single-bounding-`Rect` dirty-region union `last_body_rects`/`last_moon_rect`
+already use, so animals found from the top of the view to the bottom of it
+fold the union into something close to a full redraw regardless of which
+animation is on. No candidate is disqualified by this — the shipped bed
+never looks like that — but it is a real cost characteristic of the
+mechanism, not of any one look, and is stated here so it is not discovered
+by surprise later. 1,500 idle animals at the 60-row band priced identically
+to 300 (3.18 ms), confirming the cost tracks the screen area touched, not
+the population.
+
+**Card posted**: `20260913T034419970Z-34d562`, board `lab`, four labelled
+22-frame sequences (off/head/antennae/shuffle) at the owner's own original
+crop and zoom (`zoom=4 crop=160,120,224,56`, `played_bed_longant` seed 3,
+frames 28,000-29,500) so the framing matches the card he already marked.
+`meta` carries the frame-cost table above and a real resting count for the
+window shown: **~58 of 107 ants** (`idle_with_room` 1,449 of `idle_with_room
++ moving` 2,673 = 54%, `labforage scenario=played_bed_longant seed=3
+frames=29500`). Whichever the owner picks ships as default per this
+round's standing instruction; if his verdict has not landed by the time
+another lane reads this, the selector stays at `off` and that is stated
+rather than assumed.
+
+Not done in this pass, and still open for whoever reads this next: the
+residual-move-bias probe this section already asked for (`outputs
+[BrainOutput::Move]` beside the probe's line, inside `creature_tick`) —
+still belongs to whoever owns `src/sim/creature.rs`.
 ### Z14. The played bed's 500,000-frame trajectory is chaotic, and `scent_drift: 0.15` re-rolled it — **OPEN as a method problem, not a colony bug, found 2026-09-12**
 
 **What it is.** Lane M found the played bed's control arm moving enormously
