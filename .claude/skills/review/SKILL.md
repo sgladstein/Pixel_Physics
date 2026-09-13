@@ -294,8 +294,23 @@ Cards therefore travel over the git remote, on an orphan branch `review-queue`:
 python3 scripts/review.py sync     # exchange cards and verdicts with origin
 ```
 
-`post` runs this for you, and `inbox` and `wait` run it before they read. You
-normally do not have to call it. What you *do* have to do is **read what `post`
+**Every command that reads or writes the queue syncs first** — `post`, `ab`,
+`list`, `get`, `inbox`, `wait`, `watch` and `notify` — so you normally do not
+have to call `sync` at all. `--no-sync` opts any of them out.
+
+**`list` and `get` did not, until 2026-09-13, and the failure was silent.**
+They answered out of the local queue, so on any session that had not posted
+yet, `get <id>` returned `"response": null` for a card the owner had answered
+hours earlier — which is indistinguishable from *"he has not looked at it"*.
+It cost an hour and came within one message of being reported as the queue
+losing verdicts. Guarded now by two checks in `review_selftest.py`'s
+cross-machine case: a `--no-sync` read as the control, then the ordinary read
+that must carry the verdict.
+
+**A raw `git fetch origin review-queue` is not a sync** and never was. It moves
+the ref and copies nothing into `.git/pixel-physics-review/`, so a read after
+it is still reading stale files. That is the mistake that produced the hour
+above — reach for `review.py sync`, or just read, which now syncs. What you *do* have to do is **read what `post`
 tells you**:
 
 ```json
