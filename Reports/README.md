@@ -2560,6 +2560,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   budget and a duplicated claim are one failure git cannot see**; a session's
   status describes the turn that ended, not the one running; a partly-green PR
   carries almost no information; and green CI is not mergeability.
+- [evolution-lab-lifespan-rederived-2026-09-13.md](evolution-lab-lifespan-rederived-2026-09-13.md)
+  — **measurement of record for the ant lifespan and the played bed after the
+  seed cull, round 31 lane A, 2026-09-13.** Everything the creature line knew
+  about how long an ant lives and whether the bed starves its colony was
+  measured while #366's write-site bug was overwriting a seed-eating ant with
+  the seed. Re-taken: twelve seeds, five arms out of one `latecensus` binary
+  at `RAYON_NUM_THREADS=1`, plus the shipped arm on the other five shipped
+  beds — 75 runs, raw digest in `data/`. What it overturns: **the lifespan is
+  no longer a population brake** (against an *immortal* colony, ants 7 of 12,
+  plants 5 of 12, bank 6 of 12 — three coin flips), so the effect the last
+  sweep credited it with was the cull; **`life_half_life: 40000` still ships**
+  because halving it is now the only setting that kills colonies (4 of 12
+  seeds extinct by 200,000 frames) and doubling buys nothing paired; **§Z6
+  does not reproduce** — 26 of 27 shipped-bed runs hold a colony at 200,000
+  frames against the register's 2 of 9; and **the dig gate's justification has
+  moved** from #359's *5 beds of 12 against 0* (now 12 of 12 both arms) to a
+  greener stand, 10 of 12 seeds at p=0.039, visible only in the second half of
+  a session.
 - [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
   — **design of record for the two soils, 2026-09-12: the owner's four
   issues as criteria, every option in both directions scored against them,
