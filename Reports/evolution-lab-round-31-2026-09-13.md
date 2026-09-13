@@ -168,6 +168,128 @@ treat a conservation failure as a question about the ruler before treating it
 as a question about the engine.** Both readings are consistent with the number;
 they prescribe opposite work.
 
+**And then it happened three more times on the same branch, which is what
+makes it a rule rather than an anecdote.** Lane B fixed the three sites it
+could find — `lab::census`, `soilfork`, and the unit test above — opened #379,
+and CI went red on `cargo run --example ascii`:
+
+```
+the bank is not conserved: 3600 -> 3519 standing, 0 in mandibles,
+0 lost with their carriers, 2 rotted back from carrion
+  left: 3519   right: 3602
+```
+
+The coordinator reproduced it in a worktree with the census broken into its
+parts, rather than reasoning about it: **soil 3,415, packed 104, spoil 83,
+summing to 3,602 — the expected total exactly.** Not approximately, not within
+a tolerance: the conservation identity balances to the cell the moment the
+third form of the ground is counted. That is a positive control as well as a
+diagnosis, because a partial explanation could not produce an exact balance.
+The 83 missing cells were pellets lying on the surface in plain sight. Lane B
+reached the identical diagnosis independently, to the same 83 cells, and found
+a **fifth** site the coordinator had not checked (`burrow_probe`).
+
+**So five censuses, four of them private to one file, and the lane's own
+enumeration found three.** The residue matters more than the count: the two it
+missed were both in `examples/`, which is where every measurement in this repo
+comes from and where nothing prompts you to look. **The grep has to be over
+`examples/` too, and the sites to grep for are the *pairs* — every place an
+identity names a set of materials on both sides of an equals sign.** A census
+that names the set once is merely wrong; one that names it twice is wrong in a
+way that still balances for the old world and breaks silently for the new.
+
+## The lifespan constant survives, and everything that justified it is gone
+
+**Lane A's re-take (#376) is the round's largest quantitative result, and it
+overturns the register's own headline.** Everything anyone knew about how long
+an ant lives was measured while #366's seed-eats-ant cull was running. 75 runs
+— twelve seeds, five arms out of one binary, plus the other five shipped beds
+at seeds 1–3.
+
+- **§Z6 — "every shipped bed starves its colony inside one play session" — is
+  overturned as written.** 26 of 27 shipped-bed runs hold a live colony at
+  200,000 frames, against the register's 2 of 9. Left OPEN on a narrower
+  claim, and correctly so: it is written at 300,000 frames, it names two beds
+  not re-run, and three of the 27 end at 1, 2 and 33 ants — a colony too small
+  to be one.
+- **`life_half_life: 40000` stays, on entirely new evidence.** Against an
+  *immortal* colony the constant no longer moves the population at all — ants
+  7 of 12, plants 5 of 12, bank 6 of 12, every p ≥ 0.39. What justifies it is
+  a **floor**: halving to 20,000 is the only setting in the sweep that kills
+  colonies, 4 of 12 at zero by 200,000 frames. Doubling buys nothing paired.
+- **Removing death makes the colony hungrier, not larger**: starvation pooled
+  over twelve seeds goes 2,575 → 4,067, **+58%**, with the population flat.
+- **The dig gate keeps its place on a different number.** #359 shipped it on
+  *alive on 5 beds of 12 against 0*; post-fix that is 12 of 12 in both arms —
+  the difference had been between two colonies that were both being culled.
+  What earns it now is the bed: plants standing higher with the gate on, 10 of
+  12 seeds, median +24, **p = 0.039**, and only in the second half of a
+  session.
+
+**Two coordinator readings were wrong and the lane corrected both**, which is
+worth recording because the corrections were right:
+
+- The coordinator's order statistics were computed by linear interpolation and
+  the lane's by nearest rank — 8.9 / 111.0 / 286.8 against 6 / 117 / 290 for
+  the same twelve seeds. **They reconcile exactly once the convention is
+  stated**, and no answer turned on it. Both columns are now in the report.
+- **The `deliveries` cliff is real and is not the lifespan.** The coordinator
+  offered seed 1's 37-against-5,932 as a lifespan effect isolated by a paired
+  control. The value arms refute the causal half: same seed, 20,000 delivers
+  2,466 and 80,000 delivers 4,792, both mortal, everything else identical.
+  Over twelve seeds the shipped arm is the *best* deliverer. It is a bed
+  property worth a lane and it is not evidence about the constant.
+
+## "Did it fire at all" applies to the review card, not only to the harness
+
+**Lane E's is the round's cheapest finding and its most reusable.** Three idle
+animations were built as a runtime selector, posted as a card, and the owner
+answered:
+
+> *"The creatures that I think look stuck are stuck in all of them. Although
+> this is a very short gif to have to judge this on."*
+
+Three readings were available — the animation is too subtle, the animation
+never ran, or the ants are genuinely stuck. **The lane checked the second
+first, because it needs no markers and no further owner time**, and it was the
+answer: `IDLE_ANIM_DELAY` was counted in `Renderer::frame`, which is **draw
+calls**, not world ticks. Every headless capture in this repo draws on a
+*sample* of ticks (`labgif`'s `every=`), so on the posted card's own `every=10`
+a 60-frame delay was **600 world ticks** — 40% of the 1,500-tick window gone
+before any animal could be flagged. Counted directly: **8 of 22 full-length
+long ants ever animated in the window the owner was judging.** After the fix,
+**21 of 22**.
+
+**This was live in the real game, not only in the capture tool**: `App::
+update`'s catch-up loop can run several world ticks per draw, so the same
+undercount reached the player.
+
+**The rule `CLAUDE.md` already has is "when a change adds a discrete *this
+happened* event, print the count next to the image and read both". This is its
+missing half: the count belongs next to the image *when the verdict comes back
+negative*, too.** A card whose mechanism did not run and a card whose mechanism
+does not work are the same picture and the same verdict, and the round would
+otherwise have spent a fourth candidate on a look that was never the problem.
+**The cheap check is not "is the effect too subtle" but "did it reach the
+animals in this frame, and how many".**
+
+**The coordinator's review finding on it:** the fix is correct and unguarded.
+Every idle-anim test in `src/render.rs` is an `#[ignore]`d `probe_*` — the
+thirteen cost rows and the new firing probe — so nothing in CI fails if
+`world.frame` goes back to `self.frame`. A guard has to advance the tick count
+across **fewer draw calls than ticks**; one that draws once per tick cannot
+tell the two counters apart and would be blind, which is this file's standing
+rule about a guard that cannot fail for the fault it is named for.
+
+**And the owner's three markers never arrived.** He placed them on the card and
+both cards read `annotations: []` from the shared queue. So the third reading —
+that the specific ants he pointed at are genuinely stuck, with `moves_blocked`
+climbing — could not be checked at all this round, and is filed in §Z13 as the
+open question with `HeadBlock`/`moves_blocked` named as what settles it. **A
+verdict's free-text comment survives the queue and its annotations did not**,
+which is a fact about the instrument worth knowing before anyone designs
+another card around marker placement.
+
 ## The round's largest finding: nobody can reproduce the owner's bed
 
 **Three separate visual complaints were investigated this round on a bed that
@@ -235,6 +357,26 @@ reproducing bed has to be built from.
 |---|---|
 | #370 | round 31's brief, two stale handoff items, first model-choice guidance |
 | #371 | the withdrawn clone "tight band" finding, recovered from a branch with no PR |
+| #372 | the brief's own model-pricing table, corrected against the API reference |
+| #373 | Lane C — the MENU page's rows draw as buttons |
+| #374 | Lane D — the chronicle records what the player did, and whether the box was slow |
+| #375 | Lane E — three idle animations behind one runtime selector |
+| #376 | Lane A — the ant lifespan and every played-bed number, re-taken after the seed cull |
+
+**Still open at the time of writing**, both reviewed and both close:
+
+| PR | what | state |
+|---|---|---|
+| #379 | Lane B — a dug pellet is a wall only while something is under it | census fix pushed after CI caught two more blind sites; CI re-running |
+| #380 | Lane E — the idle-anim clock counts ticks, not draw calls | correct; sent back for a guard and a main merge |
+
+**#374's merge was verified before #376's was allowed to follow it.** #374
+reshaped `src/lab/census.rs` and #376 edits `examples/latecensus.rs`, which
+reads it — a file pair no CI had ever seen together, since each PR was measured
+against a trunk lacking the other. Probed in a worktree off the merged `main`:
+zero conflicts, `cargo build --release --examples` clean, `docscheck` clean,
+`bugindex --check` current. That probe is the round's third application of the
+same rule and the second time it was run *before* a merge rather than after.
 
 **Post-merge check, and it is the round's own rule paying off.** #371's CI ran
 against `16bab295`; #370 landed at `047df5c6` while it was still running, so
