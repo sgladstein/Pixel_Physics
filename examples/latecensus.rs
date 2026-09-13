@@ -273,6 +273,21 @@ fn main() {
         spec.colony_species,
         world.species.id_of(&spec.colony_species).and_then(|id| world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
     );
+    // **The dig gate is an env switch, so nothing on the command line names
+    // it** -- `PIXEL_PHYSICS_LAB_ROOM=off` reverts it and
+    // `creature::room_gate_default` reads that once per process. A sweep that
+    // pairs the two arms therefore has no argument to check its own log
+    // against, which is exactly the shape of the study that produced eight
+    // byte-identical logs because the binary predated its `worldseed=`. So it
+    // is echoed here, up with the other parameters and not only on the
+    // SUMMARY line 300 lines below, on `plant_probe`'s rule: a log that does
+    // not name its arm was written by a binary that never had one.
+    println!(
+        "  room_gate = {} (target {:.2}); PIXEL_PHYSICS_LAB_ROOM={}",
+        world.room_gate,
+        world.room_target,
+        std::env::var("PIXEL_PHYSICS_LAB_ROOM").unwrap_or_else(|_| "unset".into())
+    );
     println!(
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
@@ -350,6 +365,26 @@ fn main() {
                 st.births, st.deaths, starved, oldage, killed, other, s.corpses, st.eats, st.digs, st.deliveries,
                 s.roofed, s.pit, s.packed_below, s.packed_above, s.mound_high,
                 s.bare_in_band, s.band_cols, s.bare_outside, s.outside_cols, s.plant_cells_in_band, s.plant_cells_outside
+            );
+            // **One machine-readable line per stop, keyed rather than
+            // columnar.** The table above is thirty-odd positional columns
+            // read off a header, which is fine for an eye and is how a sweep
+            // over twelve seeds and three arms silently mis-attributes a
+            // column after any lane appends one. Prefixed `STOP` rather than
+            // `SUMMARY` deliberately: `SUMMARY` is the contested line every
+            // lane appends to, and a per-stop line is not that line.
+            //
+            // Every field here is also on the table row -- this adds no
+            // measurement, only a name per number. `oldage` and `starved` are
+            // colony-scoped (`census::colony_deaths`), `born`/`died` are
+            // world-wide `creature_stats`, and mixing the two on one row is
+            // the reading error this naming exists to refuse.
+            println!(
+                "STOP frame={f} ants={} plants={} bank={} edible={} starved={} oldage={} killed={} other={} born={} died={} digs={} eats={} deliveries={} leaf_j={:.0} seed_j={:.0} roofed={} mound_high={}",
+                s.ants, s.plants, s.seed_bank, s.edible,
+                starved, oldage, killed, other,
+                st.births, st.deaths, st.digs, st.eats, st.deliveries,
+                s.leaf_j, s.seed_j, s.roofed, s.mound_high
             );
             let rpa = world.nest_room.first().and_then(|r| r.room_per_ant());
             let occ = world.nest_room.first().and_then(|r| r.occupancy(world.room_target));
