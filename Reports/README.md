@@ -80,8 +80,21 @@ by somebody about to try it on creatures.
   makes *regional tick* the only admissible implementation; and the **seed
   bank** (~9 waiting seeds per standing plant), which dissolves the
   player-scarcity-versus-ecology-abundance problem by making the scarce thing a
-  *lineage* and the ground already full of seed. Names the engineering risk
-  (gating the field regionally — 59% of the frame), the second-law risk (a
+  *lineage* and the ground already full of seed. **The engineering risk is now answered
+  (§8) and the answer is the best available one**: `field::step` already builds
+  a per-frame subset of tiles and hands it to five of its eight passes, so a
+  region gate is an intersection at one existing seam (`field.rs:1200`), worth
+  **78.3%** of field cost — and the **21% floor is the two sky passes, which a
+  *held* world removes by premise rather than by workaround**, since
+  `sky_light_amplitude_of` already returns 0 with sky lighting off. The
+  cheapest configuration of this engine and the premise of this game are the
+  same configuration. Carries the two documented traps (the sky column must
+  descend *through* the region; a partially-solved tile loses light where a
+  skipped one keeps it — a trap that once faked a 21% win) and the dead end
+  that must be honoured: `skip_momentum` skipped 91% of tiles, moved every
+  per-pass timing, and made the whole frame **0.59 ms slower in 7 of 8 paired
+  runs** — *"the idea is not dead, the accounting is."* Also names the
+  second-law risk (a
   bubble is a spectator verb; the lab's hand-verbs are the answer and already
   exist), the one bug on its critical path (the scent tool the shipped ant
   cannot read), and what to build first — the held render and one ragged rim,

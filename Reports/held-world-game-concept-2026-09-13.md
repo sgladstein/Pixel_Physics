@@ -595,10 +595,81 @@ Restricting a tick to a region, phase by phase:
   race around him, which is *correct*, and `gnome_slowdown` being a separate
   axis already says the engine agrees.
 
-**Prove the field can be gated regionally before building anything else
-mechanical.** If it cannot, the concept still works but every bubble costs a
-full field solve, which caps the rate ladder hard and should be known on day
-one rather than found in month two.
+**Answered 2026-09-13, and it is the best available answer: the seam already
+exists and is load-bearing today.**
+
+`field::step` has not been a whole-grid solve since the per-tile selective
+solve landed. It **already builds a subset of tiles every frame**, hands that
+subset to five of its eight passes, and merges only the subset back.
+Restricting the solve to a circle is intersecting an existing
+`Vec<ChunkCoord>` at the one seam where `awake` becomes `solve`
+(`field.rs:1200-1201`), *after* the one-ring halo dilation at `:1188`, so the
+region gets its own boundary ring for free. `momentum` and `read_coords`
+derive from `solve` and follow. The stencil passes, the halo, the boundary
+condition, the parallel path over a subset and the per-tile convergence
+bookkeeping are all already built and shipped — and the subset is already
+~1,500 of 5,120 tiles at 8192x2560.
+
+**What is subsettable, and what is not.** Per-tile-linear, so a region gate
+scales them down directly: `blocked` 21%, `advection` 17%, `velocity` 17%,
+`pressure` 11%, `diffusion` 11%, `moisture` 0.7%, `converged` 0.6% —
+**78.3%**. Fixed and world-proportional: `sky` 14% and `sky temperature` 7%,
+because `apply_sky_to` and `apply_sky_temperature_to` are handed *every* chunk
+in the world (`field.rs:1116`, called at `:1420` and `:1430`).
+`frame-cost-audit-2026-08.md` names `apply_sky_to` *"the single largest pass,
+because it is the one that walks the whole world regardless of how few tiles
+are awake."*
+
+**And the design's own fiction removes that floor.** A held world has a
+**frozen sky** — which is not a workaround, it is the premise — and
+`sky_light_amplitude_of` already returns 0.0 when `World::sky_lighting()` is
+off (`field.rs:2007`). The lever that makes the world *held* is the same lever
+that removes the one pass a region gate cannot touch. That coincidence is
+worth stating plainly: **the cheapest configuration of this engine and the
+premise of this game are the same configuration.**
+
+**Two high-severity traps, both already documented in the code.**
+
+1. **The sky column must descend *through* the gated region** or daylight
+   pours through a held mountain (`field.rs:2447-2457`).
+2. **Light erasure.** A tile in `solve` is rebuilt from a fresh `FieldTile`
+   (`field.rs:1313`), so a *skipped* tile keeps its light while a
+   *partially-solved* one can lose it. **This exact trap once made a column
+   subset measure as a 21% win that was not one** (`field.rs:1394-1406`).
+
+**And the dead end that must be honoured rather than dismissed.**
+`field.rs`'s `skip_momentum` per-tile gate, measured 2026-08-26: bit-identical
+output, the gate fired, **91% of momentum tiles skipped**, every per-pass
+timing well down — **and the whole frame was 0.59 ms *slower*, in 7 of 8
+paired runs.** The cost relocated to memory traffic. Its own verdict: *"the
+idea is not dead, the accounting is."*
+
+Its re-test conditions are now largely met (`par_solve_tiles` no longer
+serialises a subset, worth 31%; the tile arrays are inline), and **the stated
+regression mechanism does not transfer** — it was that the momentum passes
+warmed tiles for `diffusion`, which then ran on the full `solve` set anyway,
+whereas a regional gate narrows *every* pass uniformly and leaves no full-set
+pass to pay the cold misses. But take its closing instruction literally:
+**do not accept per-pass timings as the result. Measure the whole frame,
+paired and alternating**, exactly as `CLAUDE.md`'s *removing work is not the
+same as removing cost* requires.
+
+**One boundary warning from a neighbouring case.** The converged-relaxation
+artifact (`method-worked-cases-2026-09-05.md` §3) is about
+`structural::relax_region`, not the field, and it does **not** reject regional
+solving — it rejects a regional boundary condition *more generous than the
+global one*, which rooted the region flat so the system had nothing left to
+say. That transfers here with teeth: the field's default for an absent tile is
+`AMBIENT`, so if a gated region's exterior ever reads ambient rather than the
+real frozen values, **the region goes inert and will look converged**. Guard
+with `field_hash` (`field.rs:1609`), which exists for this exact class of
+nearly-right fast path.
+
+**Readers of stale field data** — plants (light, moisture), creatures
+(thermotaxis, moisture, `LightHere`), evaporation, decay, wind, weather
+pressure — are all *silently plausible-wrong* rather than panicking, and
+inside a held region **staleness is the design**. Fire only pushes; its
+field-read coupling was removed in M14.
 
 ---
 
