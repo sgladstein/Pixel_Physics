@@ -441,6 +441,41 @@ pub struct WorldgenParams {
     /// evenly scattered plants, which is exactly the failure mode a
     /// side-view world has to avoid.
     pub life_cluster_wavelength: f32,
+    /// **Frames of physics run at the end of generation, so the world handed
+    /// over is one that has already stopped moving.** `0.0` is every preset
+    /// but `druid`, and at `0.0` generation is bit-identical to before this
+    /// field existed.
+    ///
+    /// **What it is for, and why it is not a dodge.**
+    /// `tests/worldgen.rs::generated_terrain_is_already_at_rest` asserts that
+    /// **no** cell moves in the 120 frames after generation, over every
+    /// preset and five seeds — and every preset written before `druid` meets
+    /// it exactly. `druid` does not, and measured 2026-09-13 the reason is
+    /// not any one of its values: with `soil_slope_cutoff` brought back into
+    /// the family's range the residual is **one or two cells at one seed**,
+    /// and it **moves around under any perturbation at all** — sweeping
+    /// `world_age` over 0.80/0.78/0.75/0.72/0.70/0.68/0.65/0.62/0.60/0.55/
+    /// 0.50 gave fail/pass/pass/pass/pass/fail/pass/fail/pass/fail/pass, at
+    /// three different seeds and on soil, gravel and water in turn. That is a
+    /// lottery, not a parameter defect, so **tuning a constant until the
+    /// lottery came up empty would have been rubber-stamping a number with no
+    /// meaning** — `CLAUDE.md`'s "a guard over a procedural system has to
+    /// sweep the procedure" pointed at a fix rather than at a test.
+    ///
+    /// Why `druid` is the preset that found it: `soil_depth` **210** against
+    /// a family of 48-135, over the lowest relief in the file. Far more
+    /// powder sits near the surface, so there are far more chances for one
+    /// grain to be laid marginally — which is the direct consequence of that
+    /// game wanting soil rather than rock, and will get worse as it wants
+    /// more.
+    ///
+    /// **The weather is held still for the duration**, and that is the same
+    /// rule the test states for `spring_flow`: *a live process is not a
+    /// placement defect*. Without it a seed whose frame 0 is snowing would
+    /// settle a world with fresh snow on it, which is not a settled world.
+    ///
+    /// Dimensionless under `scaled` — a count of frames, not a length.
+    pub settle_frames: f32,
 }
 
 /// The `rolling` preset's values.
@@ -548,6 +583,7 @@ impl WorldgenParams {
             tree_density,
             grass_density,
             life_cluster_wavelength,
+            settle_frames,
         } = *self;
 
         // A distance in cells, whichever axis.
@@ -598,6 +634,10 @@ impl WorldgenParams {
             spring_flow: len(spring_flow),
 
             // ---- dimensionless: unchanged ----
+            // A count of frames, not a length: a bigger world does not need
+            // proportionally longer to settle, it needs however long its
+            // slowest grain takes.
+            settle_frames,
             // Ratios and fractions of another field that is itself scaled
             // (`riser_roughness` of `terrace_step`, `soil_slope_cutoff` of the
             // friction angle), plain probabilities, and the two slopes --
@@ -703,6 +743,12 @@ impl Default for WorldgenParams {
             tree_density: 0.26,
             grass_density: 0.50,
             life_cluster_wavelength: 70.0,
+            // **Off, and off is the whole point.** Every preset written
+            // before `druid` already hands over a world at rest, so paying
+            // for a settle they do not need would be a cost with no buyer --
+            // and at 0.0 generation is bit-identical to before this field
+            // existed.
+            settle_frames: 0.0,
         }
     }
 }
