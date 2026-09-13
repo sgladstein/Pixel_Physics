@@ -465,8 +465,9 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
     let cs = census::census(&world, &spec, 0.0, &[spec.width / 2], &ids);
     row(&format!("frame {shared} (shared)"), at_fork);
     println!(
-        "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",
-        "", cs.ants, cs.roofed, cs.pit, cs.packed_above, cs.mound_high, world.creature_stats.digs, world.creature_stats.spoil_dumped
+        "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7} | lifted {:>6} tallest lift {:>4} rows",
+        "", cs.ants, cs.roofed, cs.pit, cs.packed_above, cs.mound_high, world.creature_stats.digs, world.creature_stats.spoil_dumped,
+        world.creature_stats.spoil_lifted, world.creature_stats.spoil_lift_max
     );
     // **The positive control the fork gets for free**: if the shared bed holds
     // nothing hanging there is nothing for either arm to clear, and the two
@@ -532,13 +533,15 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
         }
         row(&format!("+{after} {label}"), f);
         println!(
-            "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",
-            "", c.ants, c.roofed, c.pit, c.packed_above, c.mound_high, w.creature_stats.digs, w.creature_stats.spoil_dumped
+            "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7} | lifted {:>6} tallest lift {:>4} rows",
+            "", c.ants, c.roofed, c.pit, c.packed_above, c.mound_high, w.creature_stats.digs, w.creature_stats.spoil_dumped,
+            w.creature_stats.spoil_lifted, w.creature_stats.spoil_lift_max
         );
         println!(
-            "SUMMARY fork footing={} woken={} through={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
+            "SUMMARY fork footing={} woken={} through={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} lifted={} lift_max={} seed={} shared={} after={}",
             footing, woken, through, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
-            c.roofed, c.pit, c.packed_above, c.mound_high, c.ants, w.creature_stats.digs, spec.seed, shared, after
+            c.roofed, c.pit, c.packed_above, c.mound_high, c.ants, w.creature_stats.digs,
+            w.creature_stats.spoil_lifted, w.creature_stats.spoil_lift_max, spec.seed, shared, after
         );
     }
 }

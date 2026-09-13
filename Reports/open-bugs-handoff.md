@@ -158,7 +158,7 @@ point.
 | Z15 | **OPEN** | 11423 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 | Z16 | closed | 11501 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
 | Z18 | **OPEN** | 11642 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11791 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z17 | **OPEN** | 11852 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11775,6 +11775,67 @@ early, and it cost most of a lane. The card puts the fork to him directly:
 *is it the pale plant material you mean, or dirt?* **Read that verdict before
 taking this section any further**, because if the answer is "the plant", the
 repair below is still correct and the bug is somewhere in the plant line.
+
+**2026-09-13, owner verdict — THE BED DOES NOT REPRODUCE THE DEFECT, and every
+number above was taken on it.** Shown the card, he answered:
+
+> *"Everything looks normal is all these pictures. None of this reads as an ant
+> hill though it just looks like herbs growing in dirt which is fine"*
+
+He cannot see the defect in the frame at all — not as dirt and not as plant, so
+the fork the card asked is moot. **The scene does not contain the situation.**
+That card is `played_bed` seed 3 at 150,000 frames with **74 ants**, the most
+developed nest of the four beds measured here; he plays sessions with **1000+
+long ants**. Seventy-four ants in a herb patch is not the bed his complaint came
+from, and `CLAUDE.md` has the rule for precisely this: *when a mechanism appears
+inert, check the scene still contains the situation you think it does.*
+
+**So the honest standing of this section is: a real defect was found and fixed
+in the pellet drop, the fix is measurable and cheap and keeps the towers, and
+nobody has yet reproduced the thing the owner is actually looking at.** Every
+figure above — the 12-seed coin flip, the four-seed fork table, the 22-cell
+repair, the "zero stand on empty" — is true of a bed that does not show the
+phenomenon. **Do not tune, re-render or extend anything on `played_bed` for
+this bug.**
+
+**What a bed that would reproduce it needs**, as a starting guess for whoever
+builds it rather than a specification: **colony size first** — an order of
+magnitude more ants than 74, which is the variable his report and this bed
+differ by most; **`longant`**, since that is what he plays; **tall vegetation**,
+because of the lift below; and a horizon of **300,000+ frames**, since a spoil
+lattice is cumulative and nothing carries it away. The owner is sending a
+chronicle from a real played session once #374 lands; start from that file plus
+this list, not from nothing.
+
+**And the mechanism most likely behind it is not the one this section named —
+it is a 160-row teleport, and it is live on `main`.** Credit to **PR #221**
+(`claude/creature-plant-pathfinding-rjzkqe`, open since 2026-09-03, never merged
+because its register letter collided). `creature::act`'s spoil drop, when no
+neighbour will hold a pellet, scans **straight up the column** for the first
+cell with two of three filled beneath and clear air above, as far as
+`SPOIL_LIFT = 160` rows — **with no check that a path exists.** The ant never
+climbs. A plant cell counts as a filled cell beneath, so the taller the
+vegetation the higher a pellet may be set down, and worked soil then stays where
+it was put. A lattice satisfies "two of three beneath" *for itself*, so it
+bootstraps upward with no ant ever walking it.
+
+`CreatureStats::spoil_lifted` / `spoil_lift_max` are ported from #221 and are
+the split `spoil_dumped` cannot make — it sums both branches, which is why this
+went unmeasured for a fortnight. Measured on today's trunk, `played_bed` seed 3
+at 60,000 frames, one thread: **261 of 591 pellets — 44% — are placed by the
+up-the-column branch, and the tallest single lift is 43 rows**, on a bed with
+nothing taller than a herb on it. #221 measured the standing consequence on a
+bed with a tree: tallest standing pellet **+52 / +67 / +99 / +94** rows over four
+seeds, against **+4 / +3 / +2 / +2** with no tree.
+
+**This is the lever to test first**, and it is a different one from `needs_
+footing`: bounding the lift removes a free ride rather than re-litigating *where*
+a pellet may land, which is the question the owner closed. It is **not** shipped
+here and must not be until it is measured on a bed that reproduces the defect —
+changing where nearly half of all tailings go, judged on a bed that shows
+nothing, is the error this whole section has just paid for. `hangcensus
+mode=fork` prints both counters beside the standing census, so the next lane can
+take the two levers against each other in one command.
 
 **What is left of this section**, for whoever takes it next: worked ground *cut
 in place* that ends up standing on plant tissue or on an ant. It is a different

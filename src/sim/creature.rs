@@ -6594,17 +6594,32 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // way it came in with the walk abstracted. An ant is two cells at
             // play zoom and nothing about the journey is visible; a mound
             // growing over the nest is.
-            let site = NEIGHBOURS_8
-                .iter()
-                .map(|&(dx, dy)| (x + dx, y + dy))
-                .find(|&(px, py)| open(px, py))
-                .or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            let beside = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| open(px, py));
+            // **The lift is counted apart from the drop beside the animal, and
+            // that split is the whole reason §Z18 went unmeasured for a
+            // fortnight.** `spoil_dumped` sums both branches, so a pellet laid
+            // on the ground and one posted ninety rows up read the same.
+            //
+            // Ported from **PR #221** (`claude/creature-plant-pathfinding-rjzkqe`),
+            // which measured the mechanism and never landed: tallest standing
+            // pellet **+52 / +67 / +99 / +94** rows over four seeded beds with a
+            // tree in them, against **+4 / +3 / +2 / +2** with no tree. The ant
+            // never climbs -- there is no path check here -- and `open` counts a
+            // plant cell as a filled cell beneath, so the taller the vegetation
+            // the higher a pellet can be set down, and worked soil then stays
+            // where it was put.
+            let lifted = beside.is_none();
+            let site = beside.or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
                     state.spoil = None;
                 }
                 world.creature_stats.spoil_dumped += 1;
+                if lifted {
+                    world.creature_stats.spoil_lifted += 1;
+                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max((y - py).max(0) as u32);
+                }
             }
         }
         // Laden either way: a full mandible is a mandible that cannot cut,
