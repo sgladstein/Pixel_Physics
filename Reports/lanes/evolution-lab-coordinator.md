@@ -107,6 +107,13 @@ reads as a list** — but the rows are **already clickable**; `Body::Choice` jus
 draws pixel-identical to an information row with an invisible tap target. Give
 `Choice` a drawn treatment (fixes every page using it), then two columns.
 
+**The review queue is for visual evaluations ONLY.** Owner ruling, 2026-09-13,
+on a card that asked him to send a chronicle file: *"This is a bad use of the
+review tool. This is just for needed visual evaluations. General questions or
+requests should be sent to the coordinating agent to tell me."* So a lane that
+wants a file, an answer, a preference or a decision **routes it through the
+coordinator, who asks in chat**. A card is for something he has to *look* at.
+
 **Before filing a bug run `python3 scripts/bugindex.py --branches`, not
 `--check`.** `--check` reads one working tree, so it passes on a letter
 already live on an unlanded branch — that is how §Z16 got filed twice.
