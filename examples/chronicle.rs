@@ -162,10 +162,8 @@ fn main() {
     // `LogKind::PlayerAction` (round 31) added a `detail: String` field.
     let mut events: Vec<_> = world.run_log.recent().cloned().collect();
     events.reverse();
-    let mut counts = std::collections::BTreeMap::<&'static str, u32>::new();
     let mut legend = std::collections::BTreeMap::<&'static str, String>::new();
     for e in &events {
-        *counts.entry(e.kind.label()).or_insert(0) += 1;
         if all != 1 && !e.kind.is_line_event() {
             continue;
         }
@@ -180,16 +178,23 @@ fn main() {
             println!("{kind}: {note}");
         }
     }
-    let line_events: u32 = events.iter().filter(|e| e.kind.is_line_event()).count() as u32;
-    let individual_events = events.len() as u32 - line_events;
+    // **The tally, not a census of `events`.** `Reports/instruments.md` calls
+    // this line "the scale claim in one number" -- line events bounded per
+    // lineage while individual events grow -- and until 2026-09-13 it counted
+    // the ring, so past the cap it reported the *ring's* composition and the
+    // scale claim quietly stopped being about scale. Same defect, same day,
+    // as the chronicle export's own `COUNTS:` line; see `RunLog::pushed`.
+    let mut counts: Vec<(&'static str, u64)> = world.run_log.pushed_by_kind().map(|(k, n)| (k.label(), n)).collect();
+    counts.sort_unstable_by_key(|(label, _)| *label);
+    let line_events: u64 = LogKind::ALL.into_iter().filter(|k| k.is_line_event()).map(|k| world.run_log.pushed(k)).sum();
+    let individual_events: u64 = LogKind::ALL.into_iter().filter(|k| !k.is_line_event()).map(|k| world.run_log.pushed(k)).sum();
     println!();
     println!(
         "counts: {} | line events {} vs individual events {} | lineages claimed {} | log dropped {}",
-        counts.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "),
+        counts.iter().map(|(label, n)| format!("{label} {n}")).collect::<Vec<_>>().join(", "),
         line_events,
         individual_events,
         world.lineages_claimed(),
         world.run_log.dropped()
     );
-    let _ = LogKind::Born; // the kind table is the log's own; nothing here re-derives it
 }
