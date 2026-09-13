@@ -92,7 +92,10 @@ consumer by a third party.
 **finest** setting (*"C is best"* = x4, decoded through `blind_was: [1, 0, 2]`;
 I re-checked the decode rather than taking it on trust, and it holds).
 
-**Shipped:** `Lab::pixel_budget`, default **x4** — his pick, not overridden.
+**Shipped:** `Lab::pixel_budget`, default **x4** — his pick, not overridden,
+and **the same default as the sandbox**: consistency between the two games is a
+stated requirement, not a nice-to-have (#392 defaults `App::pixel_budget` to 4
+to match).
 `+` cycles it, the window caps it, `render::Hud` (from #389) keeps the bar at
 its logical size, and `Lab::to_logical` converts the cursor once at the window
 boundary.
@@ -143,6 +146,22 @@ reinstated**, because the fault needs a caller whose viewport is derived from
 the budget. Blind, so replaced rather than widened, per `CLAUDE.md`. The one
 that works is at `Lab` level and pushes the budget at the renderer first,
 because that is the order the app runs in.
+
+### The mistake in the cards, which is mine and worth not repeating
+
+The round-32 cards offered **different menus** — the lab card was x1/x2/x4, the
+real-game card was two panes, x1 against x2 — so **x4 was never on offer in the
+game**. That made the verdicts look like a preference for different settings in
+the two games, and the owner corrected it: *"I am not sure what questions that I
+answered that suggests zoom should be different between the games, but that
+doesn't seem like what I want."* Given the full range he picked the finest in
+both.
+
+**A comparison can only return a verdict about the options it contains.** That
+is the review-queue form of *ask what your number counts*, and the failure mode
+is specific: a difference between two cards' *constructions* reads exactly like
+a difference in the thing being judged. If two cards are going to be compared
+against each other, give them the same menu.
 
 ### Open
 

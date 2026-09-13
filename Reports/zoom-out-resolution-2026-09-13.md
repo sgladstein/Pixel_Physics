@@ -264,10 +264,57 @@ typical box would show *whole* at one cell per pixel; the true statement is
 **boxes up to 2048x1280** do, because that is the widest span the ladder
 reaches. `MAX_BOX` is 4096, so the top of the range does not.
 
+## *"Even when pixels are off screen in the lab, they are being simulated, why
+## does zooming out and making them visible affect performance?"*
+
+The owner, 2026-09-13, and it is the sharpest question anyone has asked about
+this. The answer in one line: **the simulation half does not move at all** —
+those cells were always being stepped, visible or not — and what grows is the
+*drawing*.
+
+`Renderer::draw` does its per-**output-pixel** work once per buffer pixel: the
+material colour, the depth shade, the per-cell grain, the sky lighting. At
+512x320 that is 164k pixels of it; at 2048x1280 it is 2.6M. On top of that a
+larger buffer is uploaded to the GPU each frame.
+
+**And this is exactly why the whole-frame figure is 1.66x rather than 16x**, a
+ratio that otherwise looks too good:
+
+- the **simulation** is untouched — `frame::step` reads the same 13-14 ms at
+  every budget in the sandbox measurement above, and the lab's tick cost does
+  not move either;
+- **cell reads are constant by construction** — `pixels x stride²` is the same
+  product at every budget, which is the whole design of `zoomout_pixels`, so a
+  bigger buffer re-reads no world at all;
+- so the only quantity that grows is **per-pixel colour work**, which is a
+  minority of a frame that also contains the simulation, the HUD and the
+  particles.
+
+The lab's answer has one extra term, and it is the one in the table above: the
+render competes with the *tick budget*, so on a box at fast-forward the cost
+shows up as fewer simulated seconds per real second rather than as a slower
+frame. Same work, different unit.
+
 ## The default, and it is the owner's pick
 
-**x4** (`lab::DEFAULT_PIXEL_BUDGET`), which is what he chose. Not overridden,
-and the numbers above are why that is defensible rather than merely obedient:
+**x4** (`lab::DEFAULT_PIXEL_BUDGET`), which is what he chose — **and the same
+default as the sandbox, because consistency between the two games is a stated
+requirement**:
+
+> *"I am not sure what questions that I answered that suggests zoom should be
+> different between the games, but that doesn't seem like what I want."*
+> — 2026-09-13, on being told the app would default to x2 and the lab to x4.
+
+**He is right, and the near-miss is worth recording because it is a flaw in the
+cards rather than in his eye.** The two offered **different menus**: the lab
+card was x1/x2/x4 and the real-game card was two panes, x1 against x2, so **x4
+was never on offer in the game**. Reading *"x2 in the game, x4 in the lab"* off
+that pair reads the construction of the cards and calls it a preference. Given
+the full range, he picked the finest in both. **A comparison can only return a
+verdict about the options it contains** — which is the review-queue form of
+*ask what your number counts*, and it cost a wrong default in one game.
+
+The numbers above are why x4 is defensible rather than merely obedient:
 
 - on the **shipped bed it is a no-op**, measured;
 - on any bed that only reaches **rung 2, x4 and x2 are the same thing**, because
