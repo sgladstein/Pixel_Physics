@@ -6747,8 +6747,16 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // the field existed -- and so a pellet re-dug stays a pellet
             // rather than being laundered into lining-grade ground.
             let mut pellet = target;
+            //
+            // **Gated on `update::spoil_footing` so the ablation arm is
+            // genuinely `main`.** Leaving the pellet as `spoil` with the rule
+            // off looked like a tidier switch and was not a control: `spoil`
+            // carries `packs_into`, so `line_burrow` went on relabelling
+            // worked tailings as wall and the "off" arm read 19 hanging cells
+            // where the pre-change baseline on the same seed read 24.
             let ground_def = world.materials.get(target.material);
-            if let Some(hauled) = ground_def.spoils_into.or(ground_def.packs_into) {
+            let hauled = if crate::sim::update::spoil_footing() { ground_def.spoils_into.or(ground_def.packs_into) } else { ground_def.packs_into };
+            if let Some(hauled) = hauled {
                 pellet.material = hauled;
             }
             world.set(tx, ty, Cell::EMPTY);

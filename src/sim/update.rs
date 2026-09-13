@@ -819,11 +819,16 @@ fn crumb_rule() -> bool {
 /// **The ablation switch for the footing rule** -- `Material::needs_footing`,
 /// on by default.
 ///
-/// `PIXEL_PHYSICS_SPOIL_FOOTING=off` makes a dumped pellet stand on nothing
-/// again -- `main`'s behaviour up to 2026-09-13 -- and changes **nothing
-/// else**: the pellet is still `spoil`, ants still dig at the same rate, the
-/// crumb rule above still reverts a crumb, `line_burrow` still upgrades a
-/// worked pellet into a wall.
+/// `PIXEL_PHYSICS_SPOIL_FOOTING=off` restores `main`'s behaviour up to
+/// 2026-09-13 **exactly**: `creature.rs`'s dig branch reads it too and falls
+/// back to `packs_into`, so the pellet is `packedsoil` again and the `spoil`
+/// material is never written. That completeness is deliberate and was
+/// measured: gating only the rule and leaving the pellet as `spoil` left
+/// `packs_into` on it, so `line_burrow` relabelled worked tailings as wall and
+/// the "off" arm was **not** `main` -- 19 hanging cells in 12 pieces against a
+/// pre-change baseline of 24 in 17 on the same seed and frame count. An
+/// ablation arm that is not the old behaviour is not a control, and the tell
+/// was that the arm disagreed with a baseline taken an hour earlier.
 ///
 /// It exists because what this rule governs is a **standing** quantity -- how
 /// much ground a colony leaves hanging in open sky -- and a standing quantity
@@ -835,7 +840,7 @@ fn crumb_rule() -> bool {
 ///
 /// Read once per process through a `OnceLock`: this sits in the powder sweep,
 /// where an `env::var` would be a syscall per cell.
-fn spoil_footing() -> bool {
+pub(crate) fn spoil_footing() -> bool {
     static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").as_deref() != Ok("off"))
 }
@@ -1010,7 +1015,28 @@ fn update_powder<S: CellSurface>(surface: &mut S, x: i32, y: i32, cell: Cell, ri
         // cell that goes becomes loose dirt that falls and piles at the foot
         // of the heap -- so undermining your own tailings has a visible
         // consequence, which is the second law.
-        let no_footing = unsupported && needs_footing && spoil_footing();
+        // **...and what counts as "under it" is *ground*, not merely a cell.**
+        // A pellet posted into a canopy is held up by leaves, and a pellet on
+        // the surface of a pool is held up by water; neither is a footing, and
+        // both read on screen as exactly the dirt-in-the-air the owner is
+        // reporting -- `Reports/evolution-lab-soil-design-2026-09-12.md` §2c
+        // counts spoil on leaves as hanging for the same reason. So the test
+        // is the one the censuses use: a non-organism `Powder` or `Solid`.
+        //
+        // Paid only by a `needs_footing` cell that has *something* beneath it,
+        // which is the common case and one `Vec` index.
+        let no_footing = unsupported
+            && needs_footing
+            && spoil_footing()
+            && {
+                let under = surface.get(x, y + 1);
+                under.material == material::EMPTY
+                    || under.organism_id() != 0
+                    || !matches!(
+                        surface.materials().get(under.material).kind,
+                        MaterialKind::Powder | MaterialKind::Solid
+                    )
+            };
         let contacts = if unsupported && !no_footing {
             crate::sim::structural::NEIGHBOURS_8
                 .iter()

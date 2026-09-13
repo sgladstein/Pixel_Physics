@@ -95,6 +95,17 @@ struct Hang {
     loose: usize,
     /// Every `self_supporting` cell, anchored or not.
     packed: usize,
+    /// `spoil` cells in the world -- the hauled pellet.
+    spoil: usize,
+    /// Of `hang`, the ones that are `spoil`.
+    hang_spoil: usize,
+    /// Of `hang`, the ones that are `packedsoil` -- lining, and **the column
+    /// that found the hole in the first attempt at this repair.** A pellet
+    /// carries `packs_into`, so `line_burrow` relabels tailings next to any dig
+    /// as wall; relabelled ground loses `needs_footing` and hangs for ever, so
+    /// a rule that looks connected can move nothing at all. Split out because
+    /// the pooled `hang` column cannot say which material is producing it.
+    hang_packed: usize,
     /// Ground cells on the bottom row -- the flood's seed set. Zero means
     /// this harness measured a scene it does not understand, not a world of
     /// floating dirt.
@@ -149,6 +160,8 @@ fn census(world: &World, w: i32, h: i32) -> Hang {
     let mut f = Hang { anchors, ..Hang::default() };
     let mut piece_seen = vec![false; (w * h) as usize];
     let soil = world.materials.id_of("soil");
+    let spoil = world.materials.id_of("spoil");
+    let packedsoil = world.materials.id_of("packedsoil");
     for y in 0..h {
         for x in 0..w {
             let cell = world.get(x, y);
@@ -157,6 +170,9 @@ fn census(world: &World, w: i32, h: i32) -> Hang {
             }
             if Some(cell.material) == soil {
                 f.loose += 1;
+            }
+            if Some(cell.material) == spoil {
+                f.spoil += 1;
             }
             if !world.materials.get(cell.material).self_supporting {
                 continue;
@@ -173,6 +189,11 @@ fn census(world: &World, w: i32, h: i32) -> Hang {
                 continue;
             }
             f.hang += 1;
+            if Some(cell.material) == spoil {
+                f.hang_spoil += 1;
+            } else if Some(cell.material) == packedsoil {
+                f.hang_packed += 1;
+            }
             if piece_seen[idx(x, y)] {
                 continue;
             }
@@ -197,10 +218,44 @@ fn census(world: &World, w: i32, h: i32) -> Hang {
     f
 }
 
+/// **What each hanging cell is standing on.** `CLAUDE.md`: pair every debug
+/// channel with a probe that prints the values, and reach for it the moment the
+/// question turns quantitative. It turned quantitative the first time the two
+/// fork arms came back byte-identical -- the pooled count cannot say whether a
+/// rule failed to fire or fired on cells that were not there.
+fn why(world: &World, w: i32, h: i32, limit: usize) {
+    let (seen8, _) = anchored(world, w, h, true);
+    let idx = |x: i32, y: i32| (y * w + x) as usize;
+    let mut shown = 0usize;
+    let mut under_tally: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+    for y in 0..h {
+        for x in 0..w {
+            let cell = world.get(x, y);
+            if cell.is_empty() || cell.organism_id() != 0 || !world.materials.get(cell.material).self_supporting || seen8[idx(x, y)] {
+                continue;
+            }
+            let under = world.get(x, y + 1);
+            let name = if under.is_empty() {
+                "empty".to_string()
+            } else {
+                format!("{}{}", world.materials.get(under.material).name, if under.organism_id() != 0 { " (organism)" } else { "" })
+            };
+            *under_tally.entry(format!("{} under {}", world.materials.get(cell.material).name, name)).or_default() += 1;
+            if shown < limit {
+                println!("    hanging {} at ({x},{y}) standing on {name}", world.materials.get(cell.material).name);
+                shown += 1;
+            }
+        }
+    }
+    for (k, v) in under_tally {
+        println!("    {v:>5}  {k}");
+    }
+}
+
 fn row(label: &str, f: Hang) {
     println!(
-        "{label:<26} hang {:>5} in {:>4} piece(s) | hang4 {:>5} | over {:>5} | loose {:>6} packed {:>6} | anchors {:>4}",
-        f.hang, f.pieces, f.hang4, f.over, f.loose, f.packed, f.anchors
+        "{label:<26} hang {:>5} ({:>4} spoil, {:>4} lining) in {:>4} piece(s) | hang4 {:>5} | over {:>5} | loose {:>6} packed {:>6} spoil {:>5} | anchors {:>4}",
+        f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed, f.spoil, f.anchors
     );
 }
 
@@ -294,6 +349,86 @@ fn selftest() {
     println!("hangcensus selftest: PASS -- quiet on a lined gallery, exact on a hand-placed floater, and it moves when the support goes");
 }
 
+/// **The fork: one bed, two rules, no divergence.**
+///
+/// A whole-run pair across the env switch cannot answer this question, and the
+/// first attempt at one is why: the arms dig different amounts from frame 100
+/// on, so by 60,000 frames they are different worlds and the hanging count
+/// differs for reasons that include the rule and the colony's size and which
+/// gallery it happened to cut. `CLAUDE.md`: *two runs that diverge on one
+/// frame are different worlds by the next, so a single cascade scene cannot
+/// compare two models at all.*
+///
+/// So the bed is built **once**, with `spoil` written but `needs_footing`
+/// switched off on the material -- i.e. the lattice accumulates as it does on
+/// `main` -- and then cloned. One clone gets the field back, the other does
+/// not, and both run the same number of further frames from the same cell.
+/// The only difference between the two worlds is one `bool`.
+///
+/// `soilfork mode=fork` is the same shape and the numbers are meant to be read
+/// beside its table in `Reports/evolution-lab-soil-design-2026-09-12.md` §3b/3c.
+fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u64) {
+    let spec = scenario.bed.clone();
+    println!(
+        "hangcensus fork: scenario={} seed={} shared={shared} after={after} threads={}",
+        scenario.name,
+        spec.seed,
+        std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".into())
+    );
+    let (mut world, _, _) = scenario.build();
+    let spoil = world.materials.id_of("spoil").expect("spoil is compiled in");
+    // **The shared bed is built with the rule off**, so it holds the lattice
+    // this is the repair for. Nothing else about `spoil` is changed: the pellet
+    // is still `spoil`, so the arms below differ in this field alone.
+    world.materials.get_mut(spoil).needs_footing = false;
+    let ids = Ids::resolve(&world);
+    let mut particles = ParticleSystem::new();
+    let mut blasts = Blasts::new();
+    let tuning = player::Tuning::default();
+    for _ in 0..shared {
+        pixel_physics::lab::scenario::tick_timeline(&scenario, &mut world, &spec);
+        frame::step(&mut world, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+    }
+    let at_fork = census(&world, spec.width, spec.height);
+    why(&world, spec.width, spec.height, 8);
+    let cs = census::census(&world, &spec, 0.0, &[spec.width / 2], &ids);
+    row(&format!("frame {shared} (shared)"), at_fork);
+    println!(
+        "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",
+        "", cs.ants, cs.roofed, cs.pit, cs.packed_above, cs.mound_high, world.creature_stats.digs, world.creature_stats.spoil_dumped
+    );
+    // **The positive control the fork gets for free**: if the shared bed holds
+    // nothing hanging there is nothing for either arm to clear, and the two
+    // rows below would agree for a reason that has nothing to do with the rule.
+    // A run that prints this has measured nothing and must not be quoted.
+    if at_fork.hang == 0 {
+        println!("  !! the shared bed holds no hanging ground at all -- this fork cannot distinguish the two arms. Run it longer or on a seed that grows a heap.");
+    }
+    for footing in [false, true] {
+        let mut w = world.clone();
+        w.materials.get_mut(spoil).needs_footing = footing;
+        let mut particles = ParticleSystem::new();
+        let mut blasts = Blasts::new();
+        for _ in 0..after {
+            frame::step(&mut w, &mut particles, &mut blasts, player::PlayerInput::default(), &tuning);
+        }
+        let f = census(&w, spec.width, spec.height);
+        why(&w, spec.width, spec.height, 0);
+        let c = census::census(&w, &spec, 0.0, &[spec.width / 2], &ids);
+        let label = if footing { "footing ON (the repair)" } else { "footing OFF (main)" };
+        row(&format!("+{after} {label}"), f);
+        println!(
+            "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",
+            "", c.ants, c.roofed, c.pit, c.packed_above, c.mound_high, w.creature_stats.digs, w.creature_stats.spoil_dumped
+        );
+        println!(
+            "SUMMARY fork footing={} hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} roofed={} pit={} packed_above={} mound_high={} ants={} digs={} seed={} shared={} after={}",
+            footing, f.hang, f.hang_spoil, f.hang_packed, f.pieces, f.hang4, f.over, f.loose, f.packed,
+            c.roofed, c.pit, c.packed_above, c.mound_high, c.ants, w.creature_stats.digs, spec.seed, shared, after
+        );
+    }
+}
+
 fn main() {
     let mode: String = arg("mode").unwrap_or_else(|| "run".to_string());
     if mode == "selftest" {
@@ -321,6 +456,10 @@ fn main() {
         std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "default".into()),
         std::env::var("PIXEL_PHYSICS_SPOIL_FOOTING").unwrap_or_else(|_| "on (default)".into()),
     );
+    if mode == "fork" {
+        fork(scenario, arg("shared").unwrap_or(60_000), arg("after").unwrap_or(6_000));
+        return;
+    }
     let (mut world, planted, placed) = scenario.build();
     println!(
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
@@ -349,8 +488,8 @@ fn main() {
     // **One line every arm of this can be grepped out of.** The SUMMARY
     // convention: `main`'s fields first, new ones appended, never interleaved.
     println!(
-        "SUMMARY hang={} pieces={} hang4={} over={} loose={} packed={} ants={} roofed={} packed_above={} mound_high={} digs={} dumped={} seed={} frames={}",
-        hang.hang, hang.pieces, hang.hang4, hang.over, hang.loose, hang.packed,
+        "SUMMARY hang={} hang_spoil={} hang_lining={} pieces={} hang4={} over={} loose={} packed={} ants={} roofed={} packed_above={} mound_high={} digs={} dumped={} seed={} frames={}",
+        hang.hang, hang.hang_spoil, hang.hang_packed, hang.pieces, hang.hang4, hang.over, hang.loose, hang.packed,
         s.ants, s.roofed, s.packed_above, s.mound_high,
         world.creature_stats.digs, world.creature_stats.spoil_dumped, spec.seed, frames
     );
