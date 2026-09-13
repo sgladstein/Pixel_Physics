@@ -147,18 +147,18 @@ point.
 | W6 | closed | 9870 | A plant EVOLVES root tips into shoot tips, and the shoot it then grows is made of root wood |
 | W7 | closed | 10262 | A severed plant is still one economy: the roots' water feeds a crown they have no path to |
 | Z6 | **OPEN** | 10368 | Every shipped bed starves its ant colony inside one play session |
-| Z7 | **OPEN** | 10511 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
-| Z8 | closed | 10663 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
-| Z9 | closed | 10784 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
-| Z10 | closed | 10897 | The flitter's float never switches off on a bed that has flowers in it |
-| Z11 | closed | 10994 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
-| Z12 | **OPEN** | 11089 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
-| Z13 | **OPEN** | 11169 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11331 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11423 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11501 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11642 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11694 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z7 | **OPEN** | 10546 | The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0... |
+| Z8 | closed | 10698 | A fruit severed by ordinary structural failure lands as an ownerless windfall, and it can... |
+| Z9 | closed | 10819 | A hopping animal that comes down on water never lands: it hangs there, is charged the air... |
+| Z10 | closed | 10932 | The flitter's float never switches off on a bed that has flowers in it |
+| Z11 | closed | 11029 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
+| Z12 | **OPEN** | 11124 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
+| Z13 | **OPEN** | 11204 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
+| Z14 | **OPEN** | 11366 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11458 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11536 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11677 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11729 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -10507,6 +10507,41 @@ and 5), every death starvation, both boxes failing the bar.
   **The remaining two briefs — an ant that dies of age, and a nest that stops
   digging when it has room — are still unbuilt**, so a colony's population is
   still bounded only by the larder's edge and this section stays OPEN.
+
+**2026-09-13, round 31 lane A — every number in this section was measured
+through a cull that no longer runs, and the headline claim does not
+reproduce. The section stays OPEN on a narrower claim.** #366 (merged
+2026-09-12) fixed a write site where an ant that ate a seed was overwritten
+by the seed; two fifths of colony deaths on this bed were that. The re-take is
+[`evolution-lab-lifespan-rederived-2026-09-13.md`](evolution-lab-lifespan-rederived-2026-09-13.md)
+— `latecensus scenario=played_bed frames=200000`, `RAYON_NUM_THREADS=1`,
+twelve seeds on the played bed and seeds 1–3 on the other five shipped beds,
+all from one binary. **The shipped arm ends 200,000 frames with a live colony
+on 26 of 27 runs**, against this section's 2 of 9:
+
+| bed | seeds | live at 200,000 | ants alive |
+|---|---|---|---|
+| `played_bed` | 1–12 | **12 of 12** | 1 – 408, median 117 |
+| `played_bed_longant` | 1–3 | 3 of 3 | 368 / 891 / 1,198 |
+| `played_bed_understory` | 1–3 | 2 of 3 | 0 / 65 / 250 |
+| `played_bed_flitter` | 1–3 | 3 of 3 | 101 / 118 / 140 |
+| `played_bed_scrambler` | 1–3 | 3 of 3 | 33 / 181 / 397 |
+| `played_bed_windfall_reach` | 1–3 | 3 of 3 | 2 / 69 / 203 |
+
+And *"every death in every run is starvation"* is no longer true either: on
+the played bed at 120,000 frames **age is 55% of colony deaths at the median**
+and outnumbers hunger on nine of twelve seeds.
+
+**Why it is not closed.** Three gaps, all of them this section's own bar
+rather than the new sweep's: the bar is written at **300,000 frames** and
+round 31's brief capped runs at 200,000; the bar names `labstats`'s **default
+box and full box**, which are not among the six shipped beds re-run here; and
+**"a colony" is not "an ant"** — three of the twenty-seven runs end in single
+figures (1, 2, 33), which passes the letter of the bar and not its spirit.
+**Do not quote the 2026-09-07 table again.** The reproduction to run is the
+two `labstats` boxes at 300,000 frames on a post-#366 trunk, and the claim to
+keep until it is run is the narrow one: *some shipped beds end a session with
+a colony too small to be one.*
 
 ### Z7. The trail-following gate saturates the signal it gates: the ant reads its own trail at ±0.003 per step — **HOMING HALF FIXED 2026-09-09 (units 0/1, channel A); the food half is deliberately STILL OPEN — the repair works and costs 25.0% of a mirrored race**
 
