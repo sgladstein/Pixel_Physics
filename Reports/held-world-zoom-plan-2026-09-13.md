@@ -158,6 +158,28 @@ The cheap move is a blind A/B of rung 3 at scale 1 against rung 4 at scale 4:
 the question is which picture a player actually wants out of a five-screen
 world, and that is not answerable from the numbers.
 
+**That card cannot be made with `zoomout_pixels`, which is the harness it looks
+like it wants.** Checked before promising it. `Arm::new` derives its stride as
+`SPAN_STRIDE / scale` and holds `scale * stride == SPAN_STRIDE` — the
+**constant-reads construction** that is the whole reason that instrument
+answers the question it was built for, since it makes cell reads identical by
+arithmetic so the delta is per-pixel work alone. Rung 3 and rung 4 differ in
+**span** (`1536x960` against `2048x1280`), so expressing them as two arms means
+breaking the invariant the harness exists to hold. Do not "just add an arm".
+
+**`labzoom` is the right instrument and it becomes right once #395 lands.** It
+already renders one tile per zoom step at the real 512x320 viewport, with VOID
+and MID beside each — which is exactly a rung ladder. What it lacks today is a
+budget: it predates `Lab::pixel_budget`. Once #395 is on `main`, a `budget=`
+arm over the existing step loop produces the rung-by-rung sheet at scale,
+and the card is then near-free.
+
+So the sequencing is: #395 lands → `labzoom budget=` → post the blind card →
+decide the ladder → then build §4. Posting a card whose construction does not
+match the question is the failure this round already paid for once, when two
+review cards offered *different menus* and the difference in construction read
+as a difference in the thing being judged.
+
 **The default, which must be measured rather than inherited.** x4 is the
 owner's pick in both other games and consistency is a stated requirement, so
 x4 is the presumption. But the held world's premise is *a world standing
