@@ -6639,7 +6639,13 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             // the higher a pellet can be set down, and worked soil then stays
             // where it was put.
             let lifted = beside.is_none();
-            let site = beside.or_else(|| (1..=SPOIL_LIFT).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
+            // **The scan stops at the first thing this animal could not have
+            // got through itself**, which is what makes the lift an abstracted
+            // walk rather than teleportation -- `CLAUDE.md`'s second law, *there
+            // must be a verb, and it must deliver something*. The rule is
+            // #221's and is ported with it; `lift_reach` carries the argument.
+            let reach = lift_reach(world, x, y, dig_force_of(def, &traits_of(world, organism, def), world.trait_reach), spoil_lift_mode());
+            let site = beside.or_else(|| (1..=reach).map(|dy| (x, y - dy)).find(|&(px, py)| open(px, py)));
             if let Some((px, py)) = site {
                 world.set(px, py, spoil.cell);
                 if let Some(state) = world.organism_mut(organism) {
@@ -6647,8 +6653,10 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 }
                 world.creature_stats.spoil_dumped += 1;
                 if lifted {
+                    let rows = (y - py).max(0) as u32;
                     world.creature_stats.spoil_lifted += 1;
-                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max((y - py).max(0) as u32);
+                    world.creature_stats.spoil_lift_max = world.creature_stats.spoil_lift_max.max(rows);
+                    world.creature_stats.spoil_lift_rows += u64::from(rows);
                 }
             }
         }
@@ -6835,6 +6843,131 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         }
     }
     Did { dug: 0, ..did }
+}
+
+/// How far up `act`'s spoil lift may look — the first row holding something
+/// this animal could not have got through itself, or `SPOIL_LIFT`.
+///
+/// **This is what makes the lift an abstracted walk rather than teleportation**,
+/// and it is `Reports/open-bugs-handoff.md` §Z19. The scan used to run all
+/// `SPOIL_LIFT` (160) rows unconditionally, with no check that a path exists:
+/// inside a trunk every candidate fails the destination test's emptiness
+/// clause, so it ran past the whole tree and put the pellet on the first
+/// foliage shoulder or the crown top, where — worked soil being
+/// `self_supporting` — it stayed. **PR #221** measured that standing
+/// consequence over four seeded beds: tallest pellet **+52 / +67 / +99 / +94**
+/// rows with a tree in the box, against **+4 / +3 / +2 / +2** without.
+///
+/// **That standing consequence no longer reproduces, and the travel does** —
+/// which is why this is a second law defect rather than a picture defect. §Z18's
+/// `needs_footing` repair means a pellet posted into a canopy now falls out of
+/// it, so `spoil_destination` on today's trunk reads a tallest standing pellet
+/// of **+2/+4/+3/+2** with a tree against **+3/+5/+3/+4** without: the heap is
+/// gone. The *lift* is untouched by that repair and still fires on **8-20% of
+/// all pellets, up to 107 rows**. A pellet that crosses a hundred rows with
+/// nothing carrying it and then rains back down is the same defect wearing a
+/// different picture.
+///
+/// **Soil still passes, and that is the point of keeping a lift at all.** An
+/// animal at the face of a gallery has a roof over it and every neighbour
+/// taken; the walk home is up its own workings, through ground it can cut. So
+/// the bound is the species' own `dig_force` against the material's
+/// `penetration_resistance` — the same test the dig branch makes, so *"could I
+/// have come this way"* and *"could I have dug this"* cannot drift apart — and
+/// never a material whitelist. Plant tissue, stone and sand stop it; soil and
+/// worked soil do not.
+///
+/// **`mode` is a parameter rather than a read of the env switch**, so one test
+/// process can exercise all three arms: a `OnceLock` resolves once per process
+/// and a guard that can only ever see the default is a guard over one third of
+/// the rule. The env read stays at the call site.
+///
+/// Returns the blocking row itself rather than the one below it, which costs
+/// nothing: a blocker is not `EMPTY`, so the destination test refuses it
+/// anyway. Raw `material == EMPTY` rather than `World::is_empty`, which is
+/// managed-aware and answers a different question.
+fn lift_reach(world: &World, x: i32, y: i32, dig_force: f32, mode: SpoilLift) -> i32 {
+    if mode == SpoilLift::Unbounded {
+        return SPOIL_LIFT;
+    }
+    for dy in 1..=SPOIL_LIFT {
+        let cell = world.get(x, y - dy);
+        if cell.material == material::EMPTY {
+            // **Empty is not automatically passable, and this is the half
+            // #221's rule did not have.** Cutting and climbing are different
+            // abilities: that rule asked only *could this animal dig through
+            // what is in the way*, so a column of open air was unbounded by it
+            // and the teleport survived wherever the sky was clear. Measured
+            // with the dig bound alone, `spoil_destination` seed 6 still lifted
+            // a pellet **102 rows**.
+            //
+            // An ant goes up a shaft by holding its wall, so a row is
+            // climbable when something solid stands beside it. In the open sky
+            // over a mound there is nothing to hold and the scan stops, which
+            // is the case the second law is about.
+            if mode == SpoilLift::Climb && !has_wall_beside(world, x, y - dy) {
+                return dy;
+            }
+            continue;
+        }
+        if world.materials.get(cell.material).penetration_resistance <= dig_force {
+            continue;
+        }
+        return dy;
+    }
+    SPOIL_LIFT
+}
+
+/// Is there anything beside this cell for a climbing animal to hold?
+///
+/// The two horizontal neighbours only. A cell with ground **below** it is not
+/// a climb, it is the top of the heap — that is the destination test's job
+/// (`open`'s two-of-three), and asking it here as well would let the scan walk
+/// up the outside of a lattice one cell at a time, which is the bootstrap
+/// §Z18 describes.
+fn has_wall_beside(world: &World, x: i32, y: i32) -> bool {
+    world.get(x - 1, y).material != material::EMPTY || world.get(x + 1, y).material != material::EMPTY
+}
+
+/// The ablation switch for the bound above, **fully on by default** (the lab's
+/// standing ruling: ship everything on).
+///
+/// `PIXEL_PHYSICS_SPOIL_LIFT=unbounded` puts the pre-2026-09-13 behaviour back:
+/// the scan runs all `SPOIL_LIFT` rows whatever is in the way. `=dig` is PR
+/// #221's rule alone, without the climb clause, which is the arm that says
+/// which half of the default is doing the work. Neither changes
+/// **anything else** — the same shape `spoil_kept` and `trophallaxis_enabled`
+/// beside it use, and for the same reason `CLAUDE.md` gives: *the control is to
+/// hold the semantic rule fixed, not to add another metric*.
+///
+/// It exists because the claim is about a **standing** quantity — how much
+/// worked ground ends up high, how much nest a colony still has — and a
+/// standing quantity has no baseline of its own. Both arms run from one binary,
+/// so no rebuild sits between them; `CLAUDE.md` has four separate incidents of a
+/// measurement taken against a stale example binary, and the tell each time was
+/// output that did not move.
+///
+/// Read once per process through a `OnceLock`, matching its two neighbours.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SpoilLift {
+    /// The pre-2026-09-13 trunk: scan all `SPOIL_LIFT` rows whatever is in the
+    /// way.
+    Unbounded,
+    /// PR #221's rule: stop at the first row this animal could not have dug
+    /// through. Open air passes.
+    Dig,
+    /// `Dig`, and a row of open air passes only where there is a wall beside it
+    /// to climb. The default.
+    Climb,
+}
+
+fn spoil_lift_mode() -> SpoilLift {
+    static MODE: std::sync::OnceLock<SpoilLift> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_SPOIL_LIFT").as_deref() {
+        Ok("unbounded") => SpoilLift::Unbounded,
+        Ok("dig") => SpoilLift::Dig,
+        _ => SpoilLift::Climb,
+    })
 }
 
 /// How far up a pellet may be carried to reach the surface, in cells.
@@ -22934,4 +23067,103 @@ mod tests {
     // bar") is answered structurally by there being no roof. The question
     // worth asking of the replacement is a different one and is asked by
     // `a_crop_delivers_less_the_further_it_has_to_walk`.
+
+    /// **`lift_reach` stops where the animal could not have gone** — §Z19, the
+    /// spoil teleport.
+    ///
+    /// A tight assertion on a deterministic function of the grid, which is the
+    /// one case `CLAUDE.md` exempts from *put the fault back and watch it go
+    /// red*: there is no emergent behaviour here for a loose assertion to pass
+    /// vacuously over. What it cannot see is whether `act` calls it at all, and
+    /// nothing in this module can — that is the A/B in
+    /// `examples/spoil_destination`, whose arms must not print the same
+    /// numbers.
+    ///
+    /// **All three modes are exercised**, which is why `lift_reach` takes the
+    /// mode rather than reading the switch: a `OnceLock` resolves once per
+    /// process, so a guard that could only see the default would cover a third
+    /// of the rule and read as full cover.
+    ///
+    /// The arms are chosen from the **measured** resistances rather than from
+    /// the claim #221 made about them, and one contradicts it: that branch's
+    /// comment says *"plant tissue (resistance 100 by default)"* stops the
+    /// lift, and `leaf.ron` authors **0.1**. Foliage does not stop an ant and
+    /// does not stop this. Trunk, root and stone do, at the default 100.
+    #[test]
+    fn a_spoil_lift_stops_at_what_the_animal_could_not_dig() {
+        let mut w = test_world();
+        let ant = w.species.get(w.species.id_of("ant").expect("ant species is loaded")).creature.as_ref().expect("ant is a creature").clone();
+        let jaw = ant.dig_force;
+        // **Deep enough that `SPOIL_LIFT` fits above the animal.** At y=150 in
+        // this 200-row world the scan runs out of world before it runs out of
+        // reach and returns 151: an out-of-bounds read is not `EMPTY` and its
+        // resistance is the impenetrable default, so the world roof stops the
+        // scan exactly as a slab would. Correct, and not what these arms are
+        // measuring, so the animal stands at y=180 and the blockers come to it.
+        let floor = 180;
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        let wood = w.materials.id_of("wood").expect("wood is compiled in");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+
+        // --- Unbounded: today's trunk, and the arm that makes the rest mean
+        // something. Nothing stops it short of the world.
+        w.set(100, floor - 5, Cell::new(wood, 0));
+        assert_eq!(lift_reach(&w, 100, floor, jaw, SpoilLift::Unbounded), SPOIL_LIFT, "the unbounded arm must ignore a trunk in the column");
+        w.set(100, floor - 5, Cell::EMPTY);
+
+        // --- Dig: PR #221's rule. A wall beside every row, so the climb clause
+        // is satisfied throughout and this arm isolates the dig test alone.
+        for dy in 1..=SPOIL_LIFT {
+            w.set(99, floor - dy, Cell::new(soil, 0));
+        }
+        assert_eq!(lift_reach(&w, 100, floor, jaw, SpoilLift::Dig), SPOIL_LIFT, "an empty column must not bound the dig rule");
+
+        // Ground the animal cuts for a living does not stop it — without this
+        // arm the rule could be "anything at all stops the lift", which would
+        // read as a pass everywhere else here and would take the lift away from
+        // an animal at the face of its own gallery.
+        for dy in 1..=20 {
+            w.set(100, floor - dy, Cell::new(soil, 0));
+        }
+        assert_eq!(lift_reach(&w, 100, floor, jaw, SpoilLift::Dig), SPOIL_LIFT, "soil is what an ant digs; it must not bound the lift");
+
+        // A trunk does, at the default resistance of 100.
+        w.set(100, floor - 9, Cell::new(wood, 0));
+        assert_eq!(lift_reach(&w, 100, floor, jaw, SpoilLift::Dig), 9, "a trunk nine rows up must stop the scan there");
+
+        // ...and foliage does **not**, which is the half #221 got wrong.
+        w.set(100, floor - 9, Cell::new(leaf, 0));
+        assert!(
+            w.materials.get(leaf).penetration_resistance <= jaw,
+            "this arm is only meaningful while a leaf is softer than the ant's jaw; it authors {} against a jaw of {jaw}",
+            w.materials.get(leaf).penetration_resistance
+        );
+        assert_eq!(lift_reach(&w, 100, floor, jaw, SpoilLift::Dig), SPOIL_LIFT, "a leaf is softer than the jaw that cuts it, so it must not bound the lift");
+
+        // --- Climb: the default, and the clause #221 did not have. Open sky
+        // with nothing beside it is not a path an ant could have taken.
+        let mut sky = test_world();
+        assert_eq!(lift_reach(&sky, 100, floor, jaw, SpoilLift::Dig), SPOIL_LIFT, "the dig rule alone must run the whole way up open sky -- this is the fault the climb clause exists for");
+        assert_eq!(lift_reach(&sky, 100, floor, jaw, SpoilLift::Climb), 1, "open sky with no wall beside it must stop the climb at the first row");
+
+        // A wall beside the column is a shaft, and a shaft is exactly what the
+        // lift is an abstraction of — so it must still pass.
+        for dy in 1..=30 {
+            sky.set(99, floor - dy, Cell::new(soil, 0));
+        }
+        assert_eq!(lift_reach(&sky, 100, floor, jaw, SpoilLift::Climb), 31, "a wall 30 rows tall must carry the climb 30 rows and stop where it ends");
+
+        // **The world roof stops it too**, which the first draft of this test
+        // tripped over rather than asserted. Stated so that a later change to
+        // out-of-bounds reads cannot quietly hand the lift 160 rows of sky that
+        // is not there.
+        let walled = {
+            let mut w3 = test_world();
+            for dy in 1..=200 {
+                w3.set(99, 150 - dy, Cell::new(soil, 0));
+            }
+            w3
+        };
+        assert_eq!(lift_reach(&walled, 100, 150, jaw, SpoilLift::Climb), 151, "the scan must stop at the top of the world, 151 rows above y=150");
+    }
 }
