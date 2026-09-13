@@ -267,6 +267,16 @@ pub struct TimeControl {
     /// Real time left before another automatic reaction is allowed to
     /// fire. See [`REACTION_COOLDOWN`].
     cooldown_remaining: Duration,
+    /// **How many passes have skipped drawing (ticked but not shown), over
+    /// the whole run.** Round 31's own addition, for the chronicle's perf
+    /// columns (`census::PerfSample`) -- a session with a high, climbing
+    /// count spent its time simulating rather than painting, which is the
+    /// sim-bound/render-bound fork any perf work needs answered first and
+    /// today cannot be from a log alone. Incremented in `record`, once per
+    /// pass whose `Advance::draw` came back `false`; never reset, the same
+    /// shape as `RunLog::dropped` -- a running total a reader can difference
+    /// across two chronicle rows, not a per-frame flag.
+    draws_skipped: u64,
 }
 
 /// The simulation's own rate. One tick is 1/60th of a simulated second, on
@@ -441,6 +451,7 @@ impl TimeControl {
             linger_remaining: None,
             restore_requested: 1,
             cooldown_remaining: Duration::ZERO,
+            draws_skipped: 0,
         }
     }
 
@@ -580,8 +591,19 @@ impl TimeControl {
     /// calling `plan(ZERO)`, which silently consumed a display interval and
     /// zeroed the render-cost sample: exactly `CLAUDE.md`'s *a debug readout
     /// must not be a function of the thing it debugs*, one level down.
-    fn owed_ticks(&self) -> u32 {
+    ///
+    /// **`pub` as of round 31** for `census::PerfSample::debt_ticks` -- the
+    /// chronicle's own reason to read it is exactly this doc's own: telling
+    /// a frame that merely ran short from a box that has stopped keeping up
+    /// at all, which `ticks_per_frame` alone cannot.
+    pub fn owed_ticks(&self) -> u32 {
         (self.sim_debt.as_nanos() / TICK.as_nanos()) as u32
+    }
+
+    /// How many passes have skipped drawing, over the whole run. See
+    /// `draws_skipped`'s own field doc.
+    pub fn draws_skipped(&self) -> u64 {
+        self.draws_skipped
     }
 
     /// The wall-clock ceiling on one pass's tick loop.
@@ -610,6 +632,13 @@ impl TimeControl {
         if self.drawing {
             self.shown_ticks = self.pending_ticks;
             self.pending_ticks = 0;
+        } else {
+            // This pass ticked and did not draw -- `Advance::draw` below
+            // will read `false`. Counted here rather than by the caller
+            // summing `Advance::draw == false` across a run, because the
+            // chronicle's own row is the only reader today and a running
+            // total on `TimeControl` needs no caller-side bookkeeping.
+            self.draws_skipped += 1;
         }
 
         self.window_ticks += ticks as u64;
@@ -1063,6 +1092,37 @@ mod tests {
         for _ in 0..500 {
             assert!(m.pass(&mut t).draw, "a paused box must never skip a frame");
         }
+    }
+
+    /// **`draws_skipped` (round 31, for `census::PerfSample`) counts exactly
+    /// the passes whose `Advance::draw` came back `false`, over the whole
+    /// run.** At the top of the speed ladder the display rate drops well
+    /// below the pass rate (`display_rate_drops_as_speed_climbs` below), so
+    /// most passes tick without drawing -- this is the counter that lets a
+    /// chronicle row say so.
+    ///
+    /// Provable red by dropping the `self.draws_skipped += 1` line from
+    /// `record`'s `else` arm: `t.draws_skipped()` would then read `0` while
+    /// this test's own tally of undrawn passes is provably positive (a
+    /// paused box, per the test just above, would make this vacuous, which
+    /// is why this one runs at the fastest preset instead).
+    #[test]
+    fn draws_skipped_counts_exactly_the_undrawn_passes() {
+        let mut t = TimeControl::new();
+        t.set_preset(PRESETS.len() - 1);
+        let mut m = Machine::new(200, 3);
+        let mut passes = 0u64;
+        let mut drew = 0u64;
+        for _ in 0..5_000 {
+            let a = m.pass(&mut t);
+            passes += 1;
+            if a.draw {
+                drew += 1;
+            }
+        }
+        let skipped = passes - drew;
+        assert!(skipped > 0, "this test needs at least one skipped draw to mean anything -- {drew} of {passes} passes drew");
+        assert_eq!(t.draws_skipped(), skipped, "draws_skipped did not match the passes whose Advance::draw was false");
     }
 
     /// **Resuming must not pay off a backlog.** A box paused for a minute and

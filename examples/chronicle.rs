@@ -138,7 +138,11 @@ fn main() {
         // Right after `frame::step`, the lab's own cadence (`Lab::tick`):
         // this frame's settled state, sampled once every `sample_every`.
         if show_census && world.frame % sample_every == 0 {
-            census_rows.push(census::take_chronicle_row(&world, &spec, gut, &nest_cols, &ids, &spec.colony_species));
+            // `None`: this harness drives `frame::step` directly with no
+            // `Lab` and no dial, so the perf columns (round 31) print `--`
+            // -- see `census::PerfSample`'s own doc for why that is correct
+            // rather than a gap.
+            census_rows.push(census::take_chronicle_row(&world, &spec, gut, &nest_cols, &ids, &spec.colony_species, None));
         }
     }
 

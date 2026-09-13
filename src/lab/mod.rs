@@ -1530,7 +1530,19 @@ impl Lab {
             let ids = census::Ids::resolve(&self.world);
             let nest_cols = census::nest_columns(&self.spec, self.scenario.as_ref());
             let gut = census::ant_gut_bias(&self.world);
-            self.chronicle_census.push(census::take_chronicle_row(&self.world, &self.spec, gut, &nest_cols, &ids, &self.spec.colony_species));
+            // `Some(&self.time)`: a real `Lab` always has a dial, so the
+            // perf columns (round 31) are always filled in here -- the load
+            // half of the chronicle, alongside the content the census
+            // already carried.
+            self.chronicle_census.push(census::take_chronicle_row(
+                &self.world,
+                &self.spec,
+                gut,
+                &nest_cols,
+                &ids,
+                &self.spec.colony_species,
+                Some(&self.time),
+            ));
             // **Autosave, round 31.** Today a crash between two `REBUILD`s
             // (or between the last one and now) writes nothing at all, so
             // the owner's own played sessions -- the ones this feature is
