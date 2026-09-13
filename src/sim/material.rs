@@ -716,6 +716,25 @@ pub struct MaterialDef {
     /// that from occasional into constant: its bank is 54% soil with roots
     /// all through it.
     ///
+    /// **And the acceptance case that exists for exactly this question moves
+    /// with it.** `scripts/acceptance.sh`'s `wood` arm sweeps four grown
+    /// stands and gates the total; paired off one binary through
+    /// `PIXEL_PHYSICS_ROOT_FOOTING`, on one machine:
+    ///
+    /// | `frame0` | roots as scenery | roots as ground |
+    /// |---|---|---|
+    /// | 0 | 126 | 422 |
+    /// | 1800 | 388 | 374 |
+    /// | 3600 | 469 | 475 |
+    /// | 4500 | 49 | 395 |
+    /// | total | 1,032 | 1,666 |
+    ///
+    /// **Read the shape rather than the total**: two windows barely move and
+    /// one is 14 cells *worse*, because the rule only fires where a root
+    /// plate is in his path. The two that move are the two where he was
+    /// being swallowed. A clean uniform win across all four would have been
+    /// the tell that something else was being measured.
+    ///
     /// **`Footing::Soft` — what the soil the root displaced already was —
     /// and not `Hard`.** The bank is powder: he sinks to the knee and
     /// stops. A root that stood him *on top* of itself would make the
