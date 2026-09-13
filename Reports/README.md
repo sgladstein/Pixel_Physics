@@ -127,6 +127,25 @@ by somebody about to try it on creatures.
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
+- [held-world-zoom-plan-2026-09-13.md](held-world-zoom-plan-2026-09-13.md)
+  — **plan, not built.** How the held world gets a zoom control, on the owner's
+  instruction that it should have one. The number that makes it worth
+  building: `max_zoom_out_stride` over druid's 2560x960 world gives **rung 4**,
+  the widest rung, where a power-of-two pixel budget is spent in full — so the
+  widest view draws every cell into its own pixel instead of discarding fifteen
+  in sixteen. Two of the three costs the lab paid do not arise here (no cursor
+  conversion — the held world is keyboard-only; no ring arithmetic —
+  `druid::hud::rings` already routes through `Renderer::world_to_screen`, which
+  answers in buffer pixels). **The recommendation is to extract before adding
+  the third copy**: `App` and `Lab` each hold the same `pixel_budget` /
+  `viewport()` / `cycle_pixel_budget()` / `resize_buffer` shape, and writing it
+  a third time is exactly how the lab inherited the sandbox's discard and none
+  of its fix. Names the constraint that makes "just store it on `Renderer`"
+  wrong (`pixel_scale_for`'s copy is stale by design and sizing a buffer from
+  it once panicked in the HUD 100 lines from its cause). Raises **the rung-3
+  hole** as a decision for all three games rather than for druid: the ladder is
+  1,2,3,4 and 3 has no power-of-two divisor, so the budget buys nothing there
+  and a player walking out gets sharp, sharp, blurry, sharp.
 - [why-changes-cost-so-much-2026-08-27.md](why-changes-cost-so-much-2026-08-27.md)
   — **method finding, from a live instance.** Why every change here seems to
   demand a global retune: most large levers have **no counterweight**, so
@@ -2737,6 +2756,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ant and dumped spoil weathers back to soil. Also names `labforage`'s
   `plants` column as plants **plus** the bank, which relabels every earlier
   count on this bed.
+- [evolution-lab-chronicle-counts-2026-09-13.md](evolution-lab-chronicle-counts-2026-09-13.md)
+  — **built and landed, 2026-09-13: the chronicle's `COUNTS:` line was a
+  census of its own ring.** The owner's playtest reported `BORN 664` for a bed
+  that had had 15,905 animal births in it, because `chronicle_text` tallied
+  `RunLog::recent()` and a *full* ring prints as a *complete* count. **The cap
+  was the symptom**: no cap fixes it short of holding the whole session, which
+  is 131,072 events — **7.3 MB per world and ~0.95 ms of every painted frame
+  the LOG page is open** (measured paired over four ring lengths; `Ui::
+  log_rows` collects the whole ring per paint). A 72-byte cumulative tally
+  fixes it at any cap, which is the rule the LOG page's own `OLDER` row
+  already stated — *"nothing in the lab is ever counted off this page"*.
+  Also **corrects §5's attribution**: at most ~46,300 of the 81,690 events can
+  be animal, so **~35,400 are the plant stand**, which germinates and dies
+  into the same ring. Cap re-derived 2048 → 8192 against a played session
+  rather than the shipped bed, whose colony is down to 5 ants by 60,000
+  frames.
 - [evolution-lab-census-datum-2026-09-13.md](evolution-lab-census-datum-2026-09-13.md)
   — **built and landed, 2026-09-13: the five dead chronicle columns, and why
   they are two bugs rather than one.** The owner's 560,000-frame playtest read

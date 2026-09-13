@@ -1061,8 +1061,8 @@ fn main() {
             // the picture rather than described in a caption.
             let hover: Option<i32> = arg("hover");
             match hover {
-                Some(row) => lab.stats.draw_at(&mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
-                None => lab.stats.draw(&mut buf, &lab.world),
+                Some(row) => lab.stats.draw_at(pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1), &mut buf, &lab.world, Some((WIDTH as i32 - 200, row))),
+                None => lab.stats.draw(pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1), &mut buf, &lab.world),
             }
         }
         // **Nearest-neighbour, integer factor.** The page is 5x7 glyphs on a
@@ -1305,7 +1305,7 @@ fn cost(spec: LabBox, frames: u64) {
     lab.stats.observe(&lab.world);
     for _ in 0..REPS {
         let t = std::time::Instant::now();
-        lab.stats.draw(&mut buf, &lab.world);
+        lab.stats.draw(pixel_physics::render::Hud::new(WIDTH, HEIGHT, 1), &mut buf, &lab.world);
         draw_ns += t.elapsed().as_nanos();
     }
     let census = census_ns as f64 / REPS as f64 / 1e6;
