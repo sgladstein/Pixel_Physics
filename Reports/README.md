@@ -3230,6 +3230,28 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   merge-tree serialisation, bug-letter collisions) the next coordinator pays
   for otherwise.
 
+- [evolution-lab-creature-cost-2026-09-13.md](evolution-lab-creature-cost-2026-09-13.md)
+  — **what one ant costs per tick, and why halving it is not a tuning
+  problem.** The headless replay the playtest report asked for, on a quiet box
+  with threads pinned and arms round-robin inside one run. **The played
+  session's model reproduces up to one scalar** — intercept and slope are both
+  ~2.5x this container's, so the transferable quantity is the *share*, and it
+  lands on **86% of the frame at 3,000 ants** against the played session's
+  independently-measured 86%. **One ant's decision costs 57,314 instructions,
+  split five ways with no term over 31%**: `sense` 30%, `step_chain` 17%, the
+  brain 14%, `tumble` 13%, `act` 11%. Two hypotheses that would each have given
+  one big lever were refuted by measurement — the ants are not jammed (blocked
+  moves 3.8–7.9% against a 5.2% standing control), and the soil-moisture pass
+  that a callgrind profile put at 37.8% of all instructions is **flat in ant
+  count**, settled by one switch that moves the intercept 1.84x and the slope
+  by 0.3%. Lands two bit-identical cuts worth 2.7% of the tick and says plainly
+  that **2.7% is not measurable on this box** (the slope's own run-to-run
+  spread is 1.39x) and is not the answer. Prices the six things that would be:
+  the creature pass has **no parallelism at all** — one thread against four is
+  worth 1.09x on the background and 1.20x on the ants — and at the owner's
+  population that leaves ~86% of the frame single-threaded. Harness:
+  `examples/antcost.rs`.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
