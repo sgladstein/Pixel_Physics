@@ -620,13 +620,41 @@ in the world (`field.rs:1116`, called at `:1420` and `:1430`).
 because it is the one that walks the whole world regardless of how few tiles
 are awake."*
 
-**And the design's own fiction removes that floor.** A held world has a
-**frozen sky** — which is not a workaround, it is the premise — and
-`sky_light_amplitude_of` already returns 0.0 when `World::sky_lighting()` is
-off (`field.rs:2007`). The lever that makes the world *held* is the same lever
-that removes the one pass a region gate cannot touch. That coincidence is
-worth stating plainly: **the cheapest configuration of this engine and the
-premise of this game are the same configuration.**
+**The design's own fiction removes that floor — but not by the route this
+report first claimed, and the correction changes what is worth building.**
+
+**Wrong, and struck 2026-09-13:** *"`sky_light_amplitude_of` already returns
+0.0 when `World::sky_lighting()` is off, so the lever that makes the world
+held is the same lever that removes the one pass a region gate cannot
+touch."* It conflates two different switches. `sky_light_amplitude_of`
+(`field.rs:2007`) gates on `World::sky_lighting()`, which is the **lab's**
+cut-the-sun switch — `set_sky_lighting`, default `true`. Holding the world
+calls `set_sky_hold`, which pins `clock.sky_hold` and is a **different
+field**. A held world therefore still has `sky_lighting() == true`, still
+computes a real amplitude, and `apply_sky_to` still walks every chunk on the
+frames the pass runs. Checked in the source, not inferred.
+
+**Right, and better for the design:** pinning the sky makes
+`sky_frame() == prev_sky_frame()` for ever, so `amplitude_changed` and
+`sky_temperature_changed` are both **permanently false**. Together with
+`active_chunk_count() == 0 && fields_settled()` that is the whole of
+`field::step`'s early-out at **`field.rs:1112`** — so a held, settled world
+does not pay 14% for the sky pass, it pays **nothing at all**, because the
+field never runs. The premise does not shrink the floor; it removes the
+storey.
+
+**Which is why the region gate is cut from the build plan rather than
+scheduled.** It exists to make a *global* solve regional, and in the state
+this game spends most of its time in there is no global solve to make
+regional. The condition that ends the early-out is
+`active_chunk_count() == 0`, and a quickening is precisely a region where
+chunks are awake — so **the number to measure before anyone builds a gate is
+`solve.len()` in a held world *with a circle running in it*, not in a held
+world at rest.** If the awake set is already close to the circle, the gate is
+buying nothing; the tile subset is doing its job.
+
+The 78.3% subsettable figure and the two traps below are unaffected and
+stand.
 
 **Two high-severity traps, both already documented in the code.**
 
