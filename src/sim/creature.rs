@@ -4548,6 +4548,15 @@ fn sense(
 // cells touches this animal's own ring; the field is read bilinearly and so
 // belongs at the field's own resolution. `writewatch` has the numbers.
 //
+// **The gate is arm against arm, never against a literal.** `lab_cost`'s
+// world and field hashes must match between `par=off` and `par=on` on *one
+// tree*; the values themselves are a property of the bed and move whenever
+// anything changes what an ant does. They read 0x6b802e70596b6dfe /
+// 0x40a395c839c40b42 when this landed and 0xf0122256172e2c99 /
+// 0x533dfffeb6192661 one merge later, both arms agreeing each time. A
+// mismatch with a number written down somewhere is not a regression; a
+// mismatch between two arms of the same tree is.
+//
 // **How the completeness of that enumeration was established**, since an
 // argument about it is worth nothing: `ParMode::Verify` consumes the cached
 // sense's *validation* and then recomputes the sense anyway and compares,

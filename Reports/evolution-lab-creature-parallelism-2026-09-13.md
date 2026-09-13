@@ -82,6 +82,14 @@ dirtying a 67x67 cell square, and cost **34.8% against 61%**.
 | speculation on, every window forced | `0x6b802e70596b6dfe` | `0x40a395c839c40b42` |
 | **`PIXEL_PHYSICS_CREATURE_PAR=unchecked`** | `0xb80855aa15c7bbc2` | `0x40189bd5c00e4c82` |
 
+**Do not read those literals as the gate — read the *agreement* as the
+gate.** Merging `main` a few hours later moved the same bed to
+`0xf0122256172e2c99` / `0x533dfffeb6192661`, on and off alike, because the
+spoil lane's landing changed what an ant does. A hash of a bed is a property
+of the bed at a moment; what this mechanism promises is that **the two arms of
+one tree match and the control does not**, and that is what survives a trunk
+that moves under it. The same caution applies to every hash in this report.
+
 **That bed stands six ants up, which is not the question.** The gate that
 matters is `antcost`'s own, new in this round: two `par` arms of one ant count
 are the same bed stocked by the same deterministic loop, so their world hashes
@@ -89,9 +97,9 @@ must agree. At 450 ants:
 
 | arm | world hash | creature ticks/f | moves/f | blocked % |
 |---|---|---|---|---|
-| `par=off` | `0x4faca71b907ec77c` | 87.6 | 40.3 | 11.1 |
-| `par=on` | `0x4faca71b907ec77c` | 87.6 | 40.3 | 11.1 |
-| `par=unchecked` | `0xd045d613da14acd6` | 87.9 | 39.6 | 10.3 |
+| `par=off` | `0xdf74e12314d4ca3c` | 88.2 | 39.9 | 9.3 |
+| `par=on` | `0xdf74e12314d4ca3c` | 88.4 | 39.5 | 9.3 |
+| `par=unchecked` | `0xb531700cecb816c8` | 88.0 | 39.6 | 10.2 |
 
 The counter columns are the other half of the pair `CLAUDE.md` asks for —
 **a cost that vanishes may be work that vanished**, and these say the animals
@@ -230,6 +238,11 @@ Switches, all controls rather than settings: `PIXEL_PHYSICS_CREATURE_PAR`
 (`off` default, `on`, `unchecked`, `verify`), `..._WINDOW`, `..._MIN`,
 `..._NEAR` (0), `..._TILE` (4), `..._MARGIN` (1). Every one of them is also a field of
 `World::creature_par`, which is how `antcost` puts two arms in one process.
+
+Every hash above was re-taken on the tree this report landed on. **Expect the
+literals to move on any tree that changes what an ant does, and re-take them
+rather than treating a mismatch with this page as a regression** — the claim
+is arm against arm, within one tree.
 
 **Read `cached%` and `spec µs/f` beside every timing.** A parallel read phase
 that is always invalidated is the same wall clock as no parallel read phase at
