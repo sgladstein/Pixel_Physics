@@ -93,90 +93,205 @@
         // shipped size -- so a `Spec` would have been the one route that is
         // NOT checked for a pass eating another's output.
         //
-        // Six changes from `rolling`, each with a reason:
+        // **Owner's verdict on the first version of this preset, 2026-09-13:**
+        // *"Revamp the world gen. This looks too much like The gnome game. I
+        // don't like it. Number one issue is It should be way more soil, way
+        // less rock"*, and on the render: *"The camera is ok, but it should be
+        // mostly soil, little to no rock"*. Measured over 8 player viewports x
+        // 3 seeds at 2560x960 (`world_look mode=composition world=2560x960`),
+        // the first version was **79% rock / 10% loose**, with a median of
+        // **22 cells** of ground above the first rock. It now reads **36%
+        // rock / 54% loose** at **115 cells**, and soil is the single largest
+        // thing on screen at 54% against the whole rock vocabulary's 36%.
         //
-        //   massif_amplitude 260 -> 70   the screen-high rock walls, gone. On
-        //                                the first generated druid world the
-        //                                gnome spawned in a gorge between two
-        //                                of them, which is a mining world's
-        //                                silhouette rather than a garden's.
-        //   soil_depth      105 -> 210   soil depth IS the resource here --
-        //                                ants burrow and roots go deep -- so
-        //                                the bed is thick and the rock under
-        //                                it is thin.
-        //   soil_slope_cutoff .8 -> .85  soil stays on steeper ground, so
-        //                                hillsides are plantable rather than
-        //                                bare stone.
-        //   vault_density   1.6 -> 0     no caving, so no cave systems.
-        //   pocket_density   .6 -> 0     a buried sand lens exists to be found
-        //                                by digging.
-        //   aridity         .35 -> .15   wetter ground, nearer water table,
-        //   + water table/pond/fringe    more and shallower ponds. The concept
-        //                                wants water and the plants need it.
+        // **The lever everyone reaches for is the one that does nothing, and
+        // that is the finding worth keeping.** `soil_depth` is not what limits
+        // how deep the ground is: `column::plan_from` gives no soil at all to
+        // any column steeper than `soil_slope_cutoff * repose`, and
+        // `column::taper_cover` then walks that zero outward one repose step
+        // (~0.7 cells) per column, so **one crag thins the blanket for a
+        // couple of hundred columns either side of it**. Measured: raising
+        // `soil_depth` from 210 to **1,000** -- 4.8x -- moved the viewport
+        // soil share from 8.4% to **8.5%**. What moves it is removing the
+        // steep columns, and the two that produce them are `world_age` and
+        // the short-wavelength terrain terms.
         //
-        // Life densities are raised too: this world is judged on what grows
-        // in it, and `rolling`'s scatter is tuned for a sandbox where plants
-        // are scenery. Terracing is softened rather than removed -- benches
-        // read as geology and give a walk somewhere to stand -- and
-        // `residual_density` is halved rather than zeroed, because tors and
-        // stacks are the landmarks a five-screen walk navigates by.
+        // The changes from the first version, grouped by what they are for:
         //
-        // **Two values here were paid for by a red trunk, 2026-09-13.**
-        // Registering this preset enrolled it in every guard in
-        // `tests/worldgen.rs` that sweeps `presets()` -- nobody opted in and
-        // nothing warned -- and `generated_terrain_is_already_at_rest` went
-        // red on it. Both fixes are measured, and the second is the
-        // interesting one:
+        //   world_age      0.8 -> 0    **the single biggest one.** Erosion is
+        //                              what cuts the gullies and leaves the
+        //                              hard bands standing, and every one of
+        //                              those is a bare column. Measured the
+        //                              wrong way round first: *more* erosion
+        //                              made it worse, `world_age` 1.0 -> 8.0
+        //                              taking bare columns 7.3% -> 12.7%. As
+        //                              `flat` already does, 0 is a guaranteed
+        //                              no-op rather than a small age, and it
+        //                              is legible in the fiction too -- this
+        //                              land has no history of being cut up.
+        //   hill_amp/wavelength,       the short-wavelength steepness. A hill
+        //   detail_amp/wavelength,     term of amplitude 30 at wavelength 150
+        //   warp_strength/wavelength,  peaks at a slope of 1.26 against a soil
+        //   terrace_strength 0.35 -> 0 cutoff of 0.71, so hills alone were
+        //                              stripping the blanket; the warp then
+        //                              multiplies whatever slope it lands on.
+        //                              Long wavelengths are safe -- a 170-cell
+        //                              massif over 3,200 peaks at 0.24 -- so
+        //                              the *shape* moves down into
+        //                              `relief_amplitude` and the massif
+        //                              rather than being flattened away.
+        //   relief_amplitude 34 -> 48  ...which is that move. Broad swells a
+        //   massif_amplitude 70 -> 170 walk crosses, in place of hills a walk
+        //   massif_wavelength -> 3200  climbs. The 70 was set to kill the
+        //                              screen-high walls and it did that by
+        //                              removing the landscape as well.
+        //   soil_depth     210 -> 380  now that it binds again. Not higher:
+        //                              `passes::soil_shade` ramps the profile
+        //                              over the blanket's *own* depth, so a
+        //                              600-deep blanket puts the whole visible
+        //                              cutaway in the single darkest tone and
+        //                              the ground reads as one flat slab. 380
+        //                              costs ~3 points of rock against 600 and
+        //                              keeps two horizons in view.
+        //   region_variation .75 -> .3 `sediment` scales `soil_depth` per
+        //                              region, and at 0.75 it swings 4x -- so
+        //                              whole regions came out thin.
+        //   talus_max_height -> 0      grey gravel aprons, and they land at
+        //   brow_chance      -> 0      the *top* of the profile. Brows and
+        //   residual_density -> 0      tors are rock in the air. All three are
+        //                              landforms for a game with a pick in it.
+        //   strata_thickness 9 -> 34   what is left of the rock stops wearing
+        //   strata_tilt   .06 -> .02   the sandbox's stripes. The banding is
+        //   strata_fold      6 -> 2    the thing that reads as the other game,
+        //                              so where a massif crest does break the
+        //                              surface it stands as one quiet mass.
         //
-        //   soil_slope_cutoff 1.1 -> 0.85   1.1 was 30% past the steepest in
-        //                                the file (wetland 0.85) and laid
-        //                                soil on slopes it could not hold:
-        //                                a diagonal run of 7 water cells
-        //                                walking down a bank, seed 2. 0.85
-        //                                clears it, and the sweep says it
-        //                                clears anywhere at or below 1.05,
-        //                                so this has real headroom.
-        //   settle_frames 0 -> 120       the residual was 1-2 cells at one
-        //                                seed and it MOVED under every
-        //                                perturbation -- a `world_age` sweep
-        //                                gave fail/pass/pass/pass/pass/fail/
-        //                                pass/fail/pass/fail/pass at three
-        //                                different seeds. That is a lottery,
-        //                                not a value that is wrong, so the
-        //                                fix is to stop handing over a world
-        //                                that has not stopped moving. 10
-        //                                frames already clears it; 120 is
-        //                                12x headroom. See
-        //                                `WorldgenParams::settle_frames`.
+        //   ...and see the note below: the settle has since made this value
+        //   free, and the owner then looked at both and could not tell them
+        //   apart. Measured: warp moves 41% of pixels and no property of the
+        //   landscape. It stays 0, and that is settled rather than deferred.
+        //
+        //   warp_strength  12 -> 0     **the at-rest fix, and it costs no
+        //   soil_slope_cutoff          soil at all.** Domain warp displaces
+        //                1.1 -> 1.0    the sample position, so its own
+        //                              gradient *multiplies* the slope of
+        //                              every term downstream of it and can
+        //                              push a column past repose that no
+        //                              amplitude here would. With the ground
+        //                              this gentle it was the only thing
+        //                              still doing that: turning it off moved
+        //                              the rock share by 0.2 points and took
+        //                              `generated_terrain_is_already_at_rest`
+        //                              from one soil grain in motion to none.
+        //
+        // **`soil_slope_cutoff` goes DOWN, to the documented limit.** It is
+        // the whole at-rest guarantee for powder -- this file's header says
+        // soil above 1.0 avalanches -- and the held world's first version
+        // shipped **1.1**, past it. That is not academic: at 1.1 with the warp
+        // already off, the at-rest guard fails on **seed 12**. It passed only
+        // because the guard sweeps **five** seeds, which CLAUDE.md's own
+        // "six seeds is not a sweep" rule says is a sample. Widened to twenty
+        // locally, `warp 0 / cutoff 1.0` is the only combination tried that
+        // holds -- `warp 4 / cutoff 1.0` fails on seed 14. Raising the cutoff
+        // is the strongest lever here by far (5.0 reaches 9.7% rock) and it is
+        // exactly the one that must not be pulled: it buys soil by placing it
+        // on ground steeper than it can stand on. Every number above is bought
+        // by making the *ground* gentle enough that a safe gate stops firing.
+        // The 3-point rock cost of 1.1 -> 1.0 is the price of that, and it is
+        // the right trade in a game where nothing is supposed to move.
+        //
+        // Unchanged from the first version, and still right: no vaults and no
+        // pockets (nothing digs), the wetter water table, and the raised life
+        // densities -- this world is judged on what grows in it.
+        //
+        // **`main` fixed the same guard while this branch was out, and both
+        // halves are kept.** The trunk was red for about three hours on
+        // `generated_terrain_is_already_at_rest`; the fix that landed
+        // (PR #390 / #394) was `soil_slope_cutoff 1.1 -> 0.85` plus
+        // `settle_frames`, and it was measured against the guard's own five
+        // seeds. This branch supersedes the **cutoff** with `1.0` on twenty
+        // seeds and a named mechanism -- `warp_strength`, whose gradient
+        // multiplies the slope of every term downstream -- which is a better
+        // answer than 0.85 arrived at by sweep, and it costs 3 points of rock
+        // instead of more.
+        //
+        // **`settle_frames` stays, and is not redundant.** It is not a second
+        // opinion about the cutoff: it exists because the residual after the
+        // cutoff was fixed was **one or two cells at one seed that moved under
+        // every perturbation** -- a `world_age` sweep failing on 4 of 11
+        // values, at three different seeds, on soil, gravel and water in turn.
+        // That is a lottery, and a settle removes it rather than dodging it.
+        // Keeping it is what lets the numbers above be chosen for the *look*
+        // instead of for the guard: this preset lays soil twice as deep as any
+        // other over the flattest relief in the file, so it will always have
+        // more marginal grains than a preset the guard was written against.
+        //
+        // **And that is not hypothetical -- it has already bought `warp_strength`
+        // back, if the owner wants it.** Warp was set to 0 above purely to
+        // clear the at-rest grain; with the settle in place it is free.
+        // Measured over **twenty** seeds x every preset, this preset's values
+        // and nothing else changed:
+        //
+        //             warp 0    warp 8    warp 16   warp 24   warp 34
+        //   settle 120  rest      rest      rest      rest      rest
+        //   settle   0  rest    seed 14      --        --      seed 1
+        //
+        // So `warp_strength: 0.0` stopped being a constraint and became a look
+        // decision -- and the owner then settled it in one line, from the
+        // picture: *"After and after + warp look identical in the image you
+        // have shared."*
+        //
+        // **He is right, and the measurement says why.** The two arms differ
+        // in **41.5% of pixels** and their surfaces differ by a mean of 7.2
+        // rows with only 17 of 292 columns identical, so warp is very much
+        // firing. What it does not move is any property of the landscape a
+        // person judges. On the strip the interface does not cover:
+        //
+        //                 relief span   mean column-to-column step
+        //   before          88 rows              1.90
+        //   warp 0          78 rows              1.85
+        //   warp 34         77 rows              1.99
+        //
+        // Warp reshuffles *which* hill is where; it does not change how tall
+        // or how rough the ground is. That is `CLAUDE.md`'s *ask which pixels
+        // a lever moves, before ranking it by silhouette* -- the same shape as
+        // the three plant levers that all fired, all had counters, and all
+        // read as "nothing changed".
+        //
+        // **So it stays at 0 and this is closed, not deferred.** 0 is the
+        // value the composition census above was taken at, and the arm that
+        // needs no settle frames to be at rest. Do not re-litigate it as a
+        // look question: if this ground wants more character, the lever is
+        // relief and the mid-frequency terms, not the warp on top of them.
         "druid": (
             sky_rows: 190.0,
-            relief_amplitude: 34.0,
-            massif_amplitude: 70.0,
-            massif_wavelength: 2600.0,
-            hill_amplitude: 30.0,
-            hill_wavelength: 150.0,
-            detail_amplitude: 2.5,
-            detail_wavelength: 28.0,
-            warp_strength: 34.0,
-            warp_wavelength: 130.0,
+            relief_amplitude: 48.0,
+            massif_amplitude: 170.0,
+            massif_wavelength: 3200.0,
+            hill_amplitude: 14.0,
+            hill_wavelength: 420.0,
+            detail_amplitude: 1.1,
+            detail_wavelength: 40.0,
+            warp_strength: 0.0,
+            warp_wavelength: 240.0,
             terrace_step: 26.0,
-            terrace_strength: 0.35,
+            terrace_strength: 0.0,
             riser_roughness: 0.45,
             mask_wavelength: 150.0,
             terrace_slope_lo: 0.6,
             terrace_slope_hi: 2.0,
-            soil_depth: 210.0,
-            soil_slope_cutoff: 0.85,
+            soil_depth: 380.0,
+            soil_slope_cutoff: 1.0,
             bedrock_band: 4.0,
-            strata_thickness: 9.0,
-            strata_tilt: 0.06,
-            strata_fold: 6.0,
+            strata_thickness: 34.0,
+            strata_tilt: 0.02,
+            strata_fold: 2.0,
             pocket_density: 0.0,
             lens_roughness: 1.0,
-            talus_max_height: 12.0,
-            residual_density: 0.7,
+            talus_max_height: 0.0,
+            residual_density: 0.0,
             spring_flow: 7.0,
-            brow_chance: 0.4,
+            brow_chance: 0.0,
             table_damping: 0.35,
             table_offset: 6.0,
             capillary_fringe: 36.0,
@@ -187,12 +302,12 @@
             dune_wavelength: 46.0,
             dune_variation: 0.7,
             aridity_table_drop: 90.0,
-            region_variation: 0.75,
+            region_variation: 0.30,
             palette_field: 0.30,
             vault_density: 0.0,
             vault_min_depth: 200,
             vault_bedrock_margin: 16,
-            world_age: 0.8,
+            world_age: 0.0,
             moss_density: 0.18,
             tree_density: 0.50,
             grass_density: 0.72,
