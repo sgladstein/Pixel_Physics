@@ -3535,6 +3535,14 @@ pub struct World {
     /// budget has to survive between them. Spent down rather than counted
     /// up, so a walk can hand `&mut` straight to it and stop when it hits
     /// zero without knowing what the ceiling was.
+    /// **How the creature pass's read phase is scheduled and tuned** —
+    /// `creature::ParTuning`, which has the whole story. Off by default.
+    pub creature_par: crate::sim::creature::ParTuning,
+    /// **What has been written since the creature pass's speculation
+    /// window opened** — `writewatch::WriteWatch`, which has the whole
+    /// argument. Armed only inside `scheduler::step`; one `bool` test per
+    /// write everywhere else.
+    pub(crate) write_watch: crate::sim::writewatch::WriteWatch,
     pub load_budget: u32,
     /// Cumulative count of structural failures, by kind
     /// (`load::FailureMode`). Debug instrumentation, and deliberately not
@@ -4804,6 +4812,8 @@ impl World {
             buds_flushed: 0,
             fields_settled: false,
             touched_chunks: ChunkSet::default(),
+            creature_par: crate::sim::creature::ParTuning::default(),
+            write_watch: crate::sim::writewatch::WriteWatch::default(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
             crush_confined: true,
             arch_relief: true,
@@ -4894,6 +4904,9 @@ impl World {
     /// Add to a pheromone channel at `(x, y)`. Out-of-world deposits are
     /// dropped silently.
     pub fn deposit_pheromone(&mut self, channel: Channel, x: i32, y: i32, amount: u8) {
+        // `sense` reads six pheromone samples around the head, so a
+        // deposit changes what a neighbour's cached sense would have said.
+        self.write_watch.mark(x, y);
         self.pheromones.deposit(channel, x, y, amount);
     }
 
@@ -5450,6 +5463,11 @@ impl World {
     /// an identity, still a leak of exactly the kind this allocator exists
     /// to end.
     pub(crate) fn push_organism(&mut self, species: SpeciesId) -> Option<u16> {
+        // A new organism has no cells yet, so there is nothing to mark and
+        // no bound on where its first cell will land: void the window.
+        // Births are rare; this costs one window's speculation.
+        self.write_watch.mark_all();
+
         // **The ceiling is a real check now, not a `debug_assert`.**
         //
         // `Cell::organism_id` gives 12 bits to the slot index, so there are
@@ -5786,6 +5804,29 @@ impl World {
         if slot_index == 0 {
             return None;
         }
+        // **Marked before the borrow, over the organism's own cells.** A
+        // creature's `sense` reads its neighbours' *state* -- scent through
+        // `is_living_kin`, energy through `kin_deficit` -- and a mutation
+        // that writes no cell would otherwise be invisible to the watch.
+        // Marking the cells is both correct and minimal: the only way one
+        // organism reaches another's state is through a cell it owns, so a
+        // reader whose rectangle misses every one of those cells cannot
+        // have read it. Handing out `&mut` is the mark, not what is then
+        // done with it -- this function cannot know, and over-marking is
+        // the safe direction (`writewatch`).
+        if self.write_watch.first_touch(slot_index as usize) {
+            match self.organisms.get((slot_index - 1) as usize).filter(|s| s.generation == generation).and_then(|s| s.state.as_ref()) {
+                // No cell to mark and therefore no way to bound the reach:
+                // a freshly pushed organism, mid-placement.
+                Some(state) if state.cells.is_empty() => self.write_watch.mark_all(),
+                Some(state) => {
+                    for &(cx, cy) in state.cells.keys() {
+                        self.write_watch.mark_organism_cell(cx, cy);
+                    }
+                }
+                None => {}
+            }
+        }
         let slot = self.organisms.get_mut((slot_index - 1) as usize)?;
         if slot.generation != generation {
             return None;
@@ -5826,6 +5867,11 @@ impl World {
     /// definition that cannot orphan a standing cell, since a cell still
     /// referring to the organism is exactly what makes the list non-empty.
     pub(crate) fn free_organism(&mut self, organism_id: u16) {
+        // Same as `push_organism`, from the other end: a freed slot changes
+        // what `world.organism(id)` answers for every cell that still names
+        // it, and reclamation is rare enough to pay for wholesale.
+        self.write_watch.mark_all();
+
         let (slot_index, generation) = decode_organism_id(organism_id);
         if slot_index == 0 {
             return;
@@ -7178,6 +7224,9 @@ impl World {
     /// up. See `field::FieldTile::vapour` — the local half of what
     /// `credit_atmosphere` books globally.
     pub(crate) fn add_vapour(&mut self, world_x: i32, world_y: i32, amount: f32) {
+        // Dispatched from `evaporation::tick`, inside the creature pass's own
+        // site loop — see `mark_field_write`.
+        self.mark_field_write(world_x, world_y, 0);
         field::add_vapour_at(&mut self.fields, self.bounds, world_x, world_y, amount);
     }
 
@@ -7291,7 +7340,61 @@ impl World {
     /// resolve anything finer than one field cell, so this is exactly as
     /// precise as the abstraction supports — exact circle-vs-rectangle overlap
     /// math would be precision spent on a value nothing downstream can use.
+    /// **Mark a field write for the creature pass's speculation window**, at
+    /// the reach a field write actually has on a *cell*-position read.
+    ///
+    /// Marked into the watch's **field-resolution** map, not its cell map:
+    /// `sense` reads the moisture channel through `field_at_bilinear`, so the
+    /// reach of one write is a field cell plus its neighbours, and expressing
+    /// that in cells meant a 67x67 square per evaporating surface.
+    /// `WriteWatch::clean_field` widens the *read* by the same one field cell,
+    /// which is where the bilinear reach belongs.
+    ///
+    /// **Both callers run inside the site loop, which is why this is not
+    /// hypothetical.** `plant::absorb_water` returns moisture to the soil
+    /// from a root's tick, and `evaporation::tick` damps the air over a
+    /// surface it has just dried — both dispatched from `scheduler::step`
+    /// alongside the creatures. The second was the hole `ParMode::Verify`
+    /// found: it shows only where an evaporating surface and a colony are
+    /// within two field blocks of each other, which is why 150 and 300 ants
+    /// were clean and 450 was not.
+    fn mark_field_write(&mut self, cx: i32, cy: i32, radius: i32) {
+        if !self.write_watch.armed() {
+            return;
+        }
+        // Stepping by `FIELD_SCALE` visits every field cell the painted disc
+        // overlaps; the far edge is visited explicitly because the radius
+        // need not be a multiple of the scale.
+        let (x0, y0, x1, y1) = (cx - radius, cy - radius, cx + radius, cy + radius);
+        let mut y = y0;
+        loop {
+            let mut x = x0;
+            loop {
+                self.write_watch.mark_field(x, y);
+                if x >= x1 {
+                    break;
+                }
+                x = (x + FIELD_SCALE).min(x1);
+            }
+            if y >= y1 {
+                break;
+            }
+            y = (y + FIELD_SCALE).min(y1);
+        }
+    }
+
     fn paint_field(&mut self, cx: i32, cy: i32, radius: i32, f: impl Fn(&mut FieldCell)) {
+        // **A field write reaches further than it looks, and it happens
+        // inside the creature pass.** `plant::absorb_water` returns moisture
+        // to the soil from a root, dispatched from the very site loop the
+        // creature speculation runs in, and `sense`'s `MoistureFront`,
+        // `MoistureLateral` and `MoistureGrad` read that channel *bilinearly*
+        // — a sample at one cell reads the four field cells around it, so a
+        // write lands in reads up to two `FIELD_SCALE` blocks away. Marked at
+        // that reach rather than at `(cx, cy)`: this was the hole the
+        // `ParMode::Verify` differential found, and it only showed at 450
+        // ants, where a root and a nest finally overlap.
+        self.mark_field_write(cx, cy, radius);
         // A disturbance from outside `field::step`'s own solve -- must wake
         // it even if the field had already converged, or the write below
         // would sit unprocessed forever the next time `field::step` sees
@@ -7360,6 +7463,11 @@ impl World {
     /// Silently skips positions whose chunk is not resident, exactly as CA
     /// writes outside a loaded chunk are not materialised.
     pub(crate) fn set_field_moisture_floor(&mut self, x: i32, y: i32, floor: f32) {
+        // Worldgen only, and the floor reaches the readable channel through
+        // `field::step`'s solve rather than directly — wholesale is both
+        // correct and free here.
+        self.write_watch.mark_all();
+
         let (fx, fy) = field::field_coord_of(x, y);
         let (tile_coord, lx, ly) = field::tile_and_local(fx, fy);
         if let Some(tile) = self.fields.get_mut(&tile_coord) {
@@ -7462,6 +7570,10 @@ impl World {
     }
 
     pub(crate) fn put_field(&mut self, coord: ChunkCoord, field: FieldTile) {
+        // The parallel sweep handing a solved tile back. The watch is closed
+        // for the whole of `parallel::step`, so this costs one `bool` test.
+        self.write_watch.mark_all();
+
         self.fields.insert(coord, field);
     }
 
@@ -7480,6 +7592,12 @@ impl World {
     /// call) so replaying several queued cells from one pass never
     /// double-applies to any cell a worker already wrote to directly.
     pub(crate) fn add_heat_local(&mut self, tile_coord: ChunkCoord, lx: i32, ly: i32, amount: f32) {
+        // `sense` reads `TempAboveAmb` off this channel. Wholesale rather
+        // than at a position, because the caller holds tile-local coordinates
+        // and the read is bilinear; fire runs inside the sweep, with the
+        // watch closed.
+        self.write_watch.mark_all();
+
         if let Some(tile) = self.fields.get_mut(&tile_coord) {
             let mut cell = tile.get_local(lx, ly);
             cell.temperature += amount;
@@ -7496,6 +7614,10 @@ impl World {
     /// Replay a `ChunkView`'s queued cross-chunk light write -- mirrors
     /// `add_heat_local` exactly, one channel over.
     pub(crate) fn add_light_local(&mut self, tile_coord: ChunkCoord, lx: i32, ly: i32, amount: f32) {
+        // `sense` reads `LightHere` off this channel; same reasoning as
+        // `add_heat_local` one function up.
+        self.write_watch.mark_all();
+
         if let Some(tile) = self.fields.get_mut(&tile_coord) {
             let mut cell = tile.get_local(lx, ly);
             cell.light += amount;
@@ -7865,6 +7987,14 @@ impl World {
         if !self.in_bounds(x, y) {
             return Cell::OUT_OF_BOUNDS;
         }
+        // **The creature pass's speculation window, marked at the write
+        // seam rather than at a list of callers** -- `writewatch`'s module
+        // doc, and the same reason the `managed()` and organism-membership
+        // checks below are here: "an enumeration that has to stay complete
+        // is the failure mode this project keeps rediscovering". One
+        // predictable `bool` test per write while the watch is closed,
+        // which is every phase but `scheduler::step`.
+        self.write_watch.mark(x, y);
         let coord = ChunkCoord::containing(x, y);
         let reach = self.materials.get(cell.material).sweep_reach();
         let is_liquid = self.materials.kind(cell.material) == MaterialKind::Liquid;
@@ -8306,6 +8436,13 @@ impl World {
     /// Falls back to an ordinary `set` under `PIXEL_PHYSICS_MOISTURE=sweep`,
     /// which is the control arm — see `update::moisture_phase_enabled`.
     pub fn set_soil_moisture(&mut self, x: i32, y: i32, cell: Cell) {
+        // **Wholesale, not at `(x, y)`.** `sense`'s field reads are
+        // bilinear over `FIELD_SCALE`-wide tiles, so one moisture write
+        // reaches a creature up to a tile away -- wider than any read
+        // rectangle the creature pass records. Free in practice: soil water
+        // is stepped inside `parallel::step`, with the watch closed.
+        self.write_watch.mark_all();
+
         if !crate::sim::update::moisture_phase_enabled() {
             self.set(x, y, cell);
             return;
