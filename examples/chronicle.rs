@@ -115,13 +115,15 @@ fn main() {
     let mut particles = ParticleSystem::new();
     let mut blasts = Blasts::new();
     let tuning = player::Tuning::default();
-    // **CENSUS bookkeeping, `census::nest_columns`'s own reason: a nest does
-    // not move once founded**, so this is resolved once rather than
-    // recomputed every sample. `gut` starts at whatever colony the bed
-    // founds at build time and updates when the timeline delivers another,
+    // **CENSUS bookkeeping.** `gut` starts at whatever colony the bed founds
+    // at build time and updates when the timeline delivers another,
     // `examples/latecensus.rs`'s identical shape.
+    //
+    // `nest_cols` is resolved per sample and no longer once here: it now
+    // reads `World::nest_sites`, and a site is minted when a colony's patch
+    // is painted -- which a scenario timeline (or, in the lab, the player)
+    // can do at any frame. See `census::nest_columns`.
     let ids = census::Ids::resolve(&world);
-    let nest_cols = census::nest_columns(&spec, scenario.as_ref());
     let mut gut: f32 = census::ant_gut_bias(&world);
     let mut census_rows: Vec<census::ChronicleRow> = Vec::new();
     for _ in 0..frames {
@@ -142,6 +144,7 @@ fn main() {
             // `Lab` and no dial, so the perf columns (round 31) print `--`
             // -- see `census::PerfSample`'s own doc for why that is correct
             // rather than a gap.
+            let nest_cols = census::nest_columns(&world, &spec, scenario.as_ref());
             census_rows.push(census::take_chronicle_row(&world, &spec, gut, &nest_cols, &ids, &spec.colony_species, None));
         }
     }

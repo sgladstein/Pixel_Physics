@@ -154,11 +154,11 @@ point.
 | Z11 | closed | 11029 | At the widest zoom-out the view drew one cell in sixteen and dropped the rest, so thin th... |
 | Z12 | **OPEN** | 11124 | Most of what piles up in a long-run long-ant colony is one-cell ants, and they are bred t... |
 | Z13 | **OPEN** | 11204 | Resting is indistinguishable from stuck at play zoom, and on a long body it reads as stuc... |
-| Z14 | **OPEN** | 11420 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
-| Z15 | **OPEN** | 11512 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
-| Z16 | closed | 11590 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
-| Z18 | **OPEN** | 11731 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11941 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z14 | **OPEN** | 11442 | The played bed's 500,000-frame trajectory is chaotic, and scent_drift: 0.15 re-rolled it |
+| Z15 | **OPEN** | 11534 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
+| Z16 | closed | 11612 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
+| Z18 | **OPEN** | 11753 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
+| Z17 | **OPEN** | 11963 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11401,22 +11401,44 @@ idle streaks run tens of thousands of frames, and a card a fifth as long
 as the shortest of those can show neither the animation cycling nor the
 stillness it is meant to contrast with.
 
-**The coordinator checked the queue directly: the owner's three markers
-never reached it.** Both cards' stored responses read `annotations: []`.
-So explanation (c) — that the specific ants he pointed at are genuinely
-stuck (`moves_blocked` climbing) rather than resting, a different and
-bigger bug in the walk itself rather than the look — **cannot be checked
-from either card, and is left here as an open question rather than
-chased further this round.** What would settle it, for whoever picks this
-up: map his marker coordinates back through the card's own crop and zoom
-to world cells (`zoom=4 crop=160,120,224,56` on both cards posted so
-far), then probe those specific animals for `moves`, `moves_blocked`,
-`traffic_deferred`, `HeadBlock`/`head_block`'s open-heading count, and
-`crossing`/`flight`/`senescent` — the same pipeline §Z13's own first
-pass already ran on round 29's three markers. `head_block`
-(`src/sim/creature.rs`) is what that needs, and belongs to whoever holds
-that file. The second (6,000-tick) card is posted and unanswered; it does
-not need to be waited on, and can be collected in a later round.
+**Correction, same day, by the coordinator who wrote the sentence this
+replaces.** The claim here was *"the coordinator checked the queue
+directly: the owner's three markers never reached it,"* on the strength of
+two cards reading `annotations: []`. **That reading came off
+`review.py inbox`, which is a filtered view and not a listing of the
+queue.** Re-measured with `get <id>`: all three cards involved are
+**absent from `inbox` entirely** — two of them posted that day — and round
+29's resting card `20260912T045951545Z-6931d4`, the same complaint on the
+same animals, returns **three marker coordinates with the owner's notes
+attached**. Annotations survive the queue. **`get <id>` is the only
+authoritative read of a card**, which this register's own §Z13 now has two
+independent reasons to say.
+
+What is true is narrower: **this round's idle card
+`20260913T034419970Z-34d562` is archived carrying no stored response at
+all** — no comment, no annotations — although he answered it and said he
+had placed three markers. His verdict reached the lane only because he
+relayed it in chat, so for that card the chat copy is the only one.
+
+**So explanation (c) is checkable and was wrongly filed as not.** Round
+29's three markers, normalised to the image:
+
+| x | y | note |
+|---|---|---|
+| 0.9078 | 0.6414 | *"This the most prominent thing that shows no movement in both images"* |
+| 0.6347 | 0.5325 | *"also no movement"* |
+| 0.3773 | 0.6172 | *"no movement"* |
+
+Map those back through that card's own crop and zoom (`zoom=4
+crop=160,120,224,56`) to world cells, then probe those specific animals
+for `moves`, `moves_blocked`, `traffic_deferred`,
+`HeadBlock`/`head_block`'s open-heading count, and
+`crossing`/`flight`/`senescent` — the same pipeline §Z13's own first pass
+already ran. `head_block` (`src/sim/creature.rs`) is what that needs, and
+belongs to whoever holds that file. If those animals show `moves_blocked`
+climbing, **§Z13's "look problem, not a walk bug" framing is wrong** and
+the walk is. The second (6,000-tick) card is posted and unanswered; it
+does not need to be waited on.
 ### Z14. The played bed's 500,000-frame trajectory is chaotic, and `scent_drift: 0.15` re-rolled it — **OPEN as a method problem, not a colony bug, found 2026-09-12**
 
 **What it is.** Lane M found the played bed's control arm moving enormously

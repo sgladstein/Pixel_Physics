@@ -160,6 +160,32 @@ pub fn draw_text(frame: &mut [u8], width: u32, height: u32, x: i32, y: i32, text
     }
 }
 
+/// `draw_text` with each glyph pixel drawn as a `scale`-square block, so the
+/// text keeps its apparent size when the frame buffer is larger than the
+/// logical `WIDTH`x`HEIGHT` (`render::Hud`, and `Renderer::pixel_budget` for
+/// why the buffer grows at all). `(x, y)` and the advance stay in logical
+/// pixels; only the output lattice changes.
+pub fn draw_text_scaled(frame: &mut [u8], (width, height): (u32, u32), scale: i32, (x, y): (i32, i32), text: &str, colour: [u8; 4]) {
+    let s = scale.max(1);
+    let mut cursor_x = x;
+    for c in text.chars() {
+        let glyph = glyph_for(c.to_ascii_uppercase());
+        for (row, bits) in glyph.iter().enumerate() {
+            for col in 0..GLYPH_WIDTH {
+                if bits & (1 << (GLYPH_WIDTH - 1 - col)) != 0 {
+                    let (bx, by) = ((cursor_x + col) * s, (y + row as i32) * s);
+                    for dy in 0..s {
+                        for dx in 0..s {
+                            crate::render::put(frame, width, height, bx + dx, by + dy, colour);
+                        }
+                    }
+                }
+            }
+        }
+        cursor_x += GLYPH_WIDTH + GLYPH_SPACING;
+    }
+}
+
 /// Total pixel width `draw_text` would occupy for `text` — for right-
 /// aligning or centering a label before drawing it.
 pub fn text_width(text: &str) -> i32 {

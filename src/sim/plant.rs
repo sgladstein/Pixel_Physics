@@ -15206,6 +15206,177 @@ they are the same world. Got {median}, which means something other than the leve
         }
     }
 
+    /// **A held world grows only inside a quickening, and the rule is
+    /// spatial rather than an off switch.**
+    ///
+    /// The guard for `World::held` / `World::quickenings`
+    /// (`Reports/held-world-game-concept-2026-09-13.md`). It landed with the
+    /// mechanism measured only by `filmstrip`, and a measurement is not a
+    /// suite entry.
+    ///
+    /// **Three arms rather than two, and the middle one is the whole point.**
+    /// `held=false` against `held=true` alone would pass for a gate that
+    /// simply stopped the world, which is not what a held world is. The third
+    /// arm puts a circle over *one* of two identical trees, so it can only
+    /// pass if the rule reads a position.
+    ///
+    /// **One CA driver is enough here, unusually.** Both gates live inside
+    /// `World::step_active_sites` -- `scheduler::step` decides per cell and
+    /// `plant::step_organisms` per organism -- which is its own phase either
+    /// side of `update::step` / `parallel::step`, so the driver cannot change
+    /// the answer. Anything that moves either gate into a driver invalidates
+    /// this sentence.
+    #[test]
+    fn a_held_world_grows_only_inside_a_quickening() {
+        // The row the trees are planted on, hoisted so the bed and the circle
+        // below cannot drift apart -- a circle at the wrong height would read
+        // exactly like the gate failing.
+        const PY: i32 = 120;
+
+        /// Living organism tissue left of centre and right of centre.
+        fn tissue(w: &World) -> (usize, usize) {
+            let b = w.bounds().expect("bounded");
+            let mut left = 0;
+            let mut right = 0;
+            for y in b.min_y..=b.max_y {
+                for x in b.min_x..=b.max_x {
+                    if w.get(x, y).organism_id() != 0 {
+                        if x < 100 {
+                            left += 1;
+                        } else {
+                            right += 1;
+                        }
+                    }
+                }
+            }
+            (left, right)
+        }
+
+        fn arm(held: bool, circles: &[crate::sim::world::Quickening]) -> (usize, usize) {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const ROWS: i32 = 30;
+            for x in 0..200 {
+                w.set(x, PY + ROWS + 1, Cell::new(material::STONE, 0));
+                for dy in 1..=ROWS {
+                    w.set(x, PY + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            // Two trees, one either side of the divide `tissue` counts on, far
+            // enough apart that a circle over one cannot reach the other.
+            w.plant_tree(60, PY);
+            w.plant_tree(140, PY);
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            run_with_fields(&mut w, 4_000);
+            tissue(&w)
+        }
+
+        let (live_l, live_r) = arm(false, &[]);
+        assert!(
+            live_l > 50 && live_r > 50,
+            "test setup: an unheld world has to grow both trees or the arms below compare nothing -- got {live_l} left, {live_r} right"
+        );
+
+        // Stopped everywhere. Not asserted at exactly zero: the seed cell each
+        // tree is planted as is itself organism-owned and never germinates, so
+        // the floor is the seeds rather than nothing -- which is precisely the
+        // finding that a held *generated* world is bare (see the report's
+        // step-0 measurement, 20 cells and flat).
+        let (stop_l, stop_r) = arm(true, &[]);
+        assert!(
+            stop_l < live_l / 4 && stop_r < live_r / 4,
+            "a held world with no quickening must not grow: {stop_l}/{stop_r} against an unheld {live_l}/{live_r}"
+        );
+
+        // And the spatial half: a circle over the left tree only.
+        let (one_l, one_r) = arm(true, &[crate::sim::world::Quickening { x: 60, y: PY, r: 40 }]);
+        assert!(
+            one_l > live_l / 4,
+            "the quickened tree must grow: {one_l} against an unheld {live_l} and a stopped {stop_l}"
+        );
+        assert!(
+            one_r <= stop_r,
+            "the tree outside the circle must stay stopped: {one_r} against a stopped {stop_r}"
+        );
+    }
+
+    /// **A held plant does not run its economy either**, which the cell-count
+    /// guard above cannot see.
+    ///
+    /// **This test exists because the guard above was measured blind to it.**
+    /// Deleting `plant::step_organisms`' gate outright left
+    /// `a_held_world_grows_only_inside_a_quickening` green -- the per-cell
+    /// gate in `scheduler::step` had already stopped growth, so a test that
+    /// counts cells cannot tell whether the economy is still running
+    /// underneath it. That is `CLAUDE.md`'s "a green suite does not prove a
+    /// test *could* fail", found the way that rule says to find it: by putting
+    /// the fault back.
+    ///
+    /// **The economy is forced rather than watched.** A grown tree near
+    /// equilibrium may not move its water stock much in either arm, so
+    /// asserting on natural drift would be a test that passes because nothing
+    /// happened. Emptying the stock and asking whether the roots refill it is
+    /// a question only a *running* economy can answer yes to.
+    ///
+    /// It also grows first and holds second, which is the shape the game
+    /// itself uses -- the land was alive and stopped.
+    #[test]
+    fn a_held_plant_does_not_refill_its_water() {
+        fn arm(hold: bool) -> (f32, usize) {
+            let mut w = test_world();
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            const PY: i32 = 120;
+            const ROWS: i32 = 30;
+            for x in 0..200 {
+                w.set(x, PY + ROWS + 1, Cell::new(material::STONE, 0));
+                for dy in 1..=ROWS {
+                    w.set(x, PY + dy, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+                }
+            }
+            w.plant_tree(100, PY);
+            // Grown while the world still runs, so the thing being held is a
+            // real plant with real roots rather than a seed.
+            run_with_fields(&mut w, 3_000);
+
+            let b = w.bounds().expect("bounded");
+            let id = (b.min_y..=b.max_y)
+                .flat_map(|y| (b.min_x..=b.max_x).map(move |x| (x, y)))
+                .map(|(x, y)| w.get(x, y).organism_id())
+                .find(|&id| id != 0)
+                .expect("test setup: nothing grew, so there is no economy to stop");
+            let cells = w.organism(id).map_or(0, |st| st.cells.len());
+            assert!(cells > 50, "test setup: {cells} cells is too small to have a root system worth draining");
+
+            w.held = hold;
+            if let Some(st) = w.organism_mut(id) {
+                st.water = 0.0;
+            }
+            run_with_fields(&mut w, 2_000);
+            (w.organism(id).map_or(0.0, |st| st.water), cells)
+        }
+
+        let (ran, _) = arm(false);
+        assert!(ran > 0.0, "test setup: an unheld plant has to refill a drained stock, or the held arm proves nothing -- got {ran}");
+
+        let (held, _) = arm(true);
+        assert_eq!(held, 0.0, "a held plant must not draw water: {held} against an unheld {ran}");
+    }
+
+    /// `World::time_runs_at` is true everywhere when the world is not held --
+    /// **including where a quickening would say otherwise**, which is what
+    /// makes the list genuinely unread rather than incidentally agreeing.
+    #[test]
+    fn an_unheld_world_never_consults_its_quickenings() {
+        let mut w = test_world();
+        w.quickenings = vec![crate::sim::world::Quickening { x: 0, y: 0, r: 1 }];
+        w.held = false;
+        assert!(w.time_runs_at(180, 180), "not held means time runs everywhere");
+        w.held = true;
+        assert!(!w.time_runs_at(180, 180), "held and far outside the one circle means it does not");
+        assert!(w.time_runs_at(0, 0), "held and inside the circle means it does");
+    }
+
     fn count(w: &World, id: material::MaterialId) -> usize {
         let b = w.bounds().unwrap();
         let mut n = 0;

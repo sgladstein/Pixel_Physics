@@ -249,6 +249,7 @@ TOPICS = {
         "World speed — five independent time axes",
     ],
     "rendering, UI and tunables": [
+        "Zoom-out resolution status — more pixels instead of fewer cells",
         "Zoom-in styles status — what a cell's 64 pixels can say",
         "UI improvements — overnight run, section 9",
         "Live tunables panel — overnight run, section 10",

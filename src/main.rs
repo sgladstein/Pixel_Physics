@@ -90,6 +90,18 @@ struct Handler {
     /// frames (a settling water column, an explosion's debris trajectory).
     /// `None` once the capture completes; never re-arms.
     capture_sequence: Option<CaptureSequence>,
+    /// `PIXEL_PHYSICS_ZOOM_OUT=<rung>,<budget>` — start zoomed out, with a
+    /// zoom-out pixel budget, so the thing this session cannot reach by
+    /// pressing keys can still be screenshotted.
+    ///
+    /// **The sandbox has no keyboard**, so every "verify live at zoom-out"
+    /// check would otherwise have to go through a harness that reimplements
+    /// the app rather than through the app. Applied once, on the first frame,
+    /// and then forgotten, so the keys still own the setting afterwards.
+    /// Companion to `PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES` and
+    /// `PIXEL_PHYSICS_CAPTURE_SEQUENCE`, which are useless at zoom-out without
+    /// it.
+    zoom_out_at_start: Option<(i32, i32)>,
 
     /// Cursor position in framebuffer pixels, `None` while outside the window.
     cursor: Option<(i32, i32)>,
@@ -279,6 +291,12 @@ impl Handler {
                 .ok()
                 .and_then(|s| s.parse().ok()),
             capture_sequence: CaptureSequence::from_env(),
+            zoom_out_at_start: std::env::var("PIXEL_PHYSICS_ZOOM_OUT")
+                .ok()
+                .and_then(|spec| {
+                    let (rung, budget) = spec.split_once(',')?;
+                    Some((rung.trim().parse().ok()?, budget.trim().parse().ok()?))
+                }),
             cursor: None,
             last_paint: None,
             painting: false,
@@ -387,19 +405,54 @@ impl Handler {
 
         // The error is captured and handled after the borrow of `self.pixels`
         // ends, since `fail` needs all of `self`.
+        if let Some((rung, budget)) = self.zoom_out_at_start.take() {
+            self.app.renderer.zoom = 1;
+            self.app.renderer.zoom_out_stride = rung.clamp(1, 4);
+            self.app.pixel_budget = budget.clamp(1, pixel_physics::app::MAX_PIXEL_SCALE);
+        }
+        // **How many logical pixels the window can actually resolve.** This is
+        // the whole of the owner's question — *"why my screen resolution can
+        // solve all of the pixels"* — turned into a bound: the back-buffer may
+        // grow at zoom-out up to what the display can show and no further,
+        // because pixels past that are paid for in full and then thrown away
+        // by the GPU on the way down, which would put §Z11's dropout back
+        // somewhere `ZoomOutFilter` cannot reach.
+        if let Some(window) = &self.window {
+            let size = window.inner_size();
+            let mut cap = 1;
+            while cap * 2 <= pixel_physics::app::MAX_PIXEL_SCALE && WIDTH * (cap as u32) * 2 <= size.width && HEIGHT * (cap as u32) * 2 <= size.height {
+                cap *= 2;
+            }
+            self.app.pixel_scale_cap = cap;
+        }
+        // `resize_buffer` before `frame_mut`, or the slice is last frame's
+        // size. It reallocates, so it is guarded on an actual change: at
+        // budget 1, and at every zoom that is not a zoom-out, this is one
+        // comparison of two tuples.
+        let want = self.app.viewport();
+        let resize_error = match &mut self.pixels {
+            Some(pixels) if (pixels.texture().width(), pixels.texture().height()) != want => {
+                pixels.resize_buffer(want.0, want.1).err()
+            }
+            _ => None,
+        };
+        if let Some(err) = resize_error {
+            return self.fail(event_loop, format!("buffer resize failed: {err}"));
+        }
+
         let render_error = match &mut self.pixels {
             Some(pixels) => {
                 self.app.draw(pixels.frame_mut(), self.cursor);
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
-                        save_framebuffer_png(pixels.frame(), WIDTH, HEIGHT);
+                        save_framebuffer_png(pixels.frame(), want.0, want.1);
                     } else {
                         self.screenshot_countdown = Some(n - 1);
                     }
                 }
                 if let Some(seq) = &mut self.capture_sequence {
-                    seq.tick(pixels.frame());
+                    seq.tick(pixels.frame(), want);
                 }
                 pixels.render().err()
             }
@@ -602,6 +655,18 @@ impl Handler {
             // fields with no key, for an instrument or the parameters page to
             // drive (that page lives in `src/lab/ui.rs`, which another lane
             // holds, so wiring them there is a follow-up rather than a gap).
+            // **`Shift`+`=` means "cycle the look at the scale you are at"**,
+            // and the two looks it can mean are mutually exclusive: the
+            // magnify styles do nothing at `zoom <= 1`, and the zoom-out pixel
+            // budget does nothing anywhere else. So the same shifted zoom key
+            // reaches whichever one is live, which is the same reasoning that
+            // hung the zoom-out *filter* off `Shift`+`-` — you reach for the
+            // control while you are already looking at the thing it changes.
+            // Every letter is bound and so is every F-key, so a key of its own
+            // was not available; this is the better binding anyway.
+            KeyCode::Equal if self.held.grab && self.app.renderer.zoom <= 1 && self.app.renderer.zoom_out_stride > 1 => {
+                self.app.cycle_pixel_budget();
+            }
             KeyCode::Equal if self.held.grab => self.app.renderer.cycle_magnify_style(),
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
             // **Shift+`-` cycles the zoom-out filter** rather than a letter
@@ -1005,6 +1070,9 @@ struct CaptureSequence {
     /// Raw RGBA frames, kept in memory rather than re-read from disk so the
     /// GIF assembly in `finish` doesn't need a second decode pass.
     frames: Vec<Vec<u8>>,
+    /// The buffer size every frame in `frames` was captured at, pinned by the
+    /// first capture — see `tick`. `None` until then.
+    dims: Option<(u32, u32)>,
 }
 
 impl CaptureSequence {
@@ -1022,6 +1090,7 @@ impl CaptureSequence {
             .map(|d| d.as_secs())
             .unwrap_or(0);
         Some(Self {
+            dims: None,
             countdown: start,
             interval: interval.max(1),
             remaining: count,
@@ -1032,9 +1101,24 @@ impl CaptureSequence {
 
     /// Called once per rendered frame. Captures `rgba` when the countdown
     /// reaches zero, then resets it for the next capture.
-    fn tick(&mut self, rgba: &[u8]) {
+    fn tick(&mut self, rgba: &[u8], dims: (u32, u32)) {
         if self.remaining == 0 {
             return;
+        }
+        // **The buffer can change size mid-sequence** now that it grows at
+        // zoom-out (`Renderer::pixel_budget`), and a strip of frames that are
+        // not all one size is not a strip — `save_buffer` would write a
+        // corrupt PNG from the first frame's dimensions and the GIF encoder
+        // would refuse. Pin the size at the first capture and skip anything
+        // that disagrees, loudly: silently dropping frames is how a capture
+        // comes back shorter than asked for with nothing to say why.
+        match self.dims {
+            None => self.dims = Some(dims),
+            Some(have) if have != dims => {
+                eprintln!("capture: skipping a {}x{} frame; this sequence is {}x{} (change the zoom before starting one)", dims.0, dims.1, have.0, have.1);
+                return;
+            }
+            Some(_) => {}
         }
         if self.countdown == 0 {
             self.frames.push(rgba.to_vec());
@@ -1066,6 +1150,9 @@ impl CaptureSequence {
     /// directly, which is the actual point — seeing change over time
     /// without needing GIF-decoding support.
     fn finish(self) {
+        // The size the strip was actually captured at, which is no longer
+        // `WIDTH`x`HEIGHT` when the sequence was taken zoomed out.
+        let (cap_w, cap_h) = self.dims.unwrap_or((WIDTH, HEIGHT));
         if let Err(e) = std::fs::create_dir_all(&self.dir) {
             eprintln!("capture sequence: failed to create {}: {e}", self.dir.display());
             return;
@@ -1082,10 +1169,10 @@ impl CaptureSequence {
         let mut gif_frames = Vec::with_capacity(self.frames.len());
         for (i, rgba) in self.frames.iter().enumerate() {
             let path = self.dir.join(format!("frame_{i:04}.png"));
-            if let Err(e) = image::save_buffer(&path, rgba, WIDTH, HEIGHT, image::ColorType::Rgba8) {
+            if let Err(e) = image::save_buffer(&path, rgba, cap_w, cap_h, image::ColorType::Rgba8) {
                 eprintln!("capture sequence: failed to save {}: {e}", path.display());
             }
-            if let Some(buf) = image::RgbaImage::from_raw(WIDTH, HEIGHT, rgba.clone()) {
+            if let Some(buf) = image::RgbaImage::from_raw(cap_w, cap_h, rgba.clone()) {
                 gif_frames.push(image::Frame::from_parts(buf, 0, 0, delay));
             }
         }
@@ -1125,13 +1212,20 @@ mod capture_sequence_tests {
             remaining,
             dir: std::env::temp_dir(),
             frames: Vec::new(),
+            dims: None,
         }
     }
+
+    /// The `tick` argument these tests do not care about. Every existing case
+    /// below is about the *countdown*, so they all pass one size and never
+    /// exercise the mismatch path -- `a_capture_skips_a_frame_of_a_different_size`
+    /// is the one that does.
+    const ONE_SIZE: (u32, u32) = (1, 1);
 
     #[test]
     fn captures_immediately_when_start_countdown_is_zero() {
         let mut s = seq(0, 15, 3);
-        s.tick(&[1, 2, 3, 4]);
+        s.tick(&[1, 2, 3, 4], ONE_SIZE);
         assert_eq!(s.frames.len(), 1, "a zero start delay should capture on the first tick");
         assert_eq!(s.remaining, 2);
         assert_eq!(s.countdown, 14, "countdown resets to interval-1, so captures land exactly `interval` ticks apart");
@@ -1140,12 +1234,32 @@ mod capture_sequence_tests {
     #[test]
     fn waits_out_the_start_delay_before_the_first_capture() {
         let mut s = seq(2, 15, 3);
-        s.tick(&[0]);
-        s.tick(&[0]);
+        s.tick(&[0], ONE_SIZE);
+        s.tick(&[0], ONE_SIZE);
         assert!(s.frames.is_empty(), "should not capture before the start delay elapses");
-        s.tick(&[9]);
+        s.tick(&[9], ONE_SIZE);
         assert_eq!(s.frames.len(), 1);
         assert_eq!(s.frames[0], vec![9]);
+    }
+
+    /// **The buffer can change size mid-sequence** now that it grows at
+    /// zoom-out (`Renderer::pixel_budget`), and a strip whose frames are not
+    /// all one size is not a strip: `save_buffer` would write the later ones
+    /// against the first one's dimensions. The size is pinned at the first
+    /// capture and anything else is skipped -- and skipped *without* spending
+    /// the countdown, so the sequence still delivers the frames it was asked
+    /// for once the zoom stops moving.
+    #[test]
+    fn a_capture_skips_a_frame_of_a_different_size() {
+        let mut s = seq(0, 1, 3);
+        s.tick(&[1, 2, 3, 4], (1, 1));
+        assert_eq!(s.frames.len(), 1);
+        assert_eq!(s.dims, Some((1, 1)));
+        s.tick(&[5, 6, 7, 8, 9, 10, 11, 12], (2, 1));
+        assert_eq!(s.frames.len(), 1, "a differently sized frame must not join the strip");
+        assert_eq!(s.remaining, 2, "and must not be charged against the count");
+        s.tick(&[9, 9, 9, 9], (1, 1));
+        assert_eq!(s.frames.len(), 2, "the original size still captures");
     }
 
     #[test]
@@ -1157,7 +1271,7 @@ mod capture_sequence_tests {
         let mut capture_ticks = Vec::new();
         for tick in 0..20 {
             let before = s.frames.len();
-            s.tick(&[0]);
+            s.tick(&[0], ONE_SIZE);
             if s.frames.len() > before {
                 capture_ticks.push(tick);
             }
@@ -1171,11 +1285,11 @@ mod capture_sequence_tests {
     #[test]
     fn stops_capturing_once_remaining_hits_zero() {
         let mut s = seq(0, 1, 2);
-        s.tick(&[1]);
-        s.tick(&[2]);
+        s.tick(&[1], ONE_SIZE);
+        s.tick(&[2], ONE_SIZE);
         assert!(s.is_complete());
         // A further tick must not capture a third frame or underflow `remaining`.
-        s.tick(&[3]);
+        s.tick(&[3], ONE_SIZE);
         assert_eq!(s.frames.len(), 2);
     }
 
@@ -1183,10 +1297,10 @@ mod capture_sequence_tests {
     fn is_complete_only_after_every_requested_frame_is_captured() {
         let mut s = seq(0, 5, 2);
         assert!(!s.is_complete());
-        s.tick(&[0]);
+        s.tick(&[0], ONE_SIZE);
         assert!(!s.is_complete(), "one of two captured is not complete");
         for _ in 0..5 {
-            s.tick(&[0]);
+            s.tick(&[0], ONE_SIZE);
         }
         assert!(s.is_complete());
     }
