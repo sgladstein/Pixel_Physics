@@ -4305,15 +4305,49 @@ is what this measures rather than the rule"
     fn weather_does_not_run_where_time_does_not_run() {
         let bounds = Rect::new(0, 0, 255, 191);
         const FRAMES: usize = 1_200;
-        let run = |held: bool, circles: &[Quickening]| {
+
+        // **Two ways of driving one world, and the difference is the whole
+        // reason there are two.**
+        //
+        // `Full` is the real tick — `parallel::step`, active sites, the
+        // field — and is what the *a held world is still* claim has to be
+        // made against: a gate that stopped weather while some other phase
+        // went on writing would pass anything narrower.
+        //
+        // `SkyOnly` calls `weather::step` and advances the frame, and
+        // nothing else. It is what the *the sky writes only inside the rim*
+        // claim has to be made against, and the first version of this test
+        // got that wrong — it asserted the positional claim against the full
+        // driver and failed on a cell **seven** columns past a rim the sky
+        // reaches four past. The sky had not written there. A flake landed
+        // inside the circle and the CA sweep, which is physics and which a
+        // held world deliberately leaves running, rolled it down the slope
+        // and out. Snow tumbling off a hillside is not a leaking gate, and a
+        // bound loose enough to admit it would not be a bound at all: a
+        // loose grain can travel any distance.
+        enum Driver {
+            Full,
+            SkyOnly,
+        }
+        let run = |driver: Driver, held: bool, circles: &[Quickening]| {
             let mut w = held_weather_world();
             w.held = held;
             w.quickenings = circles.to_vec();
             let before = w.clone();
-            for _ in 0..FRAMES {
-                parallel::step(&mut w);
-                w.step_active_sites();
-                w.step_fields();
+            for f in 0..FRAMES {
+                match driver {
+                    Driver::Full => {
+                        parallel::step(&mut w);
+                        w.step_active_sites();
+                        w.step_fields();
+                    }
+                    // The frame is what `at` is a function of, and only the
+                    // drivers advance it — so a sky-only run has to.
+                    Driver::SkyOnly => {
+                        w.frame = f as u64;
+                        step(&mut w);
+                    }
+                }
             }
             // The bank spend is the sky's own contribution, exactly: this
             // scene holds no standing water, so nothing credits it back.
@@ -4322,7 +4356,7 @@ is what this measures rather than the rule"
 
         // Arm 1, the control. Read first: every assertion below is about a
         // sky that is doing something.
-        let (unheld, unheld_spend) = run(false, &[]);
+        let (unheld, unheld_spend) = run(Driver::Full, false, &[]);
         assert!(
             unheld.len() > 100,
             "seed 3 changed only {} cells in {FRAMES} unheld frames -- the control is dead and this guard is blind",
@@ -4331,7 +4365,7 @@ is what this measures rather than the rule"
         assert!(unheld_spend > 0.0, "the sky deposited nothing at all in the control arm");
 
         // Arm 2, the bug.
-        let (held, held_spend) = run(true, &[]);
+        let (held, held_spend) = run(Driver::Full, true, &[]);
         assert!(
             held.is_empty(),
             "a held world with no quickening took {} cells of weather (first at {:?}); it is meant to be a photograph",
@@ -4343,12 +4377,17 @@ is what this measures rather than the rule"
         // Arm 3: the gate is a filter. A circle well clear of the world's
         // edges, so "outside" is a real region in every direction.
         let circle = Quickening { x: 128, y: 150, r: 40 };
-        let (quickened, quickened_spend) = run(true, &[circle]);
+        let (quickened, quickened_spend) = run(Driver::Full, true, &[circle]);
         assert!(
             !quickened.is_empty(),
             "a quickened circle got no weather at all -- the gate is an off switch, not a rim"
         );
-        let outside: Vec<(i32, i32)> = quickened.iter().copied().filter(|&(x, y)| !circle.contains(x, y)).collect();
+
+        // Arm 4: where the sky itself wrote, with the physics that carries
+        // material afterwards taken out of the picture. See `Driver`.
+        let (sky_only, _) = run(Driver::SkyOnly, true, &[circle]);
+        assert!(!sky_only.is_empty(), "the sky wrote nothing at all into the circle");
+        let outside: Vec<(i32, i32)> = sky_only.iter().copied().filter(|&(x, y)| !circle.contains(x, y)).collect();
         // **The rim is soft by exactly one drop's reach, and that is not the
         // gate leaking.** A drop landing just inside it writes past it in
         // three directions: the soak walks `SOAK_DEPTH` cells *down* from
@@ -4368,10 +4407,12 @@ is what this measures rather than the rule"
             "in {FRAMES} frames -- cells the world changed / cell-equivalents the sky deposited:\n  \
              unheld {:>6} / {unheld_spend:.1}\n  \
              held   {:>6} / {held_spend:.1}\n  \
-             circle {:>6} / {quickened_spend:.1}   ({} of those cells just past the rim)",
+             circle {:>6} / {quickened_spend:.1}\n  \
+             ...of which the sky itself wrote {} cells, {} of them just past the rim",
             unheld.len(),
             held.len(),
             quickened.len(),
+            sky_only.len(),
             outside.len()
         );
     }
