@@ -2499,6 +2499,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-32-brief-2026-09-13.md](evolution-lab-round-32-brief-2026-09-13.md)
+  — **brief, 2026-09-13.** Round 32's ordered work, and it is ordered around
+  one finding: **no bed this project can generate resembles the one the owner
+  plays.** He runs 1000+ long ants; `played_bed` at shipped settings medians
+  111 and maxes 408, and the largest run in a 75-run sweep reached 1,067 once.
+  So task 1 is to build a reproducing bed from a real chronicle file, and the
+  late-game performance deep-dive he asked for waits on it rather than
+  starting on a 400-ant bed. Then land recovery behind a colony (dispersal is
+  only 1.4x against a 2.8x seed-predation loss and a bigger parent-plant seed
+  trap), and §Z13, where three idle animations all failed the owner's eye.
+  Carries the round's standing rulings: the review queue is for the eye only,
+  Fable is twice Opus, and a conservation failure is a question about the
+  ruler first.
+- [evolution-lab-round-31-2026-09-13.md](evolution-lab-round-31-2026-09-13.md)
+  — **record, 2026-09-13. IN PROGRESS while the round runs.** The coordinator's
+  account of round thirty-one: five lanes on the brief's five tasks. What it
+  overturned before any lane reported: **the instrument §Z18 says nobody has
+  built has been sitting in an open pull request since 2026-09-03.** PR #221
+  carries `spoil_destination`, its no-tree positive control, and the
+  `spoil_lifted`/`spoil_lift_max` split that `spoil_dumped` cannot make — and
+  names a mechanism the register does not, `SPOIL_LIFT = 160` at
+  `creature.rs:6601` teleporting a pellet up to 160 rows with no path check, so
+  a spoil lattice satisfies "two of three beneath filled" for itself and
+  bootstraps upward. It was invisible because its section was filed under a
+  letter already closed on main, and because **a branch having a PR reads as
+  owned rather than as stalled**. Also a worked instance of the round's own
+  warning that the dangerous merge is the conflict-free one: a clean
+  `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
+  touched.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the
@@ -2531,6 +2560,24 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   budget and a duplicated claim are one failure git cannot see**; a session's
   status describes the turn that ended, not the one running; a partly-green PR
   carries almost no information; and green CI is not mergeability.
+- [evolution-lab-lifespan-rederived-2026-09-13.md](evolution-lab-lifespan-rederived-2026-09-13.md)
+  — **measurement of record for the ant lifespan and the played bed after the
+  seed cull, round 31 lane A, 2026-09-13.** Everything the creature line knew
+  about how long an ant lives and whether the bed starves its colony was
+  measured while #366's write-site bug was overwriting a seed-eating ant with
+  the seed. Re-taken: twelve seeds, five arms out of one `latecensus` binary
+  at `RAYON_NUM_THREADS=1`, plus the shipped arm on the other five shipped
+  beds — 75 runs, raw digest in `data/`. What it overturns: **the lifespan is
+  no longer a population brake** (against an *immortal* colony, ants 7 of 12,
+  plants 5 of 12, bank 6 of 12 — three coin flips), so the effect the last
+  sweep credited it with was the cull; **`life_half_life: 40000` still ships**
+  because halving it is now the only setting that kills colonies (4 of 12
+  seeds extinct by 200,000 frames) and doubling buys nothing paired; **§Z6
+  does not reproduce** — 26 of 27 shipped-bed runs hold a colony at 200,000
+  frames against the register's 2 of 9; and **the dig gate's justification has
+  moved** from #359's *5 beds of 12 against 0* (now 12 of 12 both arms) to a
+  greener stand, 10 of 12 seeds at p=0.039, visible only in the second half of
+  a session.
 - [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
   — **design of record for the two soils, 2026-09-12: the owner's four
   issues as criteria, every option in both directions scored against them,
