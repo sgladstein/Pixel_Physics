@@ -30,7 +30,11 @@ the instance -- *to find out what a pass contributed, run the world without
 it; never ask the finished world what a cell is made of*.
 **726 entries as of 2026-09-02** — counted rather than accumulated, because
 the running tally above had drifted from the file (it reads 578 then 576) and
-a count nobody can check is worse than none. Three of that day's are the
+a count nobody can check is worse than none. **807 as of 2026-09-12, and the
+count is no longer a claim**: `python3 scripts/deadendindex.py --check` sums
+the per-section `##` headings against the entries it parses and fails on a
+mismatch, and `docscheck.sh` runs it — so a stale total is now a red gate
+rather than a sentence nobody re-counts. Three of that day's are the
 excavation lane's: a well-evidenced mechanism whose result did not survive
 going from four seeds to twelve, the harness bug that sweep exposed, and a
 guard whose reference set was not matched on its own confound. Re-attempting a known dead end costs a whole session, and it

@@ -10,7 +10,7 @@ name a re-test condition in their own `Re-test when:` clause and **nobody had
 ever swept those conditions** — exactly three carried the file's own
 `CONDITION MET` marker.
 
-This is that sweep. Every one of the 804 entries now carries a verdict, and
+This is that sweep. Every one of the 807 entries now carries a verdict, and
 **both** of the sweep's error rates are measured rather than asserted — the
 false negatives it misses in `DEAD`, and, since the 2026-09-12 review, the
 false positives in its own candidate list.
@@ -24,18 +24,26 @@ is visible.
 
 | | 09-11 | 09-12 |
 |---|--:|--:|
-| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | 497 | **562** |
-| `META` — rejects a harness or a process, not an engine mechanism | 93 | **110** |
+| `DEAD` — structural: a contradiction, a counterexample, arithmetic, or a strictly better replacement | 495 | **563** |
+| `META` — rejects a harness or a process, not an engine mechanism | 93 | **109** |
 | `UNBUILT` — argued and declined, never measured | 41 | 43 |
-| `LANDED` — retried, worked, shipped | 13 | 22 |
+| `LANDED` — retried, worked, shipped | 6 | 23 |
 | `COSTED` | 26 | 21 |
 | `CONFOUNDED` | 57 | **19** |
-| `RE-TESTED` — condition met, retried, still no | 11 | 18 |
-| `EXPIRED` | 12 | 7 |
-| `SUSPECT-INSTRUMENT` | 10 | **1** |
+| `RE-TESTED` — condition met, retried, still no | 8 | 18 |
+| `EXPIRED` | 21 | 7 |
+| `SUSPECT-INSTRUMENT` | 9 | **1** |
 | `UNWIRED` | 2 | 1 |
+| | **758** | **805** |
 
-**49 revival candidates, 6% — not the 111 this page first reported.** Every
+**The 09-11 column is the distribution recoverable from `screened.tsv` at that
+day's commit, not the table this page first published**, which was hand-built at
+a slightly different moment and disagreed with its own data in five of ten rows
+(it read `DEAD` 497, `EXPIRED` 12, `RE-TESTED` 11, `LANDED` 13,
+`SUSPECT-INSTRUMENT` 10). Both columns now come from the file, and the 09-12 one
+is what `deadendindex.py --check` gates.
+
+**49 revival candidates, 6% — not the 118 this page first reported.** Every
 labelled candidate was re-rated blind and every disagreement settled by reading
 source; the account is below. Two classes carried almost all of the error:
 `CONFOUNDED` fell 57 → 19 and `SUSPECT-INSTRUMENT` 10 → 1, the latter almost
@@ -117,7 +125,10 @@ release bound, which is `COSTED` — its cost figure is independent of the
 explained null, and `default_joint_density` is still `0.9`, which is the
 reopening condition the rubric says not to bury in `DEAD`).
 
-**Candidates: 111 → 49.** Two classes carry almost the whole error, and both are
+**Candidates: 106 → 49**, from the 118 first published: the nine write-backs
+took it to 111, the relabels to 101, the orphan screen put 5 back, and
+adjudication took the 106 that went into the blind pass down to 49. Two classes
+carry almost the whole error, and both are
 failures of the same two rules. `CONFOUNDED` fell 57 → 19 — rule A, delete the
 suspect number and the entry still rejects. `SUSPECT-INSTRUMENT` fell 10 → 1,
 almost all of it into `META` — Question 1, the thing being rejected *was* the

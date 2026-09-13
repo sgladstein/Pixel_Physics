@@ -3127,15 +3127,15 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
-- [dead-ends.md](dead-ends.md) — **live index.** 546 tried-and-reverted
+- [dead-ends.md](dead-ends.md) — **live index.** 807 tried-and-reverted
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
 - [dead-ends-revival-2026-09-11.md](dead-ends-revival-2026-09-11.md) — **the
   sweep `dead-ends.md` had never had, complete; numbers revised 2026-09-12.**
-  Every entry carries a verdict: **562 are structurally dead, 110 reject an
+  Every entry carries a verdict: **563 are structurally dead, 109 reject an
   instrument rather than a mechanism, and 49 are revival candidates** — not the
-  111 the first pass reported. Both error rates are now measured and they point
+  118 the first pass reported. Both error rates are now measured and they point
   opposite ways. Sampling `DEAD` reopens 3 of 40, replicated at 4 of 40 and
   pooling to 7 of 80 — but six of those seven are *stale* rather than revivable,
   the world having moved with no write-back. Re-rating the **candidates** blind

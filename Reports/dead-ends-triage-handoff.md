@@ -27,7 +27,7 @@ blind re-rating; Part B shipped as `--touching`; Part C's instrument and both
 its baselines are on `claude/plants-124-crown` (PR #361).** The 2026-09-11
 figures below are kept in their own column, because every one of them moved.
 
-All 806 register entries carry a verdict — 804 distinct keys, and the only two
+All 807 register entries carry a verdict — 805 distinct keys, and the only two
 that share are the genuine duplicate pairs the register deliberately carries.
 **The claim that "twelve addresses are listed twice within a section and share
 one" was wrong and cost 19 verdicts.** Of 12 shared keys over 33 rows, only 2
@@ -37,13 +37,14 @@ report-section address, and each group's single verdict stood for all of them.
 
 | label | 09-11 | 09-12 | | label | 09-11 | 09-12 |
 |---|--:|--:|---|---|--:|--:|
-| DEAD | 495 | **562** | | UNBUILT | 41 | 43 |
-| META | 93 | **110** | | COSTED | 26 | 21 |
+| DEAD | 495 | **563** | | UNBUILT | 41 | 43 |
+| META | 93 | **109** | | COSTED | 26 | 21 |
 | CONFOUNDED | 57 | **19** | | SUSPECT-INSTRUMENT | 9 | **1** |
 | EXPIRED | 21 | 7 | | RE-TESTED | 8 | 18 |
-| LANDED | 6 | 22 | | UNWIRED | 2 | 1 |
+| LANDED | 6 | 23 | | UNWIRED | 2 | 1 |
 
-**49 revival candidates, down from 118.** Every labelled candidate was re-rated
+**49 revival candidates, down from the 118 first published and the 106 that
+went into the blind pass.** Every labelled candidate was re-rated
 blind against an equal number of `DEAD` controls (37% confirmed, 4 of 106
 controls reopened), and all 71 disagreements were then settled by reading
 source: 63 went to the blind reading, 7 to the screen, 1 to neither. This page
