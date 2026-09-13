@@ -56,6 +56,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     handler.result
 }
 
+/// **An animation being captured**, in player ticks — see
+/// `PIXEL_PHYSICS_DRUID_GIF`.
+struct GifCapture {
+    /// First tick to capture on.
+    start: u64,
+    /// Ticks between captures. 1 is every tick, which at 60/s is real time.
+    every: u64,
+    /// How many frames to take before writing the file and exiting.
+    count: usize,
+    out: std::path::PathBuf,
+    frames: Vec<Vec<u8>>,
+}
+
 struct Handler {
     window: Option<Arc<Window>>,
     pixels: Option<Pixels<'static>>,
@@ -76,6 +89,8 @@ struct Handler {
     census_after: Option<u64>,
     /// See `PIXEL_PHYSICS_DRUID_ABSORB_AT`.
     absorb_at: Option<u64>,
+    /// See `PIXEL_PHYSICS_DRUID_GIF`.
+    gif: Option<GifCapture>,
     /// See `PIXEL_PHYSICS_DRUID_WALK`.
     walk: (u64, u64),
     result: Result<(), Box<dyn std::error::Error>>,
@@ -155,6 +170,23 @@ impl Handler {
         // catching it needs the press and the screenshot to be scheduled
         // together; a headless run cannot press anything.
         let absorb_at: Option<u64> = std::env::var("PIXEL_PHYSICS_DRUID_ABSORB_AT").ok().and_then(|v| v.parse().ok());
+        // `PIXEL_PHYSICS_DRUID_GIF=start,every,count[,out.gif]` -- capture an
+        // animation instead of a still.
+        //
+        // **This exists because a still is the wrong instrument for a flow,
+        // and it cost two wrong answers to learn.** The owner judged the
+        // drawn-energy effect from single frames twice -- "a couple big orbs"
+        // once, and before that a frame with nothing in it at all -- and both
+        // readings were fair, because a stream of particles is a thing that
+        // *moves* and a photograph of one is a scatter of dots. `filmstrip`
+        // has had `gif=1` for exactly this reason for a while; it just cannot
+        // drive this game.
+        let gif = std::env::var("PIXEL_PHYSICS_DRUID_GIF").ok().and_then(|v| {
+            let n: Vec<&str> = v.split(',').collect();
+            let (start, every, count) = (n.first()?.trim().parse().ok()?, n.get(1)?.trim().parse().ok()?, n.get(2)?.trim().parse().ok()?);
+            let out = n.get(3).map_or_else(|| std::env::temp_dir().join("pixel_physics_druid.gif"), |o| o.trim().into());
+            Some(GifCapture { start, every, count, out, frames: Vec::new() })
+        });
         // `PIXEL_PHYSICS_DRUID_WALK=N` -- hold `D` for the first N player
         // ticks. A colony is founded at the gnome's feet, so a scripted
         // absorb has about five cells for the stream to cross and the flow
@@ -184,6 +216,7 @@ impl Handler {
             screenshot_countdown: std::env::var("PIXEL_PHYSICS_SCREENSHOT_AFTER_FRAMES").ok().and_then(|v| v.parse().ok()),
             census_after,
             absorb_at,
+            gif,
             walk,
             result: Ok(()),
         }
@@ -284,6 +317,21 @@ impl Handler {
         let render_error = match &mut self.pixels {
             Some(pixels) => {
                 self.game.draw(pixels.frame_mut(), (WIDTH, HEIGHT), false);
+                // **Captured after the draw, before the present**, so the
+                // interface is in the frame -- the flow this exists to record
+                // is drawn by the HUD, not by the world.
+                if let Some(g) = &mut self.gif {
+                    let t = self.game.ticks;
+                    if t >= g.start && g.frames.len() < g.count && (t - g.start).is_multiple_of(g.every) {
+                        g.frames.push(pixels.frame().to_vec());
+                    }
+                    if g.frames.len() >= g.count {
+                        let g = self.gif.take().expect("just checked");
+                        save_gif(&g);
+                        event_loop.exit();
+                        return;
+                    }
+                }
                 if let Some(n) = self.screenshot_countdown {
                     if n <= 1 {
                         self.screenshot_countdown = None;
@@ -508,6 +556,34 @@ fn census(game: &Druid) {
     println!("  outside every circle : {outside} living plant cells");
     let (charge, holders) = game.charge_in_reach();
     println!("  animals {} ({} awake), charge {charge:.0} in {holders} within reach", game.animals, game.animals_awake);
+}
+
+/// Write the captured frames out as a looping animation.
+///
+/// The delay is derived from the capture interval and the fixed 60 ticks a
+/// second, so the result plays at the speed the game actually ran — the whole
+/// point being to judge motion, which a GIF at an arbitrary rate cannot do.
+fn save_gif(g: &GifCapture) {
+    let delay_ms = (g.every * 1000 / u64::from(TICKS_PER_SECOND)).max(16);
+    let delay = image::Delay::from_saturating_duration(Duration::from_millis(delay_ms));
+    let file = match std::fs::File::create(&g.out) {
+        Ok(f) => f,
+        Err(e) => return eprintln!("gif failed: {e}"),
+    };
+    let mut encoder = image::codecs::gif::GifEncoder::new(file);
+    if let Err(e) = encoder.set_repeat(image::codecs::gif::Repeat::Infinite) {
+        return eprintln!("gif failed: {e}");
+    }
+    for f in &g.frames {
+        let Some(buf) = image::RgbaImage::from_raw(WIDTH, HEIGHT, f.clone()) else {
+            return eprintln!("gif failed: a frame was not {WIDTH}x{HEIGHT}");
+        };
+        if let Err(e) = encoder.encode_frame(image::Frame::from_parts(buf, 0, 0, delay)) {
+            return eprintln!("gif failed: {e}");
+        }
+    }
+    drop(encoder);
+    eprintln!("gif saved ({} frames, {delay_ms}ms apart): {}", g.frames.len(), g.out.display());
 }
 
 /// Its own filename, so a druid screenshot and a sandbox one can both exist.
