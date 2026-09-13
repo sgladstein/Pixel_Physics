@@ -31,6 +31,12 @@
         // simply could not be placed anywhere.
         body: Rigid([(-1, 0), (0, -1), (-1, -1)]),
         tick_interval: 8,
+        // **No `life_half_life`, so this kind is immortal** -- the field's
+        // default, and the shipped behaviour for every animal before
+        // 2026-09-12. Only the ant and the long ant die of age today, because
+        // the lifespan was authored against the ant colony's own boom period
+        // (a generation on the played bed, the larder's edge) and nobody has
+        // measured what this kind's would be. Set it here when somebody has.
         start_energy: 1600.0,
         // **Per body cell** (`organism.rs`'s `idle_cost_per_cell`),
         // re-derived 2026-08-30 to leave this animal's bill exactly where it
@@ -188,7 +194,35 @@
         // measured what a beetle lineage should drift at, and two unexplained
         // rates would be worse than one shared one. A number to re-derive
         // when a beetle line is actually being bred, not before.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** alongside `ant.ron` and
+        // `ancestor.ron` when `KinNeed`/`Share` took `live_slots` 706 -> 763
+        // for trophallaxis (`3.18 / 763`) -- the mutable surface moved for
+        // every species sharing the brain scaffold, whether or not this one
+        // wires the new slots. `beetle.ron` gets no `Share` weight: a
+        // solitary predator sharing with its own kind is a decision this
+        // change has no evidence for, and an unwired row is `squash(0) = 0`
+        // at the cost of one comparison.
+        //
+        // **0.0039308, re-derived 2026-09-10** alongside `ant.ron` and
+        // `ancestor.ron` again when `BloomNear`/`BloomBearing` took
+        // `live_slots` 763 -> 809 (P1, the bloom sense). This animal has the
+        // largest eye in the tree and wires neither new slot: a beetle is a
+        // hunter, not the pollinator (owner's ruling, 2026-09-10), and the
+        // same "unwired row costs one comparison" reasoning applies again.
+        //
+        // **0.0037589, re-derived 2026-09-11** when `BrainOutput::Fly`
+        // appended (the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1). An OUTPUT
+        // row is 37 live slots -- 29 inputs + 8 hidden, against an input
+        // column's 24 -- so `live_slots` 809 -> 846 and
+        // `3.18 / 846 = 0.0037589`. This animal wires no `Fly` weight and
+        // has no authored `fly_cost_in_moves`, so it never leaves the ground
+        // under power and pays one comparison for the row; the mutable
+        // surface moved for every species on the shared scaffold regardless,
+        // exactly as this file's copy of the comment above already says for
+        // the append before this one.
+        mutation_rate: 0.0037589,
 
         nest: "nest",
         // **The jaw price, derived at this animal's own constants** -- see

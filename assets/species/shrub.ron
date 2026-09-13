@@ -31,6 +31,62 @@
     // both axes -- a pair of its own.
     foliage_bands: (first: 4, count: 2),
     bark_bands: (first: 2, count: 2),
+    // **A flowering shrub, 2026-09-10** -- the coordinator's recommendation
+    // for keeping the bed in flower once nectar (PR #312) needs flowers
+    // that stay standing to be fed at
+    // (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §1.2): a
+    // perennial larder rather than a third one-shot annual. Bands 4-5
+    // (magenta, violet) of `flower` and 2-3 (purple, blue-black) of `fruit`
+    // -- both ranges no other species draws from (`herb` 0-1/4-5, `scrambler`
+    // 6-7/0-1), and `fruit`'s own comment already names the real plants band
+    // 2-3 was written for: "damson, sloe... elder, bilberry" -- a shrub's
+    // own fruit in the real world.
+    flower_bands: (first: 4, count: 2),
+    fruit_bands: (first: 2, count: 2),
+    // **Explicit, where it was implicit.** `windfall_material` defaults to
+    // the literal `"seed"` for a species that authors no fruit -- which this
+    // one no longer is, so the default would give a shrub's fallen fruit the
+    // bare look a species with no organs at all produces. Same material as
+    // `herb`/`scrambler`: nothing about the falling powder needs to be
+    // shrub-specific, only its colour, and that is the fruit band above.
+    windfall_material: "windfall",
+    // **Round 29, Brief 1 -- this species' seeds now survive an ant's gut,
+    // where before they were certain death.**
+    // `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The late-game
+    // census found the colony's staple is the seed bank -- it drains 16x in a
+    // session while the leaf larder holds -- and that a bitten seed was simply
+    // destroyed. With this set, a bite that spares the seed pays only
+    // `seed_provision_fraction` and the seed rides home in the ant's crop, to
+    // be set down where the meal ends: granivory becomes dispersal.
+    //
+    // **0.6, the value `herb` and `scrambler` already carry**, and taken from
+    // them deliberately rather than tuned here. Three reasons, in order: it is
+    // the only value in the corpus, so a first build that invents a second
+    // number is choosing between two unmeasured things instead of one; the
+    // trait is a seed *coat*, and nothing about a grass, shrub or tree coat is
+    // obviously tougher or thinner than a herb's; and a species-specific
+    // spread is exactly the sort of difference this lab exists to let
+    // *evolution* find, once the field is addressed through `ParamGenome`.
+    // Re-derive it from a dispersal sweep before believing any particular
+    // value, not from this comment.
+    seed_gut_survival: 0.6,
+    // **Same offer as `herb`** -- see that file's own comment for the units
+    // and the `EAT_YIELD_THRESHOLD` arithmetic against them. Nothing about
+    // nectar's price or yield is habit-specific; only how often a flower is
+    // there to visit is, and that is `rebloom_after` below.
+    nectar_yield: 120.0,
+    nectar_refill: 0.25,
+    // **The perennial larder itself.** Scaled off the same 250:60
+    // (`seed_maturity` against `herb`'s) ratio the `Ripen` rates below argue
+    // from -- `herb`'s own 4,000 (`herb.ron`'s comment) x ~4.17 ~= 16,680,
+    // rounded to 16,000. A shrub carries many more simultaneous flowering
+    // sites than a herb's single head or even a scrambler's trusses
+    // (`max_active_tips: 14`, the same as `scrambler`, over a plant that
+    // lives many times longer), so the *bed* reads as continuously in
+    // flower from the overlap of many sites cycling slowly rather than from
+    // any one site cycling fast -- closer to how a real flowering shrub
+    // blooms a season at a time than to a bedding annual's turnover.
+    rebloom_after: 16000,
     // See tree.ron: the stock fraction where stomata start closing,
     // multiplied per individual by genotype slot 7.
     stomatal_reserve: 0.2,
@@ -51,6 +107,40 @@
     // sets `becomes` on `Stale`; a truss sets `lateral`.
     fates: [
         (GrowingTip, [
+            // **The determinate terminal, 2026-09-10, listed first because
+            // first match wins.** Four metamers up, the apex is consumed by
+            // a flower rather than becoming a bud -- see the header comment
+            // for the colour bands and `SpeciesDef::rebloom_after` for what
+            // happens after this flower sets fruit and the fruit drops.
+            //
+            // **4, not `herb`'s 8 or `scrambler`'s 3, and it is a short-axis
+            // argument rather than a scaled one.** `herb`/`scrambler`'s
+            // counts track their own habit (one long stalk against a very
+            // short truss run); this species is already "many short
+            // equivalent modules" by construction (sympodial, `internode:
+            // [2,3]`, the header's own "twiggy, gnarled" call), so its
+            // determinate count only has to sit inside that same short-axis
+            // shape. At `plastochron: 2` (the saturated, order>=1 value --
+            // see the header's "everything else alike") four metamers is
+            // an eight-cell run, comfortably inside the 40-row turgor
+            // ceiling this plant's own header derives, with no risk of the
+            // herb.ron turgor trap (`Reports/dead-ends.md`'s entry on it):
+            // that trap is a *whole-plant* path-length ceiling reached by
+            // one long axis, and this plant's longest single axis is a
+            // fraction of that by design.
+            //
+            // **Applies to every axis, the basal tier included, and that is
+            // deliberate rather than an omission of "side shoots only."**
+            // The header's own account of this species' architecture is
+            // that the basal tier is itself short and everything beyond it
+            // is sympodial renewal -- structurally there is no long-lived
+            // "trunk" distinct from a "side shoot" for a rule to single out,
+            // and the fate table has no way to read branch order in any
+            // case (`organism::Fate` keys on cell type, moment and metamer
+            // count, not `OrganismCell::order`). One rule for every axis is
+            // exactly what `herb` and `scrambler` already do, for the same
+            // reason `scrambler.ron` gives: "the laterals *are* the plant."
+            (when: Node,  becomes: Flower, after_metamers: Some(4)),
             // The metamer boundary: the retiring parent becomes the axillary
             // bud its leaf subtends. The leaf is placed beside the stem, not
             // in it.
@@ -61,7 +151,9 @@
             // Aged out with nowhere to go. Same destination as the successful
             // path, deliberately -- and this is the site a determinate axis
             // actually retires through, since a terminal tip more often runs
-            // out of room than grows one last time.
+            // out of room than grows one last time. As `herb`/`scrambler`: a
+            // tip that starved short of its count gets no flower, so the
+            // count stays a real gate rather than decorative.
             (when: Stale, becomes: MatureBody),
         ]),
         (RootTip, [
@@ -73,6 +165,15 @@
         (DormantBud, [
             // The only mechanism in the engine that *creates* frontier.
             (when: Flush, becomes: GrowingTip),
+        ]),
+        // **The organ sequence, as `herb.ron`/`scrambler.ron`'s two rules.**
+        // Both fire from `Behavior::Ripen`'s clock; see the `Flower`/`Fruit`
+        // cell-type entries below for the rates this species runs them at.
+        (Flower, [
+            (when: Ripe, becomes: Fruit),
+        ]),
+        (Fruit, [
+            (when: Ripe, becomes: Seed),
         ]),
     ],
     cell_types: [
@@ -136,6 +237,25 @@
                 // both were measured here rather than argued: see the
                 // establishment and cell counts in the PR body.
                 leaf_cluster: 12,
+                // **Authored for the first time in round 28** -- it
+                // defaulted to 1 (a single-cell flower per axis end)
+                // since the organ package landed, which is right for
+                // "many small heads scattered across a mound" but reads
+                // as barely a flower at all up close. 3 is a much smaller
+                // absolute bump than `herb`'s (9 -> 16) or `scrambler`'s
+                // (5 -> 8) on purpose: a shrub's "bigger" is smaller than
+                // the herb's, because its habit is many trusses rather
+                // than one head (`Reports/evolution-lab-pollinator-
+                // design-2026-09-10.md` §3.5, Brief C2's sibling). Slot 9
+                // scales this per individual exactly as it does for the
+                // other two flowering species.
+                //
+                // **Re-measured round 28, lane D, on `herb` only** -- see
+                // `herb.ron`'s own `organ_cluster` comment for the
+                // six-seed table and the finding (stale `main` baseline,
+                // not a size or slot-9-variance cost). The mechanism is
+                // shared, so it carries here without a second sweep.
+                organ_cluster: 3,
                 juvenile_size: 30,
                 juvenile_plastochron: 0.4,
                 juvenile_branch: 1.3,
@@ -250,6 +370,34 @@
             // species should shed faster than the others that is a
             // separate, per-species decision and wants its own card.
             Photosynthesize(rate: 0.35, shade_death: 0.00075, drought_death: 0.00075),
+        ]),
+        // **The organ cell types, 2026-09-10.** As `herb.ron`/`scrambler.ron`:
+        // inert but for the clock, so building one is a real cost rather
+        // than an investment that pays for itself.
+        //
+        // **Rates argued from the 250:60 ratio between this species'
+        // `seed_maturity` and `herb`'s, then measured.** `herb` sets a
+        // flower in ~50 organism ticks (`Ripen(rate: 0.02)`) and ripens
+        // fruit in ~83 (`rate: 0.012`); dividing both by ~4.17 gives ~208
+        // and ~346 ticks, i.e. rates of ~0.0048 and ~0.0029 -- rounded here
+        // to 0.005 and 0.003. The costs are carried across unscaled rather
+        // than argued from the same ratio: a price is what the organ is
+        // worth, not how long the clock that gets there runs, and nothing
+        // about a slower clock says the same flower should cost more or
+        // less to provision.
+        // **Both costs divided by 3 in round 28**, the ratio
+        // `organ_cluster` grew by when it was authored above for the
+        // first time (1 -> 3) -- orthogonal to the rate argument above
+        // this block, which is about clock speed rather than head size:
+        // every cell of a now-3-cell head pays independently out of the
+        // one shared `reproductive_budget`. `herb.ron`'s matching `Fruit`
+        // comment has the measurement behind dividing the fruit cost too,
+        // rather than protecting seed `endowment` at its original value.
+        (Flower, [
+            Ripen(rate: 0.005, cost: 0.1),
+        ]),
+        (Fruit, [
+            Ripen(rate: 0.003, cost: 0.117),
         ]),
     ],
 )

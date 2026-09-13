@@ -485,6 +485,10 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
     // Only the `+x` and `+y` faces are visited, so each shared face is
     // handled exactly once and the exchange conserves rather than depending
     // on sweep order.
+    // **Read once per cell, not once per face** -- see
+    // `CellSurface::soil_capillary_levels`. Two faces are visited below and
+    // the answer cannot change between them.
+    let levels_sideways = surface.soil_capillary_levels();
     for (dx, dy) in [(1, 0), (0, 1)] {
         let n = surface.get(x + dx, y + dy);
         let n_capacity = surface.materials().get(n.material).water_capacity;
@@ -559,7 +563,27 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
         // the bed unless the evaporative sink is braked at the same time;
         // `evaporation::soil_wetness_factor` is the other half, and
         // `Reports/dead-ends.md` records the run where it was missing.
-        let rest = if wetter > material::SOIL_FIELD_CAPACITY {
+        //
+        // **And the wide half is what puts standing columns in the bed** --
+        // the owner's second report, *water in the soil builds up in these
+        // columns*. The argument above is about the drainage/capillary pump,
+        // and a pump needs the two rules to disagree about the *same* pair;
+        // drainage only ever moves water **down**, so the pair it can fight
+        // over is the vertical one. Applied to the sideways face as well, the
+        // wide threshold licenses two neighbouring columns to stand 380 apart
+        // for ever -- a third of the whole scale -- and that is exactly what
+        // a rained-on bed does. Measured on an empty box (no plants, no
+        // animals, nothing alive) at the mister's shipped rate, 24,000
+        // frames: **every** side-by-side pair in the bed at rest, 46,249 of
+        // them silenced by the wide threshold, widest standing gap **380 --
+        // sitting exactly on it**, and column means from 600 to 682.
+        //
+        // `World::soil_capillary_levels` narrows the sideways face back to
+        // the churn guard and changes nothing else. **Off by default, which
+        // is the owner's ruling** -- it is a dial on the lab's parameters
+        // page rather than a constant, so the two beds are two settings in
+        // one running box rather than two builds.
+        let rest = if wetter > material::SOIL_FIELD_CAPACITY && !(levels_sideways && dy == 0) {
             material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY
         } else {
             SOIL_CAPILLARY_REST_UNSATURATED
@@ -609,6 +633,37 @@ pub(crate) fn update_soil_water<S: CellSurface>(surface: &mut S, x: i32, y: i32)
             if moved > 0 {
                 moisture -= moved;
                 surface.set_moisture(x, y + 1, below.with_aux(soil_moisture(below) + moved));
+            }
+        } else if below.material == material::EMPTY {
+            // **A wet roof drips, and without this a dug tunnel made the bed
+            // waterproof.** The owner's own diagnosis of why water still
+            // pooled on the planting after everything above: *"when creatures
+            // dig they create a layer of air under soil, and water doesn't
+            // drop down out of soil into air, so a single pixel line of soil
+            // gets saturated and then water can pool on top of it."*
+            //
+            // Exactly right, and it was one clause: drainage above required
+            // the cell below to be something that *holds* water, so soil with
+            // air underneath had nowhere to send its surplus however wet it
+            // got. Every gallery an ant digs roofs itself with soil that then
+            // saturates and stays saturated -- and saturated ground turns
+            // away every drop that lands on it, which is what puts the sheet
+            // back on top of the planting.
+            //
+            // **The same rate and the same surplus as the branch above**, so
+            // a roof sheds at the speed any other wet cell does; what changes
+            // is only that the water leaves as a falling drop instead of as
+            // the next cell's moisture. That is the legible half as well as
+            // the correct one -- a wet cave roof drips, which is something to
+            // watch rather than a number quietly going down.
+            //
+            // `material::WATER` rather than a name lookup: this is the
+            // moisture pass and `id_of` is a string hash.
+            let surplus = moisture - material::SOIL_FIELD_CAPACITY;
+            let shed = ((surplus as f32 * SOIL_DRAINAGE_RATE) as u16).min(material::LIQUID_FULL);
+            if shed > 0 {
+                moisture -= shed;
+                surface.set(x, y + 1, Cell::new(material::WATER, 0).with_aux(shed));
             }
         }
     }
@@ -1295,6 +1350,43 @@ fn drip_period() -> Option<u64> {
 /// `fall_through_organism` gives: the managed-aware helper reads a promoted
 /// liquid body's container cells as occupied, and water pooled on a canopy is
 /// exactly the still water that gets promoted.
+///
+/// # The far side is air **or ground**, and for half the flora there is never
+/// any air
+///
+/// The rule above was written for a tree, where the far side of a branch is
+/// the open space under the crown, and it is *only* correct for a tree. A
+/// grass tussock, a herb, a shrub, a scrambler lying along the floor — the
+/// far side of their tissue is the bed they are rooted in, so the scan found
+/// soil, refused, and the drop stayed on the leaf for ever. The owner's
+/// report is exactly that: *water pools on top of the plants instead of going
+/// through and soaking into the soil*, fixed once for trees and still live
+/// for everything else.
+///
+/// Measured on `played_bed_scrambler`, 24,000 frames, the mister at STEADY,
+/// by replaying this scan over every standing drop (`examples/waterstand`):
+/// **876 liquid cells resting on living tissue, of which 8 could drip.** The
+/// other 868 were refused — 308 by the soil underneath (276 of those with
+/// room to spare), 500 by water already trapped in the mat, 47 by dead
+/// tissue. And the rate is not what makes it: at the mister OFF, on dew
+/// alone, it is 408 resting with 3 able to drip.
+///
+/// So ground that can hold water is a landing too, and the water goes into it
+/// the only way water ever enters soil — [`update_soil_water`]'s own
+/// infiltration arithmetic, `min(fill, room)`, with the remainder written
+/// back as liquid rather than the cell being consumed whole. What it must
+/// *not* become is a hole in the bottom of the world: soil already at
+/// capacity still refuses, so a saturated bed under heavy rain puddles on the
+/// surface exactly as it does today. That is the graded middle rather than
+/// the binary — rain soaks in until the ground has had enough, and then it
+/// stands.
+///
+/// Trapped water is left to the same rule one cell lower: the drop blocking
+/// the scan is itself sitting on tissue, so it soaks on its own beat and the
+/// column above follows it down. Nothing here merges fill across a leaf.
+///
+/// **`CANOPY_DRIP=0` turns this off with the rest of the rule**, which is
+/// what makes the before/after one binary — see [`drip_period`].
 fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below: Cell) -> bool {
     // **Cheapest discriminator first, and it is a flag read on a `Cell` the
     // caller already holds.** Water that is not sitting on living tissue --
@@ -1304,7 +1396,16 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
     // argument: `update_liquid` does not have it in hand here, and fetching
     // one to pass in would charge every liquid cell in the world for a test
     // that almost always fails on the line above.
-    if below.organism_id() == 0 {
+    // **The entry gate has to admit dead plant matter too, and this is where
+    // the second report came from.** It read `organism_id` alone, so a drop
+    // resting on a dead `grassblade` -- which a grown bed is full of -- never
+    // entered this rule at all, however transparent the scan below was made.
+    // Fixing the scan without fixing the gate moved nothing.
+    //
+    // **The cheap half still runs first.** `organism_id` is a field read on a
+    // `Cell` the caller already holds; the `kind` lookup is a `Vec` index and
+    // is only paid when that fails.
+    if below.organism_id() == 0 && surface.materials().kind(below.material) != MaterialKind::Plant {
         return false;
     }
     if !surface.materials().get(surface.get(x, y).material).falls_through_organisms {
@@ -1321,11 +1422,114 @@ fn drip_through_organism<S: CellSurface>(surface: &mut S, x: i32, y: i32, below:
         if here.material == material::EMPTY {
             return try_move(surface, x, y, x, probe);
         }
-        if here.organism_id() == 0 {
-            return false;
+        // **Dead plant matter is not a shelf either.** A `grassblade` or a
+        // `grassroot` that has lost its organism is still one cell wide and
+        // still not a shelf spanning the wood's whole depth. Measured on
+        // `played_bed_scrambler` at the shipped rain rate, **41 of the 213
+        // drops standing on tissue were refused by dead grass**.
+        //
+        // `deadwood` and `log` are deliberately not included, which is the
+        // same call `fall_through_organism` already makes for the falling
+        // side: a snapped branch is chunky enough to hang up in a crown, so
+        // it is chunky enough to hold a drop. A `nest` is a built wall.
+        if here.organism_id() == 0 && surface.materials().kind(here.material) != MaterialKind::Plant {
+            // The far side of the plant, and it is not air. Ground that can
+            // still hold water drinks the drop and more of the same liquid
+            // takes it in; anything else -- stone, a fallen log, a nest, soil
+            // already at capacity -- is a floor and the drop stays.
+            return soak_into_ground(surface, x, y, probe, here);
         }
     }
     false
+}
+
+/// **Ground under a leaf drinks the drop that is sitting on it.**
+///
+/// The landing half of `drip_through_organism` above, for the case where the
+/// far side of the tissue is the bed rather than open air. Split out because
+/// it is the only part of that rule that writes two channels at once and the
+/// conservation argument belongs next to the arithmetic rather than inside a
+/// scan.
+///
+/// **The same arithmetic as [`update_soil_water`]'s own infiltration, and
+/// deliberately not a second model of it**: take `min(fill, room)`, and write
+/// the remainder back as liquid instead of consuming the cell whole. That
+/// second clause is the one with a history — absorbing a cell whole and
+/// keeping only part of it was a silent mass leak there, and it would be the
+/// same leak here.
+///
+/// The moisture write goes through `set_moisture` rather than `set` so it
+/// reaches whichever channel the surface keeps soil wetness on: quiet plus a
+/// moisture mark on `World`, an ordinary dirtying write on a `ChunkView`
+/// (whose dirty rows are unioned into the next moisture plan by
+/// `Chunk::promote_dirty`, so the soaked cell is re-planned either way).
+///
+/// **No `schedule_damp_soil`**, unlike `update_soil_water`'s own moisture
+/// write, and it is not an omission: `evaporation::is_damp_soil_surface`
+/// refuses a cell whose neighbour above is not empty, and every cell this
+/// function can reach has living tissue directly over it by construction --
+/// the scan walked through that tissue to get here. The call would be a
+/// guaranteed no-op on the hottest path in the engine.
+fn soak_into_ground<S: CellSurface>(surface: &mut S, x: i32, y: i32, ty: i32, ground: Cell) -> bool {
+    // **More of the same liquid is a landing too -- and leaving it out is
+    // what kept a sheet on the mat after the ground learned to drink.**
+    //
+    // The reasoning for leaving it out was that a drop blocking the scan is
+    // itself sitting on plant matter, so it soaks on its own beat and the
+    // column above follows it down. That holds only while the blocking drop
+    // has somewhere to go. Over ground at capacity it has none, and then
+    // every drop above it stacks behind it for ever: measured on
+    // `played_bed_scrambler` at the shipped rain rate, **66 of the 213 drops
+    // standing on tissue were refused by water**, the largest blocker left.
+    //
+    // The arithmetic is `transfer_liquid_vertical`'s to the unit, compression
+    // allowance included -- this is that rule's handoff reached through a
+    // plant instead of across a shared face, and a second model of it would
+    // be a second thing to disagree with.
+    if ground.material == surface.get(x, y).material {
+        // A promoted body is refused rather than absorbed into: absorption is
+        // `transfer_liquid_vertical`'s business through a real shared face,
+        // and a body reached by tunnelling through a crown is not a case
+        // `liquid-heightfield-design.md` 6b considered.
+        if ground.managed() {
+            return false;
+        }
+        let src = surface.get(x, y);
+        let (src_fill, dst_fill) = (liquid_fill(src), liquid_fill(ground));
+        let room = (material::LIQUID_FULL + material::LIQUID_MAX_COMPRESS).saturating_sub(dst_fill);
+        let amount = surface.materials().get(src.material).flow_rate.min(room).min(src_fill);
+        if amount == 0 {
+            return false;
+        }
+        write_liquid_transfer(surface, x, y, src, src_fill - amount, x, ty, ground, dst_fill + amount, false);
+        return true;
+    }
+    let capacity = surface.materials().get(ground.material).water_capacity;
+    if capacity == 0 {
+        return false;
+    }
+    let held = soil_moisture(ground);
+    let room = capacity.saturating_sub(held);
+    if room == 0 {
+        return false;
+    }
+    let cell = surface.get(x, y);
+    let fill = liquid_fill(cell);
+    let taken = fill.min(room);
+    if taken == 0 {
+        return false;
+    }
+    surface.set_moisture(x, ty, ground.with_aux(held + taken));
+    if taken >= fill {
+        surface.set(x, y, Cell::EMPTY);
+    } else {
+        // `aux` on a `Liquid` is its fill and 0 there means *full*, so a
+        // fully drained cell must become `Cell::EMPTY` and never
+        // `with_aux(0)` -- the gotcha `material::LIQUID_FULL`'s own doc
+        // exists for, and the same one infiltration carries.
+        surface.set(x, y, cell.with_aux(fill - taken));
+    }
+    true
 }
 
 /// How far a leaf will slip sideways past a trunk in one frame.
@@ -2790,6 +2994,107 @@ mod tests {
         );
     }
 
+    /// **Two wet cells side by side stand apart for ever, until the bed is
+    /// told to level sideways.**
+    ///
+    /// The guard for `World::soil_capillary_levels`, and the reproduction of
+    /// the owner's second report — *water in the soil builds up in these
+    /// columns.* Above field capacity the capillary rule rests at the
+    /// drainable band (380 of 1000), a third of the whole scale, and it
+    /// applies that to **every** neighbour. The threshold's own derivation is
+    /// about a pump between drainage and capillary over the *same* pair, and
+    /// drainage only ever moves water down — so on the sideways face the wide
+    /// rest is guarding against nothing and two columns simply stand.
+    ///
+    /// **The scene is one row of soil roofed and floored in stone**, so the
+    /// only face the rule can act on is the sideways one. Without the roof a
+    /// wet cell drains downward and the arms would differ for a second
+    /// reason; without the floor the soil is a `Powder` standing in air and
+    /// slumps before anything is measured, which is `soil_wetting_probe`'s
+    /// own recorded scene error.
+    ///
+    /// The starting gap is **exactly** `SOIL_SATURATED - SOIL_FIELD_CAPACITY`
+    /// rather than a comfortable margin either side, and that is deliberate:
+    /// it is the state a rained-on bed actually reaches, and the widest
+    /// standing gap measured across a real bed sat exactly on the constant.
+    ///
+    /// # It reads the pair at the step, not the far ends of the row
+    ///
+    /// **And that is a finding rather than a convenience.** The moisture pass
+    /// is *change-driven* — `Chunk::take_moist_plan` walks what was written
+    /// last pass, dilated by one — so in a sealed scene where nothing else
+    /// ever wakes it, levelling propagates only as far as each pass's own
+    /// writes reach. Measured here: the pair at the step exchanges down to
+    /// 839 against 782 and stops, while the cell one further out still holds
+    /// 1000 and is never reconsidered, because by the time it was last walked
+    /// the gap to its neighbour was under the narrow threshold and after that
+    /// no write marked it again. The wave strands.
+    ///
+    /// That is a property of the pass and not of this dial — with the dial
+    /// off there is simply no gradient to strand — and it does not reach a
+    /// played bed, where rain, roots, drainage and the sun re-mark the soil
+    /// continuously: over twelve seeds on the played bed the dial takes the
+    /// widest standing gap in the *whole* bed from 380 to **0**, every seed.
+    /// So the bed-wide claim belongs to that sweep
+    /// (`Reports/soil-water-columns-2026-09-11.md`) and this test asserts the
+    /// rule it rests on, which is the one thing a four-cell scene can say
+    /// honestly.
+    ///
+    /// Both arms confirmed red for their own fault before this was committed.
+    #[test]
+    fn wet_cells_stand_apart_until_the_bed_is_told_to_level_sideways() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        // The pair straddling the step, after the bed has had time to settle.
+        let arm = |levels: bool| -> (u16, u16) {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            w.soil_capillary_levels = levels;
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            for x in 0..32 {
+                w.set(x, 15, Cell::new(material::STONE, 0));
+                w.set(x, 17, Cell::new(material::STONE, 0));
+            }
+            w.set(7, 16, Cell::new(material::STONE, 0));
+            w.set(24, 16, Cell::new(material::STONE, 0));
+            for x in 8..24 {
+                let held = if x < 16 { material::SOIL_SATURATED } else { material::SOIL_FIELD_CAPACITY };
+                w.set(x, 16, Cell::new(soil, 0).with_aux(held));
+            }
+            for _ in 0..4_000 {
+                step(&mut w);
+            }
+            (soil_moisture(w.get(15, 16)), soil_moisture(w.get(16, 16)))
+        };
+
+        // Off — the shipped bed, and the owner's ruling for the default.
+        // Exact, not "still apart": the pair never exchanges a single unit,
+        // so anything but the placed values means the rule moved something.
+        let (wet, dry) = arm(false);
+        assert_eq!(
+            (wet, dry),
+            (material::SOIL_SATURATED, material::SOIL_FIELD_CAPACITY),
+            "off, two wet cells must stand exactly where they were put: {wet} beside {dry}"
+        );
+
+        // On — they level. The bar is a fifth of the standing gap rather than
+        // equality, because capillary rests at the *narrow* threshold (60)
+        // rather than at zero, and resting somewhere is the churn guard doing
+        // its remaining job. Measured at 57; the bar is 76.
+        let (wet, dry) = arm(true);
+        let gap = wet.abs_diff(dry);
+        assert!(
+            gap * 5 < material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY,
+            "on, the pair should have levelled: {wet} beside {dry}, still {gap} apart"
+        );
+        // …and levelled by *moving water between them*, not by draining it
+        // away. Without this the arm would pass if both simply went to zero.
+        assert!(
+            wet < material::SOIL_SATURATED && dry > material::SOIL_FIELD_CAPACITY,
+            "levelling must move water between the cells, not out of them: {wet} beside {dry}"
+        );
+    }
+
     /// **A worked wall holds however wet it gets, and a crumb still does
     /// not** — the pair, because either half alone passes for a rule that is
     /// stuck on or stuck off.
@@ -3085,6 +3390,354 @@ mod tests {
         assert!(
             roofed_above > 0 && roofed_below == 0,
             "a canopy with ground right under it offers nowhere to drip to: {roofed_above} fill above, {roofed_below} below"
+        );
+    }
+
+    /// **A puddle on a low plant soaks into the ground under it.**
+    ///
+    /// The case the canopy test above cannot reach, and the one the owner
+    /// reported from the evolution lab: *water pools on top of the plants
+    /// instead of going through and soaking into the soil.* A tree has open
+    /// air under its crown, so `drip_through_organism`'s scan finds somewhere
+    /// to fall. A grass tussock, a herb, a shrub or a scrambler lying along
+    /// the floor has the bed itself under its tissue, the scan found soil,
+    /// refused, and the drop stayed on the leaf for ever -- measured on
+    /// `played_bed_scrambler` at 876 liquid cells standing on tissue with 8
+    /// of them able to drip.
+    ///
+    /// The scene is the same stone-walled basin the canopy test argues for,
+    /// for the same reason: a liquid levels sideways fast, so unless going
+    /// through is the *only* way out the arms measure spreading rather than
+    /// the rule. What changes is the floor -- soil three rows under the
+    /// tissue instead of open air.
+    ///
+    /// **Four arms, three of them controls, and each was confirmed to go red
+    /// for its own fault before this was committed:**
+    ///
+    /// - the positive arm, water over soil with room: every drop ends up in
+    ///   the ground, and the ground gains *exactly* what the water lost --
+    ///   the conservation half, which is what separates "it soaked in" from
+    ///   "a cell was deleted";
+    /// - **stone** under the same mat, which is the existing roofed control
+    ///   moved down a level: ground that cannot hold water is a floor, and
+    ///   the puddle must stay on the leaf;
+    /// - **oil**, which does not carry `falls_through_organisms`, over the
+    ///   identical soil: the specificity control that says the flag is doing
+    ///   the work rather than "liquids now sink through plants";
+    /// - **soil already at `SOIL_SATURATED`**: the graded middle. A bed that
+    ///   has had enough still puddles, which is what stops this being a hole
+    ///   in the bottom of the world.
+    ///
+    /// Five cells rather than one, as above: `water` evaporates elsewhere in
+    /// the pipeline and a single cell that happened to go would read as a
+    /// pass.
+    #[test]
+    fn a_puddle_on_a_mat_soaks_into_the_ground_but_not_into_stone_or_a_full_bed() {
+        // `(fill still above the floor, moisture the floor gained)`.
+        let arm = |liquid: &str, floor: &str, start: u16| -> (u64, i64) {
+            let mut w = world_with_floor();
+            let wood = w.materials.id_of("wood").expect("wood is compiled in");
+            let id = w.materials.id_of(liquid).unwrap_or_else(|| panic!("{liquid} is compiled in"));
+            let floor_id = w.materials.id_of(floor).unwrap_or_else(|| panic!("{floor} is compiled in"));
+            // Stone walls for the full height, so the only way down is
+            // through -- and so the soil block cannot slump sideways, which
+            // `examples/soil_wetting_probe`'s own scene error was.
+            for y in 100..=126 {
+                w.set(59, y, Cell::new(material::STONE, 0));
+                w.set(71, y, Cell::new(material::STONE, 0));
+            }
+            for y in 120..=126 {
+                for x in 60..=70 {
+                    w.set(x, y, Cell::new(floor_id, 0).with_aux(start));
+                }
+            }
+            // The mat: three rows of tissue lying straight on the ground,
+            // which is the whole difference from the canopy scene. A real
+            // `organism_id`, because that -- not `MaterialKind::Plant` -- is
+            // what the rule tests.
+            for y in 117..=119 {
+                for x in 60..=70 {
+                    w.set(x, y, Cell::new(wood, 0).with_organism_id(1));
+                }
+            }
+            for x in 63..=67 {
+                w.set(x, 116, Cell::new(id, 0));
+            }
+            let before: i64 = (120..=126)
+                .flat_map(|y| (60..=70).map(move |x| (x, y)))
+                .map(|(x, y)| soil_moisture(w.get(x, y)) as i64)
+                .sum();
+            run(&mut w, 400);
+            // **Volume, not cells** -- `CLAUDE.md`'s first liquid metric
+            // trap, and the one the canopy test above was written twice for.
+            let above: u64 = (0..120)
+                .flat_map(|y| (0..128).map(move |x| (x, y)))
+                .filter(|&(x, y)| w.get(x, y).material == id)
+                .map(|(x, y)| liquid_fill(w.get(x, y)) as u64)
+                .sum();
+            let after: i64 = (120..=126)
+                .flat_map(|y| (60..=70).map(move |x| (x, y)))
+                .map(|(x, y)| soil_moisture(w.get(x, y)) as i64)
+                .sum();
+            (above, after - before)
+        };
+
+        let placed = 5 * material::LIQUID_FULL as i64;
+
+        let (above, gained) = arm("water", "soil", material::SOIL_FIELD_CAPACITY);
+        // **Conservation is the exact half and it is asserted exactly**:
+        // whatever is still above the ground plus whatever the ground gained
+        // is what was placed, to the unit. That is what separates "it soaked
+        // in" from "a cell was deleted", and it is the clause that would
+        // catch absorbing a cell whole while keeping part of it.
+        assert_eq!(
+            gained + above as i64,
+            placed,
+            "water may not be created or destroyed on the way into the ground: {above} still above + {gained} gained against {placed} placed"
+        );
+        // **The puddle itself is a *bar*, not a zero, because a `Liquid`
+        // cell holds continuous fill and the transfer rules leave slivers**
+        // -- `min_transfer` stops moving a remainder below its own floor, so
+        // a few units of fill fringe any artifact here. Measured at **8 of
+        // 5,000** (0.16%); the bar is 1%, set with headroom rather than on
+        // the measured value.
+        assert!(
+            above * 100 < placed as u64,
+            "a puddle on a mat must not stay on the mat: {above} fill still above the ground, of {placed} placed"
+        );
+
+        // **The three controls assert `== placed`, not `> 0`, and that is
+        // the whole difference between a guard and a decoration.** Written
+        // as "some of it is still up there" all three passed with the rule
+        // broken: putting the faults back (`CLAUDE.md`'s standing check, and
+        // it is the only thing that found this) let **79%** of the puddle
+        // into stone and **11%** of it into a saturated bed, and `> 0` was
+        // green for both. Each arm holds its 5,000 to the unit when the rule
+        // is right, so the exact figure is the assertable one.
+        //
+        // Note what `gained` cannot see here, which is why it is not the
+        // clause doing the work on the last arm: `soil_moisture` clamps at
+        // `SOIL_SATURATED`, so over-filling ground that is already full
+        // reads as **no gain at all**. The water leaving the puddle is the
+        // only place that fault is visible.
+
+        // Ground that holds no water is a floor, not a drain.
+        let (stone_above, stone_gained) = arm("water", "stone", 0);
+        assert_eq!(
+            (stone_above as i64, stone_gained),
+            (placed, 0),
+            "stone under the mat offers nowhere to soak: {stone_above} fill above of {placed}, ground gained {stone_gained}"
+        );
+
+        // Specificity: a liquid without the flag is unaffected.
+        let (oil_above, oil_gained) = arm("oil", "soil", material::SOIL_FIELD_CAPACITY);
+        assert_eq!(
+            (oil_above as i64, oil_gained),
+            (placed, 0),
+            "oil does not carry falls_through_organisms and must stay put: {oil_above} fill above of {placed}, ground gained {oil_gained}"
+        );
+
+        // The graded middle: a bed that has had enough still puddles.
+        let (full_above, full_gained) = arm("water", "soil", material::SOIL_SATURATED);
+        assert_eq!(
+            (full_above as i64, full_gained),
+            (placed, 0),
+            "saturated ground must refuse: {full_above} fill above of {placed}, ground gained {full_gained}"
+        );
+    }
+
+    /// **A dead blade is not a shelf, and neither is a drop already there.**
+    ///
+    /// The two blockers left after the ground learned to drink, and the
+    /// owner's *"this is not fully fixed -- water is still pooling on top of
+    /// plants."* Measured on `played_bed_scrambler` at the shipped rain rate
+    /// with 213 drops standing on tissue: **66 refused by water** sitting
+    /// under them and **41 by dead grass**, against 3 that could move.
+    ///
+    /// The dead-tissue half had *two* gates and fixing one moved nothing --
+    /// the scan walked through plant matter while `drip_through_organism`'s
+    /// entry test still demanded a living `organism_id` directly below, so a
+    /// drop on a dead blade never reached the rule at all.
+    ///
+    /// **The `log` arm is the control that matters**, because the easy wrong
+    /// fix is to make everything transparent. A snapped branch is chunky
+    /// enough to hang up in a crown -- `fall_through_organism`'s own existing
+    /// call for the falling side -- so it is chunky enough to hold a drop.
+    #[test]
+    fn a_drop_passes_dead_tissue_and_joins_water_below_but_a_log_still_holds_it() {
+        // `(fill still up in the mat, what arrived at the floor)`.
+        let arm = |mat: &str, seed_water_below: bool| -> (u64, u64) {
+            let mut w = world_with_floor();
+            let id = w.materials.id_of("water").expect("water is compiled in");
+            let mat_id = w.materials.id_of(mat).unwrap_or_else(|| panic!("{mat} is compiled in"));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            // The ground is saturated **only** in the merge arm. In the other
+            // two the question is whether the scan gets past the mat, so the
+            // floor has to be somewhere a drop can actually arrive -- the
+            // first version made it saturated in all three and the
+            // dead-tissue arm then failed for the right reason and the wrong
+            // one, which is `CLAUDE.md`'s "a scene that contradicts the code
+            // looks like a bug in the code".
+            let held = if seed_water_below { material::SOIL_SATURATED } else { material::SOIL_FIELD_CAPACITY };
+            for y in 100..=126 {
+                w.set(59, y, Cell::new(material::STONE, 0));
+                w.set(71, y, Cell::new(material::STONE, 0));
+            }
+            for y in 121..=126 {
+                for x in 60..=70 {
+                    w.set(x, y, Cell::new(soil, 0).with_aux(held));
+                }
+            }
+            if seed_water_below {
+                for x in 60..=70 {
+                    w.set(x, 120, Cell::new(id, 0).with_aux(material::LIQUID_FULL / 4));
+                }
+            } else {
+                for x in 60..=70 {
+                    w.set(x, 120, Cell::new(mat_id, 0));
+                }
+            }
+            // The mat, with **no organism id at all** -- the whole point.
+            for y in 117..=119 {
+                for x in 60..=70 {
+                    w.set(x, y, Cell::new(mat_id, 0));
+                }
+            }
+            for x in 63..=67 {
+                w.set(x, 116, Cell::new(id, 0));
+            }
+            // **"Arrived" counts both doors, or it measures the wrong thing**
+            // -- a drop reaching ground with room stops being liquid fill and
+            // becomes soil moisture, which the first version read as "it
+            // never got there".
+            let ground_before: u64 = (121..=126)
+                .flat_map(|y| (60..=70).map(move |x| (x, y)))
+                .map(|(x, y)| soil_moisture(w.get(x, y)) as u64)
+                .sum();
+            run(&mut w, 400);
+            let fill_in = |rows: std::ops::RangeInclusive<i32>| -> u64 {
+                rows.flat_map(|y| (0..128).map(move |x| (x, y)))
+                    .filter(|&(x, y)| w.get(x, y).material == id)
+                    .map(|(x, y)| liquid_fill(w.get(x, y)) as u64)
+                    .sum()
+            };
+            let ground_after: u64 = (121..=126)
+                .flat_map(|y| (60..=70).map(move |x| (x, y)))
+                .map(|(x, y)| soil_moisture(w.get(x, y)) as u64)
+                .sum();
+            (fill_in(0..=119), fill_in(120..=126) + ground_after.saturating_sub(ground_before))
+        };
+
+        let placed = 5 * material::LIQUID_FULL as u64;
+
+        let (above, below) = arm("grassblade", false);
+        assert!(
+            below * 2 > placed && above * 4 < placed,
+            "a drop must pass dead tissue: {above} fill still up in the mat, {below} arrived, of {placed} placed"
+        );
+
+        // Specificity: a fallen log is chunky and still holds a drop up.
+        let (log_above, log_below) = arm("log", false);
+        assert!(
+            log_above > log_below,
+            "a log is not a blade and must still hold the drop: {log_above} above against {log_below} arrived"
+        );
+
+        // And a drop already lying under the mat is a landing, not a dam.
+        let (merge_above, merge_below) = arm("grassblade", true);
+        assert!(
+            merge_above * 4 < merge_below,
+            "the column must join the water under the mat rather than stack on it: {merge_above} above against {merge_below} below"
+        );
+    }
+
+    /// **A wet roof over a dug tunnel drips, instead of staying saturated for
+    /// ever.**
+    ///
+    /// The owner's own diagnosis of why water still pooled on the planting
+    /// after the drip rule had been taught everything else: *"when creatures
+    /// dig they create a layer of air under soil, and water doesn't drop down
+    /// out of soil into air, so a single pixel line of soil gets saturated
+    /// and then water can pool on top of it."*
+    ///
+    /// It was one clause. `update_soil_water`'s drainage required the cell
+    /// below to be something that **holds** water, so soil with air under it
+    /// had nowhere to send its surplus however wet it got. Every gallery an
+    /// ant digs roofs itself with soil that then saturates permanently -- and
+    /// saturated ground turns away every drop that lands on it.
+    ///
+    /// **This calls `update_soil_water` directly rather than running `step`**,
+    /// and that is deliberate. The rule under test is the moisture rule; a
+    /// scene built to exercise it through the sweep is a scene fighting
+    /// *powder* physics, and the first version did exactly that -- a
+    /// hand-placed soil roof over a void is not a worked wall, so it fell
+    /// into the tunnel before anything could be measured and the arm failed
+    /// for a reason with nothing to do with drainage. `soil_wetting_probe`'s
+    /// module doc records the same scene error.
+    ///
+    /// Three arms, two of them controls: a wet roof sheds and **exactly**
+    /// what it lost is in the void; a roof at field capacity must not drip at
+    /// all, since draining ordinary damp ground would empty every bed in the
+    /// world into the first hole under it; and over more soil the old
+    /// soil-to-soil door is still the one used.
+    #[test]
+    fn a_saturated_roof_over_a_dug_tunnel_drips_but_damp_ground_does_not() {
+        use super::super::chunk::Rect;
+        use super::super::world::World;
+
+        // `(roof moisture after, fill in the cell below, is that cell soil)`
+        let arm = |held: u16, void: bool| -> (u16, u64, bool) {
+            let mut w = World::new(Rect::new(0, 0, 31, 31));
+            let soil = w.materials.id_of("soil").expect("soil is compiled in");
+            w.set(10, 10, Cell::new(soil, 0).with_aux(held));
+            if !void {
+                w.set(10, 11, Cell::new(soil, 0).with_aux(material::SOIL_FIELD_CAPACITY));
+            }
+            // Enough visits for the rate to converge; each moves a quarter of
+            // whatever surplus is left.
+            for _ in 0..200 {
+                update_soil_water(&mut w, 10, 10);
+            }
+            let below = w.get(10, 11);
+            let is_soil = below.material == soil;
+            let fill = if w.materials.kind(below.material) == MaterialKind::Liquid { liquid_fill(below) as u64 } else { 0 };
+            (soil_moisture(w.get(10, 10)), fill, is_soil)
+        };
+
+        // **A wet roof sheds a drop, and then waits** -- which is the whole
+        // of what this isolated harness can say, and it is the right claim.
+        // The rule sheds into genuinely empty air; once a drop is hanging
+        // there the cell is no longer empty, so nothing more leaves until
+        // gravity takes it. Here there is no gravity (no sweep runs), so 200
+        // visits produce exactly one shed. In play the drop falls and the
+        // roof sheds again, which is the bed measurement's job, not this
+        // one's.
+        //
+        // Asserted as **exact conservation** rather than "some water
+        // appeared": the roof's loss is the tunnel's gain to the unit, which
+        // is what separates shedding from inventing.
+        let (roof, void, _) = arm(material::SOIL_SATURATED, true);
+        let surplus = material::SOIL_SATURATED - material::SOIL_FIELD_CAPACITY;
+        let expected = (surplus as f32 * SOIL_DRAINAGE_RATE) as u16;
+        assert_eq!(
+            (roof, void),
+            (material::SOIL_SATURATED - expected, expected as u64),
+            "a wet roof sheds one drop of its surplus into the tunnel and then waits on gravity: roof {roof}, {void} fill below, expected to shed {expected}"
+        );
+
+        // **Damp ground does not leak.**
+        let (damp_roof, damp_void, _) = arm(material::SOIL_FIELD_CAPACITY, true);
+        assert_eq!(
+            (damp_roof, damp_void),
+            (material::SOIL_FIELD_CAPACITY, 0),
+            "damp ground over a tunnel must not drip at all: roof {damp_roof}, {damp_void} fill below"
+        );
+
+        // Specificity: over more soil the old door is still the one used.
+        let (_, solid_void, still_soil) = arm(material::SOIL_SATURATED, false);
+        assert!(
+            solid_void == 0 && still_soil,
+            "draining into soil must stay soil-to-soil: {solid_void} fill, still soil {still_soil}"
         );
     }
 

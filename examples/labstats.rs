@@ -18,6 +18,7 @@
 //! cargo run--release --example labstats -- control=steady       # is anything riding a day-length cycle
 //! cargo run --release --example labstats -- control=cost        # what one census costs
 //! cargo run --release --example labstats -- png=page.png frames=9000
+//! cargo run --release --example labstats -- drift=0.15 blend=0.1 uptake=0.02 nestdrift=0.065   # the cohesion arm
 //! ```
 //!
 //! **It echoes its own parameters on the first line.** `CLAUDE.md`'s harness
@@ -99,6 +100,14 @@ fn main() {
         "ants" => (0, arg("colonies").unwrap_or(1)),
         _ => (arg("founders").unwrap_or(8), arg("colonies").unwrap_or(1)),
     };
+    // **Which animal founds the colony -- a species name, not only `ant`.**
+    // Every arm above this line hard-codes `LabBox::default()`'s "ant"
+    // (`scene.rs`), so a species with no dedicated harness of its own (the
+    // hopper's `Impulse` wire, first) had no way into this bed at all short
+    // of editing the binary. `colonyspecies=` reads `LabBox::colony_species`
+    // straight through; an unknown name is `world.found_colony_of`'s own
+    // problem to report (it returns 0 placed) rather than this flag's.
+    let colony_species: String = arg("colonyspecies").unwrap_or_else(|| "ant".to_string());
     let spec = LabBox {
         width: arg("width").unwrap_or(512),
         height: arg("height").unwrap_or(320),
@@ -111,10 +120,11 @@ fn main() {
         // of it at all. `LabBox::default()` is 0.
         predators: arg("predators").unwrap_or(0),
         seed,
+        colony_species: colony_species.clone(),
         ..LabBox::default()
     };
     println!(
-        "labstats: control={control} frames={frames} founders={founders} colonies={colonies} walls={} soil={} seed={seed} png={}",
+        "labstats: control={control} frames={frames} founders={founders} colonies={colonies} colonyspecies={colony_species} walls={} soil={} seed={seed} png={}",
         spec.compartments,
         spec.soil_depth,
         png.as_deref().unwrap_or("-")
@@ -328,6 +338,11 @@ fn main() {
         let tolerance: Option<f32> = arg::<f32>("tolerance").or(rivalry.then_some(-1.0));
         let spread: Option<f32> = arg::<f32>("spread").or(rivalry.then_some(1.0));
         let drift: Option<f32> = arg::<f32>("drift");
+        // **`lifespan=<frames>` -- brief 2's knob**, the ant's
+        // `CreatureDef::life_half_life`. `0` is immortal, the shipped
+        // behaviour before 2026-09-12 and the paired control this build's
+        // every figure is read against.
+        let lifespan: Option<u32> = arg::<u32>("lifespan");
         let crosskin: Option<i32> = arg::<i32>("crosskin");
         if let Some(v) = spread {
             // The offset is drawn at founding, keyed on the seed and the
@@ -386,6 +401,43 @@ fn main() {
             }
             println!("labstats: ant scent_drift = {v}");
         }
+        if let Some(v) = lifespan {
+            if let Some(id) = lab.world.species.id_of("ant") {
+                let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
+                def.life_half_life = v;
+                lab.world.species.set_creature(id, def);
+            }
+        }
+        // Echoed whether or not it was passed -- `CLAUDE.md`'s harness rule:
+        // a log that does not name its lifespan was written by a binary that
+        // never had the knob, which looks exactly like a run at 0.
+        println!(
+            "labstats: ant life_half_life = {} frames (0 = immortal)",
+            lab.world.species.id_of("ant").and_then(|id| lab.world.species.get(id).creature.as_ref().map(|d| d.life_half_life)).unwrap_or(0)
+        );
+        // **The three nest-cohesion dials** -- `blend=` (beta), `uptake=`
+        // (gamma) and `nestdrift=` (sigma). World rules rather than species
+        // fields, so they are set on the world and felt on the next tick.
+        // Echoed unconditionally below whether or not they were passed: the
+        // shipped bed with cohesion on and the same bed with it off are the
+        // same picture, and only the echo says which one was run.
+        if let Some(v) = arg::<f32>("blend") {
+            lab.world.nest_blend = v;
+        }
+        if let Some(v) = arg::<f32>("uptake") {
+            lab.world.nest_uptake = v;
+        }
+        if let Some(v) = arg::<f32>("nestdrift") {
+            lab.world.nest_scent_drift = v;
+        }
+        println!(
+            "labstats: nest_blend = {} nest_uptake = {} nest_scent_drift = {} per {} frames | nest sites = {}",
+            lab.world.nest_blend,
+            lab.world.nest_uptake,
+            lab.world.nest_scent_drift,
+            pixel_physics::sim::world::NEST_SCENT_INTERVAL,
+            lab.world.nest_sites.len()
+        );
         if let Some(v) = crosskin {
             if let Some(id) = lab.world.species.id_of("ant") {
                 let mut def = lab.world.species.get(id).creature.as_ref().expect("creature").clone();
@@ -472,6 +524,42 @@ fn main() {
             println!("labstats: provision {name} -> Provision = {weight} on {n} standing ants");
         }
     }
+    // **`wire=<Input>:<Output>:<weight>[,...]` -- the general form of
+    // `provision=` above, on whichever species the bed was founded from.**
+    //
+    // `provision=` pins its output to `Provision` and its species to "ant",
+    // which is two hard-codings that fit the question it was written for and
+    // nothing else. The hopper's whole reason to exist is one instinct row --
+    // `(Bias, Impulse, 2.0)` -- and there was no way to move it without
+    // editing `hopper.ron` and rebuilding between arms, which is the
+    // `include_str!` trap that has produced three bit-identical "sweeps" in
+    // this repo. Through `set_genome_slot_on` it reaches the standing animals
+    // as well as the species copy, so an arm applies to the founders that are
+    // already on the ground.
+    if let Some(spec) = arg::<String>("wire") {
+        for entry in spec.split(',') {
+            let bits: Vec<&str> = entry.split(':').collect();
+            if bits.len() != 3 {
+                eprintln!("wire= wants Input:Output:weight, e.g. wire=Energy:Impulse:-1.0");
+                std::process::exit(2);
+            }
+            let Ok(weight) = bits[2].parse::<f32>() else {
+                eprintln!("wire= weight '{}' does not parse as a number", bits[2]);
+                std::process::exit(2);
+            };
+            let Some(i) = pixel_physics::sim::brain::INPUT_NAMES.iter().position(|n| n.eq_ignore_ascii_case(bits[0])) else {
+                eprintln!("wire= input '{}' is not one of brain::INPUT_NAMES", bits[0]);
+                std::process::exit(2);
+            };
+            let Some(o) = pixel_physics::sim::brain::OUTPUT_NAMES.iter().position(|n| n.eq_ignore_ascii_case(bits[1])) else {
+                eprintln!("wire= output '{}' is not one of brain::OUTPUT_NAMES", bits[1]);
+                std::process::exit(2);
+            };
+            let slot = pixel_physics::sim::brain::io_slot(pixel_physics::sim::brain::INPUTS[i], pixel_physics::sim::brain::OUTPUTS[o]);
+            let n = set_genome_slot_on(&mut lab, &colony_species, slot, weight);
+            println!("labstats: wire {}:{} = {weight} on {n} standing {colony_species}(s)", bits[0], bits[1]);
+        }
+    }
     if let Some(spec) = arg::<String>("dev") {
         for pair in spec.split(',') {
             let Some((name, w)) = pair.split_once(':') else {
@@ -500,6 +588,68 @@ fn main() {
     // straight through.
     let cull_at = if control == "cull" { frames / 2 } else { u64::MAX };
     let mut culled = 0usize;
+    /// **Where the colony actually lives, against where its nest was
+    /// painted.**
+    ///
+    /// The owner's own observation, 2026-09-12, on review card
+    /// `20260912T051541289Z-3b03d3`: *"where is the nest/home defined as
+    /// because I see ant populations moved from where they are originally
+    /// placed and just live in the plants where there is food."* A nest that
+    /// holds an odour is anchored to a **place**, so if the colony has left
+    /// that place the anchor is anchored to nothing and every claim about
+    /// cohesion is bounded by how often anybody still touches it.
+    ///
+    /// This is the instrument that answers it rather than assuming either
+    /// way, and it is a **standing** census rather than an event rate:
+    /// `CLAUDE.md`'s rule that a visible, persistent complaint wants the
+    /// standing state. Distance is from the head cell to the nearest nest
+    /// site, and the bands are the body (8), a nest patch's own half-width
+    /// (32, against `COLONY_HALF_WIDTH` 26) and a short forage (64).
+    fn nest_occupancy(w: &World) -> (usize, usize, usize, usize, f64, f64) {
+        let (mut live, mut near8, mut near32, mut near64) = (0usize, 0usize, 0usize, 0usize);
+        let (mut sum_d, mut sum_x) = (0.0f64, 0.0f64);
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism(id) else { continue };
+            if w.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            live += 1;
+            sum_x += x as f64;
+            let Some(i) = w.nearest_nest_site(x, y) else { continue };
+            let n = &w.nest_sites[i];
+            let d = (((n.x - x) as f64).powi(2) + ((n.y - y) as f64).powi(2)).sqrt();
+            sum_d += d;
+            if d <= 8.0 {
+                near8 += 1;
+            }
+            if d <= 32.0 {
+                near32 += 1;
+            }
+            if d <= 64.0 {
+                near64 += 1;
+            }
+        }
+        let mean_d = if live > 0 { sum_d / live as f64 } else { 0.0 };
+        // The colony's centroid against the founding patch's own column --
+        // the mean distance above counts an ant that has gone left and one
+        // that has gone right as both far; this says whether the *colony* has
+        // moved somewhere else, which is the owner's actual claim.
+        let centroid = if live > 0 { sum_x / live as f64 } else { 0.0 };
+        let from_patch = w.nest_sites.first().map_or(0.0, |n| (centroid - n.x as f64).abs());
+        (live, near8, near32, near64, mean_d, from_patch)
+    }
+
+    // **The split counter, summed rather than only printed when it fires.**
+    // `regroup_by_scent`'s return was going to a conditional line, so a run
+    // that split twice early and never again read the same as one that never
+    // split at all once the log scrolled. This is the number the cohesion
+    // guard is stated over.
+    let mut mints = 0usize;
+    // Blends at the last `NEST` window, so each row reports the window
+    // rather than the run to date -- a cumulative figure cannot say whether
+    // the colony stopped coming home halfway through.
+    let mut blends_before = 0u64;
 
     for f in 0..=frames {
         if f == cull_at {
@@ -515,6 +665,7 @@ fn main() {
         // as `Lab::advance` does; the count is the "did a split fire"
         // counter, printed when it does.
         let minted = lab.world.regroup_by_scent();
+        mints += minted;
         // The ANTS page's own sample ring, so a `page=ants` capture carries
         // the per-group graph and not just the legend. Gated inside on the
         // page's sample interval; two integer compares per frame otherwise.
@@ -525,6 +676,25 @@ fn main() {
         lab.stats.observe(&lab.world);
         if f % 900 == 0 || f == frames {
             line(&lab.stats, &lab.world);
+        }
+        // **The nest-occupancy window** -- see `nest_occupancy`. Printed on
+        // its own cadence so it reads as a column of its own rather than
+        // being lost in the population line, and paired with the blends
+        // applied *in that window*: a band that empties while blends keep
+        // arriving is a colony that commutes, and one where both fall to zero
+        // is a colony that has left.
+        if f > 0 && f % 10_000 == 0 {
+            let (live, n8, n32, n64, mean_d, from_patch) = nest_occupancy(&lab.world);
+            let blends = lab.world.creature_stats.nest_blends;
+            let pct = |n: usize| if live > 0 { 100.0 * n as f64 / live as f64 } else { 0.0 };
+            println!(
+                "  NEST f={f:>7} alive {live:>4} | within 8 {n8:>4} ({:>5.1}%) 32 {n32:>4} ({:>5.1}%) 64 {n64:>4} ({:>5.1}%) | mean dist {mean_d:>7.1} | centroid {from_patch:>6.1} from patch | blends this window {}",
+                pct(n8),
+                pct(n32),
+                pct(n64),
+                blends - blends_before
+            );
+            blends_before = blends;
         }
         if f < frames {
             tick(&mut lab);
@@ -556,6 +726,20 @@ fn main() {
             l.metabolized,
             l.moved,
             l.synapse_tax
+        );
+        // **The round trip, beside the verb prices rather than only in
+        // `labforage`.** `pickups` says food was taken; `deliveries` says it
+        // was actually carried home rather than dropped, eaten or lost en
+        // route -- the gap between the two is exactly the trap a Move-side
+        // hunger wire can spring (a laden ant that stops dead beside food
+        // and never leaves), and nothing above this line would show it: the
+        // burn split and the dig count both stayed unremarkable while an
+        // early arm of the hunger wiring drove births to zero. `nest_visits`
+        // reads 0 for a species that authors no `nest` (`adjacent_nest`'s own
+        // doc), so a run of zeros here is that species, not a broken colony.
+        println!(
+            "--- the round trip --- pickups {} deliveries {} nest_visits {}",
+            st.pickups, st.deliveries, st.nest_visits
         );
         // **The four prices the "everything should be priced" ruling added,
         // itemised.** They all land inside `metabolized`, so without this
@@ -600,6 +784,23 @@ fn main() {
         // chewing on something it will never get through -- which is what the
         // graded bite makes possible and the old binary could not express.
         println!("--- biting --- eats {} gnaws {} bites_refused {}", st.eats, st.gnaws, st.bites_refused);
+        // **Trophallaxis, beside biting because it is the same jaw.** `shares`
+        // is the "did it fire at all" counter and `shared_j` is the effect
+        // counter from the far side of the call -- `shares` can climb with
+        // `shared_j` near zero if every gap the verb found was trivial, which
+        // is a colony grooming itself rather than feeding itself, and only the
+        // pair separates them. At the shipped weights a synchronised cohort
+        // shares almost nothing (§5a of the design report): sharing fires when
+        // one ant's bank jumps relative to a hungry nestmate's, not on a flat
+        // colony-wide hunger.
+        println!(
+            "--- the colony's stomach --- shares {} | shared {:.0} J | handling {:.1} J ({:.1}% of burn) | J per share {:.1}",
+            st.shares,
+            st.shared_j,
+            st.share_energy,
+            share(st.share_energy),
+            if st.shares > 0 { st.shared_j / st.shares as f64 } else { 0.0 },
+        );
         // **The fight verb and the alarm scent, as counters beside the mouth's
         // own.** Both are opt-in -- nothing that ships carries a weight on
         // `BrainOutput::Attack`, and the alarm plane is not even allocated
@@ -638,6 +839,20 @@ fn main() {
         println!(
             "--- eyes --- sight casts {} | cells read {} | sightings {} | threat sightings {}",
             st.sight_casts, st.sight_cells_read, st.sightings, st.threat_sightings
+        );
+        // **The flight verb, mirroring `filmstrip.rs`'s `scene=hop` line
+        // (`examples/filmstrip.rs:6330`) so the lab harness can say whether
+        // a hop fired without reaching for the app.** `impulses` is zero for
+        // every species that has not authored `(*, Impulse, w)`, which is
+        // every shipped species but `hopper` -- a run of zeros here on the
+        // shipped bed is the expected reading, not a broken counter.
+        // `flight_frames`/`flight_moves` pair with it because a launch that
+        // produced no airborne frame is a call that fired and did nothing,
+        // the same shape `CLAUDE.md` asks every "did it fire" counter to
+        // answer beside an effect counter from the far side of the call.
+        println!(
+            "--- flight --- impulses {} (refused {}) | airborne frames {} | flight moves {}",
+            st.impulses, st.impulses_refused, st.flight_frames, st.flight_moves
         );
     }
 
@@ -748,10 +963,71 @@ fn main() {
         }
     }
 
+    // **The cohesion account.** Three numbers that a picture cannot give:
+    // whether the exchange fired at all, where each nest's odour actually
+    // sits, and how far apart any two of them have drifted.
+    //
+    // **`nest blends` is read against `nest_visits`, not on its own.** A zero
+    // here with `nest_visits` also frozen is the colony having stopped going
+    // home (`open-bugs-handoff.md` §T2), which is a finding about the bed; a
+    // zero here with `nest_visits` climbing is the mechanism being broken,
+    // which is a finding about this code. They are different bugs and only
+    // the pair separates them.
+    {
+        let w = &lab.world;
+        let st = &w.creature_stats;
+        println!(
+            "\n--- cohesion --- nest blends {} (share blends {}) | nest_visits {} deliveries {} | group mints {mints}",
+            st.nest_blends, st.share_blends, st.nest_visits, st.deliveries
+        );
+        for (i, n) in w.nest_sites.iter().enumerate() {
+            println!("  nest {i} at ({}, {}): odour [{:.4}, {:.4}, {:.4}]{}", n.x, n.y, n.scent[0], n.scent[1], n.scent[2], if n.seeded { "" } else { "  (never visited -- unseeded)" });
+        }
+        for (i, j, d) in w.nest_scent_gaps() {
+            println!("  gap nest {i} <-> nest {j}: {d:.4}  ({} at a tolerance radius of 1.0)", if d > 1.0 { "STRANGERS" } else { "kin" });
+        }
+        // **The scent cloud a living colony actually spreads over**, which is
+        // the quantity the shipped `scent_drift` is judged safe against --
+        // every ant's distance from the nest it is nearest, worst first.
+        let mut worst: f32 = 0.0;
+        let mut n = 0u32;
+        let mut sum = 0.0f64;
+        for id in w.live_organism_ids() {
+            let Some(state) = w.organism(id) else { continue };
+            if w.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            let Some(site) = w.nearest_nest_site(x, y) else { continue };
+            let d = pixel_physics::sim::creature::scent_distance_sq(&pixel_physics::sim::creature::scent_of(&state.traits), &w.nest_sites[site].scent).sqrt();
+            worst = worst.max(d);
+            sum += d as f64;
+            n += 1;
+        }
+        if n > 0 {
+            println!("  living cloud around the nearest nest: worst {worst:.4}, mean {:.4} over {n} animals (tolerance radius 1.0)", sum / n as f64);
+        }
+        // **Killings booked to an ant's own colony** -- the number the
+        // design's §0 read `killed by ANT 1 x20` on, as one figure.
+        let own: u64 = w
+            .group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, k)| *k).sum::<u64>())
+            .sum();
+        println!("  killed by own colony: {own}");
+    }
+
     println!("\n--- the page, as text ---");
     for row in stats::dump(&lab.stats, &lab.world) {
         println!("  {row}");
     }
+
+    // The mister's own counter, `lab::rain`'s effect count -- zero on every
+    // control here, since none of them turns `RAIN` on, which is the
+    // specificity half `CLAUDE.md` asks a fresh counter for: quiet when
+    // nothing is wrong (rain off), the sensitivity half is `rain`'s own
+    // unit tests below `#[cfg(test)]` in `src/lab/rain.rs`.
+    println!("rain cells: {}", lab.world.rain_cells);
 
     check(&control, &lab, culled);
 

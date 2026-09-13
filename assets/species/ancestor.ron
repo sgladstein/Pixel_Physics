@@ -592,7 +592,32 @@
         // and both ant scenes diverge from birth 1 -- deliveries 584 -> 526,
         // forage trips 54 -> 49, births 8 -> 5, one seed, same regime. A
         // comparison across this change has to be a seed sweep, not a diff.
-        mutation_rate: 0.0045042,
+        //
+        // **0.0041678, re-derived 2026-09-09** when `KinNeed` (an input
+        // column, 22 slots: 14 outputs + 8 hidden) and `Share` (an output
+        // row, 35: 27 inputs + 8 hidden) landed together for trophallaxis --
+        // `live_slots` 706 -> 763, `3.18 / 763 = 0.0041678`.
+        //
+        // **0.0039308, re-derived 2026-09-10** alongside `ant.ron` and
+        // `beetle.ron` when `BloomNear`/`BloomBearing` took `live_slots`
+        // 763 -> 809 (P1, the bloom sense -- two input columns, 23 slots
+        // each). This animal has an eye (`sight_range` above) but wires
+        // neither slot; the mutable surface still moved for it, the same
+        // reasoning `beetle.ron`'s copy of this comment already carries for
+        // the append before this one.
+        //
+        // **0.0037589, re-derived 2026-09-11** when `BrainOutput::Fly`
+        // appended (the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1). An OUTPUT
+        // row is 37 live slots -- 29 inputs + 8 hidden, against an input
+        // column's 24 -- so `live_slots` 809 -> 846 and
+        // `3.18 / 846 = 0.0037589`. This animal wires no `Fly` weight and
+        // has no authored `fly_cost_in_moves`, so it never leaves the ground
+        // under power and pays one comparison for the row; the mutable
+        // surface moved for every species on the shared scaffold regardless,
+        // exactly as this file's copy of the comment above already says for
+        // the append before this one.
+        mutation_rate: 0.0037589,
 
         // **A living nestmate counts as ground.** Footing only, never
         // passability -- two ants still cannot walk through each other --
@@ -773,14 +798,24 @@
             // 12,000 frames. The gradient gets its authority from the
             // hidden gain below instead, which only applies when there is
             // actually a gradient to read.
+            // **`Bias` stays 2.0, and `(Energy, Move, -1.75)` carries the
+            // whole reduction -- see `ant.ron` for the full account,
+            // including the arm that reduced `Bias` itself and drove births
+            // to zero in every seed because the food brake three lines down
+            // was never re-derived to match. This file inherits the fixed
+            // numbers, not the trap.** Owner's ruling: rest is the ABSENCE
+            // of a reason to act, so a fed ant (Energy=1) still wanders at
+            // `squash(0.25)=0.20` rather than stopping outright, while a
+            // starving one (Energy=0) is unchanged at `squash(2.0)=0.667`.
             (Bias, Move, 2.0),
+            (Energy, Move, -1.75),
             // Stop when there is food to deal with.
-            // -1.5, not -0.8: against the Bias of 2.0 this leaves P(move)
-            // at 0.33 beside food rather than 0.55, so an ant lingers long
-            // enough to actually pick something up instead of wandering
-            // off. Not lower -- at -2.0 and beyond it stops dead and cannot
-            // leave with its cargo.
-            (FoodAdjacent, Move, -1.5),
+            // **-1.16, re-derived from -1.5 for the `Energy` wire above --
+            // see `ant.ron`'s identical line for the arithmetic.** Keeps a
+            // hungry ant's (Energy~0.2) linger rate at food the same 0.33
+            // the old universal value gave every ant; a full one still
+            // clamps to 0 beside food regardless, same as `ant.ron`.
+            (FoodAdjacent, Move, -1.16),
             // **Negative feedback, and the colony ossifies without it**
             // (P-12): more evaporation does not substitute. A nonzero gain
             // here is load-bearing, and it is the first thing to check if
@@ -860,7 +895,22 @@
             // `Reports/dead-ends.md`, which carries the numbers, the two
             // instrument bugs the sweep exposed, and the conditions under
             // which it is worth retrying.
-            (Bias, Dig, 0.4),
+            //
+            // **0.15, down from 0.4 -- a residual, matching `ant.ron`'s own
+            // move away from an unconditional `Bias`.** `ant.ron` puts the
+            // rest of the drive behind a hidden-unit gate on `Crowding`
+            // gated `AtNest` -- "chambers get dug as the colony grows" --
+            // but this species has no `nest` field (difference #1 above),
+            // so `AtNest` reads a constant 0.0 for it and there is no
+            // equally clean stand-in: `KinNear` is a sight-range distance
+            // reading to the *nearest* kin, not the local density `Crowding`
+            // already is, so pairing them would not be the same mechanism
+            // wearing a different gate, it would be an unproven third one.
+            // Left as the plain residual rather than guessing at a gate this
+            // file's own "five differences and nothing else" rule was never
+            // written to cover -- **not applied**, and this paragraph is
+            // why, for the next session that reaches for it.
+            (Bias, Dig, 0.15),
             (FoodAdjacent, Dig, 0.8),
             // **Digging was `dig_urge * (1 - moisture_gradient)` in Rust** --
             // an inverse coefficient no lineage could alter, so every animal
@@ -991,6 +1041,24 @@
             // Same slope, still fed separately -- see `Drop` above for the
             // sweep. A lineage can move one without the other.
             (SurfaceCurvature, DropSpoil, 0.169),
+
+            // -- the colony's stomach --------------------------------------
+            // **Trophallaxis, on by default -- owner's ruling.** Same three
+            // weights and the same derivation as `ant.ron`'s: `s = 2.5*E +
+            // 1.9*N - 2.5` with the bias exactly cancelling the full-energy
+            // term, so `KinNeed` alone opens the verb and a lineage with no
+            // hungry nestmate in reach pays one float comparison and never
+            // walks the ring. See `ant.ron`'s own copy of this block for the
+            // worked table.
+            //
+            // `(KinNeed, Move, 1.25)` is the demand wire that goes with them
+            // -- a hungry nestmate is somewhere to walk to. See `ant.ron`'s
+            // note beside its own copy for the played-bed table it was
+            // landed on (2026-09-09).
+            (Energy, Share, 2.5),
+            (KinNeed, Share, 1.9),
+            (Bias, Share, -2.5),
+            (KinNeed, Move, 1.25),
         ],
 
         // **The gate a single layer cannot express**, authored as weights
@@ -1061,12 +1129,24 @@
         // alone -- an ant that still moved 220 times and simply never
         // committed to a direction.
         //
-        // So the gate is written as `75*(fill - 0.6)`, which crosses zero at
-        // f* and still sits at -45 when empty and +30 when full. Both ends
-        // are at least as deep as the offsets this file was tuned with, the
-        // crossover is explicit, and it is carried in weights that mutate.
-        // Transition width is 12/75 = 0.16 of fill -- narrower than the
-        // -+18 version, which is the price of keeping the saturation.
+        // The gate WAS written as `75*(fill - 0.6)`, crossing zero at f* and
+        // sitting at -45 when empty and +30 when full.
+        //
+        // **+30 when full was the bug, and units 0/1 are fixed here: they
+        // read -45 / +45.5. Units 2/3 keep the saturated gate on purpose.**
+        // `open-bugs-handoff.md` §Z7, 2026-09-09. A gate deep enough to shut
+        // a symmetric pair is deep enough to flatten the signal it lets
+        // through: parked at +30 the pair moved `P(move)` by 0.004 against a
+        // walk drive of 2.0, so this animal was wired to its own trail and
+        // could not read it. Only the open state moves (+30 -> +0.5); the
+        // off depth (45) and the along weight (6) are the numbers this file
+        // measured and they stay. **Do not "finish the job" on units 2/3:**
+        // the same repair there is measured and is a regression -- a colony
+        // that can read channel B converges on patches it has already eaten,
+        // and the mirrored arena reads 25.0% for both pairs against 63.6%
+        // for the homing pair alone. **The whole derivation, the two commits
+        // that caused it, and both races are beside `ant.ron`'s own copy of
+        // this block** -- kept in one place rather than eight.
         hidden_wiring: [
             // units 0,1 -- channel A along the heading, gated ON a full crop
             // **Unit 4 is the odometer**, and it is three weights: one in
@@ -1120,10 +1200,10 @@
             (KinNear,     4,   0.05),
 
             (Bias,        0, -45.0),
-            (Carrying,    0,  75.0),
+            (Carrying,    0,  45.5),
             (PheroAAlong, 0,   6.0),
             (Bias,        1, -45.0),
-            (Carrying,    1,  75.0),
+            (Carrying,    1,  45.5),
             (PheroAAlong, 1,  -6.0),
             // units 2,3 -- channel B along the heading, gated ON an empty one
             (Bias,        2,  45.0),

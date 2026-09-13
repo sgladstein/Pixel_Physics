@@ -43,16 +43,19 @@
 //! cargo run --release --example windfall_probe -- frames=24000 gut=-1.0 handout=200
 //! ```
 
+use pixel_physics::lab::scenario::{Placement, Scenario};
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::render::Renderer;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::creature::{birth_cost, diet_yield, food_value, reproduce_at};
 use pixel_physics::sim::explosion::Blasts;
 use pixel_physics::sim::frame;
+use pixel_physics::sim::material::MaterialId;
 use pixel_physics::sim::organism::{self, CellType, TRAIT_GUT_BIAS};
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player;
 use pixel_physics::sim::world::World;
+use std::collections::HashSet;
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args()
@@ -91,12 +94,18 @@ struct Sample {
     /// and `best_offer` alone cannot tell them apart.
     organ_low: i32,
     organ_high: i32,
+    /// Flower + fruit cells within `FLOOR_BAND` of the soil -- the same
+    /// reach sense `windfall_floor` uses, applied to the organ that is
+    /// still on the plant. Answers "how much of the standing crop could an
+    /// animal on the ground reach without climbing" as a count rather than
+    /// the `organ_low`/`organ_high` pair, which says only the extremes.
+    organ_floor: usize,
 }
 
-fn census(world: &World, ground_y: i32, width: i32, windfall_id: Option<pixel_physics::sim::material::MaterialId>) -> Sample {
+fn census(world: &World, ground_y: i32, width: i32, windfall_id: Option<MaterialId>) -> Sample {
     let mut s = Sample {
         windfall: 0, windfall_floor: 0, fruit: 0, flower: 0,
-        ant_high: 0, ants_aloft: 0, ants: 0, organ_low: i32::MAX, organ_high: 0,
+        ant_high: 0, ants_aloft: 0, ants: 0, organ_low: i32::MAX, organ_high: 0, organ_floor: 0,
     };
     // **By organism, not by grid sweep.** Every cell this census cares about
     // is organism-owned — a windfall is a fresh child organism's `Seed` cell
@@ -125,6 +134,9 @@ fn census(world: &World, ground_y: i32, width: i32, windfall_id: Option<pixel_ph
                     }
                     s.organ_low = s.organ_low.min(ground_y - y);
                     s.organ_high = s.organ_high.max(ground_y - y);
+                    if y >= ground_y - FLOOR_BAND {
+                        s.organ_floor += 1;
+                    }
                 }
                 // A seed and a windfall are the same `CellType`; the
                 // material is what says the seed came down inside a fruit,
@@ -157,23 +169,130 @@ fn census(world: &World, ground_y: i32, width: i32, windfall_id: Option<pixel_ph
     s
 }
 
+/// Windfall cell positions right now, restricted to the floor band --
+/// `census`'s own two sources (an organism-owned `Seed` cell wearing the
+/// windfall material, and an ownerless grid cell of the same material)
+/// summed as positions instead of a count, so a fate diff can tell *which*
+/// cell left rather than only that the total moved.
+///
+/// **Floor band only, deliberately**: a fate resolves where an animal can
+/// reach it or where decay proceeds, and both happen at any height, but
+/// the reach question this whole binary exists to answer is about the
+/// floor -- canopy-lodged windfall is already reported separately
+/// (`organ_high`/`ant_high`), and tracking it here too would triple the
+/// per-sample cost for a fate this probe cannot act on anyway.
+fn windfall_floor_positions(world: &World, ground_y: i32, width: i32, windfall_id: MaterialId) -> HashSet<(i32, i32)> {
+    let mut set = HashSet::new();
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_some() {
+            continue;
+        }
+        for &(x, y) in state.cells.keys() {
+            if y < ground_y - FLOOR_BAND || y > ground_y + FLOOR_BAND {
+                continue;
+            }
+            let cell = world.get(x, y);
+            if organism::cell_type(cell.aux()) == Some(CellType::Seed) && cell.material == windfall_id {
+                set.insert((x, y));
+            }
+        }
+    }
+    for y in (ground_y - FLOOR_BAND)..=(ground_y + FLOOR_BAND) {
+        for x in 0..width {
+            let c = world.get(x, y);
+            if c.material == windfall_id && c.organism_id() == 0 {
+                set.insert((x, y));
+            }
+        }
+    }
+    set
+}
+
+/// Every cell an ant's whole chain occupies right now -- not just the head
+/// `census` reads for height -- used only as the adjacency test the fate
+/// diff below needs.
+fn ant_positions(world: &World) -> HashSet<(i32, i32)> {
+    let mut set = HashSet::new();
+    for id in world.live_organism_ids() {
+        let Some(state) = world.organism(id) else { continue };
+        if world.species.get(state.species).creature.is_none() {
+            continue;
+        }
+        set.extend(state.chain.iter().copied());
+    }
+    set
+}
+
+fn adjacent_to_any(pos: (i32, i32), set: &HashSet<(i32, i32)>) -> bool {
+    let (x, y) = pos;
+    (-1..=1).any(|dy| (-1..=1).any(|dx| set.contains(&(x + dx, y + dy))))
+}
+
 fn main() {
     let frames: u64 = arg("frames").unwrap_or(24_000);
     let sample_every: u64 = arg("sample").unwrap_or(30);
     let gut: f32 = arg("gut").unwrap_or(f32::NAN);
     let handout: u64 = arg("handout").unwrap_or(0);
+    // How often the windfall-fate diff samples the floor band. Coarser
+    // than `sample_every` on purpose -- see `windfall_floor_positions`'s
+    // doc for what this trades away.
+    let fate_every: u64 = arg("fate").unwrap_or(4);
+    // **`milestones=30000,60000,90000,120000`** -- exact frames to print a
+    // standing-stock snapshot at, on top of the periodic log. Not
+    // hardcoded here: which frames matter is a property of the *session*
+    // asking (the owner's own play length, a round's checkpoint), not of
+    // the mechanism, so it is a parameter like every other knob on this
+    // binary rather than a constant baked into it.
+    let milestones: Vec<u64> = arg::<String>("milestones")
+        .map(|s| s.split(',').filter_map(|v| v.trim().parse().ok()).collect())
+        .unwrap_or_default();
     // **A picture of the bed at the end**, because "a colony that breeds
     // eats the stand" is a judge-by-eye claim and this project's rule is to
     // post the artifact rather than describe it. The counts that go beside
     // it are the `SUMMARY` line below.
     let png: String = arg("png").unwrap_or_default();
-    let spec = LabBox {
-        founders: arg("founders").unwrap_or(8),
-        colonies: arg("colonies").unwrap_or(1),
-        compartments: arg("walls").unwrap_or(1),
-        seed: arg("seed").unwrap_or(1),
-        ..LabBox::default()
+    // **`scenario=<name>` builds the whole bed from a saved scenario**,
+    // `labforage`'s own pattern and for the same reason: the owner's
+    // played bed is a mixed-species bed laid out by column with a colony
+    // founded on a timeline, neither of which `founders=`/`colonies=`
+    // below can express. A bad name refuses at load rather than quietly
+    // running the default bed under the wrong label -- `CLAUDE.md`'s "an
+    // unknown argument is silently ignored", which this binary carried
+    // until now: `scenario=played_bed` parsed as nothing and ran the
+    // eight-herb harness bed with no warning.
+    let scenario: Option<Scenario> = arg::<String>("scenario").map(|n| {
+        let mut sc = Scenario::load(&n).unwrap_or_else(|e| {
+            eprintln!("scenario {n}: {e}");
+            std::process::exit(2);
+        });
+        // `seed=` overrides the scenario's own bed seed -- see
+        // `labforage.rs`'s identical line for why this has to land on
+        // `sc.bed` rather than on `spec` below.
+        if let Some(sd) = arg::<u64>("seed") {
+            sc.bed.seed = sd;
+        }
+        sc
+    });
+    let spec = match &scenario {
+        Some(s) => s.bed.clone(),
+        None => LabBox {
+            founders: arg("founders").unwrap_or(8),
+            colonies: arg("colonies").unwrap_or(1),
+            compartments: arg("walls").unwrap_or(1),
+            seed: arg("seed").unwrap_or(1),
+            ..LabBox::default()
+        },
     };
+    // Echo the parameters before building anything, scenario named right
+    // here -- `plant_probe`'s 3.5-hour lesson (`CLAUDE.md`): a knob nobody
+    // can see the value of is a knob nobody can tell is disconnected, and
+    // that includes whether `scenario=` was even recognised.
+    println!(
+        "windfall probe: {frames} frames, sample every {sample_every} fate every {fate_every} | founders={} colonies={} seed={} handout={handout}{}",
+        spec.founders, spec.colonies, spec.seed,
+        scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
+    );
     // **The bed is built with no ants in it, and the colonies are founded
     // afterwards at the same columns `LabBox` would have used.** An ant's
     // `gut_bias` is read off the *organism* (`creature::gut_of`), and
@@ -182,8 +301,26 @@ fn main() {
     // reaches nobody, and the run measures the neutral gut while the header
     // says otherwise. `stamp_probe` records paying for exactly that failure.
     // Deferring the colony is the same scene, one step later.
-    let bare = LabBox { colonies: 0, ..spec.clone() };
-    let (mut world, mut placed) = bare.build_counted();
+    //
+    // A scenario founds on its own timeline instead (`played_bed`'s colony
+    // arrives at frame 6,000, not frame 0), so there is nothing to defer:
+    // `s.build()` is called once, up front, and `tick_timeline` in the
+    // loop below does the founding whenever the file says to.
+    let (mut world, founders_planted, founders_asked, mut ants_placed) = match &scenario {
+        Some(s) => {
+            let (w, _p, sp) = s.build();
+            println!(
+                "  scenario {}: {} cells, {} plants, {} animals, {} settings applied",
+                s.name, sp.cells, sp.plants, sp.animals, sp.settings
+            );
+            (w, sp.plants, sp.plants, sp.animals)
+        }
+        None => {
+            let bare = LabBox { colonies: 0, ..spec.clone() };
+            let (w, p) = bare.build_counted();
+            (w, p.planted, p.asked, p.ants)
+        }
+    };
 
     let threshold: f32 = arg("threshold").unwrap_or(f32::NAN);
     if gut.is_finite() || threshold.is_finite() {
@@ -197,8 +334,10 @@ fn main() {
         }
         world.species.set_creature(species, def);
     }
-    for x in spec.colony_columns() {
-        placed.ants += world.found_colony(x, spec.ground_y - 2);
+    if scenario.is_none() {
+        for x in spec.colony_columns() {
+            ants_placed += world.found_colony(x, spec.ground_y - 2);
+        }
     }
     let def = world.species.get(world.species.id_of("ant").expect("ant")).creature.clone().expect("creature");
     let founder_gut = world
@@ -209,11 +348,16 @@ fn main() {
         .map(|s| s.traits[TRAIT_GUT_BIAS]);
 
     let windfall_id = world.materials.id_of("windfall");
+    // The positive control for `WF_DEBUG`'s own finding: rules out a
+    // material-id mix-up (windfall/seed/litter/soil resolving to the same
+    // `MaterialId`) before trusting anything the appearance trace says.
+    if std::env::var("WF_DEBUG").as_deref() == Ok("1") {
+        eprintln!("[wf ids] windfall={windfall_id:?} seed={:?} litter={:?} soil={:?}", world.materials.id_of("seed"), world.materials.id_of("litter"), world.materials.id_of("soil"));
+    }
     let bar = birth_cost(&def);
 
     println!(
-        "windfall probe: {frames} frames, sample every {sample_every} | founders {}/{} ants {} colonies {} seed {} handout {handout}",
-        placed.planted, placed.asked, placed.ants, spec.colonies, spec.seed
+        "  founders {founders_planted}/{founders_asked} ants {ants_placed}"
     );
     println!(
         "  ant: start_energy {:.0} crop {:.0} digest {:.2}/tick body_energy {:.0} x {} cells | bar {bar:.0} (buds at {:.0}) | gut {:+.2} (founder reads {})",
@@ -260,12 +404,56 @@ fn main() {
     let mut organ_low_min = i32::MAX;
     let mut organ_high_max = 0i32;
     let mut aloft_sum = 0u64;
+    let mut organ_floor_sum = 0u64;
     let mut handed_out = 0u64;
-    // The colony's own columns, so a handout lands where the ants are rather
-    // than somewhere they would first have to find.
-    let colony_cols = spec.colony_columns();
+    // **The colony's own columns, read from wherever the colony actually
+    // comes from.** `spec.colony_columns()` is right for the harness bed
+    // but empty for a scenario, which founds through `placements`/
+    // `timeline` `Colony` entries instead (`labforage.rs`'s identical
+    // problem and fix: without this, `handout=` on a scenario indexes an
+    // empty `Vec` and panics on the first payout). Falls back to bed
+    // centre only if a scenario truly places no colony at all.
+    let colony_cols: Vec<i32> = match &scenario {
+        Some(s) => {
+            let mut v: Vec<i32> = s
+                .placements
+                .iter()
+                .chain(s.timeline.iter().map(|e| &e.what))
+                .filter_map(|p| match p {
+                    Placement::Colony { x, .. } => Some(*x),
+                    _ => None,
+                })
+                .collect();
+            v.sort_unstable();
+            v.dedup();
+            if v.is_empty() {
+                v.push(spec.width / 2);
+            }
+            v
+        }
+        None => spec.colony_columns(),
+    };
+    let nest_col = colony_cols[0];
+
+    // Windfall-fate bookkeeping: the floor-band position set from the
+    // previous fate sample, and the ants standing near it then -- see
+    // `windfall_floor_positions`'s doc for why floor band only.
+    let mut fate_prev_wf: HashSet<(i32, i32)> = HashSet::new();
+    let mut fate_prev_ants: HashSet<(i32, i32)> = HashSet::new();
+    let mut fate_eaten_or_carried = 0u64;
+    let mut fate_rotted = 0u64;
+    let mut fate_unclear = 0u64;
+    let soil_id = world.materials.id_of("soil");
 
     for f in 0..=frames {
+        if let Some(sc) = &scenario {
+            // The scenario's own timeline, before the census on the same
+            // frame -- `labforage.rs`'s identical ordering, for the
+            // identical reason: a colony founded this frame should be
+            // visible to this frame's sample, not next frame's.
+            let arrived = pixel_physics::lab::scenario::tick_timeline(sc, &mut world, &spec);
+            ants_placed += arrived.animals;
+        }
         if f % sample_every == 0 {
             let s = census(&world, spec.ground_y, spec.width, windfall_id);
             samples += 1;
@@ -277,6 +465,7 @@ fn main() {
             flower_sum += s.flower as u64;
             ant_high_max = ant_high_max.max(s.ant_high);
             aloft_sum += s.ants_aloft as u64;
+            organ_floor_sum += s.organ_floor as u64;
             if s.organ_low != i32::MAX {
                 organ_low_min = organ_low_min.min(s.organ_low);
                 organ_high_max = organ_high_max.max(s.organ_high);
@@ -291,10 +480,73 @@ fn main() {
                     s.ants, st.births, st.deaths, st.eats, st.best_offer, st.best_bite, st.peak_bank,
                 );
             }
+            if milestones.contains(&f) {
+                println!(
+                    "MILESTONE frame={f} seed={} flower={} fruit={} windfall={} windfallfloor={} organfloor={} organhigh={} \
+                     liveants={} dropped={} shattered={} eatencarried={fate_eaten_or_carried} rotted={fate_rotted} \
+                     fateunclear={fate_unclear} wfgerm={} loosegerm={}",
+                    spec.seed, s.flower, s.fruit, s.windfall, s.windfall_floor, s.organ_floor, s.organ_high,
+                    s.ants,
+                    world.fruit_dropped, world.organ_shattered_to_windfall,
+                    world.windfall_germination_x.len(),
+                    world.germinations.saturating_sub(world.windfall_germination_x.len() as u64),
+                );
+            }
+        }
+        // **The windfall-fate diff.** A cell present at the last fate
+        // sample and gone at this one either rotted (decayed into `soil`
+        // or into nothing, `windfall.ron`'s own `decays_into`/`decay_yield`)
+        // or an ant took it -- and an ant taking it is a `pickup`, whether
+        // the mouthful is then digested on the spot or carried off and
+        // dropped, because `src/sim/creature.rs:5039`/`:5076` book pickup
+        // and eat as one event ("the two verbs merged when the decision
+        // between them went away") and the eventual drop
+        // (`creature.rs:5147`/`:5149`) can land anywhere. So this diff
+        // can only ever resolve two fates from the world side, not three
+        // -- see the printed note at the end.
+        if let Some(wid) = windfall_id {
+            if f % fate_every == 0 {
+                let cur_wf = windfall_floor_positions(&world, spec.ground_y, spec.width, wid);
+                let cur_ants = ant_positions(&world);
+                // **`WF_DEBUG=1` says where a windfall cell was first seen,
+                // and by whom.** Left in rather than thrown away: this is
+                // how the ecology round found a still-open discrepancy
+                // between standing windfall and `World::fruit_dropped` +
+                // `organ_shattered_to_windfall` on `scenario=played_bed`
+                // (see `Reports/lanes/evolution-lab-ecology-measure.md`) --
+                // cells appear here already `organism_id=0`, which neither
+                // production counter's call site can produce on its own,
+                // and every other `breaks_into`/decay/shed path was checked
+                // and ruled out. `SNAP_PROBE` (`structural.rs`) is the same
+                // pattern for the same reason: a counter alone cannot aim a
+                // camera at a single cell.
+                if std::env::var("WF_DEBUG").as_deref() == Ok("1") {
+                    for &(x, y) in cur_wf.difference(&fate_prev_wf) {
+                        let c = world.get(x, y);
+                        eprintln!(
+                            "[wf appear] frame {f} ({x},{y}) organism_id={} aux={} ct={:?} fruit_dropped={} shattered={}",
+                            c.organism_id(), c.aux(), organism::cell_type(c.aux()), world.fruit_dropped, world.organ_shattered_to_windfall
+                        );
+                    }
+                }
+                for &pos in fate_prev_wf.difference(&cur_wf) {
+                    let ant_adjacent = adjacent_to_any(pos, &fate_prev_ants) || adjacent_to_any(pos, &cur_ants);
+                    let now = world.get(pos.0, pos.1).material;
+                    if ant_adjacent {
+                        fate_eaten_or_carried += 1;
+                    } else if Some(now) == soil_id || now == pixel_physics::sim::material::EMPTY {
+                        fate_rotted += 1;
+                    } else {
+                        fate_unclear += 1;
+                    }
+                }
+                fate_prev_wf = cur_wf;
+                fate_prev_ants = cur_ants;
+            }
         }
         if handout > 0 && f > 0 && f % handout == 0 {
             if let Some(wid) = windfall_id {
-                let x = colony_cols[(handed_out as usize) % colony_cols.len().max(1)];
+                let x = colony_cols[(handed_out as usize) % colony_cols.len()];
                 // Just above the surface, so it falls the last cell itself
                 // and comes to rest on whatever the floor is by then.
                 for dy in 1..=6 {
@@ -336,7 +588,16 @@ fn main() {
     }
     let mean_wf = wf_sum as f64 / samples.max(1) as f64;
     let mean_wf_floor = wf_floor_sum as f64 / samples.max(1) as f64;
-    let produced = world.fruit_dropped as f64;
+    // **`fruit_dropped` alone undercounts production**, on any bed where
+    // anything snaps: `World::organ_shattered_to_windfall`'s doc is the
+    // finding -- `fruit.ron`'s `breaks_into: "windfall"` lets a standing
+    // fruit or flower become windfall by losing structural support, with
+    // no ripening and no `fruit_dropped` tick. Both paths are counted here
+    // because Little's law needs *all* production, not just the
+    // deliberate kind.
+    let produced_dropped = world.fruit_dropped;
+    let produced_shattered = world.organ_shattered_to_windfall;
+    let produced = (produced_dropped + produced_shattered) as f64;
     // **Little's law, and it is the whole reason production and stock are
     // both here.** `mean standing = production rate x mean standing time`,
     // so the residence time falls out of two counters neither of which can
@@ -350,18 +611,57 @@ fn main() {
     println!("\n  the fruit -> windfall pipeline over {frames} frames:");
     println!("    organs built (flower + fruit set)      {}", world.organs_built);
     println!("    ripening refused for want of budget    {}", world.organ_ripening_blocked);
-    println!("    windfalls created (fruit let go)       {}", world.fruit_dropped);
+    println!(
+        "    windfalls created: dropped (ripe, let go) {produced_dropped}  shattered (organ lost support) {produced_shattered}  total {}",
+        produced_dropped + produced_shattered
+    );
     println!("    handed out by this harness             {handed_out}");
     println!("    mean standing: flower {:.1}  fruit {:.1}  windfall {mean_wf:.2} ({mean_wf_floor:.2} on the floor)",
         flower_sum as f64 / samples.max(1) as f64, fruit_sum as f64 / samples.max(1) as f64);
     println!("    peak standing windfall {wf_max} ({wf_floor_max} on the floor)");
     println!(
-        "    organ height above the soil: lowest ever {} rows, highest ever {organ_high_max} rows | ants aloft, mean {:.2} of {} at the end",
+        "    organ height above the soil: lowest ever {} rows, highest ever {organ_high_max} rows | mean flower+fruit within ground reach {:.2} of mean {:.2} standing | ants aloft, mean {:.2} of {} at the end",
         if organ_low_min == i32::MAX { "none stood".to_string() } else { format!("{organ_low_min}") },
+        organ_floor_sum as f64 / samples.max(1) as f64,
+        (flower_sum + fruit_sum) as f64 / samples.max(1) as f64,
         aloft_sum as f64 / samples.max(1) as f64,
         live_ants,
     );
     println!("    mean time a windfall stands: {life}  (on the floor: {life_floor})");
+
+    let wf_departures = fate_eaten_or_carried + fate_rotted + fate_unclear;
+    println!("\n  windfall fate (floor band, sampled every {fate_every} frames):");
+    println!(
+        "    departures observed {wf_departures} = eaten-or-carried {fate_eaten_or_carried} + rotted (soil/gone, no ant near) {fate_rotted} + unclear {fate_unclear}  | against windfalls created {} (dropped {produced_dropped} + shattered {produced_shattered})",
+        produced_dropped + produced_shattered
+    );
+    println!(
+        "    NOTE: eaten and carried are the SAME event on the world side and cannot be split without touching src/sim/creature.rs (owned by another lane this round): \
+         a bite always goes into the crop first (pickups creature.rs:5039, eats creature.rs:5076 -- \"the two verbs merged when the decision between them went away\") \
+         and the crop cell can be dropped anywhere later (drops creature.rs:5147, deliveries creature.rs:5149), so the world only ever sees the pickup moment. \
+         Splitting them needs a per-ant crop trace across frames -- the hook a later lane should add is a material-keyed counter beside creature.rs:5039."
+    );
+
+    let wf_germ = world.windfall_germination_x.len() as u64;
+    let loose_germ = world.germinations.saturating_sub(wf_germ);
+    println!("\n  seedlings by origin:");
+    println!(
+        "    germinations from a windfall {wf_germ} | from a loose seed {loose_germ} | total germinations {} (germinations_in_place {}, a relabel-in-place overcount to watch, per open-bugs §Z4)",
+        world.germinations, world.germinations_in_place
+    );
+    if wf_germ > 0 {
+        let mut hist = [0u32; 9];
+        for &x in &world.windfall_germination_x {
+            let d = (x - nest_col).unsigned_abs();
+            hist[(d / 32).min(8) as usize] += 1;
+        }
+        let bins: Vec<String> = (0..9)
+            .map(|i| if i == 8 { format!("256+:{}", hist[8]) } else { format!("{}-{}:{}", i * 32, (i + 1) * 32, hist[i]) })
+            .collect();
+        println!("    distance |x - nest_col={nest_col}| in 32-col bins: {}", bins.join(" "));
+    } else {
+        println!("    distance histogram: n/a (no windfall-sourced germination this run)");
+    }
     println!(
         "\n  the animals: ants {live_ants} plants {plants} | births {} denied-no-space {} deaths {} eats {} | deepest generation {deepest}",
         st.births, st.births_denied_no_space, st.deaths, st.eats
@@ -381,11 +681,14 @@ fn main() {
     );
     println!(
         "SUMMARY seed={} gut={bias:.2} handout={handout} frames={frames} founders={} ants0={} \
-         dropped={} handed={handed_out} meanwf={mean_wf:.3} meanwffloor={mean_wf_floor:.3} maxwf={wf_max} \
-         organlow={organ_low_min} organhigh={organ_high_max} aloft={:.2} \
+         dropped={} shattered={produced_shattered} handed={handed_out} meanwf={mean_wf:.3} meanwffloor={mean_wf_floor:.3} maxwf={wf_max} \
+         organlow={organ_low_min} organhigh={organ_high_max} organfloor={:.2} aloft={:.2} \
          deliveries={} larder={} \
+         eatencarried={fate_eaten_or_carried} rotted={fate_rotted} fateunclear={fate_unclear} \
+         wfgerm={wf_germ} loosegerm={loose_germ} \
          births={} deaths={} liveants={live_ants} plants={plants} gen={deepest} eats={} bestoffer={:.0} bestbite={:.0} peakbank={:.0} bar={bar:.0} anthigh={ant_high_max}",
-        spec.seed, placed.planted, placed.ants, world.fruit_dropped,
+        spec.seed, founders_planted, ants_placed, produced_dropped,
+        organ_floor_sum as f64 / samples.max(1) as f64,
         aloft_sum as f64 / samples.max(1) as f64,
         st.deliveries,
         nest_larder(&world, spec.width, spec.height),

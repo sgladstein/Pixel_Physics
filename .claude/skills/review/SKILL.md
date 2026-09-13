@@ -315,6 +315,44 @@ Use `--no-sync` (or `PIXEL_PHYSICS_REVIEW_NO_SYNC=1`) only when you deliberately
 want a local-only queue. Sync failure is never fatal: the card is written to disk
 first, so it survives and goes out on the next sync.
 
+### Fixing a card after it is posted — `sync` will not do it for you
+
+**Measured 2026-09-12: `sync` pushes *new* cards only. It does not push edits to
+a card that is already on the remote.** It reports success and `"pushed": []`,
+the local file holds your correction, and the owner keeps reading the broken
+one. Nothing warns you.
+
+This came up on a real card whose last line had lost two key names to a shell
+substitution and read `Same key as the others (),  for its corner rule`. The
+lane that posted it saw only two options — leave it, or repost — and chose to
+leave it rather than put a duplicate 40-frame sequence in the queue over one
+sentence. **There is a third option, and it is the right one here:**
+
+1. Edit the card's JSON under `.git/pixel-physics-review/cards/<id>.json`.
+2. Push it yourself, because `sync` will not:
+
+```
+git worktree add --detach <tmp> origin/review-queue
+cp .git/pixel-physics-review/cards/<id>.json <tmp>/cards/<id>.json
+cd <tmp> && git add cards/<id>.json && git commit -m "review: <what you fixed>"
+git push origin HEAD:review-queue
+```
+
+3. **Verify on the remote**, because the whole failure mode here is a write that
+   silently did not travel: `git show origin/review-queue:cards/<id>.json`.
+
+**The one hard rule: never amend a card that has been answered.** The verdict
+is stored against the card, so editing the text afterwards points the owner's
+words at content he never saw — and this repo has already had one verdict
+misread for a smaller reason than that. Check for an `answered_at` before you
+touch anything; if it is set, post a new card instead.
+
+**Amend for a defect in the writing. Repost for a defect in the artifact.** A
+wrong key name, a mangled sentence, a missing number in `meta` — amend, it is
+free and it does not clutter the queue. A wrong render, the wrong frames, the
+wrong pair — repost, because the thing being judged has changed and the old
+card should stand as its own record.
+
 ## Being told when the verdict lands
 
 Posting is fire-and-forget, and you do not have to keep checking: **you will be
@@ -399,6 +437,19 @@ python3 scripts/review.py serve --open
 
 One server covers every worktree. Do not start one on the owner's behalf unless
 they ask; posting works whether or not it is running.
+
+### If it cannot reach the remote
+
+`serve` runs one sync in the foreground before it prints the URL and reports
+it — `synced: 3 file(s) in, 0 out`, or `SYNC FAILED:` with the reason and,
+for a missing login, the fix for the machine it is on. The page shows the
+same state under the queue path. Sync never asks the terminal for a username
+or password: a timer has no business doing that, and until 2026-09-10 it did,
+which kept every verdict the owner gave on their own disk. The repository is
+public, so only the *push* — verdicts going back — needs a login, and GitHub
+refuses an account password for git: the credential is a personal access
+token, or `gh auth setup-git`. `python3 scripts/review.py sync` prints the
+diagnosis on demand.
 
 ### From a phone
 

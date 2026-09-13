@@ -320,13 +320,52 @@ by somebody about to try it on creatures.
 - [coupling-research.md](coupling-research.md) — **research (Report C of
   four).** Rigid body ↔ grid coupling for M8; §4 is why chunk bodies run
   serially.
+- [soil-water-columns-2026-09-11.md](soil-water-columns-2026-09-11.md) —
+  **measured and diagnosed, nothing changed, 2026-09-11.** Why the bed's
+  water stands in vertical columns under the soil-moisture overlay. It is
+  **not** biology: an empty box with nothing alive in it reproduces the
+  picture exactly, and the same box with the mister off holds flat at field
+  capacity. It is capillary's wide rest threshold — 380 units, a third of
+  the scale — applied to the **sideways** face, where the pump it was
+  derived against cannot happen, since drainage only moves water down. Every
+  pair in the bed at rest and the widest standing gap sitting **exactly on
+  the constant** is the tell. The lever is `World::soil_capillary_levels`, a
+  dial on the lab's parameters page (`the bed / water_levels_sideways`): it
+  removes the columns outright, widest gap **380 → 0 on all twelve seeds**,
+  at **1.84x the soil-moisture writes a tick** (higher on 12 of 12) and ~10%
+  of the median tick on an empty box. **Owner's ruling, 2026-09-11: off by
+  default, and give me the dial.** §7 is the downstream sweep that ruling
+  asked for — the columns and the write count are the only consistent
+  effects, standing water falls to a median 0.69, and **the biology is a
+  null**: stand, plants and animals all within 3% of 1.0 with the sign split
+  down the middle and per-seed spreads up to 2.22x. §6 and §8 carry four
+  ways the measurement nearly lied, including a cost A/B that came back
+  bit-identical because the bed was degenerate for the question, and a guard
+  that could not see a missing trait implementer.
 
 ## Plants and trees  ·  `engine`
 
 - [canopy-throughfall-2026-09-07.md](canopy-throughfall-2026-09-07.md)
-  — **built and measured, 2026-09-07.** The owner's *"water also pools on the
-  top of our plants; it should drip through"*, answered — and the rule
-  already existed. `update_powder` has `fall_through_organism` (litter, seed,
+  — **built and measured, 2026-09-07; §7 added 2026-09-11.** The owner's
+  *"water also pools on the top of our plants; it should drip through"*,
+  answered — and the rule already existed. **§7 is the half it missed**: the
+  scan looks for open *air* on the far side of the leaf, which a tree has and
+  a grass tussock, herb, shrub or scrambler never does — under their tissue
+  is the bed. Measured by replaying the scan over every standing drop, 876
+  liquid cells resting on tissue with **8** able to drip, 276 of them over
+  ground with room to spare, and the same failure at the mister OFF, so not a
+  rain-rate artifact. Ground that can hold water is a landing now; ground at
+  capacity still refuses, which is what keeps it graded. §7.4 is a guard that
+  was **blind on its first writing** and only the put-the-fault-back check
+  found it. **§8 is round three**, opened by the owner's *"this is not fully
+  fixed"*: the entry gate still demanded a *living* plant so a drop on dead
+  grass never reached the rule (41 of 213); a trapped drop was a dam rather
+  than a landing (66 of 213); and — the owner's own diagnosis — drainage
+  required the cell below to *hold* water, so **soil over an ant-dug tunnel
+  saturated permanently and then turned away everything that landed on it**.
+  A wet roof drips now; damp ground still does not. §8.4 says what is left
+  and why it is a water-balance problem rather than a drip one, and corrects
+  `soil-water-columns`'s claim that the sideways threshold was cosmetic. `update_powder` has `fall_through_organism` (litter, seed,
   windfall) on the 2D-slice argument that *a branch one cell wide is not a
   shelf spanning the tree's whole depth*; `update_liquid` had no equivalent,
   so water landing on a crown simply sat. Measured before the fix,
@@ -852,6 +891,65 @@ drift that two of these documents still reflect.**
 
 ## Creatures and ecology  ·  `engine`
 
+- [colony-economy-design-2026-09-09.md](colony-economy-design-2026-09-09.md)
+  — **design of record for the creature line's energy economy, 2026-09-09.
+  Nothing built.** Asks the question §Z6's diagnosis leaves open — *where does
+  the energy actually go* — and the answer is that **foraging returns less
+  than it costs**: intake is **16% of burn**, and `burn = metabolized 4,604 +
+  moved 5,599 + synapse 593`, so **locomotion alone is 52% of the budget and
+  three times all the food the colony eats**. Rules out two explanations by
+  measurement: not vertical reach (ants climb to 22–23 rows; the 11-row figure
+  was a snapshot at the last sample) and **not distance — food dropped at the
+  nest buys 70% more meals and the colony still collapses 52 → 21**. The cliff
+  is the founding grant and the arithmetic predicts it: 200 J at 0.0524
+  J/frame is 3,817 frames, and the mass death lands between 3,500 and 4,000 —
+  every founder holds the same number so they empty together, a cohort rather
+  than a population. **1,434 ticks of uninterrupted feeding per child is 8,600
+  frames, which is exactly §4f's generation time**, so the generation clock
+  and the foraging economy are one problem. Four routes, priced: pricing
+  (**mostly no** — a step at 2.5x idle is defensible physiology), **food sharing
+  and rest** (both absent, both things real ants do), and three out-of-the-box
+  (castes, litter, a founding queen). **§4b is the one the owner asked for**:
+  `(Bias, Move, 2.0)` and `(Bias, Dig, 0.4)` are unconditional, so there is no
+  idle state at all — which is why an ant with nothing to do digs the world
+  out — and rest is the missing third of scouting-and-recruitment, whose other
+  two parts (the trail, castes) are already built. **§6 is a warning, not a
+  proposal**: `gut_bias: -1.0` is an owner-vetoed dead end (*"an omnivore
+  should be viable"*), and what is new is that **its price has moved** — the
+  2026-08-30 measurement put it at generation 2, today it reaches 19
+  — so the ruling stands on reasoning whose numbers are stale
+- [colony-starvation-separated-2026-09-08.md](colony-starvation-separated-2026-09-08.md)
+  — **diagnosis, measured, 2026-09-08; nothing tuned, one instrument built.**
+  Closes the question `open-bugs-handoff.md` §Z6 left open — *overgrazing or
+  cannot reach?* — and the answer is **both, as two stages of one run, not as
+  alternatives**. A colony dies twice: 41–46 of 52 founders starve by frame
+  4,500 while the bed holds **four to six times their whole 10,400 J
+  endowment** in food their own gut would digest, and whatever survives that
+  eats the bed down to **4–14% of the same bed with the ants removed**, seed
+  bank at zero, and starves with it. **The line of §Z6 it overturns is "the
+  plants are not the casualty"**: paired against `colonies=0`, the stand is at
+  61–68% of the unfed control *before a single ant has died*. Three things a
+  later session should not re-derive. **The mechanism is one absence in the
+  species file** — there is no `FoodNear`/`FoodBearing` input in `brain.rs` at
+  all, only `FoodAdjacent`'s eight neighbours, and not one of the ant's twenty
+  authored weights reads a pheromone plane. **That last clause was corrected
+  2026-09-09 and the report carries the note**: the *direct* weights do not,
+  but `ant.ron`'s `hidden_inputs` carry `PheroAAlong`/`PheroBAlong` into units
+  driving `Move`, gated on `Carrying`, so the trail **is** followed and the
+  candidate is a cold start — channel B is laid only by an ant already
+  carrying. The missing-*sense* half stands, and so does everything measured. **The full box
+  is the control for stage one and was already in the matrix**: 87% of its
+  founders are alive at frame 4,500 against 12% of the default box's, because
+  its food is planted beside its nests — same animal, same budget. And **the
+  obvious reach reading is wrong, refuted by the specificity control rather
+  than by a second metric**: 68–84% of the surviving larder is more than
+  sixteen rows up, which reads as *out of reach* until you notice ants climb
+  to 40/156/144 rows and an unfed bed reads 80–86% aloft with nothing living
+  in it. Also: §Z6 is **not** a regression from round twenty (its own parent
+  commit dies on both seeds too), and `forage_probe` at 300,000 frames is
+  **identical to 24,000 in every column but `moves`**, because its colony is
+  dead by then as well. Builds `examples/labforage`; gives `labshot` a `seed=`.
+
 - [creature-programme-plan-2026-09-05.md](creature-programme-plan-2026-09-05.md)
   — **plan, 2026-09-05; nothing built by it, and under review at the time of
   writing.** Where the creature line goes after a day whose three findings all
@@ -1008,6 +1106,46 @@ drift that two of these documents still reflect.**
   developmental arm as the null (median 50.9% against 51.6%), for two
   reasons that are the bed's — *reachable, connected, gated; not yet
   found*.
+- [evolution-lab-fission-design-2026-09-12.md](evolution-lab-fission-design-2026-09-12.md)
+  — **colony fission: one odour per nest, and how a second nest starts,
+  2026-09-12.** Design, no code. Answers the owner's *"can colonies diverge
+  and become separate colonies?"* by taking the cohesion the signature
+  report's §1f deliberately left out: **a nest is a place that holds an
+  odour**, an ant standing on nest material blends with it (`nest_blend`
+  0.10, `nest_uptake` 0.02, hung off the `AtNest` branch that is already
+  computed), a party buds out on a new `Leave` brain output wired off
+  `AtNest × Crowding` and founds a satellite 120 cells away carrying the
+  parent's odour, and each nest's odour then wanders on its own
+  (`nest_scent_drift` 0.065 per 1,000 frames) so two nests nobody walks
+  between read as strangers after one session while **one crossing ant per
+  1,000 frames holds them one colony** — polydomy the player can see.
+  Ships drift at **0.15** for the first time, with the arithmetic for why a
+  cohered nest cannot eat itself at any drift. **Measured** (`labstats`,
+  played bed, seed 1, 120,000 frames): at drift 0.5 with no cohesion one
+  nest destroys itself — `ANT 1 alive 0, killed 22, 20 of them by ANT 1` —
+  against alive 69 at the shipped dials, and drift 0.15 is byte-identical
+  because ten generations never reach the tolerance radius. **Contradicts
+  its own brief**: birth drift can never separate two cohered nests (~500
+  generations against a session's ten), so the speciation speed has to live
+  in a place dial rather than the birth dial. Two build briefs, B1 cohesion
+  and B2 budding, with the `live_slots` 846 → ~883 `mutation_rate`
+  re-derivation priced in.
+- [creature-movement-modes-2026-09-09.md](creature-movement-modes-2026-09-09.md)
+  — **diagnosis plus one instrument, 2026-09-09; nothing under `src/sim/` is
+  changed.** The owner's *"I have never seen any movement patterns different
+  than crawling"*, answered. **The jump has worked since 2026-08-29 and no
+  species file authors it**: 0 launches in `forage_probe` over 19,230 moves
+  and 0 on generated wetland, against **275** in the same scene with one
+  `Bias -> Impulse` wire — so the zeros are the world, not the counter. The
+  trade the design demanded is there without tuning (deepest forage 9 -> 18
+  cells, deaths 3 -> 10). New `examples/food_height.rs` settles the question
+  the ceiling report left open — whether there is food a walker cannot reach:
+  **95.8% of all food worth sits 5+ cells above ground on `wetland`, 87.6% on
+  `rolling`, 0% on `arid`** (which grows nothing, the honest negative
+  control), and `flower` — the richest food at 1440 — is **one cell across
+  two worlds at 30,000 frames**. Of the four gaits the question names, two are
+  free today, one (swim) is a live defect recorded at `creature.rs:2415`, and
+  only sustained flight is new work.
 - [creature-behaviour-ceiling-2026-09-05.md](creature-behaviour-ceiling-2026-09-05.md)
   — **diagnosis, measured, 2026-09-05; nothing tuned and nothing built.** The
   owner's question — *are the interesting behaviours impossible, unselected,
@@ -1137,6 +1275,44 @@ drift that two of these documents still reflect.**
   already the best of the values tested, and a nine-cell pale body puts less
   on screen than the shipped two-cell dark one. The creature-side answer to
   `plant-appearance-design.md`.
+- [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  — **design 2026-09-09, built 2026-09-10, and the bodies do not walk.**
+  §7 is the measurement: an articulated ant is blocked on **43.9%** of its
+  moves on dead-flat ground and **96.8%** on `rolling`, against a six-cell
+  plain chain's **2.5%** and **12.4%** on the same seed — length controlled,
+  so it is the body plan. `ascii` fails outright (*"the colony has gone
+  sessile"*, 172 moves against 9,586 blocked) and `scene=colony` founds 4
+  ants of 52. §7b is a real defect found and fixed on the way (a lateral
+  fixed in world space deadlocks a spine that has gone vertical) which moved
+  the number barely at all, and §7c is three hypotheses that moved nothing,
+  recorded so they are not retried. The design below stands; the movement
+  rule does not. Can a creature's body come out of a
+  genome instead of a species file? Yes, and the reason is that
+  `World::push_organism` already seeds **every** organism, creature included,
+  with a `FateGenome` from its species table — an ant has had a body genome
+  since the plant line landed one and it has been empty. So the heritable
+  body costs **zero new bytes of per-organism state**; `CellType` has 6 of 16
+  slots free in both places it is stored; and the whole economy re-derives on
+  **one factor over four `*_per_cell` fields**, because the birth stamp and
+  the meat value are the same product `body_energy × cells` — every
+  whole-animal quantity is invariant and only the per-bite value moves, which
+  grades the bite. The one new piece of code is a third arm in
+  `body_after_step`: the spine follows the chain rule that already ships and a
+  segment's lateral cell sits directly above it, so the body **bends** and a
+  footprint ≥3 wide is unrepresentable rather than discouraged. Reads roles
+  (head/leg/gut/armour) as a **fraction** of the live body, never a count,
+  which is what keeps size priced. Records the honest limits: it is not
+  growth, a body is an axis rather than a tree, and **palette is untouched**,
+  so `creature-appearance-design.md` §7 is half closed and not closed.
+  Carries the owner's 2026-09-03 verdict on the six-silhouette card.
+  **§13 (2026-09-10) fixes the movement finding above** — the lateral tuck,
+  a length-not-width founding walk, and a flip that turns a boxed body
+  round in a dead end, shipped as the default. **Landed 2026-09-11 per the
+  owner's ruling in §13, "go with A, but the long ant should be an option
+  that I can place": the shipped ant stays `Chain(2)`, and the seven-cell
+  articulated body moves to `longant`, a species a player places rather
+  than the one a colony starts with** — `assets/species/longant.ron`,
+  `assets/materials/longant.ron`, `assets/lab_scenarios/played_bed_longant.ron`.
 - [creature-shape-reachability-2026-09-02.md](creature-shape-reachability-2026-09-02.md)
   — **measurement only, no body plan built.** Three pre-checks for
   `creature-genome-flexibility-2026-09-02.md` §13's articulated-body
@@ -1157,9 +1333,14 @@ drift that two of these documents still reflect.**
   waisted 36-cell "insect") still moves nothing measurable on `ink` (~0.5%
   median, not the ~15% a legibility-threshold-crossing would predict) —
   `creature-appearance-design.md`'s 9-cell finding generalises to 36 rather
-  than being a small-size artifact. A blind gallery card of six candidate
-  silhouettes is posted and unanswered as of this report
-  (`20260902T194120383Z-3860b1`).
+  than being a small-size artifact. The blind gallery card of six candidate
+  silhouettes (`20260902T194120383Z-3860b1`) was answered on 2026-09-03:
+  *"These are decent starts, depends on how they look in action"* — a positive
+  verdict on the silhouettes and a refusal to settle the question on stills,
+  which is that report's own §3 correction arriving from the owner rather than
+  from review. The bar moved to motion, and
+  [creature-articulated-body-2026-09-09.md](creature-articulated-body-2026-09-09.md)
+  is what carries it.
 - [creature-gates-to-mechanism-2026-08-31.md](creature-gates-to-mechanism-2026-08-31.md)
   — **built and landed 2026-08-31, PRs #190, #192, #194.** The authored
   eat-vs-carry gates come out: a crop that digests as the animal walks
@@ -1755,6 +1936,172 @@ drift that two of these documents still reflect.**
   the discrepancy is **ungerminated seed** (419 of 467 at frame 30,000) with
   about three plants in the 2-9 cell bucket. Both halves settle — stand ~48,
   bank ~430.
+- [evolution-lab-what-is-missing-2026-09-09.md](evolution-lab-what-is-missing-2026-09-09.md)
+  — **design examination; proposals only, nothing decided and nothing built.**
+  Answers the owner's *"what is it missing, think outside the box"* by looking
+  at the shipped box rather than at the round history, and so answers the one
+  question the design guide's §9 refuses ("whether it is fun"). **The lab is a
+  finished instrument and an unstarted game**, and what is missing sits
+  *underneath* Gate 5 rather than being it: nobody in the box has a name, the
+  Running phase has no shape and never interrupts, **no mutation is ever
+  reported** in a game named for evolution, and the animals are **0.016% of
+  the frame** (13 animals × 2 cells of 163,840 at frame 30,000 — none locatable
+  by eye at any stop). §4 is the one to read past the list: the box has
+  **flowers no animal visits and fruit whose seeds nothing carries**, and
+  `grep -niE 'pollinat|nectar|mutualis|symbio'` over `src/sim/` returns zero —
+  one organism eating another is the entire ecology. §5 carries three bets, of
+  which the load-bearing one is that the 512-wide flat bed is fighting
+  legibility, divergence and forage reach **with one decision**. §6 prices
+  twelve changes; rows 1–4 are about a day between them and are the actual
+  recommendation.
+- [evolution-lab-direction-2026-09-09.md](evolution-lab-direction-2026-09-09.md)
+  — **direction of record for the lab through phase one; five lanes landed
+  with it.** Answers the report above with a decision rather than a list:
+  the lab has everything a player needs and nothing a player is shown, so
+  the phase is turning the instrument toward the player — line names and a
+  chronicle bounded per lineage (the owner's thousand-ant constraint), the
+  clock reacting to line events, a hand in the box (scent, alarm, fling,
+  lamp), the hunger sense wired at last, the jump given a species — and then
+  the box alive (trophallaxis as a brain output, by ruling) and the box as a
+  rack. Carries the owner's rulings made the same day: rest is the absence of
+  a reason, not a full stomach; a queen is three authored values over
+  mechanisms that exist, never a type; movement, not stills, is how animals
+  are seen; and the marker overlay was rejected on sight. Its measured
+  corrections overturn two standing claims — the harness bed is not the
+  played bed (a colony founded on grown plants holds 31 where the frame-0
+  bed holds 4), and the trail circuit is wired and inert (§Z7).
+- [evolution-lab-breeding-clock-2026-09-10.md](evolution-lab-breeding-clock-2026-09-10.md)
+  — **measurement of record for the evolutionary clock, and the eusociality
+  lane's first deliverable, which is a number rather than a feature.** Three
+  breeding regimes x six seeds x 120,000 frames on the played bed. Queen-only
+  breeding is a **thirteen-fold collapse**: median 1 generation against
+  individual budding's 13.5, with a breeder-chain median of **zero**, meaning
+  that on five seeds of six no animal born in the box ever reproduced. Graded
+  suppression costs about a third of the clock (8.5) and buys stability rather
+  than population — the same standing colony on a **quarter of the deaths** —
+  so individual-against-graded is a real trade for the owner and only
+  queen-only is settled as off the table. The three regimes are one rule at
+  three settings of one knob (the bar scaled by proximity to an animal that
+  has already bred), so no queen type exists and a queenless colony resuming
+  is the same code path as the opening state. Carries the played bed as a
+  scenario, why a tree was measured out of it (one tree shades the bench to
+  0.008 of lamp light), why a grown bed seats 8 founders of 52 until a bare
+  band is left for the nest, and one unresolved anomaly reported rather than
+  smoothed: `queen` leaks a second breeder, which can only make the collapse
+  a lower bound.
+- [evolution-lab-ecology-design-2026-09-10.md](evolution-lab-ecology-design-2026-09-10.md)
+  — **design examination; priced proposals only, nothing built and two
+  decisions put to the owner.** Answers `evolution-lab-what-is-missing`
+  §4 ("the ecology has no relationships") with mechanisms: the seed inside
+  a fruit surviving the animal that eats or carries it, nectar as a small
+  meal the flower survives, pollination as a graded bonus, palatability
+  coupled to the leaf's own heritable tone. **The join is cheap and priced
+  to the line** — a windfall is already an organism-owned `CellType::Seed`,
+  and what destroys it is that `Crop` carries five scalars with no identity
+  in them, so *the seed survives the trip* is one field and two one-call
+  hooks at named sites. **Three measurements taken for it change what should
+  be built.** The fruit pipeline is **budget-limited, not pollinator-limited**
+  — a fruit was ripe and unaffordable **18,867 times against 56 drops**, and
+  the refusals *double* with no colony in the box — so a pollination bonus on
+  the ripening clock is inert and the bonus has to go on the price. **Nothing
+  has ever eaten a flower** (best mouthful swallowed 960, a fruit, not the
+  1,440 flower), which reproduces `dead-ends.md`'s 2026-08-30 finding and is
+  what makes the nectar change cheap: the 1,440 calibrates one printed ceiling
+  already recorded as misleading. And **a fallen fruit is gone from the floor
+  in 68 frames with no animals in the box at all**, so the colony is not the
+  main sink and the first deliverable of the arc is a windfall *exit* census
+  rather than a mechanism. On C — pollen as gene flow — it gives both readings
+  and recommends the **player's brush over the animals' bee-line**, because
+  the animal version costs the cluster definition that is the lab's only
+  operational test for plant speciation, and the brush builds the same
+  machinery; the ruling is card `20260910T032635178Z-6dfed9`. Also files a
+  defect found while measuring: **`labshot scenario=… seed=N` is silently
+  ignored** (`labforage` fixed exactly this on itself and `labshot` never got
+  it), so every contact sheet of the played bed is seed 1.
+- [evolution-lab-pollinator-design-2026-09-10.md](evolution-lab-pollinator-design-2026-09-10.md)
+  — **design examination; priced proposals only, nothing built.** Specifies
+  the ruling that overturned the report above: **animals carry the pollen**,
+  and the box gets an animal whose living is flowers. Filed here rather than
+  under *The evolution lab* by that section's own rule — this is about the
+  biology, not the box. Carries the pollinator (`flitter`: `Chain(2)`, gut
+  `−1.0` so a flower pays it **120 J against the ant's 30**, no nest, the 2.0
+  hop the owner liked with one new wire — `(FoodAdjacent, Impulse, −2.0)`,
+  which is *not* the recorded dead end because it gates on food being here
+  rather than on the animal being poor); the **bloom sense**, two brain inputs
+  that cost the genome nothing because `brain.rs` reserved the dimensions, and
+  a `Sightings.bloom` recorded on rays that already exist and never broken, so
+  every shipped species stays bit-identical; and pollen as **one grain on the
+  animal, one coordinate-keyed entry on the world, one call in
+  `bear_seed_at`**. **Three measurements change what should be built.** The
+  thicket is the larder: standing flowers at frame 6,000 are a median **16 on
+  `played_bed` against 60 with scramblers**, fruit **2 against 48**. **The bed
+  stops flowering on its own and the colony is not the cause** — 81 → 25 → 8
+  standing flowers with a colony and **81 → 10 → 3 with the colony removed**,
+  so grazing is ruled out, the cause is determinacy, and the pollinator's real
+  precondition is a flower that **renews** rather than one that survives. And
+  **"nectar is paid out of the reproductive budget" is a units error** in the
+  design above: the budget is plant carbon capped at 4.0 where a fruit costs
+  0.3, and 120 is joules — nectar needs a cost *and* a yield. On what gene flow
+  costs: lineage becomes maternal descent, so `LINES BIGGEST` and
+  `selection_arena`'s arm attribution both silently narrow, and the allele
+  census reads a mixture it cannot distinguish from two clusters. Prices the
+  **petal-colour locus** separately, because its real cost is one more draw per
+  plant birth from a shared `Rng` — every seeded plant figure in the lab moves.
+- [evolution-lab-flight-design-2026-09-11.md](evolution-lab-flight-design-2026-09-11.md)
+  — **design of record for round 29's first build, the flitter floats; nothing
+  built.** Sits beside the pollinator design above and answers the owner's
+  verdict on it — *"jumping like a frog, not flying or floating like a butterfly
+  or bee"*. **The gap is not the eye and not the reach: it is that the flitter
+  has no rudder anywhere.** `step_flight` runs no brain (`creature.rs:3132`), so
+  an airborne animal cannot read the world or steer; `launch` takes the heading
+  the last *walk* left behind, never a fresh one; and on the ground bug **R4**
+  already has `Turn` nearly inert for a walker on level footing. Measured here,
+  three seeds paired in one binary against the same species with the hop switched
+  off by one weight: **0.60 walking steps per launch**, **29–46% of every
+  animal-frame aloft and blind**, and the *walking* arm sees more blooms, visits
+  **34 flowers against 0** on seed 3 and is the only arm of six that breeds — so
+  the hop is a net negative for encounter today. Also: at **60–387 frames per
+  launch** against a ~22-frame ballistic arc, **63–94% of airborne time is §Z9's
+  buoyancy hang**, not flight. Proposes `BrainOutput::Fly` as a lawful output
+  append that scales gravity while it is held, runs the brain every tick aloft and
+  rotates the *velocity* rather than a candidate cell — with the price
+  (0.0875 J/frame aloft against 0.025), the nine-cell closing arithmetic (34
+  frames, 2.1 J of a 120 J meal) and the six constants the append reallocates,
+  `mutation_rate` 0.0039308 → **0.0037589** across six species files first among
+  them.
+- [evolution-lab-flitter-bed-2026-09-11.md](evolution-lab-flitter-bed-2026-09-11.md)
+  — **round 29's bed question, measured; one scenario file shipped and one bug
+  filed.** The float from the design above works and bought almost nothing on
+  `played_bed`, so this asks the design's own §6 — is the bed the lever? It is,
+  and it is not the binding one. Three beds, three seeds, 120,000 frames:
+  `flower_visits` medians **8 → 69 → 74** (about ninefold) and **alive at
+  120,000 is zero on nine of nine bed-seed pairs**, so the ship condition fails
+  and `played_bed_understory.ron` lands as a named scenario rather than as
+  `played_bed`'s new default. **What separates the beds is a distance, not a
+  density**: the standing-flower count predicts nothing across the nine pairs
+  (a 43-flower bed takes 108 visits, a 57-flower bed takes 5) while the
+  nearest flowering clump's distance from the nest — 138 / 84 / 59 columns
+  against a 32-cell eye — lines up exactly. The census then names what does
+  kill them: every visit happens in the colony's first 6,000 frames, the
+  flowers never run out, and **29 of 30 deaths are in mid-air with 55% of the
+  colony's whole burn spent on lift** — the float's gate is *visibility* where
+  it should be *proximity* (`open-bugs-handoff.md` §Z10, with the one-weight
+  control measured: aloft deaths 59 → 8, births 5 → 10). The threshold the
+  brief asked for: **0.22 visits per 1,000 frames per animal against the 1.6
+  the economy needs**, seven times short with the bed as close as the founding
+  rules allow. Also carries B2 (a sense-driven take-off) measured and declined
+  — `moves` per launch 2.2–2.7x, median visits down.
+- [trophallaxis-design-2026-09-09.md](trophallaxis-design-2026-09-09.md)
+  — **design of record for the `Share` verb and the `KinNeed` sense; built
+  the same day.** Energy rather than crop (a 480 J leaf in one lump is
+  another binary); one constant that is cap, floor and grading at once; the
+  price is one jaw closure; the default wiring derived from `squash` so a
+  full ant beside a starving sister shares on two ticks in three and a
+  starving ant never gives away its last joules. Found the shared-budget
+  trap in the hunger wire (`FoodAdjacent` was calibrated against the constant
+  bias) and states the composed Move row both lanes hit. Its first
+  measurement is in README's "Trophallaxis status", and it is a null with a
+  warning sign.
 - [plant-evolution-design.md](plant-evolution-design.md) — **design, all
   nine §8 calls signed off 2026-08-19; partly implemented.** The plant
   ecology: litter, decay, grass and the creeper; §4a's register holds the
@@ -2096,8 +2443,8 @@ staged against its gates: fourteen of its eighteen findings are about the
 animal, not the box. The four that *are* about the box are worth knowing here —
 the `COLONY` verb can only place the species literally named `"ant"` (which
 `dead-ends.md` names as the blocker for the grazer that clears Gate 0), there
-is **no food verb** although hand-placed food is the one intervention measured
-to separate generation 13 from generation 0, and the plant mutation rates the
+was **no food verb** (there is one now: `E`) although hand-placed food is the one
+intervention measured to separate generation 13 from generation 0, and the plant mutation rates the
 design guide's §7b-i calls "already data" are Rust `const`s.
 
 - [evolution-lab-rounds-archive.md](evolution-lab-rounds-archive.md) —
@@ -2117,6 +2464,96 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   was taken at about **one minute of play** (`open-bugs-handoff.md` §Z6),
   Gate 2 discriminates only *past* the founding grant, and a phase share
   transfers across neither machines nor beds.
+- [evolution-lab-round-26-2026-09-10.md](evolution-lab-round-26-2026-09-10.md)
+  — **record, 2026-09-10.** The coordinator's account of round twenty-six,
+  moved out of the lane note when it passed 30 KB: nine lanes in nine hours,
+  seven landed. What the round overturned, with the numbers: the fruit
+  pipeline is budget-limited, not pollinator-limited; nothing has ever eaten
+  a flower; `labshot` ignored `seed=` in scenario mode; an ant bites a fallen
+  fruit about twice in 360,000 frames on the played bed and 32 times across
+  a sweep with a thicket in it, and no pip has yet become a plant; a severed
+  fruit lost its seed's organism on landing (§Z8, closed); the breeding
+  rule was blind to every animal in a recycled slot; the articulated bodies'
+  immobility was entirely their side cells, and the tuck rule takes the ant
+  from 43.9% / 96.8% blocked to 1.9% / 22.1%. Also the rulings the round
+  depended on and the questions it put to the owner.
+- [evolution-lab-round-27-2026-09-10.md](evolution-lab-round-27-2026-09-10.md)
+  — **record, 2026-09-11.** The coordinator's account of round twenty-seven,
+  moved out of the lane note at the round's close: nine lanes in ten hours,
+  seven landed, two stacked on the bodies branch. What the round overturned,
+  with the numbers: "flower sense" is the eye and the eye is heritable; a
+  ground animal that sees a flower still cannot reach one (21 rows against
+  22); the long body's whole immobility was length and the flip's foraging
+  collapse a traffic misread; every mechanism of the garden loop is in and
+  its rate is zero; a colony guard moved through shared procedural terrain
+  while every foraging counter improved.
+- [evolution-lab-round-28-2026-09-11.md](evolution-lab-round-28-2026-09-11.md)
+  — **record, 2026-09-11.** The coordinator's account of round twenty-eight:
+  three lanes on two passes each, the bodies landed beside them by the
+  round-27 session. What the round overturned, with the numbers: the
+  pollinator's gap was never the eye and is no longer the reach (a flitter
+  reaches 106 rows) — a plant specialist's mouth eats the plant, and with
+  nectar its only meal the bed is safe and the animal starves for want of
+  finding a flower; the garden loop's last steps were the dig verb shovelling
+  a pip as dirt and a germination schedule never re-armed, and the first two
+  plants ever grew from a pip; windfall lies 67–100% where no ant walks;
+  petal colour became heritable and moved every seeded plant figure twice;
+  a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-30-2026-09-12.md](evolution-lab-round-30-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round thirty: seven
+  lanes on work the owner asked for in his own words that morning (the
+  tooltip, the top-left corner, a master menu, the zoom-out dropout, the
+  zoom-in exploration) plus the soil design and the anthill. What the round
+  overturned: **both lanes chasing the colony were counting a variable that
+  does not move.** The who-kills lane booked 216/98/70 killings against 2/0/0
+  attributable to an attacker, two fifths of the rest a plant standing in the
+  dead ant's head; this round's anthill lane found the dig gate's premise false
+  (a third of at-nest crowding reads sit in the bottom tenth, so an ant at its
+  own door is very often alone) and the gate no help to the mound at all. Then
+  it re-read its own twelve paired runs for the thing neither sweep had
+  tracked: **the colony is alive at 300,000 frames on 5 beds of 12 with the
+  gate on and 0 of 12 without** (p ≈ 0.03, McNemar), so the gate ships **on**,
+  and *by what route* is round 31's question. Also the coordination findings
+  that cost the round real time, several now closed with a command rather than
+  a rule: **a spawned session inherits the environment and not the
+  repository**; **which bug letter is free is a question about every branch**,
+  which `bugindex.py --branches` now answers and `--check` cannot; **a shared
+  budget and a duplicated claim are one failure git cannot see**; a session's
+  status describes the turn that ended, not the one running; a partly-green PR
+  carries almost no information; and green CI is not mergeability.
+- [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
+  — **design of record for the two soils, 2026-09-12: the owner's four
+  issues as criteria, every option in both directions scored against them,
+  and a recommendation with its trade stated.** Measured with the new
+  `examples/soilfork`: the towers, the engulfing and the untunnellable drift
+  are real; *"a ground new plants don't grow in"* is not (the bare band is
+  there before the mound, and seed 1's 3,182-ant colony stands 200 plants on
+  a 3,124-cell heap). Rot-made soil *is* bank soil and tamps like it; what
+  cannot be tunnelled is the litter and carrion that have not become soil
+  yet, which have no `packs_into` — a thin layer on the lab bed. Burial cannot kill a plant — every powder is transparent to
+  the lamp, shown with a stone positive control — so *depth does not exist
+  for the light model*. Recommends weathering of dumped spoil as a second
+  material (`spoil`; a `decays_into` on `packedsoil` would weather the tunnel
+  lining through the settle scan) with the rate a dial whose zero is the
+  towers, an `opaque` material flag with its re-derivation budgeted, and a
+  yes-or-no on making the drift tampable; rejects the loose end state (a
+  third of the nest in 6,000 frames), settle-to-set (repose gone from the
+  world) and the moisture premise (the mound is as wet as the bank).
+- [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
+  — **design of record for the late game, 2026-09-12, with the census it is
+  measured against.** The owner's report — a colony that booms to hundreds,
+  strips the bed and dies; chambers and spoil that leave a bare patch over
+  the nest — reproduced on the played bed at 500,000 frames with the new
+  `examples/latecensus` (seed 3: 73 → **495 ants** at 200k, then 0 ants, 6
+  plants and 2 seeds; the unfed control holds ~230 plants over a bank of
+  ~1,000). What the mouth takes first is the **seed bank**, not the leaves;
+  the dead zone over the nest is there from the first stop and never closes.
+  The answer in three builds: a bitten seed becomes cargo (granivory as
+  dispersal, the midden as garden) with a live leaf marginal at the shipped
+  gut; ants die of age on the plant's own hazard; the dig gate reads room per
+  ant and dumped spoil weathers back to soil. Also names `labforage`'s
+  `plants` column as plants **plus** the bank, which relabels every earlier
+  count on this bed.
 - [lab-behaviour-scenarios-2026-09-06.md](lab-behaviour-scenarios-2026-09-06.md)
   — **design, 2026-09-06, with its one engine item built the same day
   (§7): the scenario file, `src/lab/scenario.rs`, and nine shipped beds;
@@ -2641,6 +3078,35 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   **§9 is the method part**: three drafts, three classes of error, the last
   being that three documents and two reviewers argued about how deep a
   depletion zone was when one census answered it in thirty seconds.
+
+- [evolution-lab-zoom-in-design-2026-09-12.md](evolution-lab-zoom-in-design-2026-09-12.md)
+  — **design + one instrument, verdicts pending.** What zooming *in* should
+  look like — and, after the remit widened mid-lane with the owner's *"I am
+  open to different visual styles"*, what the game should look like with
+  magnification as the entry point. `examples/zoomin.rs` renders filters and
+  *styles* (cell-art, soft, illustrated with curved silhouettes and ink,
+  painted, lit, textured cell-art) at 8x and at play scale, each with its
+  ns/px. Build first, under any style: **draw** the per-cell state the 1:1
+  render can only encode — a part-full water cell's fill as a level line, ~1
+  ns/px. Author's style pick is *illustrated*: the only look that answers
+  "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
+  style question deserves its own round and what it does first. Two cards.
+- [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
+  eighteen pull requests from nine cloud lanes, merged in one order because
+  five of them met in `creature.rs`, with round thirty running beside it on
+  the same trunk. What the round overturned, with the numbers: the played
+  bed's baseline moved under everyone (nest scent drift at 0.15, attributed
+  to one commit, every proposed mechanism refuted by a control, inert on the
+  trunk it now sits on); the colony is not fought and does not turn on
+  itself — `Killed` was never a killing counter and two of 384 such deaths
+  are an animal's bite, the rest a plant grown into the ant's head or an empty
+  cell nobody has explained; the stuck flitter was never the flight but a
+  canopy cage; the nest door stood under a puddle; a seed carried home saves
+  the bed and shrinks the colony to a dozen; survival at 2.5 lifespans is
+  1.31%, not 0.4%. Carries the cloud-lane mechanics (poke, auto-merge,
+  merge-tree serialisation, bug-letter collisions) the next coordinator pays
+  for otherwise.
 
 ## Licensing and distribution
 

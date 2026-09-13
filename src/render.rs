@@ -1008,6 +1008,16 @@ pub enum FieldOverlay {
     /// (see `apply_field_overlay`).
     PheromoneA,
     PheromoneB,
+    /// **The third plane, `sim::pheromone::Channel::Alarm`, and it had no
+    /// overlay until the `J` tool needed one.** A player who drops alarm
+    /// scent by hand has no other way to see where it landed or how far it
+    /// has spread — the lab's `O`/`V` overlay cycle already answers that for
+    /// A and B, so this closes the one plane it left blind. Drawn by the
+    /// same full-replace rule as the other two (see `apply_field_overlay`);
+    /// `sample` reads a flat zero for a world nothing has ever bitten,
+    /// without allocating the plane, so cycling to this overlay costs
+    /// nothing on a bed with no fight in it.
+    Alarm,
 }
 
 impl FieldOverlay {
@@ -1019,7 +1029,8 @@ impl FieldOverlay {
             FieldOverlay::Light => FieldOverlay::Moisture,
             FieldOverlay::Moisture => FieldOverlay::PheromoneA,
             FieldOverlay::PheromoneA => FieldOverlay::PheromoneB,
-            FieldOverlay::PheromoneB => FieldOverlay::Off,
+            FieldOverlay::PheromoneB => FieldOverlay::Alarm,
+            FieldOverlay::Alarm => FieldOverlay::Off,
         }
     }
 
@@ -1032,6 +1043,7 @@ impl FieldOverlay {
             FieldOverlay::Moisture => "AIR HUMIDITY",
             FieldOverlay::PheromoneA => "PHEROMONE A",
             FieldOverlay::PheromoneB => "PHEROMONE B",
+            FieldOverlay::Alarm => "PHEROMONE ALARM",
         }
     }
 }
@@ -1400,7 +1412,22 @@ fn hsl_to_rgb(h: f32, s: f32, l: f32) -> (f32, f32, f32) {
 /// **The one definition of a group's colour**, read by the renderer for the
 /// animal and by the lab's ANTS page for the graph line and legend swatch.
 /// `None` under `Off`, where the animal wears its material.
-pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32) -> Option<[f32; 3]> {
+pub fn group_colour(mode: CreatureColour, species: organism::SpeciesId, colony: u32, homeless: bool) -> Option<[f32; 3]> {
+    // **An animal whose species declares no nest wears its own colour, even
+    // in BY COLONY.** It has no colony to wear: `found_colony_of` paints no
+    // home for such a species (its own doc: *"a species with an empty `nest`
+    // gets animals on the ground and nothing else"*), so the label it carries
+    // is bookkeeping rather than a home, and colouring by it hides the only
+    // thing that tells the animal apart on screen.
+    //
+    // Found by looking rather than by reading: the flitter authors a pale
+    // blue-white body precisely so it reads in flight, and every card of it
+    // came back with the body drawn in a group hue, because `Lab::new` opens
+    // on `CreatureColour::Colony`. A species field that never reaches the
+    // screen is a species field nobody can judge.
+    if homeless && matches!(mode, CreatureColour::Colony) {
+        return None;
+    }
     match mode {
         CreatureColour::Off => None,
         CreatureColour::Species => Some(group_palette(species.0 as usize)),
@@ -1473,6 +1500,14 @@ const CELL_TYPE_SEGMENT: [f32; 3] = [130.0, 130.0, 140.0];
 /// which is a matter of telling a flower from the bud beside it at a glance.
 const CELL_TYPE_FLOWER: [f32; 3] = [255.0, 240.0, 60.0];
 const CELL_TYPE_FRUIT: [f32; 3] = [255.0, 60.0, 90.0];
+/// The three roled creature cell types added for `BodyPlan::Segmented`.
+/// Far from `CELL_TYPE_HEAD`/`CELL_TYPE_SEGMENT` and from each other, same
+/// reasoning as the pair above: the question this overlay answers about an
+/// articulated body is which role each of its few cells carries, at a size
+/// where colours a shade apart would read as one blob.
+const CELL_TYPE_LEG: [f32; 3] = [80.0, 200.0, 255.0];
+const CELL_TYPE_GUT: [f32; 3] = [255.0, 150.0, 220.0];
+const CELL_TYPE_ARMOUR: [f32; 3] = [180.0, 180.0, 60.0];
 
 /// Flat blend for `OrganismOverlay::CellType`. High, but short of 1.0 on
 /// purpose: keeping a little of the underlying material colour through
@@ -1742,6 +1777,15 @@ fn carry_cue() -> CarryCue {
 /// one-cell-wide line.
 const SCALAR_RAMP_PHERO_A: [f32; 3] = [255.0, 80.0, 220.0];
 const SCALAR_RAMP_PHERO_B: [f32; 3] = [80.0, 240.0, 255.0];
+/// The alarm plane's own hue — a third colour distinct from both trails
+/// above, since a fight and a food route can be live in the same frame and
+/// the overlay has to say which is which. Strong red: alarm is the one
+/// plane whose zero really does mean "quiet" (`CLAUDE.md`'s "an outcome is
+/// a distribution" does not apply here the way it does to a trail; a fight
+/// is legibly an event), so the ordinary floor is used rather than the
+/// lifted one `SCALAR_RAMP_ALARM_FLOOR` reserves for `OrganismOverlay`'s
+/// unrelated starvation ramp.
+const SCALAR_RAMP_PHERO_ALARM: [f32; 3] = [255.0, 50.0, 50.0];
 /// The two halves of the signed temperature ramp — warmer than ambient and
 /// cooler than ambient. Two hues rather than one ramp through black, so the
 /// *sign* is readable at a glance on a contact sheet: a world that has gone
@@ -1814,30 +1858,407 @@ const MAX_ZOOM: i32 = 8;
 /// revisited here.
 const MAX_ZOOM_OUT_STRIDE: i32 = 4;
 
-/// The widest zoom-out step that still makes sense over `bounds` — the
-/// smallest stride whose view is at least as tall as the world, capped at
-/// [`MAX_ZOOM_OUT_STRIDE`].
+/// How the one screen pixel covering a `stride`x`stride` block of world cells
+/// at `zoom_out_stride > 1` chooses what to draw.
 ///
-/// **Height, not width, and that is the owner's rule rather than an
-/// oversight**: *"the max zoom out should limit at the full height of the
-/// lab."* A wide, short box would let a width rule open the view to eight
-/// times the box's height, which is the black screen this exists to stop; a
-/// tall, narrow one is letterboxed left and right by `set_camera`'s centring
-/// and reads as a tall box. The axis that decides is the one that runs out
-/// first on a 512x320 viewport, which is the short one.
+/// **Reported from play, 2026-09-12**: *"when I zoom out all the way, instead
+/// of looking crisp, it looks like pixels of plants and other foreground
+/// things are disappearing."* They were. [`Stride`](Self::Stride) draws the
+/// block's top-left cell and discards the other fifteen, so a one-cell-wide
+/// stem has three chances in four of falling between sampled columns and
+/// vanishing outright — `world_to_screen`'s own doc already said so in as
+/// many words, and [`MAX_ZOOM_OUT_STRIDE`]'s says the cap exists so the view
+/// stays *"the same kind of picture, zoomed out" rather than aliasing into
+/// noise*. Stride sampling **is** that aliasing: the intent was written down
+/// and unimplemented.
 ///
-/// **Covering rather than fitting** — `ceil`, so the whole box is on screen
-/// with a little slack, rather than `floor`, which would show at most 320 rows
-/// of a 576-row box and never all of it. The box's height steps in 64s
-/// (`params.rs`), so it is rarely a multiple of a screen and the fitting rule
-/// would leave the widest zoom-out short of the box on nearly every setting.
+/// **The owner's word is "crisp", and it rules out the obvious fix.**
+/// Averaging the block gives a stem a muddy half-tone against its
+/// background — it trades a disappearing plant for a blurred one and fails
+/// the complaint as stated. [`Average`](Self::Average) ships anyway so that
+/// reading can be rejected by eye rather than by argument, because it is the
+/// proposal the next person makes.
+///
+/// **This changes what a pixel *is*, not how many there are.** The stride cap
+/// above carries three separate owner rulings and is untouched here.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum ZoomOutFilter {
+    /// Every `stride`-th cell, the other `stride² - 1` discarded — what every
+    /// build before 2026-09-12 shipped. Kept as the **control**, and it has
+    /// to stay byte-identical to that behaviour rather than merely similar;
+    /// `stride_filter_reproduces_the_old_point_sampling` is what says so.
+    Stride,
+    /// The most *salient* cell of the block, by [`zoom_out_salience`] — a
+    /// creature over a plant over a liquid over bulk ground over gas over
+    /// air. Every pixel is still one real cell's own colour at its own
+    /// position, so the picture stays crisp; a one-cell stem survives because
+    /// it outranks the air and the soil it is standing in.
+    ///
+    /// **Ties resolve to the block's top-left cell**, which is precisely the
+    /// cell [`Stride`](Self::Stride) would have drawn — so a block of uniform
+    /// ground, or of uniform sky, renders identically under both filters and
+    /// only a block that genuinely *mixes* kinds moves. That is what keeps
+    /// this change confined to the mixed blocks, which are the only ones the
+    /// complaint is about, and it is why the ranking below ties `Solid` with
+    /// `Powder` on purpose.
+    ///
+    /// Determinism is required here (same-build, `PLAN.md`), so the scan
+    /// carries a strictly-greater rank rather than sorting the block:
+    /// `sort_unstable`/`min_by` return the first of equal elements and have
+    /// silently changed how every plant in the world grows once already.
+    #[default]
+    Coverage,
+    /// The area mean of the block's colours — the textbook minify filter, and
+    /// **expected to read as mud** rather than as the reported crispness. It
+    /// is here to be compared, not chosen. It is also much the most expensive
+    /// of the three: every cell of the block pays a full `cell_colour`, where
+    /// [`Coverage`](Self::Coverage) pays one and reads only each cell's
+    /// material.
+    Average,
+}
+
+impl ZoomOutFilter {
+    fn next(self) -> Self {
+        match self {
+            ZoomOutFilter::Coverage => ZoomOutFilter::Stride,
+            ZoomOutFilter::Stride => ZoomOutFilter::Average,
+            ZoomOutFilter::Average => ZoomOutFilter::Coverage,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            ZoomOutFilter::Coverage => "COVERAGE (the most salient cell of the block)",
+            ZoomOutFilter::Stride => "STRIDE (every Nth cell — the old look, and the control)",
+            ZoomOutFilter::Average => "AVERAGE (the area mean — blurs rather than drops)",
+        }
+    }
+}
+
+/// What a cell *is*, for the magnified styles' purposes — the classes a
+/// sub-pixel can belong to when a boundary is drawn as a curve through the
+/// cell lattice rather than as the lattice itself.
+///
+/// **Colour never enters it.** That is the whole difference from the pixel-art
+/// upscalers (hqx, xBR, EPX) `Reports/dead-ends.md` records as backwards here:
+/// they infer shape from colour, and this engine's deliberate per-cell shade
+/// jitter means two adjacent cells of the same material rarely match. Read
+/// from `MaterialKind`, which is the field the sweep itself dispatches on, for
+/// the same reason [`zoom_out_salience`] reads it — a material added tomorrow
+/// is classified without anybody remembering to list it.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+enum MagnifyClass {
+    /// Empty space and gas alike: what a silhouette is drawn *against*. Smoke
+    /// is air here on purpose — a plume is not a mass with an edge, and inking
+    /// one would draw a hard outline round a diffuse thing.
+    #[default]
+    Air,
+    Liquid,
+    Powder,
+    Solid,
+    Plant,
+    Creature,
+}
+
+const MAGNIFY_CLASSES: usize = 6;
+
+fn magnify_class(world: &World, cell: Cell) -> MagnifyClass {
+    if cell.material == material::EMPTY {
+        return MagnifyClass::Air;
+    }
+    match world.materials.get(cell.material).kind {
+        material::MaterialKind::Empty | material::MaterialKind::Gas => MagnifyClass::Air,
+        material::MaterialKind::Liquid => MagnifyClass::Liquid,
+        material::MaterialKind::Powder => MagnifyClass::Powder,
+        material::MaterialKind::Solid => MagnifyClass::Solid,
+        material::MaterialKind::Plant => MagnifyClass::Plant,
+        material::MaterialKind::Creature => MagnifyClass::Creature,
+    }
+}
+
+/// What the `zoom`x`zoom` block of screen pixels a cell owns at `zoom > 1`
+/// actually draws — the **look of the game when it is zoomed in**, as a
+/// runtime selector rather than as a chosen constant.
+///
+/// **Where this came from.** Lane T put six looks in front of the owner
+/// (`Reports/evolution-lab-zoom-in-design-2026-09-12.md`, card
+/// `20260912T044316700Z-4abaa9`) and he answered: *"Could we maybe combine C
+/// and D? I like D the best (although D and B are almost interchangeable) but
+/// D/B look blurry. Maybe adding C or something else could crisp it?"* — D
+/// being the painted look and C the illustrated one. On the companion card
+/// (`20260912T042033946Z-e6bcfa`) he called the chamfer *"most interesting
+/// direction, i would have to playtest and maybe we iterate on it more"*, and
+/// rejected the sub-cell material texture outright (*"C-bad"*) and the plain
+/// smoothing on cost (*"probably not worth extra cost"*). So this enum holds
+/// what he asked for and nothing he turned down.
+///
+/// **It ships as a mode, not as the new default**, because *"i would have to
+/// playtest"* is not a verdict and the standing owner ruling is *"give me the
+/// tools, data, access to the parameters that need to be tweaked and I do that
+/// testing myself in the game. That is the game."* [`CellArt`](Self::CellArt)
+/// is what launches, byte for byte.
+///
+/// **The ink is the load-bearing part, not decoration.** A soft base thins a
+/// one-cell twig into haze at play scale — the same *"pixels of plants and
+/// other foreground things are disappearing"* the zoom-out filter was built to
+/// stop ([`ZoomOutFilter`]), arriving from the other end of the zoom range.
+/// What recovers it is the class field's `level` bias, which keeps a thin mass
+/// winning its own sub-pixels, and the ink line that then bounds it. See
+/// `Renderer::magnify_level` and `magnify_ink`.
+///
+/// **Costs nothing at `zoom == 1`**, which is every ordinary frame, and
+/// nothing at any zoom-out stride: the whole mechanism sits behind
+/// [`Renderer::magnifying`], which `draw` hoists out of the per-pixel loop
+/// exactly as it hoists [`Renderer::minifying`].
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum MagnifyStyle {
+    /// Today: every cell a flat `zoom`x`zoom` square of one colour. **The
+    /// default, and it has to stay byte-identical to a build without this
+    /// enum rather than merely close** —
+    /// `every_magnified_frame_is_byte_identical_under_cell_art` is what says
+    /// so.
+    #[default]
+    CellArt,
+    /// The owner's pick, reproduced: bilinear between cell centres with a fine
+    /// brightness grain laid back over it, so a mass reads as material rather
+    /// than as fog. Lane T's `smooth+texture` arm, pane **D** of the styles
+    /// card.
+    ///
+    /// **Kept as the control for the ink**, and it is the arm that loses thin
+    /// things: nothing here knows what a cell *is*, so a one-cell twig is
+    /// averaged with the sky on every pixel but the one at its centre.
+    Painted,
+    /// **Painted, with its edges back** — what *"combine C and D"* asks for.
+    ///
+    /// Three things separate it from [`Painted`](Self::Painted), and all three
+    /// come from knowing each sub-pixel's *class* before its colour:
+    ///
+    /// 1. the blend is **restricted to the cells of the winning class**, so a
+    ///    twig's pixels are made of twig and never of sky — the silhouette is
+    ///    a curve through the lattice rather than a gradient across it;
+    /// 2. a mass wins a sub-pixel at `magnify_level` occupancy rather than at
+    ///    the unbiased half, which is what keeps a one-cell twig a fat bead
+    ///    instead of shrinking it to a diamond;
+    /// 3. an **ink line** darkens the pixels where a mass meets air, which is
+    ///    the crispness the blur was missing.
+    PaintedInk,
+    /// Pane **C**, on its own: the same class field, but a sub-pixel takes its
+    /// winning class's nearest cell colour whole instead of blending. Flat
+    /// interiors that keep their per-cell grain, curved silhouettes, ink.
+    ///
+    /// Here because the owner asked to *combine* C and D and the honest way to
+    /// let him judge a combination is to ship both ends of it beside the
+    /// middle. It is also the cheapest of the non-pixel looks.
+    Illustrated,
+    /// The **chamfer** — *"most interesting direction"* on the zoom-in card,
+    /// and the one look here that keeps the pixel aesthetic entirely.
+    ///
+    /// At each corner of a block, if the two orthogonal neighbours across it
+    /// share a class that is not this cell's, the corner triangle is theirs:
+    /// the staircase on a diagonal becomes a 45° edge and nothing is blended,
+    /// blurred or invented. What it does at a *concave* notch is
+    /// [`NotchRule`]'s business and is a dial, because the settings trade
+    /// against each other and that trade is the owner's to make.
+    Chamfer,
+}
+
+impl MagnifyStyle {
+    fn next(self) -> Self {
+        match self {
+            MagnifyStyle::CellArt => MagnifyStyle::Painted,
+            MagnifyStyle::Painted => MagnifyStyle::PaintedInk,
+            MagnifyStyle::PaintedInk => MagnifyStyle::Illustrated,
+            MagnifyStyle::Illustrated => MagnifyStyle::Chamfer,
+            MagnifyStyle::Chamfer => MagnifyStyle::CellArt,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MagnifyStyle::CellArt => "CELL-ART (today — every cell a flat square)",
+            MagnifyStyle::Painted => "PAINTED (soft, with a grain — blurs thin things)",
+            MagnifyStyle::PaintedInk => "PAINTED+INK (painted, with its edges drawn back on)",
+            MagnifyStyle::Illustrated => "ILLUSTRATED (flat fills, curved silhouettes, ink)",
+            MagnifyStyle::Chamfer => "CHAMFER (the pixel look, with its staircases cut)",
+        }
+    }
+
+    /// Whether this style decides a sub-pixel's class before its colour — the
+    /// two-pass looks. `Painted` is bilinear over colours alone and knows
+    /// nothing about what a cell is, which is exactly why it loses twigs.
+    fn uses_class_field(self) -> bool {
+        matches!(self, MagnifyStyle::PaintedInk | MagnifyStyle::Illustrated)
+    }
+}
+
+/// What [`MagnifyStyle::Chamfer`] does at a **concave** corner — an air cell
+/// whose two orthogonal neighbours across one corner are both the same mass.
+///
+/// A dial rather than a choice, because the settings genuinely trade and lane
+/// T measured the trade rather than guessing it: `Fill` repairs every 45°
+/// staircase *and* fills every one-cell hole in a canopy and every soil pocket
+/// between roots, which reads as a rash of diamonds; `Cut` never speckles and
+/// leaves a diagonal twig a staircase. `Reports/dead-ends.md` records `Fill`
+/// as a variant to keep rather than as a rejection, for exactly this reason.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
+pub enum NotchRule {
+    /// Fill the notch whenever the two orthogonal neighbours agree. The
+    /// staircase repair at its most complete, and the speckliest.
+    Fill,
+    /// Fill only when the **diagonal** cell agrees too, so a true inside
+    /// corner rounds and a one-cell notch or hole is left alone. The default:
+    /// it is the setting that repairs real corners without inventing diamonds.
+    #[default]
+    Deep,
+    /// Never fill; only cut convex corners. No speckle at all, and a diagonal
+    /// twig stays a staircase.
+    Cut,
+}
+
+impl NotchRule {
+    fn next(self) -> Self {
+        match self {
+            NotchRule::Fill => NotchRule::Deep,
+            NotchRule::Deep => NotchRule::Cut,
+            NotchRule::Cut => NotchRule::Fill,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            NotchRule::Fill => "fill (every agreeing corner — speckles canopies)",
+            NotchRule::Deep => "deep (only where the diagonal agrees too)",
+            NotchRule::Cut => "cut (convex corners only — never fills)",
+        }
+    }
+}
+
+/// [`MagnifyStyle::PaintedInk`]'s default ink: a boundary pixel keeps this
+/// fraction of its brightness. Lane T's `outline` arm's own 0.45, which is
+/// what the owner saw on pane C of the styles card — so the dial starts where
+/// his verdict was given and moves from there.
+pub const MAGNIFY_INK: f32 = 0.45;
+
+/// The default occupancy a mass needs to win a sub-pixel, for the styles that
+/// decide a class before a colour.
+///
+/// **0.5 is the unbiased contour and it is the wrong number here.** At a half
+/// the boundary passes exactly through the cell centres, which shrinks a
+/// one-cell twig to a diamond of a quarter its area — thin things
+/// disappearing, which is the one defect the owner has named twice. Below a
+/// half the bias fattens every thin mass instead, and 0.35 is what lane T's
+/// sheet was judged at.
+pub const MAGNIFY_LEVEL: f32 = 0.35;
+
+/// [`MagnifyStyle::Painted`]'s default grain amplitude, as a fraction of
+/// brightness. Lane T's `texture` arm's own 0.08 — the value the owner's
+/// pane D carried.
+pub const MAGNIFY_GRAIN: f32 = 0.08;
+
+/// How much a cell deserves the one screen pixel its block gets, at
+/// [`ZoomOutFilter::Coverage`]. Higher wins; ties go to the block's top-left
+/// cell, which is the one the old point sampling drew.
+///
+/// **Stated as data, never inferred from the palette.** `CLAUDE.md`: *when a
+/// rule must tell apart two things that can look identical, state the
+/// difference as data.* Two greens can be a leaf and a lit soil crumb, and no
+/// amount of reading the colour separates them — `MaterialKind` is the field
+/// the sweep itself dispatches on, so a material added tomorrow gets a rank
+/// from its kind rather than from somebody remembering to list it here.
+///
+/// **`Solid` and `Powder` deliberately tie**, and that tie is load-bearing
+/// rather than laziness. They are both bulk ground, and nearly the whole
+/// screen is bulk ground or bare sky — so a block entirely inside the terrain
+/// has no strict winner, resolves to its top-left cell, and comes out exactly
+/// as [`ZoomOutFilter::Stride`] would have drawn it. Ranking them against
+/// each other would repaint the interior of every hillside for no complaint
+/// anybody has made.
+fn zoom_out_salience(kind: material::MaterialKind) -> u8 {
+    match kind {
+        // An animal is two dark cells at play zoom and is the single hardest
+        // thing in this world to find in a still — `Reports/instruments.md`
+        // records that a contact sheet of a colony answered nothing and only
+        // a GIF did, because an ant is picked out of dark soil by *moving*.
+        // A still that drops it entirely is worse again, so it loses to
+        // nothing.
+        material::MaterialKind::Creature => 5,
+        // The complaint names plants, and a stem, a twig or a petiole is one
+        // cell wide for most of a plant's life.
+        material::MaterialKind::Plant => 4,
+        // A film, a trickle or a pool's rim is one cell deep and vanishes the
+        // same way a stem does. A pool's *interior* is bulk, and a block
+        // inside it has no strict winner either way.
+        material::MaterialKind::Liquid => 3,
+        material::MaterialKind::Solid | material::MaterialKind::Powder => 2,
+        // Smoke and steam are thin and worth keeping, but never at the cost
+        // of the thing burning underneath them.
+        material::MaterialKind::Gas => 1,
+        material::MaterialKind::Empty => 0,
+    }
+}
+
+/// The widest zoom-out step that still makes sense over `bounds` — capped at
+/// [`MAX_ZOOM_OUT_STRIDE`], and answering to two owner rulings that pull in
+/// opposite directions.
+///
+/// **Was height-only** — the original rule: *"the max zoom out should limit
+/// at the full height of the lab."* That stopped a wide, short box from
+/// opening the view to eight times its height; but it also meant a *wide*
+/// box could never zoom out far enough to show its own width, because
+/// height alone decided the cap regardless of what width needed. Reversed:
+/// *"I need to be able to zoom out to the max width even if the height
+/// isn't wide enough."* So width can now push the stride past what height
+/// alone would ask for.
+///
+/// **Then reported again, from the other side**: *"I can now zoom out
+/// farther than the biggest dimension. That shouldn't be possible."* Letting
+/// width drive the stride drags height along at the same stride (there is
+/// only one scale — `zoom_out_stride` applies to both axes), and for a box
+/// only a little wider than one screen (576 wide, say, needing stride 2)
+/// that drags height's span to 640 — bigger than the box's own 576-wide
+/// biggest side, for any height up to 320. A *tall* box has always dragged
+/// width the same way (a 1280-tall, 128-wide box drags width to 2048, 16x
+/// its own size) and nobody has ever called that a bug — it reads as
+/// letterboxing. The difference here is that this direction is new: height
+/// driving width was always the whole rule, so its overshoot was already
+/// shipped, watched, and accepted; width driving height is one release old,
+/// and this is its first bug report. So rather than reopen the
+/// long-settled, unobjected-to height-driven case, this only tempers the
+/// new width-driven one: width may still drive the stride, but never so far
+/// that height's dragged span outgrows width itself. `floor`, not `ceil`,
+/// for that cap — this bound must never be crossed, unlike the covering
+/// bound below, which is allowed a little slack.
+///
+/// **Covering rather than fitting** — `ceil` for each axis's own need, so
+/// the whole box is on screen with a little slack, rather than `floor`,
+/// which would show at most 320 rows of a 576-row box and never all of it.
+/// The box's dimensions step in 64s (`params.rs`), so they are rarely a
+/// multiple of a screen and the fitting rule would leave the widest
+/// zoom-out short of the box on nearly every setting.
 fn max_zoom_out_stride(viewport: (u32, u32), bounds: Option<Rect>) -> i32 {
     let Some(b) = bounds else { return MAX_ZOOM_OUT_STRIDE };
+    let world_w = (b.max_x - b.min_x + 1).max(1);
     let world_h = (b.max_y - b.min_y + 1).max(1);
+    let view_w = (viewport.0 as i32).max(1);
     let view_h = (viewport.1 as i32).max(1);
-    // Ceiling division, so the last step covers the box rather than stopping
-    // just short of it.
-    ((world_h + view_h - 1) / view_h).clamp(1, MAX_ZOOM_OUT_STRIDE)
+    // Ceiling division on each axis's own need, so the last step covers that
+    // axis rather than stopping just short of it.
+    let stride_w = (world_w + view_w - 1) / view_w;
+    let stride_h = (world_h + view_h - 1) / view_h;
+    let stride = if stride_w <= stride_h {
+        // Height's own need already covers (or exceeds) what width asks
+        // for -- the original, always-shipped rule, untouched.
+        stride_h
+    } else {
+        // Width wants more zoom-out than height's own need. Grant it, but
+        // capped so height's span (view_h * stride) never outgrows width --
+        // the bound this function exists to enforce now. `world_w / view_h`
+        // is a floor, not the usual ceil: crossing it is exactly the bug
+        // reported, so it must never be crossed, not merely covered.
+        let cap = world_w / view_h;
+        stride_h.max(stride_w.min(cap))
+    };
+    stride.clamp(1, MAX_ZOOM_OUT_STRIDE)
 }
 
 /// How fast the `WASD` map scroll travels, in **viewport-fuls per second**.
@@ -2221,7 +2642,15 @@ const HAZE_DIM: u16 = 168;
 /// either, so the screen would keep midnight's rock under a noon sky until
 /// something else happened. It also erases the on-screen pin badge on the
 /// frame the pin is released, which has no tracked footprint of its own.
-type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>);
+type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>, MagnifyKey);
+
+/// The magnified style and every dial on it, as something a `LookKey` can
+/// compare. The dials are `f32`, which is neither `Eq` nor `Hash`, so they go
+/// in as their bit patterns — a dial nudged by a hair has to force the same
+/// full redraw a style change does, or the screen holds a patchwork of two
+/// looks until something unrelated repaints it. Same device, and the same
+/// reason, as `grain` being in the tuple at all.
+type MagnifyKey = (MagnifyStyle, NotchRule, u32, u32, u32);
 
 pub struct Renderer {
     /// Per-cell plant bending stress, refilled once per `draw` and only
@@ -2306,6 +2735,40 @@ pub struct Renderer {
     /// skipping cells between samples rather than averaging them (a proper
     /// minify filter is not worth it for a debug/overview zoom level).
     pub zoom_out_stride: i32,
+    /// What the one screen pixel covering a `zoom_out_stride`-square block of
+    /// cells actually draws — see [`ZoomOutFilter`]. `Coverage` by default,
+    /// so pulling back to look at a whole bed stops dropping the thin things;
+    /// `Shift`+`-` cycles it in the live app, and `Stride` is the old look
+    /// kept as the control.
+    ///
+    /// **Costs nothing at `zoom_out_stride == 1`**, which is every ordinary
+    /// frame: the whole mechanism is behind a `stride == 1` early return, so
+    /// the unzoomed picture is bit-identical and pays not one extra read.
+    pub zoom_out_filter: ZoomOutFilter,
+    /// What the `zoom`x`zoom` block of pixels a cell owns actually draws at
+    /// `zoom > 1` — see [`MagnifyStyle`]. `CellArt` by default, so the game
+    /// launches looking exactly as it does today; `Shift`+`=` cycles it in the
+    /// live app, which is the zoom-*in* key with a modifier, the mirror of
+    /// `Shift`+`-` for the zoom-out filter.
+    ///
+    /// **Costs nothing at `zoom == 1`**, which is every ordinary frame, and
+    /// nothing at any zoom-out stride: the whole mechanism is behind
+    /// [`Renderer::magnifying`], hoisted out of the pixel loop.
+    pub magnify_style: MagnifyStyle,
+    /// How dark the ink line is, as the fraction of its brightness a boundary
+    /// pixel keeps — [`MAGNIFY_INK`]. `1.0` turns the ink off without changing
+    /// anything else, which is the control that says whether the ink or the
+    /// class field is what recovers a thin twig.
+    pub magnify_ink: f32,
+    /// The occupancy a mass needs to win a sub-pixel — [`MAGNIFY_LEVEL`].
+    /// Lower fattens thin things, `0.5` is the unbiased contour.
+    pub magnify_level: f32,
+    /// [`MagnifyStyle::Painted`]'s grain amplitude — [`MAGNIFY_GRAIN`]. `0.0`
+    /// is plain bilinear, i.e. lane T's `smooth` arm and the owner's pane B.
+    pub magnify_grain: f32,
+    /// What [`MagnifyStyle::Chamfer`] does at a concave corner — see
+    /// [`NotchRule`].
+    pub magnify_notch: NotchRule,
     /// Tints every pixel by an M13 field channel instead of (blended over)
     /// the ordinary cell colour — `V` cycles it. `Off` by default, so it
     /// costs nothing (no extra `World::field_at` calls) unless a player
@@ -2662,6 +3125,12 @@ impl Renderer {
             show_chunk_overlay: false,
             zoom: 1,
             zoom_out_stride: 1,
+            zoom_out_filter: ZoomOutFilter::default(),
+            magnify_style: MagnifyStyle::default(),
+            magnify_ink: MAGNIFY_INK,
+            magnify_level: MAGNIFY_LEVEL,
+            magnify_grain: MAGNIFY_GRAIN,
+            magnify_notch: NotchRule::default(),
             field_overlay: FieldOverlay::Off,
             organism_overlay: OrganismOverlay::Off,
             creature_colour: CreatureColour::Off,
@@ -2882,6 +3351,78 @@ impl Renderer {
         self.creature_colour = self.creature_colour.next();
     }
 
+    /// Step the zoom-out filter — `Shift`+`-` in the live app, i.e. the
+    /// zoom-out key itself with a modifier, since every letter on the
+    /// keyboard is already bound. See [`ZoomOutFilter`]; it does nothing
+    /// visible until the view is actually zoomed out.
+    pub fn cycle_zoom_out_filter(&mut self) {
+        self.zoom_out_filter = self.zoom_out_filter.next();
+    }
+
+    /// Step the magnified style — `Shift`+`=` in the live app, the zoom-*in*
+    /// key with a modifier, mirroring `Shift`+`-` above. See [`MagnifyStyle`];
+    /// it does nothing visible until the view is actually zoomed in.
+    pub fn cycle_magnify_style(&mut self) {
+        self.magnify_style = self.magnify_style.next();
+    }
+
+    /// Step the chamfer's concave-corner rule — see [`NotchRule`]. Does
+    /// nothing outside [`MagnifyStyle::Chamfer`].
+    pub fn cycle_magnify_notch(&mut self) {
+        self.magnify_notch = self.magnify_notch.next();
+    }
+
+    /// Step the ink weight through the settings worth comparing — `Shift`+`]`
+    /// in the live app.
+    ///
+    /// **`1.0` is in the cycle on purpose**: it turns the line off and changes
+    /// nothing else, so it is the control that says how much of a style's look
+    /// is the ink and how much is the class field under it. That is the same
+    /// question the twig gate answers numerically, put where the owner can
+    /// press it.
+    pub fn cycle_magnify_ink(&mut self) {
+        const STEPS: [f32; 4] = [MAGNIFY_INK, 0.65, 0.85, 1.0];
+        let i = STEPS.iter().position(|&v| (v - self.magnify_ink).abs() < 1e-6).map_or(0, |i| (i + 1) % STEPS.len());
+        self.magnify_ink = STEPS[i];
+    }
+
+    /// Step the occupancy bias through the settings worth comparing —
+    /// `cycle_magnify_ink`'s own shape, no live app key yet (the lab's MENU
+    /// page is this field's first player-facing route in).
+    ///
+    /// **Kept under a half.** [`MAGNIFY_LEVEL`]'s own doc: at exactly 0.5 the
+    /// boundary passes through the cell centres and shrinks a one-cell twig
+    /// to a diamond of a quarter its area, so no step here reaches it.
+    pub fn cycle_magnify_level(&mut self) {
+        const STEPS: [f32; 4] = [0.2, MAGNIFY_LEVEL, 0.42, 0.49];
+        let i = STEPS.iter().position(|&v| (v - self.magnify_level).abs() < 1e-6).map_or(0, |i| (i + 1) % STEPS.len());
+        self.magnify_level = STEPS[i];
+    }
+
+    /// Step the grain amplitude through the settings worth comparing —
+    /// `cycle_magnify_ink`'s own shape, no live app key yet.
+    ///
+    /// **`0.0` is in the cycle on purpose**, `cycle_magnify_ink`'s own
+    /// reason: it turns the grain off and changes nothing else, so it is the
+    /// control that says how much of [`MagnifyStyle::Painted`]'s look is the
+    /// grain.
+    pub fn cycle_magnify_grain(&mut self) {
+        const STEPS: [f32; 4] = [0.0, MAGNIFY_GRAIN, 0.16, 0.24];
+        let i = STEPS.iter().position(|&v| (v - self.magnify_grain).abs() < 1e-6).map_or(0, |i| (i + 1) % STEPS.len());
+        self.magnify_grain = STEPS[i];
+    }
+
+    /// The style and its dials, for `last_look`. See [`MagnifyKey`].
+    fn magnify_key(&self) -> MagnifyKey {
+        (
+            self.magnify_style,
+            self.magnify_notch,
+            self.magnify_ink.to_bits(),
+            self.magnify_level.to_bits(),
+            self.magnify_grain.to_bits(),
+        )
+    }
+
     /// `delta > 0` zooms in a step, `delta < 0` zooms out a step — `=`/`-`
     /// in the live app. The two fields form one continuous scale rather
     /// than being independently adjustable: zooming in past `zoom_out_
@@ -2892,6 +3433,31 @@ impl Renderer {
     /// Zoom and zoom-out are one continuous control (see `adjust_zoom`), so
     /// this has to consult both: a 512-pixel viewport shows 512 cells at 1:1,
     /// 256 at zoom 2, and 1024 at stride 2.
+    /// Whether a screen pixel currently stands for a **block** of world cells
+    /// rather than for one cell — i.e. whether [`ChunkRun::colour_block`] has
+    /// anything to do.
+    ///
+    /// **Named so `draw` can hoist it out of the per-pixel loop.** At zoom 1,
+    /// which is every ordinary frame, the answer is `false` and the whole
+    /// mechanism has to cost nothing measurable; testing three fields 163,840
+    /// times a frame to learn that is exactly the shape `CLAUDE.md` means by
+    /// *guard hot-path work at the call site that already has the data*.
+    fn minifying(&self) -> bool {
+        self.zoom <= 1 && self.zoom_out_stride > 1 && self.zoom_out_filter != ZoomOutFilter::Stride
+    }
+
+    /// Whether a screen pixel currently stands for **part** of a world cell
+    /// rather than for a whole one, under a style that does something with
+    /// that — i.e. whether [`ChunkRun::colour_magnified`] has anything to do.
+    ///
+    /// **Named so `draw` can hoist it out of the per-pixel loop**, exactly as
+    /// `minifying` above and for the same reason: at zoom 1, which is every
+    /// ordinary frame, the answer is `false` and the whole mechanism must cost
+    /// nothing measurable.
+    fn magnifying(&self) -> bool {
+        self.zoom > 1 && self.magnify_style != MagnifyStyle::CellArt
+    }
+
     pub fn visible_span(&self, viewport: (u32, u32)) -> (i32, i32) {
         let (w, h) = (viewport.0 as i32, viewport.1 as i32);
         if self.zoom > 1 {
@@ -3101,7 +3667,8 @@ impl Renderer {
 
     /// **[`Renderer::adjust_zoom`] for a world you can see all of** — it keeps
     /// the middle of the screen on the same world cell, and it will not open
-    /// the view taller than `bounds`.
+    /// the view past what [`max_zoom_out_stride`] says `bounds` needs on
+    /// either axis.
     ///
     /// Two defects in the plain version, both reported from the lab and both
     /// invisible in a world larger than the widest view:
@@ -3110,8 +3677,10 @@ impl Renderer {
     ///   8192x2560 and the widest view is 2048x1280, so no stride can overrun
     ///   it; the lab's box is authored, is 320 rows by default and is a knob
     ///   the player turns, so the second stride already shows twice the box
-    ///   and three quarters of the screen is void. Owner: *"the max zoom out
-    ///   should limit at the full height of the lab."*
+    ///   and three quarters of the screen is void. Owner, originally:
+    ///   *"the max zoom out should limit at the full height of the lab"* —
+    ///   later widened to cover a box's width the same way; see
+    ///   [`max_zoom_out_stride`]'s own doc for the reversal.
     /// - **It zoomed about the top-left corner**, because the scale changed
     ///   and the camera did not, so the picture grew away from the origin
     ///   rather than around what you were looking at.
@@ -3407,8 +3976,15 @@ impl Renderer {
         // repaint, so `G` over a still pond looked like a dead key — the
         // owner reported exactly that. (The animated modes force full
         // frames on their own; the static-to-static switches were the gap.)
-        let look =
-            (self.terrain_light, self.reveal_voids, self.grain, self.glow_shape, world.clock.sky_hold, world.weather_override);
+        let look = (
+            self.terrain_light,
+            self.reveal_voids,
+            self.grain,
+            self.glow_shape,
+            world.clock.sky_hold,
+            world.weather_override,
+            self.magnify_key(),
+        );
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
 
@@ -3598,13 +4174,28 @@ impl Renderer {
         let painted = (row_bytes * height as usize).min(frame.len());
         let recomputed = if full {
             let this = &*self;
+            // **Hoisted out of the pixel loop**, not tested per pixel: at zoom
+            // 1 this is `false` and the zoom-out filter must cost nothing at
+            // all on the frame everybody actually plays.
+            let minify = this.minifying();
+            // The same hoist again, for the magnified styles: at zoom 1 this
+            // is `false` and the look selector must cost nothing at all on the
+            // frame everybody actually plays.
+            let magnify = this.magnifying();
             frame[..painted].par_chunks_mut(row_bytes).enumerate().for_each(|(row, pixels)| {
                 let sy = row as i32;
                 let mut held = ChunkRun::default();
                 for (sx, pixel) in pixels.chunks_exact_mut(4).enumerate() {
                     let sx = sx as i32;
                     let (wx, wy) = this.screen_to_world(sx, sy);
-                    let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                    let sub = this.sub_cell(sx, sy);
+                    let colour = if minify {
+                        held.colour_block(this, world, wx, wy, sub)
+                    } else if magnify {
+                        held.colour_magnified(this, world, wx, wy, sub)
+                    } else {
+                        held.colour(this, world, wx, wy, sub)
+                    };
                     pixel.copy_from_slice(&colour);
                 }
             });
@@ -3692,6 +4283,9 @@ impl Renderer {
                 // dropped here rather than inside `put`, which is what the
                 // serial version relied on it for.
                 let this = &*self;
+                // Same hoist as the full path above, and for the same reason.
+                let minify = this.minifying();
+                let magnify = this.magnifying();
                 let y0 = rect.min_y.max(0) as usize;
                 let y1 = rect.max_y.min(height as i32 - 1);
                 if y1 >= rect.min_y.max(0) {
@@ -3706,7 +4300,14 @@ impl Renderer {
                             let mut held = ChunkRun::default();
                             for sx in rect.min_x.max(0)..=rect.max_x.min(width as i32 - 1) {
                                 let (wx, wy) = this.screen_to_world(sx, sy);
-                                let colour = held.colour(this, world, wx, wy, this.sub_cell(sx, sy));
+                                let sub = this.sub_cell(sx, sy);
+                                let colour = if minify {
+                                    held.colour_block(this, world, wx, wy, sub)
+                                } else if magnify {
+                                    held.colour_magnified(this, world, wx, wy, sub)
+                                } else {
+                                    held.colour(this, world, wx, wy, sub)
+                                };
                                 let i = sx as usize * 4;
                                 if let Some(px) = pixels.get_mut(i..i + 4) {
                                     px.copy_from_slice(&colour);
@@ -5302,6 +5903,244 @@ impl Renderer {
         self.cell_colour(world, x, y, sub, world.get(x, y))
     }
 
+    /// What one screen pixel draws under a [`MagnifyStyle`] other than
+    /// [`CellArt`](MagnifyStyle::CellArt), given the 3x3 cell neighbourhood
+    /// `ChunkRun` has already fetched and coloured for this cell.
+    ///
+    /// **A pure function of the neighbourhood, the cell's world position and
+    /// the pixel's offset inside the block** — no frame state, no carried RNG,
+    /// no read outside the nine cells. That is what keeps the dirty-rect skip
+    /// honest: nothing here changes with the frame counter, so a settled world
+    /// still redraws nothing. It is also what makes the parallel row split
+    /// bit-identical to a serial one, the property
+    /// `a_parallel_redraw_is_bit_identical_to_a_serial_one` already tests.
+    ///
+    /// **Three cells is exactly the reach, and it is not a guess.** The
+    /// bilinear sample sits at `sub + 0.5` pixels into the block, minus half a
+    /// cell, so it lands within ±0.5 cells of this cell's centre; the ink test
+    /// looks a further `ow = zoom/4` pixels out, at most another quarter of a
+    /// cell. Nothing asked for here is more than 0.75 cells away, so the
+    /// floor of the sample and its `+1` are both inside `x-1..=x+1`.
+    ///
+    /// **The chunk-border halo is the known cost**, and it is the same one
+    /// `FOAM_BLEND`'s doc records for any neighbour-reading rule: a cell
+    /// across a chunk boundary can change without dirtying *this* chunk, so a
+    /// silhouette on a seam can hold a stale ink pixel until the chunk
+    /// redraws. At the zooms these styles are for, a chunk is a large fraction
+    /// of the screen and a cell that moves almost always dirties the chunk
+    /// being looked at; it is a real defect at zoom 2 and moot at zoom 8.
+    #[allow(clippy::too_many_lines)]
+    fn magnified_pixel(&self, near: &MagnifyNear, x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
+        let z = self.zoom;
+        let zf = z as f32;
+        // The pixel's position in cell units, measured from this cell's
+        // centre. `+0.5` puts it at the middle of its own pixel and `-0.5`
+        // moves the origin to the cell centre, so at an odd zoom the middle
+        // pixel of a block samples its own cell exactly and nothing else.
+        let fx = (sub.0 as f32 + 0.5) / zf - 0.5;
+        let fy = (sub.1 as f32 + 0.5) / zf - 0.5;
+        // The four cells a bilinear sample at `(u, v)` cell-offsets touches,
+        // as indices into the 3x3, with their weights. Clamped rather than
+        // trusted: the reach argument above says the floor is -1 or 0, and a
+        // clamp costs nothing to be certain of it.
+        let corners = |u: f32, v: f32| -> ([usize; 4], [f32; 4]) {
+            let x0 = (u.floor() as i32).clamp(-1, 0);
+            let y0 = (v.floor() as i32).clamp(-1, 0);
+            let (fu, fv) = (u - x0 as f32, v - y0 as f32);
+            let at = |dx: i32, dy: i32| ((dy + 1) * 3 + (dx + 1)) as usize;
+            (
+                [at(x0, y0), at(x0 + 1, y0), at(x0, y0 + 1), at(x0 + 1, y0 + 1)],
+                [(1.0 - fu) * (1.0 - fv), fu * (1.0 - fv), (1.0 - fu) * fv, fu * fv],
+            )
+        };
+        // Which class wins this sub-pixel, and which of the four contributing
+        // cells the colour is taken from. 0 is air; a mass wins where its
+        // occupancy clears `magnify_level`, and the bias below a half is the
+        // whole reason a one-cell twig survives.
+        //
+        // **Strictly-greater, scanned in class order**, for the reason
+        // `zoom_out_salience`'s doc gives at more length: `max_by`/`sort` on
+        // equal keys is an ordering nobody chose, and determinism is required
+        // here (same-build, `PLAN.md`).
+        let field = |u: f32, v: f32| -> (usize, usize) {
+            let (idx, w) = corners(u, v);
+            let mut mass = [0.0f32; MAGNIFY_CLASSES];
+            let mut best_w = [0.0f32; MAGNIFY_CLASSES];
+            let mut best = [idx[0]; MAGNIFY_CLASSES];
+            for i in 0..4 {
+                let k = near.class[idx[i]] as usize;
+                mass[k] += w[i];
+                if w[i] > best_w[k] {
+                    best_w[k] = w[i];
+                    best[k] = idx[i];
+                }
+            }
+            let mut win = 0usize;
+            let mut win_w = 0.0f32;
+            for (k, &wk) in mass.iter().enumerate().skip(1) {
+                if wk >= self.magnify_level && wk > win_w {
+                    win = k;
+                    win_w = wk;
+                }
+            }
+            (win, best[win])
+        };
+        // How far out the ink looks, in pixels: a quarter of the block, so the
+        // line is one pixel at play scale and two at 8x — a silhouette's
+        // outline rather than a per-cell border.
+        let ow = (z / 4).max(1) as f32 / zf;
+        let mut c = near.colour[MAGNIFY_CENTRE];
+
+        if self.magnify_style.uses_class_field() {
+            let (win, from) = field(fx, fy);
+            if win == 0 || self.magnify_style == MagnifyStyle::Illustrated {
+                // Air, or the illustrated look: take the winning class's
+                // nearest cell colour whole. Flat fills that keep their own
+                // per-cell grain, and no colour invented anywhere.
+                c = near.colour[from];
+            } else {
+                // **Painted, restricted to the winner.** The blend runs over
+                // the contributing cells *of the winning class only*, so a
+                // twig's pixels are made of twig and never of the sky behind
+                // it. That is the crispness the plain bilinear was missing,
+                // and it is a different mechanism from the ink: this decides
+                // what the pixel is made of, the ink decides where it stops.
+                let (idx, w) = corners(fx, fy);
+                let mut acc = [0.0f32; 3];
+                let mut total = 0.0f32;
+                for i in 0..4 {
+                    if near.class[idx[i]] as usize != win {
+                        continue;
+                    }
+                    total += w[i];
+                    for (k, a) in acc.iter_mut().enumerate() {
+                        *a += w[i] * near.colour[idx[i]][k] as f32;
+                    }
+                }
+                if total > 0.0 {
+                    for (k, q) in c.iter_mut().take(3).enumerate() {
+                        *q = (acc[k] / total).round().clamp(0.0, 255.0) as u8;
+                    }
+                    c[3] = near.colour[from][3];
+                } else {
+                    c = near.colour[from];
+                }
+                c = self.magnify_grain_at(c, x, y, sub);
+            }
+            if win != 0 && self.magnify_ink < 1.0 {
+                // Ink where a mass meets air within `ow` — one line per
+                // silhouette rather than one per cell, which is why the reach
+                // is a fraction of the block and not a neighbour test.
+                let inked = [(ow, 0.0), (-ow, 0.0), (0.0, ow), (0.0, -ow)]
+                    .iter()
+                    .any(|&(du, dv)| field(fx + du, fy + dv).0 == 0);
+                if inked {
+                    for q in c.iter_mut().take(3) {
+                        *q = (*q as f32 * self.magnify_ink).round().clamp(0.0, 255.0) as u8;
+                    }
+                }
+            }
+            return c;
+        }
+
+        match self.magnify_style {
+            // Handled above; restated so a sixth variant cannot be added
+            // without deciding what it does here.
+            MagnifyStyle::PaintedInk | MagnifyStyle::Illustrated => c,
+            // Unreachable: `magnifying()` is false for it and `draw` never
+            // takes this path. Restated for the same reason.
+            MagnifyStyle::CellArt => c,
+            MagnifyStyle::Painted => {
+                // Plain bilinear over the shipped colours, plus the grain.
+                // **Nothing here knows what a cell is**, which is precisely
+                // why a one-cell twig fades: every pixel but the block's exact
+                // centre is part sky.
+                let (idx, w) = corners(fx, fy);
+                for (k, q) in c.iter_mut().enumerate().take(3) {
+                    let v: f32 = (0..4).map(|i| w[i] * near.colour[idx[i]][k] as f32).sum();
+                    *q = v.round().clamp(0.0, 255.0) as u8;
+                }
+                // **Not over the sky.** The grain is there so a *mass* reads
+                // as material rather than as fog; laid over the sky gradient
+                // as well it is compression noise over a smooth ramp, which
+                // is what the first build of this did and what the style
+                // sheet showed at a glance. `PaintedInk` never had it,
+                // because there the grain sits inside the `win != 0` branch.
+                if near.class[MAGNIFY_CENTRE] == MagnifyClass::Air {
+                    c
+                } else {
+                    self.magnify_grain_at(c, x, y, sub)
+                }
+            }
+            MagnifyStyle::Chamfer => {
+                let me = near.class[MAGNIFY_CENTRE];
+                let at = |dx: i32, dy: i32| ((dy + 1) * 3 + (dx + 1)) as usize;
+                // **A cell with no orthogonal neighbour of its own class is
+                // left alone, and this is not a refinement — without it the
+                // chamfer deletes thin things.** Such a cell has all four
+                // corners convex, so all four get cut; at zoom 2 that is
+                // `ox + oy < 1`, one pixel per corner, which is the whole
+                // 2x2 block. Measured on the twig gate before the rule:
+                // a one-cell diagonal twig came through at **0.03 of its
+                // presence at zoom 2 and 0.25 at zoom 4** — erased, and
+                // whittled to a diamond, exactly the *"pixels of plants
+                // disappearing"* this round exists to stop. It also settles
+                // the taste cost lane T recorded, that a lone leaf cell
+                // becomes an octagon.
+                //
+                // And it costs the mechanism nothing it was for: the chamfer
+                // repairs *staircases*, and a cell with no orthogonal
+                // neighbour is not part of one.
+                let orthogonal = [(-1, 0), (1, 0), (0, -1), (0, 1)].iter().any(|&(dx, dy)| near.class[at(dx, dy)] == me);
+                if !orthogonal {
+                    return c;
+                }
+                for (dx, dy) in [(-1, -1), (1, -1), (-1, 1), (1, 1)] {
+                    let a = near.class[at(dx, 0)];
+                    let b = near.class[at(0, dy)];
+                    if a == me || a != b {
+                        continue;
+                    }
+                    // A *notch* is the case where this cell is the lesser
+                    // class and the corner would be filled with the mass —
+                    // see [`NotchRule`] for why that is a dial.
+                    let filling = me == MagnifyClass::Air || (me == MagnifyClass::Liquid && a != MagnifyClass::Air);
+                    let allowed = match self.magnify_notch {
+                        NotchRule::Cut => !filling,
+                        NotchRule::Deep => !filling || near.class[at(dx, dy)] == a,
+                        NotchRule::Fill => true,
+                    };
+                    if !allowed {
+                        continue;
+                    }
+                    // This pixel's offset from that corner of the block.
+                    let ox = if dx < 0 { sub.0 } else { z - 1 - sub.0 };
+                    let oy = if dy < 0 { sub.1 } else { z - 1 - sub.1 };
+                    if ox + oy < z / 2 {
+                        c = if ox < oy { near.colour[at(dx, 0)] } else { near.colour[at(0, dy)] };
+                    }
+                }
+                c
+            }
+        }
+    }
+
+    /// The painted grain: a per-pixel brightness jitter keyed on **world**
+    /// position, so it stands still while the camera moves and a settled world
+    /// still redraws nothing. Air is left alone — a grain over the sky is
+    /// compression noise over a gradient.
+    fn magnify_grain_at(&self, mut c: [u8; 4], x: i32, y: i32, sub: (i32, i32)) -> [u8; 4] {
+        if self.magnify_grain == 0.0 {
+            return c;
+        }
+        let j = rng::jitter(x * self.zoom + sub.0, y * self.zoom + sub.1) - 0.5;
+        let s = 1.0 + j * 2.0 * self.magnify_grain;
+        for q in c.iter_mut().take(3) {
+            *q = (*q as f32 * s).round().clamp(0.0, 255.0) as u8;
+        }
+        c
+    }
+
     /// **Takes the cell rather than reading it**, so the draw loop can hoist
     /// the chunk lookup out of the inner loop. `World::get` is a `HashMap<ChunkCoord, Chunk>` fetch,
     /// so calling it per pixel is one SipHash per pixel for a coordinate
@@ -5339,9 +6178,22 @@ impl Renderer {
         // nonsense cell type), and only then the organism lookup. A tree is
         // thousands of cells and pays the two bit tests; the ~150 creature
         // cells in a colony pay the lookup.
-        if cell.organism_id() != 0 && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head | organism::CellType::Segment)) {
+        // **Every roled body cell, not only `Head`/`Segment`.** `Leg`,
+        // `Gut` and `Armour` are the same creature's own flesh, stamped
+        // from the same material -- excluding them here would leave an
+        // articulated body two-toned, colony-coloured at some cells and
+        // raw material colour at others, which is a rendering defect this
+        // change introduces if left ungated rather than a pre-existing
+        // fact about the two original types.
+        if cell.organism_id() != 0
+            && matches!(
+                organism::cell_type(cell.aux()),
+                Some(organism::CellType::Head | organism::CellType::Segment | organism::CellType::Leg | organism::CellType::Gut | organism::CellType::Armour)
+            )
+        {
             if let Some(state) = world.organism(cell.organism_id()) {
-                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony) {
+                let homeless = world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+                if let Some(group) = group_colour(self.creature_colour, state.species, state.colony, homeless) {
                     // **The group's colour, at this cell's own brightness.**
                     // A material palette is three shades of one brown and
                     // the body's countershading is written in which shade
@@ -6087,6 +6939,9 @@ impl Renderer {
                     Some(organism::CellType::Segment) => CELL_TYPE_SEGMENT,
                     Some(organism::CellType::Flower) => CELL_TYPE_FLOWER,
                     Some(organism::CellType::Fruit) => CELL_TYPE_FRUIT,
+                    Some(organism::CellType::Leg) => CELL_TYPE_LEG,
+                    Some(organism::CellType::Gut) => CELL_TYPE_GUT,
+                    Some(organism::CellType::Armour) => CELL_TYPE_ARMOUR,
                     None => [255.0, 0.0, 0.0],
                 };
                 (colour, CELL_TYPE_BLEND)
@@ -6305,6 +7160,7 @@ impl Renderer {
         let pheromone_channel = match self.field_overlay {
             FieldOverlay::PheromoneA => Some((crate::sim::pheromone::Channel::A, SCALAR_RAMP_PHERO_A)),
             FieldOverlay::PheromoneB => Some((crate::sim::pheromone::Channel::B, SCALAR_RAMP_PHERO_B)),
+            FieldOverlay::Alarm => Some((crate::sim::pheromone::Channel::Alarm, SCALAR_RAMP_PHERO_ALARM)),
             _ => None,
         };
         if let Some((channel, full)) = pheromone_channel {
@@ -6370,7 +7226,7 @@ impl Renderer {
                 ([60.0, 140.0, 255.0], t)
             }
             // Handled by the full-replace branch above, which returns.
-            FieldOverlay::PheromoneA | FieldOverlay::PheromoneB => return base,
+            FieldOverlay::PheromoneA | FieldOverlay::PheromoneB | FieldOverlay::Alarm => return base,
         };
         const MAX_BLEND: f32 = 0.75;
         let blend = magnitude.clamp(0.0, 1.0) * MAX_BLEND;
@@ -6443,10 +7299,16 @@ impl Renderer {
 
     /// Inverse of `screen_to_world`, for placing something drawn in world
     /// space (a particle, a chunk border) onto the screen. `None` when the
-    /// position falls between two stride-sampled columns/rows at
+    /// position falls between two point-sampled columns/rows at
     /// `zoom_out_stride > 1` and so has no single screen pixel of its own —
     /// distinct from simply being off-screen, which callers already clip
     /// against separately via `put`'s own bounds check.
+    ///
+    /// **That `None` is now reachable only under [`ZoomOutFilter::Stride`]**,
+    /// where a pixel really is one sampled cell. Under the block filters a
+    /// pixel stands for its whole block, so this is total at every stride, and
+    /// `world_to_screen_and_back_round_trips_at_every_stride` asserts it stays
+    /// `screen_to_world`'s left inverse in all three.
     /// An inclusive world rectangle as the inclusive screen rectangle it
     /// covers, plus the size of one world cell in pixels.
     ///
@@ -6475,7 +7337,21 @@ impl Renderer {
             Some(((x - self.camera_x) * self.zoom, (y - self.camera_y) * self.zoom))
         } else if self.zoom_out_stride > 1 {
             let (dx, dy) = (x - self.camera_x, y - self.camera_y);
-            if dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0 {
+            // **`None` only under `ZoomOutFilter::Stride`.** Under the
+            // block filters a screen pixel stands for every cell of its
+            // block, so every cell of that block has a pixel and this is a
+            // total mapping — which is the half of the dropout that
+            // `draw_particles` and the chunk-body pass were suffering. Those
+            // are separate passes with their own `world_to_screen` call, so a
+            // grain in flight was landing on a sampled column or vanishing,
+            // and at stride 4 it vanished three times in four.
+            //
+            // Kept `None` for `Stride` so the control really is the old
+            // behaviour, particles included, rather than the old terrain with
+            // new debris over it.
+            if self.zoom_out_filter == ZoomOutFilter::Stride
+                && (dx.rem_euclid(self.zoom_out_stride) != 0 || dy.rem_euclid(self.zoom_out_stride) != 0)
+            {
                 return None;
             }
             Some((dx.div_euclid(self.zoom_out_stride), dy.div_euclid(self.zoom_out_stride)))
@@ -6537,6 +7413,32 @@ fn underground_from_scratch(world: &World, b: Rect) -> Vec<u64> {
     bits
 }
 
+/// The 3x3 cell neighbourhood a magnified style reads, already coloured.
+///
+/// Row-major from `(x-1, y-1)`, so index 4 — [`MAGNIFY_CENTRE`] — is the
+/// cell the pixel is actually in.
+///
+/// **Hoisted per cell, not per pixel, and that is what makes the styles
+/// affordable.** A cell owns `zoom`x`zoom` pixels and every one of them asks
+/// about the same nine cells, so nine `cell_colour` calls amortise to one per
+/// pixel at zoom 3 and one in seven at zoom 8 — the same arithmetic that makes
+/// `ChunkRun`'s chunk hoist worth having, one level up. Walking a scanline
+/// then only ever advances by one cell, so six of the nine entries are already
+/// right and `advance` keeps them.
+#[derive(Clone)]
+struct MagnifyNear {
+    colour: [[u8; 4]; 9],
+    class: [MagnifyClass; 9],
+}
+
+impl Default for MagnifyNear {
+    fn default() -> Self {
+        Self { colour: [[0; 4]; 9], class: [MagnifyClass::Air; 9] }
+    }
+}
+
+const MAGNIFY_CENTRE: usize = 4;
+
 /// The chunk that a run of pixels along one scanline shares, held across it.
 ///
 /// `World::get` is a `HashMap<ChunkCoord, Chunk>` fetch -- one SipHash per
@@ -6563,6 +7465,10 @@ fn underground_from_scratch(world: &World, b: Rect) -> Vec<u64> {
 struct ChunkRun<'a> {
     at: Option<ChunkCoord>,
     chunk: Option<&'a Chunk>,
+    /// The cell the magnified neighbourhood below was built for, if any. Only
+    /// ever filled under [`Renderer::magnifying`].
+    near_at: Option<(i32, i32)>,
+    near: MagnifyNear,
 }
 
 impl<'a> ChunkRun<'a> {
@@ -6582,13 +7488,193 @@ impl<'a> ChunkRun<'a> {
         if !world.in_bounds(x, y) {
             return VOID;
         }
+        let cell = self.cell(world, x, y);
+        renderer.cell_colour(world, x, y, sub, cell)
+    }
+
+    /// The cell at `(x, y)`, reusing this run's held chunk. **Callers owe the
+    /// bounds check**, exactly as `Renderer::cell_colour` does and for the
+    /// same reason — outside the world there is no chunk worth looking up.
+    ///
+    /// Split out of `colour` so `colour_block` can read a whole
+    /// `stride`x`stride` block through one hoist instead of one per cell; the
+    /// block is 4 cells on a side at most against `CHUNK_SIZE` 64, so it
+    /// nearly always sits inside the chunk already held.
+    fn cell(&mut self, world: &'a World, x: i32, y: i32) -> Cell {
         let coord = ChunkCoord::containing(x, y);
         if self.at != Some(coord) {
             self.at = Some(coord);
             self.chunk = world.chunk(coord);
         }
-        let cell = self.chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y));
-        renderer.cell_colour(world, x, y, sub, cell)
+        self.chunk.map_or(Cell::EMPTY, |c| c.get_world(x, y))
+    }
+
+    /// `colour`, answering for the whole `stride`x`stride` block of world
+    /// cells that one screen pixel covers when the view is zoomed out — see
+    /// [`ZoomOutFilter`] for why a pixel is a block rather than a sample.
+    ///
+    /// **At stride 1 — every ordinary frame — and at
+    /// [`ZoomOutFilter::Stride`], this *is* `colour`**, down to the single
+    /// cell read. So the unzoomed picture cannot move, and the old look stays
+    /// available as a control that is byte-identical rather than merely
+    /// close.
+    ///
+    /// `sub` is passed through unchanged: it is `(0, 0)` at every minified
+    /// scale (`Renderer::sub_cell` returns early unless `zoom > 1`), so there
+    /// is no sub-cell position for a block to disagree about.
+    fn colour_block(
+        &mut self,
+        renderer: &Renderer,
+        world: &'a World,
+        x: i32,
+        y: i32,
+        sub: (i32, i32),
+    ) -> [u8; 4] {
+        let stride = renderer.zoom_out_stride.max(1);
+        if !renderer.minifying() {
+            return self.colour(renderer, world, x, y, sub);
+        }
+        // **The anchor alone decides whether this pixel is in the world**, so
+        // the edge of the world reads exactly as it did before. A block
+        // straddling the boundary is not allowed to drag a real cell outward
+        // into the void, which would make the world look 3 cells wider than
+        // it is at the widest zoom-out.
+        if !world.in_bounds(x, y) {
+            return VOID;
+        }
+        match renderer.zoom_out_filter {
+            // Handled by the early return above; restated so a fourth variant
+            // cannot be added without deciding what it does here.
+            ZoomOutFilter::Stride => self.colour(renderer, world, x, y, sub),
+            ZoomOutFilter::Coverage => {
+                // Seeded from the anchor rather than from a sentinel, which is
+                // what makes a tie resolve to the cell `Stride` would have
+                // drawn: every later candidate has to beat it *strictly*.
+                let mut best = (x, y);
+                let mut best_cell = self.cell(world, x, y);
+                let mut best_rank = zoom_out_salience(world.materials.get(best_cell.material).kind);
+                for by in y..y + stride {
+                    for bx in x..x + stride {
+                        if (bx, by) == (x, y) || !world.in_bounds(bx, by) {
+                            continue;
+                        }
+                        let cell = self.cell(world, bx, by);
+                        let rank = zoom_out_salience(world.materials.get(cell.material).kind);
+                        if rank > best_rank {
+                            best_rank = rank;
+                            best_cell = cell;
+                            best = (bx, by);
+                        }
+                    }
+                }
+                // The winner's **own** position, not the anchor's: the grain,
+                // the sky light and the depth grade are all functions of where
+                // a cell is, so colouring it at somebody else's coordinates
+                // would be a different kind of wrong pixel.
+                renderer.cell_colour(world, best.0, best.1, sub, best_cell)
+            }
+            ZoomOutFilter::Average => {
+                let (mut r, mut g, mut b, mut a, mut n) = (0u32, 0u32, 0u32, 0u32, 0u32);
+                for by in y..y + stride {
+                    for bx in x..x + stride {
+                        if !world.in_bounds(bx, by) {
+                            continue;
+                        }
+                        let cell = self.cell(world, bx, by);
+                        let c = renderer.cell_colour(world, bx, by, sub, cell);
+                        r += c[0] as u32;
+                        g += c[1] as u32;
+                        b += c[2] as u32;
+                        a += c[3] as u32;
+                        n += 1;
+                    }
+                }
+                // `n` is at least 1: the anchor is in bounds or we returned
+                // `VOID` above.
+                [(r / n) as u8, (g / n) as u8, (b / n) as u8, (a / n) as u8]
+            }
+        }
+    }
+
+    /// `colour`, under a [`MagnifyStyle`] that spends a cell's block of pixels
+    /// on more than one colour — see [`Renderer::magnified_pixel`] for what
+    /// each style does with them.
+    ///
+    /// Only reached when [`Renderer::magnifying`] is true, which `draw` hoists
+    /// out of the pixel loop, so `zoom == 1` and every zoom-out stride pay
+    /// nothing at all for this existing.
+    fn colour_magnified(
+        &mut self,
+        renderer: &Renderer,
+        world: &'a World,
+        x: i32,
+        y: i32,
+        sub: (i32, i32),
+    ) -> [u8; 4] {
+        if !world.in_bounds(x, y) {
+            return VOID;
+        }
+        self.hold_neighbourhood(renderer, world, x, y);
+        renderer.magnified_pixel(&self.near, x, y, sub)
+    }
+
+    /// Fill [`MagnifyNear`] for `(x, y)`, reusing whatever of it is already
+    /// right.
+    ///
+    /// **The one-cell shift is the common case by a long way**: a scanline
+    /// walks left to right, so the neighbourhood it wants next is this one
+    /// moved a column, and six of its nine entries need no work. Only three
+    /// cells are read and coloured per cell of travel.
+    fn hold_neighbourhood(&mut self, renderer: &Renderer, world: &'a World, x: i32, y: i32) {
+        if self.near_at == Some((x, y)) {
+            return;
+        }
+        let shifted = self.near_at == Some((x - 1, y));
+        if shifted {
+            for row in 0..3 {
+                self.near.colour[row * 3] = self.near.colour[row * 3 + 1];
+                self.near.colour[row * 3 + 1] = self.near.colour[row * 3 + 2];
+                self.near.class[row * 3] = self.near.class[row * 3 + 1];
+                self.near.class[row * 3 + 1] = self.near.class[row * 3 + 2];
+            }
+        }
+        let first = if shifted { 1 } else { -1 };
+        for dy in -1..=1 {
+            for dx in first..=1 {
+                let (nx, ny) = (x + dx, y + dy);
+                let i = ((dy + 1) * 3 + (dx + 1)) as usize;
+                // **Outside the world, the edge cell repeats.** The obvious
+                // readings both draw an artifact, and both were built before
+                // this one: calling the void *air* inks the world's own border
+                // like a silhouette, and calling it *solid* is worse -- at
+                // zoom 4 the outermost 0.375 of a cell then classifies as a
+                // mass, so the sky's top row won a Solid class, took `VOID`
+                // for its colour and drew a **black band round all four edges
+                // of the screen**, 126 pixels of it per edge, which
+                // `the_ink_is_drawn_round_the_outside_of_a_mass` caught by
+                // finding the ink everywhere except the soil surface it was
+                // pointed at. Clamping to the edge means the field sees no
+                // boundary there at all and the border looks like the interior
+                // it continues. Per axis, which is a clamp to the world rect
+                // because the world is one.
+                let (nx, ny) = (
+                    if world.in_bounds(nx, y) { nx } else { x },
+                    if world.in_bounds(x, ny) { ny } else { y },
+                );
+                let cell = self.cell(world, nx, ny);
+                // **`sub` is `(0, 0)` here deliberately.** These nine colours
+                // are the cell's own 1:1 colour, the thing every style blends,
+                // snaps to or inks; the only rule that reads `sub` inside
+                // `cell_colour` is the crack strip, and a fissure drawn along
+                // one edge of a *block* is a per-block rule that a curved
+                // boundary has to restate rather than inherit. It is therefore
+                // absent under these styles and present under `CellArt`, which
+                // is a known cost of the look and is in the lane note.
+                self.near.colour[i] = renderer.cell_colour(world, nx, ny, (0, 0), cell);
+                self.near.class[i] = magnify_class(world, cell);
+            }
+        }
+        self.near_at = Some((x, y));
     }
 }
 
@@ -8069,9 +9155,11 @@ mod tests {
             let luma = c[0] * 0.299 + c[1] * 0.587 + c[2] * 0.114;
             assert!(luma > 90.0, "a group colour must stand off dark soil: {c:?} has luma {luma:.0}");
         }
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0), Some(GROUP_NONE));
-        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
-        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1), None);
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, false), Some(GROUP_NONE));
+        // The nestless case: no colony to wear, so it wears itself.
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 0, true), None, "a species with no nest keeps its own colour in BY COLONY");
+        assert_eq!(group_colour(CreatureColour::Colony, organism::SpeciesId(0), 1, false), Some(GROUP_COLOURS[0]), "colony 1 wears the first colour");
+        assert_eq!(group_colour(CreatureColour::Off, organism::SpeciesId(0), 1, false), None);
     }
 
     #[test]
@@ -8079,7 +9167,7 @@ mod tests {
         let mut r = Renderer::new();
         assert_eq!(r.field_overlay, FieldOverlay::Off);
         let mut seen = vec![r.field_overlay];
-        for _ in 0..6 {
+        for _ in 0..7 {
             r.cycle_field_overlay();
             seen.push(r.field_overlay);
         }
@@ -8092,7 +9180,8 @@ mod tests {
                 FieldOverlay::Light,
                 FieldOverlay::Moisture,
                 FieldOverlay::PheromoneA,
-                FieldOverlay::PheromoneB
+                FieldOverlay::PheromoneB,
+                FieldOverlay::Alarm
             ]
         );
         r.cycle_field_overlay();
@@ -8133,6 +9222,51 @@ mod tests {
         };
         assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), off_pixel, "a zero reading must draw at the ramp floor, so an empty channel reads as empty rather than as absent");
         assert_ne!(r.cell_colour_at(&world, 40, 40, (0, 0)), r.cell_colour_at(&world, 10, 10, (0, 0)), "and a zero reading must still be distinguishable from a strong one");
+    }
+
+    /// **The `J` (`ALARM`) tool's overlay, checked the same way `PheromoneA`/
+    /// `PheromoneB` are above.** Catches two different ways the alarm plane
+    /// could ship inert: forgetting to add `FieldOverlay::Alarm` to the
+    /// early-return `pheromone_channel` match (in which case this falls
+    /// through to the ordinary blend tail's `return base` arm and the strong
+    /// deposit below would draw identically to a plain wall of stone), and
+    /// forgetting to allocate the plane at all (in which case `sample` would
+    /// read a flat zero everywhere and the "must differ from off" assertion
+    /// would fail).
+    #[test]
+    fn the_alarm_overlay_is_reachable_and_replaces_rather_than_blends() {
+        let mut world = World::new(Rect::new(0, 0, 63, 63));
+        world.set(10, 10, Cell::new(material::STONE, 0));
+        let coal = world.materials.id_of("coal").unwrap_or(material::SAND);
+        world.set(20, 20, Cell::new(coal, 0));
+        // `ALARM_DEPOSIT` (240 of 255) -- the strength a bitten ant actually
+        // emits (`creature.rs`'s `cry_alarm`), not an arbitrary test value.
+        world.deposit_pheromone(crate::sim::pheromone::Channel::Alarm, 10, 10, crate::sim::pheromone::ALARM_DEPOSIT);
+        world.deposit_pheromone(crate::sim::pheromone::Channel::Alarm, 20, 20, crate::sim::pheromone::ALARM_DEPOSIT);
+
+        let mut r = Renderer::new();
+        r.field_overlay = FieldOverlay::Alarm;
+        assert_eq!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            r.cell_colour_at(&world, 20, 20, (0, 0)),
+            "equal alarm over different materials must draw identically -- a blend would leak the material colour through"
+        );
+
+        let off_pixel = {
+            let mut plain = Renderer::new();
+            plain.field_overlay = FieldOverlay::Off;
+            plain.cell_colour_at(&world, 10, 10, (0, 0))
+        };
+        assert_ne!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            off_pixel,
+            "a strong alarm reading must not draw the same as the overlay being off -- the tool would look like it did nothing"
+        );
+        assert_ne!(
+            r.cell_colour_at(&world, 10, 10, (0, 0)),
+            r.cell_colour_at(&world, 40, 40, (0, 0)),
+            "a cell nothing has bitten must read differently from one that was"
+        );
     }
 
     #[test]
@@ -8874,6 +10008,80 @@ mod tests {
         }
         let (_, plain_span) = plain.visible_span(viewport);
         assert_eq!(plain_span, 1280, "the unclamped control did not open up, so this test proves nothing");
+    }
+
+    #[test]
+    fn zoom_out_reaches_a_wide_short_box_by_its_width_not_its_height() {
+        // Owner, reversing the height-only rule above: *"I need to be able to
+        // zoom out to the max width even if the height isn't wide enough."*
+        // A box shorter than one screen (so the height rule alone would cap
+        // the stride at 1, i.e. no zoom-out at all) but many screens wide
+        // must still be reachable by zooming out toward its width.
+        let viewport = (512u32, 320u32);
+        for world_w in [1024, 2048, 4096] {
+            let world = Rect::new(0, 0, world_w - 1, 127); // 128-row box: under one screen tall
+            let mut r = Renderer::new();
+            for _ in 0..10 {
+                r.zoom_within(-1, viewport, Some(world));
+            }
+            let (span_x, _) = r.visible_span(viewport);
+            let reachable = (512 * MAX_ZOOM_OUT_STRIDE).min(world_w);
+            assert!(
+                span_x >= reachable,
+                "a {world_w}-wide, 128-row box only ever showed {span_x} columns; {reachable} were reachable"
+            );
+        }
+
+        // The positive control: before this fix, the height-only rule left
+        // zoom_out_stride at 1 for a box shorter than one screen, whatever its
+        // width, so span_x would sit at 512 regardless of world_w.
+        let mut old_rule = Renderer::new();
+        for _ in 0..10 {
+            old_rule.adjust_zoom(-1);
+            old_rule.zoom_out_stride = old_rule.zoom_out_stride.min(1);
+        }
+        let (old_span_x, _) = old_rule.visible_span(viewport);
+        assert_eq!(old_span_x, 512, "the height-only control already reached full width, so this test proves nothing");
+    }
+
+    #[test]
+    fn width_driven_zoom_never_drags_height_past_the_box_width() {
+        // Owner, after the previous fix let width drive the stride: "I can
+        // now zoom out farther than the biggest dimension. That shouldn't
+        // be possible." A box only a little wider than one screen (576,
+        // needing stride 2) drags height's span to 640 -- bigger than the
+        // box's own 576-wide extent -- for any height up to a full screen.
+        // Letting width drive the stride at all is still correct (the test
+        // above guards that); this guards that doing so never inflates
+        // height's span past the very box width it is trying to reach.
+        let viewport = (512u32, 320u32);
+        for world_w in [576, 640, 704, 1088] {
+            for world_h in [128, 192, 256, 320] {
+                let world = Rect::new(0, 0, world_w - 1, world_h - 1);
+                let mut r = Renderer::new();
+                for _ in 0..10 {
+                    r.zoom_within(-1, viewport, Some(world));
+                }
+                let (_, span_y) = r.visible_span(viewport);
+                assert!(
+                    span_y <= world_w,
+                    "a {world_w}x{world_h} box let height's span reach {span_y}, \
+                     past its own {world_w}-wide biggest side"
+                );
+            }
+        }
+
+        // The positive control: the previous rule (plain stride_w.max(stride_h),
+        // no cap on the dragged axis) overshoots on the smallest case above.
+        let (view_w, view_h) = (512, 320);
+        let (world_w, world_h) = (576, 128);
+        let stride_w = (world_w + view_w - 1) / view_w;
+        let stride_h = (world_h + view_h - 1) / view_h;
+        let buggy_stride = stride_w.max(stride_h).clamp(1, MAX_ZOOM_OUT_STRIDE);
+        assert!(
+            view_h * buggy_stride > world_w,
+            "the pre-fix rule did not overshoot on this box, so this test proves nothing"
+        );
     }
 
     #[test]
@@ -9730,6 +10938,936 @@ mod tests {
             "with the left half settled, the skip should recompute fewer than every pixel (recomputed {recomputed} of {})",
             uw * uh
         );
+    }
+
+    // --- the zoom-out filter (`ZoomOutFilter`) ------------------------------
+    //
+    // Owner, 2026-09-12: *"when I zoom out all the way, instead of looking
+    // crisp, it looks like pixels of plants and other foreground things are
+    // disappearing."* Everything below is about that one sentence.
+    //
+    // **Every count here has a known non-zero answer in both arms**, which is
+    // the whole reason the scenes are hand-laid rather than grown: a survivor
+    // count that reads 0 looks exactly the same whether nothing survived or
+    // the probe never ran, so each test asserts the *old* filter's non-zero
+    // figure as well as the new one's.
+
+    /// A world of sky over a stone floor, `n` one-cell-wide vertical plant
+    /// stems, each in its **own** `stride`-wide block and each at a different
+    /// offset inside it (cycling 0, 1, 2, 3). One stem in four therefore lands
+    /// on a point-sampled column and three do not, which is the 1-in-4 the
+    /// dropout is predicted from rather than a number tuned to come out right.
+    fn stem_scene(stride: i32, n: i32) -> (World, Vec<i32>) {
+        let w = stride * n;
+        let h = 64;
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("the shipped registry has wood");
+        let mut columns = Vec::new();
+        for i in 0..n {
+            let x = i * stride + i % stride;
+            for y in 20..h - 1 {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+            columns.push(x);
+        }
+        world.end_step();
+        (world, columns)
+    }
+
+    /// Render `world` at `stride` under `filter`, and report how many screen
+    /// **columns** differ from the same world with the stems erased.
+    ///
+    /// Differencing against a stem-free control rather than matching wood's
+    /// palette: the palette is put through the sky light, the depth grade and
+    /// the grain before it reaches a pixel, so a colour-matching probe would
+    /// be a test of `cell_colour` wearing the name of a test about sampling.
+    fn stem_columns_on_screen(world: &World, erase: &[i32], stride: i32, filter: ZoomOutFilter) -> usize {
+        let (vw, vh) = (world.bounds().expect("the scene has bounds").max_x as u32 + 1, 64u32);
+        let (sw, sh) = (vw / stride as u32, vh / stride as u32);
+        let particles = ParticleSystem::new();
+        let draw = |world: &World| {
+            let mut r = Renderer::new();
+            r.zoom_out_stride = stride;
+            r.zoom_out_filter = filter;
+            let mut frame = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+            frame
+        };
+        let with = draw(world);
+        let mut bare = world.clone();
+        for &x in erase {
+            for y in 0..vh as i32 - 1 {
+                bare.set(x, y, Cell::EMPTY);
+            }
+        }
+        bare.end_step();
+        let without = draw(&bare);
+        (0..sw as usize)
+            .filter(|&sx| {
+                (0..sh as usize).any(|sy| {
+                    let i = (sy * sw as usize + sx) * 4;
+                    with[i..i + 4] != without[i..i + 4]
+                })
+            })
+            .count()
+    }
+
+    #[test]
+    fn coverage_keeps_the_one_cell_stems_that_point_sampling_drops() {
+        // 16 stems, one per 4-wide block, offsets cycling 0..3. Point
+        // sampling can only see the four sitting on a sampled column.
+        let (world, columns) = stem_scene(4, 16);
+        let strided = stem_columns_on_screen(&world, &columns, 4, ZoomOutFilter::Stride);
+        let covered = stem_columns_on_screen(&world, &columns, 4, ZoomOutFilter::Coverage);
+        assert_eq!(strided, 4, "the old filter should show exactly the quarter of stems that land on a sampled column -- if this is 0 the probe is blind, not the filter perfect");
+        assert_eq!(covered, 16, "every stem has a block of its own, so every stem should reach the screen");
+    }
+
+    #[test]
+    fn coverage_keeps_one_cell_twigs_on_the_dropped_rows_too() {
+        // The same dropout runs along the other axis and is easy to forget:
+        // `screen_to_world` strides both. Horizontal one-cell twigs, one per
+        // 4-tall block row, offsets cycling 0..3.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let wood = world.materials.id_of("wood").expect("wood");
+        let mut rows = Vec::new();
+        for i in 0..16i32 {
+            let y = i * 4 + i % 4;
+            for x in 0..w {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+            rows.push(y);
+        }
+        world.end_step();
+        let count = |filter: ZoomOutFilter| {
+            let (sw, sh) = (16u32, 16u32);
+            let particles = ParticleSystem::new();
+            let mut r = Renderer::new();
+            r.zoom_out_stride = 4;
+            r.zoom_out_filter = filter;
+            let mut frame = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+            let mut bare = world.clone();
+            for &y in &rows {
+                for x in 0..w {
+                    bare.set(x, y, Cell::EMPTY);
+                }
+            }
+            bare.end_step();
+            let mut r2 = Renderer::new();
+            r2.zoom_out_stride = 4;
+            r2.zoom_out_filter = filter;
+            let mut blank = vec![0u8; (sw * sh * 4) as usize];
+            r2.draw(&bare, &particles, &ChunkSet::default(), &mut blank, (sw, sh), true);
+            (0..sh as usize)
+                .filter(|&sy| {
+                    (0..sw as usize).any(|sx| {
+                        let i = (sy * sw as usize + sx) * 4;
+                        frame[i..i + 4] != blank[i..i + 4]
+                    })
+                })
+                .count()
+        };
+        assert_eq!(count(ZoomOutFilter::Stride), 4, "a quarter of the twigs land on a sampled row");
+        assert_eq!(count(ZoomOutFilter::Coverage), 16, "every twig has a block row of its own");
+    }
+
+    /// The mixed scene the byte-identity controls below are judged on --
+    /// ground, a pile of powder, a pool, plants, smoke and sky, so that every
+    /// rank in `zoom_out_salience` is actually present. A control over a world
+    /// that is all one material cannot fail for the replacement.
+    fn mixed_scene() -> World {
+        let (w, h) = (128i32, 128i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        let wood = world.materials.id_of("wood").expect("wood");
+        for x in 0..w {
+            for y in h - 20..h {
+                world.set(x, y, Cell::new(material::STONE, (x % 4) as u8));
+            }
+            for y in h - 26..h - 20 {
+                world.set(x, y, Cell::new(material::SAND, (y % 3) as u8));
+            }
+        }
+        for x in 10..40 {
+            for y in h - 32..h - 26 {
+                world.set(x, y, Cell::new(material::WATER, 0));
+            }
+        }
+        for (i, x) in (50..100).step_by(3).enumerate() {
+            for y in h - 60 + i as i32..h - 26 {
+                world.set(x, y, Cell::new(wood, (i % 3) as u8));
+            }
+        }
+        for x in 60..70 {
+            for y in 10..20 {
+                world.set(x, y, Cell::new(material::SMOKE, 0));
+            }
+        }
+        world.end_step();
+        world
+    }
+
+    fn frame_at(world: &World, stride: i32, filter: ZoomOutFilter, zoom: i32) -> Vec<u8> {
+        let (sw, sh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        r.zoom = zoom;
+        r.zoom_out_stride = stride;
+        r.zoom_out_filter = filter;
+        let mut frame = vec![0u8; (sw * sh * 4) as usize];
+        r.draw(world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+        frame
+    }
+
+    #[test]
+    fn stride_filter_reproduces_the_old_point_sampling() {
+        // **The control, and it has to be equality rather than similarity.**
+        // The old algorithm restated independently of the code under test:
+        // one `cell_colour_at` at the cell `screen_to_world` names, and
+        // nothing else. If this ever diverges, every comparison made against
+        // `Stride` in this round is void.
+        let world = mixed_scene();
+        let (sw, sh) = (64u32, 64u32);
+        for stride in 1..=MAX_ZOOM_OUT_STRIDE {
+            let got = frame_at(&world, stride, ZoomOutFilter::Stride, 1);
+            let mut r = Renderer::new();
+            r.zoom_out_stride = stride;
+            // **Primed by one real `draw` before the hand loop runs.** `draw`
+            // is what builds `self.sky` and `self.daylight` from the world
+            // clock, and `cell_colour` reads both -- so a hand loop on a fresh
+            // `Renderer` compares a lit frame against an unlit one and fails
+            // for the lighting rather than for the sampling. The restatement
+            // that matters is still independent: `cell_colour_at` reaches no
+            // part of `ChunkRun` or `colour_block`.
+            let mut scratch = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut scratch, (sw, sh), true);
+            let mut want = vec![0u8; (sw * sh * 4) as usize];
+            for sy in 0..sh as i32 {
+                for sx in 0..sw as i32 {
+                    let (wx, wy) = r.screen_to_world(sx, sy);
+                    let c = r.cell_colour_at(&world, wx, wy, r.sub_cell(sx, sy));
+                    let i = (sy as usize * sw as usize + sx as usize) * 4;
+                    want[i..i + 4].copy_from_slice(&c);
+                }
+            }
+            assert_eq!(got, want, "the Stride filter must be the old point sampling byte for byte, at stride {stride}");
+        }
+    }
+
+    #[test]
+    fn zoom_one_is_untouched_by_the_zoom_out_filter() {
+        // The whole mechanism lives behind `zoom_out_stride > 1`, so the
+        // ordinary unzoomed frame -- and every magnified one -- must be
+        // bit-identical whichever filter is selected.
+        let world = mixed_scene();
+        let base = frame_at(&world, 1, ZoomOutFilter::Stride, 1);
+        for filter in [ZoomOutFilter::Coverage, ZoomOutFilter::Average] {
+            assert_eq!(frame_at(&world, 1, filter, 1), base, "stride 1 must not depend on the filter");
+            assert_eq!(frame_at(&world, 1, filter, 4), frame_at(&world, 1, ZoomOutFilter::Stride, 4), "a magnified frame must not depend on the filter either");
+        }
+    }
+
+    #[test]
+    fn coverage_leaves_the_inside_of_bulk_ground_exactly_where_point_sampling_put_it() {
+        // The tie between `Solid` and `Powder` is load-bearing: most of the
+        // screen is bulk ground, and a block with no strict winner has to
+        // resolve to the cell the old filter drew. Without it this change
+        // repaints every hillside interior for a complaint nobody made.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            for y in 0..h {
+                let m = if (x / 7 + y / 5) % 2 == 0 { material::STONE } else { material::SAND };
+                world.set(x, y, Cell::new(m, (x % 4) as u8));
+            }
+        }
+        world.end_step();
+        assert_eq!(
+            frame_at(&world, 4, ZoomOutFilter::Coverage, 1),
+            frame_at(&world, 4, ZoomOutFilter::Stride, 1),
+            "solid and powder tie, so a world made only of them must render identically under both filters"
+        );
+    }
+
+    #[test]
+    fn the_average_filter_actually_averages_and_is_not_either_of_the_others() {
+        // Sensitivity, not preference: `Average` exists to be rejected by eye,
+        // and a mode that silently fell through to one of the others would be
+        // rejected on the wrong picture.
+        let world = mixed_scene();
+        let avg = frame_at(&world, 4, ZoomOutFilter::Average, 1);
+        assert_ne!(avg, frame_at(&world, 4, ZoomOutFilter::Stride, 1), "the mean cannot equal point sampling on a mixed world");
+        assert_ne!(avg, frame_at(&world, 4, ZoomOutFilter::Coverage, 1), "the mean cannot equal the salient cell on a mixed world");
+        // And it must be a mean of real cell colours: every channel of every
+        // pixel lies inside the range its own block spans.
+        let mut r = Renderer::new();
+        r.zoom_out_stride = 4;
+        r.zoom_out_filter = ZoomOutFilter::Average;
+        // Primed by one real `draw`, for the reason
+        // `stride_filter_reproduces_the_old_point_sampling` states: `draw` is
+        // what builds `sky` and `daylight`, and `cell_colour` reads both, so an
+        // unprimed hand loop compares lit pixels against unlit ones.
+        let mut scratch = vec![0u8; 64 * 64 * 4];
+        r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut scratch, (64, 64), true);
+        for sy in 0..16i32 {
+            for sx in 0..16i32 {
+                let (wx, wy) = r.screen_to_world(sx, sy);
+                let mut lo = [255u8; 3];
+                let mut hi = [0u8; 3];
+                for by in wy..wy + 4 {
+                    for bx in wx..wx + 4 {
+                        let c = r.cell_colour_at(&world, bx, by, (0, 0));
+                        for k in 0..3 {
+                            lo[k] = lo[k].min(c[k]);
+                            hi[k] = hi[k].max(c[k]);
+                        }
+                    }
+                }
+                let i = (sy as usize * 64 + sx as usize) * 4;
+                for k in 0..3 {
+                    assert!(avg[i + k] >= lo[k] && avg[i + k] <= hi[k], "the mean at ({sx},{sy}) channel {k} is outside its own block's range");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn world_to_screen_stays_screen_to_worlds_inverse_under_every_filter() {
+        // A picking offset is a worse bug than the one this round is fixing:
+        // the player would click one cell and paint another. Both directions
+        // of the round trip that can be asserted are asserted -- a pixel's
+        // own cell must come back to that pixel, and every cell of a block
+        // must land on the pixel that covers it.
+        for filter in [ZoomOutFilter::Stride, ZoomOutFilter::Coverage, ZoomOutFilter::Average] {
+            for stride in 1..=MAX_ZOOM_OUT_STRIDE {
+                let mut r = Renderer::new();
+                r.zoom_out_stride = stride;
+                r.zoom_out_filter = filter;
+                r.camera_x = 37;
+                r.camera_y = -11;
+                for sy in -3..40i32 {
+                    for sx in -3..40i32 {
+                        let (wx, wy) = r.screen_to_world(sx, sy);
+                        assert_eq!(
+                            r.world_to_screen(wx, wy),
+                            Some((sx, sy)),
+                            "{filter:?} at stride {stride}: the cell a pixel names must map back to that pixel"
+                        );
+                        if filter != ZoomOutFilter::Stride {
+                            for by in wy..wy + stride {
+                                for bx in wx..wx + stride {
+                                    assert_eq!(
+                                        r.world_to_screen(bx, by),
+                                        Some((sx, sy)),
+                                        "{filter:?} at stride {stride}: every cell of a block must land on the block's pixel"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn a_particle_between_sampled_columns_reaches_the_screen_under_coverage() {
+        // The second half of the dropout, and the easy one to miss: particles
+        // are their own pass with their own `world_to_screen` call, so a grain
+        // in flight vanished three times in four at stride 4 even when the
+        // terrain behind it did not.
+        let (w, h) = (64i32, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        world.end_step();
+        let mut particles = ParticleSystem::new();
+        // x and y both off the sampled lattice at stride 4.
+        particles.spawn(13.0, 9.0, 0.0, 0.0, material::SAND, 0);
+        let count = |filter: ZoomOutFilter| {
+            let (sw, sh) = (16u32, 16u32);
+            let mut r = Renderer::new();
+            r.zoom_out_stride = 4;
+            r.zoom_out_filter = filter;
+            let mut with = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &particles, &ChunkSet::default(), &mut with, (sw, sh), true);
+            let mut r2 = Renderer::new();
+            r2.zoom_out_stride = 4;
+            r2.zoom_out_filter = filter;
+            let mut without = vec![0u8; (sw * sh * 4) as usize];
+            r2.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut without, (sw, sh), true);
+            with.chunks_exact(4).zip(without.chunks_exact(4)).filter(|(a, b)| a != b).count()
+        };
+        assert_eq!(count(ZoomOutFilter::Stride), 0, "the old filter drops a particle that is not on the lattice -- this is the bug, asserted so the fix is attributable");
+        assert_eq!(count(ZoomOutFilter::Coverage), 1, "under coverage the particle's block has a pixel, so it is drawn");
+    }
+
+    #[test]
+    fn the_salience_order_is_the_one_the_doc_states() {
+        use material::MaterialKind as K;
+        let rank = zoom_out_salience;
+        assert!(rank(K::Creature) > rank(K::Plant), "an animal is the hardest thing in the world to find in a still");
+        assert!(rank(K::Plant) > rank(K::Liquid));
+        assert!(rank(K::Liquid) > rank(K::Solid));
+        assert_eq!(rank(K::Solid), rank(K::Powder), "the bulk-ground tie is load-bearing -- see `coverage_leaves_the_inside_of_bulk_ground_exactly_where_point_sampling_put_it`");
+        assert!(rank(K::Powder) > rank(K::Gas));
+        assert!(rank(K::Gas) > rank(K::Empty));
+    }
+
+
+    // ---- the magnified styles (`MagnifyStyle`) -------------------------
+    //
+    // **Mirrors of the zoom-out filter's controls above**, because the two
+    // selectors have the same shape and the same two ways of going wrong: a
+    // default that is not byte-identical to the build before it, and a thin
+    // feature that a style quietly loses. Every count below has a known
+    // non-zero answer in at least one arm, for the reason the block above
+    // states -- a survivor count of 0 looks the same whether nothing survived
+    // or the probe never ran.
+
+    const EVERY_MAGNIFY_STYLE: [MagnifyStyle; 5] = [
+        MagnifyStyle::CellArt,
+        MagnifyStyle::Painted,
+        MagnifyStyle::PaintedInk,
+        MagnifyStyle::Illustrated,
+        MagnifyStyle::Chamfer,
+    ];
+
+    /// **Aimed at the ground, not at the sky, and that is load-bearing.** At
+    /// zoom 4 a 64x64 viewport is 16x16 cells; from the camera's home corner
+    /// that is sixteen rows of empty sky, which every style draws identically
+    /// because air takes its own cell's colour under all of them. The first
+    /// version of these controls compared two pictures of the sky and passed —
+    /// `every_style_other_than_cell_art_actually_changes_the_magnified_picture`
+    /// is what found it, and the byte-identity tests were blind the same way.
+    /// `MIXED_CAMERA` sits on `mixed_scene`'s wood stems, water and stone.
+    const MIXED_CAMERA: (i32, i32) = (50, 95);
+
+    fn magnified_frame(world: &World, zoom: i32, style: MagnifyStyle, stride: i32) -> Vec<u8> {
+        let (sw, sh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        r.zoom = zoom;
+        r.zoom_out_stride = stride;
+        r.magnify_style = style;
+        (r.camera_x, r.camera_y) = MIXED_CAMERA;
+        let mut frame = vec![0u8; (sw * sh * 4) as usize];
+        r.draw(world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+        frame
+    }
+
+    #[test]
+    fn zoom_one_and_every_zoom_out_stride_are_untouched_by_the_magnified_style() {
+        // **The control this whole selector rests on.** The game launches at
+        // zoom 1 and the owner was explicit that his launch picture must not
+        // move; every mechanism here is behind `zoom > 1`, so a style change
+        // has to be bit-identical at 1x and at every minified scale.
+        let world = mixed_scene();
+        for stride in 1..=MAX_ZOOM_OUT_STRIDE {
+            let base = magnified_frame(&world, 1, MagnifyStyle::CellArt, stride);
+            for style in EVERY_MAGNIFY_STYLE {
+                assert_eq!(
+                    magnified_frame(&world, 1, style, stride),
+                    base,
+                    "zoom 1 at stride {stride} must not depend on the magnified style"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_magnified_frame_is_byte_identical_under_cell_art() {
+        // The default has to be *the old code*, not a re-derivation of it that
+        // happens to agree. The old algorithm restated independently: one
+        // `cell_colour_at` at the cell `screen_to_world` names, with the
+        // pixel's own `sub`, and nothing else.
+        let world = mixed_scene();
+        let (sw, sh) = (64u32, 64u32);
+        for zoom in 2..=MAX_ZOOM {
+            let got = magnified_frame(&world, zoom, MagnifyStyle::CellArt, 1);
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            (r.camera_x, r.camera_y) = MIXED_CAMERA;
+            // Primed by one real `draw`, for the reason
+            // `stride_filter_reproduces_the_old_point_sampling` gives: `draw`
+            // is what builds `self.sky` from the world clock and `cell_colour`
+            // reads it, so a hand loop on a fresh `Renderer` would compare a
+            // lit frame against an unlit one.
+            let mut scratch = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut scratch, (sw, sh), true);
+            let mut want = vec![0u8; (sw * sh * 4) as usize];
+            for sy in 0..sh as i32 {
+                for sx in 0..sw as i32 {
+                    let (wx, wy) = r.screen_to_world(sx, sy);
+                    let c = r.cell_colour_at(&world, wx, wy, r.sub_cell(sx, sy));
+                    let i = (sy as usize * sw as usize + sx as usize) * 4;
+                    want[i..i + 4].copy_from_slice(&c);
+                }
+            }
+            assert_eq!(got, want, "cell-art at zoom {zoom} must be the old nearest-neighbour magnify byte for byte");
+        }
+    }
+
+    #[test]
+    fn every_style_other_than_cell_art_actually_changes_the_magnified_picture() {
+        // **Sensitivity, not preference**, and it is the control that keeps
+        // the byte-identity tests above from being vacuous: a style that is
+        // silently a no-op looks exactly like a style that is subtle.
+        //
+        // **On `twig_scene`, not on `mixed_scene`**, and that is the finding
+        // rather than a convenience. `mixed_scene` is vertical stems over
+        // horizontal layers -- it contains **no diagonal anywhere**, measured:
+        // zero qualifying corners in the whole view -- so the chamfer is
+        // correctly inert on it and the first version of this test read that
+        // as a dead feature. `CLAUDE.md`: *when a mechanism appears inert,
+        // check the scene still contains the situation you think it does.*
+        //
+        // **And not on `twig_scene` either**, which was this test's second
+        // scene and was wrong for the opposite reason: its twigs are pure
+        // one-cell diagonals, so every cell is orthogonally isolated and the
+        // chamfer now *deliberately* leaves them alone (see `magnified_pixel`).
+        // `staircase_scene` has both -- a 45° mass edge for the chamfer and a
+        // thin thing for the rest.
+        let world = staircase_scene();
+        let (sw, sh) = (64u32, 64u32);
+        let shot = |style: MagnifyStyle| {
+            let mut r = Renderer::new();
+            r.zoom = 4;
+            r.magnify_style = style;
+            (r.camera_x, r.camera_y) = (0, 6);
+            let mut f = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut f, (sw, sh), true);
+            f
+        };
+        let base = shot(MagnifyStyle::CellArt);
+        for style in EVERY_MAGNIFY_STYLE {
+            if style == MagnifyStyle::CellArt {
+                continue;
+            }
+            assert_ne!(shot(style), base, "{style:?} draws the same frame as today, so it is not doing anything");
+        }
+    }
+
+    #[test]
+    fn the_magnified_style_cycles_back_to_where_it_started() {
+        let mut r = Renderer::new();
+        let start = r.magnify_style;
+        let mut seen = vec![start];
+        for _ in 0..EVERY_MAGNIFY_STYLE.len() - 1 {
+            r.cycle_magnify_style();
+            assert!(!seen.contains(&r.magnify_style), "{:?} came round twice before the cycle closed", r.magnify_style);
+            seen.push(r.magnify_style);
+        }
+        r.cycle_magnify_style();
+        assert_eq!(r.magnify_style, start, "the cycle must return to the default");
+        let mut n = Renderer::new();
+        let notch = n.magnify_notch;
+        for _ in 0..3 {
+            n.cycle_magnify_notch();
+        }
+        assert_eq!(n.magnify_notch, notch, "the notch rule must cycle back too");
+    }
+
+    /// Sky over a stone floor with `n` one-cell-thick plant twigs, each in its
+    /// own `spacing`-wide lane, each a **diagonal** staircase. The magnified
+    /// twin of `stem_scene`: there the question was whether a twig falls
+    /// between sampled columns, here it is whether a soft style dissolves one.
+    ///
+    /// **Diagonal, and that is the whole scene design.** A *vertical* stem is
+    /// thin in one axis only, so bilinear blends it with the sky on one axis
+    /// only and it keeps 87.5% of its peak at zoom 4 — measured, and it is
+    /// what the first version of this scene built, which made the gate report
+    /// that painted loses almost nothing. A twig that is one cell thick in
+    /// **both** axes is the thing lane T watched go to haze and the thing a
+    /// stand is actually made of, and it loses far more. A scene that does not
+    /// contain the situation the complaint is about reads as a fix.
+    fn twig_scene(spacing: i32, n: i32) -> (World, Vec<(i32, i32)>) {
+        let (w, h) = (spacing * n, 64i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("the shipped registry has wood");
+        let mut twigs = Vec::new();
+        for i in 0..n {
+            let x0 = i * spacing + 1;
+            // A staircase climbing away from the floor, four cells of it, so
+            // every cell has air on two sides and a neighbour on the diagonal.
+            let cells: Vec<(i32, i32)> = (0..4).map(|k| (x0 + k, 30 - k)).collect();
+            for &(x, y) in &cells {
+                world.set(x, y, Cell::new(wood, 0));
+            }
+            twigs.push(cells[1]);
+        }
+        world.end_step();
+        (world, twigs)
+    }
+
+    /// A mass with a 45° staircase edge, and a one-cell twig above it.
+    ///
+    /// Two features, because the styles are about two different things: a
+    /// stepped edge is what the chamfer exists to cut, and it is made of cells
+    /// that *do* have orthogonal neighbours of their own class, which a pure
+    /// one-cell-wide 45° run does not. The twig is what the ink exists to
+    /// keep.
+    fn staircase_scene() -> World {
+        let (w, h) = (32i32, 32i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            // A 45° slope of a *filled* mass: every surface cell has a
+            // convex corner with air on both sides of it (the corner the
+            // chamfer cuts) and stone on its other two sides (so the
+            // isolated-cell rule does not apply to it). A one-cell-wide
+            // diagonal *run* has neither, which is why it is not this scene.
+            let top = (8 + x).min(h);
+            for y in top..h {
+                world.set(x, y, Cell::new(material::STONE, ((x * 5 + y * 3) % 4) as u8));
+            }
+        }
+        let wood = world.materials.id_of("wood").expect("wood");
+        for k in 0..5 {
+            world.set(4 + k, 11 - k, Cell::new(wood, 0));
+        }
+        world.end_step();
+        world
+    }
+
+    /// How strongly each stem of `twig_scene` reaches the screen at `zoom`
+    /// under `style`, as a fraction of what today's look gives it.
+    ///
+    /// **Differenced against a stem-free control, never matched against wood's
+    /// palette** — the same reasoning `stem_columns_on_screen` records: the
+    /// palette is put through the sky light, the depth grade and the grain
+    /// before it reaches a pixel, so a colour-matching probe would be a test of
+    /// `cell_colour` wearing the name of a test about styles.
+    ///
+    /// Returns `(peak, mean)` per stem, each normalised by the same stem's
+    /// figure under [`MagnifyStyle::CellArt`]: **peak** is the strongest single
+    /// pixel the stem owns, which says whether it is still *there*, and
+    /// **mean** is the average over the block it should own, which says how
+    /// much of it survived. A style can hold the peak and lose the mean, which
+    /// is exactly what bilinear does at an odd zoom, so reporting one alone
+    /// would have answered the wrong question.
+    fn twig_strength(zoom: i32, style: MagnifyStyle) -> (Vec<f32>, Vec<f32>) {
+        twig_strength_at(zoom, style, MAGNIFY_INK)
+    }
+
+    fn twig_strength_at(zoom: i32, style: MagnifyStyle, ink: f32) -> (Vec<f32>, Vec<f32>) {
+        let spacing = 8;
+        let n = 8;
+        let (world, twigs) = twig_scene(spacing, n);
+        let (vw, vh) = ((spacing * n) as u32, 64u32);
+        let (sw, sh) = (vw * zoom as u32, vh * zoom as u32);
+        let particles = ParticleSystem::new();
+        let draw = |w: &World, style: MagnifyStyle| {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.magnify_style = style;
+            r.magnify_ink = ink;
+            let mut frame = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(w, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+            frame
+        };
+        let mut bare = world.clone();
+        for i in 0..n {
+            for k in 0..4 {
+                bare.set(i * spacing + 1 + k, 30 - k, Cell::EMPTY);
+            }
+        }
+        bare.end_step();
+        let without = draw(&bare, MagnifyStyle::CellArt);
+        // The control's own style is `CellArt` on purpose: with the twigs gone
+        // the lane is flat sky, which every style draws identically, and
+        // holding it fixed keeps the difference a statement about the twig.
+        let measure = |frame: &Vec<u8>| -> Vec<(f32, f32)> {
+            twigs
+                .iter()
+                .map(|&(cx, cy)| {
+                    // The block of pixels this twig cell owns, and a one-cell
+                    // ring round it -- a style is allowed to *spread* a twig,
+                    // and a probe confined to its own block would score a
+                    // dilated one as a lost one.
+                    let (x0, x1) = (((cx - 1) * zoom).max(0), ((cx + 2) * zoom).min(sw as i32));
+                    let (y0, y1) = (((cy - 1) * zoom).max(0), ((cy + 2) * zoom).min(sh as i32));
+                    let (mut peak, mut sum, mut cells) = (0.0f32, 0.0f32, 0u32);
+                    for sy in y0..y1 {
+                        for sx in x0..x1 {
+                            let i = (sy as usize * sw as usize + sx as usize) * 4;
+                            let d: f32 = (0..3)
+                                .map(|k| (frame[i + k] as f32 - without[i + k] as f32).abs())
+                                .sum::<f32>()
+                                / 3.0;
+                            peak = peak.max(d);
+                            sum += d;
+                            cells += 1;
+                        }
+                    }
+                    (peak, sum / cells.max(1) as f32)
+                })
+                .collect()
+        };
+        let base = measure(&draw(&world, MagnifyStyle::CellArt));
+        let arm = measure(&draw(&world, style));
+        (
+            arm.iter().zip(&base).map(|(a, b)| a.0 / b.0.max(1e-3)).collect(),
+            arm.iter().zip(&base).map(|(a, b)| a.1 / b.1.max(1e-3)).collect(),
+        )
+    }
+
+    #[test]
+    fn the_twig_probe_sees_a_twig_and_would_see_it_go() {
+        // **The positive control, and the negative one.** `CellArt` against
+        // itself has to read exactly 1.0, or every ratio below is measured
+        // against a moving baseline; and the scene has to actually contain the
+        // twigs, or a probe reading 0 is reporting on itself.
+        let (peak, mean) = twig_strength(3, MagnifyStyle::CellArt);
+        assert!(peak.iter().all(|&p| (p - 1.0).abs() < 1e-3), "the baseline must be its own unit: {peak:?}");
+        assert!(mean.iter().all(|&m| (m - 1.0).abs() < 1e-3), "the baseline must be its own unit: {mean:?}");
+
+        // The fault put back: the twigs taken out of the world. If the two
+        // frames agree, the scene never held them and every figure above is a
+        // measurement of empty sky.
+        let (spacing, n) = (8i32, 8i32);
+        let (world, _) = twig_scene(spacing, n);
+        let mut bare = world.clone();
+        for i in 0..n {
+            for k in 0..4 {
+                bare.set(i * spacing + 1 + k, 30 - k, Cell::EMPTY);
+            }
+        }
+        bare.end_step();
+        let (sw, sh) = ((spacing * n * 3) as u32, 64 * 3u32);
+        let shot = |w: &World| {
+            let mut r = Renderer::new();
+            r.zoom = 3;
+            let mut f = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(w, &ParticleSystem::new(), &ChunkSet::default(), &mut f, (sw, sh), true);
+            f
+        };
+        assert_ne!(shot(&world), shot(&bare), "the scene must contain the twigs the probe is about -- if these agree the scene is the bug");
+    }
+
+    #[test]
+    fn the_ink_gives_painted_back_the_twigs_it_loses() {
+        // **The gate this whole lane turns on.** A painted base thins a
+        // one-cell twig -- the owner's *"pixels of plants and other foreground
+        // things are disappearing"* arriving at the other end of the zoom
+        // range -- and the class field plus the ink is what is supposed to give
+        // it back. If this ever fails, the style is not ready to ship and the
+        // honest report is that, not a tuning.
+        //
+        // Read at zoom 2 and zoom 4 rather than 3. At an *odd* zoom the middle
+        // pixel of every block sits exactly on its cell centre, so plain
+        // bilinear hands a twig one full-strength pixel for free and the peak
+        // says nothing; at an even zoom no pixel lands on a centre and the loss
+        // is visible in both figures. That asymmetry is a fact about the
+        // lattice, not about the style, and a gate that only ran at 3x would
+        // have been blind by construction.
+        for zoom in [2, 4] {
+            let (painted_peak, painted_mean) = twig_strength(zoom, MagnifyStyle::Painted);
+            let (ink_peak, ink_mean) = twig_strength(zoom, MagnifyStyle::PaintedInk);
+            let worst = |v: &[f32]| v.iter().copied().fold(f32::INFINITY, f32::min);
+
+            assert!(
+                worst(&painted_peak) < 0.85,
+                "painted is supposed to thin a one-cell twig at zoom {zoom}; if it does not, this gate is measuring nothing: {painted_peak:?}"
+            );
+            assert!(
+                worst(&ink_peak) >= 1.0,
+                "painted+ink must leave every twig at least as present as today at zoom {zoom}: {ink_peak:?}"
+            );
+            assert!(
+                worst(&ink_mean) > worst(&painted_mean),
+                "the ink must recover more of the twig than the painted base keeps at zoom {zoom}: ink {ink_mean:?} against painted {painted_mean:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_chamfer_does_not_whittle_a_one_cell_twig_away() {
+        // **The gate caught this and nothing else would have.** Cutting every
+        // convex corner of a cell that has no orthogonal neighbour of its own
+        // class takes the whole cell: at zoom 2 a one-cell diagonal twig came
+        // through at **0.03** of its presence today, and at zoom 4 at 0.25 --
+        // erased, and whittled to a diamond, by the very feature this round is
+        // about not losing things. The rule in `magnified_pixel` leaves such a
+        // cell alone; this is what says so, at the zooms it was measured at.
+        for zoom in [2, 3, 4, 8] {
+            let worst = |v: Vec<f32>| v.into_iter().fold(f32::INFINITY, f32::min);
+            let (peak, area) = twig_strength(zoom, MagnifyStyle::Chamfer);
+            let (peak, area) = (worst(peak), worst(area));
+            assert!(peak >= 1.0 && area >= 1.0, "the chamfer ate a one-cell twig at zoom {zoom}: peak {peak} area {area}");
+        }
+    }
+
+    #[test]
+    fn the_class_field_and_the_ink_each_carry_part_of_the_recovery() {
+        // Which half does the work -- the dial is the control. At `ink = 1.0`
+        // the line is off and nothing else changes, so what is left is the
+        // class field's own contribution. Both have to be non-zero or one of
+        // them is decoration being credited for the other's work.
+        let zoom = 4;
+        let worst = |v: Vec<f32>| v.into_iter().fold(f32::INFINITY, f32::min);
+        let painted = worst(twig_strength_at(zoom, MagnifyStyle::Painted, 1.0).1);
+        let field_only = worst(twig_strength_at(zoom, MagnifyStyle::PaintedInk, 1.0).1);
+        let with_ink = worst(twig_strength_at(zoom, MagnifyStyle::PaintedInk, MAGNIFY_INK).1);
+        assert!(
+            field_only > painted,
+            "restricting the blend to the winning class must put the twig back on its own: {field_only} against {painted}"
+        );
+        assert!(with_ink > field_only, "the ink line must add to it: {with_ink} against {field_only}");
+    }
+
+    /// A block of one powder filling everything below `SOIL_TOP`, with the
+    /// per-cell shade jitter on. **The jitter is the point**: a rule that
+    /// keyed on colour rather than on class would find an edge at every one of
+    /// those shade steps, which is the failure mode `dead-ends.md` records for
+    /// the pixel-art upscalers.
+    const SOIL_TOP: i32 = 8;
+
+    fn soil_scene() -> World {
+        let (w, h) = (32i32, 32i32);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for y in SOIL_TOP..h {
+            for x in 0..w {
+                world.set(x, y, Cell::new(material::SAND, ((x * 7 + y * 13) % 4) as u8));
+            }
+        }
+        world.end_step();
+        world
+    }
+
+    /// Where the ink actually landed, per screen row, on `soil_scene`.
+    ///
+    /// **Differenced against the same style with the ink turned off**, not
+    /// against `CellArt`. The first version of this compared painted+ink with
+    /// the flat picture and counted 2 pixels deep inside the soil as ink --
+    /// they were the *blend*, which is allowed to come out darker than the
+    /// centre cell when its neighbours are darker shades. `magnify_ink = 1.0`
+    /// changes the ink and nothing else, so the difference is the ink and
+    /// nothing else: `CLAUDE.md`'s *hold the semantic rule fixed rather than
+    /// adding another metric*.
+    fn inked_rows(zoom: i32) -> Vec<usize> {
+        let world = soil_scene();
+        let (sw, sh) = ((32 * zoom) as u32, (32 * zoom) as u32);
+        let shot = |ink: f32| {
+            let mut r = Renderer::new();
+            r.zoom = zoom;
+            r.magnify_style = MagnifyStyle::PaintedInk;
+            r.magnify_ink = ink;
+            let mut f = vec![0u8; (sw * sh * 4) as usize];
+            r.draw(&world, &ParticleSystem::new(), &ChunkSet::default(), &mut f, (sw, sh), true);
+            f
+        };
+        let inked = shot(MAGNIFY_INK);
+        let plain = shot(1.0);
+        (0..sh as usize)
+            .map(|sy| {
+                (0..sw as usize)
+                    .filter(|&sx| {
+                        let i = (sy * sw as usize + sx) * 4;
+                        inked[i..i + 3] != plain[i..i + 3]
+                    })
+                    .count()
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_ink_lands_on_the_silhouette_and_nowhere_else() {
+        // **Three assertions, and each is the control for the other two.**
+        // "No ink inside the soil" passes trivially for an ink rule that never
+        // fires; "the surface is inked" passes for one that inks everything;
+        // and "the sky is clean" is the one that caught the world-border band
+        // (see `hold_neighbourhood`), which the other two were both blind to.
+        //
+        // The band is **one cell either side of the surface**, not the surface
+        // cell's own block. At `magnify_level` 0.35 the contour sits about
+        // 0.15 of a cell *above* the cell boundary -- that bias is the whole
+        // mechanism that keeps a thin twig -- so the line lands in the last
+        // sub-row of the air cell above. A test aimed at the soil block alone
+        // reported the ink dead while it was drawing perfectly, one pixel up.
+        let zoom = 4;
+        let rows = inked_rows(zoom);
+        let width = (32 * zoom) as usize;
+        let contour = ((SOIL_TOP - 1) * zoom) as usize..((SOIL_TOP + 1) * zoom) as usize;
+        let on_contour: usize = rows[contour.clone()].iter().sum();
+        assert!(on_contour > width / 2, "only {on_contour} pixels of the surface band were inked; the ink is not firing");
+        let sky: usize = rows[..contour.start].iter().sum();
+        assert_eq!(sky, 0, "{sky} pixels of open sky were inked -- something above the mass is being read as a mass");
+        let interior: usize = rows[contour.end..].iter().sum();
+        assert_eq!(
+            interior, 0,
+            "{interior} pixels inside a uniform mass were inked -- the ink is keying on colour, not on class"
+        );
+    }
+
+    #[test]
+    fn a_magnified_style_is_a_pure_function_of_the_world_so_the_skip_still_holds() {
+        // **The dirty-rect skip's own property, restated for the styles.**
+        // Nothing in `magnified_pixel` reads the frame counter, so drawing the
+        // same settled world twice must give the same bytes -- which is what
+        // makes a settled screen recompute nothing. A style that animated
+        // would take the skip's winnings, which `CLAUDE.md`'s grain lesson
+        // says is a real cost rather than a theoretical one.
+        let world = mixed_scene();
+        for style in EVERY_MAGNIFY_STYLE {
+            let a = magnified_frame(&world, 4, style, 1);
+            let b = magnified_frame(&world, 4, style, 1);
+            assert_eq!(a, b, "{style:?} draws a different frame from the same world twice");
+        }
+    }
+
+    #[test]
+    fn the_style_and_its_dials_force_a_full_repaint() {
+        // A look selector that does not invalidate leaves half the screen in
+        // the old style until something unrelated repaints it -- the exact bug
+        // `G` over a still pond had, which the owner reported as a dead key.
+        // Every dial is in the key, not just the style.
+        let world = mixed_scene();
+        let (sw, sh) = (64u32, 64u32);
+        let particles = ParticleSystem::new();
+        let mut r = Renderer::new();
+        r.zoom = 4;
+        let mut frame = vec![0u8; (sw * sh * 4) as usize];
+        r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), true);
+        // Settled: with nothing touched, the skip recomputes nothing.
+        let quiet = r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), false);
+        assert_eq!(quiet, 0, "a settled world with no style change must recompute nothing");
+        for change in [
+            &mut |r: &mut Renderer| r.magnify_style = MagnifyStyle::PaintedInk as MagnifyStyle,
+            &mut |r: &mut Renderer| r.magnify_ink = 0.2,
+            &mut |r: &mut Renderer| r.magnify_level = 0.5,
+            &mut |r: &mut Renderer| r.magnify_grain = 0.2,
+            &mut |r: &mut Renderer| r.magnify_notch = NotchRule::Cut,
+        ] as [&mut dyn FnMut(&mut Renderer); 5]
+        {
+            change(&mut r);
+            let n = r.draw(&world, &particles, &ChunkSet::default(), &mut frame, (sw, sh), false);
+            assert_eq!(n as u32, sw * sh, "a changed dial must repaint the whole frame, not {n} pixels");
+        }
+    }
+
+    #[test]
+    fn the_zoom_out_filter_cycles_back_to_where_it_started() {
+        let mut r = Renderer::new();
+        assert_eq!(r.zoom_out_filter, ZoomOutFilter::Coverage, "the fix is the default; the old look is the control behind a key");
+        let start = r.zoom_out_filter;
+        let mut seen = vec![start];
+        for _ in 0..2 {
+            r.cycle_zoom_out_filter();
+            seen.push(r.zoom_out_filter);
+        }
+        r.cycle_zoom_out_filter();
+        assert_eq!(r.zoom_out_filter, start, "three steps must return to the start");
+        seen.sort_by_key(|f| format!("{f:?}"));
+        seen.dedup();
+        assert_eq!(seen.len(), 3, "every variant must be reachable from the key");
     }
 
     #[test]

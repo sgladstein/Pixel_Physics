@@ -23,8 +23,10 @@
 //! | `scene` | the box: geometry, soil, light, partitions, founders |
 //! | `time`  | paused vs running, the speed dial, and what it actually achieved |
 //! | `stats` | the census, and the page that draws it |
+//! | `census`| the late-game census -- ants, larder, nest footprint, dead zone -- shared with `examples/latecensus.rs` |
 //! | `ui`    | the control bar along the bottom, its pages, and the mouse |
 //! | `params`| which numbers the player can reach, and how they are written |
+//! | `rain`  | the mister on the lid: rates, cadence, and the measurement the default rests on |
 //! | this file | `Lab` — the state the four above are wired into, and the frame |
 //!
 //! **The viewport is `app::WIDTH` x `app::HEIGHT`**, deliberately the same
@@ -33,8 +35,11 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod census;
+pub mod names;
 pub mod params;
 pub mod plainspeak;
+pub mod rain;
 pub mod roster;
 pub mod scenario;
 pub mod scene;
@@ -46,6 +51,7 @@ use crate::render::Renderer;
 use crate::sim::explosion::Blasts;
 use crate::sim::frame;
 use crate::sim::particle::ParticleSystem;
+use crate::sim::pheromone::{self, Channel};
 use crate::sim::player;
 use crate::sim::world::World;
 
@@ -54,6 +60,30 @@ pub use crate::app::{HEIGHT, WIDTH};
 /// How much a rack still is shrunk in each axis. Kept beside `Thumb` rather
 /// than in `ui`, because the downscale happens here.
 const THUMB_SHRINK: u32 = 4;
+
+/// **Today's date, as `YYYY-MM-DD`, UTC.** No date crate in this workspace
+/// (`Cargo.toml` carries nine dependencies and none of them tell time in
+/// calendar units), so this is Howard Hinnant's small, well-known
+/// days-since-epoch civil-calendar conversion rather than a new dependency
+/// for one filename. Proleptic Gregorian, correct for every date this build
+/// will ever see; `Lab::write_chronicle` is its only caller.
+fn today_utc() -> String {
+    let secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let z = (secs / 86_400) as i64 + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097); // [0, 146096]
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365; // [0, 399]
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100); // [0, 365]
+    let mp = (5 * doy + 2) / 153; // [0, 11]
+    let d = doy - (153 * mp + 2) / 5 + 1; // [1, 31]
+    let m = if mp < 10 { mp + 3 } else { mp - 9 }; // [1, 12]
+    let y = if m <= 2 { y + 1 } else { y };
+    format!("{y:04}-{m:02}-{d:02}")
+}
 
 /// The whole lab: a world, the systems that live beside the cell grid, a view
 /// on it, and the two things the player drives — time and what is on screen.
@@ -71,6 +101,12 @@ pub struct Lab {
     pub time: time::TimeControl,
     /// The census and its page. See `stats`.
     pub stats: stats::Stats,
+    /// **The CENSUS rows this run has taken so far**, oldest first --
+    /// `Lab::write_chronicle`'s CENSUS section reads straight off this. One
+    /// entry every `chronicle_census_every()` frames (`Lab::tick`), cleared
+    /// on `reset()` alongside `stats` because it belongs to the run that is
+    /// about to be thrown away, not the box that replaces it.
+    pub chronicle_census: Vec<census::ChronicleRow>,
     /// The control bar along the bottom, the pages it opens, and the mouse.
     /// See `ui`.
     pub ui: ui::Ui,
@@ -101,6 +137,20 @@ pub struct Lab {
     /// cell every frame, and the stroke would smear backwards as the view
     /// panned. `None` between strokes.
     stroke: Option<Stroke>,
+    /// **Where the current [`ui::Tool::Scent`] gesture started, in world
+    /// cells.** Set once on press and held for the whole drag -- see
+    /// `Lab::paint_scent` for why a gradient needs a *fixed* reference point
+    /// rather than each incremental segment's own endpoints. `None` between
+    /// strokes, like `stroke` itself.
+    scent_origin: Option<(i32, i32)>,
+    /// **Which lamp column [`ui::Tool::Lamp`] grabbed on press, if any.**
+    ///
+    /// Set in [`Lab::press`] from `scene::LabBox::lamp_near`, and consumed
+    /// in [`Lab::lamp_at`] on release — the only way this tool can tell a
+    /// click (release lands back over the same fixture: remove it) from a
+    /// drag (release lands elsewhere: move it there). `None` means the
+    /// press landed on bare ceiling, so a release places a new fixture.
+    lamp_grab: Option<i32>,
     /// **The rest of the rack — every chamber that is not the one on screen.**
     ///
     /// The active chamber is *not* in here: its world, spec, stats, particles
@@ -207,6 +257,12 @@ pub struct Chamber {
     /// by seed, which is the comparison the sweep existed to make.
     pub setting: Option<f32>,
     pub stats: stats::Stats,
+    /// This chamber's own CENSUS rows, parked with it for the same reason
+    /// `stats` is -- a switch away from a chamber freezes it (`ChamberSummary`'s
+    /// own doc), so its census history must not keep accumulating under
+    /// whichever box is on screen, and must come back intact when you
+    /// switch to it again.
+    pub chronicle_census: Vec<census::ChronicleRow>,
     pub particles: ParticleSystem,
     pub blasts: Blasts,
     /// The population strip `Ui` keeps for the bar. Parked with its box for
@@ -380,14 +436,29 @@ impl Lab {
         // `CycleCreatureColour`'s handler, next to `renderer.creature_colour`
         // itself, so the two can never drift more than one action apart.
         ui.set_creature_colour(renderer.creature_colour);
+        // **The MENU page's five magnify rows and its display-floor row**,
+        // told what `Renderer`/`TimeControl` already hold so the mirror
+        // never opens on a stale reading before the first cycle. See
+        // `Ui::set_magnify`/`set_display_floor`'s own doc for why the mirror
+        // exists at all.
+        ui.set_magnify(
+            renderer.magnify_style,
+            renderer.magnify_notch,
+            renderer.magnify_ink,
+            renderer.magnify_level,
+            renderer.magnify_grain,
+        );
+        let time = time::TimeControl::new();
+        ui.set_display_floor(time.display_floor());
         Self {
             world,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             renderer,
             player_tuning: player::Tuning::default(),
-            time: time::TimeControl::new(),
+            time,
             stats: stats::Stats::new(),
+            chronicle_census: Vec::new(),
             ui,
             spec,
             scenario: None,
@@ -397,6 +468,8 @@ impl Lab {
             // so unphotographable on a box with no keyboard.
             show_help: std::env::var("PIXEL_PHYSICS_LAB_HELP").as_deref() != Ok("0"),
             stroke: None,
+            scent_origin: None,
+            lamp_grab: None,
             // One chamber, and it is the one on screen — so the rack is a
             // single hole. Every later chamber is pushed beside it.
             rack: vec![None],
@@ -427,11 +500,109 @@ impl Lab {
         }
     }
 
+    /// **How often, in simulated frames, the chronicle takes a CENSUS
+    /// sample.** `Reports/evolution-lab-late-game-design-2026-09-12.md`
+    /// brief 0's own cadence: the late-game question turns on hundreds of
+    /// ants and tens of thousands of frames, and every-frame is the bar's
+    /// job (`stats::SAMPLE_INTERVAL`), not the chronicle's.
+    pub const CHRONICLE_CENSUS_EVERY: u64 = 10_000;
+    /// Environment override for [`Lab::CHRONICLE_CENSUS_EVERY`],
+    /// `CHRONICLE_DIR_ENV`'s own shape: a test that cannot afford ten
+    /// thousand real ticks per sample sets this lower.
+    pub const CHRONICLE_CENSUS_EVERY_ENV: &'static str = "PIXEL_PHYSICS_CHRONICLE_CENSUS_EVERY";
+
+    fn chronicle_census_every() -> u64 {
+        std::env::var(Self::CHRONICLE_CENSUS_EVERY_ENV).ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(Self::CHRONICLE_CENSUS_EVERY)
+    }
+
+    /// **Where a chronicle export goes**, gitignored beside the shelf and the
+    /// saved bed (`.gitignore`'s own block for both) -- one player's own
+    /// record of a run, not authored content.
+    pub const CHRONICLE_DIR: &'static str = "assets/chronicles";
+    /// Environment override for [`Lab::CHRONICLE_DIR`], `scenario::ASSET_DIR_ENV`'s
+    /// own shape: a test or a second lab in this container writes somewhere
+    /// else instead of the shared, gitignored directory.
+    pub const CHRONICLE_DIR_ENV: &'static str = "PIXEL_PHYSICS_CHRONICLE_DIR";
+
+    fn chronicle_dir() -> std::path::PathBuf {
+        std::env::var(Self::CHRONICLE_DIR_ENV).map(std::path::PathBuf::from).unwrap_or_else(|_| Self::CHRONICLE_DIR.into())
+    }
+
+    /// What this box is, for the chronicle's own header and filename: the
+    /// scenario's file stem if the box on screen was opened from one, else
+    /// its species and colony species so an ordinary hand-built bed still
+    /// names itself rather than reading `BED`. Lower-cased and stripped to
+    /// `[a-z0-9_]` for the filename half -- a scenario title is free text
+    /// (`Scenario::title`'s own doc), and a slash or a colon in it would
+    /// either fail the write or, worse, land outside `CHRONICLE_DIR`.
+    fn bed_label(&self) -> String {
+        match &self.scenario {
+            Some(s) => s.name.clone(),
+            None => format!("{}_{}", self.spec.species, self.spec.colony_species),
+        }
+    }
+
+    fn bed_slug(&self) -> String {
+        self.bed_label()
+            .to_ascii_lowercase()
+            .chars()
+            .map(|c| if c.is_ascii_alphanumeric() { c } else { '_' })
+            .collect()
+    }
+
+    /// **Write this run's chronicle to a text file, and say on the bar where
+    /// it went.** Called from `reset()`, on the world about to be thrown
+    /// away, and from the binary's own shutdown hook -- `bin/lab.rs`'s
+    /// `exiting` -- so a run's history survives both ways a session ends:
+    /// pressing `REBUILD` and closing the window.
+    ///
+    /// **Never blocks either.** A write failure is reported the same way a
+    /// success is -- on the bar, through `ui.say` -- and the caller carries
+    /// on exactly as it would have: `CLAUDE.md`'s own rule for this
+    /// deliverable, and the reason this returns nothing a caller has to
+    /// branch on.
+    ///
+    /// **Skipped on a box nobody has run.** `reset()` fires on every
+    /// `REBUILD`, including the very first one after loading a scenario
+    /// (`load_scenario`'s own doc), and a chronicle of `FRAME 0` is a header
+    /// with nothing under it -- clutter, not a record.
+    pub fn write_chronicle(&mut self) {
+        if self.world.frame == 0 {
+            return;
+        }
+        let dir = Self::chronicle_dir();
+        let path = dir.join(format!(
+            "chronicle-{}-{}-s{}.txt",
+            today_utc(),
+            self.bed_slug(),
+            self.spec.seed
+        ));
+        // **What the player actually changed, against a bed nobody has
+        // touched.** `founders: 0, colonies: 0` only skips the planting
+        // pass -- every dial field lives on `World` itself and is set the
+        // same way regardless -- so this is a cheap reference box, not a
+        // second played bed. Built fresh here rather than cached: this runs
+        // once per `REBUILD` or quit, never per frame.
+        let shipped = scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() }.build();
+        let dial_changes = params::Dials::from_world(&self.world).changes_from(&params::Dials::from_world(&shipped));
+        let text = ui::chronicle_text(&self.world, &self.spec, &self.bed_label(), self.time.requested, &self.chronicle_census, &dial_changes);
+        let result = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
+        match result {
+            Ok(()) => self.ui.say(format!("CHRONICLE SAVED -> {}", path.display())),
+            Err(e) => self.ui.say(format!("CHRONICLE NOT SAVED: {e}")),
+        }
+    }
+
     /// Rebuild the box on screen from `self.spec`, keeping the view and the
     /// dial, and report what the scenario attached to it (if one) managed
     /// to place -- `Placed::default()` when there is none, so a caller need
     /// not match on `self.scenario` to use the count.
     pub fn reset(&mut self) -> scenario::Placed {
+        // **The run being replaced gets its chronicle before it goes.** This
+        // has to run before `spec.build()` two lines down overwrites
+        // `self.world` -- the whole point of the export is that a `REBUILD`
+        // does not silently erase the history of the box it is replacing.
+        self.write_chronicle();
         // **The rules and dials the player set survive the rebuild; the box
         // does not.** `spec.build()` returns a brand-new `World` at its
         // defaults, so a switch or a heredity number thrown on the
@@ -459,6 +630,11 @@ impl Lab {
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
+        // The outgoing run's CENSUS rows just went out with it above
+        // (`write_chronicle`, before `spec.build()` replaced `self.world`);
+        // the box that replaces it starts its own history at frame 0, same
+        // reason `stats` resets here.
+        self.chronicle_census.clear();
         placed
     }
 
@@ -628,6 +804,7 @@ impl Lab {
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
+            chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
@@ -684,6 +861,7 @@ impl Lab {
             setting: None,
             batch: None,
             stats: stats::Stats::new(),
+            chronicle_census: Vec::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -948,6 +1126,10 @@ impl Lab {
             setting,
             batch,
             stats: stats::Stats::restored(census, history),
+            // A batch runs its own headless loop (`batch.rs`), not
+            // `Lab::tick`, so a landed row never took a CENSUS sample --
+            // same reason it adopts with fresh `particles`/`blasts` below.
+            chronicle_census: Vec::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -1271,6 +1453,13 @@ impl Lab {
         if let Some(scenario) = &self.scenario {
             scenario::tick_timeline(scenario, &mut self.world, &self.spec);
         }
+        // **The mister, same timing contract as the timeline above: right
+        // after `frame::step`, so a drop this tick sees this tick's own
+        // settled state.** `rain::tick` is its own due-gate on `World::
+        // frame` and returns 0 immediately for `Rain::Off`, so a box with
+        // the mister off -- the shipped default -- pays one `match` and
+        // nothing else.
+        rain::tick(&mut self.world, &self.spec, self.spec.rain);
         // **Both series are sampled here, per simulated tick, and they used
         // to be sampled in `advance` after the whole batch.** Each has its
         // own cadence gate on `World::frame`, and a gate cannot fire more
@@ -1293,6 +1482,25 @@ impl Lab {
         self.world.regroup_by_scent();
         self.stats.observe(&self.world);
         self.ui.observe(&self.world);
+        // **The chronicle's own census, on its own cadence.** `CHRONICLE_
+        // CENSUS_EVERY` frames -- independent of `stats::SAMPLE_INTERVAL`/
+        // `STANDING_INTERVAL` above, which feed the bar's population strip
+        // and are tuned for a screen redrawn every frame. This feeds a row
+        // meant to be read minutes or hours apart in a text file
+        // (`Reports/evolution-lab-late-game-design-2026-09-12.md` brief 0),
+        // so a coarser, env-overridable cadence is the right one, not the
+        // same one. Frame 0 never samples -- `World::begin_step` increments
+        // `frame` before any of this runs, so the first multiple of the
+        // interval a fresh box reaches is the interval itself -- which is
+        // what keeps a box nobody has run from getting a spurious row, the
+        // same reason `write_chronicle` itself skips `frame == 0`.
+        let every = Self::chronicle_census_every();
+        if self.world.frame.is_multiple_of(every) {
+            let ids = census::Ids::resolve(&self.world);
+            let nest_cols = census::nest_columns(&self.spec, self.scenario.as_ref());
+            let gut = census::ant_gut_bias(&self.world);
+            self.chronicle_census.push(census::take_chronicle_row(&self.world, &self.spec, gut, &nest_cols, &ids, &self.spec.colony_species));
+        }
     }
 
     /// **One tick, for a harness that needs to advance the world without the
@@ -1322,8 +1530,47 @@ impl Lab {
         let started = std::time::Instant::now();
         let mut ran = 0u32;
         while ran < plan.ticks {
+            // **Checked inside the loop, not after it.** At 1024x one
+            // displayed frame is up to 1,024 ticks, so a check placed after
+            // this loop would compile, pass a test that only ever runs a
+            // handful of ticks, and land an auto-reaction up to a thousand
+            // frames late in the real box --
+            // `the_reaction_is_checked_inside_the_tick_loop` is what catches
+            // that placement; a version with the check moved after the loop
+            // is red under it.
+            //
+            // `RunLog::len() + RunLog::dropped()` is monotonic within one
+            // run (`push` bumps `dropped` whenever it trims), so a plain
+            // difference across one tick is "did a line get pushed this
+            // tick" with no need to hold a copy of the log or to wait for
+            // lane A's `RunLog::total()`.
+            let before = self.world.run_log.total();
             self.tick();
             ran += 1;
+            let after = self.world.run_log.total();
+            if after > before && self.time.react != time::Reaction::Off && self.time.can_react() {
+                // **Gated on the mask before anything heavier**, which is
+                // the scale answer: at 1,000+ ants an armed kind can still
+                // arrive every few frames, and `notable()`'s line-bounded
+                // set plus this cooldown are the only two things standing
+                // between that and a dial that can never leave 1x. Newest
+                // first, so `grew` covers exactly this tick's new lines;
+                // walking them front-to-back finds the most recent one this
+                // box is actually armed to notice.
+                let grew = (after - before) as usize;
+                let mut hit = None;
+                for e in self.world.run_log.recent().take(grew) {
+                    if self.time.reacts_to(e.kind) {
+                        hit = Some(*e);
+                        break;
+                    }
+                }
+                if let Some(event) = hit {
+                    self.take_camera_to(&event);
+                    self.time.react();
+                    break;
+                }
+            }
             if started.elapsed() >= plan.budget {
                 break;
             }
@@ -1342,6 +1589,62 @@ impl Lab {
         // there. A frame that drew nothing still advances them, because they
         // no longer depend on this function being reached at all.
         advance
+    }
+
+    /// **Point the interface at whatever a notable event just happened to.**
+    ///
+    /// Called once, from `advance`'s tick loop, at the moment a reaction is
+    /// decided -- never from `draw`, so it cannot fire twice for one event
+    /// and cannot race `follow_pin`, which takes over the *smooth* chase
+    /// from here on (every drawn frame, for as long as FOLLOW stays on).
+    ///
+    /// `LineEnded` has no live individual to point at -- `free_organism` has
+    /// already dropped the slot by the time the event exists -- so a
+    /// subject that does not resolve falls back to the graveyard, exactly
+    /// what `Grave::at` was kept for.
+    fn take_camera_to(&mut self, event: &crate::sim::world::LogEvent) {
+        let who = roster::Individual { id: event.id, born_frame: event.born_frame };
+        let at = if let Some(state) = who.resolve(&self.world) {
+            roster::anchor_of(state)
+        } else {
+            self.world.graveyard.about(event.id, event.born_frame).map(|g| g.at)
+        };
+
+        // **Re-point the pin regardless of whether a position resolved.**
+        // `release_pin` first because `Ui::pin` toggles -- pinning the
+        // individual already pinned would let it go, which is exactly
+        // backwards for an *automatic* reaction. A pin that cannot resolve
+        // is `follow_pin`'s own "THIS ONE HAS DIED" case, handled there
+        // rather than here.
+        self.ui.release_pin();
+        self.ui.pin(who);
+
+        if let Some(at) = at {
+            self.ui.inspect_at(at, who.id);
+            // **A hard jump, not the dead-zone follow `follow_pin` uses on
+            // every drawn frame afterwards.** `Renderer::follow` cannot move
+            // the camera at all at the default zoom -- the whole 512-wide
+            // box is already on screen, and `set_camera`'s own clamp
+            // collapses a world smaller than the viewport -- so at zoom > 1
+            // the player would get the notice and the pin and watch nothing
+            // move. This puts the subject in frame the instant the event
+            // fires; `follow_pin`'s dead-zone follow keeps it there once
+            // FOLLOW is on, which the next line turns on if it was not
+            // already.
+            if !self.ui.following() {
+                self.ui.toggle_following();
+            }
+            let bounds = self.world.bounds();
+            let span = self.renderer.visible_span((WIDTH, HEIGHT));
+            self.renderer.set_camera(at.0 - span.0 / 2, at.1 - span.1 / 2, (WIDTH, HEIGHT), bounds);
+        }
+
+        // The notice is the chronicle's own sentence for this event --
+        // `VERNAL-9 FED HERSELF FOR THE FIRST TIME`, `THE VERNAL LINE
+        // ENDED, 14 GENERATIONS` -- so the clock and the LOG page never
+        // describe one moment two ways.
+        let (said, _, _) = ui::format_log_line(&self.world, event);
+        self.ui.say(said);
     }
 
     /// Draw the world, then whatever the lab is showing over it.
@@ -1479,10 +1782,30 @@ impl Lab {
     /// world and a painting tool is armed.
     pub fn press(&mut self, x: i32, y: i32) {
         self.ui.press(x, y);
-        if self.show_help || self.ui.covers(x, y) || !self.ui.tool().is_brush() {
+        if self.show_help || self.ui.covers(x, y) {
+            return;
+        }
+        // **`Lamp` remembers where the press landed, and nothing else does.**
+        // Every other tool decides everything from the release position
+        // alone; this one needs the press position too, to tell a click
+        // (release back over the same fixture) from a drag (release
+        // somewhere else) -- see `Lab::lamp_at`.
+        if self.ui.tool() == ui::Tool::Lamp {
+            let (wx, _) = self.renderer.screen_to_world(x, y);
+            self.lamp_grab = self.spec.lamp_near(&self.world, wx);
+            return;
+        }
+        if !self.ui.tool().is_brush() {
             return;
         }
         let at = self.renderer.screen_to_world(x, y);
+        // **`Scent` remembers where the press landed too**, for
+        // `paint_scent`'s gradient -- a fixed point the whole gesture ramps
+        // away from, set once rather than re-read from each incremental
+        // drag segment.
+        if self.ui.tool() == ui::Tool::Scent {
+            self.scent_origin = Some(at);
+        }
         self.begin_stroke(at, false);
     }
 
@@ -1502,6 +1825,7 @@ impl Lab {
     /// A button came up, or the pointer left. Ends whatever stroke was live.
     pub fn end_stroke(&mut self) {
         self.stroke = None;
+        self.scent_origin = None;
     }
 
     /// The pointer moved to `(x, y)` while a button is held.
@@ -1538,6 +1862,22 @@ impl Lab {
     /// should, which is how water gets manufactured out of nothing.
     fn paint_span(&mut self, from: (i32, i32), to: (i32, i32), erase: bool) {
         use crate::sim::material;
+        // **`Scent` does not paint a material at all** -- it writes into a
+        // pheromone plane, not a cell, so it is intercepted before the match
+        // below rather than folded into it as a silent arm. `Food`'s own
+        // comment two arms down already names the failure mode this avoids:
+        // the `_` arm paints soil, and a brush that forgot to declare itself
+        // would lay down the wrong thing and look, on screen, like a tool
+        // that simply missed.
+        //
+        // A right-click erase still falls through to the ordinary material
+        // erase below, same as every other brush -- there is no "un-deposit"
+        // verb for a plane, and clearing the ground under a trail is a
+        // reasonable thing for the eraser to do whatever tool is armed.
+        if !erase && self.ui.tool() == ui::Tool::Scent {
+            self.paint_scent(from, to);
+            return;
+        }
         let radius = self.ui.brush();
         let (id, aux) = if erase {
             (material::EMPTY, 0)
@@ -1587,6 +1927,71 @@ impl Lab {
         }
     }
 
+    /// Lay [`ui::Tool::Scent`]'s armed plane along one span of the brush --
+    /// `paint_span`'s own capsule shape, over a pheromone plane instead of a
+    /// material.
+    ///
+    /// **A gradient from the gesture's start, not a flat coat, and this is
+    /// load-bearing rather than decorative.** `creature.rs`'s `sense` reads
+    /// the along-heading trail input as `(ahead - here) / (ahead + here +
+    /// 1)` -- a *slope*. A uniform deposit was tried first: every cell in
+    /// the dragged span at the same strength, which is what "lay a trail"
+    /// sounds like. It measured as a **null**: a 3,000-tick colony with the
+    /// trail and the identical colony without it produced the exact same
+    /// count of ant-ticks near the target, because a flat plateau has no
+    /// slope anywhere in its interior for that sensor to read -- only its
+    /// two edges do, and diffusion smooths even those over the run. Ramping
+    /// from [`SCENT_TRAIL_RAMP`]'s call from zero at the press point gives
+    /// every cell in the corridor a real, sustained direction to climb.
+    ///
+    /// **The ramp is keyed to the gesture's fixed start (`Lab::
+    /// scent_origin`), not to each call's own `from`/`to`.** A real drag
+    /// arrives here as many short segments, one per frame of pointer
+    /// movement; ramping each segment from its own two endpoints would
+    /// reset the gradient every frame and draw a sawtooth instead of one
+    /// slope from the nest to wherever the pointer has reached.
+    ///
+    /// **The peak is `pheromone::DEPOSIT` (40 of 255), read off
+    /// `creature.rs`'s own write site rather than invented for the tool.**
+    /// An ant's `EmitA`/`EmitB` output is a brain activation clamped to
+    /// `[0,1]` and multiplied by that constant
+    /// (`world.deposit_pheromone(Channel::A, hx, hy, (emit_a *
+    /// pheromone::DEPOSIT as f32) as u8)`, `creature.rs` around :2757), so
+    /// the strongest point of a hand-laid trail is what a *fully committed*
+    /// ant lays in one step -- the ceiling of the real range rather than a
+    /// player-only number, per the task's own instruction to match it.
+    ///
+    /// **A local capsule test, not `World::paint_capsule_as`'s.** That one
+    /// lives on `World` and is private to `world.rs`; duplicating the
+    /// handful of lines here is cheaper than widening `world.rs`'s surface
+    /// for a formula this small, and `world.rs` is out of scope for this
+    /// change.
+    fn paint_scent(&mut self, from: (i32, i32), to: (i32, i32)) {
+        let channel = self.ui.scent_channel();
+        let r = self.ui.brush().max(0);
+        let r2 = (r * r) as f32;
+        let origin = self.scent_origin.unwrap_or(from);
+        for y in (from.1.min(to.1) - r)..=(from.1.max(to.1) + r) {
+            for x in (from.0.min(to.0) - r)..=(from.0.max(to.0) + r) {
+                if scent_capsule_distance_sq(x, y, from, to) > r2 {
+                    continue;
+                }
+                let dx = (x - origin.0) as f32;
+                let dy = (y - origin.1) as f32;
+                let t = ((dx * dx + dy * dy).sqrt() / SCENT_TRAIL_RAMP).clamp(0.0, 1.0);
+                let amount = (t * pheromone::DEPOSIT as f32) as u8;
+                // Out-of-world deposits are dropped silently by
+                // `deposit_pheromone` itself, so no bounds check is needed
+                // here. A `0` this close to the origin is a real value, not
+                // a skip -- `deposit`'s own early return on `amount == 0`
+                // just means the ray's very first cell writes nothing,
+                // which is correct: there is no slope to climb yet at
+                // distance zero from where the player clicked.
+                self.world.deposit_pheromone(channel, x, y, amount);
+            }
+        }
+    }
+
     /// **Do the armed verb at a world cell.** Gate 4's three, plus `LOOK`.
     fn use_tool(&mut self, at: (i32, i32)) {
         let (x, y) = at;
@@ -1597,9 +2002,98 @@ impl Lab {
             ui::Tool::Cull => self.cull_at(x, y),
             ui::Tool::Release => self.release_at(x, y),
             ui::Tool::Wall => self.wall_at(x),
+            ui::Tool::Alarm => self.alarm_at(x, y),
+            ui::Tool::Fling => self.fling_at(x, y),
+            ui::Tool::Lamp => self.lamp_at(x),
             // The brushes never arrive here: they paint from `press`, so a
             // release that also painted would double the last dab.
-            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food => {}
+            ui::Tool::Soil | ui::Tool::Water | ui::Tool::Food | ui::Tool::Scent => {}
+        }
+    }
+
+    /// **Drop alarm scent at `(x, y)`, at the strength a real bite writes.**
+    /// `ALARM_DEPOSIT` (240 of 255) is `creature.rs`'s `cry_alarm` -- the
+    /// only other writer of `Channel::Alarm` -- so a colony cannot tell a
+    /// player's call from a real one, which is the point: this is a way to
+    /// provoke the recruit-or-flee response the plane exists to drive.
+    fn alarm_at(&mut self, x: i32, y: i32) {
+        self.world.deposit_pheromone(Channel::Alarm, x, y, pheromone::ALARM_DEPOSIT);
+        self.ui.say(format!("ALARM CALLED AT {x},{y}"));
+    }
+
+    /// **Launch the animal under `(x, y)`** -- the ballistic hop
+    /// `creature::launch` already gives the brain's own impulse output, on
+    /// a click instead of a decision.
+    ///
+    /// The lookup is `cull_at`'s own: read the organism off the clicked
+    /// cell directly rather than through the roster/pin machinery, because
+    /// a fling is aimed at whatever is physically under the cursor, pinned
+    /// or not.
+    ///
+    /// **Direction is away from whichever side of the animal's head the
+    /// cursor is on, or straight up if the click landed exactly on the
+    /// head** -- there is no side to be "away from" a click with zero
+    /// horizontal offset, and guessing left or right off that would be a
+    /// coin flip dressed up as a rule. `creature::DIRS[0]` is due east,
+    /// `[4]` due west, `[2]` due north.
+    fn fling_at(&mut self, x: i32, y: i32) {
+        let cell = self.world.get(x, y);
+        let id = cell.organism_id();
+        let Some(state) = self.world.organism_state(id) else {
+            self.ui.say("NOTHING ALIVE HERE TO FLING");
+            return;
+        };
+        let species = self.world.species.get(state.species);
+        if species.creature.is_none() {
+            self.ui.say("THAT IS A PLANT -- FLING ONLY LAUNCHES ANIMALS");
+            return;
+        }
+        let name = species.name.to_uppercase();
+        let head = state.chain.first().copied().unwrap_or((x, y));
+        let heading: u8 = match head.0.cmp(&x) {
+            std::cmp::Ordering::Greater => 0, // head is right of the click: throw it further right
+            std::cmp::Ordering::Less => 4,    // head is left of the click: throw it further left
+            std::cmp::Ordering::Equal => 2,   // no side to speak of: straight up
+        };
+        if crate::sim::creature::launch(&mut self.world, id, heading) {
+            self.ui.say(format!("{name} FLUNG"));
+        } else {
+            self.ui.say(format!("{name} CANNOT PUSH OFF -- ALREADY IN THE AIR"));
+        }
+    }
+
+    /// **The `LAMP` tool's release**, resolving what `press` recorded into
+    /// remove, move or place.
+    ///
+    /// A release back over the fixture that was grabbed (`lamp_near` still
+    /// finds the same column) is read as a click and removes it; a release
+    /// anywhere else is read as a drag and tries to move it there instead.
+    /// No grab at all is bare ceiling, and places a new one. Every one of
+    /// the three scene verbs already calls `resync_enclosure` internally,
+    /// so nothing here has to.
+    fn lamp_at(&mut self, x: i32) {
+        let spec = self.spec.clone();
+        match self.lamp_grab.take() {
+            Some(from) => {
+                if spec.lamp_near(&self.world, x) == Some(from) {
+                    if spec.remove_lamp(&mut self.world, from) {
+                        self.ui.say(format!("LAMP AT {from} REMOVED"));
+                    } else {
+                        self.ui.say("COULD NOT REMOVE THAT LAMP");
+                    }
+                } else if spec.move_lamp(&mut self.world, from, x) {
+                    self.ui.say(format!("LAMP MOVED {from} -> {x}"));
+                } else {
+                    self.ui.say("NO ROOM TO MOVE THE LAMP THERE");
+                }
+            }
+            None => {
+                if spec.place_lamp(&mut self.world, x) {
+                    self.ui.say(format!("LAMP PLACED AT {x}"));
+                } else {
+                    self.ui.say("NO ROOM FOR A LAMP THERE");
+                }
+            }
         }
     }
 
@@ -1877,14 +2371,17 @@ impl Lab {
         let Some(row) = rows.get(n) else {
             return "THAT ROW HAS GONE".to_string();
         };
-        let species = self.world.species.get(row.species).name.to_uppercase();
         if self.ui.pin(row.who) {
             // **The cell page is pointed at it too**, which is what makes one
             // click do the whole job: the page, the marker and the numbers
             // are the ones that already existed, aimed by identity instead of
             // by wherever the player happened to click on the ground.
             self.ui.inspect_at(row.at, row.who.id);
-            format!("PINNED {species} AT {},{}", row.at.0, row.at.1)
+            // **Named, not just species-labelled** -- `PINNED VERNAL-9 AT
+            // 226,154` says which one, and a name is a free lookup off
+            // fields this row already carries.
+            let name = crate::lab::names::individual(self.world.seed, row.lineage, row.generation);
+            format!("PINNED {name} AT {},{}", row.at.0, row.at.1)
         } else {
             "LET GO".to_string()
         }
@@ -1974,6 +2471,7 @@ impl Lab {
             // The brush already did its work on press and on every drag; a
             // release that also fired the verb would double the last dab.
             self.ui.cancel_press();
+            self.scent_origin = None;
             return;
         }
         match self.ui.release(x, y) {
@@ -2022,6 +2520,18 @@ impl Lab {
                 if self.stats.showing() {
                     self.ui.panel = None;
                 }
+            }
+            // **Arms `SCENT` and says which plane it is laying**, ahead of
+            // the generic arm below (which would otherwise shadow it: this
+            // one has to run first or the specific pattern is unreachable).
+            // `bin/lab.rs`'s key handler routes only the *first* press of
+            // `I` here -- every press after, while `SCENT` is already
+            // armed, goes to `ToggleScentChannel` instead, so this arm never
+            // has to disarm the tool the way `set_tool`'s toggle otherwise
+            // would.
+            ui::Action::Tool(ui::Tool::Scent) => {
+                self.ui.set_tool(ui::Tool::Scent);
+                self.ui.say(format!("TOOL SCENT -- LAYING {}", scent_channel_label(self.ui.scent_channel())));
             }
             ui::Action::Tool(tool) => {
                 self.ui.set_tool(tool);
@@ -2109,6 +2619,9 @@ impl Lab {
             ui::Action::ParamScroll(d) => self.ui.scroll_params(d),
             ui::Action::RackScroll(d) => self.ui.scroll_rack(d),
             ui::Action::RackGroup => self.ui.toggle_rack_grouping(),
+            ui::Action::HistoryScroll(d) => self.ui.scroll_history(d),
+            ui::Action::HistoryOpen(colony) => self.ui.open_history_colony(colony),
+            ui::Action::HistoryBack => self.ui.close_history_colony(),
             ui::Action::ParamSelect(i) => self.ui.select_param(i),
             ui::Action::ParamAdjust(i, sign) => self.adjust_param(i, sign),
             ui::Action::ParamSave => self.save_param(),
@@ -2119,6 +2632,7 @@ impl Lab {
             // `release_at` are untouched -- what changed is where the thing
             // they act on is chosen.
             ui::Action::SpecimenSection(i) => self.ui.show_specimen_section(i),
+            ui::Action::CloseInspected => self.ui.close_inspected(),
             ui::Action::KeepInspected => match self.ui.inspecting() {
                 // The cell page's own coordinate, so what is kept is what the
                 // page is showing. It is re-read every frame, which is the
@@ -2346,7 +2860,114 @@ impl Lab {
                     self.ui.say(format!("CHAMBER {} -- HELD AT FRAME {frame}", i + 1));
                 }
             }
+            // The box's own "look at this": which of Off/Linger/Stop a
+            // notable event gets. Mirrored into `Ui` in the same action that
+            // changes it, `CycleCreatureColour`'s reason -- the BOX page
+            // reads the mirror, never `self.time` directly, because `Ui`
+            // does not hold it.
+            ui::Action::CycleReaction => {
+                self.time.cycle_reaction();
+                self.ui.set_reaction(self.time.react);
+                self.ui.say(format!("EVENTS: {}", self.time.react.label()));
+            }
+            // Cycle the mark every living animal draws -- see
+            // `ui::LifeMarks`'s own doc for the cycle and why it ships `Off`.
+            ui::Action::CycleLifeMarks => {
+                let mode = self.ui.cycle_life_marks();
+                self.ui.say(format!("LIFE MARKS {}", mode.label()));
+            }
+            ui::Action::CycleLogFilter => {
+                self.ui.cycle_log_filter();
+                self.ui.say(format!("LOG: SHOWING {}", self.ui.log_filter().label()));
+            }
+            ui::Action::ToggleScentChannel => {
+                let ch = self.ui.toggle_scent_channel();
+                self.ui.say(format!("SCENT -- LAYING {}", scent_channel_label(ch)));
+            }
+            // **The mister, written straight onto `self.spec`** -- unlike
+            // `CycleReaction`/`CycleCreatureColour`, which mirror into `Ui`
+            // because `Ui` does not hold `TimeControl` or the renderer, the
+            // BOX page already takes `spec: &LabBox` to build `FRAME`/`BED`/
+            // `SOIL` and every other row on it, so there is nowhere for a
+            // mirror to drift out of step with. Persisted with the box for
+            // the same reason `compartments` is: it lives on `LabBox`, so
+            // `LabBox::save` and a scenario's own `bed:` block already carry
+            // it, and `params::write_bed`'s `"rain"` arm is the *other*
+            // writer -- a scenario `Setting` and this key press are two
+            // routes to the one field, not two fields to keep in step.
+            ui::Action::CycleRain => {
+                self.spec.rain = self.spec.rain.next();
+                self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
+            }
+            // **`F`'s own verb, routed through `Lab::act` now that the MENU
+            // page gives it a second route in.** `Lab::act` exists to
+            // dispatch a verb a button also draws, and until this page
+            // existed this one had no button -- `bin/lab.rs`'s `F` key used
+            // to call `self.lab.time.cycle_display_floor()` directly for
+            // exactly that reason.
+            ui::Action::CycleDisplayFloor => {
+                self.time.cycle_display_floor();
+                self.ui.set_display_floor(self.time.display_floor());
+                self.ui.say(format!("DISPLAY FLOOR MIN {}HZ", self.time.display_floor()));
+            }
+            // `Digit9`'s own verb, `CycleDisplayFloor`'s own reason.
+            ui::Action::WriteChronicle => self.write_chronicle(),
+            // **The outdoor game's own cycle**, `Renderer::cycle_magnify_
+            // style` -- `Shift`+`=` there, this action's key (`0`) and MENU
+            // row here. Reused rather than re-derived so the lab and the
+            // outdoor game step through the identical sequence. Mirrored
+            // into `Ui` in the same action that changes it,
+            // `CycleCreatureColour`'s reason.
+            ui::Action::CycleMagnifyStyle => {
+                self.renderer.cycle_magnify_style();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY STYLE -- {}", self.renderer.magnify_style.label()));
+            }
+            // `Renderer::cycle_magnify_notch` -- `Shift`+`[` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyNotch => {
+                self.renderer.cycle_magnify_notch();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY NOTCH -- {}", self.renderer.magnify_notch.label()));
+            }
+            // `Renderer::cycle_magnify_ink` -- `Shift`+`]` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyInk => {
+                self.renderer.cycle_magnify_ink();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY INK {:.2}", self.renderer.magnify_ink));
+            }
+            // **`magnify_level`/`magnify_grain` had no cycle method on
+            // `Renderer` when this lane started** -- `render.rs` was another
+            // round-30 lane's file. That lane closed and #352 merged, so the
+            // blocker lifted mid-lane; `Renderer::cycle_magnify_level`/
+            // `cycle_magnify_grain` now exist beside the three fields that
+            // already had one, `cycle_magnify_ink`'s own shape, so all five
+            // magnify fields share one mechanism rather than three-plus-two.
+            ui::Action::CycleMagnifyLevel => {
+                self.renderer.cycle_magnify_level();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY LEVEL {:.2}", self.renderer.magnify_level));
+            }
+            ui::Action::CycleMagnifyGrain => {
+                self.renderer.cycle_magnify_grain();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY GRAIN {:.2}", self.renderer.magnify_grain));
+            }
         }
+    }
+
+    /// Push all five `Renderer::magnify_*` fields across to `Ui`'s mirror in
+    /// one call -- `Ui::set_magnify`'s own reason for taking all five rather
+    /// than one.
+    fn sync_magnify(&mut self) {
+        self.ui.set_magnify(
+            self.renderer.magnify_style,
+            self.renderer.magnify_notch,
+            self.renderer.magnify_ink,
+            self.renderer.magnify_level,
+            self.renderer.magnify_grain,
+        );
     }
 
     // ------------------------------------------------------------ the shelf
@@ -2740,6 +3361,53 @@ fn earth_toned_nest(world: &mut World) {
 /// is how the two would silently drift apart the day one of them changes.
 pub(crate) const MAX_PLANT_LIFT: i32 = 12;
 
+/// How far from a `SCENT` gesture's start point the deposit ramps from
+/// empty to full strength (`Lab::paint_scent`). Roughly a third of the
+/// shipped bed's width: long enough that a trail from a nest to a distant
+/// patch keeps a real slope over most of its length rather than saturating
+/// after a few cells, short enough that a short drag -- the common case --
+/// still climbs to a usable strength rather than staying near zero its
+/// whole way. Past this distance the deposit holds flat at `pheromone::
+/// DEPOSIT`, which is a real ceiling rather than a bug: a corridor longer
+/// than this has a genuine plateau at its far end, exactly as a very long
+/// natural trail would once its ends are many diffusion-lengths apart.
+const SCENT_TRAIL_RAMP: f32 = 160.0;
+
+/// What the `SCENT` tool's notice calls the plane it just armed or laid --
+/// shared between `Action::Tool(Tool::Scent)`'s arm and
+/// `Action::ToggleScentChannel`'s so the two say it the same way. Never
+/// called with `Channel::Alarm`: nothing arms `Tool::Scent` at that
+/// channel, and `toggle_scent_channel` never lands on it either.
+fn scent_channel_label(channel: Channel) -> &'static str {
+    match channel {
+        Channel::B => "FOOD ROUTE (B)",
+        Channel::A => "HOME SCENT (A)",
+        Channel::Alarm => "ALARM (UNREACHABLE FROM SCENT)",
+    }
+}
+
+/// Squared distance from `(px, py)` to the segment `a`-`b` — `Lab::
+/// paint_scent`'s own capsule shape.
+///
+/// **A deliberate duplicate of `world.rs`'s private `distance_sq_to_segment`,
+/// not a shared call.** That function is `fn`, not `pub(crate) fn`, and
+/// `world.rs` is out of scope for this change -- see `paint_scent`'s own
+/// doc. The formula is small and has one caller; the duplication costs
+/// less than widening a file this task does not touch.
+fn scent_capsule_distance_sq(px: i32, py: i32, a: (i32, i32), b: (i32, i32)) -> f32 {
+    let (ax, ay) = (a.0 as f32, a.1 as f32);
+    let (abx, aby) = ((b.0 - a.0) as f32, (b.1 - a.1) as f32);
+    let length_sq = abx * abx + aby * aby;
+    let t = if length_sq <= f32::EPSILON {
+        0.0
+    } else {
+        (((px as f32 - ax) * abx + (py as f32 - ay) * aby) / length_sq).clamp(0.0, 1.0)
+    };
+    let dx = px as f32 - (ax + abx * t);
+    let dy = py as f32 - (ay + aby * t);
+    dx * dx + dy * dy
+}
+
 /// The key list, drawn over a dimmed screen.
 ///
 /// Uppercase and punctuation-light on purpose: `hud`'s font is a hand-authored
@@ -2772,7 +3440,7 @@ const HELP: [&str; 30] = [
     "           KEEP AND PLACE ARE BUTTONS NOW,",
     "           ON THE CELL PAGE AND THE RACK",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E        WALL / FOOD -- NO BUTTON, KEY ONLY",
+    "K E I J Q U 9  WALL FOOD SCENT ALARM FLING LAMP CHRONICLE -- KEY ONLY",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
@@ -2863,6 +3531,120 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    // ------------------------------------------------------- the chronicle census
+
+    /// Both chronicle-census tests read `Lab::chronicle_census_every()`,
+    /// which reads a process-wide env var -- `SHELF_LOCK`'s own reason for
+    /// existing. Without this, the override test setting the var to `5`
+    /// while the cadence test is mid-run would make that run take a CENSUS
+    /// sample every 5 ticks instead of every 10,000, and its exact-one-row
+    /// assertion would fail on a totally correct `Lab`.
+    static CENSUS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// **The chronicle's CENSUS section takes one row per cadence, and no
+    /// more.** Runs exactly `Lab::CHRONICLE_CENSUS_EVERY` ticks on a small
+    /// bed and asserts one row lands, naming that exact frame -- not "at
+    /// least one", since a cadence gate that fired on every tick would also
+    /// pass a looser assertion.
+    ///
+    /// **Put the fault back**: comment out the cadence check in `Lab::tick`
+    /// (the `if self.world.frame % every == 0 { .. }` block) and this goes
+    /// red -- `lab.chronicle_census` stays empty for the whole run, and
+    /// `write_chronicle`'s CENSUS section (`census::chronicle_section`)
+    /// prints `NO CENSUS SAMPLE HAS RUN YET.` instead of a row. Watched:
+    /// removing the block drops the count from 1 to 0, confirming the
+    /// assertion below is not vacuous.
+    #[test]
+    fn chronicle_takes_one_census_row_per_cadence() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV); // this test runs at the shipped default
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
+        assert_eq!(lab.chronicle_census.len(), 1, "expected exactly one CENSUS row after one cadence, got {}", lab.chronicle_census.len());
+        assert_eq!(lab.chronicle_census[0].frame, Lab::CHRONICLE_CENSUS_EVERY, "the one row taken names the wrong frame");
+        // A second cadence adds a second row rather than replacing the first
+        // -- the whole point of a CENSUS section being a table over time.
+        run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
+        assert_eq!(lab.chronicle_census.len(), 2, "a second cadence should append, not replace");
+    }
+
+    /// **The cadence is overridable, `CLAUDE.md`'s build spec for this
+    /// deliverable.** No `Lab`, no world, just the env var this whole
+    /// feature is read through -- `PIXEL_PHYSICS_LAB_HELP`'s and
+    /// `CHRONICLE_DIR_ENV`'s own shape.
+    #[test]
+    fn chronicle_census_every_reads_the_env_override() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "the default should hold with no override set");
+        std::env::set_var(Lab::CHRONICLE_CENSUS_EVERY_ENV, "5");
+        assert_eq!(Lab::chronicle_census_every(), 5, "the env override was not read");
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "removing the override did not restore the default");
+    }
+
+    /// **The chronicle stays bounded per lineage, not per birth.** A colony
+    /// click founds 52 lineages and this box runs at 1,000+ animals in a
+    /// player's session -- if the four line-level kinds
+    /// (`world::LogKind::is_line_event`) were not each bounded the way
+    /// their own docs promise, the run log would fill with as many of them
+    /// as there are births, which is exactly the failure `CLAUDE.md`'s
+    /// scale constraint rules out.
+    ///
+    /// **Put the fault back**: drop the `milestones_hit`/`record_steps`
+    /// first-reach guards inside `World::note_line_generation`/
+    /// `note_line_record` (fire on every crossing instead of only the
+    /// first) and this goes red -- `line_events / lineages_claimed` stops
+    /// being a small constant and starts tracking the birth count instead.
+    ///
+    /// Run at `RAYON_NUM_THREADS=2` when reporting this test's own numbers
+    /// (`CLAUDE.md`'s counter-under-contention rule) -- the assertion below
+    /// does not depend on thread count, but the birth/lineage counts this
+    /// test reports as evidence do move with it.
+    #[test]
+    fn line_events_are_bounded_per_lineage() {
+        let mut lab = Lab::new(scene::LabBox { colonies: 1, founders: 8, ..rack_bed(7) });
+        run(&mut lab, 20_000);
+        let births = lab.world.creature_stats.births + lab.world.germinations;
+        assert!(births > 0, "nothing bred or germinated in 20,000 ticks -- the rest of this test proves nothing");
+        let lineages = lab.world.lineages_claimed();
+        assert!(lineages > 0, "no lineage was ever claimed -- the rest of this test proves nothing");
+        // Aged-out lines are still real events -- a cap that only looked at
+        // what survives the ring could hide an unbounded writer behind
+        // `RUN_LOG_CAP`'s own trimming.
+        let line_events = lab.world.run_log.recent().filter(|e| e.kind.is_line_event()).count() as u64 + lab.world.run_log.dropped();
+        // The theoretical per-lineage ceiling: 1 `LineEnded` + 12
+        // `LineMilestone` rungs (9 generation, 3 population) + 56
+        // `LineRecord` steps (14 traits x 4 steps) = 69. `GroupSplit` is not
+        // per-lineage at all -- it is bounded by how many groups this run
+        // ever minted, which cannot exceed a handful of splits in an
+        // 8-founder box -- so 50 of slack covers it without weakening the
+        // per-lineage bound this test is actually about.
+        let ceiling = lineages as u64 * 69 + 50;
+        // **The scale claim as a number, not a sentence** -- `--nocapture`
+        // prints this breakdown so a report can quote it directly rather
+        // than restating the assertion in prose.
+        let born = lab.world.creature_stats.births + lab.world.germinations;
+        let (_, died) = lab.world.organism_turnover();
+        use crate::sim::world::LogKind;
+        let line_ended = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineEnded).count();
+        let group_split = lab.world.run_log.recent().filter(|e| e.kind == LogKind::GroupSplit).count();
+        let milestone = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineMilestone).count();
+        let record = lab.world.run_log.recent().filter(|e| e.kind == LogKind::LineRecord).count();
+        eprintln!(
+            "line_events_are_bounded_per_lineage: {lineages} lineages, born {born}, died {died} \
+             (log dropped {}) -- line events: LineEnded {line_ended}, GroupSplit {group_split}, \
+             LineMilestone {milestone}, LineRecord {record}, total {line_events} ({:.1}/lineage)",
+            lab.world.run_log.dropped(),
+            line_events as f64 / lineages as f64
+        );
+        assert!(
+            line_events <= ceiling,
+            "{line_events} line events over {lineages} lineages ({:.1} per lineage) -- above the {ceiling} ceiling",
+            line_events as f64 / lineages as f64
+        );
     }
 
     /// **A copy carries what you planted, and the copies still differ.**
@@ -3983,7 +4765,7 @@ mod tests {
         assert!(lab.world.plant_tree_species(fx + 10, fy, "herb"), "the harness planted nothing");
         let id = lab.world.get(fx + 10, fy).organism_id();
         if let Some(st) = lab.world.organism_mut(id) {
-            st.alleles = [1, 2, 1, 1, 1, 2];
+            st.alleles = [1, 2, 1, 1, 1, 2, 1];
         }
         let draws = lab.world.organism(id).expect("live plant").genotype_draws;
 
@@ -3997,7 +4779,7 @@ mod tests {
         assert_ne!(sown, 0, "nothing was sown: {:?}", lab.ui.notice_text());
         let state = lab.world.organism(sown).expect("the sown seed");
         assert_eq!(state.genotype_draws, draws, "the sown seed is not carrying the kept genome");
-        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2], "the discrete loci did not survive the jar");
+        assert_eq!(state.alleles, [1, 2, 1, 1, 1, 2, 1], "the discrete loci did not survive the jar");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
@@ -4387,6 +5169,19 @@ mod tests {
         // left margin -- 4..181 of a 512-wide screen, measured. The first run
         // of this guard stocked at the centre, put every ant at x=153, and
         // asserted `PANEL_BG` against a lineage colour.
+        //
+        // **The stock dial, turned down from the shipped 52.** `colony_
+        // stations` spaces a colony at `body_span * 2`, and the shipped
+        // ant's articulated body raised that span from roughly one cell to
+        // five -- so a 52-ant colony now spans 510 cells, ten times what it
+        // did, and stocking one at 4/5 of a 512-wide bed puts its *first*
+        // station (the lowest slot, which `mine` below picks) back at the
+        // left edge of that spread, x~154 -- inside the panel's 4..181 the
+        // comment above was written to avoid. Turning the dial down three
+        // stops to 8 keeps the colony (span 70) comfortably clear of the
+        // panel at this same click point, with "two lines" just as true of
+        // 8 independently-founded ants as of 52.
+        lab.act(ui::Action::Stock(-3));
         let x = lab.spec.width * 4 / 5;
         let surface = lab.spec.ground_y;
         lab.act(ui::Action::Tool(ui::Tool::Colony));
@@ -4869,5 +5664,406 @@ mod tests {
         let (bw, bh) = (w + 24, super::HELP.len() as i32 * 10 + 20);
         assert!(bw <= WIDTH as i32, "the key list is {bw} px wide and the window is {WIDTH}");
         assert!(bh <= HEIGHT as i32, "the key list is {bh} px tall and the window is {HEIGHT}");
+    }
+
+    // --------------------------------------- the box's own "look at this"
+
+    /// Call `advance` in real-time chunks -- `16` ms, the same chunk every
+    /// other `advance` test in this file already uses -- until `done(&lab)`
+    /// is true, or give up after [`MAX_ADVANCE_CALLS`] calls.
+    ///
+    /// **Real wall-clock elapsed time is `advance`'s own unit; there is no
+    /// way to ask it for "N ticks" directly**, because how many ticks one
+    /// call buys is exactly the two-phase loop's own decision. `CLAUDE.md`'s
+    /// wall-clock warning is about *gating pass/fail on a duration*; this
+    /// loop's pass/fail is `done`, a property of the simulated world, and
+    /// the fixed chunk size only decides how fast a slower machine gets
+    /// there.
+    const MAX_ADVANCE_CALLS: u32 = 4_000;
+
+    fn run_advance_until(lab: &mut Lab, done: impl Fn(&Lab) -> bool) -> Option<u64> {
+        for _ in 0..MAX_ADVANCE_CALLS {
+            lab.advance(std::time::Duration::from_millis(16));
+            if done(lab) {
+                return Some(lab.world.frame);
+            }
+        }
+        None
+    }
+
+    /// **An armed reaction reacts; `Off` does not.** `CLAUDE.md`: put the
+    /// fault back and watch it go red -- without the `Off` half, a build
+    /// that reacts to *every* `LogKind` regardless of `react_on` would pass
+    /// this test exactly as well as the real gate does, because nothing
+    /// here would tell the two apart.
+    ///
+    /// **The shipped bed, not a hand-tuned one.** `LabBox::default()` is
+    /// already `colonies: 1, founders: 8` -- it starves its founders before
+    /// any forage line is established, so a `LineEnded` is not manufactured
+    /// for this test. It is the box's own ordinary opening, run through the
+    /// real `advance()` loop at `1024x` rather than through plain `tick()`,
+    /// so the mechanism under test is the one the player's box actually
+    /// calls -- not a shortcut that only looks like it.
+    #[test]
+    fn a_notable_event_reacts_when_armed() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1); // 1024x, and Running
+        // `Off` is the shipped default now (owner: the camera cut was "really
+        // annoying"), so this test arms `Linger` itself rather than relying
+        // on it -- it is proving the reaction mechanism fires when armed, not
+        // what ships armed.
+        lab.time.react = time::Reaction::Linger;
+        let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1).expect(
+            "no LineEnded fired inside the call budget -- see this test's doc comment \
+             for the expected horizon; a change to founder starvation may have moved it",
+        );
+        assert!(stopped_at > 0, "the reaction fired before the box had run at all");
+
+        // The sensitivity half, on a fresh box seeded identically: `Off`
+        // must run straight through the same starvation with the dial
+        // untouched.
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1);
+        lab.time.react = time::Reaction::Off;
+        let requested_before = lab.time.requested;
+        let reached = run_advance_until(&mut lab, |lab| lab.world.frame > stopped_at + 2_000);
+        assert!(reached.is_some(), "did not reach the target frame within the call budget");
+        assert_eq!(
+            lab.time.requested, requested_before,
+            "Reaction::Off still touched the dial -- the mask/gate in `advance` is not gating"
+        );
+    }
+
+    /// **The check has to live inside the tick loop, not after it.** At
+    /// 1024x one displayed frame is up to 1,024 ticks, so a version of
+    /// `advance` that moved the before/after check to just after the
+    /// `while` -- which compiles, and which the test above cannot tell
+    /// apart from the real thing, since it only checks *that* a reaction
+    /// happened -- would still pass it while landing up to a thousand
+    /// frames late here.
+    #[test]
+    fn the_reaction_is_checked_inside_the_tick_loop() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1); // 1024x
+        // `Off` ships now (see `a_notable_event_reacts_when_armed`'s own
+        // note); arm `Linger` so this test can still watch the reaction
+        // fire.
+        lab.time.react = time::Reaction::Linger;
+        let stopped_at = run_advance_until(&mut lab, |lab| lab.time.requested == 1)
+            .expect("no LineEnded fired inside the call budget");
+        let event_frame = lab
+            .world
+            .run_log
+            .recent()
+            .find(|e| e.kind == crate::sim::world::LogKind::LineEnded)
+            .map(|e| e.frame)
+            .expect("the reaction fired with no LineEnded in the log");
+        assert!(
+            stopped_at.abs_diff(event_frame) <= 5,
+            "stopped at frame {stopped_at}, {} ticks after the event at frame {event_frame} \
+             -- at 1024x that is what a check placed after the loop looks like",
+            stopped_at.saturating_sub(event_frame)
+        );
+    }
+
+    /// **The reaction pins the subject, and a death resolves through the
+    /// graveyard** -- `Lab::take_camera_to`'s own fallback, since
+    /// `free_organism` has already dropped the individual's slot by the
+    /// time a `LineEnded` (or a `Died`) exists to react to.
+    #[test]
+    fn an_auto_reaction_pins_the_subject() {
+        let mut lab = Lab::new(scene::LabBox::default());
+        lab.time.set_preset(time::PRESETS.len() - 1);
+        // `Off` ships now; arm `Linger` so the reaction (and its pin) fires.
+        lab.time.react = time::Reaction::Linger;
+        run_advance_until(&mut lab, |lab| lab.time.requested == 1)
+            .expect("no LineEnded fired inside the call budget");
+        let who = lab.ui.pinned().expect("the reaction did not pin anyone");
+        assert!(
+            who.resolve(&lab.world).is_none(),
+            "a LineEnded's subject resolved live -- it should already be gone"
+        );
+        assert!(
+            lab.world.graveyard.about(who.id, who.born_frame).is_some(),
+            "the pinned individual has no grave -- the page could not resolve it either"
+        );
+    }
+
+    // --------------------------------------------------------- the new tools
+    //
+    // SCENT, ALARM, FLING, LAMP -- the owner's idea, 2026-09-09: let a player
+    // lay pheromone and reach into the box by hand. Each test below is named
+    // for the fault it catches, per the task's own instruction, because a
+    // handler that is a no-op must go red rather than sit there looking like
+    // coverage.
+
+    /// **Positive control for `SCENT`: it lays a real, monotonic gradient --
+    /// not a flat plateau -- at the exact strength and shape
+    /// `creature::sense`'s own `PheroBAlong` input reads.**
+    ///
+    /// **This replaces a 3,000-tick emergent comparison, and the reason is
+    /// itself a finding worth keeping.** The task's own instruction was
+    /// "lay a trail, run 3,000 ticks, assert more ants reach the target
+    /// than without one." Built and run twice -- once at a uniform deposit
+    /// across the whole dragged span, and again at the gradient this file
+    /// now ships after the first measured null -- **both gave the
+    /// identical count, 1903 ant-ticks near the target, over a 20-ant
+    /// colony, byte for byte.** That is the tidiness tell `CLAUDE.md`'s own
+    /// method section names: two structurally different deposits producing
+    /// an *exact* tie on a chaotic 3,000-tick system is evidence the
+    /// instrument never moved, not evidence the effect is merely small.
+    ///
+    /// Read against the actual formula it feeds (`creature.rs`'s `sense`:
+    /// `(ahead - here) / (ahead + here + 1)`, weighted at a +/-6 coefficient
+    /// against hidden units whose baseline activation already saturates
+    /// `squash` at a +/-45 bias), the ceiling on how far this can move
+    /// `P(move)` in one decision is on the order of 0.003 -- real, and far
+    /// under the noise floor a 20-ant, 500-decision sample can resolve.
+    ///
+    /// **That reading was right and it was filed as `open-bugs-handoff.md`
+    /// §Z7, and half of it is now fixed** (2026-09-09). Hidden units 0/1 --
+    /// the **home scent**, channel A, what a laden ant follows -- were
+    /// re-gated from `-45/+30` to `-45/+45.5`, which moves `P(move)` by 0.54
+    /// at the gradient this very test asserts rather than by 0.004. Units
+    /// 2/3, the food route, deliberately keep the saturated gate: repairing
+    /// them works and makes the animal decisively worse (25.0% of a mirrored
+    /// arena against 63.6% for the homing repair alone), because a colony
+    /// that can read channel B converges on patches it has already eaten.
+    ///
+    /// **So this test now drags channel A**, which is also what `Tool::Scent`
+    /// arms by default since the same change -- a player's first trail should
+    /// be on the plane something can read.
+    ///
+    /// The bed half of §Z7's own bar lives in `examples/trailfollow`, which
+    /// runs the colony count this test declines to: 13,985 near-target
+    /// ant-ticks with a laid trail against 0 without, 3 of 3 seeds, where the
+    /// shipped gate read 595 = 595 exactly.
+    ///
+    /// **So this checks the half that is actually reliable: the plane
+    /// itself.** A no-op `Tool::Scent` handler, or the flat-plateau version
+    /// this replaced, both fail it -- the first because every reading
+    /// stays at the untrailed floor, the second because the "ahead" and
+    /// "here" reads come back equal (gradient exactly zero) instead of
+    /// climbing toward the target.
+    #[test]
+    fn scent_tool_lays_a_climbing_gradient_not_a_flat_plateau() {
+        let mut lab = Lab::new(scene::LabBox {
+            width: 256,
+            height: 192,
+            ground_y: 96,
+            soil_depth: 48,
+            founders: 0,
+            colonies: 0,
+            seed: 7,
+            ..scene::LabBox::default()
+        });
+        lab.show_help = false;
+        let surface = lab.spec.ground_y - 2;
+        let (nest_x, target_x) = (40, 130);
+        // The untrailed floor, read at the same three points before any
+        // scent exists -- the control that says a nonzero reading below is
+        // the drag's doing and not some ambient default.
+        let untrailed: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
+        assert_eq!(untrailed, vec![0, 0, 0], "an unpainted bed must read zero everywhere, or a nonzero reading below proves nothing");
+
+        lab.act(ui::Action::Tool(ui::Tool::Scent));
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the scent tool did not arm");
+        assert_eq!(
+            lab.ui.scent_channel(),
+            Channel::A,
+            "the scent tool did not default to the home scent -- a laden ant follows A, and A is the only plane the shipped ant can read (open-bugs-handoff.md Z7)"
+        );
+        let from = aim(&lab, nest_x, surface);
+        lab.set_cursor(Some(from));
+        lab.press(from.0, from.1);
+        let to = aim(&lab, target_x, surface);
+        lab.set_cursor(Some(to));
+        lab.drag(to.0, to.1);
+        lab.release(to.0, to.1);
+
+        // Three points along the drag, strictly between the endpoints so
+        // the brush's own rounded caps cannot be mistaken for the slope.
+        // Each must be **higher than the last** -- climbing toward the
+        // target, which is the one shape a flat deposit cannot produce.
+        let samples: Vec<u8> = [70, 85, 100].iter().map(|&x| lab.world.pheromone_at(Channel::A, x, surface)).collect();
+        assert!(
+            samples[0] > 0 && samples[1] > samples[0] && samples[2] > samples[1],
+            "the deposit does not climb toward the target: {samples:?} at x=70,85,100 -- a flat plateau (or nothing) would read this way, and only a real slope would not"
+        );
+
+        // Read exactly the way the brain reads it: `here` against one
+        // `sensor_offset` step ahead, along the nest-to-target heading.
+        // `creature.rs`'s `sense`: `(ahead - here) / (ahead + here + 1)`.
+        //
+        // **Sampled close to the nest end, not the middle, and that is a
+        // property of a *linear* ramp's own normalised gradient, not a
+        // cherry-pick.** For `amount = t * DEPOSIT` linear in distance, the
+        // absolute step over one `sensor_offset` is constant, but the
+        // formula divides it by `ahead + here` -- which keeps *growing* the
+        // further out you sample. So the same real slope reads as a strong
+        // fraction near the low end and fades toward the target's own
+        // plateau, exactly where a flat deposit would already have failed
+        // the climbing check above. This is the strongest, not the
+        // weakest, place to ask "is there a real gradient here".
+        let species = lab.world.species.id_of("ant").expect("the ant species is loaded");
+        let def = lab.world.species.get(species).creature.as_ref().expect("the ant is a creature");
+        let so = def.sensor_offset;
+        let here_x = nest_x + 10;
+        let here = lab.world.pheromone_at(Channel::A, here_x, surface) as f32;
+        let ahead = lab.world.pheromone_at(Channel::A, here_x + so, surface) as f32;
+        let along = (ahead - here) / (ahead + here + 1.0);
+        assert!(
+            along > 0.15,
+            "the along-heading input a laden ant actually reads is {along:.4} at x={here_x} -- \
+             too flat to read as \"home is that way\", which is the one thing this tool exists to say"
+        );
+    }
+
+    /// **A second press of `I` switches the plane, not the tool.**
+    ///
+    /// Catches `bin/lab.rs`'s key handler falling back to the ordinary
+    /// toggle for a repeat press -- in which case this would find `SCENT`
+    /// disarmed (`Tool::Look`) instead of still armed on the other channel,
+    /// since `Ui::set_tool` toggles on a repeat. Drives the action layer
+    /// directly (`Action::Tool` then `Action::ToggleScentChannel`) rather
+    /// than the key match itself, which is `winit`-only and outside what a
+    /// lib test can call -- this is the same seam `bin/lab.rs` routes
+    /// through, so it is testing the real decision, not a copy of it.
+    #[test]
+    fn a_second_scent_press_toggles_the_channel_not_the_tool() {
+        let mut lab = bench();
+        lab.act(ui::Action::Tool(ui::Tool::Scent));
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent);
+        assert_eq!(lab.ui.scent_channel(), Channel::A, "default is the home scent");
+        lab.act(ui::Action::ToggleScentChannel);
+        assert_eq!(lab.ui.tool(), ui::Tool::Scent, "the tool was put away instead of switching plane");
+        assert_eq!(lab.ui.scent_channel(), Channel::B, "the second press did not reach the food route");
+        lab.act(ui::Action::ToggleScentChannel);
+        assert_eq!(lab.ui.scent_channel(), Channel::A, "a third press must cycle back rather than stick");
+    }
+
+    /// **`ALARM` writes at the exact strength a real bite does.**
+    ///
+    /// Catches a `use_tool` arm that is a no-op: the alarm plane allocates
+    /// lazily on its first write (`Pheromones::deposit`), so a dead handler
+    /// leaves it entirely unallocated rather than merely reading zero --
+    /// the `alarm_is_live` check before the click is the positive control
+    /// that the plane's *absence* beforehand is the expected starting
+    /// state, not a sign the instrument cannot see it.
+    #[test]
+    fn alarm_tool_deposits_at_the_strength_a_real_bite_writes() {
+        let mut lab = bench();
+        assert!(!lab.world.pheromones.alarm_is_live(), "the alarm plane exists before anything called out");
+        lab.act(ui::Action::Tool(ui::Tool::Alarm));
+        assert_eq!(lab.ui.tool(), ui::Tool::Alarm, "the alarm tool did not arm");
+        let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 10);
+        click_cell(&mut lab, x, y);
+        assert_eq!(
+            lab.world.pheromone_at(Channel::Alarm, x, y),
+            pheromone::ALARM_DEPOSIT,
+            "the alarm tool did not write the strength a real bite does"
+        );
+    }
+
+    /// **`FLING` launches a supported animal and refuses one already
+    /// airborne** -- the same two facts `creature::launch`'s own tests
+    /// check, reached through the tool's click instead of a direct call.
+    ///
+    /// Catches a `use_tool` arm that is a no-op (neither counter moves) and
+    /// one that calls `launch` but ignores its `bool` (the refusal half
+    /// would then be invisible: a second click on an airborne ant would
+    /// silently do nothing rather than being counted as declined).
+    #[test]
+    fn fling_tool_launches_a_supported_animal_and_refuses_a_second_click_in_the_air() {
+        use crate::sim::creature;
+        let mut lab = bench();
+        let (x, y) = (lab.spec.width / 2, lab.spec.ground_y - 2);
+        let site = creature::plant_creature_seed(&mut lab.world, x, y, "ant").expect("an ant can be placed here");
+        lab.world.schedule_active_site(site);
+        // Let gravity settle it onto the ground -- a launch needs something
+        // to push off, and a creature dropped a row or two above the
+        // surface is briefly airborne by construction of the placement.
+        run(&mut lab, 30);
+        let id = lab
+            .world
+            .live_organism_ids()
+            .into_iter()
+            .find(|id| lab.world.organism_state(*id).is_some_and(|s| lab.world.species.get(s.species).creature.is_some()))
+            .expect("the placed ant is still alive");
+        let head = lab.world.organism(id).expect("live").chain[0];
+
+        lab.act(ui::Action::Tool(ui::Tool::Fling));
+        assert_eq!(lab.ui.tool(), ui::Tool::Fling, "the fling tool did not arm");
+        let before = lab.world.creature_stats.impulses;
+        click_cell(&mut lab, head.0, head.1);
+        assert_eq!(lab.world.creature_stats.impulses, before + 1, "the click did not register as a launch");
+        assert!(lab.world.organism(id).is_some_and(|s| s.flight.is_some()), "the flung ant is not airborne");
+
+        // **The refusal half needs the body to have actually left its
+        // resting row first, and a fixed frame count is the wrong way to
+        // get there.** `launch` sets `state.flight`, which only *schedules*
+        // the ballistics -- the body's cells do not move until `step_flight`
+        // accumulates enough sub-cell velocity to cross a row boundary, so
+        // a second click too soon still finds a body sitting exactly on the
+        // ground it just pushed off and is granted a second, physically
+        // nonsensical launch. (Measured: 2 frames was not enough here.)
+        // This is `CLAUDE.md`'s "which object does this rule evaluate"
+        // question landing on time instead of space: the refusal is a fact
+        // about the body's *position*, so wait for the position to actually
+        // change rather than guessing how many frames that takes.
+        let ground_row = head.1;
+        let mut lifted = false;
+        for _ in 0..30 {
+            run(&mut lab, 1);
+            if lab.world.organism(id).and_then(|s| s.chain.first().map(|c| c.1)) != Some(ground_row) {
+                lifted = true;
+                break;
+            }
+        }
+        assert!(lifted, "the launched ant never actually left its resting row within 30 frames");
+        let refused_before = lab.world.creature_stats.impulses_refused;
+        let head_in_air = lab.world.organism(id).expect("live").chain[0];
+        click_cell(&mut lab, head_in_air.0, head_in_air.1);
+        assert_eq!(
+            lab.world.creature_stats.impulses_refused,
+            refused_before + 1,
+            "a second click in mid-air was not counted as a refusal -- there is nothing to push off"
+        );
+    }
+
+    /// **`LAMP`: click bare ceiling places a fixture, and the bench under
+    /// it gets brighter** -- both counted, per `CLAUDE.md`'s rule that an
+    /// image cannot say whether the mechanism fired.
+    ///
+    /// Catches `use_tool`'s `Tool::Lamp` arm being a no-op (the count would
+    /// not move) and `lamp_at` calling the wrong scene verb for an empty
+    /// grab (the count could move on a `move_lamp` that silently no-ops at
+    /// the same column, while the light -- which only `place_lamp`'s new
+    /// material actually emits -- would stay flat).
+    #[test]
+    fn lamp_tool_places_a_fixture_and_the_bench_gets_brighter() {
+        let mut lab = bench();
+        // Start dark: pull every lamp the bed shipped with, so `PLACE` has
+        // a clean column to land on and its effect on the light is not a
+        // nudge on a bench that was already lit by a neighbour.
+        for cx in lab.spec.lamps_in(&lab.world) {
+            let spec = lab.spec.clone();
+            spec.remove_lamp(&mut lab.world, cx);
+        }
+        assert!(lab.spec.lamps_in(&lab.world).is_empty(), "the bed was not actually darkened");
+        run(&mut lab, 10);
+        let col = lab.spec.width / 2;
+        let bench_row = lab.spec.ground_y - 2;
+        let dark = lab.world.field_at(col, bench_row).light;
+
+        lab.act(ui::Action::Tool(ui::Tool::Lamp));
+        assert_eq!(lab.ui.tool(), ui::Tool::Lamp, "the lamp tool did not arm");
+        let ceiling_row = lab.spec.lamp_rows().start;
+        click_cell(&mut lab, col, ceiling_row);
+        assert_eq!(lab.spec.lamps_in(&lab.world).len(), 1, "the lamp tool did not place a fixture");
+
+        run(&mut lab, 10);
+        let lit = lab.world.field_at(col, bench_row).light;
+        assert!(lit > dark, "placing a lamp did not brighten the bench under it: {dark} -> {lit}");
     }
 }

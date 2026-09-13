@@ -23,11 +23,13 @@
 //! | `Up` / `Down` | the speed dial, through the presets |
 //! | `1`-`7` | jump straight to a preset |
 //! | `Z` `X` `C` `V` `B` `N` | the tools: look, plant, colony, cull, soil, water |
+//! | `K` `E` `I` `J` `Q` `U` | wall, food, scent, alarm, fling, lamp — no bar cell, key only |
 //! | `.` | which species the planting tool puts in |
 //! | `[` / `]` | the brush, narrower and wider |
 //! | `O` / `L` | the field and organism overlays |
 //! | `F1` / `F2` / `F3` | the plants, ants and box pages |
 //! | `F` | minimum framerate at speed-up: 60 / 30 / 20 / 10 Hz |
+//! | `T` | what the clock does on a notable event: LINGER / STOP / OFF |
 //! | `Tab` | the stats page |
 //! | `WASD` | pan; `-` / `=` zoom |
 //! | left / right mouse | the armed tool / the eraser |
@@ -477,6 +479,29 @@ impl Handler {
             // it, so `1024X` was reachable by the bar and by `UP` and by no
             // digit at all.
             KeyCode::Digit7 => self.lab.act(Action::Preset(6)),
+            // **The mister, on `8` -- every letter `A`-`Z` in this match is
+            // already bound to something else** (checked against the whole
+            // function: the held keys, the tools, the panels, the overlays,
+            // the dial), so this is the first free key rather than a free
+            // letter. `8`/`9`/`0` are the digit row's own unclaimed rest --
+            // the dial and the rack stop at `7` (the comment above) and the
+            // chamber shortcut stops at `5` -- and outside the typing-mode
+            // branch above, which swallows every digit for a batch frame
+            // count, a bare `8` reaches here and nowhere else.
+            KeyCode::Digit8 => self.lab.act(Action::CycleRain),
+            // **`9` -- save the chronicle right now**, the digit row's own
+            // next unclaimed key (comment above). Routed through `Lab::act`
+            // rather than the direct call this used to be: the MENU page now
+            // draws a `SAVE CHRONICLE NOW` row for the same verb, so it has a
+            // button, and `Lab::act` exists to dispatch a verb a button also
+            // draws.
+            KeyCode::Digit9 => self.lab.act(Action::WriteChronicle),
+            // **`0` -- the digit row's last unclaimed key, for
+            // `MagnifyStyle`.** No letter was free either (comment above),
+            // and this needed a key the same way `8`/`9` did: a MENU row
+            // draws it too, but a style worth comparing against what it
+            // replaces is worth a key that does not need a page open first.
+            KeyCode::Digit0 => self.lab.act(Action::CycleMagnifyStyle),
             // The tools, in one unbroken run of the keyboard's bottom row and
             // in the same left-to-right order the bar draws them. The obvious
             // initials are not available -- `S` and `W` are the pan -- and six
@@ -510,6 +535,38 @@ impl Handler {
             // the help page; clippy caught the collision, which is the only
             // reason this is not a silent one.
             KeyCode::KeyK => self.lab.act(Action::Tool(Tool::Wall)),
+            // **Four more off-the-bar tools, `I J Q U`** -- the owner's idea
+            // (2026-09-09) for letting a player lay pheromone and reach into
+            // the box by hand rather than only watching it. `I J Q U` were
+            // checked free against this whole match; none of the obvious
+            // initials collide with a control that already exists.
+            //
+            // **`I`'s second press is the one exception to every other
+            // tool's plain toggle.** `Ui::set_tool` arms-or-disarms on a
+            // repeat press, which is right for every other key here -- but a
+            // player who has just picked the food route over home scent is
+            // not asking to put `SCENT` away, so the *second* press routes to
+            // `ToggleScentChannel` instead of re-arming the same tool. This
+            // is the one place that distinction is made; `Lab::act` treats
+            // `Action::Tool(Tool::Scent)` as an ordinary arm like any other.
+            //
+            // The first press arms **channel A, the home scent** (2026-09-09;
+            // it was channel B until then). A drawn A trail is followed by
+            // laden ants; a drawn B trail is read by nothing, because the
+            // shipped ant's units 2/3 are saturated and repairing them costs
+            // more than it pays -- `open-bugs-handoff.md` §Z7. The second
+            // press still reaches B, and the tool's help string says what it
+            // is worth rather than hiding it.
+            KeyCode::KeyI => {
+                if self.lab.ui.tool() == Tool::Scent {
+                    self.lab.act(Action::ToggleScentChannel);
+                } else {
+                    self.lab.act(Action::Tool(Tool::Scent));
+                }
+            }
+            KeyCode::KeyJ => self.lab.act(Action::Tool(Tool::Alarm)),
+            KeyCode::KeyQ => self.lab.act(Action::Tool(Tool::Fling)),
+            KeyCode::KeyU => self.lab.act(Action::Tool(Tool::Lamp)),
             // **The same two keys the two cells under them carry**, which is
             // the whole point of the cells being shared: `[` and `]` are
             // printed on that pair whichever tool is armed, so the key has to
@@ -535,6 +592,12 @@ impl Handler {
             // page (`ANIMALS WEAR`), so there was no bar cell to be
             // positional *about*. "H" for the hue every animal wears.
             KeyCode::KeyH => self.lab.act(Action::CycleCreatureColour),
+            // **`Y`, free and unclaimed.** Cycles which mark, if any, every
+            // living animal draws (`ui::LifeMarks`) -- off by default, since
+            // movement is what makes an animal legible in play and a mark is
+            // at most a pause-time aid. Also a row on the ANTS page beside
+            // `ANIMALS WEAR`, the same pairing `H` has.
+            KeyCode::KeyY => self.lab.act(Action::CycleLifeMarks),
             KeyCode::F1 => self.lab.act(Action::Panel(Panel::Plants)),
             KeyCode::F2 => self.lab.act(Action::Panel(Panel::Ants)),
             KeyCode::F3 => self.lab.act(Action::Panel(Panel::Box)),
@@ -542,6 +605,23 @@ impl Handler {
             // and the bar has no room for a fifth page button — the strip's
             // `ALL` is the mouse route.
             KeyCode::F4 => self.lab.act(Action::Panel(Panel::Chambers)),
+            // HISTORY: every founding line that has ended. Next in the same
+            // `F1..F4` run rather than a mnemonic letter -- every letter is
+            // already bound (`H` included, to `CycleCreatureColour`), and
+            // this page has no bar chip either (the bar was measured full
+            // twice over before it existed), so `F5` is its only route in
+            // besides the LOG page's own `HISTORY` row.
+            KeyCode::F5 => self.lab.act(Action::Panel(Panel::History)),
+            // **The master menu.** Next in the same `F1..F5` run: every page
+            // in the lab, and every view toggle, one row each, with the key
+            // that also opens it. Owner, 2026-09-12: *"There are lots of
+            // hidden menus that can only be accessed by knowing the F key.
+            // There should be a master menu accessible from the main UI that
+            // leads to all the other menus."* Also the bar's own `MENU` chip
+            // -- the one page here with a mouse route on the bar itself,
+            // since reaching the menu cannot itself depend on already
+            // knowing a key.
+            KeyCode::F6 => self.lab.act(Action::Panel(Panel::Menu)),
             // The parameters page. `P` rather than `F4`: it is the one page
             // you open to *change* something rather than to read something,
             // and it sits with the tools on the bar's top row for the same
@@ -556,7 +636,17 @@ impl Handler {
             // without looking sit together.
             KeyCode::Semicolon => self.lab.act(Action::Broods(-1)),
             KeyCode::Quote => self.lab.act(Action::Broods(1)),
-            KeyCode::KeyF => self.lab.time.cycle_display_floor(),
+            // Routed through `Lab::act` rather than the direct call this
+            // used to be: the MENU page now draws a `DISPLAY FLOOR` row for
+            // this verb (also its only other readout anywhere in the lab --
+            // lane R1 left the corner's own copy as a temporary second line
+            // for whoever built this page), so it has a button.
+            KeyCode::KeyF => self.lab.act(Action::CycleDisplayFloor),
+            // **`T` for what the clock does when a notable event fires** --
+            // Off/Linger/Stop, cycling in the order the BOX page's `EVENTS`
+            // row prints them. Free letters were `I J Q T U Y`; a sibling
+            // change (the life overlay) takes `Y`.
+            KeyCode::KeyT => self.lab.act(Action::CycleReaction),
             KeyCode::Tab => self.lab.act(Action::Stats),
             KeyCode::KeyR => self.lab.act(Action::Reset),
             // **`zoom_within`, not `adjust_zoom`.** The box is smaller than
@@ -670,5 +760,17 @@ impl ApplicationHandler for Handler {
         if let Some(window) = &self.window {
             window.request_redraw();
         }
+    }
+
+    /// **The one place every way this binary quits actually quits from.**
+    /// `event_loop.exit()` is called from `Escape`, from `CloseRequested`,
+    /// from a resize the surface refuses, and from `fail` -- four call sites
+    /// that would each need their own chronicle write, and the fifth nobody
+    /// would remember to add. `winit` runs this once, after the loop has
+    /// decided to stop, regardless of which of them asked -- so the box's
+    /// history is saved exactly once on the way out, wherever "out" came
+    /// from.
+    fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        self.lab.write_chronicle();
     }
 }

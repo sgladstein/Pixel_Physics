@@ -78,6 +78,24 @@ struct OrganismSlot {
     state: Option<OrganismState>,
 }
 
+/// The shared "is this id still alive" check behind `World::organism` and
+/// `World::record_breeder`'s prune. A free function taking `organisms`
+/// directly rather than a `&self` method, so `record_breeder` can call it
+/// while `self.colony_breeders` is already borrowed mutably — the two are
+/// disjoint fields, but `organism`'s own `&self` signature would force the
+/// whole struct to be borrowed and rule that out.
+fn organism_in(organisms: &[OrganismSlot], organism_id: u16) -> Option<&OrganismState> {
+    let (slot_index, generation) = decode_organism_id(organism_id);
+    if slot_index == 0 {
+        return None;
+    }
+    let slot = organisms.get((slot_index - 1) as usize)?;
+    if slot.generation != generation {
+        return None;
+    }
+    slot.state.as_ref()
+}
+
 /// Identifies a promoted `liquid::LiquidBody` (`Reports/liquid-heightfield-
 /// design.md` §3c/§9a). Never stored on a `Cell` — unlike `organism_id`,
 /// which has to round-trip through a cell's own bits, a liquid body's cell
@@ -143,6 +161,25 @@ pub struct LogEvent {
     pub kind: LogKind,
     /// The other party, where there is one: a birth's parent. `0` otherwise.
     pub other: u16,
+    /// **Which founding line this line of the log is about.** `0` for
+    /// anything not descended from a founder (a test fixture, mostly).
+    ///
+    /// **This is the fix for a standing bug: every `LINE ENDED` line in the
+    /// game read `LINE 0 ENDED`.** `other` is a `u16` and a lineage is a
+    /// `u32`, so the old code (`other: 0` at the `LineEnded` push, and
+    /// nothing narrower would fit anyway) could not have carried the real
+    /// number even if someone had wired it up. This field is the fix and the
+    /// diagnosis in one place, so a later reader does not have to re-derive
+    /// why the old field was the wrong shape.
+    pub lineage: u32,
+    /// **This individual's own depth**, `OrganismState::generation` at the
+    /// moment the line was pushed. Carried beside `lineage` because a
+    /// sentence about a line ("14 GENERATIONS", "REACHES GENERATION 20") and
+    /// a sentence about an individual ("BORN TO KESTREL-2", itself named from
+    /// `generation - 1`) both need it, and neither can be recovered later —
+    /// the organism the line was about may already be gone by the time
+    /// anything reads the log.
+    pub generation: u16,
 }
 
 /// What kind of thing happened.
@@ -167,6 +204,30 @@ pub enum LogKind {
     /// The last individual of a founding line died. The only entry that is
     /// about a *lineage* rather than an individual.
     LineEnded,
+    /// A drifted scent cluster was minted as a colony of its own —
+    /// `World::regroup_by_scent`'s own split. `other` is the freshly minted
+    /// colony label truncated to `u16` (colony labels are handed out one at
+    /// a time from a click count, not an index into anything with 65,536
+    /// entries, so this only loses information past a colony count nobody
+    /// has reached); `id`/`born_frame` name the lowest-lineage member of the
+    /// new group, the same rule `regroup_by_scent` uses to decide who keeps
+    /// the parent's name. Fires at most once per minted group.
+    GroupSplit,
+    /// **A lineage's own history, not an individual's.** Its deepest
+    /// generation first reached one of [`GENERATION_MILESTONES`], or its
+    /// living count first reached one of [`POPULATION_MILESTONES`] — see
+    /// [`decode_milestone`] for `other`'s encoding. At most once per rung per
+    /// lineage for the whole run, so this is bounded by the milestone tables'
+    /// own size and not by how many descendants pass a rung once it is set.
+    LineMilestone,
+    /// **One individual, the first of its line to drift this far.** A trait
+    /// crossed a fresh half-step away from the line's founder value on the
+    /// `-1..=1` axis. `other` is `(slot << 8) | step`, `step` counting
+    /// `0.5`-steps from the founder (1..=4, so at most four records per trait
+    /// per lineage for the whole run — the axis is two units wide end to
+    /// end). Animals only for now: plant traits have no name table for a
+    /// sentence to use.
+    LineRecord,
 }
 
 impl LogKind {
@@ -177,7 +238,45 @@ impl LogKind {
             LogKind::FirstFeed => "FIRST FED",
             LogKind::FirstSeed => "FIRST SEED",
             LogKind::LineEnded => "LINE ENDED",
+            LogKind::GroupSplit => "GROUP SPLIT",
+            LogKind::LineMilestone => "LINE MILESTONE",
+            LogKind::LineRecord => "LINE RECORD",
         }
+    }
+
+    /// **The chronicle, not the census.** These four are about a *lineage*
+    /// rather than an individual, and every one of them is bounded per
+    /// lineage (see each variant's own doc) rather than per birth — the
+    /// `LOG` page's `LINES` filter shows only these, so a 1,000-ant box still
+    /// has a readable history of what actually changed in it, not a scroll
+    /// of every hatch.
+    pub fn is_line_event(self) -> bool {
+        matches!(self, LogKind::LineEnded | LogKind::GroupSplit | LogKind::LineMilestone | LogKind::LineRecord)
+    }
+}
+
+/// **The generation rungs `LineMilestone` watches for**, first-reach only.
+/// Nine rows because a lineage that reaches 200 generations in this box is
+/// already a rare finding worth its own line, and the top of the table
+/// should read as an event rather than a wallpaper pattern.
+pub const GENERATION_MILESTONES: [u16; 9] = [5, 10, 20, 35, 50, 75, 100, 150, 200];
+
+/// **The population rungs `LineMilestone` watches for**, first-reach only.
+/// Three rows: ten is "this line is established", a hundred is "this line
+/// is a real presence", a thousand is a founder click's whole colony
+/// (52 lineages) each producing twenty descendants.
+pub const POPULATION_MILESTONES: [u32; 3] = [10, 100, 1000];
+
+/// **Decode a `LineMilestone` event's `other`.** Returns `(is_population,
+/// threshold)` — `false` for a generation rung, `true` for a population one
+/// — so a reader does not have to know the bit layout to print the number
+/// that was actually crossed.
+pub fn decode_milestone(other: u16) -> (bool, u32) {
+    let index = (other & 0x00FF) as usize;
+    if other & 0xFF00 != 0 {
+        (true, POPULATION_MILESTONES.get(index).copied().unwrap_or(0))
+    } else {
+        (false, GENERATION_MILESTONES.get(index).copied().unwrap_or(0) as u32)
     }
 }
 
@@ -207,6 +306,36 @@ pub struct RunLog {
 /// is the same shape at lower resolution; a decimated *narrative* is a story
 /// with every other sentence removed.
 pub const RUN_LOG_CAP: usize = 2048;
+
+/// **One killing, with both parties and the moment.**
+///
+/// `GroupDeaths::killed_by` aggregates kills per (victim group, attacker
+/// group) and loses the frame and the victim's state, so it can say *that* a
+/// colony was eaten and never *when* or *how hungry the victim already was*.
+/// On the played bed at 500,000 frames those are the two questions left:
+/// whether the killing is a founding-window event or a late-window one, and
+/// whether a "killed" ant was a starving ant that got eaten a moment early.
+#[derive(Clone, Copy, Debug)]
+pub struct KillRecord {
+    pub frame: u64,
+    pub victim_species: organism::SpeciesId,
+    pub victim_colony: u32,
+    /// The victim's energy at the moment the deciding cell came off. A value
+    /// near zero says this was a starving animal that was eaten rather than a
+    /// healthy one that was fought.
+    pub victim_energy: f32,
+    pub attacker_species: organism::SpeciesId,
+    pub attacker_colony: u32,
+}
+
+/// How many killings [`World::kills_log`] keeps before it stops recording.
+///
+/// **A bound on memory, never a gate on the killing** -- `World::tally_kill`
+/// books every kill in `GroupDeaths` whatever this does, and
+/// `World::kills_unlogged` counts what the log dropped, so an exhausted cap
+/// reads as "the log is short" and never as "the killing stopped".
+/// `CLAUDE.md`: a size cap must bound work, not produce an answer.
+pub const MAX_KILL_LOG: usize = 200_000;
 
 /// **One individual that has died, kept after its slot is gone.**
 ///
@@ -373,11 +502,407 @@ impl RunLog {
         self.dropped
     }
 
+    /// **Every line ever pushed, trimmed or not.** Monotonic within one run,
+    /// so a caller can tell "something happened this tick" from a
+    /// before/after difference without holding a copy of the log or walking
+    /// it every frame.
+    pub fn total(&self) -> u64 {
+        self.events.len() as u64 + self.dropped
+    }
+
     /// Start again. For a batch copy, which inherits its parent's log through
     /// `World`'s `Clone` and should not: a copy's history is its own run.
     pub fn clear(&mut self) {
         self.events.clear();
         self.dropped = 0;
+    }
+}
+
+/// **One founding line's standing facts** -- `World::line_stats`'s row.
+///
+/// Everything here is O(1) to update per birth or death: no walk over the
+/// organism table, so a colony click that founds 52 lineages and a run that
+/// grows one to 1,000 living cost the same per-event work.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct LineStats {
+    /// The founder's own body traits, at the moment it was placed (creature
+    /// founders only -- `World::seed_line_stats`; left zeroed for a plant
+    /// lineage, which has no per-individual name table for `LineRecord` to
+    /// read against anyway).
+    pub founder_traits: [f32; organism::CREATURE_TRAITS],
+    /// **The frame this lineage's number was first claimed.** Set once, in
+    /// whichever of `seed_line_stats` (a creature founder or stocked
+    /// release) or `note_line_population`'s own lazy-entry branch (a plant
+    /// lineage, whose entry does not exist until its first germination --
+    /// see `seed_line_stats`'s own doc) actually creates this row. HISTORY
+    /// page and the chronicle export's LEGENDS section both read it as "when
+    /// this line was founded"; `0` means never seeded, which cannot happen
+    /// for a lineage that ever reaches `LineEnded` (a line cannot end
+    /// without having been founded).
+    pub founder_frame: u64,
+    /// The deepest `OrganismState::generation` any descendant has reached.
+    /// Animal lineages only -- see `World::note_line_generation`. A reader
+    /// wanting "generations reached" for a *plant* lineage (which never
+    /// calls that) has to fall back to the last member's own `generation`
+    /// instead -- `lab::ui::ended_lines` does exactly that.
+    pub deepest_generation: u16,
+    /// How many descendants of this lineage (the founder included) are alive
+    /// right now. Incremented at both `Born` push sites, decremented in
+    /// `free_organism`; never below zero by construction (a lineage cannot
+    /// out-die itself).
+    pub living: u32,
+    /// **The highest `living` has ever read.** A line that peaks at 40 and
+    /// dwindles to nothing over a thousand frames is a different finding
+    /// from one that peaks at 3 -- and the standing `living` count is 0 by
+    /// the time anything reads it for a line that has ended, same failure
+    /// shape as a grave that showed its bearer's full energy bank. Updated
+    /// beside `living` in both places that change it, never derived after
+    /// the fact.
+    pub peak_living: u32,
+    /// **Which milestones have already fired**, one bit per rung across both
+    /// tables: bits `0..GENERATION_MILESTONES.len()` for the generation
+    /// table, the next `POPULATION_MILESTONES.len()` bits for the population
+    /// one. First-reach only -- the bit is what makes a rung fire once per
+    /// lineage rather than once per descendant that passes it.
+    pub milestones_hit: u16,
+    /// **How many `0.5`-steps away from `founder_traits` this lineage has
+    /// already put on the record**, per trait slot. `LineRecord` fires only
+    /// on a fresh step past the highest one already logged, so this is what
+    /// stops every later descendant re-announcing ground an earlier one
+    /// already broke.
+    pub record_steps: [u8; organism::CREATURE_TRAITS],
+}
+
+/// **The five fields every run-log line needs about *who* it is about**,
+/// bundled so `World::log_for` does not carry seven bare parameters on top
+/// of `kind` and `other` -- clippy's own arity limit forced the bundling,
+/// and the bundle reads better than the flat list did anyway.
+pub(crate) struct LogSubject {
+    pub id: u16,
+    pub born_frame: u64,
+    pub species: organism::SpeciesId,
+    pub lineage: u32,
+    pub generation: u16,
+}
+
+impl World {
+    /// **Seed a freshly claimed lineage's standing facts.** Called once, at
+    /// the one moment `OrganismState::lineage` is stamped for a *founder*
+    /// (`creature::place_creature`'s `Origin::Founder`/`Origin::Stock` arm --
+    /// a bred child copies its parent's lineage and never calls this). The
+    /// founder counts as the line's first living member, so `living` starts
+    /// at 1 rather than 0: a founder that is placed and never bred still has
+    /// a population of one, not nobody.
+    ///
+    /// **Plant founders never call this** -- their three placement sites are
+    /// outside this lane's file ownership -- so a plant lineage's
+    /// `founder_traits` stays zeroed (harmless: `LineRecord` never reads a
+    /// plant lineage, see its own doc) and its `living` count is seeded late,
+    /// by its first germination's `Born` push, rather than at planting. That
+    /// undercounts a plant lineage's population by exactly one member for as
+    /// long as its founder survives ungerminated-descendant-less, which is a
+    /// bounded, stated simplification rather than a silent one.
+    pub(crate) fn seed_line_stats(&mut self, lineage: u32, founder_traits: [f32; organism::CREATURE_TRAITS]) {
+        self.line_stats.insert(
+            lineage,
+            LineStats { founder_traits, living: 1, peak_living: 1, founder_frame: self.frame, ..Default::default() },
+        );
+    }
+
+    /// **Push one log line, reading `lineage` and `generation` off the
+    /// organism itself.** Every push site but `free_organism` can use this:
+    /// the organism is still live when the line is about it, so asking it
+    /// directly is one lookup and cannot forget the field the way five
+    /// separate struct literals could. `free_organism` cannot -- by the time
+    /// it pushes, `slot.state` has already been set to `None` (its books are
+    /// closed before the slot returns to the free list) -- so it fills the
+    /// two fields itself and calls [`World::log_for`] instead.
+    pub(crate) fn log(&mut self, kind: LogKind, id: u16, born_frame: u64, species: organism::SpeciesId, other: u16) {
+        let (lineage, generation) = self.organism(id).map(|s| (s.lineage, s.generation)).unwrap_or((0, 0));
+        self.log_for(kind, other, LogSubject { id, born_frame, species, lineage, generation });
+    }
+
+    /// The same push, with `lineage`/`generation` supplied rather than read
+    /// off the organism -- see [`World::log`]'s doc for why `free_organism`
+    /// needs this instead.
+    fn log_for(&mut self, kind: LogKind, other: u16, who: LogSubject) {
+        self.run_log.push(LogEvent {
+            frame: self.frame,
+            id: who.id,
+            born_frame: who.born_frame,
+            species: who.species,
+            kind,
+            other,
+            lineage: who.lineage,
+            generation: who.generation,
+        });
+    }
+
+    /// **A lineage's living count changed by one birth or one death.**
+    /// Checks [`POPULATION_MILESTONES`] and pushes `LineMilestone` for any
+    /// rung newly crossed. `generation` is taken as a parameter rather than
+    /// read off the organism because the death-path caller (`free_organism`)
+    /// no longer has one to read.
+    pub(crate) fn note_line_population(
+        &mut self,
+        lineage: u32,
+        delta: i64,
+        id: u16,
+        born_frame: u64,
+        species: organism::SpeciesId,
+        generation: u16,
+    ) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<usize> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            // **The lazy-entry branch `seed_line_stats`'s own doc points
+            // at.** A plant founder never calls `seed_line_stats` (it has no
+            // per-individual name table for `LineRecord` to read, so there
+            // is nothing to seed traits from), so the first call that
+            // reaches here is the moment this row is created at all --
+            // `living == 0 && peak_living == 0` is exactly that moment and
+            // nowhere else (`peak_living` never falls once raised, so it is
+            // what tells "never touched" apart from "touched and happens to
+            // read zero now").
+            //
+            // **Two shapes of "first call", and both have to seed the row or
+            // one of them reads as a line that was never alive.** A first
+            // germination (`delta > 0`) is the ordinary case this branch was
+            // written for. But a founder that dies *without ever breeding*
+            // reaches here too, on its own death (`delta < 0`), as the
+            // *only* call this lineage ever gets -- and leaving `living` at
+            // its `Default` zero there would apply the death to a lineage
+            // that this row says was never alive, landing at `peak_living:
+            // 0` for a line whose founder was real for real frames. That is
+            // the vacuous-metric shape `CLAUDE.md` names directly: a number
+            // that reads zero not because nothing happened but because
+            // nothing was ever recorded. One member -- the founder itself --
+            // was alive up to this instant, so that is what `living` reads
+            // the moment before this delta lands, whichever sign it is.
+            if stats.living == 0 && stats.peak_living == 0 {
+                stats.founder_frame = born_frame;
+                if delta < 0 {
+                    stats.living = 1;
+                    stats.peak_living = 1;
+                }
+            }
+            stats.living = (stats.living as i64 + delta).max(0) as u32;
+            stats.peak_living = stats.peak_living.max(stats.living);
+            for (i, &threshold) in POPULATION_MILESTONES.iter().enumerate() {
+                let bit = 1u16 << (GENERATION_MILESTONES.len() + i);
+                if stats.living >= threshold && stats.milestones_hit & bit == 0 {
+                    stats.milestones_hit |= bit;
+                    crossed.push(i);
+                }
+            }
+        }
+        for i in crossed {
+            self.log_for(LogKind::LineMilestone, 0x0100 | i as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **A lineage's deepest generation may have advanced.** Animal birth
+    /// path only (`creature::try_bud`, after mutation) -- see
+    /// `LogKind::LineMilestone`'s own doc for why a plant lineage does not
+    /// call this. Checks [`GENERATION_MILESTONES`] and pushes `LineMilestone`
+    /// for any rung newly crossed.
+    pub(crate) fn note_line_generation(&mut self, lineage: u32, generation: u16, id: u16, born_frame: u64, species: organism::SpeciesId) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<usize> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            if generation > stats.deepest_generation {
+                stats.deepest_generation = generation;
+            }
+            for (i, &threshold) in GENERATION_MILESTONES.iter().enumerate() {
+                let bit = 1u16 << i;
+                if generation >= threshold && stats.milestones_hit & bit == 0 {
+                    stats.milestones_hit |= bit;
+                    crossed.push(i);
+                }
+            }
+        }
+        for i in crossed {
+            self.log_for(LogKind::LineMilestone, i as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **One individual's trait drifted a fresh half-step past its line's
+    /// founder value.** Animal birth path only, after mutation -- see
+    /// `LogKind::LineRecord`'s own doc. At most four records per trait per
+    /// lineage for the whole run: the `-1..=1` axis is two units wide, and a
+    /// half-step is the unit this checks in.
+    pub(crate) fn note_line_record(
+        &mut self,
+        lineage: u32,
+        traits: &[f32; organism::CREATURE_TRAITS],
+        id: u16,
+        born_frame: u64,
+        species: organism::SpeciesId,
+        generation: u16,
+    ) {
+        if lineage == 0 {
+            return;
+        }
+        let mut crossed: Vec<(usize, u8)> = Vec::new();
+        {
+            let stats = self.line_stats.entry(lineage).or_default();
+            let rows = traits.iter().zip(stats.founder_traits.iter()).zip(stats.record_steps.iter_mut());
+            for (slot, ((&trait_value, &founder_value), record_step)) in rows.enumerate() {
+                let dist = (trait_value - founder_value).abs();
+                let steps = ((dist / 0.5).floor() as u8).min(4);
+                if steps > *record_step {
+                    for step in (*record_step + 1)..=steps {
+                        crossed.push((slot, step));
+                    }
+                    *record_step = steps;
+                }
+            }
+        }
+        for (slot, step) in crossed {
+            self.log_for(LogKind::LineRecord, ((slot as u16) << 8) | step as u16, LogSubject { id, born_frame, species, lineage, generation });
+        }
+    }
+
+    /// **How many lineages have ever been claimed**, `next_lineage - 1`
+    /// (numbering starts at 1 so 0 stays "no lineage"). A test's own way to
+    /// size a per-lineage bound against a real run, without walking
+    /// `line_stats` -- a plant lineage's entry starts only at its first
+    /// germination, not at founding (`seed_line_stats`'s own doc), so
+    /// `line_stats.len()` would undercount.
+    pub fn lineages_claimed(&self) -> u32 {
+        self.next_lineage.saturating_sub(1)
+    }
+}
+
+/// **How often a nest's own odour takes a step**, in frames — the census
+/// cadence, so the wander is denominated in the same unit every other number
+/// about a colony is read at and `nest_scent_drift` can be quoted per
+/// thousand frames rather than per tick.
+pub const NEST_SCENT_INTERVAL: u64 = 1_000;
+
+/// The salted stream the nest wander draws from. **8, because
+/// `creature.rs`'s slot list claimed 0..=7** — a slot collision would make
+/// two independent mechanisms the same walk, which reads as a correlation
+/// nobody built.
+const RNG_SLOT_NEST_SCENT: u64 = 8;
+
+/// **One nest patch, and the odour it holds.**
+///
+/// A nest is a *place* in this model, not a set of animals: it carries a
+/// three-slot signature of its own, an ant standing on it exchanges odour
+/// with it, and the patch's own odour wanders slowly. Two nests no ant walks
+/// between therefore part; two joined by a thread of ants do not.
+/// `Reports/evolution-lab-fission-design-2026-09-12.md` §1 and §3.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct NestSite {
+    /// The centre of the patch, as `creature::paint_nest_patch` was called.
+    pub x: i32,
+    /// The cursor row the patch was painted from — the patch itself follows
+    /// the ground, so this is the founding gesture's row and not a surface.
+    pub y: i32,
+    /// The odour, on `organism::SCENT_SLOTS`' three axes.
+    pub scent: [f32; 3],
+    /// **False until the first ant stands on it**, at which point the site
+    /// takes that ant's scent outright rather than blending toward a zero it
+    /// was never at.
+    ///
+    /// Seeded lazily rather than at painting time because `paint_nest_patch`
+    /// runs *before* `found_colony_of` places a single founder — the colony's
+    /// scent does not exist yet at the moment the ground is painted, and a
+    /// site starting at the origin would drag a whole colony toward `(0,0,0)`
+    /// on its first contact. The founders are the first animals to stand on
+    /// their own patch, so "the founding colony's scent" and "the first
+    /// visitor's scent" are the same value, reached without a second copy of
+    /// the founding rule.
+    pub seeded: bool,
+    /// The last `NEST_SCENT_INTERVAL` epoch this site's wander has been
+    /// advanced to, so the walk is taken exactly once per interval however
+    /// many ants touch it.
+    pub drift_epoch: u64,
+}
+
+/// **How often the nest-room census runs**, in frames.
+///
+/// The census is a read-only column sweep of the bed (`step_nest_room`), so
+/// unlike `NEST_SCENT_INTERVAL` above this is a *cost* interval rather than a
+/// rate anything is quoted against: nothing is integrated over it and a
+/// missed epoch is not caught up, because the answer is a standing count and
+/// not a sum. 256 puts the amortised cost at about 640 cells a frame on the
+/// 512x320 bed -- a fraction of a percent of the sweep -- while the quantity
+/// it tracks (a colony's standing void) moves by single cells per dig.
+pub const ROOM_INTERVAL: u64 = 256;
+
+/// **How far above a void cell ground may stand and still roof it**, in cells.
+///
+/// A chamber's roof is the soil directly over it, so what this has to
+/// separate is a chamber from a shaft mouth -- and in the lab's own bed those
+/// are 1 row and about 160 rows respectively, since the box is 96 rows of
+/// soil under 160 of air. **It is therefore not a tuned number and is not a
+/// dial**, and `the_roof_reach_is_not_a_tuned_number` sweeps it to show that:
+/// every value from **3 to 150** gives the same answer on this bed.
+///
+/// **Both ends of that range are set by the box rather than by taste, and
+/// they are worth stating because they are what would move it.** Below it the
+/// reach must clear the tallest void a colony cuts, or the *floor* of a tall
+/// chamber stops counting as room -- at a reach of 2 the sweep reads 6 of a
+/// 3-row chamber's 9 cells, which is the rule working and not a bug. Above it
+/// the reach must stay under the sky, or the sealed lid roofs the bed. A
+/// colony that dug a 20-row hall, or a box with a low ceiling, would need
+/// this re-derived; nothing else would. It is here so the rule has a name,
+/// not so it can be moved.
+///
+/// This is the local form of `examples/latecensus.rs`'s own `covered` rule.
+/// That one asks whether a *column* holds ground near the original surface;
+/// this one asks whether *this cell* has ground close above it. They agree on
+/// a chamber and on a pit, which is what the selftest checks.
+pub const ROOF_REACH: i32 = 16;
+
+/// **One nest's standing room** -- the roofed void around it, and the ants in
+/// it. `World::nest_room`, parallel to `World::nest_sites`.
+///
+/// **Keyed by nest site rather than by colony**, which is a refinement of the
+/// brief this was built from and is what the engine already models: a nest is
+/// a *place* (see `NestSite`), and the question the dig gate asks -- "does
+/// this colony have room" -- is asked by an ant standing at one particular
+/// patch. Two nests of one colony are two answers, not an average, which is
+/// also the shape the fission design needs.
+#[derive(Default, Clone, Copy, Debug, PartialEq)]
+pub struct NestRoom {
+    /// Void below the original ground datum with ground within `ROOF_REACH`
+    /// directly above it, in the columns nearest this nest.
+    pub roofed: u32,
+    /// Live creature organisms whose head is nearest this nest.
+    pub ants: u32,
+}
+
+impl NestRoom {
+    /// Cells of roofed void per ant -- `None` while the nest holds no ants,
+    /// which is a division that has no answer rather than a zero.
+    pub fn room_per_ant(&self) -> Option<f32> {
+        (self.ants > 0).then(|| self.roofed as f32 / self.ants as f32)
+    }
+
+    /// **How packed this nest is, on 0..1, with more room reading lower** --
+    /// `target / (target + room_per_ant)`.
+    ///
+    /// A hyperbola rather than a clamped linear ramp for the reason the
+    /// mechanism exists at all: `BrainInput::Crowding`'s 5x5 count is pinned
+    /// at 1.000 through a whole run (`Reports/dead-ends.md`, the
+    /// `(Crowding, Dig, 0.6)` entry), and *an input that never leaves
+    /// saturation cannot demonstrate a mechanism about its low end*. This
+    /// form saturates at neither end: it is 1.0 only at literally zero room
+    /// and reaches 0 only in the limit, so every colony the census has ever
+    /// seen sits somewhere on its slope. `target` is where it reads 0.5,
+    /// which is what makes the dial mean something a player can say out loud.
+    pub fn occupancy(&self, target: f32) -> Option<f32> {
+        let room = self.room_per_ant()?;
+        (target > 0.0).then(|| target / (target + room.max(0.0)))
     }
 }
 
@@ -458,6 +983,70 @@ pub struct CreatureStats {
     /// manufactured. `moves` still counts exactly what it counted — one
     /// walking step, decided and paid for — and this counts the other kind.
     pub flight_moves: u64,
+    /// **Brain evaluations made aloft** -- the float's "it was asked at
+    /// all" counter (`Reports/evolution-lab-flight-design-2026-09-11.md`
+    /// §1). Zero on `main` by construction: an airborne animal did not read
+    /// the world, evaluate its brain or act, which is the whole finding the
+    /// float was built on. Zero *here* means either no species has priced
+    /// flight or nothing left the ground, and `impulses` beside it says
+    /// which.
+    pub fly_ticks: u64,
+    /// **Airborne frames on which `BrainOutput::Fly` was actually holding
+    /// the body up** (`fly > 0`), against `flight_frames`' every airborne
+    /// frame including the ballistic ones.
+    ///
+    /// The effect half of `fly_ticks`, and the pair is the readout
+    /// `CLAUDE.md` asks for: a brain that evaluates aloft and never lifts
+    /// reads high ticks against zero frames, which is a wiring problem, and
+    /// is a different fault from a brain that never ran. `fly_frames /
+    /// flight_frames` is the share of the air the verb is paying for.
+    pub fly_frames: u64,
+    /// **Octant rotations `Turn` actually applied to a velocity.**
+    ///
+    /// `Turn`'s own effect counter, and the reason it exists is
+    /// `open-bugs-handoff.md` R4: on the ground this output is nearly inert
+    /// for a walker on level footing -- both outer candidates lose at every
+    /// value -- so "the weight is authored and the animal is steering" has
+    /// been a false inference in this engine once already. In the air there
+    /// is no candidate to veto, and this is the number that says so.
+    pub fly_turns: u64,
+    /// Joules billed by `CreatureDef::fly_cost_in_moves` -- the price of
+    /// staying up, separated from the launch (`moved`) and from metabolism
+    /// so a flight that eats a colony is visible as its own line.
+    pub fly_energy: f64,
+    /// **Landings made because the body was weightless and not flying** --
+    /// `open-bugs-handoff.md` §Z9's own exit firing.
+    ///
+    /// A creature material is exactly as dense as water, so a hop that comes
+    /// down on a pond has `g_eff == 0`, never accumulates a downward step,
+    /// and hangs there being charged the airborne rate until it dies
+    /// `STARVED ALOFT`. Weightless and *not flying* is standing on water,
+    /// and this counts the animals that are now put down on it. Read beside
+    /// `deaths_by`'s `STARVED ALOFT` share, which is the number the bug is
+    /// actually about; `LAND_AFLOAT=0` puts the defect back.
+    pub landed_afloat: u64,
+    /// **Landings made because a *flying* body had nowhere left to go** --
+    /// the perch.
+    ///
+    /// Once lift genuinely cancels gravity (`creature::HOVER_GAIN`) a flier
+    /// no longer comes down by itself, so a body that pushed into foliage
+    /// and had every substep refused simply hung there with its wings on,
+    /// for ever: measured on the understory bed, the followed flitter was
+    /// airborne and motionless for **450 consecutive captured frames**, a
+    /// statue in mid-air, which is a worse artifact than the hop it
+    /// replaced. A flier that cannot move and is touching something has
+    /// arrived on it. Read beside `landed_afloat` -- that one is water,
+    /// this one is leaves.
+    pub perched: u64,
+    /// **Bouts abandoned because a flying body was getting nowhere and had
+    /// nothing to land on** — the stall-out, `creature::step_flight`.
+    ///
+    /// Read it beside `perched`: that one is an arrival (a flier wedged in
+    /// foliage, which is a landing), this one is a *failure* to arrive (a
+    /// flier hovering in open air two cells short of the bloom it can see,
+    /// which before this counter existed simply hung there until it starved).
+    /// A build where this climbs has an encounter problem, not a flight one.
+    pub stalled_out: u64,
     /// Launches the brain asked for and the body could not make — the
     /// creature was already off the ground.
     ///
@@ -492,6 +1081,42 @@ pub struct CreatureStats {
     /// approximation.
     pub digested_face: f64,
     pub pickups: u64,
+    /// **How many times an animal rolled the dig gate and won** -- the "it
+    /// fired" counter, and `digs` below is the effect counter from the far
+    /// side of the same call.
+    ///
+    /// The pair is not decoration. `CLAUDE.md`: *pair every "it fired"
+    /// counter with an effect counter from the far side of the call* -- a
+    /// clean counter-based negative in this engine once turned out to be
+    /// **23 swings removing 0 cells**, every one landing in soil the animal
+    /// could not cut. A `dig_rolls` climbing while `digs` holds still is a
+    /// colony swinging at rock; the two moving together is a colony
+    /// excavating. Neither number can say that alone, and this build is
+    /// judged on exactly that ratio -- the claim is *digs per ant fall
+    /// because the colony stops wanting to*, and the way that claim goes
+    /// wrong is the colony still wanting to and merely failing.
+    pub dig_rolls: u64,
+    /// **Creature ticks taken standing at a nest.** Not a rate and not a
+    /// population: a tick count, so it rides the colony's size and its tick
+    /// interval together and is only ever read as a ratio or against a
+    /// paired arm.
+    ///
+    /// The reason it exists is that `digs` falling has two readings and this
+    /// tells them apart -- the colony stopped wanting to dig, or the colony
+    /// stopped reaching the nest to dig at. See its increment site.
+    pub at_nest_ticks: u64,
+    /// **What the dig gate actually read, bucketed** -- ten equal buckets of
+    /// `BrainInput::Crowding` over `at_nest_ticks`, `[0, 0.1)` first.
+    ///
+    /// **This is the one instrument that can check the premise the whole
+    /// room-per-ant build rests on**, which is that the old input is pinned
+    /// at its ceiling at the nest. That figure (median 1.000, p90 and max
+    /// 1.000) was measured on a different scene and inherited, and
+    /// `CLAUDE.md` is explicit that a number must be sanity-checked against
+    /// the case you are about to use it on. Weighted by ant-ticks rather than
+    /// by census stops, so it is the distribution of what was *read* rather
+    /// than of what was available to read.
+    pub at_nest_crowding: [u64; 10],
     pub digs: u64,
     /// **What those digs cost**, in joules, and the far side of the counter
     /// above.
@@ -598,6 +1223,20 @@ pub struct CreatureStats {
     /// it. What it is not is "arrivals at the nest after having been away",
     /// which is what it used to claim and what `forage_trips` now measures.
     pub nest_visits: u64,
+    /// **At-nest odour exchanges applied** — `creature::blend_with_nest`
+    /// returning true, which is the far side of the call rather than the
+    /// branch that decided to make it.
+    ///
+    /// **Paired with `share_blends` below and read against `nest_visits`.**
+    /// A zero here on a bed whose ants are plainly standing on their nest
+    /// means the mechanism never fired; a zero on a bed where `nest_visits`
+    /// is also frozen means the ants stopped going home, which is a
+    /// different finding and is `open-bugs-handoff.md` §T2.
+    pub nest_blends: u64,
+    /// **Odour exchanges that rode a trophallaxis contact** — the free
+    /// second path, one per executed `BrainOutput::Share`. Never the floor:
+    /// `creature::blend_with_nest`'s doc says why.
+    pub share_blends: u64,
     /// **Round trips: excursions that got at least `FORAGE_TRIP_MIN` cells
     /// from home and came back.** The thing `nest_visits` was believed to
     /// be counting and never was.
@@ -691,6 +1330,16 @@ pub struct CreatureStats {
     /// beside any cost claim: a sense that timed as free while probing
     /// nothing would read here as a bargain and be a bug.
     pub sight_cells_read: u64,
+    /// **An animal read `BloomNear > 0` this tick** — "did the sense fire at
+    /// all", the pair `flower_visits`/`nectar_paid` needed on the other
+    /// side: those say a bite reached a flower, this says an eye found one
+    /// first. `CLAUDE.md`'s "did it fire at all needs a counter, not a
+    /// picture" — a `labgif` of an animal arriving at a flower cannot say
+    /// whether the sense is what got it there. Zero for every species that
+    /// has not authored `sight_range`, exactly as `sight_casts` is.
+    /// See `BrainInput::BloomNear`,
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    pub bloom_seen: u64,
     pub deaths: u64,
     /// Creatures that lost a body cell and survived it.
     pub injuries: u64,
@@ -764,6 +1413,39 @@ pub struct CreatureStats {
     /// terrain around the parent and the other is a property of the
     /// engine's address space.
     pub births_denied_no_space: u64,
+    /// How many *distinct animals* have ever had a birth refused for want of
+    /// room — the denominator [`Self::births_denied_no_space`] does not have.
+    ///
+    /// Read the two together. A denial does not charge the parent and
+    /// `try_bud` runs every tick, so attempts alone cannot tell one ant
+    /// walled in for a thousand ticks from a thousand ants each waiting a
+    /// tick, and those are opposite findings: the first is a bed that
+    /// forecloses reproduction, the second is a queue. Attempts divided by
+    /// animals is the mean wait in ticks; multiply by the species'
+    /// `tick_interval` for frames, and read that against a generation.
+    ///
+    /// A lower bound, because organism slots are recycled — see
+    /// `World::denied_seen`.
+    pub births_denied_animals: u64,
+    /// **Organism slots the breeding-suppression lookup actually looked
+    /// at** — one count per candidate examined, on whichever arm
+    /// `creature::breeder_index_enabled` selects: every slot the O(organism
+    /// slots) scan walks, or every id `World::colony_breeders`' per-colony
+    /// index validates. `suppress_bar`'s `individual` arm never reaches
+    /// either lookup by construction, so a world that never sets
+    /// `PIXEL_PHYSICS_BREEDING` away from its default reads this at
+    /// exactly `0` — see `breeding_regime`'s own doc.
+    ///
+    /// **The counter the per-colony index has to be checked against, not
+    /// the timing.** `CLAUDE.md`'s own rule: a cost that vanishes may be
+    /// work that vanished, and a queue that goes quiet because the system
+    /// stopped asking looks identical, in every timing, to one that
+    /// converged. Compared between the two arms inside one run, on a
+    /// colony that is a small fraction of the world's organisms, the index
+    /// arm's count reads strictly lower than the scan arm's for the
+    /// identical answer — proof the lookup got cheaper, not that it
+    /// stopped happening.
+    pub breeder_scan_visits: u64,
     /// **The biggest single mouthful any creature in this world ever
     /// swallowed**, in the units the eater received — `diet_yield`, after
     /// the gut's matched filter, not the cell's face value.
@@ -852,6 +1534,100 @@ pub struct CreatureStats {
     /// only the pair can tell that from one that worked.
     pub crossings_completed: u64,
     pub crossings_abandoned: u64,
+    /// **Executed transfers** -- the "did it fire at all" counter for
+    /// trophallaxis. A share that was rolled and found nobody, and a share
+    /// that moved joules, are the same silence in every other readout.
+    pub shares: u64,
+    /// **Joules actually moved** -- the effect counter from the far side of
+    /// the call, and `CLAUDE.md` asks for it by name. `shares` can climb
+    /// with `shared_j` near zero if every gap is trivial, which is a colony
+    /// grooming itself rather than feeding itself, and only the pair
+    /// separates them.
+    pub shared_j: f64,
+    /// What the handling cost, booked into `metabolized`. `shared_j /
+    /// share_energy` is whether the verb is paying for itself.
+    pub share_energy: f64,
+
+    // --- the blocked-step census (§13) ---------------------------------
+    //
+    // **Off unless `PIXEL_PHYSICS_BLOCKED_CENSUS=1`**, and every field
+    // below stays zero without it -- these run an extra eight-direction
+    // scan on a tick that has already given up, which is cheap but is not
+    // free, and nothing in the shipped game reads them.
+    //
+    /// **Why a refused candidate was refused**, indexed by
+    /// `creature::BlockedWhy`. Three entries per blocked tick: exactly the
+    /// three forward candidates `step_chain` scored and declined, so the
+    /// column sums to `3 * moves_blocked` when the census is on.
+    ///
+    /// `moves_blocked` alone says an animal did not move and cannot say
+    /// whether a wall, its own body, or a missing foothold is what stopped
+    /// it -- and those want completely different fixes.
+    pub blocked_why: [u64; crate::sim::creature::BLOCKED_WHY_N],
+    /// **Ticks on which no direction of the eight could be walked** --
+    /// the animal is not "facing the wrong way", it is stuck.
+    ///
+    /// This is the distinction `moves_blocked` cannot draw and the one the
+    /// mechanics of a long body turn on: a blocked tick that `tumble` can
+    /// fix by re-aiming costs one tick, and a blocked tick where every
+    /// heading is refused costs the rest of the animal's life.
+    pub boxed_ticks: u64,
+    /// ...of which: **boxed, and at least one of the eight directions is
+    /// refused by nothing but this body's own cells.**
+    ///
+    /// The signature of a body that cannot reverse. A two-cell animal can
+    /// never score here -- its tail is adjacent to its head, it vacates on
+    /// the same tick, and stepping into it is legal -- so a non-zero count
+    /// is length, not terrain, and the paired zero on the two-cell arm is
+    /// the specificity control.
+    pub boxed_self_ticks: u64,
+    /// **Segment width transitions across a committed move** -- a lateral
+    /// tucking or re-emerging. Divided by `moves` this is the flicker rate:
+    /// a squeeze through a gap is two transitions for the whole passage, a
+    /// strobe is one every step.
+    pub width_changes: u64,
+    /// Tucked segments summed over committed moves, the denominator that
+    /// says whether `width_changes` is a lot or a little.
+    pub tucked_segment_steps: u64,
+    /// **Reversals committed** -- an animal that was refused in all eight
+    /// headings for `creature::REVERSAL_BOX_STREAK` consecutive ticks
+    /// turning round rather than staying there. `PIXEL_PHYSICS_REVERSE=flip`
+    /// is the default since §13g; `=off` is the ablation, at which this
+    /// reads zero. Zero for a two-cell body under any rule, which cannot
+    /// get boxed in the first place.
+    pub reversals: u64,
+    /// ...and the effect counter from the far side of the call
+    /// (`CLAUDE.md` asks for it by name): reversals the rule was offered
+    /// and declined, because the body could not be laid down or because
+    /// the reversed animal would still have been boxed. A `reversals`
+    /// count climbing with this one climbing beside it is an animal
+    /// thrashing at a dead end, not one getting out of it.
+    pub reversals_refused: u64,
+    /// **Reversals committed by a laden animal** (`OrganismState::crop`
+    /// `is_some()` at the moment of the flip) -- the "where" breakdown
+    /// §13g's diagnosis needed and `reversals` alone cannot give. A flip is
+    /// mirroring the very animal that has something to lose by it: the head
+    /// that was one step from the nest becomes the tail, and the new head
+    /// is the body's farthest point from home, facing away from it. High
+    /// against `reversals` says the rule is firing on exactly the animals a
+    /// foraging colony can least afford it to.
+    pub reversals_carrying: u64,
+    /// **Reversals committed while the (pre-flip) head was nest-adjacent**
+    /// -- the worst timing `reversals_carrying` can name a coordinate for.
+    /// A colony's nest mouth is the one place in the world every laden ant
+    /// is trying to reach and every outbound ant is leaving from at once,
+    /// so it is also the one place `is_boxed` is most likely to be true for
+    /// a reason that has nothing to do with terrain: another ant standing
+    /// in the one open heading. §13g's gate exists because of this count.
+    pub reversals_at_nest: u64,
+    /// **Ticks `is_boxed` read true where `creature::boxed_by_traffic` also
+    /// read true** -- the flip was withheld because at least one of the
+    /// eight headings is refused only by another creature's body, not by
+    /// terrain. The animal falls through to `tumble` and re-tries next
+    /// tick, exactly as an ordinary blocked tick with a bad heading does.
+    /// High against `reversals` says most of what `is_boxed` alone would
+    /// have flipped for was a jam, not a dead end.
+    pub reversals_traffic_deferred: u64,
 }
 
 /// Where every joule went. See `World::energy_ledger`.
@@ -1499,9 +2275,34 @@ pub struct World {
     /// `deaths_by_cause`, split by `(species, colony)` for animals — see
     /// `GroupDeaths`. A `Vec` because a box holds a handful of groups.
     pub group_deaths: Vec<GroupDeaths>,
+    /// **Every killing, with both parties, the frame and the victim's
+    /// energy** -- see [`KillRecord`]. Append-only, bounded by
+    /// [`MAX_KILL_LOG`]; `kills_unlogged` counts what the bound dropped.
+    pub kills_log: Vec<KillRecord>,
+    /// Killings that happened after `kills_log` reached [`MAX_KILL_LOG`].
+    /// Non-zero means the log is a prefix and any share computed from it is a
+    /// share of that prefix, which a reader has to be told.
+    pub kills_unlogged: u64,
+    /// **What was standing in the vital cell of every creature that died of
+    /// `DeathCause::Killed`**, as `(species, colony, material, count)` — see
+    /// [`World::note_vital_loss`]. Read against `kills_log`: the difference
+    /// between the two is the killing nobody did.
+    pub vital_losses: Vec<(organism::SpeciesId, u32, material::MaterialId, u64)>,
     /// **What happened while you were not looking.** See [`RunLog`] -- it is
     /// narrative, never the source of a count.
     pub run_log: RunLog,
+    /// **Per-lineage standing facts**, keyed on `OrganismState::lineage` --
+    /// see [`LineStats`]. Read by `World::log`'s milestone/record checks at
+    /// every birth and death; O(1) per call, a `BTreeMap` rather than a
+    /// `Vec` because a lineage number is sparse and a founder click mints 52
+    /// of them at once with nothing in between to scan past.
+    ///
+    /// **Kept across a batch copy**, unlike `run_log` -- see `run_log.clear()`
+    /// at `batch.rs`'s copy path: "the counters are deliberately kept". A
+    /// milestone already crossed by the parent world stays crossed in the
+    /// copy, so a fifty-chamber fork does not re-announce the same rung
+    /// fifty times over.
+    pub(crate) line_stats: std::collections::BTreeMap<u32, LineStats>,
     /// **The dead, still listed.** See [`Graveyard`].
     ///
     /// Beside `deaths_by_cause` rather than instead of it: that is a count
@@ -1523,6 +2324,27 @@ pub struct World {
     /// number only gets interesting in a long release run, which is exactly
     /// where a `#[cfg(test)]` counter cannot see.
     organisms_refused: u64,
+    /// Which organism slots have ever had a birth refused for want of a free
+    /// cell beside the parent — one bit per slot, so
+    /// `CreatureStats::births_denied_animals` can count *animals* rather than
+    /// attempts.
+    ///
+    /// **The pair exists because the raw denial count cannot answer the
+    /// question anyone asks of it.** `try_bud` runs every tick an animal
+    /// survives and a denial does not charge the parent, so one ant walled in
+    /// for a thousand ticks and a thousand ants each briefly boxed in produce
+    /// the identical `births_denied_no_space`. `creature-behaviour-ceiling`
+    /// §3 read 1,171 denials against 157 births as *"88% of affordable births
+    /// fail on geometry"*, and three reports carry that forward as a cap on
+    /// what this bed can evolve; the ratio is real and what it measures is
+    /// the *wait*, not a birth that never happened.
+    ///
+    /// 4,096 slots, so 64 words and no allocation. Slots are recycled, so a
+    /// slot reused by a second denied animal is counted once — this is a
+    /// **lower** bound on distinct animals, which is the conservative
+    /// direction for the "is it a few ants or all of them" question it
+    /// exists to settle.
+    denied_seen: [u64; 64],
     /// How many times a reused slot's 4-bit generation has wrapped back to
     /// zero — see `push_organism`, which is the only writer.
     ///
@@ -1552,6 +2374,73 @@ pub struct World {
     /// `regroup_by_scent`; a founding gesture's label has no parent. Small
     /// and append-only, for `next_colony`'s reason: a label is never reused.
     pub colony_parents: Vec<(u32, u32)>,
+    /// **The odour each nest holds** -- one entry per nest patch on the
+    /// ground, in painting order. See [`NestSite`].
+    ///
+    /// **A colony's cohesion lives here rather than in the animals.** An
+    /// ant standing on its nest blends toward this and leaves some of its
+    /// own (`creature::blend_with_nest`), so a colony re-mixes one odour
+    /// constantly the way a real one does through the nest material, and the
+    /// difference accumulates **between** nests that stop exchanging ants
+    /// rather than inside one. That is what lets `CreatureDef::scent_drift`
+    /// finally ship non-zero: before it, any drift eventually made a colony
+    /// read its own children as strangers and eat itself (measured at drift
+    /// 0.5: `ANT 1 killed 22, 20 of them by ANT 1 itself`).
+    ///
+    /// Short by construction -- one per founding gesture -- so the nearest-
+    /// site walk an at-nest ant makes is a handful of squared distances, on
+    /// a branch `BrainInput::AtNest` had already taken.
+    /// `Reports/evolution-lab-fission-design-2026-09-12.md` §1.
+    pub nest_sites: Vec<NestSite>,
+    /// **What each nest in `nest_sites` holds** -- same length, same order,
+    /// rebuilt every `ROOM_INTERVAL` frames by `step_nest_room`.
+    ///
+    /// Empty in a world with no nest -- which is every outdoor world -- and
+    /// empty with `room_gate` off, which is the branch that makes the revert
+    /// free rather than merely inert.
+    pub nest_room: Vec<NestRoom>,
+    /// **Whether an ant at the nest reads room rather than density.**
+    ///
+    /// On by default (owner: *ship new behaviours on by default*).
+    /// `PIXEL_PHYSICS_LAB_ROOM=off` is the revert, and it is bit-exact: with
+    /// this false, `creature::sense` writes the same 5x5 count into
+    /// `BrainInput::Crowding` it always has and nothing else in this file is
+    /// reached at all.
+    pub room_gate: bool,
+    /// **Cells of roofed void per ant at which the urge to dig is half** --
+    /// `NestRoom::occupancy`'s `target`. `creature::ROOM_TARGET_DEFAULT`.
+    pub room_target: f32,
+    /// **The top-of-ground row per column, frozen on the first census** --
+    /// this census's own datum, and not `World::ground_datum`.
+    ///
+    /// Why not that one is `room_surface`'s doc, and it is a measurement: the
+    /// lab bed marks the whole box underground, so `ground_datum` reads 0 in
+    /// every column and the sealed lid roofs the sky. Frozen once and early,
+    /// for the reason `freeze_ground_datum` itself gives: by the first census
+    /// the bed has been built and almost nothing has been dug.
+    room_datum: Vec<i32>,
+    /// **beta: how far an at-nest ant steps toward the nest's odour**, per
+    /// at-nest tick. `creature::NEST_BLEND_DEFAULT` (0.10): a newborn enters
+    /// at the nest's odour plus its birth drift, and 25 at-nest contacts a
+    /// lifetime at this rate leave 0.9^25 = 7% of that offset standing.
+    pub nest_blend: f32,
+    /// **gamma: how far the nest steps toward the ant's odour**, per at-nest
+    /// tick. `creature::NEST_UPTAKE_DEFAULT` (0.02): about ten ticks a visit,
+    /// so one visiting ant moves a nest 18% of the way to what it is
+    /// carrying -- which is how a crossing ant holds two nests together.
+    pub nest_uptake: f32,
+    /// **sigma: how far a nest's own odour wanders**, per signature slot per
+    /// `NEST_SCENT_INTERVAL` frames. `creature::NEST_SCENT_DRIFT_DEFAULT`
+    /// (0.065): two nests nobody crosses between separate as `E|d|^2 =
+    /// 2*n*sigma^2`, so 120 steps -- one session -- put them a full
+    /// tolerance radius apart and they read as strangers.
+    ///
+    /// **The place drifts, not the birth.** Once an odour is a colony-level
+    /// quantity its centroid moves only by births, each displacing it by
+    /// `u/(N+w)`; at N ~ 40 that is 0.02 of a radius over ten generations,
+    /// five hundred generations to a session's ten. The speciation speed
+    /// cannot live in the birth dial, which is the design's §3.
+    pub nest_scent_drift: f32,
     /// **How far a lineage may evolve on the two arms-race slots** --
     /// `creature::ARMS_RACE_SLOTS`, which is armour and the jaw -- as a
     /// multiple of the `[-1, 1]` axis every other trait shares.
@@ -1822,11 +2711,39 @@ pub struct World {
     /// `organ_ripening_blocked`.
     pub organ_ripening_paid: u64,
 
+    /// **A rebloom actually fired** — `plant::process_rebloom` converting a
+    /// stem cell back into a fresh `CellType::Flower` once its
+    /// `SpeciesDef::rebloom_after` timer ran out and the reproductive
+    /// account could cover it. The "did it fire at all" counter for the
+    /// mechanism PR #307 asked for: a bed that reads as flowering in a
+    /// picture could still be doing it entirely through the ordinary
+    /// once-per-axis route, and only this number says the axes are actually
+    /// being reused rather than merely slow to run out. Zero on a run with
+    /// no species authoring `rebloom_after > 0`, by construction — nothing
+    /// else pushes onto `OrganismState::rebloom_pending`.
+    pub flowers_rebloomed: u64,
+
     /// **Ripe fruit that let go**, each one a seed carried to the ground
     /// inside a `windfall` powder. The far-side effect counter for the drop:
     /// `organs_built` says fruit were made, and only this says any of them
     /// were ever dispersed.
     pub fruit_dropped: u64,
+
+    /// **Windfall made by a fruit or flower organ losing structural
+    /// support, rather than by `plant::drop_organ` letting a ripe one go.**
+    /// The ecology round's first surprise: `fruit.ron` declares
+    /// `breaks_into: "windfall"`, so `structural::break_free` -- the
+    /// generic "convert this cell to its material's breaks_into" fallback
+    /// every snap, sever and grit-decline path shares -- turns a standing
+    /// fruit or flower into loose windfall exactly the same way it turns
+    /// stone into rubble, with no ripening, no reproductive-budget charge,
+    /// and no `fruit_dropped` tick. `windfall_probe` found real standing
+    /// windfall on the played bed while `fruit_dropped` read zero, which is
+    /// `CLAUDE.md`'s "ask what your number counts" aimed at `fruit_dropped`
+    /// itself: it is a count of *deliberate* drops, not of windfall
+    /// production, and the two are the same total only where nothing ever
+    /// snaps.
+    pub organ_shattered_to_windfall: u64,
 
     /// **Seed cells actually borne**, every one of them: the mature-cell
     /// path (`plant::set_seed`) and the fruit drop (`plant::drop_organ`)
@@ -1862,6 +2779,334 @@ pub struct World {
     /// Zero is the expected reading. A non-zero one says `germinations` is
     /// an overcount and by how much.
     pub germinations_in_place: u64,
+
+    /// **A bite met a windfall's own seed and the survival roll passed** --
+    /// the *it fired* half of `plant::seed_survives_bite`
+    /// (`Reports/evolution-lab-ecology-design-2026-09-10.md` §2.6). The
+    /// bitten cell converted to `pip` in place instead of being cleared,
+    /// and the child organism is not reconciled away.
+    ///
+    /// **The three exits below sum to this**, plus whatever is still
+    /// standing as a `pip` when counted: a pip either germinates
+    /// (`plants_from_pip`), rots away (`pips_rotted`), or is eaten on a
+    /// later bite (`pips_eaten`). A residual would be a fourth exit nobody
+    /// knew about.
+    pub seeds_spilled: u64,
+
+    /// **A `pip` germinated into a plant** -- the *it worked* half of
+    /// `seeds_spilled`, counted in `plant::germinate` off the cell's
+    /// material before it is overwritten to the shoot material. The
+    /// headline number for "the colony that gardens survives": every one
+    /// of these is a seed that rode a mouth and grew anyway.
+    pub plants_from_pip: u64,
+
+    /// **A standing `pip` disappeared without germinating or being eaten**
+    /// -- counted at both of its two real exits, since a `pip` shares the
+    /// species' `seed_half_life` hazard every `CellType::Seed` does
+    /// (`organism_tick`'s seed-decay block, shed to litter) and *also*
+    /// carries its own `decays_into` (`decay.rs`, rotted to soil), unlike a
+    /// bare `seed`, which has neither route disabled and the other absent.
+    /// See `seeds_spilled` for how the four exits are meant to sum.
+    pub pips_rotted: u64,
+
+    /// **A standing `pip` met a second bite.** Not a windfall, so
+    /// `seed_survives_bite` does not roll again -- this is ordinary
+    /// predation on an already-spilled seed, counted where the bite site
+    /// asks the plant side and gets `false` back, and then clears the cell
+    /// exactly as it does for any other food. See `seeds_spilled`.
+    pub pips_eaten: u64,
+
+    /// **The garden-fix round's own counter, "it fired."** `creature.rs`'s
+    /// dig verb was clearing a standing `pip`/`windfall` (a `Powder`,
+    /// materially indistinguishable from dirt at the dig verb's own
+    /// `ground` test) as ordinary spoil, with no call to `seed_survives_
+    /// bite` and so no counter anywhere seeing it happen -- round 28 traced
+    /// one delivered pip dead five frames after set-down and the bite verb
+    /// could not have taken it (`Reports/lanes/evolution-lab-garden-loop.md`
+    /// / `-garden-fix.md`). Counted at the dig dispatch site, before the
+    /// skip that now routes the animal around it instead.
+    pub dig_diverted_seed: u64,
+
+    /// **A bite met a `windfall` cell with `organism_id == 0`** -- no
+    /// organism to ask which species' `seed_gut_survival` applies, so
+    /// `seed_survives_bite` could not roll and returned `false` without
+    /// touching `seeds_spilled` at all. Not this mechanism's own fault: a
+    /// live upstream bug leaves many `windfall` cells on the played bed
+    /// already ownerless the first time anything observes them
+    /// (coordinator finding, 2026-09-10, measure lane PR #297,
+    /// `Reports/lanes/evolution-lab-ecology-measure.md` "What surprised
+    /// me"; repro `WF_DEBUG=1 windfall_probe scenario=played_bed seed=1
+    /// frames=1300 sample=10 fate=1`). **Read this before retuning
+    /// `seed_gut_survival` or `reproductive_allocation` against a low
+    /// `seeds_spilled`** -- a high reading here says the larder was never
+    /// reachable, not that the odds are wrong.
+    pub windfall_bitten_ownerless: u64,
+
+    /// **A bite reached an owned, *real* fallen-fruit seed and the survival
+    /// roll was about to be drawn** -- counted in `plant::seed_survives_bite`
+    /// immediately after the cell is confirmed as the species' fruiting
+    /// material and *before* `rng.chance(seed_gut_survival)` runs, so the
+    /// increment never depends on which way the roll goes. This is the true
+    /// denominator the ecology round (M2, `Reports/lanes/evolution-lab-
+    /// ecology-measure-2.md`) needed and did not have: without it, "how many
+    /// times did an ant bite a fallen fruit" could only be *estimated* as
+    /// `seeds_spilled / seed_gut_survival`, which is silent about species
+    /// with `seed_gut_survival: 0.0` (the roll never fires, so the estimate
+    /// reads zero divided by zero) and rounds every other species' true bite
+    /// count to a multiple of `1 / seed_gut_survival`.
+    ///
+    /// **Excludes a species with no fruit, and that exclusion is load-
+    /// bearing, not cosmetic.** `windfall_material` defaults to the literal
+    /// string `"seed"` for a species that authors none
+    /// (`organism::default_windfall_material`), so without the guard at the
+    /// call site every ordinary bare-seed bite on such a species reaches the
+    /// same line -- caught on `played_bed` seed 1, where the naive count
+    /// read **384** bites in one 120,000-frame run against `seeds_spilled=0`,
+    /// because grass and shrub's bare seed litter vastly outnumbers herb and
+    /// scrambler's fruit. This field counts bites on real fruit only. Add
+    /// `windfall_bitten_ownerless` to this for the *total* bite count on any
+    /// real fruit's windfall material, owned or not.
+    pub windfall_bitten: u64,
+
+    /// **Every reach of an organism-owned flower cell through
+    /// `plant::nectar_offer`, paid or not** — the sensitivity half of B1's
+    /// pair (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1,
+    /// Brief B1'). `nectar_paid` below is the effect half. **This is the
+    /// counter the positive control reads**: at a species'
+    /// `nectar_refill: 0.0` the pool can never fill, so `nectar_paid` stays
+    /// zero forever — and this field is what proves that zero is the
+    /// refill rate and not a probe that never reached a flower at all, by
+    /// still moving. Zero on any run with no fruiting species, by
+    /// construction: nothing else sets an organism-owned `CellType::Flower`.
+    pub flower_visits: u64,
+
+    /// **`flower_visits`, split by which species did the reaching** — Brief
+    /// P2's own counter, and the one that answers the question the total
+    /// cannot: *is the bed's pollinator feeding, or is the ant colony
+    /// walking over the low flowers while the flitter starves?* A bed with
+    /// two animals in it reports one number today, and P2's whole claim is
+    /// about which of them it belongs to.
+    ///
+    /// **Written at the bite site, not at the counter.**
+    /// `plant::nectar_offer` is the only writer of `flower_visits` above and
+    /// is deliberately not told who is visiting (its own doc: the plant's
+    /// side of the exchange knows nothing about the gut). So the attribution
+    /// happens at the one call site that holds the organism — see
+    /// `creature.rs`'s nectar hook, which brackets the call and credits the
+    /// difference. Keep the two in step: a second caller of `nectar_offer`
+    /// that does not bracket it will move the total and not this map, and
+    /// the tell is `flower_visits > sum(values)`.
+    ///
+    /// A `BTreeMap` rather than a `Vec` indexed by species id because a box
+    /// holds a handful of species and the ordering makes the printed line
+    /// deterministic, which a `HashMap` would not. **Keyed on the raw
+    /// `SpeciesId.0`**, not on `SpeciesId` itself, which is deliberately not
+    /// `Ord` -- a counter map is not a reason to widen a core type's derives
+    /// under another lane's hand.
+    pub flower_visits_by_species: std::collections::BTreeMap<u16, u64>,
+
+    /// **Flower cells taken off a plant by a mouth, split by which species'
+    /// mouth** — the design's own named counter for the failure it predicted
+    /// before the pollinator was built (`Reports/evolution-lab-pollinator-
+    /// design-2026-09-10.md` §2.2: *"a bed of poor plants gets stripped by
+    /// its own pollinators"*).
+    ///
+    /// **It is the effect half of `flower_visits_by_species` above, and they
+    /// point opposite ways.** A visit is an animal drinking and the flower
+    /// surviving; this is an animal eating the flower. A pollinator whose
+    /// visit count rises while this stays at zero is feeding; one where both
+    /// rise is grazing its own larder, and the two are indistinguishable in
+    /// `eats`.
+    ///
+    /// Written at the same bite site, past the nectar hook and past the
+    /// nectar-only refusal, so **a `CreatureDef::nectar_only` species reads
+    /// exactly 0 here for ever** — that zero is a claim about the mouth, and
+    /// an ordinary animal's row still moving is what says the counter is not
+    /// blind.
+    pub flowers_bitten_by_species: std::collections::BTreeMap<u16, u64>,
+
+    /// **Joules of nectar actually paid out** — `plant::nectar_offer`'s
+    /// `nectar_yield` returns, summed every time one is non-zero. The
+    /// effect half of `flower_visits`' pair, and the plant's own side of
+    /// the exchange: this is the raw figure the plant handed over, before
+    /// the bite site's `diet_quality` filter decides how much of it a
+    /// given gut actually absorbs (that filtered figure is credited to
+    /// `EnergyLedger::harvested_plant` and is not this field — the two can
+    /// differ by an order of magnitude on a mismatched gut, which is the
+    /// point of keeping them apart). `nectar_paid / (frame / 1000.0)` at
+    /// any checkpoint is the design's own "joules paid per 1,000 frames".
+    pub nectar_paid: f64,
+
+    /// **The x-coordinate of every germination whose seed cell wore a
+    /// windfall material rather than plain `seed`** — the far-side
+    /// discriminator for the fruit → animal → nest → seedling loop the
+    /// ecology round asked for: `germinations` alone cannot say whether a
+    /// seedling arrived by parcel (a dropped or carried fruit) or by
+    /// scatter (a loose seed set directly by `plant::set_seed`), because
+    /// both paths converge on the same `CellType::Seed` and the same
+    /// `germinate()` call.
+    ///
+    /// **Positions, not a pre-bucketed histogram, and deliberately so** —
+    /// the engine has no opinion about where a nest column is; `LabBox`
+    /// does, and only the caller (`windfall_probe`) knows the nest it wants
+    /// distance measured from. `germinations_from_windfall().len()` is the
+    /// count; the values are the raw x for whatever bucketing the reader
+    /// needs. Bounded by how many germinations a run produces at all
+    /// (hundreds over a 120,000-frame bed, per `plant.rs`'s own figures),
+    /// so an unbounded `Vec` costs nothing worth capping.
+    pub windfall_germination_x: Vec<i32>,
+
+    /// **A2 -- a passenger was loaded into a crop**, the *it fired* half of
+    /// `plant::take_seed_passenger` (`Reports/evolution-lab-ecology-design-
+    /// 2026-09-10.md` §2.6, `seeds_carried`). Counted once per pickup, not
+    /// once per bite: a second surviving seed while a passenger is already
+    /// aboard leaves its `pip` standing instead and does not touch this.
+    pub seeds_carried: u64,
+    /// **Round 29, Brief 1 -- how many of those pickups were a *bare seed*
+    /// off the floor rather than a seed inside a fallen fruit.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The new
+    /// source tag the brief asks for by name: `seeds_carried` counts both
+    /// routes and cannot say which, and only the bare route is the one this
+    /// build opened -- the bank is what the census says the colony eats
+    /// first, and a windfall's passenger has ridden home since round 28.
+    /// **Read it against `bare_seeds_spared` beside it**: that is the
+    /// far-side effect counter for the same event (the roll passed), and
+    /// spared-minus-carried is seeds left standing as a `pip` because the
+    /// biter's crop was already carrying one.
+    pub bare_seeds_carried: u64,
+    /// **Round 29, Brief 1 -- a bare seed's bite rolled `seed_gut_survival`
+    /// and won**, counted in `plant::seed_survives_bite` where the roll
+    /// happens. The *it fired* half; `bare_seeds_carried` above is the *it
+    /// worked* half. Zero on any run with `PIXEL_PHYSICS_SEED_CARGO=0`, and
+    /// zero before this build existed, which is what makes it the kill
+    /// switch's own control.
+    pub bare_seeds_spared: u64,
+    /// **A2 -- a passenger was put down as a live pip organism**, the *it
+    /// worked* half of `seeds_carried` -- `plant::deliver_seed_passenger`.
+    /// The two need not be equal within a window (a passenger can still be
+    /// mid-carry, or its carrier can have died -- see
+    /// `carried_seed_organisms`), but every delivery is a pickup, so this
+    /// can never exceed `seeds_carried` over the life of a run.
+    pub seeds_delivered: u64,
+    /// **A seed that had nowhere to go.** `plant::deliver_seed_passenger`
+    /// will not write a plant cell over an occupied one (open-bugs §Z16:
+    /// the digestion exit was planting the pip in the ant's own head), so a
+    /// carrier boxed in on every side with no midden site in reach loses
+    /// the seed. Counted here so the loss is a number rather than a
+    /// silence -- `CLAUDE.md`'s "did it fire at all" rule.
+    pub seeds_lost_no_room: u64,
+    /// **A2's germination-side headline's raw material.** The x-coordinate
+    /// of every germination whose seed cell was `pip` -- both A1's in-place
+    /// spills and A2's carried deliveries, which converge on the same
+    /// `CellType::Seed` and the same `germinate()` call, so the two cannot
+    /// be told apart from this alone. Positions rather than a pre-bucketed
+    /// histogram, for the same reason `windfall_germination_x` is: the
+    /// engine has no opinion about where a nest column is, and only the
+    /// caller (`labforage`) knows the nest it wants distance measured from
+    /// -- see `World::plants_from_pip` for the plain count this refines.
+    pub pip_germination_x: Vec<i32>,
+    /// **How long a passenger actually rode**, in frames from
+    /// `plant::take_seed_passenger` to `plant::deliver_seed_passenger` --
+    /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.5's check on
+    /// `herb.seed_half_life` (14,000): transit costs approximately nothing
+    /// only while its median stays well under four figures, and nothing
+    /// before this measured it. One entry per completed delivery; bounded
+    /// by how many a run produces, same reasoning as
+    /// `windfall_germination_x`.
+    pub seed_transit_frames: Vec<u32>,
+    /// **Round 28's garden-loop instrument** — see `organism::PipCheck`'s
+    /// own doc. One row per pip, on its first `Behavior::Germinate`
+    /// evaluation only, so bounded the same way `seed_transit_frames` is:
+    /// by how many pips a run produces, not by how many times each is
+    /// rechecked. `Reports/lanes/evolution-lab-garden-loop.md`.
+    pub pip_checks: Vec<organism::PipCheck>,
+    /// **Where a pip was standing when it lost the viability race** — the
+    /// x-coordinate, at each of `pips_rotted`'s three exit sites
+    /// (`decay.rs`'s material channel, and `plant.rs`'s two half-life
+    /// rolls). Positions rather than a pre-bucketed histogram, the same
+    /// convention `windfall_germination_x` uses: the engine has no opinion
+    /// about where a nest column is. `Reports/lanes/evolution-lab-garden-
+    /// loop.md` hypothesis (a)'s "for each pip that rotted, where".
+    pub pip_rot_x: Vec<i32>,
+    /// **Where a standing pip was when a second bite took it** —
+    /// `plant::seed_survives_bite`'s `pips_eaten` exit, same convention as
+    /// `pip_rot_x` beside it.
+    pub pip_eaten_x: Vec<i32>,
+    /// **Round 28's garden-midden build: a delivered pip's final resting
+    /// ground holds water.** Counted once per `plant::deliver_seed_
+    /// passenger` call, after the midden search below has had its chance
+    /// to relocate the pip — so this counts the *outcome*, not only the
+    /// redirect firing. `pip_checks`'s own `soil_water` measurement is the
+    /// finer-grained sibling (the reading at the first Germinate check,
+    /// which can drift from the set-down reading if the field dries or
+    /// wets between); this is the cheap door-side headline the round's own
+    /// drop-cell census asked for: pips_set_on_soil against pips_set_on_
+    /// nest, over every delivery, not only the ones long-lived enough to
+    /// reach a Germinate check at all. See `pips_set_on_nest` for the
+    /// other exit; the two are exhaustive and mutually exclusive over
+    /// `seeds_delivered` + the A1 in-place spills the same call site
+    /// serves.
+    pub pips_set_on_soil: u64,
+    /// **The redirect had nowhere to send it.** Either the original
+    /// set-down site already held water (no redirect needed — this counts
+    /// the outcome regardless of which arm produced it, see
+    /// `pips_set_on_soil`), or `plant::find_midden_site`'s bounded search
+    /// found no wet ground within `plant::MIDDEN_SEARCH_COLUMNS` and the
+    /// pip stayed on dry nest ground exactly as it would have before this
+    /// build. Not an error either way — the search is a bound on work, not
+    /// a gate on whether the pip is set down (`CLAUDE.md`'s "a size cap
+    /// must bound work, never gate whether something happens"): a pip that
+    /// lands here is no worse off than every pip in the three rounds
+    /// before this one.
+    pub pips_set_on_nest: u64,
+    /// **The owner's rule, 2026-09-11: "where should the seed drop when a
+    /// creature picks up food -- it should drop where it is eaten, not
+    /// immediately." The `Reports/lanes/evolution-lab-seed-where-eaten.md`
+    /// exit this counts:** digestion consumed the crop's last cell and the
+    /// passenger riding with it came out as a live standing `pip`, right
+    /// where the eating animal stood, through `plant::deliver_seed_
+    /// passenger`. The *it fired* half; `pip_digestion_release_x` beside it
+    /// is the *where*. Before this build a passenger present at that tick
+    /// was silently dropped with the empty crop -- see
+    /// `creature.rs`'s digest block for the fix and why the release fires
+    /// on the last cell consumed rather than the first.
+    pub pips_released_by_digestion: u64,
+    /// **Where the eating animal stood at each `pips_released_by_digestion`
+    /// event** -- the x-coordinate, same convention as `pip_rot_x`/`pip_
+    /// eaten_x` beside it. The distance-from-nest distribution the owner's
+    /// rule is asking about: a colony that carries food home before
+    /// finishing it should read differently on this list than one that
+    /// eats where it stands. Positions rather than a pre-bucketed
+    /// histogram, since the engine has no opinion about where a nest
+    /// column is -- `labforage` buckets it against `LabBox::colony_columns`
+    /// the same way it already does for `pip_germination_x`.
+    pub pip_digestion_release_x: Vec<i32>,
+    /// **The owner's rule's other half: a fruit put down without ever being
+    /// eaten keeps its seed.** `plant::deliver_seed_passenger_uneaten`'s
+    /// *it worked* counter -- a crop drop (the ordinary per-frame verb, or
+    /// a dying carrier's spill) that recreated the passenger as a whole
+    /// windfall fruit, the delivering species' own `windfall_material`,
+    /// rather than the bare `pip` the eaten exit above writes. Every one of
+    /// these can still be bitten later and go through `seed_survives_bite`
+    /// fresh, exactly as a fruit that fell there on its own would. Does not
+    /// count the rare fallback to a bare pip delivery (the species or its
+    /// windfall material could not be resolved) -- see that function's own
+    /// doc for why that degraded case is not this counter's job.
+    pub fruit_dropped_with_seed: u64,
+    /// **Organisms currently riding in a crop, with no cell in the grid.**
+    /// `plant::take_seed_passenger` inserts an id here in the same call that
+    /// clears its one cell to `Cell::EMPTY`; `plant::deliver_seed_passenger`
+    /// removes it in the same call that gives the organism a cell again.
+    ///
+    /// **The reason this has to exist at all**: `step_organisms` reclaims
+    /// the slot of any organism whose `cells` map is empty, unconditionally,
+    /// on the very next organism tick -- that rule is what returns a dead
+    /// plant's slot, and it cannot tell "dead" from "between the bite and
+    /// the drop" on its own. A passenger's carry runs to hundreds of frames
+    /// (§2.5), so without this set the organism -- alleles, lineage,
+    /// endowment and all -- would be freed and its id handed to the next
+    /// `push_organism` call before the ant ever put it down.
+    pub(crate) carried_seed_organisms: std::collections::HashSet<u16>,
 
     /// Decay events, split by which side of `DECAY_MOISTURE_THRESHOLD` the
     /// field humidity was on when the roll was made.
@@ -2238,6 +3483,43 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether soil levels its water sideways as readily as it does when
+    /// it is dry.** `update::update_soil_water`'s capillary exchange, and
+    /// the reason the bed stands in visible columns under the moisture
+    /// overlay.
+    ///
+    /// Capillary rests on a threshold, and there are two: above field
+    /// capacity a pair of neighbouring cells is declared level if it differs
+    /// by less than the drainable band (380 of 1000), below it by 60. The
+    /// wide one exists to stop a **pump** — drainage empties a cell in the
+    /// drainable band, capillary refills it from the saturated side, for
+    /// ever, keeping every chunk at every water-table boundary awake. That
+    /// argument is about two rules disagreeing over the *same* pair, and
+    /// **drainage only ever moves water down**, so the face it can fight
+    /// over is the vertical one. Applied to the sideways face as well, the
+    /// wide threshold lets two neighbouring columns stand a third of the
+    /// whole scale apart for ever.
+    ///
+    /// On, the sideways face uses the narrow threshold instead and the
+    /// columns go: over twelve seeds on the played bed, the widest standing
+    /// gap between neighbouring columns is **380 on every seed off and 0 on
+    /// every seed on**, and the water table stops being a comb of spikes.
+    ///
+    /// **Defaults off, which is the owner's ruling** (2026-09-11, on the
+    /// review card that put both beds in front of them): *"Let me test it in
+    /// a playtest… ship off by default."* A field on the world rather than
+    /// the `env::var` it started as, for exactly `plant_load_failure`'s
+    /// reason — a `OnceLock` read once per process is a measurement
+    /// instrument and cannot be reached from inside a running box, and a
+    /// playtest is the thing it was asked for. The lab's parameters panel
+    /// writes it; see `lab::params::Knob::Rule`.
+    ///
+    /// What it costs is the churn the wide threshold was holding down:
+    /// **1.84x the soil-moisture writes a tick, higher on 12 of 12 seeds**.
+    /// What it does *not* appear to cost is the biology — stand, plants and
+    /// animals all sit at a paired median of ~1.0 with the sign split down
+    /// the middle. `Reports/soil-water-columns-2026-09-11.md`.
+    pub soil_capillary_levels: bool,
     /// **How far one of a plant's ten continuous genes may drift in a
     /// generation** — the mutagen dial, read by `plant::genotype_jitter`.
     ///
@@ -2285,7 +3567,84 @@ pub struct World {
     ///
     /// Zero in a world where nothing has bred, which is the honest reading
     /// and not a bug: a founder is generation 0.
+    ///
+    /// **This counter is written by plant reproduction and by nothing else**,
+    /// which is why [`Self::deepest_animal_generation`] exists beside it. It
+    /// is not a naming quibble: the lab's stats page rendered this as `EVER`
+    /// against a help string promising "the deepest ANY line has reached",
+    /// and a session read a table of it as animal generations and published
+    /// the result. The control is one command -- the same bed at
+    /// `colonies=0`, no animals in it at all, reports the identical `EVER`.
     pub deepest_generation: u16,
+
+    /// The deepest generation any *animal* has reached, ever — the creature
+    /// half of [`Self::deepest_generation`], which only plants write.
+    ///
+    /// Kept as a second counter rather than folded into the first because
+    /// the two kingdoms breed at wildly different rates in the same box: a
+    /// stand reaches generation 3 in 12,000 frames where a colony reaches 1,
+    /// so a single max over both is the plant number with the animal number
+    /// invisible underneath it. **A readout that cannot be wrong about which
+    /// kingdom it is describing is the whole point** — see
+    /// `CLAUDE.md`'s "ask what your number counts when nothing is wrong".
+    ///
+    /// Written where a birth is counted (`creature.rs`'s `Origin::Bud` arm),
+    /// so the two move together and neither can drift from the other.
+    /// Accumulates and never drops, exactly like its plant sibling: zero
+    /// means nothing has bred, and a founder is generation 0.
+    pub deepest_animal_generation: u16,
+
+    /// The deepest generation any animal that has **itself reproduced**
+    /// has reached -- the breeding-regime counter beside
+    /// [`Self::deepest_animal_generation`], and not a duplicate of it.
+    ///
+    /// `deepest_animal_generation` is a max over every child ever *born*,
+    /// so under `queen`-only breeding (`creature::breeding_regime`) it
+    /// counts sterile workers too: a breeder at generation 4 producing a
+    /// worker that never itself buds still pushes that counter to 5, one
+    /// step deeper than any genome in the colony actually travelled. This
+    /// counter only advances on a **parent's own** generation, at the
+    /// moment its bud succeeds, so it reads the depth of the chain a
+    /// genome actually travels rather than the depth of the chain plus one
+    /// generation of dead ends -- exactly the gap the generations-per-
+    /// session measurement this switch exists for has to see.
+    ///
+    /// Written in `creature::try_bud`, beside `OrganismState::children`'s
+    /// own increment, for the same reason `deepest_animal_generation`'s
+    /// own doc gives: the two writes must not be able to drift apart.
+    ///
+    /// Zero in a world where nothing has bred, or where the regime has
+    /// simply never made this counter differ from its sibling yet. It
+    /// accumulates and never drops, exactly like `deepest_animal_generation`.
+    pub deepest_breeder_generation: u16,
+
+    /// **Per-colony candidate breeder list** — `OrganismState::colony`
+    /// (written once, in `place_creature`'s common tail, and never again —
+    /// see that field's own doc) mapped to the ids `World::record_breeder`
+    /// has pushed onto it. Read by `creature::colony_has_other_breeder` and
+    /// `creature::nearest_breeder` in place of the O(organism slots) scan
+    /// their docs used to require — see those functions' own docs for the
+    /// argument that replaces.
+    ///
+    /// **A candidate list, never a source of truth.** The invariant is
+    /// one-directional:
+    ///
+    /// > Every living breeder is in its colony's list. Entries that are
+    /// > not breeders may also be in it.
+    ///
+    /// so every reader validates each id live (`organism`, colony match,
+    /// `children > 0`) before trusting it — a stale entry is skipped
+    /// rather than believed, so it can only ever produce a false negative
+    /// that a validating reader turns into a correct skip, never a wrong
+    /// answer. `record_breeder` prunes opportunistically, on the one call
+    /// site with `&mut World`; see its own doc for why pruning cannot live
+    /// on the `&World`-only read path.
+    ///
+    /// `BTreeMap`, not `HashMap`, matching `line_stats` above for the same
+    /// two reasons: deterministic by construction (`CLAUDE.md` requires
+    /// it, and a `HashMap` would raise the hasher-seed question this
+    /// sidesteps entirely) and a colony number is sparse.
+    pub(crate) colony_breeders: std::collections::BTreeMap<u32, Vec<u16>>,
 
     pub mutation_sigma: f32,
     /// **The chance a seed is born with one of its parent's fate rules
@@ -2399,6 +3758,20 @@ pub struct World {
     /// documented as read by nothing in the simulation and is set by three
     /// render tests that want a room drawn without their world going dark.
     sky_lighting: bool,
+    /// **Cells the lab's mister (`lab::rain`) has actually placed as water**,
+    /// summed since this world was built. An effect count, not an attempt
+    /// count -- `lab::rain::tick` only bumps this for a drop that reads back
+    /// as water afterwards, so a rate whose drops are all bouncing off grown
+    /// canopy reads as a small number rather than a healthy-looking one.
+    ///
+    /// Lives on `World` rather than on `Lab` for the reason `splashes_thrown`
+    /// and `structural_failures` do: a rebuild constructs a fresh `World`,
+    /// so a `REBUILD` zeroes this for free rather than needing its own line
+    /// in `Lab::reset`. Outdoor worlds never write it -- the outdoor game has
+    /// no mister and no lab `Setting` reaches this field -- so it stays 0
+    /// there for the whole run, same as `structural_failures` does on a
+    /// world with nothing built in it.
+    pub rain_cells: u64,
 }
 
 /// The seed a world has when nothing has given it one. Arbitrary, fixed,
@@ -3019,12 +4392,25 @@ impl World {
             deaths_by_cause: [0; organism::DEATH_CAUSES],
             group_deaths: Vec::new(),
             run_log: RunLog::default(),
+            line_stats: std::collections::BTreeMap::new(),
             graveyard: Graveyard::default(),
             organisms_refused: 0,
+            denied_seen: [0; 64],
             organism_generation_wraps: 0,
             next_lineage: 1,
             next_colony: 1,
             colony_parents: Vec::new(),
+            kills_log: Vec::new(),
+            kills_unlogged: 0,
+            vital_losses: Vec::new(),
+            nest_sites: Vec::new(),
+            nest_room: Vec::new(),
+            room_gate: creature::room_gate_default(),
+            room_target: creature::room_target_default(),
+            room_datum: Vec::new(),
+            nest_blend: creature::NEST_BLEND_DEFAULT,
+            nest_uptake: creature::NEST_UPTAKE_DEFAULT,
+            nest_scent_drift: creature::NEST_SCENT_DRIFT_DEFAULT,
             trait_reach: creature::TRAIT_REACH_DEFAULT,
             plasticity: creature::PLASTICITY_DEFAULT,
             seeds_germinated_after_waiting: 0,
@@ -3048,9 +4434,39 @@ impl World {
             organ_cells_unaffordable: 0,
             organ_ripening_blocked: 0,
             organ_ripening_paid: 0,
+            flowers_rebloomed: 0,
             fruit_dropped: 0,
+            organ_shattered_to_windfall: 0,
             seeds_borne: 0,
             germinations_in_place: 0,
+            seeds_spilled: 0,
+            plants_from_pip: 0,
+            pips_rotted: 0,
+            pips_eaten: 0,
+            dig_diverted_seed: 0,
+            windfall_bitten_ownerless: 0,
+            windfall_bitten: 0,
+            flower_visits: 0,
+            flower_visits_by_species: std::collections::BTreeMap::new(),
+            flowers_bitten_by_species: std::collections::BTreeMap::new(),
+            nectar_paid: 0.0,
+            windfall_germination_x: Vec::new(),
+            seeds_carried: 0,
+            bare_seeds_carried: 0,
+            bare_seeds_spared: 0,
+            seeds_delivered: 0,
+            seeds_lost_no_room: 0,
+            pip_germination_x: Vec::new(),
+            seed_transit_frames: Vec::new(),
+            pip_checks: Vec::new(),
+            pip_rot_x: Vec::new(),
+            pip_eaten_x: Vec::new(),
+            pips_set_on_soil: 0,
+            pips_set_on_nest: 0,
+            pips_released_by_digestion: 0,
+            pip_digestion_release_x: Vec::new(),
+            fruit_dropped_with_seed: 0,
+            carried_seed_organisms: std::collections::HashSet::new(),
             decayed_damp: 0,
             decayed_dry: 0,
             bed_cells_on_loan: 0,
@@ -3076,10 +4492,14 @@ impl World {
             // On, because it is the shipped behaviour and a default that
             // silently disables a mechanism is a mechanism nobody measures.
             plant_load_failure: true,
+            soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
+            deepest_animal_generation: 0,
+            deepest_breeder_generation: 0,
+            colony_breeders: std::collections::BTreeMap::new(),
             mutation_sigma: super::plant::MUTATION_SIGMA,
             fate_mutation_chance: super::plant::fate_mutation_chance_seed(),
             param_mutation_chance: super::plant::param_mutation_chance_seed(),
@@ -3107,6 +4527,7 @@ impl World {
             seed: DEFAULT_WORLD_SEED,
             enclosure: None,
             sky_lighting: true,
+            rain_cells: 0,
         };
         world.ensure_chunks_for(bounds);
         world
@@ -3255,6 +4676,21 @@ impl World {
             .filter(|(_, slot)| slot.state.is_some())
             .map(|(i, slot)| encode_organism_id((i + 1) as u16, slot.generation))
             .collect()
+    }
+
+    /// **Is this organism riding in a crop right now?** -- i.e. is it a seed
+    /// whose one cell `plant::take_seed_passenger` lifted out of the world,
+    /// leaving the organism live but owning nothing.
+    ///
+    /// Exists because a census outside the crate cannot otherwise tell such
+    /// an organism from a plant: it is live, it is not a creature, and it has
+    /// no cells, so the obvious "one cell and that cell is a seed" test for a
+    /// waiting seed says no and it lands in the plant column instead. One
+    /// per carrying ant, which is small -- and wrong in the direction that
+    /// flatters the change being measured here, which is the reason to close
+    /// it rather than note it.
+    pub fn is_carried_seed(&self, organism_id: u16) -> bool {
+        self.carried_seed_organisms.contains(&organism_id)
     }
 
     /// **Live cells per founding line, heaviest first.**
@@ -3657,6 +5093,7 @@ impl World {
             // place it is ever set to zero other than the bite that cashes
             // a whole cell in.
             gnawed: 0.0,
+            last_share_frame: 0,
             made: 0.0,
             lineage_seed: 0,
             dev_seed: 0,
@@ -3673,6 +5110,8 @@ impl World {
             cells: crate::sim::fxhash::PosMap::default(),
             root_cells: 0,
             contact_root_cells: 0,
+            // No terminal has finished yet -- see `OrganismState::rebloom_pending`.
+            rebloom_pending: Vec::new(),
             // 1.0, not 0.0 -- see the field's doc. A fresh organism has no
             // root faces, and the rules keyed on this must read "not short"
             // and defer rather than fire on a plant that has not rooted yet.
@@ -3718,6 +5157,11 @@ impl World {
             // prefer.
             traits: [0.0; organism::CREATURE_TRAITS],
             chain: Vec::new(),
+            // Set for real by `creature::place_creature` for a `Segmented`
+            // body; a plant never reads it and every other creature body
+            // plan leaves it empty by design -- see `OrganismState::
+            // segment_groups`'s own doc.
+            segment_groups: Vec::new(),
             heading: 0,
             // Nothing is born in the air. Only `creature::launch` sets this.
             flight: None,
@@ -3727,6 +5171,7 @@ impl World {
             crossing: None,
             parted: Vec::new(),
             since_nest: 0,
+            traffic_deferred: 0,
             forage_anchor: (0, 0),
             forage_max: 0,
             brain_state: [0.0; organism::BRAIN_HIDDEN_FOR_STATE],
@@ -3741,6 +5186,8 @@ impl World {
             inherited: false,
             stocked: false,
             generation: 0,
+            // Zero until this animal buds one itself, in `try_bud`.
+            children: 0,
             // Founders claim theirs at the `plant_creature_seed` seam;
             // `push_organism` cannot, because it does not know whether it
             // is allocating a plant (same reasoning as `traits` above).
@@ -3749,8 +5196,13 @@ impl World {
             // for founders and copies the parent's for a bud.
             colony: 0,
             seeds_set: 0,
+            // Stamped by the caller once the child's mutation is known
+            // (`creature::try_bud`, `plant::bear_seed_at`); a founder or a
+            // released jar leaves this at its zero -- "nothing to report".
+            born_with: 0,
             alleles: [0; organism::DISCRETE_LOCI],
             deferred_germination: false,
+            pip_delivered: false,
             senescent: false,
             rigid_steps: 0,
             lateral_departures: 0,
@@ -3795,15 +5247,7 @@ impl World {
     /// has since been reused by a different organism — the generation
     /// mismatch this whole scheme exists to catch, not a panic.
     pub fn organism(&self, organism_id: u16) -> Option<&OrganismState> {
-        let (slot_index, generation) = decode_organism_id(organism_id);
-        if slot_index == 0 {
-            return None;
-        }
-        let slot = self.organisms.get((slot_index - 1) as usize)?;
-        if slot.generation != generation {
-            return None;
-        }
-        slot.state.as_ref()
+        organism_in(&self.organisms, organism_id)
     }
 
     /// Mutable counterpart to `organism`, same generational check.
@@ -3877,6 +5321,43 @@ impl World {
                 true
             }
             None => false,
+        }
+    }
+
+    /// **Push `organism_id` onto `colony`'s candidate breeder list, pruning
+    /// that same list of anyone who has died since it was last touched.**
+    ///
+    /// Called from exactly one site — `creature::try_bud`, in the same
+    /// breath as the `children` increment that is what makes `organism_id`
+    /// a breeder in the first place — and that is not incidental: it is
+    /// the only place in the whole call chain that holds `&mut World`.
+    /// `colony_has_other_breeder` and `nearest_breeder` only ever see
+    /// `&World` (`try_bud`'s own `state` borrow spans their call and rules
+    /// out anything stronger reaching them — see `suppress_bar`'s call
+    /// site), so a `Vec` cannot be pruned from the read path at all; this
+    /// is where it has to happen instead.
+    ///
+    /// **Pruning here, not lazily on read, is what keeps the list bounded.**
+    /// A long-running colony loses breeders constantly; without this, the
+    /// list would grow by one dead entry per death forever, and the point
+    /// of trading an O(organism slots) scan for an O(colony breeders) one
+    /// would erode back toward the thing it replaced. `organism_in` rather
+    /// than `self.organism(id)` in the retain below for the reason given on
+    /// that function's own doc — this runs while `self.colony_breeders` is
+    /// already borrowed mutably through `list`.
+    ///
+    /// **Idempotent on repeat calls for the same animal** — `contains`
+    /// before `push`, so a parent that has already bred does not gain a
+    /// new entry on every subsequent bud. Without that check the list
+    /// would grow with every *birth*, not every *breeder*, exactly on the
+    /// long-lived, highly fecund founders this index exists to stop the
+    /// world from paying for.
+    pub(crate) fn record_breeder(&mut self, colony: u32, organism_id: u16) {
+        let organisms = &self.organisms;
+        let list = self.colony_breeders.entry(colony).or_default();
+        list.retain(|&id| organism_in(organisms, id).is_some());
+        if !list.contains(&organism_id) {
+            list.push(organism_id);
         }
     }
 
@@ -4004,14 +5485,11 @@ impl World {
         if creature {
             self.group_deaths_mut(species, colony).by_cause[cause.index()] += 1;
         }
-        self.run_log.push(LogEvent {
-            frame: self.frame,
-            id: organism_id,
-            born_frame,
-            species,
-            kind: LogKind::Died,
-            other: cause.index() as u16,
-        });
+        self.log_for(
+            LogKind::Died,
+            cause.index() as u16,
+            LogSubject { id: organism_id, born_frame, species, lineage, generation },
+        );
         // **The lineage's own ending, which is the only line here about
         // something other than an individual.** A founding line going extinct
         // is the thing a selection experiment is watching for and the thing a
@@ -4021,20 +5499,46 @@ impl World {
         // The walk is O(live organisms) and runs only on a death -- tens of
         // organisms, hundreds of deaths in a long run.
         if lineage != 0 && !self.organisms.iter().any(|slot| slot.state.as_ref().is_some_and(|s| s.lineage == lineage)) {
-            self.run_log.push(LogEvent {
-                frame: self.frame,
-                id: organism_id,
-                born_frame,
-                species,
-                kind: LogKind::LineEnded,
-                other: 0,
-            });
+            // **The fix for the standing `LINE 0 ENDED` bug.** `other` stayed
+            // a `u16` (too narrow for a lineage) and now carries nothing;
+            // the real number goes in `LogEvent::lineage`, which is why every
+            // reader of this kind switched to reading that field instead.
+            self.log_for(LogKind::LineEnded, 0, LogSubject { id: organism_id, born_frame, species, lineage, generation });
         }
+        // **The line's own population, one lower.** Beside the log pushes
+        // above rather than folded into them: a lineage can end (no lineage
+        // event) without ever having existed in `line_stats` (a test
+        // fixture that never called `claim_lineage`), and the population
+        // milestone table must not fire retroactively for that case --
+        // `note_line_population` returns early on `lineage == 0` but a
+        // never-seeded lineage still gets a real (if late-started) entry
+        // here, same as a plant founder's first germination.
+        self.note_line_population(lineage, -1, organism_id, born_frame, species, generation);
         // Counted here rather than at either call site: this is the one
         // function that decides a release really happened (both callers can
         // fire twice for one death, and the guards above are what stop the
         // second one).
         self.organisms_died += 1;
+    }
+
+    /// Mark this organism as having been refused a birth for want of room,
+    /// and say whether that is the first time.
+    ///
+    /// **The write is here rather than at the call site** so the bitset and
+    /// `CreatureStats::births_denied_animals` cannot disagree: they are one
+    /// statement, and a caller that set the bit without the count (or the
+    /// reverse) would produce a mean wait that is silently wrong rather than
+    /// obviously missing.
+    pub fn note_birth_denied(&mut self, organism: u16) {
+        let slot = (organism & ORGANISM_INDEX_MASK) as usize;
+        let (word, bit) = (slot / 64, slot % 64);
+        // `ORGANISM_INDEX_MASK` is 12 bits, so `word` is 0..64 by
+        // construction and this cannot index out of range.
+        if self.denied_seen[word] & (1 << bit) == 0 {
+            self.denied_seen[word] |= 1 << bit;
+            self.creature_stats.births_denied_animals += 1;
+        }
+        self.creature_stats.births_denied_no_space += 1;
     }
 
     /// Organisms ever allocated, and ever released — see
@@ -4277,6 +5781,351 @@ impl World {
     /// gesture only, and the rest of the gesture joins it, so the numbers a
     /// player sees count the things they put down rather than the sites
     /// that were tried: `ANT 3` is the third group placed in this box.
+    /// **Register a nest patch's site**, or reuse the one already standing
+    /// there. Called once per `creature::paint_nest_patch`.
+    ///
+    /// **Re-painting the same patch does not mint a second site.** The lab's
+    /// nest tool can be pressed on one spot all afternoon, and a list with
+    /// forty coincident entries would report forty nests with a zero gap
+    /// between each pair — a tidy number about nothing, which is the shape
+    /// `CLAUDE.md`'s metric-trap rule names. Anything inside `half_width` of
+    /// an existing centre *is* that patch; anything further out is a second
+    /// nest, which is what a budded satellite will be.
+    pub fn register_nest_site(&mut self, x: i32, y: i32, half_width: i32) {
+        if self.nest_sites.iter().any(|n| (n.x - x).abs() <= half_width) {
+            return;
+        }
+        let epoch = self.frame / NEST_SCENT_INTERVAL;
+        self.nest_sites.push(NestSite { x, y, scent: [0.0; 3], seeded: false, drift_epoch: epoch });
+    }
+
+    /// Index of the nest site nearest `(x, y)`, or `None` when the box holds
+    /// no nest. Squared distance, for `creature::scent_distance_sq`'s reason:
+    /// the only consumer is an ordering.
+    pub fn nearest_nest_site(&self, x: i32, y: i32) -> Option<usize> {
+        self.nest_sites
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, n)| {
+                let (dx, dy) = ((n.x - x) as i64, (n.y - y) as i64);
+                dx * dx + dy * dy
+            })
+            .map(|(i, _)| i)
+    }
+
+    /// **Take the standing room census**, once per [`ROOM_INTERVAL`] frames.
+    ///
+    /// In `begin_step` beside `step_nest_scents`, and for that function's
+    /// reason: both drivers and every harness that ticks a world get it, and
+    /// it adds no phase for the tick-sequence hash to notice. **A world with
+    /// no nest returns on the first line**, so the outdoor game pays a
+    /// `Vec::is_empty` per frame and nothing else -- `CLAUDE.md`'s rule about
+    /// guarding hot-path work at the call site that already holds the data.
+    ///
+    /// # Why this is a census and not a pair of counters
+    ///
+    /// The obvious build is to bump a counter in the dig verb and the dump
+    /// verb and never scan anything. **It cannot track this quantity**, and
+    /// the engine says so rather than the design: soil is a `Powder`, so
+    /// galleries collapse and refill on their own, and the spoil drop's own
+    /// predicate (`creature::act`) requires `SPOIL_HEADROOM` of clear air
+    /// above the pellet, so a pellet essentially never lands in a roofed
+    /// cell and the dump would be close to a no-op on the counter. Measured
+    /// on the shipped bed (`Reports/evolution-lab-late-game-design-2026-09-12.md`
+    /// §0): seed 1 logs **1,969 digs** over 500,000 frames and stands at
+    /// **306 roofed + 116 pit**; seed 3 logs **6,109** and stands at
+    /// **302 + 40**. A digs-minus-dumps counter would read five to eighteen
+    /// times the standing void. That is not drift to be corrected, it is a
+    /// different quantity.
+    ///
+    /// # What it counts
+    ///
+    /// Void *below the original ground datum* with ground within
+    /// [`ROOF_REACH`] directly above it, attributed by column to the nearest
+    /// nest; and live creature organisms, attributed by head to the nearest
+    /// nest. The datum is what stops the sealed lab lid roofing the 160 rows
+    /// of air under it -- see `room_datum`.
+    /// `pub` rather than `pub(crate)`, unlike `step_nest_scents` beside it,
+    /// because `examples/latecensus.rs`'s selftest calls it: that harness is
+    /// the positive control for this census, and a control that can only
+    /// exercise a hand-set record proves the arithmetic while a disconnected
+    /// census passes underneath it.
+    pub fn step_nest_room(&mut self) {
+        // **Gated on the dial it feeds, so the arm that does not use it pays
+        // nothing.** Measured 2026-09-12, `latecensus` on `played_bed` seed 3,
+        // 20,000 frames, four alternating paired runs against `main` on a
+        // quiet box: with the census running and the gate off -- a
+        // byte-identical trajectory, so the whole difference is this sweep --
+        // 59.52 s against 58.55 s, **+0.049 ms a frame, about +1.7%**, slower
+        // in 3 of 4 rounds. Small, real, and buying nothing at all when no ant
+        // reads it. With the gate on the same comparison is 61.27 s against
+        // 58.89 s (+0.119 ms, +4.0%, slower in 4 of 4); the extra is the
+        // colony doing different work, not overhead.
+        if !self.room_gate || self.nest_sites.is_empty() {
+            self.nest_room.clear();
+            return;
+        }
+        // Recount on the cadence, and also whenever the list has changed
+        // length under us -- a nest painted between two censuses would
+        // otherwise index past the end of a stale `nest_room` for up to
+        // `ROOM_INTERVAL` frames, and `sense` reads this by index.
+        if !self.frame.is_multiple_of(ROOM_INTERVAL) && self.nest_room.len() == self.nest_sites.len() {
+            return;
+        }
+        let Some(b) = self.bounds else {
+            self.nest_room = vec![NestRoom::default(); self.nest_sites.len()];
+            return;
+        };
+        let mut rooms = vec![NestRoom::default(); self.nest_sites.len()];
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some(&(hx, hy)) = state.chain.first() else { continue };
+            if let Some(i) = self.nearest_nest_site(hx, hy) {
+                rooms[i].ants += 1;
+            }
+        }
+        for x in b.min_x..=b.max_x {
+            // **By column, in x only.** A nest's chambers spread sideways
+            // from its shaft, so the column is the natural unit and it is
+            // also what `latecensus`'s own band metric uses; attributing
+            // per cell by true distance would put the floor of one nest's
+            // deep gallery in its neighbour's account.
+            let Some(site) = self
+                .nest_sites
+                .iter()
+                .enumerate()
+                .min_by_key(|(_, s)| ((s.x - x) as i64).abs())
+                .map(|(i, _)| i)
+            else {
+                continue;
+            };
+            rooms[site].roofed += self.roofed_in_column(b, x, ROOF_REACH);
+        }
+        self.nest_room = rooms;
+    }
+
+    /// **Roofed void in one column** -- the inner loop of
+    /// [`Self::step_nest_room`], with the reach as an argument.
+    ///
+    /// Split out **so the reach can be swept**, which is the only way to
+    /// support [`ROOF_REACH`]'s claim that it is a named rule rather than a
+    /// tuned number: `the_roof_reach_is_not_a_tuned_number` runs this over
+    /// two decades of it on a bed with a chamber and a shaft and asserts the
+    /// answer does not move. `CLAUDE.md`'s *check that a guard's inputs
+    /// actually vary what it guards*, applied to a constant instead.
+    fn roofed_in_column(&self, b: Rect, x: i32, reach: i32) -> u32 {
+        let Some(datum) = self.room_surface(b, x) else { return 0 };
+        let mut roofed = 0;
+        let mut since_ground = reach + 1;
+        for y in (datum - reach).max(b.min_y)..=b.max_y {
+            let cell = self.get(x, y);
+            let kind = self.materials.kind(cell.material);
+            // **The same three conditions `latecensus` calls `is_ground`** --
+            // a plant stem or an ant standing in a gallery is not a roof, and
+            // neither is water.
+            if cell.material != material::EMPTY
+                && matches!(kind, MaterialKind::Powder | MaterialKind::Solid)
+                && cell.organism_id() == 0
+            {
+                since_ground = 0;
+                continue;
+            }
+            since_ground = since_ground.saturating_add(1);
+            if y >= datum && since_ground <= reach && cell.material == material::EMPTY {
+                roofed += 1;
+            }
+        }
+        roofed
+    }
+
+    /// Roofed void over the whole box at an arbitrary reach -- the sweep
+    /// handle for `the_roof_reach_is_not_a_tuned_number`, and nothing in
+    /// production calls it.
+    #[cfg(test)]
+    pub(crate) fn roofed_void_at_reach(&mut self, reach: i32) -> u32 {
+        let Some(b) = self.bounds else { return 0 };
+        self.freeze_room_datum();
+        (b.min_x..=b.max_x).map(|x| self.roofed_in_column(b, x, reach)).sum()
+    }
+
+    /// The original top-of-ground row for column `x`.
+    ///
+    /// **`World::ground_datum` is deliberately not consulted, and that was
+    /// measured rather than assumed.** The obvious build reads it where
+    /// worldgen has built one and falls back otherwise; in the lab it is
+    /// built *and wrong*. `freeze_ground_datum` walks up each column while
+    /// `was_underground` holds, and the hand-built bed marks the whole box
+    /// underground -- so the datum is **0 in all 512 columns** (measured
+    /// 2026-09-12 on `played_bed`, `distinct=1`). Read as a surface that puts
+    /// the sealed lid one row above the "ground", and the 16 rows of sky
+    /// under it become chambers: the census read **8,544 cells of roofed void
+    /// against `latecensus`'s 26**, a 330x overcount that every unit test
+    /// passed straight through, because the test box has no lid at row 0 and
+    /// no grow lamps. One datum, built here, for every world.
+    fn room_surface(&self, b: Rect, x: i32) -> Option<i32> {
+        self.room_datum.get((x - b.min_x) as usize).copied().filter(|d| *d != i32::MAX)
+    }
+
+    /// **Freeze a top-of-ground row per column, once**, for the boxes
+    /// `freeze_ground_datum` cannot serve. See `room_datum`.
+    ///
+    /// **Called from `begin_step` beside `freeze_ground_datum`, not from the
+    /// census, and that placement is a correction rather than tidiness.**
+    /// Frozen lazily on the first census it was frozen *when the colony
+    /// arrived* -- on `played_bed` that is frame 6,000, by which point the bed
+    /// has grown and shed, and litter rotted to soil stands above the surface
+    /// the bed was built with. The datum came out above `LabBox::ground_y`,
+    /// so rows inside what is really mound counted as "below the original
+    /// ground": measured 2026-09-12 on seed 3 at 300,000 frames, **422 cells
+    /// of roofed void against `lab::census`'s 289 for the same world**. Two
+    /// rules for one word, drifting quietly, which is exactly what the
+    /// reconciliation in `latecensus`'s selftest now refuses to allow.
+    /// Frozen on the first simulated frame instead, it is the bed as built.
+    /// `pub` for `examples/latecensus.rs`'s selftest, which drives the census
+    /// directly and never takes a frame -- see that harness's own note.
+    pub fn freeze_room_datum(&mut self) {
+        let Some(b) = self.bounds else { return };
+        if !self.room_datum.is_empty() {
+            return;
+        }
+        self.room_datum = (b.min_x..=b.max_x)
+            .map(|x| {
+                for y in b.min_y..=b.max_y {
+                    let cell = self.get(x, y);
+                    if cell.material != material::EMPTY
+                        && matches!(self.materials.kind(cell.material), MaterialKind::Powder | MaterialKind::Solid)
+                        && cell.organism_id() == 0
+                        // **Past the lid.** The first solid in a sealed box is
+                        // the box, not the bed, so the scan starts below any
+                        // ground that is still within `ROOF_REACH` of the top.
+                        && y > b.min_y + ROOF_REACH
+                    {
+                        return y;
+                    }
+                }
+                i32::MAX
+            })
+            .collect();
+    }
+
+    /// **Walk every nest's own odour**, once per `NEST_SCENT_INTERVAL`
+    /// frames. Called from `begin_step`, so both drivers get it and a world
+    /// that is not being stepped does not drift.
+    ///
+    /// **A pure hash per site per epoch, never a draw from a shared `Rng`**
+    /// — `rng::stream` carries no state across calls, so this cannot shift
+    /// any creature's move roll on the same frame (the hazard
+    /// `creature::RNG_SLOT_BIRTH`'s own doc names). Same seed, same frame,
+    /// same wander, every time.
+    ///
+    /// An unseeded site does not wander: it has no odour yet to move.
+    pub(crate) fn step_nest_scents(&mut self) {
+        if self.nest_sites.is_empty() || self.nest_scent_drift <= 0.0 {
+            return;
+        }
+        let epoch = self.frame / NEST_SCENT_INTERVAL;
+        let (seed, sigma) = (self.seed, self.nest_scent_drift);
+        let mut moved = vec![[0.0f32; 3]; self.nest_sites.len()];
+        let mut any = false;
+        for (i, site) in self.nest_sites.iter_mut().enumerate() {
+            if site.drift_epoch >= epoch {
+                continue;
+            }
+            if !site.seeded {
+                site.drift_epoch = epoch;
+                continue;
+            }
+            // Every missed epoch is walked, not skipped: the wander is a sum
+            // over epochs and a site nobody visited still aged. In the drivers
+            // this loop runs exactly once per interval; the catch-up arm is
+            // for a world whose `frame` was assigned directly, which 27 places
+            // in this tree do to select a time of day.
+            while site.drift_epoch < epoch {
+                site.drift_epoch += 1;
+                let mut draw = super::rng::stream(seed, i as u64, site.drift_epoch, RNG_SLOT_NEST_SCENT);
+                for (k, v) in site.scent.iter_mut().enumerate() {
+                    let before = *v;
+                    *v = (*v + (draw.unit_f32() * 2.0 - 1.0) * sigma).clamp(-1.0, 1.0);
+                    moved[i][k] += *v - before;
+                    any = true;
+                }
+            }
+        }
+        if any {
+            self.carry_nest_wander(&moved);
+        }
+    }
+
+    /// **The animals living at a nest wear the odour it just acquired.**
+    ///
+    /// **Measured, and the reason this function exists.** The design
+    /// (`evolution-lab-fission-design-2026-09-12.md` §3) prices two cut-off
+    /// nests as separating at `E|d|^2 = 2*n*sigma^2` — a *free* walker. A
+    /// site-only wander is not free: its own residents blend with it every
+    /// tick they stand on it, and `gamma * s + beta * G` is conserved by the
+    /// exchange, so a kick of `sigma` to the site relaxes to
+    /// `sigma * beta/(gamma*n + beta)` once `n` contacts have been paid.
+    /// Measured on a six-ant bed over 120 epochs at the shipped dials: the
+    /// gap reached **0.258** where §3's arithmetic says 1.01, and the damping
+    /// gets worse with population — at the played bed's forty ants it is
+    /// about a ninth, which is a wander that does nothing at all. **A
+    /// site-only wander cannot produce the design's number, and no setting of
+    /// sigma repairs it**: the scale needed saturates the `[-1, 1]` allele
+    /// axis, at which point the walk stops being diffusive.
+    ///
+    /// So the step is applied to the gestalt rather than to the substrate
+    /// alone — which is also what a nest odour *is*, the mixture the colony
+    /// and its material hold between them. Two cut-off nests then part at
+    /// exactly `2*n*sigma^2`, and a crossing ant still carries one nest's
+    /// odour into the other, which is the polydomy half.
+    ///
+    /// **Which object this rule evaluates: one animal, against the nest site
+    /// nearest it.** A creature far from every nest is still assigned to the
+    /// nearest one, which is right while the box holds a single colony and is
+    /// the same rule `creature::blend_with_nest` uses, so an ant cannot be
+    /// blending with one nest and wearing another's wander.
+    ///
+    /// Once per `NEST_SCENT_INTERVAL` frames over the living animals, so it
+    /// is a thousandth of a per-tick pass and does not touch the sweep.
+    fn carry_nest_wander(&mut self, moved: &[[f32; 3]]) {
+        for id in self.live_organism_ids() {
+            let Some(state) = self.organism(id) else { continue };
+            if self.species.get(state.species).creature.is_none() {
+                continue;
+            }
+            let Some((x, y)) = state.chain.first().copied() else { continue };
+            let Some(i) = self.nearest_nest_site(x, y) else { continue };
+            let delta = moved[i];
+            if let Some(state) = self.organism_mut(id) {
+                for (k, slot) in organism::SCENT_SLOTS.iter().enumerate() {
+                    state.traits[*slot] = (state.traits[*slot] + delta[k]).clamp(-1.0, 1.0);
+                }
+            }
+        }
+    }
+
+    /// **The gap between every pair of nests**, as `(i, j, distance)` —
+    /// the readout that says whether two nests have parted. Compared against
+    /// a tolerance radius (`creature::tolerance_radius`, 1.0 at the shipped
+    /// allele): below it the two are family, above it they are strangers.
+    ///
+    /// A plain distance rather than the squared one the hot path uses,
+    /// because the only consumers are a harness line and a guard, where a
+    /// number a reader can check against a radius is worth the root.
+    pub fn nest_scent_gaps(&self) -> Vec<(usize, usize, f32)> {
+        let mut out = Vec::new();
+        for i in 0..self.nest_sites.len() {
+            for j in (i + 1)..self.nest_sites.len() {
+                let d = crate::sim::creature::scent_distance_sq(&self.nest_sites[i].scent, &self.nest_sites[j].scent);
+                out.push((i, j, d.sqrt()));
+            }
+        }
+        out
+    }
+
     pub(crate) fn claim_colony(&mut self) -> u32 {
         let id = self.next_colony;
         self.next_colony = self.next_colony.saturating_add(1);
@@ -4312,12 +6161,41 @@ impl World {
         self.group_deaths.iter().find(|g| g.species == species && g.colony == colony)
     }
 
+    /// **A vital cell lost to something that is not an attributable bite.**
+    ///
+    /// `DeathCause::Killed` is booked wherever a creature's deciding cell
+    /// goes away, whatever took it, so the cause alone cannot tell an animal
+    /// apart from a falling powder. This records what was standing in the
+    /// cell at the moment of the death, keyed by material, so "who is killing
+    /// the colony" has an answer rather than an assumption.
+    pub fn note_vital_loss(&mut self, species: organism::SpeciesId, colony: u32, took: material::MaterialId) {
+        match self.vital_losses.iter_mut().find(|(sp, col, m, _)| *sp == species && *col == colony && *m == took) {
+            Some((_, _, _, n)) => *n += 1,
+            None => self.vital_losses.push((species, colony, took, 1)),
+        }
+    }
+
     /// **A kill, booked on the victim's group against the attacker's.**
     /// Called from the bite that took a victim's deciding cell, which is the
     /// one site that knows both parties; `free_organism` sees only the
     /// corpse. Plants are never victims here (a bitten leaf does not kill a
     /// tree) and never attackers, so both ids are animals by construction.
-    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32)) {
+    pub fn tally_kill(&mut self, victim: (organism::SpeciesId, u32), attacker: (organism::SpeciesId, u32), victim_energy: f32) {
+        // **The per-kill record, beside the tally rather than instead of it.**
+        // The tally is what every page and every scene reads; this is the
+        // attribution a census needs and cannot reconstruct from it.
+        if self.kills_log.len() < MAX_KILL_LOG {
+            self.kills_log.push(KillRecord {
+                frame: self.frame,
+                victim_species: victim.0,
+                victim_colony: victim.1,
+                victim_energy,
+                attacker_species: attacker.0,
+                attacker_colony: attacker.1,
+            });
+        } else {
+            self.kills_unlogged += 1;
+        }
         let row = self.group_deaths_mut(victim.0, victim.1);
         match row.killed_by.iter_mut().find(|(sp, col, _)| *sp == attacker.0 && *col == attacker.1) {
             Some((_, _, n)) => *n += 1,
@@ -4451,29 +6329,35 @@ impl World {
                     }
                 }
             }
-            // Clusters, each carrying its lowest lineage.
-            let mut clusters: Vec<(u32, Vec<u16>)> = Vec::new();
+            // Clusters, each carrying its lowest lineage and the id of the
+            // member that holds it -- `LogKind::GroupSplit`'s own identity,
+            // added beside the lineage tracking rather than as a second pass
+            // over `members`.
+            let mut clusters: Vec<(u32, u16, Vec<u16>)> = Vec::new();
             let mut root_of: Vec<(usize, usize)> = Vec::new();
             for (i, member) in members.iter().enumerate() {
                 let r = find(&mut parent, i);
                 let at = match root_of.iter().find(|(root, _)| *root == r) {
                     Some(&(_, at)) => at,
                     None => {
-                        clusters.push((u32::MAX, Vec::new()));
+                        clusters.push((u32::MAX, 0, Vec::new()));
                         root_of.push((r, clusters.len() - 1));
                         clusters.len() - 1
                     }
                 };
-                clusters[at].0 = clusters[at].0.min(member.lineage);
-                clusters[at].1.push(member.id);
+                if member.lineage < clusters[at].0 {
+                    clusters[at].0 = member.lineage;
+                    clusters[at].1 = member.id;
+                }
+                clusters[at].2.push(member.id);
             }
             if clusters.len() < 2 {
                 continue;
             }
-            clusters.sort_by_key(|(lineage, ids)| (*lineage, ids[0]));
+            clusters.sort_by_key(|(lineage, low_id, _)| (*lineage, *low_id));
             // The first keeps the label; the rest, if big enough to be a
             // line, are minted as its children in that order.
-            for (_, ids) in clusters.iter().skip(1) {
+            for (_, low_id, ids) in clusters.iter().skip(1) {
                 if ids.len() < MIN_SPLIT_GROUP {
                     continue;
                 }
@@ -4486,6 +6370,12 @@ impl World {
                     }
                 }
                 minted += 1;
+                // **The mint itself, on the run log.** `id`/`born_frame` name
+                // the lowest-lineage member -- the same rule the label
+                // inheritance above uses -- so the line reads as "the group
+                // that kept ANIMAL n's family" rather than an arbitrary pick.
+                let born_frame = self.organism(*low_id).map_or(0, |s| s.born_frame);
+                self.log(LogKind::GroupSplit, *low_id, born_frame, species, child as u16);
             }
         }
         minted
@@ -6243,7 +8133,24 @@ impl World {
         self.freeze_sky_surface();
         self.freeze_underground_map();
         self.freeze_ground_datum();
+        // **The room census's own datum, frozen here for the reason the three
+        // above are**: the world has been built and nothing has dug into it
+        // yet. One column sweep on the first simulated frame, and never
+        // again -- see `freeze_room_datum` for what freezing it later cost.
+        self.freeze_room_datum();
         self.frame = self.frame.wrapping_add(1);
+        // **The odour each nest holds takes its own step here**, once per
+        // `NEST_SCENT_INTERVAL` frames — in `begin_step` rather than as a
+        // phase in `frame::step` so that both drivers and every harness that
+        // ticks a world get it, and so the tick-sequence hash
+        // `frame_step_matches_the_sequence_app_update_ran_before_extraction`
+        // holds is untouched. A box with no nest returns on the first line.
+        self.step_nest_scents();
+        // **And what each nest holds**, once per `ROOM_INTERVAL` frames, here
+        // for `step_nest_scents`' reason above -- both drivers, every
+        // harness, no new phase. A box with no nest returns on the first
+        // line, so the outdoor game pays one `Vec::is_empty` a frame.
+        self.step_nest_room();
         // No world-time bookkeeping here on purpose. The phase clocks are
         // *derived* from `frame` (`clock::Clock::sky_frame`), not advanced
         // beside it -- an earlier version incremented a counter from this
@@ -6919,6 +8826,10 @@ impl CellSurface for World {
         self.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         World::organism_due(self, base_interval)
     }
@@ -7240,6 +9151,10 @@ impl CellSurface for MoistureView<'_> {
         self.world.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.world.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         self.world.organism_due(base_interval)
     }
@@ -7421,6 +9336,197 @@ mod tests {
         World::new(Rect::new(0, 0, 127, 127))
     }
 
+    // --- the nest-room census -----------------------------------------------
+
+    /// The lab's own proportions: a sealed lid, 160 rows of air, then a bed
+    /// of soil. Those numbers are not decoration -- the air column is what
+    /// makes a shaft mouth unmistakably *not* a roof, and a test bed with a
+    /// shallow sky would prove something the shipped box does not do.
+    const BED_SURFACE: i32 = 160;
+
+    /// A sealed box with one nest, built to the lab's proportions and with
+    /// the room datum already frozen against the intact bed -- which is what
+    /// happens in a real run, where the first census fires at frame 256 with
+    /// almost nothing dug.
+    fn bedded_box() -> World {
+        let mut w = World::new(Rect::new(0, 0, 63, 255));
+        let soil = w.materials.id_of("soil").expect("soil");
+        for x in 0..64 {
+            w.set(x, 0, Cell::new(material::STONE, 0));
+            w.set(x, 255, Cell::new(material::STONE, 0));
+            for y in BED_SURFACE..255 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        for y in 0..256 {
+            w.set(0, y, Cell::new(material::STONE, 0));
+            w.set(63, y, Cell::new(material::STONE, 0));
+        }
+        w.register_nest_site(32, BED_SURFACE, 8);
+        // Explicit rather than inherited from the default: the default reads
+        // `PIXEL_PHYSICS_LAB_ROOM` once per process, so a suite run under the
+        // revert arm would otherwise take no census and every assertion below
+        // would pass for the wrong reason.
+        w.room_gate = true;
+        // `begin_step` does this in production, on the first simulated frame;
+        // these tests drive the census directly and never take a frame.
+        w.freeze_room_datum();
+        w.step_nest_room();
+        w
+    }
+
+    /// Carve `wide` x `high` of void with its top-left at `(x, y)`.
+    fn carve(w: &mut World, x: i32, y: i32, wide: i32, high: i32) {
+        for dy in 0..high {
+            for dx in 0..wide {
+                w.set(x + dx, y + dy, Cell::EMPTY);
+            }
+        }
+    }
+
+    /// **A chamber of known size reads its own size, and a shaft reads
+    /// nothing.**
+    ///
+    /// `CLAUDE.md`'s *ask what your number counts when nothing is wrong*, and
+    /// the half that rule was missing: the intact bed is the specificity
+    /// control (a box nobody has dug must read zero room), the chamber is the
+    /// sensitivity control (a known nine cells must read nine), and the shaft
+    /// is the one that separates this census from the metric trap the
+    /// excavation work already paid for -- *a hole open to the sky is not a
+    /// room*.
+    ///
+    /// Provable red by dropping the `y >= datum` term (the sky above the bed
+    /// starts counting), by dropping the `since_ground <= reach` term (the
+    /// shaft counts), or by letting `freeze_room_datum` start at `b.min_y`
+    /// (the lid roofs the whole sky).
+    #[test]
+    fn a_known_chamber_reads_its_own_size_and_a_shaft_reads_none() {
+        let mut w = bedded_box();
+        assert_eq!(w.nest_room.len(), 1, "one nest, one room record");
+        assert_eq!(w.nest_room[0].roofed, 0, "an intact bed nobody has dug holds no room at all");
+
+        // A 3x3 chamber, ten rows under the surface and roofed by the soil
+        // above it -- `latecensus`'s own selftest geometry.
+        carve(&mut w, 20, BED_SURFACE + 10, 3, 3);
+        w.frame = ROOM_INTERVAL;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a 3x3 chamber under intact soil is nine cells of room");
+
+        // A shaft from the surface down is void, and is not room: it is open
+        // to the sky, which is the distinction the whole metric turns on.
+        carve(&mut w, 40, BED_SURFACE, 1, 12);
+        w.frame = ROOM_INTERVAL * 2;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a shaft open to the sky is a pit, not a chamber -- the count must not have moved");
+
+        // **A hollow inside the mound is not room either**, and this case is
+        // here because the term that excludes it -- `y >= datum` -- stayed
+        // green through its own red-check without it. `CLAUDE.md`: if a guard
+        // does not go red for the fault it is named for it is blind, not
+        // weak. The loop already starts a reach above the datum, so nothing
+        // in the open sky can reach this; what can is exactly what this build
+        // produces, a cemented spoil heap standing over the nest with gaps in
+        // it. `latecensus` draws the same line -- above the original surface
+        // is `mound`, never `roofed`.
+        let soil = w.materials.id_of("soil").expect("soil");
+        w.set(25, BED_SURFACE - 5, Cell::new(soil, 0));
+        w.set(25, BED_SURFACE - 3, Cell::new(soil, 0));
+        w.frame = ROOM_INTERVAL * 3;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 9, "a gap inside a spoil heap is not a chamber -- the count must not have moved");
+
+        // ...and widening the chamber moves it, which is the control that
+        // says the number is capable of moving at all.
+        carve(&mut w, 20, BED_SURFACE + 10, 6, 3);
+        w.frame = ROOM_INTERVAL * 4;
+        w.step_nest_room();
+        assert_eq!(w.nest_room[0].roofed, 18, "twice the chamber is twice the room");
+    }
+
+    /// **`ROOF_REACH` is a named rule, not a tuned number** -- the answer
+    /// does not move across two decades of it.
+    ///
+    /// This is the claim `ROOF_REACH`'s own doc makes, and a constant whose
+    /// doc says "any value in this range would do" is worth exactly as much
+    /// as the sweep that shows it. `CLAUDE.md`'s *check that a guard's inputs
+    /// actually vary what it guards*, pointed at a constant.
+    ///
+    /// The upper end is set by the box, not by taste: the lab's sky is 160
+    /// rows, so a reach past that would let the lid roof the bed and the
+    /// answer *would* move. That is the rule working, not a limit on it.
+    #[test]
+    fn the_roof_reach_is_not_a_tuned_number() {
+        let mut w = bedded_box();
+        carve(&mut w, 20, BED_SURFACE + 10, 3, 3);
+        carve(&mut w, 40, BED_SURFACE, 1, 12);
+        let readings: Vec<u32> = (3..=150).map(|r| w.roofed_void_at_reach(r)).collect();
+        assert!(
+            readings.iter().all(|&r| r == 9),
+            "the chamber is nine cells at every reach from 3 to 150; got {:?}..{:?}",
+            &readings[..4],
+            &readings[readings.len() - 4..]
+        );
+        // **And the two ends that do move it, asserted rather than asserted
+        // away.** A range quoted without its edges is a claim nobody can
+        // check: below the chamber's own height its floor stops counting,
+        // and past the sky the lid roofs the whole bed.
+        assert_eq!(w.roofed_void_at_reach(2), 6, "a reach shorter than the chamber loses its floor -- the rule working, not a bug");
+        assert!(
+            w.roofed_void_at_reach(BED_SURFACE + 4) > 9,
+            "a reach past the sky lets the sealed lid roof the bed, which is why this is bounded above"
+        );
+    }
+
+    /// **Room per ant is the arithmetic, and occupancy crosses a half at the
+    /// target.**
+    ///
+    /// The pure half of control 3: the census above proves the numerator is
+    /// counted right, this proves the division and the curve are what the
+    /// dial's note promises a player. The three points are the ones quoted in
+    /// `creature::ROOM_TARGET_DEFAULT`'s derivation, so if that derivation is
+    /// ever rewritten this fails and asks for it.
+    #[test]
+    fn room_per_ant_and_occupancy_are_the_arithmetic() {
+        assert_eq!(NestRoom { roofed: 0, ants: 0 }.room_per_ant(), None, "no ants is a division with no answer, not a zero");
+        assert_eq!(NestRoom { roofed: 220, ants: 110 }.room_per_ant(), Some(2.0));
+
+        let at = |roofed: u32, ants: u32| NestRoom { roofed, ants }.occupancy(crate::sim::creature::ROOM_TARGET_DEFAULT).expect("ants");
+        assert!((at(220, 110) - 0.5).abs() < 1e-6, "the target is where the urge is half, by definition");
+        // Seed 3 at its 200,000-frame peak: 220 cells, 495 ants.
+        assert!((at(220, 495) - 0.82).abs() < 0.01, "a packed colony still reads high");
+        // Seed 1 at its 180,000-frame peak: 220 cells, 116 ants.
+        assert!((at(220, 116) - 0.51).abs() < 0.01, "the roomiest colony the census ever saw sits near the middle");
+        // Twice the target's room.
+        assert!((at(220, 55) - 0.33).abs() < 0.01, "a colony with room to spare reads low");
+        // **Neither end saturates**, which is the whole point of the build:
+        // the input it replaces was pinned at 1.000 for a whole run.
+        assert!(at(100_000, 1) < 0.01 && at(0, 500) > 0.99, "the curve reaches both ends only in the limit");
+    }
+
+    /// **A world with no nest, and a box with the gate off, both pay
+    /// nothing and read nothing.**
+    ///
+    /// The outdoor game is every world that never founds a colony, and the
+    /// census must not so much as look at a cell there. The second half is
+    /// what makes `PIXEL_PHYSICS_LAB_ROOM=off` a free revert rather than a
+    /// merely inert one -- the sweep costs +1.7% of the frame on the lab bed
+    /// (see `step_nest_room`), which is real money for an arm nothing reads.
+    ///
+    /// Provable red by moving either return below the sweep.
+    #[test]
+    fn a_world_with_no_nest_or_no_gate_takes_no_census() {
+        let mut w = test_world();
+        w.step_nest_room();
+        assert!(w.nest_room.is_empty(), "no nest, no room record");
+
+        let mut bed = bedded_box();
+        carve(&mut bed, 20, BED_SURFACE + 10, 3, 3);
+        bed.room_gate = false;
+        bed.frame = ROOM_INTERVAL;
+        bed.step_nest_room();
+        assert!(bed.nest_room.is_empty(), "gate off, no room record -- however many chambers the box holds");
+    }
+
     /// **The log says how much of the story it threw away.**
     ///
     /// The cap is a bound on the writer, not a gate on any answer -- every
@@ -7442,6 +9548,8 @@ mod tests {
             species: organism::SpeciesId(0),
             kind: LogKind::Born,
             other: 0,
+            lineage: 0,
+            generation: 0,
         };
 
         // Under the cap it drops nothing -- the specificity half, without
@@ -7485,6 +9593,8 @@ mod tests {
             species: organism::SpeciesId(0),
             kind,
             other: 0,
+            lineage: 0,
+            generation: 0,
         };
         log.push(line(10, 10, LogKind::Born));
         log.push(line(90, 10, LogKind::Died));
@@ -7495,6 +9605,30 @@ mod tests {
         assert_eq!(first, vec![90, 10], "the first tenant's timeline is wrong (newest first)");
         let second: Vec<u64> = log.about(9, 100).map(|e| e.frame).collect();
         assert_eq!(second, vec![100], "the slot's second tenant inherited the first one's life");
+    }
+
+    /// **The standing bug, made provable.** `LogKind::LineEnded` used to
+    /// push `other: 0` unconditionally -- `other` is a `u16` and a lineage a
+    /// `u32`, so it could not have carried the real number even if
+    /// something had tried to fill it in -- and every `LINE ENDED` line in
+    /// the game read `LINE 0 ENDED`. `LogEvent::lineage` is the fix; this is
+    /// red against the field it replaces and green against the one that
+    /// replaced it.
+    #[test]
+    fn a_line_ended_line_names_the_line_that_ended() {
+        let mut w = test_world();
+        let species = organism::SpeciesId(0);
+        let id = w.push_organism(species).expect("a fresh world has room for one organism");
+        if let Some(state) = w.organism_mut(id) {
+            state.lineage = 7;
+        }
+        w.free_organism(id);
+        let ended = w
+            .run_log
+            .recent()
+            .find(|e| e.kind == LogKind::LineEnded)
+            .expect("freeing the only member of lineage 7 did not end it");
+        assert_eq!(ended.lineage, 7, "the LINE ENDED line named lineage {} instead of 7", ended.lineage);
     }
 
     // --- meat_lost: the destruction seam ---------------------------------

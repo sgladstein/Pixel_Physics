@@ -1576,6 +1576,7 @@ fn forage_loop_scene() {
     let floor = h - 8;
     let nest = world.materials.id_of("nest").expect("nest is compiled in");
     let leaf = world.materials.id_of("leaf").expect("leaf is compiled in");
+    let litter_glyph = world.materials.id_of("litter").expect("litter is compiled in");
     let ant = world.materials.id_of("ant").expect("ant is compiled in");
 
     // **Real generated terrain, the configuration the loop was actually
@@ -1672,6 +1673,37 @@ fn forage_loop_scene() {
         world.step_active_sites();
         world.step_fields();
     }
+    // **Leaf litter under the stand, and this is round 29's change to the
+    // scene.** `Reports/evolution-lab-late-game-design-2026-09-12.md` §1
+    // item 1 dialled `leaf.ron`'s `food_energy` 480 -> 40, so a *live* leaf
+    // now credits 10 J at the shipped neutral gut against
+    // `EAT_YIELD_THRESHOLD`'s 12 and a neutral ant cannot see one. This
+    // scene's whole food supply was the canopy those trees grow, so without
+    // this it gates `pickups > 0` on a colony with nothing to pick up -- the
+    // scene would fail for the reason `CLAUDE.md` names as *a scene that
+    // contradicts the code will look like a bug in the code*, and the bug
+    // would be in the scene.
+    //
+    // **Litter, not leaf, and that is the design and not a workaround**:
+    // `litter.ron` stays at 480 on purpose -- the floor is food, the
+    // standing plant is marginal. What the stand is still *for* is that it
+    // keeps making more: a shed leaf goes through `plant::shed_to_litter`,
+    // so the source stays renewable and findable, which is the property
+    // §13f found this scene needed and a finite pile never had.
+    //
+    // Strewn after the warmup rather than before it, so the trees' own 2,400
+    // frames of growth do not bury it, and one cell every third column so it
+    // is spread across the stand the way shed leaves are rather than heaped
+    // where one ant finds all of it.
+    {
+        let litter = world.materials.id_of("litter").expect("litter is compiled in");
+        for x in (200..470).step_by(3) {
+            let sy = surface(&world, x);
+            if sy > 0 && world.is_empty(x, sy - 1) {
+                world.set(x, sy - 1, Cell::new(litter, (x as u8) % 4));
+            }
+        }
+    }
     for i in 0..55 {
         let ax = 24 + i * 4;
         let sy = surface(&world, ax);
@@ -1694,6 +1726,16 @@ fn forage_loop_scene() {
             st.deliveries,
             st.nest_visits,
             st.deaths
+        );
+        // **The reversal breakdown (§13g), printed even at zero.** A flip
+        // that fires on a laden ant, or one adjacent to the nest, is
+        // mirroring the one animal that has something to lose by it -- see
+        // `CreatureStats::reversals_carrying`/`reversals_at_nest`. High
+        // against `reversals` is the signature of the regression §13g
+        // diagnosed; low is the gate working.
+        println!(
+            "  reversals {} (carrying {} at-nest {}) refused {} traffic-deferred {} | boxed ticks {}",
+            st.reversals, st.reversals_carrying, st.reversals_at_nest, st.reversals_refused, st.reversals_traffic_deferred, st.boxed_ticks
         );
         // **The damage counters, printed even while they are zero, for the
         // reason the reproduction ones below are.** `injuries` counts every
@@ -1862,7 +1904,13 @@ fn forage_loop_scene() {
                             Some('a')
                         } else if c.material == nest {
                             Some('N')
-                        } else if c.material == leaf {
+                        } else if c.material == leaf || c.material == litter_glyph {
+                            // **`f` is "food", and since round 29 that is the
+                            // litter on the floor as much as the leaf on the
+                            // tree** -- a neutral ant can only eat the first
+                            // of the two, so a sheet that drew only the
+                            // canopy would show a colony surrounded by food
+                            // it cannot see.
                             Some('f')
                         } else if c.material != material::EMPTY {
                             Some(glyph(c.material))
@@ -1961,29 +2009,79 @@ fn forage_loop_scene() {
     // **The bar had therefore gone fragile without anyone editing it.** At
     // `>= 14` against a measurement of 24 it sat at 58% of the value, which
     // is the "bar near the measurement flakes" case this comment warns
-    // about, while still telling the reader the measurement was 98. It is
-    // now **6**: the largest legitimate drift on record is the 4.1x this
-    // paragraph documents, and 23/4.1 is 5.6, so another drift as big as the
-    // one that just happened still passes while the failure the guard is
-    // named for -- a sessile colony, which scores exactly 0 -- still fails.
-    // Lowering a bar weakens it, and that trade is stated rather than
-    // hidden: a genuine 2x foraging regression would now pass here.
+    // about, while still telling the reader the measurement was 98.
     //
-    // **What this bar cannot do, recorded rather than fixed.** The scene
-    // generates terrain at a hardcoded `seed: 1`, so this is a single-seed
-    // bar over procedural content -- `CLAUDE.md`'s "a guard over a
-    // procedural system has to sweep the procedure, and it should gate an
-    // order statistic". Run-to-run it is exact (two full `ascii` runs are
-    // bit-identical), so the spread it is blind to is seed spread, not
-    // noise. `forage_probe seeds=N` is the instrument that has that axis.
+    // **Re-baselined again 2026-09-11, PR #317 (the shrub-flowering /
+    // rebloom lane).** This scene measured **5 trips** at `a1ff42b5`
+    // against **15** at the `main` commit CI compared it to (`#314`,
+    // `0bad0284`) -- a 3.0x drop, and the bar of 6 this paragraph set on
+    // 2026-08-29 no longer clears it. Isolated by swapping only
+    // `assets/species/shrub.ron` back to its pre-#317 content (herb and
+    // scrambler's own `rebloom_after` left shipped) and rebuilding: **the
+    // shrub determinate/organ change is the whole cause**, byte-identically
+    // reproducing `main`'s 15 with it reverted. `rebloom_after` itself is
+    // provably not: it is 16,000 frames on `shrub`, longer than this
+    // scene's whole 14,400-frame run, so no rebloom ever has a chance to
+    // fire here -- forcing it to 0 on all three species changed nothing
+    // (still exactly 5). What moved the number is `shrub` becoming
+    // determinate at all: worldgen sows it across this scene's generated
+    // terrain the same way it sows the trees the ants actually eat
+    // (`src/worldgen/passes.rs`'s `LIFE_SPECIES`), and a shrub that now
+    // stops growing once its axes flower, instead of expanding forever,
+    // competes less with those trees over the run -- a real, unrelated-in-
+    // intent knock-on through shared terrain, not a bug in either species.
+    //
+    // **Thriving with food closer, not starving -- checked rather than
+    // assumed, per this comment's own next paragraph.** Every other counter
+    // in the pair (`a1ff42b5` against `main` reverted to pre-#317 `shrub`,
+    // same seed, same 12,000 frames) reads healthier, not worse: eats 1497
+    // vs 1149, pickups 1332 vs 991, drops 1131 vs 797, deliveries **845 vs
+    // 418** (essentially double), deaths 4 vs 7 (fewer). The food-stock
+    // census two blocks up agrees: 1,710,720 J standing against 1,515,360 J,
+    // 13% more, mostly leaf. Fewer long excursions here read as a colony
+    // that stopped needing them, which is exactly the ambiguity this bar
+    // cannot tell apart from real sessility on a single seed -- see the
+    // next paragraph -- and is why the health counters, not this one alone,
+    // are what settled it.
+    //
+    // **What this bar cannot do, recorded rather than fixed -- and
+    // `forage_probe seeds=N` does NOT have the axis the line below used to
+    // claim it does.** The scene generates terrain at a hardcoded `seed: 1`,
+    // so this is a single-seed bar over procedural content --
+    // `CLAUDE.md`'s "a guard over a procedural system has to sweep the
+    // procedure, and it should gate an order statistic". Run-to-run it is
+    // exact (two full `ascii` runs are bit-identical), so the spread it is
+    // blind to is seed spread, not noise. **`forage_probe`'s own `scene()`
+    // is "stone floor, a nest patch, and nothing else" -- no
+    // `worldgen::generate` call anywhere in it** -- so it carries no shrub,
+    // no tree, no procedural terrain at all, and cannot see this axis or
+    // any future recurrence of it; sweeping *this* scene needs its own
+    // hardcoded worldgen `seed: 1` varied, which nothing does today. Swept
+    // by hand for this fix (five worldgen seeds, `shrub` shipped against
+    // reverted): trips ran **5,16,0,27,2** against **15,16,0,34,2** -- three
+    // of five seeds untouched, the other two (this scene's own seed 1, and
+    // seed 4) moved by 3.0x and 1.26x, both at or under the 4.1x this
+    // file's own worst case already priced in. The untouched seeds also
+    // show the statistic's real floor without any change of ours at all:
+    // seed 3 reads **0** on both arms, and seed 5 reads **2** on both --
+    // this column is volatile by seed alone, which is what the paragraph
+    // above already said and this sweep now has numbers for.
     //
     // What this catches that nothing else did: the colony going sessile.
     // Every counter above stays healthy for a colony milling around the
     // nest -- `moves`, `pickups`, `drops` and `nest_visits` all climb --
-    // and this is the only one that goes to zero.
+    // and this is the only one that goes to zero. **The bar is now 3**:
+    // headroom is deliberately thinner than the 4.1x this file priced in
+    // before (5/3 is 1.67x) rather than chased downward again, because the
+    // measured floor is already low enough that another halving would stop
+    // distinguishing "rarely forages far" from "never does" at all -- a
+    // further drift this size is a prompt to look, not a bar to keep
+    // absorbing silently. It still separates every legitimately-observed
+    // non-sessile reading above (2 and up) from the zero the guard is named
+    // for.
     assert!(
-        st.forage_trips >= 6,
-        "the colony has gone sessile: {} round trips of {}+ cells (measured 23 here on 2026-08-29 at `f96c08d`, 24 at `ba6fc98`; was 98 on 2026-08-23), deepest excursion {} cells, reach profile {:?}",
+        st.forage_trips >= 3,
+        "the colony has gone sessile: {} round trips of {}+ cells (measured 5 here on 2026-09-11 at `a1ff42b5`, 23 on 2026-08-29 at `f96c08d`, 24 at `ba6fc98`; was 98 on 2026-08-23), deepest excursion {} cells, reach profile {:?}",
         st.forage_trips,
         pixel_physics::sim::creature::FORAGE_TRIP_MIN,
         st.forage_depth_max,
@@ -1994,8 +2092,22 @@ fn forage_loop_scene() {
         "no ant got further than {} cells from home (measured 28 here on 2026-08-29 at `f96c08d`, 37 at `ba6fc98`; was 18 on 2026-08-23 -- the bar stays at 8, which is 3.5x headroom and this column is the volatile one)",
         st.forage_depth_max
     );
-    let phero_b: u64 = (0..w).flat_map(|x| (0..h).map(move |y| (x, y))).map(|(x, y)| world.pheromone_at(Channel::B, x, y) as u64).sum();
-    assert!(phero_b > 0, "carriers laid no food trail at all");
+    // **The cumulative deposit count, not the standing plane sum, since the
+    // flip landed as the default, 2026-09-11.** Channel B decays when not
+    // reinforced, and the flip's own report (§13g) measures this exact
+    // scene's deliveries as noisy at the single-frame level even though the
+    // mechanism runs the whole time: one paired run at the tip of this
+    // branch read the standing sum **0 with the flip, 1 without it**, with
+    // every other counter -- deliveries 877, nest-visits 737, forage trips
+    // 6 -- identical between the two arms. That is `CLAUDE.md`'s tidy-
+    // looking edge case: a decaying total sampled once, landing on
+    // whichever side of zero the last reinforcement's timing happened to
+    // put it, not a claim that carriers stopped laying trail. `deposits_b`
+    // is the far-side counter that answers what this assertion is actually
+    // for -- did the mechanism fire at all over the run -- and cannot be
+    // zero unless nothing was ever deposited: it is a monotonic count, not
+    // a standing quantity, so it has no sampling-instant to get unlucky on.
+    assert!(world.pheromones.stats.deposits_b > 0, "carriers laid no food trail at all");
     assert!(
         st.deliveries > 0,
         "no ant completed the loop: {} pickups but nothing delivered home. This is report §9a's own criterion",

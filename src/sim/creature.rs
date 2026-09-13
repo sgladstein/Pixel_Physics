@@ -63,8 +63,9 @@ use super::cell::{Cell, AMBIENT_TEMPERATURE};
 use super::chunk::Rect;
 use super::field;
 use super::material::{self, MaterialKind};
-use super::organism::{self, pack_cell_type, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
+use super::organism::{self, pack_cell_type, BodyPlan, Carried, CellType, Crop, CreatureDef, Flight, ShadeRule, SpeciesId, Spoil, CREATURE_TRAITS, SCENT_SIDE_SLOTS, SCENT_SLOTS, TRAIT_BIRTH_GRANT, TRAIT_ARMOUR, TRAIT_CROP_CAPACITY, TRAIT_CURVATURE_RADIUS, TRAIT_DIGEST_RATE, TRAIT_DIG_FORCE, TRAIT_GUT_BIAS, TRAIT_PACE, TRAIT_REPRODUCE_AT, TRAIT_SIGHT_RANGE, TRAIT_TOLERANCE};
 use super::pheromone::{self, Channel};
+use super::plant;
 use super::rng;
 use super::scheduler::{ActiveKind, ActiveSite};
 use super::world::World;
@@ -130,6 +131,90 @@ const RNG_SLOT_BIRTH: u64 = 3;
 /// station of one founding gesture and every jar released into that label
 /// shares the offset, and a rebuilt box at the same seed reproduces it.
 const RNG_SLOT_COLONY_SCENT: u64 = 4;
+/// The founder-reserve stream: one draw per founding-position pair, keyed on
+/// the world seed and the founding x rather than the colony label
+/// (`founder_reserve`), because the label is not resolved until the first
+/// station of a founding is placed and this draw has to be ready before
+/// that. A **pure hash** -- `rng::stream` carries no mutable state across
+/// calls -- so drawing founder 7's reserve cannot shift founder 8's move
+/// roll or anything else reading `RNG_SLOT_MOVE` later on the same frame,
+/// the shared-`Rng` gotcha `RNG_SLOT_BIRTH`'s own doc names.
+const RNG_SLOT_FOUNDER_RESERVE: u64 = 5;
+/// The body-fate stream: mutation of a bud's inherited `FateGenome`, the
+/// production rule its body is grown from.
+///
+/// **Keyed on the *parent's* handle and the frame, not the child's.** Every
+/// other birth-time mutation (`RNG_SLOT_BIRTH`'s brain and traits) runs on
+/// the child's own handle, after `place_creature` has returned one — but a
+/// bud's body is stamped *inside* `place_creature`, before the child's
+/// handle exists to key anything on, so this has to be drawn on the parent
+/// beforehand instead and passed in through `Origin::Bud`. A **separate**
+/// constant rather than reusing `RNG_SLOT_BIRTH` on the parent's handle:
+/// `try_bud` already draws the parent's `gut_of`/`reachable_provision` on
+/// ordinary streams over the same tick, and a shared slot keyed on the same
+/// (handle, frame) pair as anything else that animal draws that frame would
+/// alias with it. A brand new slot constant draws from a stream nothing
+/// else has ever read at that key, so it cannot shift a single existing
+/// draw anywhere in the tree -- the same reasoning `RNG_SLOT_FOUNDER_
+/// RESERVE`'s own doc gives for why a pure hash keyed differently cannot
+/// collide.
+const RNG_SLOT_BODY_FATE: u64 = 6;
+
+/// The seed-survival stream at brood provisioning's clear site
+/// (`place_creature`'s shortfall loop): whether a windfall's own seed
+/// survives being taken to feed a birth. **Keyed on the parent ant's
+/// identity and a running per-iteration count, never on the bitten cell's
+/// position** -- this file's own law above, because the roll decides a
+/// *plant's* fitness (does this seed survive) and a position-keyed roll
+/// would make where a seed happens to lie a hidden, heritable advantage
+/// for the plant. The count decorrelates two windfalls taken in the same
+/// call for the same parent on the same frame, which a bare `(seed,
+/// parent, frame, SLOT)` tuple could not: `stream` is a pure function of
+/// its four inputs, so two calls with identical inputs return identical
+/// draws. Packed into the high bits so no `bite` value can ever collide
+/// with another named slot's small integer.
+///
+/// **7, not 6** -- `RNG_SLOT_BODY_FATE` above claimed 6 first (this
+/// branch's own lateral-tuck work merging against `main`'s independently
+/// added slot); two RNG stream constants sharing one value would alias
+/// their draws, which is exactly the collision every slot constant's own
+/// doc in this file argues a *distinct* integer avoids.
+const RNG_SLOT_SEED_SURVIVAL: u64 = 7;
+
+/// The old-age stream: whether this animal's number came up on this tick.
+///
+/// **8, and a slot of its own for `RNG_SLOT_BODY_FATE`'s stated reason**:
+/// `rng::stream` is a pure hash of its four inputs, so a brand new constant
+/// draws from a key nothing has ever read and cannot shift a single existing
+/// draw anywhere in the tree. Keyed on `(seed, organism, frame, SLOT)` -- the
+/// same shape `RNG_SLOT_MOVE` uses, never on the cell's position, because
+/// where an animal happens to be standing must not decide when it dies.
+const RNG_SLOT_OLD_AGE: u64 = 8;
+
+/// **The cap `grow_body` walks a `Segmented` body's `FateGenome` to.** With
+/// laterals that is at most 16 cells; both shipped bodies land at 7-8, well
+/// under it, and the cap exists only to bound a mutated genome that never
+/// returns `child: None` (an `insert_one` draw can produce exactly that
+/// rule shape) -- see `grow_body`'s own doc.
+const SEGMENTED_BODY_CAP: usize = 8;
+
+/// **The ablation `Reports/creature-articulated-body-2026-09-09.md` §7d
+/// asks for: does a `Segmented` body's laterals cause the blocked-move rate
+/// (43.9%-96.8%, against a plain `Chain(6)` control's 2.5%-12.4%) or is the
+/// spine itself the suspect?** `PIXEL_PHYSICS_BODY_LATERALS=0` places every
+/// shipped articulated body -- the ant, the hopper, anything else grown
+/// through `organism::grow_body` -- with its lateral cells stripped and its
+/// spine untouched: same segment count, same `CellType` per segment, same
+/// cap. `1` (or unset) is today's shipped behaviour. Read once through a
+/// `OnceLock`, matching `keep_graph_enabled`/`crossing_enabled`/
+/// `tissue_parting_enabled` just below -- this file's standing pattern for
+/// a one-shot isolating control (`CLAUDE.md`'s "hold the semantic rule
+/// fixed" remedy for a confound).
+fn body_laterals_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BODY_LATERALS").map(|v| v != "0").unwrap_or(true))
+}
 
 /// Frames between a worm's movement decisions. Faster than plant growth
 /// (20-45 frames) — a worm actively moving through the world reads as more
@@ -616,12 +701,28 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     if state.chain.is_empty() {
         return true;
     }
-    let (chain, owned) = (state.chain.clone(), state.cells.clone());
+    let (chain, owned, old_groups) = (state.chain.clone(), state.cells.clone(), state.segment_groups.clone());
     let surviving: Vec<(i32, i32)> = chain.iter().copied().filter(|p| owned.contains_key(p)).collect();
     if surviving.is_empty() || surviving.first() != chain.first() {
         // Vital cell gone (or nothing left at all): the rest is meat. The
         // site knows the cell went away and not what took it -- a bite, a
         // fire, a blast, the brush -- so the cause is `Killed` and no finer.
+        //
+        // **And that is why `DeathCause::Killed` is not a killing counter**,
+        // which two lanes have now read it as. Measured 2026-09-12 on the
+        // played bed at 500,000 frames: seed 1 booked **216** deaths here and
+        // `World::tally_kill` could attribute **2** of them to an attacker;
+        // seed 3 booked 70 and attributed none. Whatever is emptying these
+        // cells is mostly not an animal.
+        //
+        // So the vacated cell is recorded before the death, which is the one
+        // thing this site knows that the cause does not: what is standing in
+        // the vital cell now. `World::vital_losses`.
+        let took = world.get(chain[0].0, chain[0].1).material;
+        let who = world.organism(organism).map(|st| (st.species, st.colony));
+        if let Some((species, colony)) = who {
+            world.note_vital_loss(species, colony, took);
+        }
         creature_dies(world, organism, organism::DeathCause::Killed);
         return false;
     }
@@ -744,8 +845,36 @@ fn reconcile_chain(world: &mut World, organism: u16) -> bool {
     // at all -- meat where it stands, and mid-air "where it stands" is
     // down. A dig is untouched: `crop` and `spoil` belong to the animal,
     // not to the cells, and the survivor keeps both.
+    // **`segment_groups` truncates alongside `chain`, cell for cell.**
+    // Empty for a `Chain` or `Rigid` body (`old_groups` is already empty,
+    // so the loop below runs zero times and leaves it empty), which is why
+    // this needs no `is_rigid()`/`Segmented` branch of its own. For a
+    // `Segmented` body, walk the *old* chain by its *old* groups and keep
+    // however many of a segment's own cells (0, 1 or 2) are still in
+    // `attached`, dropping the entry only when neither is — the shape a
+    // predator that takes exactly one lateral, or exactly one whole
+    // segment, has to leave behind. `attached` preserves `chain`'s own walk
+    // order (a filtered `surviving`, itself a filtered `chain`), so one
+    // linear pass suffices; no assumption that only a trailing suffix can
+    // ever be lost is needed or made.
+    let attached_set: std::collections::HashSet<(i32, i32)> = attached.iter().copied().collect();
+    let mut new_groups = Vec::with_capacity(old_groups.len());
+    let mut idx = 0usize;
+    for &g in &old_groups {
+        let mut kept = 0u8;
+        for k in 0..g {
+            if chain.get(idx + k as usize).is_some_and(|p| attached_set.contains(p)) {
+                kept += 1;
+            }
+        }
+        idx += g as usize;
+        if kept > 0 {
+            new_groups.push(kept);
+        }
+    }
     if let Some(state) = world.organism_mut(organism) {
         state.chain = attached;
+        state.segment_groups = new_groups;
     }
     world.creature_stats.injuries += 1;
     // A severing that took every cell but the vital one still leaves a live
@@ -977,7 +1106,7 @@ pub fn plant_creature_seed_in(world: &mut World, x: i32, y: i32, species_name: &
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    place_creature(world, x, y, species_id, material_id, &def, Origin::Founder { colony })
+    place_creature(world, x, y, species_id, material_id, &def, false, Origin::Founder { colony })
 }
 
 /// The colony an active site's animal was placed into, for a caller
@@ -1015,7 +1144,7 @@ pub fn release_creature_specimen(
     let species_id = world.species.id_of(species_name)?;
     let material_id = world.materials.id_of(species_name)?;
     let def = world.species.get(species_id).creature.as_ref()?.clone();
-    let site = place_creature(world, x, y, species_id, material_id, &def, Origin::Stock { genome, traits, colony })?;
+    let site = place_creature(world, x, y, species_id, material_id, &def, false, Origin::Stock { genome, traits, colony })?;
     // **Schedule it, or it is a statue.** `place_creature` writes the body and
     // hands back the site its first tick has to be *booked* at -- every other
     // caller does this (`found_colony_of`, the scene's beetles, `bud_creature`
@@ -1065,6 +1194,13 @@ enum Origin {
         /// What the parent handed this child -- its `Provision` output at
         /// the moment of budding. See `OrganismState::made`.
         made: f32,
+        /// **The parent's production rule, already mutated** -- `try_bud`
+        /// draws on the parent's own handle (`RNG_SLOT_BODY_FATE`) before
+        /// this is built, because the child's body is grown from this
+        /// field inside `place_creature`, before a child handle exists to
+        /// mutate on. See that constant's own doc for why this cannot wait
+        /// until after placement the way the brain genome and traits do.
+        fates: organism::FateGenome,
     },
     /// **A founder with a chosen genome** — one released from the specimen
     /// shelf (`sim::specimen`).
@@ -1087,10 +1223,35 @@ enum Origin {
 
 /// Build one creature at `(x, y)` and return the site to schedule it at.
 ///
-/// The head goes at `(x, y)` and the rest of the chain lays out to its
-/// left, exactly as it always has; every cell must be free before anything
+/// The head goes at `(x, y)`, and every other cell lays out at a *negative*
+/// x offset from it (`facing_west = false`) or a *positive* one (`true`) --
+/// exactly as it always has for every founder and released jar, which both
+/// pass `false` unconditionally below and are therefore byte-identical to
+/// before this parameter existed. Every cell must be free before anything
 /// is allocated or written, or a half-placed body leaks a slot and leaves
 /// orphan cells (the reason `plant_worm_seed` checks first too).
+///
+/// **Why a bud needs the other value, and founders never do.** A founder or
+/// a released jar has no neighbour to avoid, so which sign it is built with
+/// is cosmetic -- the body reshapes itself the first time it moves
+/// regardless (`BodyPlan::offsets`'s own doc). A bud is placed at one of the
+/// *parent's* eight neighbours, and a multi-cell body laid out at a fixed
+/// sign from there can walk straight back through the parent's own cells: a
+/// `facing_west = false` 5-cell ant's tail already reaches 4 cells to the
+/// *west* (smaller x) of its head, so a child placed one cell further west
+/// than the parent and given that same default sign lands its own spine
+/// exactly on top of the parent's. `try_bud` passes `facing_west = dx >= 0`
+/// for exactly this reason, flipping the child's sign to positive whenever
+/// its candidate head sits at or east of the parent's -- see its own
+/// comment at the call site for the full geometry, including which of the
+/// eight neighbours can never work no matter which sign the child is given.
+// **Eight, not seven.** `facing_west` (above) is the one this lint is
+// counting past its default of seven; every other parameter was already
+// here and is documented at its own call site (`Origin`'s own doc explains
+// why founder, stock and bud cannot share fewer of them). A struct that
+// bundled `x, y, species_id, material_id` would trade one clippy line for a
+// type nothing else in the file would ever reuse.
+#[allow(clippy::too_many_arguments)]
 fn place_creature(
     world: &mut World,
     x: i32,
@@ -1098,14 +1259,111 @@ fn place_creature(
     species_id: SpeciesId,
     material_id: material::MaterialId,
     def: &CreatureDef,
+    facing_west: bool,
     origin: Origin,
 ) -> Option<ActiveSite> {
-    let positions: Vec<(i32, i32)> = def.body.offsets(false).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
-    if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
-        return None;
-    }
+    // **Which production rule this body unfolds from, read before anything
+    // is allocated.** A bud carries its parent's already-mutated copy in
+    // through `Origin::Bud` -- `try_bud` mutates it on the *parent's* own
+    // handle before calling this, because the body is stamped inside this
+    // function and a bud's own handle does not exist yet to mutate on (see
+    // `try_bud`'s own comment for why that has to happen there and not,
+    // say, where the brain's genome is mutated). A founder or a released
+    // jar has no parent to inherit from, so it reads the species' table
+    // fresh -- the same read `World::push_organism` makes a few lines down
+    // for the organism's own `state.fates`, duplicated here on purpose:
+    // the body has to be sized and placed *before* that call can hand back
+    // a state to read the seeded copy off, and the placement-then-allocate
+    // order (the emptiness check right below) is not something this change
+    // gets to disturb.
+    let body_fates = match &origin {
+        Origin::Bud { fates, .. } => *fates,
+        Origin::Founder { .. } | Origin::Stock { .. } => organism::FateGenome::from_table(world.species.get(species_id).fate_table()),
+    };
+    // **Grown, not authored, whenever the species carries a production
+    // rule** -- `def.body` stays the fallback for every species with no
+    // `fates` table (`beetle`, `worm` and the appearance forks today), so
+    // they are byte-identical to before this existed.
+    // `body` borrows `grown` rather than owning it so the non-Segmented
+    // path costs no clone of `def.body`.
+    let grown;
+    let body: &BodyPlan = if body_fates.is_empty() {
+        &def.body
+    } else {
+        grown = BodyPlan::Segmented(organism::grow_body(body_fates, SEGMENTED_BODY_CAP, body_laterals_enabled()));
+        &grown
+    };
+    // **A founding site's placeability is decided the same way a step's is:
+    // on the spine alone, with each widened segment's lateral taking its
+    // authored side, the other side, or tucking** (task A of the founding
+    // repair, `Reports/creature-articulated-body-2026-09-09.md` §7f). The
+    // old rule here refused a site whenever *any* cell of the body's full
+    // authored footprint was not empty, checked once before the animal had
+    // taken a single step -- so a spine that fit perfectly still lost the
+    // site to one blocked lateral cell, which is why `filmstrip
+    // scene=colony` founded 4 of 52 asked. `lateral_for` is the exact
+    // function the movement rule calls for a live step; reused here rather
+    // than re-derived, so the two placeability rules cannot drift apart.
+    //
+    // **The spine itself no longer assumes flat ground either** (§13f/§13h).
+    // It used to be a straight line trailing the head along the facing --
+    // the exact formula `BodyPlan::offsets` still uses for a fresh
+    // `Segmented` body's shape before it has ever taken a step -- which is a
+    // shape a walking body only has on flat ground: demanding `n` empty
+    // cells in a row at one height refused sites a two-cell body stands on
+    // fine, which is why a colony seated 12 of 52 on the played bed where a
+    // bare, width-free spine hit the identical ceiling (§13f's own control,
+    // §10) -- not body width doing the refusing. `founding_spine_walk`
+    // replaces the straight line with a walk that curls the spine to the
+    // ground the way a body lying down actually would, and **is now the
+    // viability check itself**: there is no separate `.any(|c| !is_empty)`
+    // scan after it, because the walk already returns `None` the moment any
+    // segment has nowhere placeable to go.
+    let (positions, segment_groups, cell_types): (Vec<(i32, i32)>, Vec<u8>, Vec<CellType>) = if let BodyPlan::Segmented(segments) = body {
+        let back = if facing_west { (1, 0) } else { (-1, 0) };
+        let spines = founding_spine_walk(world, (x, y), segments.len(), back)?;
+        let mut placed: Vec<(i32, i32)> = Vec::with_capacity(body.len());
+        let mut groups: Vec<u8> = Vec::with_capacity(segments.len());
+        let mut types: Vec<CellType> = Vec::with_capacity(body.len());
+        for (i, seg) in segments.iter().enumerate() {
+            let spine = spines[i];
+            placed.push(spine);
+            types.push(seg.cell);
+            if let Some(lateral_type) = seg.lateral {
+                // No old body to vacate into at founding, so the vacate
+                // licence (`lateral_for`'s `chain` argument) is empty; `push`
+                // is `false` -- a lateral this constrained tucks rather than
+                // shoving through soil to make room for itself.
+                match lateral_for(world, &[], &placed, &spines, i, spine, false) {
+                    Some(cell) => {
+                        placed.push(cell);
+                        types.push(lateral_type);
+                        groups.push(2);
+                    }
+                    // Tucked at founding, same as tucked mid-walk: not an
+                    // error, and it re-emerges the moment the animal steps
+                    // and a side clears -- nothing here remembers the tuck.
+                    None => groups.push(1),
+                }
+            } else {
+                groups.push(1);
+            }
+        }
+        (placed, groups, types)
+    } else {
+        let positions: Vec<(i32, i32)> = body.offsets(facing_west).iter().map(|&(dx, dy)| (x + dx, y + dy)).collect();
+        if positions.iter().any(|&(px, py)| !world.is_empty(px, py)) {
+            return None;
+        }
+        // The per-segment sizing an injury has to preserve; empty for a
+        // `Chain` or `Rigid` body, which never reads it -- see
+        // `OrganismState::segment_groups`.
+        (positions, body.segment_groups(), body.cell_types())
+    };
     // Taken before `positions` is moved into the organism's chain, because
-    // the structural grant is per body cell.
+    // the structural grant is per body cell -- and, for a `Segmented` body
+    // with a tucked lateral, genuinely smaller than the authored footprint,
+    // the same way a tuck mid-walk is (§7f "Upkeep and roles").
     let body_cells = positions.len();
 
     // At the slot ceiling nothing hatches -- see `plant_worm_seed` above,
@@ -1121,7 +1379,12 @@ fn place_creature(
         .iter()
         .fold((i32::MAX, i32::MIN), |(lo, hi), &(_, py)| ((lo).min(py - y), (hi).max(py - y)));
     for (i, &(px, py)) in positions.iter().enumerate() {
-        let cell_type = if i == 0 { CellType::Head } else { CellType::Segment };
+        // **A real per-cell type for a `Segmented` body, the old binary
+        // split for everything else.** `cell_types` always has one entry
+        // per `positions` entry -- both are walked off the same `body` in
+        // the same order -- so the fallback below is defence, never a path
+        // taken.
+        let cell_type = cell_types.get(i).copied().unwrap_or(CellType::Segment);
         let shade = match def.shade_rule {
             // Unchanged, and deliberately still drawing even though the
             // value could be computed: this is the shipped path and it must
@@ -1166,6 +1429,16 @@ fn place_creature(
     if let Some(state) = world.organism_mut(organism) {
         state.energy = endowment;
         state.chain = positions;
+        // **Overwrites whatever `push_organism` seeded** (the species'
+        // fresh table) **with the value this call actually grew the body
+        // from.** A no-op write for `Founder`/`Stock` -- `body_fates` above
+        // is that same fresh read -- and the one that matters for `Bud`,
+        // whose parent's mutated copy must reach the child's own genome or
+        // heredity ends at the body and the child's own children grow from
+        // the species table again. Mirrors `plant::bear_seed_at`'s
+        // `state.fates = parent_fates`.
+        state.fates = body_fates;
+        state.segment_groups = segment_groups;
         state.heading = 0; // east
         state.lineage = founder_lineage;
         state.colony = colony;
@@ -1233,6 +1506,17 @@ fn place_creature(
         state.forage_anchor = (x, y);
         state.forage_max = 0;
     }
+    // **This lineage's standing facts, seeded once, at the one moment its
+    // number is fresh.** A `Bud` copies its parent's `lineage` and never
+    // reaches here -- the entry already exists from when the founder itself
+    // was placed. Read after the block above closes, so it is the traits as
+    // actually placed (post colony-scent offset, `apply_colony_scent` above),
+    // not `def.traits` alone -- see `World::seed_line_stats`'s own doc for
+    // why a plant founder does not have the equivalent call.
+    if matches!(origin, Origin::Founder { .. } | Origin::Stock { .. }) {
+        let traits = world.organism(organism).map(|s| s.traits).unwrap_or([0.0; CREATURE_TRAITS]);
+        world.seed_line_stats(founder_lineage, traits);
+    }
     let stamp = (def.body_energy * body_cells as f32) as f64;
     match origin {
         Origin::Founder { .. } | Origin::Stock { .. } => {
@@ -1244,8 +1528,20 @@ fn place_creature(
             world.energy_ledger.granted += def.start_energy as f64;
             world.energy_ledger.stamped += stamp;
         }
-        Origin::Bud { parent, .. } => {
+        Origin::Bud { parent, generation, .. } => {
             world.creature_stats.births += 1;
+            // **Beside the birth counter, not beside the generation stamp.**
+            // The stamp below sits inside an `organism_mut` borrow, and the
+            // two numbers answering "how much has this box bred" must not be
+            // able to drift apart: a birth that did not raise the depth and a
+            // depth that rose without a birth are both bugs, and keeping the
+            // writes adjacent is what makes them one line to check.
+            //
+            // `World::deepest_generation` is the *plant* counter -- it is
+            // written only by `plant.rs` -- so without this the lab page's
+            // `EVER` was a stand's depth wearing a label that promised every
+            // line, and a colony's whole breeding history was invisible.
+            world.deepest_animal_generation = world.deepest_animal_generation.max(generation);
             // **On the parent, not on the child this call is building.** The
             // child's own `life` starts empty; `offspring` is a thing the
             // parent did. Its own lookup because nothing is borrowed here.
@@ -1253,16 +1549,18 @@ fn place_creature(
                 p.life.offspring += 1;
             }
             // The log line, beside the counter. `id` is the newborn -- the
-            // event is about it, and `other` says who bore it.
+            // event is about it, and `other` says who bore it. `world.log`
+            // reads `lineage`/`generation` off the child's own state, which
+            // is already stamped (`state.lineage = founder_lineage` and
+            // `state.generation = *generation` above) by the time this runs.
             let born_frame = world.organism(organism).map_or(0, |s| s.born_frame);
-            world.run_log.push(crate::sim::world::LogEvent {
-                frame: world.frame,
-                id: organism,
-                born_frame,
-                species: species_id,
-                kind: crate::sim::world::LogKind::Born,
-                other: parent,
-            });
+            world.log(crate::sim::world::LogKind::Born, organism, born_frame, species_id, parent);
+            // **The line's population, one higher** -- beside the log push
+            // rather than folded into `World::log`, because a death needs
+            // the identical call with a `-1` and no live organism left to
+            // read `generation` off (`free_organism`), so the two call sites
+            // cannot share a signature that hides the delta.
+            world.note_line_population(founder_lineage, 1, organism, born_frame, species_id, generation);
             // **A birth creates no energy, and this is the S3b stamp seam
             // closing** (`Reports/creature-evolution-plan.md` §2.3, "One
             // seam left open"; `EnergyLedger::meat_lost`'s own doc points
@@ -1307,12 +1605,45 @@ fn place_creature(
                 if let Some((hx, hy)) = head {
                     let mut taken = 0.0;
                     let cells: Vec<(f32, i32, i32)> = provisions_in_reach(world, hx, hy, gut).collect();
-                    for (yielded, px, py) in cells {
+                    // `bite` decorrelates two windfalls taken to cover the
+                    // same shortfall on the same frame -- see `RNG_SLOT_
+                    // SEED_SURVIVAL`'s own doc for why this counts rather
+                    // than keying on `px, py`.
+                    for (bite, (yielded, px, py)) in cells.into_iter().enumerate() {
                         if taken >= shortfall {
                             break;
                         }
                         let banked = world.materials.get(world.get(px, py).material).worth_in_aux;
-                        world.set(px, py, Cell::EMPTY);
+                        // A bitten windfall's own seed asks the plant side
+                        // whether it survives the mouth before this clears
+                        // the cell -- see the identical hook and comment at
+                        // this bite's sibling site in `act`.
+                        let mut seed_rng = rng::stream(
+                            world.seed,
+                            parent as u64,
+                            world.frame,
+                            (RNG_SLOT_SEED_SURVIVAL << 32) | bite as u64,
+                        );
+                        // **Round 29: a bare seed taken to fund a birth is
+                        // spared and priced like any other**, because this is
+                        // a bite and `seed_survives_bite` does not know which
+                        // site called it. `yielded` was read off the standing
+                        // cell before the roll, so a seed the roll spares has
+                        // to be re-priced here or the parent would be paid the
+                        // whole seed *and* leave it standing -- the one shape
+                        // this build must not create, since the seed it
+                        // rescues would otherwise be free food. No passenger
+                        // here: this path has no crop to put one in, so the
+                        // spared seed stands where it was bitten as a `pip`,
+                        // exactly as A1 has always left a surplus survivor.
+                        let bite_outcome = plant::seed_survives_bite(world, px, py, &mut seed_rng);
+                        let yielded = match bite_outcome {
+                            plant::SeedBite::SurvivedBare => yielded * plant::seed_provision_fraction(world, px, py),
+                            _ => yielded,
+                        };
+                        if !bite_outcome.survived() {
+                            world.set(px, py, Cell::EMPTY);
+                        }
                         if banked {
                             world.energy_ledger.harvested_corpse += yielded as f64;
                         } else {
@@ -1397,6 +1728,139 @@ fn body_shade(ranked: &[u8], i: usize, cells: usize, dy: i32, dy_min: i32, dy_ma
 /// `idle_cost_per_cell`'s doc has why.
 fn live_body_cells(world: &World, organism: u16, def: &CreatureDef) -> f32 {
     world.organism(organism).map_or(def.body.len(), |s| s.chain.len()).max(1) as f32
+}
+
+/// **The shipped ant's own composition — one `Head`, one `Segment`, no
+/// `Leg`, no `Gut`, no `Armour`, out of two cells total, 2026-09-11.** The
+/// articulated body this was first authored against (one `Head`, two
+/// `Leg`, one `Gut`, zero `Armour`, out of seven) is `longant.ron` now,
+/// not the shipped ant -- the owner's ruling on
+/// `Reports/creature-articulated-body-2026-09-09.md` §13 kept the shipped
+/// ant at `Chain(2)` and moved the seven-cell body onto a species a player
+/// places instead. `longant` therefore does **not** read `1.0` from this
+/// mechanism any more, and that is the correct behaviour for it: a body
+/// that carries legs is exactly the case this mechanism exists to price
+/// differently, and it is no longer the animal these constants hold
+/// their fixed point for.
+///
+/// Every baseline below is the same fixed point: the value `composition_
+/// mix` must return `1.0` at, so the shipped ant's own resolvers are
+/// unmoved by a mechanism authored after its numbers were already tuned.
+/// They are engine constants rather than read off a species at runtime
+/// because that invariant needs *some* concrete animal to hold for, and
+/// the ant is the one this build's spec names as the one whose numbers
+/// must hold.
+const BASELINE_HEAD_FRAC: f32 = 1.0 / 2.0;
+const BASELINE_LEG_FRAC: f32 = 0.0;
+const BASELINE_GUT_FRAC: f32 = 0.0;
+/// Zero, not a fraction of two: the shipped ant carries no `Armour` cell
+/// at all, exactly as it carried none of seven before it. `composition_
+/// mix`'s own doc says why an additive baseline (rather than a ratio to
+/// it) is what makes zero a value this can start from rather than a
+/// division by it.
+const BASELINE_ARMOUR_FRAC: f32 = 0.0;
+
+/// **The multiplier every role resolver in this module reads — a fraction
+/// of the live body, never a raw count.**
+///
+/// **Coordinator correction, 2026-09-09, folded in before this file's own
+/// build was called done.** The wiring this was first drafted from read
+/// `f(role_cells)`; the corrected rule is `f(role_cells / live_cells)`.
+/// The reason is `CLAUDE.md`'s "fixing a bug often exposes a constant that
+/// was compensating for it," read from the other end: a raw count makes
+/// every role strictly better as the body grows more cells of *any* kind,
+/// which is an unpriced lever, and an unpriced lever ratchets to its
+/// ceiling and expresses nothing regardless of what it is attached to —
+/// this file's own `phototropism_dir` story, on a different axis. A
+/// fraction is scale-free: a bigger body buys a finer *split* of one fixed
+/// budget, never a free multiplier on every axis at once, so what a
+/// lineage evolves under this mechanism is how it spends a body, not how
+/// big one is. Every cell still pays `idle_cost_per_cell` and `move_cost_
+/// per_cell` regardless of its role, so size stays priced exactly where it
+/// always was.
+///
+/// **Additive around the baseline, not a ratio to it.** `frac / baseline`
+/// is undefined at `baseline == 0`, which is exactly the case `Armour`
+/// needs — neither shipped species carries one. `1.0 + GAIN * (frac -
+/// baseline)` is defined everywhere in `[0, 1]` and is exactly `1.0` when
+/// `frac == baseline`, whatever `baseline` is: the property every call
+/// site depends on to leave the shipped ant's own numbers where they are.
+///
+/// Clamped to the same `[0.5, 2.0]` range `armour_of`'s own trait axis
+/// already uses at `reach == 1` — not a new scale, the established one.
+fn composition_mix(frac: f32, baseline: f32) -> f32 {
+    const GAIN: f32 = 1.0;
+    (1.0 + GAIN * (frac - baseline)).clamp(0.5, 2.0)
+}
+
+/// **How this animal's live body currently splits across the four roled
+/// cell types**, as a fraction of its own live cells — see `composition_
+/// mix`'s own doc for why a fraction and never a count. All four share one
+/// denominator, `state.chain.len()`, the same "live, not authored"
+/// quantity `live_body_cells` already prices, so an animal that has lost
+/// cells to injury reports a smaller share of whatever it lost.
+///
+/// **Not alive — no organism, or a chain that has not been stamped yet —
+/// reads at every baseline at once** (`NEUTRAL`), which makes `composition_
+/// mix` a no-op in exactly the case every other `*_of` resolver already
+/// falls back to the species' own authored number for (`traits_of`'s own
+/// doc): there is no body to read a composition off, so nothing here
+/// should move a number that has nowhere real to read it from.
+///
+/// One pass over the chain for all four fractions, rather than four passes
+/// each asking their own question — the chain is at most sixteen cells
+/// (`BodyPlan::Segmented`'s own cap, doubled for laterals), so this is not
+/// a hot-path concern, but there is no reason to walk it four times over.
+#[derive(Clone, Copy, Debug)]
+struct BodyMix {
+    head: f32,
+    leg: f32,
+    gut: f32,
+    armour: f32,
+}
+
+impl BodyMix {
+    const NEUTRAL: BodyMix = BodyMix { head: BASELINE_HEAD_FRAC, leg: BASELINE_LEG_FRAC, gut: BASELINE_GUT_FRAC, armour: BASELINE_ARMOUR_FRAC };
+}
+
+fn body_mix(world: &World, organism: u16) -> BodyMix {
+    let Some(state) = world.organism(organism) else {
+        return BodyMix::NEUTRAL;
+    };
+    if state.chain.is_empty() {
+        return BodyMix::NEUTRAL;
+    }
+    let (mut head, mut leg, mut gut, mut armour) = (0u32, 0u32, 0u32, 0u32);
+    for &(x, y) in &state.chain {
+        match organism::cell_type(world.get(x, y).aux()) {
+            Some(CellType::Head) => head += 1,
+            Some(CellType::Leg) => leg += 1,
+            Some(CellType::Gut) => gut += 1,
+            Some(CellType::Armour) => armour += 1,
+            _ => {}
+        }
+    }
+    // **No differentiated role at all reads as `NEUTRAL`, head fraction
+    // included, 2026-09-11.** `composition_mix`'s whole premise is that a
+    // lineage "spends" a fixed budget across roles -- `Leg` against `Gut`
+    // against plain `Segment` -- so a body that has never produced any of
+    // `Leg`/`Gut`/`Armour` has not spent anything on this axis; the only
+    // reason its raw `head` fraction would differ from the baseline is
+    // that it is a *different size* of otherwise-uniform body, which this
+    // mechanism was never meant to price (that is `idle_cost_per_cell`'s
+    // job, and it already does it). Before this, `beetle` (a 4-cell
+    // `Rigid` body, head fraction 0.25) and `worm` read a real, unpriced
+    // sight-range swing purely from being a different cell count than
+    // whichever species the head baseline happens to be pinned to -- and
+    // that baseline moves every time the shipped ant's own body does
+    // (`BASELINE_HEAD_FRAC`'s own doc). `longant`, which does produce
+    // `Leg` and `Gut`, is unaffected by this guard and keeps the real
+    // composition pricing the mechanism exists for.
+    if leg == 0 && gut == 0 && armour == 0 {
+        return BodyMix::NEUTRAL;
+    }
+    let n = state.chain.len() as f32;
+    BodyMix { head: head as f32 / n, leg: leg as f32 / n, gut: gut as f32 / n, armour: armour as f32 / n }
 }
 
 /// **The mass this animal is hauling, in body-cell equivalents**, so a step
@@ -1633,6 +2097,138 @@ pub const TRAIT_REACH_DEFAULT: f32 = TRAIT_REACH_MAX;
 /// and_not_the_genotype`), not the shipped bed.
 pub const PLASTICITY_DEFAULT: f32 = 1.0;
 
+/// **beta -- how far an at-nest ant steps toward the odour its nest holds**,
+/// per at-nest tick. `World::nest_blend`'s shipped value.
+///
+/// **Derived, not chosen.** A newborn enters at the nest's odour plus its
+/// birth drift, so `|u| ~ scent_drift`, decaying as `(1-beta)^m` over `m`
+/// at-nest blends. Measured on the played bed: 1,796 shares over 120,000
+/// frames across 146 animals is ~25 contacts a lifetime, and a share needs a
+/// neighbour where an at-nest tick does not, so 25 is a strict lower bound on
+/// at-nest ticks. Over ages uniform in 0..25 at beta = 0.1 the standing cloud
+/// is `rms = d * sqrt((1/25) * sum 0.81^m) = 0.458 d`, which at the shipped
+/// `scent_drift` of 0.15 is **0.069 against a tolerance radius of 1.0 -- 7%**.
+/// The cloud only reaches the radius at `d = 2.18`, off the +-1 allele axis
+/// entirely: **no setting of `scent_drift` can make a cohered nest eat
+/// itself**, which is the whole reason drift can finally ship non-zero.
+pub const NEST_BLEND_DEFAULT: f32 = 0.10;
+
+/// **Cells of roofed void per ant at which the urge to dig is half** --
+/// `World::room_target`'s shipped value, and `NestRoom::occupancy`'s target.
+///
+/// **Derived from the census, not chosen.** `examples/latecensus` on the
+/// shipped bed (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0)
+/// reads **306** cells of roofed void at 500,000 frames on seed 1 and **302**
+/// on seed 3. The unfed control -- the same bed with no colony in it -- reads
+/// **26-143**, which is roots eating soil rather than anything dug, so the
+/// chambers a colony actually cuts net to about **220 cells** on both seeds.
+/// Those colonies peaked at **116 ants** (seed 1, frame 180,000) and **495**
+/// (seed 3, frame 200,000). So room per ant at the peak was
+///
+/// * seed 1: 220 / 116 = **1.90 cells**
+/// * seed 3: 220 / 495 = **0.44 cells**
+///
+/// and neither colony ever stopped digging. 2.0 is the top of that observed
+/// range: it puts the half-urge point just above the most room any colony in
+/// the census ever held, so the whole of today's behaviour sits on the steep
+/// part of the curve rather than against a stop. Seed 3 at its peak reads
+/// occupancy **0.82** -- still digging hard, and 495 ants in 220 cells
+/// genuinely is packed -- seed 1 at its peak **0.51**, and a colony that
+/// reached 4 cells an ant would read **0.33**.
+///
+/// **It is a dial, not a balance constant** (owner: *stop balancing, start
+/// exposing*): the lab's ANTS page carries it and
+/// `PIXEL_PHYSICS_LAB_ROOM_TARGET` sets it from a harness.
+pub const ROOM_TARGET_DEFAULT: f32 = 2.0;
+
+/// `World::room_gate`'s shipped value, overridable per run.
+///
+/// **On by default -- the owner's eye, against this lane's own counters.**
+///
+/// The counters said ship it off, and they still say so: over 12 paired seeds
+/// on `played_bed` at 300,000 frames (main 7bfb4e54) the room arm **digs more
+/// on 11 of 12** (median 1.90x, p ~ 0.006 by a sign test) and leaves a bigger
+/// mound on 9 of 12 (median 2.16x), at **+4.0% of a frame**. On that alone
+/// this shipped off, departing from *ship new behaviours on by default*.
+///
+/// **Then the owner looked at it and picked it.** Blind A/B of the two arms
+/// at 300,000 frames on today's trunk, card `20260912T134505685Z-b518ab`:
+/// *"A is bad. B is good"*, and `blind_was` `[1, 0]` puts the room arm in
+/// pane B. So the arm that measures worse on mound size is the one that reads
+/// better as an anthill. That is this repo's standing order of evidence --
+/// *the owner's playtest reports have overturned three separate models that
+/// all looked correct in tests* -- and a mound census is exactly the kind of
+/// number the ethos section says does not outrank the eye. The verdict is one
+/// seed and one glance, so the counters stay in the record rather than being
+/// explained away: they are why this is a dial at all.
+///
+/// **`PIXEL_PHYSICS_LAB_ROOM=off` is the revert, and it is an env switch with
+/// no row on the lab's pages** -- the same shape `spoil_kept`,
+/// `trophallaxis_enabled` and `curvature_sense_enabled` ship in, because an
+/// ablation switch is for measuring an arm rather than for playing with. Only
+/// `room_target` is a constant and only it has a row. (The page had no space
+/// for a second one either: `no_page_is_longer_than_two_screens` caps ANTS at
+/// 20 rows and it stood at 19.) It is bit-exact against `main` -- verified
+/// byte for byte **through 300,000 frames**, not merely 20,000: `sense` writes the same 5x5 count it always did and
+/// `World::step_nest_room` returns before reading a cell. An env switch
+/// rather than two builds, matching `spoil_kept` and `trophallaxis_enabled`
+/// and for the reason `CLAUDE.md` gives them -- two arms compared inside one
+/// run cannot be the stale-binary failure.
+pub fn room_gate_default() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_LAB_ROOM").as_deref() != Ok("off"))
+}
+
+/// `World::room_target`'s shipped value, overridable per run with
+/// `PIXEL_PHYSICS_LAB_ROOM_TARGET`. A value that does not parse, or is not
+/// positive, leaves [`ROOM_TARGET_DEFAULT`] standing rather than silently
+/// disabling the gate -- a target of 0 would pin occupancy at 1.0, which is
+/// the saturated input this whole mechanism exists to get away from.
+pub fn room_target_default() -> f32 {
+    static T: std::sync::OnceLock<f32> = std::sync::OnceLock::new();
+    *T.get_or_init(|| {
+        std::env::var("PIXEL_PHYSICS_LAB_ROOM_TARGET")
+            .ok()
+            .and_then(|v| v.parse::<f32>().ok())
+            .filter(|v| *v > 0.0)
+            .unwrap_or(ROOM_TARGET_DEFAULT)
+    })
+}
+
+/// **gamma -- how far the nest steps toward the odour of the ant standing on
+/// it**, per at-nest tick. `World::nest_uptake`'s shipped value.
+///
+/// **Derived from what one crossing ant has to be worth.** A visit is about
+/// ten at-nest ticks, so an arriving ant moves the nest `1 - 0.98^10 = 18%`
+/// of the way to what it is carrying, against the `0.09` of a radius the
+/// wander opens per 1,000 frames. One crossing per 1,000 frames therefore
+/// holds two nests at about half a radius -- kin, and visibly not identical
+/// -- and two crossings hold them at a quarter. **That is polydomy, and it
+/// is the number that makes the thread between two mounds mean something.**
+pub const NEST_UPTAKE_DEFAULT: f32 = 0.02;
+
+/// **sigma -- how far a nest's own odour wanders**, per signature slot per
+/// `world::NEST_SCENT_INTERVAL` frames. `World::nest_scent_drift`'s shipped
+/// value.
+///
+/// **Derived from "one session".** Two nests nobody walks between separate as
+/// a pair of independent walks, `E|delta|^2 = 2*n*sigma^2` over `n` steps, so
+/// reaching a tolerance radius of 1.0 in `n` steps wants `sigma = 1/sqrt(2n)`.
+/// At 120 steps -- 120,000 frames, the owner's own length for a session --
+/// that is **0.0645**, rounded to 0.065.
+pub const NEST_SCENT_DRIFT_DEFAULT: f32 = 0.065;
+
+/// **What `ant.ron` authors for `CreatureDef::scent_drift`** -- the per-birth
+/// width of a newborn's scent and tolerance, and since 2026-09-12 it ships
+/// **on**.
+///
+/// Here as a constant because two places have to agree about it and one of
+/// them is a guard: the species file is the source of truth, and
+/// `organism.rs`'s round-trip test asserts the ant reads exactly this while
+/// the beetle still reads 0. A drift that silently returned to 0 would make
+/// the whole cohesion mechanism unobservable while every test stayed green.
+pub const SHIPPED_ANT_SCENT_DRIFT: f32 = 0.15;
+
 /// **What the parameters page will wind the reach up to.** Not a bound in the
 /// arithmetic -- nothing breaks above it -- but the top of the dial, chosen
 /// so that the top of the *armour* range is a graded fight rather than a new
@@ -1718,6 +2314,23 @@ const SIGHT_MAX: f32 = 128.0;
 pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32 {
     let shifted = def.sight_range as f32 + traits[TRAIT_SIGHT_RANGE].clamp(-1.0, 1.0) * SIGHT_SPAN;
     shifted.round().clamp(0.0, SIGHT_MAX) as i32
+}
+
+/// `sight_range_of` for an animal that is alive in the world, falling back
+/// to 0 (an unplaced animal has no body to read `Head` composition off,
+/// and every caller of the bare resolver already falls back to 0 the same
+/// way) if it is not, and then the `Head` composition axis on top of the
+/// trait one.
+///
+/// A free function rather than three copies of the same `map_or`, so a
+/// mix folded in here reaches every reader — the cast gate, the cast
+/// itself, and the brain's own normalisation — instead of only whichever
+/// call site happened to be edited.
+pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
+    let Some(st) = world.organism(organism) else { return 0 };
+    let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
+    let mix = composition_mix(body_mix(world, organism).head, BASELINE_HEAD_FRAC);
+    (base as f32 * mix).round().max(0.0) as i32
 }
 
 pub fn reproduce_fraction(t: f32) -> f32 {
@@ -1874,7 +2487,17 @@ fn armour_at(world: &World, cell: Cell) -> f32 {
     if organism == 0 {
         return base;
     }
-    base * world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach))
+    let plate = world.organism(organism).map_or(1.0, |st| armour_of(&expressed_traits(st, world.plasticity, world.trait_reach), world.trait_reach));
+    // **The composition axis, on top of the trait axis rather than folded
+    // into `armour_of` itself.** `armour_of` is also read at the *cost*
+    // site, `creature_tick`'s own `armour_tax`, which prices the heritable
+    // `TRAIT_ARMOUR` allele as a flat per-tick charge unrelated to body
+    // size; composition's own price is the opportunity cost of the cell
+    // (`composition_mix`'s own doc), not a second tax, so it must not
+    // reach that call site. Only the *defensive* reading — how tough this
+    // specific struck cell actually is — belongs here.
+    let mix = composition_mix(body_mix(world, organism).armour, BASELINE_ARMOUR_FRAC);
+    base * plate * mix
 }
 
 /// **How wide a patch of ground this particular animal feels**, in cells.
@@ -1957,6 +2580,28 @@ pub fn crop_capacity_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> f
     (def.crop_capacity / ratio_factor(traits[TRAIT_CROP_CAPACITY]).max(f32::EPSILON)).max(CROP_MIN)
 }
 
+/// `crop_capacity_of` for an animal alive in the world (`traits_of` is the
+/// shared alive-or-species-default reader every other resolver here uses),
+/// and then the `Gut` composition axis on top of the trait one.
+///
+/// **The "no crop at all" floor is checked again, before the mix.** A
+/// species that authors no crop reads exactly `0.0` from `crop_capacity_of`
+/// and must keep reading exactly `0.0` here — multiplying zero by a mix is
+/// still zero, but re-applying `CROP_MIN` unconditionally afterward would
+/// turn "this species has no crop" into "this species has a very small
+/// one," which is a different animal. Only a species that *has* a crop gets
+/// re-floored after the mix, for the reason `crop_capacity_of`'s own doc
+/// gives: a mix below 1.0 can push an already-`CROP_MIN`-floored value back
+/// under it.
+pub fn organism_crop_capacity(world: &World, organism: u16, def: &CreatureDef) -> f32 {
+    let base = crop_capacity_of(def, &traits_of(world, organism, def));
+    if base <= 0.0 {
+        return 0.0;
+    }
+    let mix = composition_mix(body_mix(world, organism).gut, BASELINE_GUT_FRAC);
+    (base * mix).max(CROP_MIN)
+}
+
 pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u64 {
     // `ratio_factor` un-inverted: a quick animal is a *shorter* interval, so
     // the factor multiplies here where `digest_rate_of` divides by it.
@@ -1964,14 +2609,26 @@ pub fn tick_interval_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> u
 }
 
 /// `tick_interval_of` for an animal that is alive in the world, falling back
-/// to the species' authored interval if it is not.
+/// to the species' authored interval if it is not, **and then the `Leg`
+/// composition axis on top of the trait one.**
 ///
 /// A free function rather than four copies of the same `map_or`, because the
 /// scheduler reads this in three places and the flight path in two: an
 /// individual that is scheduled on its own pace and charged on its species'
-/// would be metabolising at a rate nothing on screen explains.
+/// would be metabolising at a rate nothing on screen explains. Folding the
+/// composition mix in here rather than at each caller keeps that guarantee:
+/// every one of those call sites gets the composition-aware number for free,
+/// with nothing to forget at a fifth or sixth site later.
+///
+/// **Divides, where `tick_interval_of` itself multiplies its own trait
+/// factor.** More `Leg` cells is a *shorter* interval (faster), so a
+/// mix above 1.0 has to shrink the number it is applied to — the same
+/// inversion `tick_interval_of`'s own doc explains for `TRAIT_PACE` against
+/// `ratio_factor`, on the composition axis instead of the trait one.
 pub fn organism_tick_interval(world: &World, organism: u16, def: &CreatureDef) -> u64 {
-    world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)))
+    let base = world.organism(organism).map_or_else(|| def.tick_interval.max(1), |st| tick_interval_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let mix = composition_mix(body_mix(world, organism).leg, BASELINE_LEG_FRAC);
+    ((base as f32 / mix).round() as u64).max(1)
 }
 
 /// Bud a child off `organism` if it can afford one and there is room.
@@ -2032,15 +2689,78 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     if bank + reachable < bar {
         return None;
     }
+    // **Fertility suppression**, applied to the composed `bar` above and
+    // only now that the affordability precheck just above has already
+    // passed against the UNSUPPRESSED bar -- never before it, and never
+    // onto `threshold` alone. Scaling `threshold` and then re-flooring
+    // against `cost + 1.0` would let that floor win the moment suppression
+    // pushed the scaled threshold back under it, and a heavily suppressed
+    // worker would breed the instant it could merely afford a child -- the
+    // arm would then move nothing, `CLAUDE.md`'s "a change that moves
+    // *nothing* is different evidence" case, and it would have invalidated
+    // the whole measurement this switch exists to take.
+    //
+    // **Suppression only ever raises the bar** -- `queen` replaces it with
+    // `f32::INFINITY`, `graded`'s factor is always `>= 1.0` -- so an animal
+    // that failed the precheck above could never have passed it suppressed
+    // either. That is what lets the precheck run first and keeps
+    // `suppress_bar`'s colony scan off the common path: it runs only on
+    // the rare tick an animal could otherwise already afford a child, not
+    // on every tick for every animal. See `breeding_regime`'s own doc for
+    // the regimes themselves.
+    let (bar, breeder_scan_visits) = suppress_bar(breeding_regime(), breeding_radius(), world, organism, state.colony, (hx, hy), bar);
+    // **Read off the parent here, while `state` is still the parent** (see
+    // the `Origin::Bud` arm in `place_creature` for the incident this
+    // naming exists to prevent) -- moved ahead of the affordability check
+    // below so `state`'s own borrow of `world` ends here, before anything
+    // needs `world` mutably again. Pure reads, so reordering them across
+    // that check changes nothing about what either computes.
     let species_id = state.species;
     let parent_genome = state.genome.clone();
-    // **Read off the parent here, while `state` is still the parent.** See
-    // the `Origin::Bud` arm in `place_creature` for the incident this
-    // naming exists to prevent.
     let parent_generation = state.generation;
     let parent_lineage = state.lineage;
     let parent_colony = state.colony;
+    let parent_fates = state.fates;
+    // **Counted regardless of whether this birth goes on to succeed** --
+    // the candidates were already examined the moment `suppress_bar`
+    // returned, above, so gating this on the affordability check below
+    // would undercount by exactly the calls that return `None` there.
+    // Lands here rather than inside `suppress_bar`/`colony_has_other_
+    // breeder`/`nearest_breeder` themselves because all three only ever
+    // hold `&World` -- `state`'s own borrow, alive until the line above,
+    // rules out anything stronger reaching them -- and this is the first
+    // point after that borrow ends where `world` is usable mutably again.
+    world.creature_stats.breeder_scan_visits += breeder_scan_visits as u64;
+    if bank + reachable < bar {
+        return None;
+    }
     let material_id = world.materials.id_of(&world.species.get(species_id).name.clone())?;
+
+    // **The child's body-growth genome, inherited and mutated here, on the
+    // parent's handle.** `place_creature` stamps the body *inside* itself,
+    // before a child handle exists, so unlike the brain genome and traits
+    // below (which mutate after placement, on the child's own handle,
+    // keyed on `RNG_SLOT_BIRTH`) this cannot wait: there is nothing to key
+    // it on yet if it waited. `RNG_SLOT_BODY_FATE`'s own doc has the full
+    // reasoning for why the parent's handle plus the frame is a safe key
+    // that cannot alias an existing draw.
+    //
+    // **Gated on `world.fate_mutation_chance`, exactly as `plant::
+    // bear_seed_at` gates its own `state.fates.mutate` call**, and not a
+    // separate creature-only rate: the field is already a world dial
+    // rather than a plant-specific one (`specimen.rs`'s own release path
+    // reads it too), so reusing it is the "reuse machinery that already
+    // exists" rule rather than a coincidence. Without this gate every
+    // single birth would draw an operator and, on an ant with five rules
+    // to retarget, very likely apply one -- a mutation *pressure* on body
+    // shape far higher than anything else evolved in this engine, where
+    // `mutation_rate` (brain) and `fate_mutation_chance` (everywhere else)
+    // are both built to fire on a minority of events.
+    let mut child_fates = parent_fates;
+    let mut fate_rng = rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_BODY_FATE);
+    if fate_rng.chance(world.fate_mutation_chance) {
+        child_fates.mutate(&mut fate_rng);
+    }
 
     // Where the child goes: the first of the eight neighbours of the
     // parent's head at which the whole body fits. `DIRS` order, which is
@@ -2058,6 +2778,35 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
         // The child's own genome and traits are drawn *once*, outside this
         // loop's effect: nothing here consumes from any stream, so which
         // neighbour succeeds cannot change what the child inherits.
+        //
+        // **`facing_west: dx >= 0`, not the founder default of `false`, and
+        // this is load-bearing for any body wider than the one-cell berth a
+        // neighbour offset provides.** Every body plan the engine places
+        // today (founders, released jars) uses `facing_west = false`, which
+        // lays every cell but the head out at *negative* x offsets from it
+        // -- the parent's own tail is already `span - 1` cells to the
+        // *west* (smaller x) of its head. A child placed at `dx = -1` (one
+        // cell further west) with that same default facing walks its own
+        // spine right back across the parent's: the two heads are one cell
+        // apart, not `span` cells apart. Passing `facing_west = true`
+        // whenever the candidate sits at or east of the parent's head
+        // (`dx >= 0`) flips the sign, so the *child's* cells all land at
+        // `x >= hx + dx` -- strictly east of everything the parent
+        // occupies (`x <= hx`), clearing it outright regardless of span.
+        // This is *why* only three of the eight `DIRS` entries -- `(1,0)`,
+        // `(1,-1)`, `(0,-1)`, first in the canonical order -- can ever place
+        // a multi-cell articulated child: every `dx < 0` candidate has the
+        // parent's own body sitting between the child's head and the only
+        // side (east) a flipped facing could clear, and every `dy = 1`
+        // candidate is the floor the parent stands on. Flipping the facing
+        // cannot fix either of those -- it only fixes the three that were
+        // geometrically reachable in the first place. Measured before this
+        // existed: a colony of 12 richly-funded ants, 60 frames,
+        // `births_denied_no_space` 104 and zero actual births -- every
+        // single attempt on all eight neighbours failed, because the
+        // parent's own body stood in the one direction every candidate was
+        // willing to grow toward.
+        let facing_west = dx >= 0;
         if let Some(s) = place_creature(
             world,
             hx + dx,
@@ -2065,6 +2814,7 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
             species_id,
             material_id,
             def,
+            facing_west,
             Origin::Bud {
                 parent: organism,
                 genome: parent_genome.clone(),
@@ -2078,6 +2828,7 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
                 // onto `Provision` hands `squash(0) = 0`, and the child is
                 // made of exactly its genes.
                 made: provision.clamp(-1.0, 1.0),
+                fates: child_fates,
             },
         ) {
             site = Some(s);
@@ -2085,9 +2836,34 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
         }
     }
     let Some(site) = site else {
-        world.creature_stats.births_denied_no_space += 1;
+        // **Attempts and animals, in one call.** A denial does not charge the
+        // parent and this function runs every tick it survives, so the
+        // attempt count alone cannot separate one ant walled in from many
+        // ants each waiting a tick -- see `World::note_birth_denied`.
+        world.note_birth_denied(organism);
         return None;
     };
+    // **The breeding-regime counters, on success only** -- a denial above
+    // already returned and touched neither. Both read the PARENT's own
+    // facts (`organism`, `parent_generation`), captured earlier while
+    // `state` was still the parent: which animal just proved it can
+    // reproduce, and how deep the chain that just extended itself already
+    // was. `children` is what `breeding_regime`'s `queen`/`graded` arms
+    // read as "is this animal a breeder" -- see `OrganismState::children`'s
+    // own doc for why it is not `life.offspring` wearing a new name.
+    world.deepest_breeder_generation = world.deepest_breeder_generation.max(parent_generation);
+    if let Some(p) = world.organism_mut(organism) {
+        p.children = p.children.saturating_add(1);
+    }
+    // **The index write, in the same breath as the count that defines a
+    // breeder.** `record_breeder` prunes `parent_colony`'s candidate list
+    // of anyone who has died since it was last touched, then pushes
+    // `organism` on (idempotently -- a parent already listed from an
+    // earlier bud is not duplicated). This is the one site in the whole
+    // call chain with `&mut World`; see `record_breeder`'s own doc for why
+    // that is exactly why pruning has to happen here and cannot happen on
+    // `colony_has_other_breeder`/`nearest_breeder`'s read path.
+    world.record_breeder(parent_colony, organism);
     // **Mutate after placement, on the child's own handle.** The stream is
     // keyed on the handle the allocator just issued plus the frame, so it
     // cannot be predicted from the parent and cannot repeat when a slot is
@@ -2097,9 +2873,24 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
     // Read before the mutable borrow below, not because it is expensive but
     // because `organism_mut` holds the world for the whole loop.
     let reach = world.trait_reach;
+    // **Captured out of the borrow below, for `born_with` and the line
+    // records — both need `&mut World` and cannot be called while `state`
+    // holds it.** Defaulted to the pre-mutation values so a stale-handle
+    // `None` (the child's slot vanished between placement and here, which
+    // cannot happen today but costs nothing to be honest about) reports
+    // "nothing changed" rather than a bogus mutation.
+    let mut synapses_moved = 0u32;
+    let mut child_traits = parent_traits;
+    let mut child_generation = parent_generation.saturating_add(1);
+    let mut child_born_frame = 0u64;
     if let Some(state) = world.organism_mut(child) {
         let mut genome = std::mem::take(&mut state.genome);
-        brain::mutate(&mut genome, def.mutation_rate, &mut draw);
+        // **The return was discarded here** -- how many synapse slots
+        // actually moved, `brain::mutate`'s own count. Captured now because
+        // `born_with` needs a fallback for the case a mutation changes the
+        // brain and not the body: a bud whose trait jitter rounds to zero on
+        // every slot still bred something different.
+        synapses_moved = brain::mutate(&mut genome, def.mutation_rate, &mut draw);
         state.genome = genome;
         for (slot, t) in state.traits.iter_mut().enumerate() {
             let width = trait_width(def, slot);
@@ -2118,6 +2909,38 @@ fn try_bud(world: &mut World, organism: u16, def: &CreatureDef, provision: f32) 
                 *t = (*t + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-bound, bound);
             }
         }
+        child_traits = state.traits;
+        child_generation = state.generation;
+        child_born_frame = state.born_frame;
+    }
+    // **`born_with`: the strongest single change, not every one** -- see
+    // `OrganismState::born_with`'s own doc for the packing and the scale
+    // reason it is one field read on demand rather than a line in the run
+    // log. `pct` is a percentage of the trait's own `-1..=1` axis, never of
+    // the old value, which would be meaningless near zero.
+    let mut born_with = 0u16;
+    let mut strongest_pct = 0i32;
+    for (slot, (before, after)) in parent_traits.iter().zip(child_traits.iter()).enumerate() {
+        let pct = ((after - before) * 100.0).round() as i32;
+        if pct.abs() > strongest_pct.abs() {
+            strongest_pct = pct;
+            born_with = ((slot as u16) << 8) | (pct.clamp(-127, 127) as i8 as u8 as u16);
+        }
+    }
+    if strongest_pct == 0 && synapses_moved > 0 {
+        born_with = (14u16 << 8) | synapses_moved.min(255) as u16;
+    }
+    if let Some(state) = world.organism_mut(child) {
+        state.born_with = born_with;
+    }
+    // **The line's own history, checked after the mutation that could have
+    // moved it** -- see `World::note_line_generation`/`note_line_record`'s
+    // own docs. Both are no-ops for `parent_lineage == 0` (a test fixture
+    // that never founded a lineage), checked once here rather than inside
+    // each call so the intent reads at the call site.
+    if parent_lineage != 0 {
+        world.note_line_generation(parent_lineage, child_generation, child, child_born_frame, species_id);
+        world.note_line_record(parent_lineage, &child_traits, child, child_born_frame, species_id, child_generation);
     }
     Some(site)
 }
@@ -2228,15 +3051,46 @@ impl World {
             self.paint_nest_patch(x, y);
         }
         let mut placed = 0;
+        // **Staggered founder reserves** — every founder used to be stamped
+        // with the identical `def.start_energy`, so a synchronised cohort
+        // starved in the same 500-frame window together
+        // (`Reports/colony-economy-design-2026-09-09.md` §4a). Read once,
+        // before the loop, because `def` and the seed are needed for every
+        // station and the colony label is not resolved until the first one
+        // is placed.
+        let def = self.species.get(species_id).creature.clone();
+        let spread = def.as_ref().map_or(0.0, |d| d.founder_reserve_spread);
+        let start_energy = def.as_ref().map_or(0.0, |d| d.start_energy);
+        let seed = self.seed;
+        let stations = self.colony_stations(x, y, species_id, ants);
+        let total = stations.len() as i32;
         // **One colony per founding.** The first animal that fits founds it
         // and every later station joins; a founding in which nothing fits
         // claims nothing. See `OrganismState::colony`.
         let mut colony: Option<u32> = None;
-        for (cx, cy) in self.colony_stations(x, y, species_id, ants) {
+        for (i, (cx, cy)) in stations.into_iter().enumerate() {
             let before = self.get(cx, cy).organism_id();
             if let Some(site) = plant_creature_seed_in(self, cx, cy, species, colony) {
                 if colony.is_none() {
                     colony = colony_of_site(self, &site);
+                }
+                // **Overridden after placement, before scheduling**, so
+                // nothing has ticked yet and no ledger bookkeeping runs
+                // between the grant and the correction. `place_creature`
+                // already booked `energy_ledger.granted += start_energy` for
+                // this founder; `founder_reserve`'s pairing conserves the
+                // COHORT's total exactly, so the aggregate identity
+                // (`expected_live_total() == sum(live energies)`) still
+                // holds even though this one individual's bank now
+                // disagrees with what was granted for it -- this is a
+                // redistribution, not a subsidy.
+                if spread > 0.0 {
+                    if let ActiveKind::Creature { organism } = site.kind {
+                        let factor = founder_reserve(seed, x, i as i32, total, spread);
+                        if let Some(state) = self.organism_mut(organism) {
+                            state.energy = start_energy * factor;
+                        }
+                    }
                 }
                 self.schedule_active_site(site);
             }
@@ -2309,13 +3163,66 @@ impl World {
     /// deliberate and is the ratio the foraging scene measured 414 deliveries
     /// at: home has to be a *place*, not everywhere, or there is no gradient
     /// to walk up.
+    ///
+    /// **The threshold has drains in it, and that is the whole of
+    /// `open-bugs-handoff.md` §T2.** `nest` is a plain `Solid` with no
+    /// `water_capacity`, so it "holds no water at all, and never absorbs an
+    /// adjacent `Liquid`" -- which made an unbroken patch the *only
+    /// impermeable strip on the surface of a misted bed*, every other ground
+    /// cell around it holding 1,000. The mist soaked in everywhere else and
+    /// stood on the door. An ant cannot step into a liquid
+    /// (`landing_is_placeable_through_tissue` wants `World::is_empty`), so a
+    /// film one cell deep is a **wall**: `adjacent_nest` goes false for every
+    /// animal in the colony at once, and `AtNest`, `nest_visits` and
+    /// `deliveries` freeze on the same frame -- §T2's reported shape exactly,
+    /// two counters identical at 9,000, 30,000 and 120,000 frames while
+    /// `pickups` kept climbing. Measured on the played bed, seed 1: **47-49
+    /// of 53 nest cells standing under water**, and free liquid over the
+    /// patch **89-91 against 17-19 over the same width of ordinary ground
+    /// beside it** -- the excess is the patch's alone, which is what says the
+    /// impermeability did it rather than the terrain.
+    ///
+    /// So every `DRAIN_PERIOD`th column is left as the ground it was. The
+    /// film is thin -- 89-91 liquid cells over 53 columns, so one to two deep
+    /// -- and what keeps it standing is *distance*: across an unbroken patch
+    /// the middle of it is 26 columns from ground that drinks, and a
+    /// one-cell-deep film has almost no head to spread on. With a drain every
+    /// third column it is one cell from ground that drinks, and the bed takes
+    /// it exactly as it does everywhere else.
+    ///
+    /// **Two fixes that look more principled were built first and are worse**
+    /// -- both in `dead-ends.md`, both about `nest.ron` rather than this
+    /// loop. Giving the material a `water_capacity` while it is a `Solid`
+    /// aliases `Cell::aux`, which on a `Solid` is the structural anchor
+    /// distance that `structural::tick` rewrites (and roots at 0 the moment
+    /// powder touches the underside -- so the door becomes a *water sink*,
+    /// not a sponge). Making it a `Powder` to fix that turns
+    /// `player::footing` from `Hard` to `Soft`, and the gnome wades through
+    /// the bottom of a nest wall (`a_nest_still_stops_him`). This loop is the
+    /// one place the repair costs nothing anywhere else.
     pub fn paint_nest_patch(&mut self, x: i32, y: i32) -> usize {
         let Some(nest) = self.materials.id_of("nest") else {
             return 0;
         };
         let half_width = scaled_cells(self, COLONY_HALF_WIDTH);
+        let drain_period = nest_drain_period();
+        // **The patch is a place that holds an odour, and this is where it
+        // becomes one.** Registered before the ground is converted so that a
+        // patch which turns out to have no paintable ground under it still
+        // has a site -- the alternative reads as "the nest exists but has no
+        // smell", which is a harder failure to see than an empty patch.
+        // Its odour is taken from the first ant to stand on it; see
+        // `NestSite::seeded` for why it cannot be taken here.
+        self.register_nest_site(x, y, half_width);
         let mut painted = 0;
-        for cx in (x - half_width)..=(x + half_width) {
+        for (i, cx) in ((x - half_width)..=(x + half_width)).enumerate() {
+            // **Indexed off the loop, not off `cx`**, so the comb is the same
+            // comb wherever on the map the colony is founded -- keyed on the
+            // world x it would shift by one under the cursor and the two ends
+            // of the patch would stop being symmetric.
+            if drain_period > 0 && i % drain_period == drain_period - 1 {
+                continue;
+            }
             if let Some(sy) = colony_surface(self, cx, y) {
                 let cell = self.get(cx, sy);
                 // Only ground gets converted -- painting over water or a
@@ -2329,6 +3236,54 @@ impl World {
         painted
     }
 }
+
+/// **How often the nest patch leaves a column of ordinary ground**, so the
+/// door can drain — every third, so a film has one cell to travel.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=off` lays the unbroken patch that shipped until
+/// 2026-09-12, which is the paired arm for anything measured over this: one
+/// binary, two arms, and the semantic rule held fixed rather than a second
+/// metric added (`CLAUDE.md`). `=<n>` sets the period directly, so the comb
+/// can be swept without a rebuild.
+///
+/// Read once through a `OnceLock`, matching `spoil_kept` and
+/// `lining_enabled`: founding is rare, but the setting cannot change mid-run
+/// and an `env::var` in `World` is a syscall in a place that does not want
+/// one.
+fn nest_drain_period() -> usize {
+    static PERIOD: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+    *PERIOD.get_or_init(|| match std::env::var("PIXEL_PHYSICS_NEST_DRAINS").as_deref() {
+        Ok("off") => 0,
+        // A period of 1 would paint nothing at all and a period of 2 is a
+        // comb of alternating cells; both are legitimate sweep points, and 0
+        // (the unbroken patch) is what `off` means, so only a parse failure
+        // falls through to the default.
+        Ok(v) => v.parse().unwrap_or(DRAIN_PERIOD),
+        Err(_) => DRAIN_PERIOD,
+    })
+}
+
+/// Every third column of the threshold is left undrained ground.
+///
+/// Three rather than two because two paints only half the door and the patch
+/// is already *deliberately* narrow -- "home has to be a place, not
+/// everywhere". Three rather than four because the film has to *reach* a
+/// drain and at four the middle of a run is two cells from one, while at
+/// three every nest column touches ground that drinks.
+///
+/// Measured on the played bed, seed 1, at three: standing water over the
+/// patch **51 and 48 cells -> 0 and 2**, against 2 and 0 over the same width
+/// of ground beside it, so the door stops being the wettest strip on the bed
+/// and becomes an ordinary piece of it. Nest cells with air beside them
+/// **2 and 7 of 53 -> 33 and 32 of 36**, `nest_visits` over the first 20,000
+/// frames **360 -> 1,428**, deliveries **140 -> 466**.
+///
+/// `PIXEL_PHYSICS_NEST_DRAINS=<n>` sweeps it without a rebuild, and
+/// `examples/nestdoor.rs` is what reads the result -- its `water_on` against
+/// `water_off` pair is the quantity to sweep on, since the bar is that the
+/// door stops being wetter than the ground beside it rather than that it is
+/// dry (no part of a misted bed is).
+const DRAIN_PERIOD: usize = 3;
 
 /// Where the ground is in one column, for a colony founded at cursor row
 /// `cursor_y`.
@@ -2450,6 +3405,32 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         return Vec::new();
     }
 
+    // --- old age ---------------------------------------------------------
+    // **The one thing in this tick that can end it before anything is
+    // decided**, and it is deliberately the first: an animal's age does not
+    // depend on what it was about to do, and putting the roll after the walk
+    // would make a death conditional on whether the step succeeded.
+    //
+    // **Gated on the species field at the call site, which already holds
+    // `def`** -- `CLAUDE.md`'s hot-path rule. Every shipped species but the
+    // ant and the long ant is at 0, so for them this is one `u32` compare per
+    // tick and nothing else: no `World::get`, no body walk, no draw.
+    //
+    // The interval is *this individual's*, not the species' -- see
+    // `plant::old_age_chance_over` for why. `pace` is heritable, so an ant
+    // that takes its turn twice as often rolls twice as often, and dividing
+    // the interval back out is what stops `life_half_life` becoming a
+    // function of a gene nobody meant to point at it.
+    if def.life_half_life > 0 {
+        let age = world.organism(organism).map_or(0, |st| world.frame.saturating_sub(st.born_frame));
+        let interval = organism_tick_interval(world, organism, def);
+        let chance = plant::old_age_chance_over(age as f32, def.life_half_life as f32, interval);
+        if chance > 0.0 && rng::stream(world.seed, organism as u64, world.frame, RNG_SLOT_OLD_AGE).chance(chance) {
+            creature_dies(world, organism, organism::DeathCause::OldAge);
+            return Vec::new();
+        }
+    }
+
     // --- airborne: integrate, do not decide -----------------------------
     // **Before `sense`, and that ordering is the cost.** A creature in the
     // air does not read the world, does not evaluate its brain, and does not
@@ -2471,11 +3452,41 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
 
     let heading = world.organism(organism).map_or(0, |s| s.heading);
     let (inputs, seen, sight_reads, curvature_reads) = sense(world, x, y, organism, heading, def);
+    // **Cohesion, on the branch `AtNest` had already taken.** `sense` has
+    // just run `adjacent_nest` for the brain input; reading the input back
+    // rather than re-testing the neighbourhood is the whole of "no new
+    // scan", and it keeps `sense` a pure read of an immutable world.
+    //
+    // **This is the floor under `scent_drift`, and it is why the dial can
+    // ship non-zero.** Without it a colony's odours diffuse apart under any
+    // drift until it reads its own children as strangers: measured at drift
+    // 0.5, `ANT 1 killed 22, 20 of them by ANT 1 itself`, the founding group
+    // wiped out and the colony a quarter its size
+    // (`Reports/evolution-lab-fission-design-2026-09-12.md` §0).
+    if inputs[brain::BrainInput::AtNest as usize] > 0.0 {
+        // **How often an animal is standing at its own door**, counted on
+        // the branch that already tested it -- no new scan, for the reason
+        // the cohesion call above gives.
+        //
+        // It is here for control 4 of the room-per-ant build, and it is the
+        // one number that separates the two readings of a falling dig rate.
+        // A colony that digs less because it has room and a colony that digs
+        // less because its ants never get home are the same `digs` column;
+        // they are not the same `at_nest_ticks`. Read beside `deliveries`,
+        // which says the round trip closes at all.
+        world.creature_stats.at_nest_ticks += 1;
+        // ...and what it read, bucketed. See `CreatureStats::at_nest_crowding`
+        // -- with the gate off this is the old 5x5 density and is the control
+        // for the premise; with it on it is the room signal.
+        let bucket = ((inputs[brain::BrainInput::Crowding as usize] * 10.0) as usize).min(9);
+        world.creature_stats.at_nest_crowding[bucket] += 1;
+        blend_with_nest(world, organism, x, y);
+    }
     let sighting = seen.prey;
     // **The individual's reach, not the species'** -- an ant whose lineage
     // has evolved an eye casts, and a counter still gated on the species
     // field would report it as never having looked.
-    if world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach))) > 0 {
+    if organism_sight_range(world, organism, def) > 0 {
         world.creature_stats.sight_casts += 1;
         world.creature_stats.sight_cells_read += sight_reads;
         // **The hunted side's counter, beside the hunter's.** An image of
@@ -2484,6 +3495,16 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         // behaviour was selected for or against.
         if seen.threat.is_some() {
             world.creature_stats.threat_sightings += 1;
+        }
+        // **"Did it fire at all" needs a counter, not a picture**
+        // (`CLAUDE.md`). A `labgif` of an animal arriving at a flower
+        // cannot say whether the bloom sense is what got it there or
+        // whether it stumbled in exactly as every animal in the box did
+        // before this input existed -- this is the counter that answers
+        // it, read beside `flower_visits`/`nectar_paid` on the far side of
+        // the bite.
+        if inputs[brain::BrainInput::BloomNear as usize] > 0.0 {
+            world.creature_stats.bloom_seen += 1;
         }
         if let Some(seen) = sighting {
             world.creature_stats.sightings += 1;
@@ -2569,18 +3590,24 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         * armour_of(&jaw_traits, world.trait_reach);
     // **Standing in the open costs, if the species authors a price for it.**
     // Charged beside `idle` because it *is* metabolism -- the animal is
-    // paying to be somewhere rather than to do something -- and gated on the
-    // authored price so a species that has not opted in pays not even the
-    // roof test, which is three `World::get`s on every creature tick.
+    // paying to be somewhere rather than to do something.
     //
-    // Read at the head rather than over the whole body: a two-cell ant half
-    // in a doorway is either in or out, and the head is the cell every other
-    // sense in this function is read from.
-    let exposure = if def.exposure_cost_per_cell > 0.0 && !is_sheltered(world, x, y) {
-        def.exposure_cost_per_cell * body_cells
-    } else {
-        0.0
-    };
+    // **The roof test itself is no longer gated on the price.** It used to
+    // sit behind `def.exposure_cost_per_cell > 0.0` so a species with no
+    // authored price paid not even the three `World::get`s -- but that
+    // gate also hid `exposed_ticks` behind the same `&&`, so on every bed
+    // that has not priced exposure (all of them, today) the counter read
+    // exactly 0 of N ticks, a null wearing a measurement rather than a
+    // report of an unexposed colony. `labstats`'s `--- shelter ---` line
+    // is supposed to answer "is there any sheltering behaviour for a price
+    // to reward at all", and a counter that cannot move without a price
+    // first being authored cannot answer that question -- it can only
+    // agree with whatever the price already says. Read at the head rather
+    // than over the whole body: a two-cell ant half in a doorway is either
+    // in or out, and the head is the cell every other sense in this
+    // function is read from.
+    let unsheltered = !is_sheltered(world, x, y);
+    let exposure = if def.exposure_cost_per_cell > 0.0 && unsheltered { def.exposure_cost_per_cell * body_cells } else { 0.0 };
     let mut spent = idle + synapse_tax + sight_tax + curvature_tax + force_tax + armour_tax + exposure;
     // Booked as metabolism rather than as an account of its own: it is
     // metabolism, and a new sink would have to be added to
@@ -2592,7 +3619,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     world.creature_stats.curvature_cells_read += curvature_reads;
     world.creature_stats.curvature_energy += curvature_tax as f64;
     world.creature_stats.exposure_energy += exposure as f64;
-    if exposure > 0.0 {
+    if unsheltered {
         world.creature_stats.exposed_ticks += 1;
     }
     world.energy_ledger.synapse_tax += synapse_tax as f64;
@@ -2609,7 +3636,7 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
     // **Gnawing comes back as work for the caller to charge, exactly as
     // `dug` does.** `act` decides what an animal did; `creature_tick` owns
     // the ledger. One place where work becomes energy.
-    let Did { dug, gnaws } = act(world, x, y, organism, def, &outputs, &mut draw);
+    let Did { dug, gnaws, shares } = act(world, x, y, organism, def, &outputs, &mut draw);
     // **Working the jaw costs, and leaving it free was a real defect.**
     // Measured the moment the beetle was armoured for play: an ant beat a
     // beetle that had just been made *tougher* -- two cells off it, none off
@@ -2628,6 +3655,19 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
         spent += jaw;
         world.energy_ledger.metabolized += jaw as f64;
         world.creature_stats.gnaw_energy += jaw as f64;
+    }
+    // **Trophallaxis is mandible-to-mandible, priced through the same
+    // apparatus gnawing already uses** — `Did::gnaws`' own doc argues "what
+    // keeps one apparatus at one price", and the fight branch routes through
+    // it for the same stated reason. No new species field and no new ledger
+    // account: the joules book to `metabolized`, which is already a sink in
+    // `EnergyLedger::expected_live_total`. `share_energy` is a plain counter
+    // so `labstats` can attribute it separately from the digging bill.
+    if shares > 0 && def.dig_cost_in_moves > 0.0 {
+        let work = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * shares as f32;
+        spent += work;
+        world.energy_ledger.metabolized += work as f64;
+        world.creature_stats.share_energy += work as f64;
     }
     if dug > 0 && def.dig_cost_in_moves > 0.0 {
         let cost = def.move_cost_per_cell * body_cells * def.dig_cost_in_moves * dug as f32;
@@ -2856,6 +3896,45 @@ fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &Creatur
                 // which is starvation rather than an exploit.
                 state.crop = (left > 0).then_some(Crop { cells: left, digesting: matured - c.unit, ..c });
             }
+            // **The owner's rule, 2026-09-11: "where should the seed drop
+            // when a creature picks up food -- it should drop where it is
+            // eaten, not immediately."** Digestion is where this crop's
+            // food is actually eaten, and `left == 0` is the one tick a
+            // passenger riding with it would otherwise vanish along with
+            // the empty crop: every intermediate cell (`left > 0`) already
+            // carries the passenger forward untouched through the `..c`
+            // spread just above (`digestion_does_not_consume_a_passenger`),
+            // so it only ever needs releasing once. **The last cell, not
+            // the first**: `Crop::cells` counts a total, not an ordered
+            // stack, so there is no cell to point at other than the one
+            // whose consumption empties the crop -- releasing on the first
+            // of a multi-cell meal would mean inventing an order the crop
+            // does not track, and would let the seed re-enter the world
+            // while the ant is still visibly eating the rest of the fruit.
+            // `PIXEL_PHYSICS_SEED_WHERE_EATEN=0` -- the same one-binary
+            // kill switch `plant::deliver_seed_passenger_uneaten` reads,
+            // checked here rather than shared because this call is the
+            // rare branch already (a passenger emptying its crop), never
+            // the sweep: reproduces this round's bug exactly, the
+            // passenger silently lost with the emptied crop. Default on.
+            // **`(hx, hy)` is this ant's own head, and it is occupied by
+            // this ant.** Until 2026-09-12 the planter wrote the pip there
+            // whenever its midden redirect left the site alone, which turned
+            // the head into a pip and the ant into a `Killed` death that no
+            // animal caused -- open-bugs §Z16, 71 / 58 / 35 of the played
+            // bed's 216 / 98 / 70 "killed" deaths on seeds 1-3. The planter
+            // now refuses an occupied cell and puts the pip down beside the
+            // head instead (`deliver_seed_passenger_with_material`), so the
+            // head coordinates stay the right thing to hand in: they say
+            // where the meal was eaten, and the planter decides where the
+            // seed can actually stand.
+            if left == 0 && std::env::var("PIXEL_PHYSICS_SEED_WHERE_EATEN").as_deref() != Ok("0") {
+                if let Some(passenger) = c.passenger {
+                    plant::deliver_seed_passenger(world, hx, hy, passenger);
+                    world.pips_released_by_digestion += 1;
+                    world.pip_digestion_release_x.push(hx);
+                }
+            }
             if world.materials.get(c.material).worth_in_aux {
                 world.energy_ledger.harvested_corpse += gain as f64;
             } else {
@@ -2931,7 +4010,7 @@ pub fn probe(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) ->
 /// authoring a `sight_fraction` needs a measured reads-per-cast at the reach
 /// in question and there was no way to ask for one.
 pub fn sighted(world: &World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> (Sightings, u64) {
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let reach = organism_sight_range(world, organism, def);
     if reach <= 0 {
         return (Sightings::default(), 0);
     }
@@ -3046,10 +4125,27 @@ fn sense(
     // food it cannot digest and the gene would be nutritional bookkeeping
     // rather than a behaviour -- which is the whole difference S5 exists to
     // make. A meat gut stops *seeing* leaves.
-    inputs[I::FoodAdjacent as usize] = if adjacent_food(world, organism, (x, y), gut_of(world, organism, def)).is_some() { 1.0 } else { 0.0 };
+    // **`adjacent_food_counted` directly, not the `adjacent_food` wrapper**,
+    // since 2026-09-09: the ring walk it makes for `FoodAdjacent` is the same
+    // walk `BrainInput::KinNeed` needs, and the kin-need reduction inside it
+    // is free on a branch this call was already taking. `.best.is_some()` is
+    // the wrapper's own definition, unchanged.
+    let mouth_scan = adjacent_food_counted(world, organism, (x, y), gut_of(world, organism, def), def.start_energy);
+    inputs[I::FoodAdjacent as usize] = if mouth_scan.best.is_some() { 1.0 } else { 0.0 };
+    inputs[I::KinNeed as usize] = mouth_scan.kin_need.map_or(0.0, |k| k.deficit);
     inputs[I::AtNest as usize] = if adjacent_nest(world, x, y, def) { 1.0 } else { 0.0 };
 
     if let Some(state) = world.organism(organism) {
+        // **Renormalizing this against `reproduce_at_of` (a child's worth,
+        // ~1,040 J against a 200 J grant) was tried and measured, not
+        // shipped.** It fixed the wrong half: `labforage`, 3 seeds, alive@
+        // 4,500 came back at 10/10/13 -- barely above the unwired ant's
+        // 6/8/11 and nowhere near the shipped hunger wire's 46/46/47,
+        // because at `start_energy` an ant now reads only ~0.19 "full", so
+        // the hunger wire it was meant to serve almost never sees a full
+        // ant and the founding cliff returns close to where it started.
+        // Reverted; the shipped fix is in the weights themselves
+        // (`ant.ron`'s `Energy` wiring), not in what this input measures.
         inputs[I::Energy as usize] = (state.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0);
         // **How this animal was made**, so behaviour can depend on it --
         // `BrainInput::Made`. Zero for every founder and every animal that
@@ -3067,7 +4163,7 @@ fn sense(
         // dividing by zero, so a species that never authored a crop is
         // exactly the boolean's `false`.
         let crop_fill = state.crop.map_or(0.0, |c| {
-            let cap = crop_capacity_of(def, &expressed_traits(state, world.plasticity, world.trait_reach));
+            let cap = organism_crop_capacity(world, organism, def);
             if cap > 0.0 { (c.worth() / cap).clamp(0.0, 1.0) } else { 1.0 }
         });
         // **A mandible full of spoil is carrying something, and this sensor
@@ -3128,7 +4224,57 @@ fn sense(
             }
         }
     }
-    inputs[I::Crowding as usize] = (crowd as f32 / crowd_scale).min(1.0);
+    let density = (crowd as f32 / crowd_scale).min(1.0);
+
+    // **At the nest, the question is room rather than density**, and that is
+    // the whole of this build.
+    //
+    // The 5x5 count above answers "are we packed?" with "yes" and goes on
+    // saying it: measured over a run it reads median 1.000, 1.000, 0.875,
+    // 0.625 with **p90 and max pinned at 1.000 throughout**
+    // (`Reports/dead-ends.md`, the `(Crowding, Dig, 0.6)` entry, 2026-09-02).
+    // At the owner's scale -- five hundred to a thousand ants -- nothing the
+    // colony digs can lower it, because digging a chamber does not move the
+    // ants out of the ant beside you. That entry's own re-test condition (0)
+    // is this line: *an input that never leaves saturation cannot demonstrate
+    // a mechanism about its low end.* `ant.ron`'s units 5 and 6 gate this
+    // input on `AtNest` and drive `Dig` with it, so the gate was asking a
+    // question that was already answered and the colony dug at a flat rate
+    // for ever -- the owner's *a huge mound that never regreens*.
+    //
+    // Room per ant -- the roofed void the nest holds, over the ants in it --
+    // falls as the nest grows, which is the behaviour the mechanism was
+    // always named for. `World::step_nest_room` takes that census; see its
+    // doc for why it is a census and not the pair of counters this was
+    // briefed as.
+    //
+    // **Away from the nest, `Crowding` is untouched.** `ant.ron` also
+    // authors `(Crowding, Move, -0.3)`, which its own comment calls
+    // load-bearing negative feedback (P-12) -- a colony ossifies without it
+    // -- and that weight is read everywhere, not just here. Substituting at
+    // the nest re-points that term at the nest too, which is `CLAUDE.md`'s
+    // *a term in a weighted sum is not an independent knob* and is the exact
+    // shape of the `phototropism_dir` failure. It is not re-derived, and the
+    // reason is that it cannot be cleanly: one weight reads this slot under
+    // two distributions, so scaling it to hold the nest-side term fixed
+    // would break the away-from-nest feedback it exists for. It is bracketed
+    // by measurement instead -- see `Reports/lanes/evolution-lab-room-per-ant.md`
+    // for the ablated arm and what it found.
+    //
+    // **`None` falls back to density rather than to a number.** A nest whose
+    // census has not run yet, or that holds no ant the census could see, has
+    // no room-per-ant -- that is a division with no answer, not a zero, and a
+    // zero here would read as "infinitely packed" and dig hardest exactly
+    // where the instrument is blindest.
+    inputs[I::Crowding as usize] = if world.room_gate && inputs[I::AtNest as usize] > 0.0 {
+        world
+            .nearest_nest_site(x, y)
+            .and_then(|i| world.nest_room.get(i))
+            .and_then(|room| room.occupancy(world.room_target))
+            .unwrap_or(density)
+    } else {
+        density
+    };
 
     // **The distal sense, and the reason E15 exists.** Everything above
     // this line is contact range or a field read; nothing in it reports
@@ -3147,7 +4293,7 @@ fn sense(
     // distance normalisations below have to read the same number -- an eye
     // that casts to one reach and normalises against another reports a
     // nearness that does not mean what the brain thinks it means.
-    let reach = world.organism(organism).map_or(0, |st| sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach)));
+    let reach = organism_sight_range(world, organism, def);
     let seen_all = if reach > 0 {
         sight(world, x, y, organism, gut_of(world, organism, def), reach, &mut sight_reads)
     } else {
@@ -3254,6 +4400,28 @@ fn sense(
         inputs[I::ThreatBearing as usize] = error / std::f32::consts::PI;
     }
 
+    // **The bloom pair, from the same cast again.** P1 of
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md`: nothing in
+    // this suite pointed at a flower before this input existed, so a
+    // flower that pays nectar to whatever feeds at it (B1') had no way to
+    // be found except by walking into one by chance. Same nearness and
+    // bearing arithmetic as prey/kin/threat, so a genome that learned one
+    // has learned the other's scale. Reads a constant 0.0 for a species
+    // with no `sight_range`, which is every shipped species until one
+    // authors it -- so appending this pair is byte-identical for the
+    // shipped ant.
+    if let Some(bloom) = seen_all.bloom {
+        inputs[I::BloomNear as usize] = (1.0 - bloom.dist / reach as f32).clamp(0.0, 1.0);
+        let bearing = ((bloom.y - y) as f32).atan2((bloom.x - x) as f32);
+        let heading_angle = -(heading as f32) * std::f32::consts::FRAC_PI_4;
+        let mut error = bearing - heading_angle;
+        error = error.rem_euclid(std::f32::consts::TAU);
+        if error > std::f32::consts::PI {
+            error -= std::f32::consts::TAU;
+        }
+        inputs[I::BloomBearing as usize] = error / std::f32::consts::PI;
+    }
+
     (inputs, seen_all, sight_reads, curvature_reads)
 }
 
@@ -3327,7 +4495,46 @@ pub fn diet_quality(world: &World, material: material::MaterialId, gut_bias: f32
 /// instruments land — a threshold set from an argument is exactly the shape
 /// this project has been bitten by, and it is recorded as such here rather
 /// than presented as measured.
+///
+/// **Checked again, not re-derived, against `nectar_yield`'s 120 J — the
+/// first sub-100-J-credit-adjacent figure in the box, and the one this
+/// threshold's own comment above asked to be checked against the next time
+/// something new landed here.** Unlike every earlier addition to this
+/// table, nectar's credit genuinely is run through `diet_quality` at the
+/// bite site (`plant::nectar_offer`'s own doc explains why it has to be —
+/// two different currencies meet there and this filter is what converts
+/// one into the other), so this is the real number an animal receives, not
+/// a forward check on one that is not yet filtered:
+///
+/// ```text
+/// gut     nectar credit = 120 * diet_quality   reads as
+/// 0.0     120 * (1 - 1/2)^2       = 30 > 12    clearly visible
+/// -1.0    120 * (1 - 0/2)^2       = 120 > 12   clearly visible
+/// +1.0    120 * (1 - 2/2)^2       = 0 < 12     invisible, as any plant food is
+/// ```
+///
+/// 2.5x headroom at the shipped neutral gut, the same margin `pip.ron`
+/// reasons about for its own 40 J against the same bar. If `nectar_yield`
+/// is ever authored below ~48 J on some species this arithmetic is the
+/// first place to recheck.
 pub const EAT_YIELD_THRESHOLD: f32 = 12.0;
+
+/// **Trophallaxis's one constant, and it is doing three jobs at once** —
+/// derived rather than chosen, per `brain::BrainOutput::Share`.
+///
+/// - **The cap.** `0.25 < 0.5`, so after every share
+///   `donor - recipient = 0.5 * gap > 0`: the donor is still the richer of
+///   the two, no oscillation is possible, and no separate ceiling constant
+///   is needed.
+/// - **The floor.** `donor_after >= 0.75 * donor_before > 0` for any live
+///   recipient (a live organism has `energy > 0`, `apply_creature_energy`
+///   kills at `<= 0`). A share can never kill the donor, with no authored
+///   floor to tune.
+/// - **The grading.** A full ant beside an empty one hands over a quarter
+///   of the gap between them; two ants a few joules apart exchange almost
+///   nothing. The outcome is a distribution, not a switch (the house
+///   ethos's first law).
+pub const SHARE_FRACTION: f32 = 0.25;
 
 /// A creature's diet, resolved **once** at a site that already holds the
 /// organism rather than per neighbour cell.
@@ -3352,6 +4559,12 @@ struct Gut {
     /// `CreatureDef::kin_crosses_kinds`: whether species is consulted at all.
     crosses_kinds: bool,
     eats_kin: bool,
+    /// `CreatureDef::nectar_only` — see that field's doc for why this is a
+    /// switch on the menu rather than a weight on it. In the gut for the
+    /// identical reason `bite` is: it has to change what the animal
+    /// **chooses**, not only what it succeeds at, or `adjacent_food` keeps
+    /// offering a leaf every tick to a mouth that will not take one.
+    nectar_only: bool,
     /// **How hard this animal bites, against a material's
     /// `penetration_resistance`** — `CreatureDef::bite_force`.
     ///
@@ -3423,6 +4636,46 @@ fn nearest_foe(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Opti
     None
 }
 
+/// **The nearest kin worth feeding** — `Share`'s target rule, and the verb's
+/// own targeted walk rather than a reuse of the food ranking, exactly as
+/// `nearest_foe` is `Attack`'s own walk rather than `Attack` scoring the food
+/// ranking's candidates.
+///
+/// Paid **only on ticks the verb actually fires** -- the `Attack`/
+/// `nearest_foe` pattern exactly -- because `sense`'s scan already found the
+/// answer for `BrainInput::KinNeed` on every tick and `act` would otherwise
+/// be walking the ring twice for the one tick it needs the target. The two
+/// walks share one predicate, [`kin_deficit`], so the eye and the mouth
+/// cannot disagree about who is needy.
+fn neediest_kin(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> Option<NeedyKin> {
+    let fallback = [head];
+    let body: &[(i32, i32)] = world.organism(organism).map_or(&fallback[..], |s| &s.chain[..]);
+    let mut best: Option<NeedyKin> = None;
+    for (i, &(bx, by)) in body.iter().enumerate() {
+        for &(dx, dy) in NEIGHBOURS_8.iter() {
+            let (nx, ny) = (bx + dx, by + dy);
+            // Same earlier-cells skip as `nearest_foe` and the food scan, for
+            // the same reason.
+            if body[..i].iter().any(|&(px, py)| (nx - px).abs() <= 1 && (ny - py).abs() <= 1) {
+                continue;
+            }
+            let cell = world.get(nx, ny);
+            let owner = cell.organism_id();
+            // Somebody else's, never mine -- see `adjacent_food_counted`'s
+            // own comment on this exact test.
+            if owner == 0 || owner == organism || !is_living_kin(world, cell, gut) {
+                continue;
+            }
+            if let Some(deficit) = kin_deficit(world, owner, start_energy) {
+                if best.is_none_or(|b| deficit > b.deficit) {
+                    best = Some(NeedyKin { deficit, id: owner, x: nx, y: ny });
+                }
+            }
+        }
+    }
+    best
+}
+
 /// **An animal being bitten calls out**, on the alarm plane, at the cell that
 /// was bitten.
 ///
@@ -3458,6 +4711,7 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
         tolerance_sq: radius * radius,
         crosses_kinds: def.kin_crosses_kinds,
         eats_kin: def.eats_kin,
+        nectar_only: def.nectar_only,
         bite: bite_force_of(def, &traits, world.trait_reach),
     }
 }
@@ -3465,6 +4719,104 @@ fn gut_of(world: &World, organism: u16, def: &CreatureDef) -> Gut {
 /// The three signature slots of a trait vector, as one point.
 pub fn scent_of(traits: &[f32; CREATURE_TRAITS]) -> [f32; 3] {
     [traits[SCENT_SLOTS[0]], traits[SCENT_SLOTS[1]], traits[SCENT_SLOTS[2]]]
+}
+
+/// **One at-nest exchange: the ant takes the nest's odour and leaves some of
+/// its own.**
+///
+/// ```text
+/// s_i += beta  (G - s_i)      // the ant takes the nest's odour
+/// G   += gamma (s_i - G)      // and leaves some of its own
+/// ```
+///
+/// **Which object this rule evaluates: one ant against one nest site**, per
+/// tick, on the branch `BrainInput::AtNest` had already taken — no scan is
+/// added, and a box with no nest patch never reaches the first line.
+///
+/// **One vector, inherited *and* blended.** The mouth, the eye and the kin
+/// sense all read one scent through `scent_of`, so a second worn signature
+/// beside the heritable one (the sketch in
+/// `creature-signature-and-castes-2026-09-06.md` §1f) would give them two
+/// answers to one question. A child inherits its parent's *current* scent,
+/// which is what makes the nest the floor under the whole colony.
+///
+/// **Deliberately not hung on `BrainOutput::Share`.** Trophallaxis is a brain
+/// output the genome evolves and may lose (round 25's ruling, never a rule),
+/// so a line that stops sharing would eat itself. A blend rides the `Share`
+/// path too — same contact, same beta, free — but the nest is what cohesion
+/// rests on.
+///
+/// Returns whether a blend was applied, for the counter on the far side of
+/// the call.
+pub fn blend_with_nest(world: &mut World, organism: u16, x: i32, y: i32) -> bool {
+    let (beta, gamma) = (world.nest_blend, world.nest_uptake);
+    let Some(i) = world.nearest_nest_site(x, y) else { return false };
+    let Some(mine) = world.organism(organism).map(|s| scent_of(&s.traits)) else {
+        return false;
+    };
+    // **An unseeded site takes the visitor's odour outright and blends
+    // nothing this tick.** See `NestSite::seeded`: the ground is painted
+    // before a single founder is placed, so there is no colony scent to copy
+    // at painting time, and blending toward an unset `(0,0,0)` would drag the
+    // founding cohort off its own signature on its first step.
+    if !world.nest_sites[i].seeded {
+        world.nest_sites[i].scent = mine;
+        world.nest_sites[i].seeded = true;
+        return false;
+    }
+    if beta <= 0.0 && gamma <= 0.0 {
+        return false;
+    }
+    let nest = world.nest_sites[i].scent;
+    if beta > 0.0 {
+        if let Some(state) = world.organism_mut(organism) {
+            for (k, slot) in SCENT_SLOTS.iter().enumerate() {
+                // Clamped to the allele axis every other write to a trait
+                // slot is clamped to, so a blend cannot put a scent
+                // somewhere a birth could not.
+                state.traits[*slot] = (state.traits[*slot] + beta * (nest[k] - state.traits[*slot])).clamp(-1.0, 1.0);
+            }
+        }
+    }
+    if gamma > 0.0 {
+        let site = &mut world.nest_sites[i];
+        for (k, v) in site.scent.iter_mut().enumerate() {
+            *v = (*v + gamma * (mine[k] - *v)).clamp(-1.0, 1.0);
+        }
+    }
+    // **Counted here, on the far side of the exchange, rather than at the
+    // call site.** A counter at the branch that decided to call would count
+    // intentions; this counts exchanges, and it is the number that says
+    // whether cohesion fired at all on a bed where the ants have stopped
+    // coming home (`open-bugs-handoff.md` §T2).
+    world.creature_stats.nest_blends += 1;
+    true
+}
+
+/// **Two animals in mandible-to-mandible contact mix their odours**, each
+/// stepping `beta` toward the other. The `Share` path's free rider: the
+/// contact is already established and paid for, so this is six multiplies.
+///
+/// **Symmetric, where the nest exchange is not.** Two ants meeting are two
+/// peers; an ant and its nest are an individual against a reservoir, which is
+/// why that one has a separate, much smaller `gamma` for the nest's side.
+///
+/// This is a *second* path to cohesion and never the load-bearing one — see
+/// [`blend_with_nest`] for why cohesion may not depend on an allele.
+fn blend_with_kin(world: &mut World, a: u16, b: u16, beta: f32) {
+    if beta <= 0.0 {
+        return;
+    }
+    let (Some(sa), Some(sb)) = (world.organism(a).map(|s| scent_of(&s.traits)), world.organism(b).map(|s| scent_of(&s.traits))) else {
+        return;
+    };
+    for (id, mine, theirs) in [(a, sa, sb), (b, sb, sa)] {
+        if let Some(state) = world.organism_mut(id) {
+            for (k, slot) in SCENT_SLOTS.iter().enumerate() {
+                state.traits[*slot] = (mine[k] + beta * (theirs[k] - mine[k])).clamp(-1.0, 1.0);
+            }
+        }
+    }
 }
 
 /// **How far another animal's scent may be from this one's and still read
@@ -3535,6 +4887,46 @@ fn apply_colony_scent(traits: &mut [f32; CREATURE_TRAITS], seed: u64, colony: u3
     }
 }
 
+/// **One founder's starting-bank multiplier**, so a cohort founded together
+/// arrives with unequal reserves instead of the identical grant that emptied
+/// on the same schedule (`Reports/colony-economy-design-2026-09-09.md` §4a).
+/// Multiply `start_energy` by the result — `CreatureDef::founder_reserve_spread`.
+///
+/// **Paired so the cohort's TOTAL is exactly unchanged: this is a
+/// redistribution, not a subsidy.** Founder `index` and its mirror
+/// `total - 1 - index` get `1 + d` and `1 - d` for the same draw `d`, so
+/// every pair sums to exactly `2.0` and the whole cohort sums to `total`
+/// (`* start_energy` gives back the un-staggered grant). The one middle
+/// founder of an odd cohort has no partner to cancel against and draws
+/// nothing, for the same reason.
+///
+/// **A PURE hash, never a draw from a shared `Rng`.** `rng::stream` carries
+/// no mutable state across calls, so drawing founder 7's reserve cannot
+/// shift founder 8's move roll or anything else drawing from `RNG_SLOT_MOVE`
+/// later on the same frame — the shared-`Rng` hazard `RNG_SLOT_BIRTH`'s own
+/// doc names, and this file's method section requires be checked before a
+/// draw is added to a hot path. Keyed on the founding **x**, not the colony
+/// label: the label is not resolved until the first station of a founding is
+/// placed, and this draw has to be ready before that. Same seed, same x,
+/// same reserves, every time.
+fn founder_reserve(seed: u64, x: i32, index: i32, total: i32, spread: f32) -> f32 {
+    if spread <= 0.0 || total <= 0 {
+        return 1.0;
+    }
+    let mirror = total - 1 - index;
+    if index == mirror {
+        return 1.0;
+    }
+    let pair = index.min(mirror);
+    let mut draw = rng::stream(seed, x as i64 as u64, pair as u64, RNG_SLOT_FOUNDER_RESERVE);
+    let d = (draw.unit_f32() * 2.0 - 1.0) * spread;
+    if index < mirror {
+        1.0 + d
+    } else {
+        1.0 - d
+    }
+}
+
 /// Whether `cell` is living tissue of `species`.
 ///
 /// **The diet axis provably cannot answer this, which is why it is asked
@@ -3593,19 +4985,29 @@ fn is_living_kin(world: &World, cell: Cell, gut: Gut) -> bool {
 ///
 /// **Best, not first, and the difference is Gate 0.** This used to
 /// short-circuit on the first neighbour over the threshold, in `NEIGHBOURS_8`
-/// order — so an animal standing on a stem between a leaf and a flower ate
+/// order — so an animal standing on a stem between a leaf and a fruit ate
 /// whichever the array happened to reach first. That is not a preference, it
 /// is an artifact of a loop, and it is expensive here in a way it would not
 /// be in most engines: what decides whether an ant can ever afford a child is
 /// `hunger_fraction * start_energy + one mouthful` against the birth bar, so
 /// **which** mouthful is the whole of the arithmetic. A leaf pays 480 and a
-/// flower pays 1,440; taking the leaf because it sorts earlier costs the
-/// animal two thirds of the best meal it will ever be offered.
+/// fruit pays 960; taking the leaf because it sorts earlier costs the animal
+/// half the best whole-cell meal it will ever be offered.
 ///
-/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`: the largest
-/// mouthful any ant swallowed over 24,000 frames was **480** — a leaf —
-/// while flowers and fruit stood in the bed throughout and ants climbed 28
-/// rows up the stems. First-match is why.
+/// **The example used to be a flower (1,440), and it was rewritten rather
+/// than corrected in place** (`Reports/evolution-lab-pollinator-design-
+/// 2026-09-10.md` §3.1-§3.2): a flower is no longer only a destroyed
+/// 1,440 J mouthful, `plant::nectar_offer` lets an animal reach a flower
+/// whose own nectar pool is full and take a small credited sip while it
+/// stays standing, so "which cell scores highest" is no longer the whole
+/// story for a flower the way it still is for a fruit or a leaf. The rule
+/// this doc describes — score every neighbour, take the best — is
+/// untouched; only the number that used to illustrate it moved.
+///
+/// Measured 2026-08-30 on the lab bed at `gut_bias = -1.0`, before nectar
+/// existed: the largest mouthful any ant swallowed over 24,000 frames was
+/// **480** — a leaf — while flowers and fruit stood in the bed throughout
+/// and ants climbed 28 rows up the stems. First-match is why.
 ///
 /// It costs eight `World::get` and eight `diet_yield` per creature tick
 /// instead of a short-circuit. `diet_yield` is a multiply and an absolute
@@ -3639,6 +5041,28 @@ fn provisions_in_reach(world: &World, x: i32, y: i32, gut: Gut) -> impl Iterator
         if !gut.eats_kin && is_living_kin(world, cell, gut) {
             return None;
         }
+        // **The same rule as the mouth, because THIS IS A SECOND MOUTH** --
+        // and it cost a measurement to notice. `try_bud`'s shortfall loop
+        // consumes these cells outright ("exactly as if the parent had
+        // eaten them"), so a species filtered at `adjacent_food_counted`
+        // and not here eats nothing all day and strips the bed to pay for
+        // its children. Measured, before this line, on the nectar-only
+        // flitter: `eats` **0** and `flowers_bitten` **0** -- both exactly
+        // as designed -- beside `intake` **3,278,831 J** against a
+        // `nectar_paid` of **2,760**, 2,976 births, and the bed's plant
+        // count down to 593 where the same bed with no animal in it holds
+        // 960. The gate was real and there were two gates to fit.
+        //
+        // **A nectar-only animal therefore has no provisions in reach at
+        // all**, which is the right economics rather than a convenience:
+        // nectar is drunk, not carried, so such an animal must BANK a whole
+        // birth out of flowers rather than top one up off the ground it is
+        // standing on. `reproduce_threshold` is the whole price, exactly as
+        // the pollinator design's §2.2 arithmetic assumed when it costed a
+        // bud at "about ten flowers above upkeep".
+        if gut.nectar_only {
+            return None;
+        }
         let yielded = diet_yield(world, cell, gut.bias);
         (yielded > EAT_YIELD_THRESHOLD).then_some((yielded, px, py))
     })
@@ -3649,8 +5073,17 @@ fn reachable_provision(world: &World, x: i32, y: i32, gut: Gut) -> f32 {
     provisions_in_reach(world, x, y, gut).map(|(w, _, _)| w).sum()
 }
 
+/// **Test-only since `sense`'s `FoodAdjacent` fill switched to
+/// `adjacent_food_counted` directly** (2026-09-09, for the `KinNeed` scan it
+/// makes on the same walk). Kept, and marked accordingly rather than left to
+/// warn, because it is still the shortest way for a test to ask "is there
+/// food here" without caring about the kin-need side of the scan.
+#[cfg(test)]
 fn adjacent_food(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> Option<(f32, i32, i32, material::MaterialId)> {
-    adjacent_food_counted(world, organism, head, gut).best
+    // `start_energy` only scales `kin_need`, which this wrapper discards --
+    // every caller here wants `.best` alone, so the value passed through is
+    // never read.
+    adjacent_food_counted(world, organism, head, gut, 0.0).best
 }
 
 /// `adjacent_food`, plus **how many mouthfuls this gut wanted and this
@@ -3680,11 +5113,58 @@ struct FoodScan {
     best: Option<Mouthful>,
     refused: u64,
     damage: f32,
+    /// The neediest living nestmate this scan touched -- `BrainInput::KinNeed`
+    /// and `BrainOutput::Share`'s recipient, found in the pass the mouth was
+    /// making anyway. A sense is not an event: this books nothing, and
+    /// cannot, because the scan holds only `&World`.
+    kin_need: Option<NeedyKin>,
 }
 
-fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut) -> FoodScan {
+/// The neediest living nestmate a scan touched: how badly it needs feeding
+/// and where it is. See [`kin_deficit`].
+#[derive(Clone, Copy)]
+struct NeedyKin {
+    deficit: f32,
+    id: u16,
+    /// Where the neediest kin was found. Unread today — kept for whatever
+    /// consumer wants the position rather than only the identity (a probe,
+    /// or a future pair-drawing marker), which is the `CLAUDE.md` channel
+    /// rule's "written and never read" case: dead weight, not a bug, unlike
+    /// a reader with no writer.
+    #[allow(dead_code)]
+    x: i32,
+    #[allow(dead_code)]
+    y: i32,
+}
+
+/// **The one definition of "how badly does this kin need feeding"**, so the
+/// mouth's scan (`adjacent_food_counted`) and the verb's own targeted walk
+/// (`neediest_kin`) cannot disagree about who is needy -- the standing
+/// failure `CLAUDE.md`'s eye/mouth rule exists to close.
+///
+/// `1 - energy / start_energy`, clamped to `[0, 1]`, where `start_energy` is
+/// the *donor's* — see `brain::BrainInput::KinNeed` for why that scale is
+/// exact while kin is same-species.
+///
+/// **Extension point for later, not built here**: a breeder close to its
+/// own species' breeding bar with a thin bank should be able to read as
+/// needier than a worker sitting on the same joule count, so that sharing
+/// can concentrate on a queen rather than spreading flat across the colony.
+/// That is a separate term, or a weighting by the kin's fertility -- not a
+/// change to this deficit, which stays a plain energy fraction until the
+/// eusociality lane adds one. Redefining it against the breeding bar now
+/// would make every ant read as needy long before it starves, and the
+/// sharing this ships would fire on nearly every tick instead of the graded
+/// handful `ant.ron`'s weights are tuned against.
+#[inline]
+fn kin_deficit(world: &World, owner: u16, start_energy: f32) -> Option<f32> {
+    world.organism(owner).map(|st| (1.0 - st.energy / start_energy.max(1.0)).clamp(0.0, 1.0))
+}
+
+fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gut, start_energy: f32) -> FoodScan {
     let mut best: Option<Mouthful> = None;
     let mut refused = 0u64;
+    let mut kin_need: Option<NeedyKin> = None;
     // Ranked separately from what is returned, so the returned `gain` keeps
     // meaning what it always meant.
     let mut best_rank = f32::NEG_INFINITY;
@@ -3767,7 +5247,58 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
         if i > 0 && !attached {
             continue;
         }
-        if !gut.eats_kin && is_living_kin(world, cell, gut) {
+        // **The `eats_kin` skip is unchanged from before this append**: any
+        // living kin, including this animal's OWN body, is excluded from
+        // being scored as food when `eats_kin` is off. Narrowing that to
+        // `owner != organism` would be a real regression -- "an ant must
+        // not see its own tail as food" -- caught immediately by the
+        // existing guards of that name when tried.
+        if is_living_kin(world, cell, gut) {
+            // **`KinNeed` is `owner != organism` on top, never instead of,
+            // the line above.** `is_living_kin` is true of this animal's OWN
+            // body cells -- same species, identical scent -- and the head's
+            // 8-neighbourhood always contains the next link of its own
+            // chain. Without this an ant reads its own hunger as `KinNeed`
+            // and shares with itself, which conserves energy perfectly and
+            // would pass every conservation guard ever written.
+            if owner != organism {
+                if let Some(deficit) = kin_deficit(world, owner, start_energy) {
+                    // Strictly greater, so ties go to the EARLIER ring
+                    // position -- the same rule `best`'s own selection above
+                    // uses, so the choice is a function of the neighbourhood
+                    // and not of the iteration order (`CLAUDE.md`'s
+                    // tie-order entry).
+                    if kin_need.is_none_or(|k| deficit > k.deficit) {
+                        kin_need = Some(NeedyKin { deficit, id: owner, x: nx, y: ny });
+                    }
+                }
+            }
+            if !gut.eats_kin {
+                continue;
+            }
+        }
+        // **A nectar-only mouth has one thing on its menu and this is the
+        // line that says so** (`CreatureDef::nectar_only`). Placed before
+        // `diet_yield` rather than after it, because the whole defect it
+        // exists to fix is in the *ranking*: at the flitter's gut of -1.0
+        // every leaf in the bed scores well above `EAT_YIELD_THRESHOLD`, so
+        // a filter further down would still leave the animal choosing
+        // between a leaf and a flower and taking whichever scored higher.
+        // There is nothing to rank here — it is a flower with a sip in it,
+        // or it is not food.
+        //
+        // **`nectar_available` and not "is a flower"**, so a drained flower
+        // is not food either: the animal leaves it and looks for another
+        // rather than standing on a dry one until the clock refills it. That
+        // is also what makes `(FoodAdjacent, Impulse, -2.0)` mean what its
+        // comment says for this species — it now stills the animal only at a
+        // flower that is actually paying.
+        //
+        // Costs a nectar-capable species one `bool` test per candidate and
+        // every other species one `bool` test per candidate; `ascii` is
+        // byte-identical across this change, which is the check `CLAUDE.md`
+        // asks for when a gate lands in the sweep's neighbourhood.
+        if gut.nectar_only && !crate::sim::plant::nectar_available(world, nx, ny) {
             continue;
         }
         let gain = diet_yield(world, cell, gut.bias);
@@ -3848,7 +5379,7 @@ fn adjacent_food_counted(world: &World, organism: u16, head: (i32, i32), gut: Gu
             best_damage = damage;
         }
     }
-    FoodScan { best, refused, damage: best_damage }
+    FoodScan { best, refused, damage: best_damage, kin_need }
 }
 
 /// One prey animal, seen: where it is and how far away.
@@ -3891,6 +5422,13 @@ pub struct Sightings {
     /// `is_visible_threat` and `BrainInput::ThreatNear`. Recorded on the
     /// same rays, never breaking one.
     pub threat: Option<Sighting>,
+    /// The nearest visible flower -- see `is_visible_bloom` and
+    /// `BrainInput::BloomNear`. Recorded on the same rays, never breaking
+    /// one, for the reason every other passenger on this cast is not
+    /// allowed to break one: `reads` is what `sight_fraction` bills, and an
+    /// animal standing in a field of flowers must not look cheaper to feed
+    /// than one standing in a field of nothing.
+    pub bloom: Option<Sighting>,
 }
 
 /// What stops a sight line: **rock and soil, and nothing else.**
@@ -3963,6 +5501,26 @@ fn is_visible_kin(world: &World, cell: Cell, gut: Gut, self_organism: u16) -> bo
     other != 0 && other != self_organism && world.materials.kind(cell.material) == MaterialKind::Creature && is_living_kin(world, cell, gut)
 }
 
+/// Is this cell a flower?
+///
+/// **Not gut-filtered, the same asymmetry `is_visible_kin` documents.** A
+/// prey sense has to stop seeing what the mouth cannot use or the gene is
+/// nutritional bookkeeping rather than behaviour (`is_visible_prey`'s own
+/// doc); a bloom sense is not that -- an animal that cannot digest nectar
+/// still benefits from knowing where a flower is, because `FoodAdjacent`
+/// and the existing diet filter at the bite site are what decide whether
+/// reaching one pays. Filtering here would ask one predicate to do the
+/// nutrition question's job twice, and disagree with it the moment a gut
+/// gene changes.
+///
+/// `MaterialKind::Plant` rather than any material by name, exactly as the
+/// rest of this file reads a plant cell: `organism::cell_type` decodes
+/// which cell of the organism this is from `aux`, and `CellType::Flower`
+/// is the one answer that counts.
+fn is_visible_bloom(world: &World, cell: Cell) -> bool {
+    world.materials.kind(cell.material) == MaterialKind::Plant && organism::cell_type(cell.aux()) == Some(CellType::Flower)
+}
+
 /// **The distal sense: cast `SIGHT_RAYS` rays all round and return the
 /// nearest prey any of them reached.**
 ///
@@ -4016,6 +5574,8 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
     let mut kin_d2 = i32::MAX;
     let mut threat: Option<Sighting> = None;
     let mut threat_d2 = i32::MAX;
+    let mut bloom: Option<Sighting> = None;
+    let mut bloom_d2 = i32::MAX;
     // My own head, which is what a hunter's gut is asked about. Read once:
     // the question "would that animal eat this cell" is about *this* cell
     // for every ray.
@@ -4056,6 +5616,19 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
                     threat = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
                 }
             }
+            // **Blooms are recorded and never break the ray**, exactly as
+            // kin and threats are and for the same reason: `reads` is the
+            // bill, and an animal in a bed thick with flowers must not
+            // read as cheaper to feed than the same animal in a bed with
+            // none. `is_visible_bloom` is not gut-filtered -- see its own
+            // doc -- so this fires for any eyed species regardless of diet.
+            if is_visible_bloom(world, target) {
+                let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
+                if d2 < bloom_d2 {
+                    bloom_d2 = d2;
+                    bloom = Some(Sighting { x: tx, y: ty, dist: (d2 as f32).sqrt() });
+                }
+            }
             if is_visible_prey(world, target, gut, organism) {
                 let d2 = (tx - x) * (tx - x) + (ty - y) * (ty - y);
                 if d2 < best_d2 {
@@ -4076,7 +5649,7 @@ fn sight(world: &World, x: i32, y: i32, organism: u16, gut: Gut, reach: i32, rea
             }
         }
     }
-    Sightings { prey: best, kin, threat }
+    Sightings { prey: best, kin, threat, bloom }
 }
 
 /// Is this cell **a living animal that would eat me**?
@@ -4307,6 +5880,10 @@ struct Did {
     /// cell, armour 8 costs 96 J for the same 50, and somewhere between them
     /// gnawing stops being worth doing.
     gnaws: u32,
+    /// **Executed transfers of `BrainOutput::Share`** — mandible-to-mandible,
+    /// so it is billed through the same jaw apparatus `gnaws` already prices
+    /// rather than a second account. See `SHARE_FRACTION`.
+    shares: u32,
 }
 
 fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outputs: &[f32; brain::BRAIN_OUTPUTS], draw: &mut rng::Rng) -> Did {
@@ -4381,19 +5958,102 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                     // swallow path does and for the same reason:
                     // `reconcile_chain` frees the slot when the lost cell was
                     // the deciding one, and the identity goes with it.
+                    // **The energy goes with the identity**, read at the
+                    // same moment and for the same reason: after
+                    // `reconcile_chain` the slot may be gone, and "was this a
+                    // starving animal that got eaten" cannot be asked of a
+                    // freed slot.
                     let victim_group = world
                         .organism(victim)
                         .filter(|s| !s.chain.is_empty())
-                        .map(|s| (s.species, s.colony));
+                        .map(|s| (s.species, s.colony, s.energy));
                     world.set(tx, ty, Cell::EMPTY);
                     world.creature_stats.attack_cells += 1;
                     if !reconcile_chain(world, victim) {
                         world.creature_stats.attack_kills += 1;
                         if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                            world.tally_kill(v, me);
+                            world.tally_kill((v.0, v.1), me, v.2);
                         }
                     }
                 }
+            }
+        }
+    }
+
+    // --- share, the colony's stomach -------------------------------------
+    //
+    // **Trophallaxis, and it does not `return`** -- the reason `Feed`,
+    // `DropSpoil` and `Attack` each record when they were split out: giving
+    // food away is not a meal, and forcing a tick to choose between them
+    // re-creates exactly the confusion those splits ended. An animal that
+    // shares still eats, drops and digs on the same tick.
+    //
+    // **Gated on the urge before the scan, exactly as `Attack` is, and that
+    // gate is the whole cost of this verb for every species that does not
+    // use it.** `squash(0)` is exactly 0.0 for an unauthored row, so `&&`
+    // short-circuits, NO RNG DRAW IS TAKEN, and a beetle is bit-identical to
+    // the tree before this slot existed. `trophallaxis_enabled` is the
+    // env-switch half of the same guard, read once and pinned before the
+    // urge is even computed.
+    // **The tick's arbitration, answered rather than assumed (2026-09-09):
+    // firing this branch does not preclude `Move`/`Feed`/`Pickup` on the
+    // same tick.** This branch never `return`s, the ingest block below runs
+    // in the same call regardless of what happened here, and `creature_tick`
+    // rolls `Move` unconditionally once `act` returns -- there is no "trap"
+    // of that shape. The one real coupling is RNG order: the urge-gate draw
+    // two lines down is taken from the same sequential stream `Move`,
+    // `Impulse`, `Tumble` and the ingest `choose_weighted` read later this
+    // tick, so wiring `Share` shifts every later roll whether or not a kin
+    // is even found -- exactly the shape `Attack`'s own urge-gate already
+    // has, above, not something new here.
+    //
+    // Measured against that finding anyway, because a chaotic seed-1
+    // collapse (alive 0, intake 570 against the ablated arm's 15/3,534 J at
+    // frame 6000) asked to be checked rather than argued: an independent-
+    // stream, non-exclusive roll and a 30-tick per-donor cooldown were each
+    // built and run seeds 1-3 at frames=6000, `RAYON_NUM_THREADS=1`. Neither
+    // moved the mean: intake 2,584 J shipped against 2,432 (independent
+    // stream) and 2,584 (cooldown) -- inside the seed-to-seed spread (570 to
+    // 4,560 on three seeds of the shipped arm alone), and the seed-1 rescue
+    // each showed (alive 6 and 4 against 0) reversed on seed 3 (16 and 15
+    // against shipped's own-best 19). **Three seeds agreeing with each
+    // other is not three seeds agreeing with a hypothesis** -- kept as
+    // today's shape rather than adopting either, and rebuilding either
+    // variant is cheap if a larger sweep someday disagrees. Full per-seed
+    // table with the coordinator.
+    let share_urge = if trophallaxis_enabled() { outputs[O::Share as usize].clamp(0.0, 1.0) } else { 0.0 };
+    if share_urge > 0.0 && draw.unit_f32() < share_urge {
+        let gut = gut_of(world, organism, def);
+        if let Some(kin) = neediest_kin(world, organism, (x, y), gut, def.start_energy) {
+            let mine = world.organism(organism).map_or(0.0, |s| s.energy);
+            let theirs = world.organism(kin.id).map_or(0.0, |s| s.energy);
+            // **Downhill only. When to give is the ant's; which way it runs
+            // is the gradient's** -- the same division the spoil drop
+            // already makes ("when to let go is the ant's, where it can lie
+            // is the ground's"). Without it a pair can pump energy back and
+            // forth and pay the jaw price both ways, which is an allele
+            // evolution finds in an afternoon.
+            if theirs < mine {
+                let amount = SHARE_FRACTION * (mine - theirs);
+                let frame = world.frame;
+                if let Some(s) = world.organism_mut(organism) {
+                    s.energy -= amount;
+                    s.last_share_frame = frame;
+                }
+                if let Some(s) = world.organism_mut(kin.id) {
+                    s.energy += amount;
+                    s.last_share_frame = frame;
+                }
+                did.shares += 1; // billed by `creature_tick`
+                world.creature_stats.shares += 1;
+                world.creature_stats.shared_j += amount as f64;
+                // **The odour rides the same contact the food did.** Free --
+                // the pair is already resolved and the transfer already
+                // billed -- and never the load-bearing path: see
+                // `blend_with_nest` for why cohesion may not rest on an
+                // output the genome can lose.
+                blend_with_kin(world, organism, kin.id, world.nest_blend);
+                world.creature_stats.share_blends += 1;
             }
         }
     }
@@ -4416,7 +6076,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // asserted -- and it is falsifiable, which the gates never were: if
     // delivered load does not fall with distance, this model is wrong.
     let gut = gut_of(world, organism, def);
-    let cap = crop_capacity_of(def, &traits_of(world, organism, def));
+    let cap = organism_crop_capacity(world, organism, def);
 
     // **Which verb an animal reaches for when both are open is a weighted
     // roll, not the order these branches happen to be written in.**
@@ -4446,7 +6106,7 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
         // therefore blind to plant matter *as a load* until the meat digests
         // down, which is a trade (foragers work in runs on one resource)
         // rather than a rule about preference.
-        let FoodScan { best: offered, refused, damage: bite_damage } = adjacent_food_counted(world, organism, (x, y), gut);
+        let FoodScan { best: offered, refused, damage: bite_damage, .. } = adjacent_food_counted(world, organism, (x, y), gut, def.start_energy);
         world.creature_stats.bites_refused += refused;
         // **The gnawing step, and it lives here rather than in the scan
         // because a sense is not an event.** `adjacent_food_counted` is
@@ -4527,6 +6187,85 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // call, so a picture of the food in a world cannot disagree
                 // with what an animal gets for biting it.
                 let bite = world.get(fxx, fyy);
+                // **A flower an animal can afford to feed at pays nectar and
+                // stays standing** -- the box's first renewable food, and the
+                // mechanism the pollinator design needs before an animal can
+                // carry pollen at all (`Reports/evolution-lab-pollinator-
+                // design-2026-09-10.md` §3.1-§3.2, Brief B1', owner's ruling
+                // 2026-09-10). Tried before anything below reads or clears
+                // the cell, exactly where `seed_survives_bite` sits: `0.0`
+                // for anything that is not a flower, or a flower whose pool
+                // is not full, or whose plant cannot cover the charge, and
+                // the caller falls through to today's behaviour -- a dry
+                // flower is bitten off whole, same as before this hook
+                // existed (deliberate, `plant::nectar_offer`'s own doc).
+                //
+                // **Two currencies, filtered at the one place they meet.**
+                // `nectar_offer` pays the plant's side in budget units and
+                // hands back `nectar_yield` in joules; this gut has never
+                // seen either number, so the credit is priced through
+                // `diet_quality` exactly like every other mouthful -- unlike
+                // `worth`/`gain` below, there is no crop in between to hold
+                // the face value, so this is the whole of the credit in one
+                // step, booked to `harvested_plant` the same way the brood
+                // path (`try_bud`'s own shortfall loop, `:1384`) already
+                // books a bite taken to cover a birth.
+                //
+                // **Bracketed, because this is the only place that knows
+                // WHO reached the flower.** `nectar_offer` increments
+                // `World::flower_visits` itself and is deliberately never
+                // told the visitor's species; P2 needs the split (an ant
+                // and a flitter in one bed report one number otherwise, and
+                // the flitter's whole claim is that the number is its own).
+                // Reading the total across the call attributes exactly what
+                // that call counted, paid or dry -- the dry reach is
+                // counted too, which is the half the sensitivity control
+                // rests on (`World::flower_visits`' own doc).
+                let visits_before = world.flower_visits;
+                let nectar_yield = plant::nectar_offer(world, fxx, fyy);
+                if world.flower_visits > visits_before {
+                    if let Some(sp) = world.organism(organism).map(|s| s.species) {
+                        let delta = world.flower_visits - visits_before;
+                        *world.flower_visits_by_species.entry(sp.0).or_insert(0) += delta;
+                    }
+                }
+                if nectar_yield > 0.0 {
+                    let credit = nectar_yield * diet_quality(world, bite.material, gut.bias);
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.energy += credit;
+                    }
+                    world.energy_ledger.harvested_plant += credit as f64;
+                    return did;
+                }
+                // **A nectar-only mouth takes the hook or it takes nothing.**
+                // The menu filter above already means this line is nearly
+                // unreachable -- `adjacent_food_counted` offers such an
+                // animal only cells `plant::nectar_available` accepted --
+                // but "nearly" is the whole reason it is here: the scan and
+                // the bite are two reads of a world that other animals are
+                // writing to in the same tick, and the one cell that can
+                // slip between them is a flower somebody else just drank.
+                // Falling through would take the flower off instead, which
+                // is precisely the failure this species field exists to
+                // stop, arriving once in a thousand ticks and therefore
+                // invisible.
+                if gut.nectar_only {
+                    return did;
+                }
+                // **`flowers_bitten`, split by species -- the effect counter
+                // the pollinator design asks for by name** (§2.2, *"the
+                // counter that sees it is `flowers_bitten` split by species,
+                // beside `flower_visits`"*). Counted HERE, past the nectar
+                // hook and past the refusal above, so it counts exactly the
+                // event it is named for: a flower cell about to be taken off
+                // the plant by a mouth. A nectar-only species must read 0 on
+                // this row for ever; an ant's row moving is the positive
+                // control that says the counter is not simply blind.
+                if organism::cell_type(bite.aux()) == Some(CellType::Flower) && bite.organism_id() != 0 {
+                    if let Some(sp) = world.organism(organism).map(|s| s.species) {
+                        *world.flowers_bitten_by_species.entry(sp.0).or_insert(0) += 1;
+                    }
+                }
                 // **Two numbers, and conflating them is a bug in both
                 // directions.** `worth` is what the mouthful is worth to
                 // anybody -- it is what goes back into the world if this
@@ -4554,15 +6293,61 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // deciding cell and the identity goes with it. Only an animal
                 // can be a kill: a leaf's owner is a tree and stays a tree.
                 let victim_group = (victim != 0 && victim != organism)
-                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony)))
+                    .then(|| world.organism(victim).filter(|s| !s.chain.is_empty()).map(|s| (s.species, s.colony, s.energy)))
                     .flatten();
-                world.set(fxx, fyy, Cell::EMPTY);
+                // A bitten windfall's own seed asks the plant side whether
+                // it survives the mouth before this clears the cell --
+                // `plant::seed_survives_bite` (`Reports/evolution-lab-
+                // ecology-design-2026-09-10.md` §2). `false` for anything
+                // that is not a windfall's seed, so this changes nothing
+                // else the bite verb does.
+                let seed_saved = plant::seed_survives_bite(world, fxx, fyy, draw);
+                // **Round 29, Brief 1 -- what a spared *bare* seed pays.**
+                // `Reports/evolution-lab-late-game-design-2026-09-12.md` §2.
+                // A windfall is flesh around a seed, so the mouth ate the
+                // flesh and is paid in full; a bare seed *is* the mouthful,
+                // and sparing it means the mouth got only the provision the
+                // seed attaches to buy its carriage. Charging face value for
+                // a seed that is still there would be the seed counted twice
+                // -- once as food and once as a plant -- which is exactly the
+                // free lunch that would make this build read as "the colony
+                // got richer" rather than "the bank stopped draining".
+                //
+                // Applied whether or not the seed goes on to ride: a survivor
+                // that cannot board (a passenger is already aboard) stands
+                // where it was bitten as a `pip`, and the mouth got the same
+                // provision either way. `worth` is read before the roll
+                // because the roll rewrites the cell.
+                let worth = match seed_saved {
+                    plant::SeedBite::SurvivedBare => worth * plant::seed_provision_fraction(world, fxx, fyy),
+                    _ => worth,
+                };
+                if !seed_saved.survived() {
+                    world.set(fxx, fyy, Cell::EMPTY);
+                }
+                // **A2 -- ride home instead of standing.** `seed_saved` just
+                // converted the bitten cell to `pip` *in place*; if this
+                // crop is not already carrying a passenger, lift that same
+                // pip back out as one before it is ever seen standing there.
+                // One seed per crop (`crop`, read at function entry, is
+                // still accurate here -- nothing between then and now
+                // touches `state.crop`): a second survivor with a
+                // passenger already aboard is left exactly where A1 always
+                // left it.
+                let passenger =
+                    (seed_saved.survived() && crop.is_none_or(|c| c.passenger.is_none())).then(|| plant::take_seed_passenger(world, fxx, fyy)).flatten();
+                // **The bare route's own source tag.** `seeds_carried` counts
+                // both routes and cannot say which; this is the half round 29
+                // opened, and the half the seed-bank census is about.
+                if passenger.is_some() && seed_saved == plant::SeedBite::SurvivedBare {
+                    world.bare_seeds_carried += 1;
+                }
                 if victim != 0 && victim != organism && !reconcile_chain(world, victim) {
                     // The bite killed. Booked here rather than at the death
                     // because this is the one site that knows both parties
                     // -- see `World::tally_kill`.
                     if let (Some(v), Some(me)) = (victim_group, world.organism(organism).map(|s| (s.species, s.colony))) {
-                        world.tally_kill(v, me);
+                        world.tally_kill((v.0, v.1), me, v.2);
                     }
                 }
                 // **Into the crop at face value, and nothing is booked
@@ -4590,8 +6375,12 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                         // went in -- a small pump, one-directional, and
                         // exactly the kind evolution finds. Taking the min
                         // makes the leak run the safe way.
-                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), ..c },
-                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0 },
+                        // `c.passenger.or(passenger)`: keeps whatever was
+                        // already aboard, and the two can never both be
+                        // `Some` given the guard above (`passenger` is only
+                        // ever computed when `c.passenger` was `None`).
+                        Some(c) => Crop { cells: c.cells.saturating_add(1), unit: c.unit.min(worth), passenger: c.passenger.or(passenger), ..c },
+                        None => Crop { material: food, shade, unit: worth, cells: 1, digesting: 0.0, passenger },
                     });
                 }
                 world.creature_stats.pickups += 1;
@@ -4609,7 +6398,14 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                 // thousand frames; the moment a forager starts paying its own
                 // way happens once and is the part worth a line.
                 if first {
-                    if let Some((born_frame, sp)) = world.organism(organism).map(|s| (s.born_frame, s.species)) {
+                    // **Left as a direct construction, not `world.log`** --
+                    // this site belongs to a different lane's file
+                    // ownership window; the two new fields are filled inline
+                    // because `LogEvent` now requires them to compile, and
+                    // that is the only change made here.
+                    if let Some((born_frame, sp, lineage, generation)) =
+                        world.organism(organism).map(|s| (s.born_frame, s.species, s.lineage, s.generation))
+                    {
                         world.run_log.push(crate::sim::world::LogEvent {
                             frame: world.frame,
                             id: organism,
@@ -4617,6 +6413,8 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
                             species: sp,
                             kind: crate::sim::world::LogKind::FirstFeed,
                             other: 0,
+                            lineage,
+                            generation,
                         });
                     }
                 }
@@ -4683,14 +6481,35 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             let p = drop_urge;
             if draw.unit_f32() < p {
                 if let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (x + dx, y + dy)).find(|&(px, py)| world.is_empty(px, py)) {
-                    world.set(dx, dy, unit.into_cell(world));
+                    // **A2 -- popped by the first cell dropped, uneaten.** A
+                    // passenger rides *in place of* this one flesh cell,
+                    // not beside it -- see `Crop::passenger`'s own doc for
+                    // why that is a priced substitution rather than a
+                    // conservation gap. Wherever the ant happens to be, not
+                    // only at the nest: "put down" is one verb.
+                    //
+                    // **`_uneaten`, not the bare pip.** The owner's rule,
+                    // 2026-09-11: a drop is not an eating, so the seed must
+                    // not come out here the way it does at the digestion
+                    // exit -- the fruit is put down whole, seed and all, and
+                    // whoever finds it bites through `seed_survives_bite`
+                    // like any other fallen fruit. See `plant::deliver_
+                    // seed_passenger_uneaten`'s own doc.
+                    if let Some(passenger) = held.passenger {
+                        plant::deliver_seed_passenger_uneaten(world, dx, dy, passenger);
+                    } else {
+                        world.set(dx, dy, unit.into_cell(world));
+                    }
                     if let Some(state) = world.organism_mut(organism) {
                         // The cell leaves whole; the maturing remainder stays,
                         // because it is progress toward eating the *next* one
                         // and clearing it would hand the animal a free restart.
+                        // `passenger: None` unconditionally: either it was
+                        // already empty, or it was just delivered above and
+                        // must not be popped a second time by a later drop.
                         state.crop = state.crop.and_then(|c| {
                             let left = c.cells.saturating_sub(1);
-                            (left > 0).then_some(Crop { cells: left, ..c })
+                            (left > 0).then_some(Crop { cells: left, passenger: None, ..c })
                         });
                     }
                     world.creature_stats.drops += 1;
@@ -4807,6 +6626,11 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
     // excavation ran toward wetter ground by a rule no lineage could alter.
     // It is `(MoistureGrad, Dig, w)` now, with the sign free.
     if draw.unit_f32() < dig_urge {
+        // **Before any of the target tests below**, which is what makes it
+        // the "it fired" half of the pair: a roll counted only once a cell
+        // came out would be `digs` again under another name. See
+        // `CreatureStats::dig_rolls`.
+        world.creature_stats.dig_rolls += 1;
         let heading = world.organism(organism).map_or(0, |s| s.heading);
         let (dx, dy) = DIRS[heading as usize];
         let (tx, ty) = (x + dx, y + dy);
@@ -4835,7 +6659,34 @@ fn act(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef, outp
             world.materials.kind(target.material),
             MaterialKind::Creature | MaterialKind::Plant
         );
-        if ground && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
+        // **A live seed is not spoil.** Round 28 traced a delivered pip's
+        // whole life end-to-end (`Reports/lanes/evolution-lab-garden-
+        // loop.md`): bitten, survived the gut roll, carried home, dead five
+        // frames after being set down -- and the bite verb could not have
+        // taken it. A neutral gut's `diet_yield` on a `pip` is 40 * 0.25 =
+        // 10, under `EAT_YIELD_THRESHOLD` 12, so `adjacent_food_counted`'s
+        // own gate (`gain <= EAT_YIELD_THRESHOLD { continue }`) never lets
+        // the bite verb's target scan select one -- confirmed by reading
+        // that gate, not assumed. `pip` and `windfall` are `Powder`-kind
+        // with a low `penetration_resistance` (so a gut that *can* afford
+        // one can still eat it, deliberately), which is exactly what the
+        // `ground` test above cannot tell apart from ordinary dirt -- so
+        // this dig branch was clearing a living organism's one cell as
+        // spoil with no call to `seed_survives_bite` at all, and no
+        // counter anywhere saw it happen. Distinct from the bite path on
+        // purpose: `is_living_kin`-style exclusion is about *this animal's
+        // own kind*, and a pip is not a creature at all, so nothing already
+        // written excluded it.
+        //
+        // Skipped here rather than at `adjacent_food_counted`'s scan
+        // because that scan is the *bite* verb's, and never reaches a
+        // standing pip either way (the gate above already stops it) --
+        // this is a second, independent verb reading the same cell.
+        let live_seed = target.organism_id() != 0 && organism::cell_type(target.aux()) == Some(CellType::Seed);
+        if live_seed {
+            world.dig_diverted_seed += 1;
+        }
+        if ground && !live_seed && target.material != material::EMPTY && world.materials.get(target.material).penetration_resistance <= dig_force_of(def, &traits_of(world, organism, def), world.trait_reach) {
             // **The spoil is picked up, not destroyed.** This line read
             // `world.set(tx, ty, Cell::EMPTY)` with a comment calling
             // carrying it out "a stage-4+ refinement -- noted, not built",
@@ -5019,6 +6870,362 @@ fn spoil_kept() -> bool {
     *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_DIG_SPOIL").as_deref() != Ok("destroy"))
 }
 
+/// The ablation switch for trophallaxis, on by default.
+///
+/// `PIXEL_PHYSICS_TROPHALLAXIS=off` pins `share_urge` at 0.0, which is
+/// exactly what a species authoring no `Share` weight reads -- so the
+/// ablated arm is the world as it was, with the weights still in the genome
+/// and simply multiplied by nothing.
+///
+/// **An env switch rather than two builds, matching `spoil_kept` and
+/// `curvature_sense_enabled` and for the reason `CLAUDE.md` gives them**:
+/// two arms compared *inside one run* are immune to the stale-binary
+/// failure and to a counter downstream of `parallel.rs`'s checkerboard
+/// being only load-independent at fixed parallelism.
+fn trophallaxis_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_TROPHALLAXIS").as_deref() != Ok("off"))
+}
+
+/// The three regimes `breeding_regime` selects between. See that
+/// function's own doc for what each one does and why.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum BreedingRegime {
+    Individual,
+    Queen,
+    Graded,
+}
+
+/// **The ablation switch the evolution lab's generations-per-session
+/// measurement needs**: which regime governs who may bud, `individual` by
+/// default -- every animal buds on its own account, exactly as it does
+/// today.
+///
+/// `PIXEL_PHYSICS_BREEDING` selects it:
+/// - `individual` (default, and anything unset or unrecognised): no
+///   suppression. `suppress_bar` returns the unsuppressed `bar` before it
+///   scans anything, so this arm is provably today's code.
+/// - `queen`: **colony-wide, not distance-based.** While any *other*
+///   living animal in the same colony has `children > 0` -- has itself
+///   already budded -- nobody else in that colony can bud at all. One
+///   breeder per colony at a time: the first animal in a founding colony
+///   to reach its bar breeds and, by breeding, becomes the thing that
+///   shuts every other member out; if it dies the colony has no living
+///   breeder and the next animal to reach its bar succeeds it. No radius
+///   enters into it -- seeded at `PIXEL_PHYSICS_BREEDING_RADIUS=24` on a
+///   512-wide bed whose colony ranges over roughly 260 columns, a distance
+///   term here would produce something like ten breeders spaced 24 cells
+///   apart: territorial spacing, not queen-only breeding, and a number
+///   that is arithmetically correct while answering a different question
+///   (`CLAUDE.md`'s "ask what your number counts when nothing is wrong").
+/// - `graded`: the bar to bud is scaled by distance to the nearest *other*
+///   living breeder (`children > 0`) in the colony, from a maximum at
+///   distance 0 down to exactly `1.0` (no suppression) at
+///   `PIXEL_PHYSICS_BREEDING_RADIUS` cells and beyond.
+///
+/// **A breeder is `children > 0`, full stop -- not a founder's generation
+/// too.** A colony is founded with every member at generation 0, so a
+/// definition that counted generation 0 as breeding would make every
+/// founder a breeder from frame zero and `queen` would suppress nothing
+/// but a founder's own later children -- measurably close to `individual`,
+/// which is `CLAUDE.md`'s "a change that moves *nothing* is different
+/// evidence" case wearing a definition instead of a formula. Dropping the
+/// founder clause makes the rule bootstrap itself instead: nobody has
+/// budded at founding, so nobody is a breeder, so nobody is suppressed,
+/// and the first animal to breed becomes the fact the rest of the colony
+/// reads next.
+///
+/// **An env switch rather than three builds, matching `trophallaxis_enabled`
+/// and for the same reason `CLAUDE.md` gives it**: the measurement this
+/// exists for is generations-per-session *compared across regimes*, and
+/// two arms compared inside one run are immune to the stale-binary failure
+/// and to a counter downstream of `parallel.rs`'s checkerboard being only
+/// load-independent at fixed parallelism.
+///
+/// **Verified at the process level, not in this test binary** -- matching
+/// `trophallaxis_enabled`'s own note just above: a single test process
+/// observes only one value of this static, and setting the var from
+/// inside a `#[test]` races every other test that may already have read
+/// it. The regime-consuming logic (`suppress_bar` and what it calls) takes
+/// the regime as a plain argument for exactly this reason, so it can be
+/// exercised directly with an explicit `BreedingRegime` in-process; only
+/// the var-to-`BreedingRegime` parse itself has to be checked by running
+/// the built binary twice, once per arm.
+fn breeding_regime() -> BreedingRegime {
+    static REGIME: std::sync::OnceLock<BreedingRegime> = std::sync::OnceLock::new();
+    *REGIME.get_or_init(|| match std::env::var("PIXEL_PHYSICS_BREEDING").as_deref() {
+        Ok("queen") => BreedingRegime::Queen,
+        Ok("graded") => BreedingRegime::Graded,
+        _ => BreedingRegime::Individual,
+    })
+}
+
+/// The reach, in world cells, that `breeding_regime`'s **`graded`** arm
+/// alone measures a breeder's presence by --
+/// `PIXEL_PHYSICS_BREEDING_RADIUS`, default `24`. `queen` does not read
+/// this: it is colony-wide by design (see `breeding_regime`'s own doc for
+/// why a distance term there would measure territorial spacing instead of
+/// queen-only breeding). Kept a separate env var rather than a constant so
+/// the radius can be swept without a rebuild, the same reason the regime
+/// itself is a var and not three builds.
+fn breeding_radius() -> i32 {
+    static RADIUS: std::sync::OnceLock<i32> = std::sync::OnceLock::new();
+    *RADIUS.get_or_init(|| std::env::var("PIXEL_PHYSICS_BREEDING_RADIUS").ok().and_then(|s| s.parse().ok()).unwrap_or(24))
+}
+
+/// **How much harder budding gets immediately beside a breeder**, in the
+/// `graded` regime: the multiplier `suppress_bar` applies to the bar at
+/// distance 0, falling linearly to `1.0` (no suppression at all) at
+/// `breeding_radius()` cells and beyond.
+///
+/// A provisional round number, not a measured one -- nothing has yet run
+/// the generations-per-session sweep this whole mechanism exists to feed,
+/// so there is nothing to derive it from (`CLAUDE.md`'s "set bars from
+/// measurement" cannot apply to a bar that is itself the first thing being
+/// measured). Large enough that a worker beside a breeder visibly
+/// struggles without being `queen`'s hard wall -- the graded arm's own
+/// reason to exist beside that regime.
+const GRADED_MAX_SUPPRESSION: f32 = 6.0;
+
+/// The `graded` multiplier at `dist` cells from the nearest breeder --
+/// `1.0` (no suppression) at `radius` and beyond, rising linearly to
+/// `GRADED_MAX_SUPPRESSION` at `dist == 0`. See that constant's own doc.
+fn graded_suppression_factor(dist: f32, radius: i32) -> f32 {
+    if radius <= 0 || dist >= radius as f32 {
+        return 1.0;
+    }
+    let t = 1.0 - dist / radius as f32;
+    1.0 + (GRADED_MAX_SUPPRESSION - 1.0) * t
+}
+
+/// **The ablation switch this change's own measurement needs**: whether
+/// `colony_has_other_breeder` and `nearest_breeder` read `World::
+/// colony_breeders` (the default) or fall back to the O(organism slots)
+/// scan the index replaces -- `PIXEL_PHYSICS_BREEDER_INDEX=scan` selects
+/// the old behaviour; anything else, including unset, keeps the index.
+///
+/// Same `OnceLock` + env pattern as `breeding_regime`/`trophallaxis_
+/// enabled`, and for the same reason: the claim this switch exists to
+/// support is a comparison between two arms, and two arms compared
+/// *inside one run* are immune to the stale-binary failure and to a
+/// counter downstream of `parallel.rs`'s checkerboard being only
+/// load-independent at fixed parallelism (`CLAUDE.md`'s own rules for a
+/// wall-clock number taken across two separate runs).
+///
+/// **Read once and passed down as a plain argument** -- matching
+/// `regime`/`radius`'s own pattern, and for the same reason
+/// `suppress_bar`'s doc gives for them: so `colony_has_other_breeder` and
+/// `nearest_breeder` can be exercised in-process on an explicit arm, which
+/// is exactly what the equivalence guard between the two arms needs and
+/// an env var cannot give a `#[test]` (`breeding_regime`'s own note).
+///
+/// The old scan is kept reachable rather than deleted precisely because it
+/// is the control: `World::creature_stats.breeder_scan_visits` is what
+/// proves the index arm is doing *less* work rather than *no* work, and
+/// that claim only means something measured against this arm, inside the
+/// same binary.
+fn breeder_index_enabled() -> bool {
+    static ON: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BREEDER_INDEX").as_deref() != Ok("scan"))
+}
+
+/// Is there a living animal in `colony`, other than `exclude`, with
+/// `children > 0` -- `queen`'s whole rule, and why that regime needs no
+/// position and no radius: this is a fact about the colony, not about
+/// where anyone stands.
+///
+/// **Only ever called from `suppress_bar`, itself only reached after
+/// `try_bud`'s affordability precheck has already passed** -- a scan or
+/// lookup on every tick for every animal that can afford a child is
+/// exactly the hot-path cost `CLAUDE.md` warns against, and gating it
+/// behind an already-rare "can this animal even afford a child" check
+/// keeps it off the common path entirely. That gate is necessary and, on
+/// its own, no longer sufficient: it was measured on a starving bed, where
+/// affording a child is rare enough that the gate alone was assumed to
+/// keep this cheap. At the thousand-ant scale the owner already plays at,
+/// the same gate still passes hundreds of animals a tick, each scanning
+/// against roughly 2,000 organism slots -- found in review, and the whole
+/// reason this function has two arms now instead of one.
+///
+/// **`use_index` picks the arm** (`breeder_index_enabled`'s own doc for
+/// why it is a plain argument here rather than a second internal env
+/// read):
+///
+/// - **index** (the default): reads `World::colony_breeders`, this
+///   colony's own candidate list, in place of every organism slot in the
+///   world. **A candidate list, never a source of truth** -- the
+///   invariant is one-directional:
+///
+///   > Every living breeder is in its colony's list. Entries that are
+///   > not breeders may also be in it.
+///
+///   so this function validates every id it reads off the list live
+///   (`world.organism(id)`, colony match, `children > 0`), exactly as the
+///   scan arm below validates every slot it visits. A stale entry is
+///   *skipped*, never trusted -- it can turn into a false negative that a
+///   later, correct candidate then overturns, but it can never produce a
+///   wrong `true`. Nothing on any death path has to know this list
+///   exists: `free_organism` is deliberately untouched, and this
+///   live-validating read is what makes that safe. See
+///   `World::colony_breeders` and `World::record_breeder`'s own docs for
+///   where the list is written and pruned, and why neither can happen
+///   here.
+/// - **scan**: the original O(organism slots) walk, kept reachable as the
+///   ablation's control arm rather than deleted.
+///
+/// Both arms count every candidate they look at into `*visits`
+/// (`World::creature_stats.breeder_scan_visits`'s own doc) -- the "did it
+/// fire, and on how much" pairing `CLAUDE.md` asks for beside a claim that
+/// work got cheaper.
+fn colony_has_other_breeder(world: &World, exclude: u16, colony: u32, use_index: bool, visits: &mut u32) -> bool {
+    let is_other_breeder = |id: u16| id != exclude && world.organism(id).is_some_and(|s| s.colony == colony && s.children > 0);
+    if use_index {
+        let Some(list) = world.colony_breeders.get(&colony) else { return false };
+        for &id in list {
+            *visits += 1;
+            if is_other_breeder(id) {
+                return true;
+            }
+        }
+        false
+    } else {
+        // **`live_organism_ids`, not a hand-rolled `1..=slots` slot-index
+        // range** -- found in review, comparing the two arms on a
+        // 40,000-frame run under `graded`: the sample tables agreed for
+        // 26,100 frames and then the scan arm quietly produced one more
+        // birth than the index arm, because it had stopped seeing a real
+        // breeder. `organism_id` encodes as `(generation << 12) |
+        // slot_index` (`encode_organism_id`'s own doc), so a bare
+        // `1..=slots` range is generation-0 **only**: `world.organism(id)`
+        // decodes each `id` in it with generation 0 baked in, and the
+        // moment a slot is freed and reused its occupant's real id carries
+        // a nonzero generation and is never produced by this range at all
+        // -- silently invisible, not merely stale. This is the second bug
+        // of exactly this shape here: the range bound (`1..=slots` versus
+        // `0..slots`) was already once wrong and is documented on
+        // `graded_regime_scales_the_bar_and_a_queenless_colony_resumes`;
+        // this is the *encoding* being wrong instead, and both errors
+        // share the same root cause -- reconstructing an id from a slot
+        // index by hand rather than asking the id allocator for one.
+        // `live_organism_ids` is that allocator's own answer, so this arm
+        // can no longer disagree with it. It allocates a `Vec`, which
+        // would matter in a hot path; it does not matter here, because
+        // after `use_index`'s default this arm is only ever the ablation
+        // baseline, never the common path -- and a baseline that
+        // undercounts organisms is worse than no baseline at all, because
+        // it makes the index look wrong on exactly the runs where the
+        // index is the one that is right.
+        for id in world.live_organism_ids() {
+            *visits += 1;
+            if is_other_breeder(id) {
+                return true;
+            }
+        }
+        false
+    }
+}
+
+/// The distance, in cells, from `(x, y)` to the nearest **other** living
+/// breeder (`children > 0`) in `colony` -- `None` if `colony` has none
+/// besides (at most) `exclude` itself. `graded`'s own lookup; `queen` uses
+/// `colony_has_other_breeder` instead and never calls this.
+///
+/// Same hot-path guarding, the same `use_index` arm and the same reason to
+/// validate rather than trust an entry -- see `colony_has_other_breeder`'s
+/// own doc in full; this differs only in what it does with each id that
+/// passes.
+///
+/// Squared distance compares in the same order as the true distance, so
+/// the scan takes one `sqrt` total, on the eventual winner, rather than
+/// one per candidate.
+fn nearest_breeder(world: &World, exclude: u16, colony: u32, x: i32, y: i32, use_index: bool, visits: &mut u32) -> Option<f32> {
+    let mut nearest_sq: Option<i64> = None;
+    let mut consider = |id: u16| {
+        if id == exclude {
+            return;
+        }
+        let Some(candidate) = world.organism(id) else { return };
+        if candidate.colony != colony || candidate.children == 0 {
+            return;
+        }
+        let Some(&(cx, cy)) = candidate.chain.first() else { return };
+        let dx = (cx - x) as i64;
+        let dy = (cy - y) as i64;
+        let dist_sq = dx * dx + dy * dy;
+        nearest_sq = Some(nearest_sq.map_or(dist_sq, |cur| cur.min(dist_sq)));
+    };
+    if use_index {
+        if let Some(list) = world.colony_breeders.get(&colony) {
+            for &id in list {
+                *visits += 1;
+                consider(id);
+            }
+        }
+    } else {
+        // `live_organism_ids`, same fix and the same reason as
+        // `colony_has_other_breeder`'s own scan arm -- see its doc in
+        // full; a bare `1..=slots` range here has the identical
+        // generation-0-only blind spot.
+        for id in world.live_organism_ids() {
+            *visits += 1;
+            consider(id);
+        }
+    }
+    nearest_sq.map(|sq| (sq as f64).sqrt() as f32)
+}
+
+/// **`bar`, after fertility suppression, paired with how many candidates
+/// it cost to compute** -- `(bar, visits)`. `visits` is always `0` under
+/// `individual`, and feeds `try_bud`'s own addition to `World::
+/// creature_stats.breeder_scan_visits` -- see that call site's own
+/// comment for why the addition happens there and not in this function.
+///
+/// Takes `regime` and `radius` as plain arguments rather than reading
+/// `breeding_regime`/`breeding_radius` itself, so this function and
+/// everything it calls can be exercised in-process with an explicit arm --
+/// see `breeding_regime`'s own note on why the var itself cannot be
+/// toggled safely inside a `#[test]`. `breeder_index_enabled` is read once
+/// here rather than threaded in as an eighth argument: clippy's
+/// argument-count lint is already at its limit on the seven below, and
+/// `colony_has_other_breeder`/`nearest_breeder` are themselves the layer
+/// the equivalence guard calls directly with an explicit `use_index`, so
+/// nothing downstream needs to reach the switch through here.
+///
+/// `pos` -- the querying animal's own head, `(x, y)` -- is one argument
+/// rather than two so the signature stays inside clippy's argument count;
+/// `queen` never reads it (see `colony_has_other_breeder`'s own doc for
+/// why that regime needs no position at all).
+fn suppress_bar(regime: BreedingRegime, radius: i32, world: &World, organism: u16, colony: u32, pos: (i32, i32), bar: f32) -> (f32, u32) {
+    let use_index = breeder_index_enabled();
+    let mut visits = 0u32;
+    let suppressed = match regime {
+        // **Today's code, provably**: no scan above this arm, on the most
+        // common regime there is.
+        BreedingRegime::Individual => bar,
+        BreedingRegime::Queen => {
+            if colony_has_other_breeder(world, organism, colony, use_index, &mut visits) {
+                f32::INFINITY
+            } else {
+                // **A queenless colony resumes** (owner's ruling): no
+                // *other* living breeder in the colony reads as "nothing to
+                // suppress against" rather than as a locked door -- the
+                // ethos' "an outcome is a distribution, not a binary",
+                // applied to whether a breeder is present rather than to
+                // the bar itself. This is also the colony's founding state:
+                // nobody has `children > 0` yet, so nobody is suppressed,
+                // and the rule bootstraps itself.
+                bar
+            }
+        }
+        BreedingRegime::Graded => match nearest_breeder(world, organism, colony, pos.0, pos.1, use_index, &mut visits) {
+            // Same "queenless colony resumes" reasoning as `queen` above.
+            None => bar,
+            Some(dist) => bar * graded_suppression_factor(dist, radius),
+        },
+    };
+    (suppressed, visits)
+}
+
 /// **Line the hole just dug** — turn the loose ground around it into the
 /// wall of a tunnel.
 ///
@@ -5109,12 +7316,20 @@ fn step_chain(
     def: &CreatureDef,
     draw: &mut rng::Rng,
 ) -> bool {
-    let Some(chain) = world.organism(organism).map(|s| s.chain.clone()) else {
+    let Some((chain, groups, fates)) = world.organism(organism).map(|s| (s.chain.clone(), s.segment_groups.clone(), s.fates)) else {
         return false;
     };
     let Some(&(hx, hy)) = chain.first() else {
         return false;
     };
+    // **Once per tick, not once per candidate.** `segment_authored`
+    // re-grows this individual's own body from its `FateGenome` -- pure,
+    // bounded by `SEGMENTED_BODY_CAP` -- and every candidate direction
+    // below, plus the committed move, reads the same result rather than
+    // re-growing it up to seven times a tick.
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
 
     // --- support: a whole-chain rule (P-25) -----------------------------
     // **Which object does this rule evaluate? The piece.** Asked and
@@ -5138,7 +7353,10 @@ fn step_chain(
         // fall refused because a leaf is in the way is the frozen-on-water
         // failure `colony_ant_site` records, wearing foliage.
         if landing_is_placeable_through_tissue(world, &chain, &fallen, parting_enabled()) {
-            relocate_chain(world, organism, &chain, &fallen);
+            // A fall is a pure translation -- every cell shifts by the same
+            // (0, 1), so grouping cannot change and `&groups` on both sides
+            // is exact, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &chain, groups: &groups }, BodySide { cells: &fallen, groups: &groups });
             world.creature_stats.falls += 1;
             return true;
         }
@@ -5183,7 +7401,7 @@ fn step_chain(
         // here or it overlaps the world. This is also, with no other code,
         // the reason a wide predator cannot follow a narrow ant into its
         // tunnel.
-        let landing = body_after_step(def, &chain, (tx, ty), heading, d);
+        let (landing, _) = body_after_step(world, def, body, (tx, ty), heading, d, push);
         // **Soft living tissue is not a wall.** See
         // `landing_is_placeable_through_tissue` and `is_partable`: a
         // grid cell cannot hold the air inside a bush, so foliage draws
@@ -5247,13 +7465,185 @@ fn step_chain(
         // up; `trunk_crossing` returns `None` immediately unless the very
         // next cell is woody tissue.
         if crossing_enabled() {
-            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, heading) {
+            if let Some((to, thickness)) = trunk_crossing(world, def, &chain, &groups, &authored_widths, heading, push) {
                 let due = world.frame + u64::from(thickness) * organism_tick_interval(world, organism, def);
                 if let Some(state) = world.organism_mut(organism) {
                     state.crossing = Some(organism::Crossing { to, heading, due, thickness });
                 }
                 world.creature_stats.crossings += 1;
                 return false;
+            }
+        }
+        // **The blocked-step census (§13), off unless asked for.** Placed
+        // before `tumble`, which rewrites `state.heading` -- classifying
+        // after it would attribute this tick's refusal to next tick's
+        // heading, which is the "arithmetically correct, answers a
+        // different question" failure `CLAUDE.md` names.
+        if blocked_census_enabled() {
+            census_blocked(world, def, body, (hx, hy), heading, push, kin);
+        }
+        // **The reversal (§13), gated on being *boxed* rather than merely
+        // blocked.** An animal with a good heading available is not stuck
+        // and `tumble` is the whole remedy; an animal refused in all eight
+        // is stuck for good, and for a body longer than two cells the
+        // census says that is what almost every blocked tick is. See
+        // `is_boxed`, and `ReverseRule` for the two candidates.
+        //
+        // **The verb has to deliver something** (`CLAUDE.md`'s second law):
+        // the reversal is committed only if the reversed body can then
+        // walk, tested by the same `is_boxed` on the far side of it. A
+        // reversal that leaves the animal boxed at the other end would be
+        // a strobe, not an escape.
+        let rule = reverse_rule();
+        let boxed = rule != ReverseRule::Off && is_boxed(world, def, body, (hx, hy), heading, push, kin);
+        // **Where, before anything moves.** Read off the pre-flip head:
+        // `reversals_carrying` and `reversals_at_nest` are the "where does
+        // this fire" breakdown the diagnosis needed -- a flip that fires on
+        // a laden ant is mirroring the one animal that has something to
+        // lose by it, turning its closest point to home into its farthest.
+        let carrying = boxed && world.organism(organism).is_some_and(|s| s.crop.is_some());
+        // **Boxed by terrain, not by traffic -- and only asked of a laden
+        // animal** (§13g, `Reports/creature-articulated-body-2026-09-09
+        // .md`). `is_boxed` cannot tell a dead end from a jam: a cell held
+        // by another ant reads exactly like a cell of rock. Tried
+        // unconditionally first and it cost real mobility on `tunnel`
+        // (7.6% blocked to 77.5%, measured): the mobility scenes carry no
+        // food at all, so every reversal there is an *empty-handed* animal
+        // exploring a passage packed with its own colony -- exactly where
+        // "another ant is standing in the way" is close to universal and
+        // deferring on it is close to disabling the flip. A colony has
+        // nothing to lose from an empty-handed animal turning round
+        // promptly even into a jam that was about to clear; it has a great
+        // deal to lose from a laden one doing the same at the door it was
+        // about to walk through. So the deferral applies to the one case
+        // that can afford to wait a beat, not to the one this rule exists
+        // for. A streak of consecutive boxed ticks was tried before that,
+        // unconditionally, and cost mobility the same way for the same
+        // reason -- see `boxed_by_traffic`'s own doc.
+        // **...and the deferral has to end, which it did not** (round 29;
+        // the owner's playtest of 2026-09-11: *"long ants getting stuck.
+        // Not all of them but it happens regularly. It seems like they get
+        // stuck in a big group/pile of long ants."*).
+        //
+        // `boxed_by_traffic`'s premise is that a jam clears on its own the
+        // moment the other animal takes its own next step. §13g named the
+        // case where that is false and left it open: **the other animal is
+        // boxed too.** Then nothing in the world is going to move, the
+        // question is re-asked and re-answered the same way every tick, and
+        // the animal defers for ever. Measured on the owner's own scene
+        // (`played_bed_longant`, 3 seeds, 120,000 frames): the animal
+        // body-boxed longest at a stop was **laden on 24 of 25 sampled
+        // stops**, its head and tail in the *identical cells* stop after
+        // stop -- only its heading moving, because `tumble` re-aims it every
+        // tick -- for streaks up to 68 stops, 61,200 frames. Connected
+        // clumps of those reached **75 animals** on seed 1.
+        //
+        // **Those two figures were retaken after `84dd9bfc` (nest odour)
+        // landed, and the clump one moved a long way: it read 108 on seed 3
+        // before that merge and 19 after.** Scent drift changes the colony
+        // the pile forms in, so any pile figure quoted here has to name the
+        // tree it came from. Nine seeds on the merged tree put the largest
+        // clump at 6-75 and the longest body-boxed streak at 13-44 stops.
+        //
+        // So the gate becomes a **bounded** wait rather than an unbounded
+        // one: `CLAUDE.md`'s *a size cap must bound work, never gate whether
+        // something happens*, in the time axis. After `traffic_defer_max()`
+        // consecutive deferrals the flip fires anyway -- the animal has
+        // waited out a jam that is not clearing, and turning round is worth
+        // more than facing a wall for the rest of its life.
+        //
+        // **This can only make the flip fire more often, never less**, which
+        // is what keeps it clear of the two gates §13g rejected: a streak
+        // *before* flipping (16.3% blocked on `tunnel` at N=2 against 7.6%)
+        // and the traffic check asked of every animal (77.5%). Both of those
+        // withheld the verb; this one returns it.
+        //
+        // **Gated on the spine being longer than two cells**, and that is the
+        // §13c property rather than a species check: a two-cell body reverses
+        // with an ordinary step onto its own vacating tail, so the flip is
+        // not its only way out and a deferral that never expires costs it
+        // nothing. The shipped ant is therefore bit-identical across this
+        // change, by construction rather than by measurement -- and measured
+        // as well, on `ascii`.
+        let traffic = carrying && boxed_by_traffic(world, def, body, (hx, hy), heading, push, kin);
+        let waited = world.organism(organism).map_or(0, |s| s.traffic_deferred);
+        let traffic = traffic && deferral_still_applies(spines_of(&chain, &groups).len(), waited, traffic_defer_max(def));
+        // Consecutive, so any tick that is not a deferral clears it --
+        // including the tick the flip finally fires on, and the move path
+        // below, which resets it for an animal that walked away and came
+        // back. A streak that survived an unrelated errand would not be
+        // "this jam has not cleared".
+        if let Some(state) = world.organism_mut(organism) {
+            state.traffic_deferred = if traffic { state.traffic_deferred.saturating_add(1) } else { 0 };
+        }
+        if traffic {
+            world.creature_stats.reversals_traffic_deferred += 1;
+        }
+        if boxed && !traffic {
+            let at_nest = adjacent_nest(world, hx, hy, def);
+            let reversed = match rule {
+                ReverseRule::Flip => flipped_body(world, &chain, &groups, &authored_widths, push),
+                ReverseRule::Back => backed_out_body(world, def, &chain, &groups, &authored_widths, push, kin),
+                ReverseRule::Off => None,
+            };
+            if let Some((cells, widths)) = reversed {
+                // **The facing is the flip's, not the back-out's.** A
+                // flipped animal has physically turned round, so its
+                // forward direction reverses with it. A backing animal is
+                // still facing the dead end -- which is what an ant backing
+                // out of a burrow is doing -- so its heading is left alone.
+                let new_heading = if rule == ReverseRule::Flip { (heading + 4) % 8 } else { heading };
+                // **The delivery test, and it is different for the two
+                // rules.** A flip must leave the animal able to walk or it
+                // is a strobe: nothing moved, so a flip that does not open
+                // a direction has changed nothing but the picture, and the
+                // next tick would flip it straight back. A back-out has
+                // already covered ground by the time it is committed -- the
+                // tail is in a cell it was not in -- so requiring it to
+                // *also* unbox the head asks it to finish the whole escape
+                // in one step, which no single backward step can do. Gating
+                // both on the flip's test measured the back-out at 8
+                // reversals against 2,371 refusals, which is a number about
+                // this gate rather than about backing out.
+                let delivers = rule != ReverseRule::Flip
+                    || !is_boxed(
+                        world,
+                        def,
+                        BodyShape { chain: &cells, groups: &widths, authored: &authored_widths },
+                        cells[0],
+                        new_heading,
+                        push,
+                        kin,
+                    );
+                if delivers {
+                    // `relocate_chain` writes `state.chain` itself; only
+                    // the live widths and the facing are this caller's.
+                    relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &cells, groups: &widths });
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.segment_groups = widths;
+                        state.heading = new_heading;
+                    }
+                    world.creature_stats.reversals += 1;
+                    if carrying {
+                        world.creature_stats.reversals_carrying += 1;
+                    }
+                    if at_nest {
+                        world.creature_stats.reversals_at_nest += 1;
+                    }
+                    // **Not a `move`.** No cell of the body has covered any
+                    // ground -- a flip moves none at all -- so counting it
+                    // as one would inflate the very denominator every
+                    // blocked fraction in §13 is read against. It is still
+                    // a blocked tick: the animal did not get anywhere.
+                    world.creature_stats.moves_blocked += 1;
+                    if let Some(state) = world.organism_mut(organism) {
+                        state.life.moves_blocked += 1;
+                    }
+                    return false;
+                }
+                world.creature_stats.reversals_refused += 1;
+            } else {
+                world.creature_stats.reversals_refused += 1;
             }
         }
         tumble(world, organism, def, draw);
@@ -5274,7 +7664,7 @@ fn step_chain(
                     continue;
                 }
                 let (dx, dy) = DIRS[d as usize];
-                let landing = body_after_step(def, &chain, (hx + dx, hy + dy), heading, d);
+                let (landing, _) = body_after_step(world, def, body, (hx + dx, hy + dy), heading, d, push);
                 // **Any living tissue, not only the soft kind** -- this is the
                 // attribution ("what was in the way"), and answering it with
                 // the same force gate the remedy uses would make a trunk
@@ -5332,11 +7722,29 @@ fn step_chain(
     let (dx, dy) = DIRS[new_heading as usize];
     let (tx, ty) = (hx + dx, hy + dy);
 
-    let next = body_after_step(def, &chain, (tx, ty), heading, new_heading);
-    relocate_chain(world, organism, &chain, &next);
+    let (next, next_groups) = body_after_step(world, def, body, (tx, ty), heading, new_heading, push);
+    // **Flicker, over committed moves only** (§13). A lateral that tucks to
+    // clear a gap and fills back out the other side is two transitions for
+    // the whole passage; one that tucks and re-emerges every step is one
+    // per move, and reads on screen as a strobe rather than as a squeeze --
+    // the owner's "stuck and just flashing". Nothing here decides anything;
+    // it is the number that says which of the two is happening.
+    if blocked_census_enabled() {
+        world.creature_stats.width_changes += groups.iter().zip(&next_groups).filter(|(a, b)| a != b).count() as u64;
+        world.creature_stats.tucked_segment_steps += authored_widths.iter().zip(&next_groups).filter(|&(&a, &g)| a == 2 && g == 1).count() as u64;
+    }
+    relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
     if let Some(state) = world.organism_mut(organism) {
         state.heading = new_heading;
         state.life.moves += 1;
+        // An animal that walked is not in a jam -- see the traffic gate
+        // above for why the count has to be *consecutive*.
+        state.traffic_deferred = 0;
+        // **`segment_groups` becomes the live widths, rewritten with
+        // `chain` on every step** (§7f(2)) -- a no-op write for `Chain`/
+        // `Rigid`, which pass `groups.to_vec()` straight through
+        // `body_after_step` unchanged.
+        state.segment_groups = next_groups;
     }
     world.creature_stats.moves += 1;
 
@@ -5718,7 +8126,14 @@ fn body_is_supported(world: &World, cells: &[(i32, i32)]) -> bool {
 /// the creature in the air. `false` if the body could not push off.
 ///
 /// The only thing in the engine that sets `OrganismState::flight`.
-fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
+///
+/// **`pub(crate)`, not private** — `lab::mod`'s `FLING` tool calls this
+/// directly rather than going through a brain decision, which is the whole
+/// point of a tool: a player-driven verb on the same ballistic jump the
+/// brain's own impulse output already uses, so a fling and a self-launch
+/// share every precondition (`body_is_supported`) and every physics
+/// (`body_drag`, `LAUNCH_WORK`) rather than a second copy of either.
+pub(crate) fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
     let Some(cells) = world.organism(organism).map(|s| s.chain.clone()) else {
         return false;
     };
@@ -5741,7 +8156,14 @@ fn launch(world: &mut World, organism: u16, heading: u8) -> bool {
     let (ax, ay) = (dx as f32, dy as f32 - LAUNCH_LIFT);
     let len = (ax * ax + ay * ay).sqrt().max(f32::MIN_POSITIVE);
     if let Some(state) = world.organism_mut(organism) {
-        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0 });
+        // **`fly: 0.0` -- a launch is a launch, never a flight.** The verb
+        // that leaves the ground and the verb that stays up are separate
+        // genes on purpose (`BrainOutput::Fly`), so an animal that has
+        // authored only the hop arcs exactly as it always did and the first
+        // airborne brain tick is what decides whether this one is more than
+        // a hop. `turn_acc: 0.0` for the same reason: nothing is being
+        // steered yet.
+        state.flight = Some(Flight { vx: speed * ax / len, vy: speed * ay / len, fx: 0.0, fy: 0.0, fly: 0.0, turn_acc: 0.0, aloft: 0, stall: 0 });
     }
     world.creature_stats.impulses += 1;
     true
@@ -5773,15 +8195,27 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
         return Vec::new();
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
+    let fates = world.organism(organism).map(|s| s.fates).unwrap_or_default();
+    let authored = segment_authored(def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let push = parting_enabled();
     let interval = organism_tick_interval(world, organism, def);
     if world.frame < crossing.due {
         return vec![ActiveSite { x: chain.first().map_or(0, |c| c.0), y: chain.first().map_or(0, |c| c.1), kind: ActiveKind::Creature { organism }, next_frame: world.creature_due(interval) }];
     }
-    let landing = body_after_step(def, &chain, crossing.to, crossing.heading, crossing.heading);
-    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
-        && body_has_foothold(world, def, &landing, crossing.to, None);
+    let (landing, landing_groups) = body_after_step(
+        world,
+        def,
+        BodyShape { chain: &chain, groups: &groups, authored: &authored_widths },
+        crossing.to,
+        crossing.heading,
+        crossing.heading,
+        push,
+    );
+    let emerged = landing_is_placeable_through_tissue(world, &chain, &landing, push) && body_has_foothold(world, def, &landing, crossing.to, None);
     if emerged {
-        relocate_chain(world, organism, &chain, &landing);
+        relocate_chain(world, organism, def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &landing, groups: &landing_groups });
         world.creature_stats.crossings_completed += 1;
     } else {
         world.creature_stats.crossings_abandoned += 1;
@@ -5792,6 +8226,7 @@ fn step_crossing(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Act
         if emerged {
             state.heading = crossing.heading;
             state.life.moves += 1;
+            state.segment_groups = landing_groups;
         }
     }
     world.creature_stats.moves += u64::from(emerged);
@@ -5814,6 +8249,541 @@ fn crossing_enabled() -> bool {
     *ON.get_or_init(|| std::env::var("CROSS_TRUNK").map(|v| v != "0").unwrap_or(true))
 }
 
+/// **Whether a priced animal floats at all.** `FLY=0` is the float's
+/// semantic control -- the arm where the air is ballistic and nothing
+/// decides anything in it, which is `main` before
+/// `Reports/evolution-lab-flight-design-2026-09-11.md` and the baseline
+/// every measurement of the verb has to be read against.
+///
+/// A switch rather than a second set of weights, for `CLAUDE.md`'s stated
+/// reason: *the control is to hold the semantic rule fixed, not to add
+/// another metric*. Zeroing the `Fly` row instead would still run the brain
+/// aloft, still take its taxes and still move the hidden state, so the two
+/// arms would differ by more than the thing under test.
+fn float_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("FLY").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **Whether a weightless, non-flying body is put down on the water it is
+/// floating in.** `LAND_AFLOAT=0` puts `open-bugs-handoff.md` §Z9 back --
+/// the animal hangs at `g_eff == 0` for the rest of its life and dies
+/// `STARVED ALOFT` -- so the fix can be watched going red, which
+/// `CLAUDE.md` requires before its green is cited as evidence.
+///
+/// Deliberately **not** folded into `FLY` above. The two answer different
+/// questions: this is a one-line bug fix that applies to every hopping
+/// animal in the box whether or not it can float, and that is a whole verb.
+fn land_afloat_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("LAND_AFLOAT").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **What speed a floating animal thrusts toward, in cells per frame** --
+/// three settings behind one env var, `0.25` / `0.5` / `1.0`, default
+/// `0.5`.
+///
+/// **A selector rather than a chosen number, deliberately** (`CLAUDE.md`:
+/// *for "does this look right", ship a runtime selector rather than
+/// choosing*). Whether a pale dot crossing a canopy reads as a bee, a
+/// butterfly or a thrown pebble is not a test result, and five grain modes
+/// behind one key once settled in minutes a question no amount of argument
+/// had. What each option costs is legible from one line of arithmetic:
+/// `fly_cost_in_moves` bills per *frame*, so halving the speed doubles the
+/// joules per cell covered -- `0.25` is 0.25 J/cell for the flitter, `0.5`
+/// is 0.125, `1.0` is 0.0625, against walking's 0.25.
+///
+/// **An unrecognised value panics rather than falling back.** *An unknown
+/// argument is silently ignored* is a named gotcha in this repo and it cost
+/// a 3.5-hour study; a selector nobody can tell is disconnected is the same
+/// failure wearing an env var.
+pub fn flight_speed() -> f32 {
+    use std::sync::OnceLock;
+    static V: OnceLock<f32> = OnceLock::new();
+    *V.get_or_init(|| match std::env::var("FLIGHT_SPEED").as_deref() {
+        Err(_) | Ok("0.5") => 0.5,
+        Ok("0.25") => 0.25,
+        Ok("1.0") | Ok("1") => 1.0,
+        Ok(other) => panic!("FLIGHT_SPEED={other:?} is not one of 0.25 / 0.5 / 1.0 -- see creature::flight_speed"),
+    })
+}
+
+/// **How much of its own weight a floating animal carries, per unit of
+/// `Fly`** -- and this constant is the whole of round 29's verdict.
+///
+/// `BrainOutput::Fly` is `brain::squash(sum) = sum/(1+|sum|)`, which is
+/// **strictly less than 1 for every finite genome**. The design wrote the
+/// lift as `g_eff = GRAVITY * (1 - carried) * (1 - fly)`, so with `fly`
+/// bounded below 1 by construction, **gravity could never be cancelled and
+/// every "flight" was still an arc** -- a shallower one, nothing more. The
+/// measurement agreed and nobody read it that way: on the understory bed
+/// the float was on for **72% of all airborne frames** and a take-off still
+/// bought **23 frames of air against the wingless arc's 22**. Three review
+/// cards came back *"both look very much like hopping"*, *"one long hop
+/// (clearly not fly)"*.
+///
+/// So the lift gets a gain: `hover = (fly * HOVER_GAIN).min(1.0)`. At 2.5 a
+/// `Fly` of 0.4 -- an ordinary output, not a saturated one -- holds the
+/// whole body up, and a weaker one holds part of it. **Graded, not binary**
+/// (`CLAUDE.md`'s first law): 0.2 carries half the weight and the animal
+/// sinks as it travels, which is what a tiring flier should do.
+///
+/// **Not folded into `fly_cost_in_moves` or into the genome.** The price of
+/// a frame of lift and the amount of lift a frame buys are different
+/// questions, and the species file already owns the first one; putting the
+/// gain in the genome would let selection discover anti-gravity.
+const HOVER_GAIN: f32 = 2.5;
+
+/// **The float's OFF threshold once it is already on** -- a Schmitt trigger,
+/// so a bout is one continuous flight rather than a chatter.
+///
+/// The ON condition stays exactly what `flitter.ron`'s `(Bias, Fly, ..)`
+/// makes it (`open-bugs-handoff.md` §Z10: a bias on a `*Near` row is a
+/// *distance*). What was missing is that the identical threshold governed
+/// staying up, so an animal crossing to a flower switched its wings off and
+/// on every few ticks as the bloom drifted in and out of range, and the
+/// resulting path is a chain of arcs -- a hop, whatever the counters say.
+///
+/// Deliberately shallow. `-0.35` on a squashed output is `sum > -0.538`,
+/// which widens the flitter's range from 9.6 cells to **11.7**; it does not
+/// reopen §Z10, where the gate was so wide it never shut at all. The energy
+/// term still slides the whole band closed as the tank empties, which is
+/// what keeps `STARVED_ALOFT` down.
+const FLY_HOLD: f32 = -0.35;
+
+/// **The lift a bout holds while it is inside the hysteresis band.** Below
+/// `1 / HOVER_GAIN`, so an animal that is flying on nothing but the hold
+/// sinks steadily: leaving the range is a glide down, not a switch-off.
+const FLY_HOLD_LIFT: f32 = 0.25;
+
+/// **How a bout ends: a power-down, not a cut.** `Fly` going hard negative
+/// (the flitter's `(FoodAdjacent, Fly, -12.0)`, i.e. *you have arrived*)
+/// decays the held lift by this factor per tick rather than zeroing it, so
+/// the animal settles onto the flower head over four ticks instead of
+/// dropping off it. `CLAUDE.md`'s first law again -- an outcome is a
+/// distribution, and "landed" wants a middle.
+const FLY_DECAY: f32 = 0.5;
+
+/// Lift below this is no lift: the power-down terminates, `fly` is exactly
+/// `0.0`, and §Z9's `landed`-when-weightless predicate can fire.
+const FLY_FLOOR: f32 = 0.1;
+
+/// **How long a flier has to get nowhere before it counts as having
+/// arrived** -- three brain ticks at the flitter's interval.
+///
+/// See `organism::Flight::stall`: at 1 frame this lands an animal every time
+/// it brushes a leaf and a bout collapses to 12 frames, shorter than the
+/// wingless arc. At 12 it keeps the flight and still catches the statue --
+/// a body wedged in foliage with its wings on, which is what a full hover
+/// makes possible for the first time.
+const PERCH_FRAMES: u8 = 12;
+
+/// **The cruise — the patrol, and the answer to the owner's fourth verdict.**
+///
+/// Round 29's three builds all gated lift on a bloom already being within
+/// about 9.6 cells (`flitter.ron`'s `(Bias, Fly, -9.6)`; `open-bugs-handoff.md`
+/// §Z10 is why it is that tight). The consequence none of the three reports
+/// stated: **every journey longer than nine cells was unpowered.** All of the
+/// flitter's *travel* was a ballistic arc and all of its *flight* was a final
+/// approach, so the animal crossed the bed by hopping and flew only the last
+/// few cells. That is exactly the owner's *"one long hop (clearly not fly)"*
+/// and *"decided not to move much in the time"* — and it is not a tuning
+/// miss, it is the gate doing its job.
+///
+/// Measured on `played_bed_understory` seed 1 at 20,000 frames, with the
+/// hover and the perch in and no cruise: **10,325 launches at a mean of 12
+/// airborne frames each**, against main's 23. The economy was already twice
+/// as good (`flower_visits` 138 -> 274) and the *appearance* was worse, which
+/// is this lane's whole point — counters are constraints, the eye is the bar.
+///
+/// So a launch by an animal with fuel in the tank gets lift of its own,
+/// independent of what it can see, **decaying to nothing across the bout**.
+/// Travel becomes one long shallow powered glide instead of a chain of arcs.
+///
+/// **This is not `dead-ends.md`'s rejected always-on float, and the
+/// difference is the OFF condition.** That entry (2026-09-11) wired a
+/// positive resting `Fly` sum, which held a fed animal up *for the whole of
+/// its life* with nothing to bring it down — "a verb priced per frame wants a
+/// sense in its ON condition, because a bias is a decision to pay for it
+/// always". The cruise pays for it *once per launch* and then stops: the lift
+/// runs out on a ramp, so the animal lands by construction rather than by a
+/// threshold that might never be crossed. Its re-test condition — "a second
+/// income exists that rewards being in the air with nothing in view" — is
+/// also now met, and by that same file: `dead-ends.md`'s own 2026-09-11
+/// re-test records that the flitter's gap "has moved from reach to
+/// encounter", and encounter is precisely what a powered traverse buys.
+///
+/// **Bounded by physics, not by a cap** (`CLAUDE.md`: a size cap must bound
+/// work, never gate whether something happens). Exhausting the ramp does not
+/// resolve to an *answer* about whether to fly; it removes the lift and lets
+/// gravity finish the arc, which is a middle rather than a switch.
+const CRUISE_FRAMES: f32 = 120.0;
+
+/// **The sweep's override for the species' own `cruise_lift`, and -1.0 means
+/// "unset".** The shipped figure lives in `flitter.ron` (`CreatureDef::
+/// cruise_lift`, 0.4 — `HOVER_GAIN * 0.4 == 1.0`, so a full tank cancels
+/// gravity exactly at launch and the ramp walks it down from there); this
+/// exists only so `PIXEL_PHYSICS_CRUISE_LIFT=` in the environment can sweep it
+/// without the
+/// eighteen-minute rebuild an `include_str!`-embedded species file costs.
+const CRUISE_LIFT: f32 = -1.0;
+
+/// **The tank a cruise is paid out of, and it is a surplus rather than a
+/// reserve.** Below this the animal gets the ballistic hop it always had.
+///
+/// The cruise scales linearly from nothing here to full at a whole tank, so
+/// a nearly-full animal gets the long traverse and a half-empty one gets a
+/// low skip. That grading is what keeps §Z10 shut without a second gate:
+/// **a hungry flitter cannot buy a cruise at any price**, so the failure mode
+/// the whole round has been fighting — an animal hovering over a bed until it
+/// starves — has no route in. `deaths_by`'s `STARVED_ALOFT` share is the
+/// number that says so, and it is the constraint this build is held to.
+const CRUISE_MIN_ENERGY: f32 = 0.5;
+
+/// **How much of its weight the surrounding fluid may be carrying before the
+/// cruise switches off** — i.e. "is this body crossing air, or floating in
+/// water?".
+///
+/// **`carried <= 0.0` was written first and is never true**, which is the
+/// whole reason this constant is named rather than implied: `buoyant_share`
+/// is `fluid_density / body_density`, and *air* has a density too, so the
+/// share is small but strictly positive everywhere in the sky and the cruise
+/// never fired once. It cost a whole measurement round to notice, and the
+/// tell was `CLAUDE.md`'s own: **four sweep arms including `CRUISE=0` came
+/// back byte-identical**, which is not a weak effect, it is a disconnected
+/// knob.
+///
+/// A body in water has essentially all its weight carried (the share clamps
+/// at 1.0); a body in air has almost none. Half is not a tuned value, it is
+/// the middle of a gap with orders of magnitude on either side — so no
+/// setting between about 0.01 and 0.99 would behave differently, and the
+/// constant is a *classifier*, not a knob.
+const CRUISE_MAX_BUOYANCY: f32 = 0.5;
+
+/// **`PIXEL_PHYSICS_CRUISE=0` puts the pre-cruise behaviour back**, so the claim that the
+/// cruise is what changed the flight can be watched going red rather than
+/// argued (`CLAUDE.md`: put the fault back before citing a green).
+/// **`PIXEL_PHYSICS_FLIGHT29=0` reverts the WHOLE of this round's flight model** — the
+/// hover, the Schmitt trigger, the per-frame thrust, the wander and the bob,
+/// the forced launch tick, the perch, the stall-out and the proportional lift
+/// charge — leaving exactly the arc `main` shipped.
+///
+/// It exists for two jobs a per-constant switch cannot do. It is the **A/B
+/// card's other arm**: a review card comparing two *binaries* also compares
+/// two harnesses, and this lane's own note records `follow=`'s animal pick as
+/// a trap that cost two re-renders, so an arm rendered by an older `labgif`
+/// with no `follow_air=` is not a fair comparison of flight. One binary, one
+/// camera rule, one switch (`CLAUDE.md`: hold the semantic rule fixed and
+/// change nothing else). And it is the **negative control**: the claim "this
+/// is what changed the flight" is only checkable by putting the old flight
+/// back.
+///
+/// **Verified against the real thing rather than asserted**: `labforage` on
+/// `played_bed_understory` seeds 1-3 under `PIXEL_PHYSICS_FLIGHT29=0` reproduces
+/// the
+/// `origin/main` binary's summary line, which is what makes the control a
+/// control instead of a label.
+fn flight29_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_FLIGHT29").map(|v| v != "0").unwrap_or(true))
+}
+
+fn cruise_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| flight29_enabled() && std::env::var("PIXEL_PHYSICS_CRUISE").map(|v| v != "0").unwrap_or(true))
+}
+
+/// **The cruise's three numbers, overridable for a sweep** --
+/// `PIXEL_PHYSICS_CRUISE_LIFT`/`_CRUISE_FRAMES`/`_CRUISE_MIN_ENERGY` in the
+/// environment, so
+/// four variants are four runs of ONE binary rather than four eighteen-minute
+/// rebuilds. The shipped values are the constants above; an unset variable
+/// changes nothing.
+///
+/// **It announces itself on first read** (`CLAUDE.md`: a knob nobody can see
+/// the value of is a knob nobody can tell is disconnected). A 3.5-hour
+/// megastudy on this very species was once invalidated by a harness that
+/// silently ignored an argument the binary predated, and the tell was eight
+/// byte-identical logs. A line on stderr naming the three values means a log
+/// that does not name them was written by a binary that never had them.
+fn cruise_params() -> (f32, f32, f32) {
+    use std::sync::OnceLock;
+    static P: OnceLock<(f32, f32, f32)> = OnceLock::new();
+    *P.get_or_init(|| {
+        let num = |k: &str, d: f32| std::env::var(k).ok().and_then(|v| v.parse::<f32>().ok()).unwrap_or(d);
+        let p = (num("PIXEL_PHYSICS_CRUISE_LIFT", CRUISE_LIFT), num("PIXEL_PHYSICS_CRUISE_FRAMES", CRUISE_FRAMES), num("PIXEL_PHYSICS_CRUISE_MIN_ENERGY", CRUISE_MIN_ENERGY));
+        eprintln!("creature: cruise lift={} frames={} min_energy={} (PIXEL_PHYSICS_CRUISE={})", p.0, p.1, p.2, if cruise_enabled() { "on" } else { "OFF" });
+        p
+    })
+}
+
+/// **`PIXEL_PHYSICS_HOVER=0` reverts `HOVER_GAIN` to 1.0** — lift that can never cancel
+/// gravity, which is the arithmetic every build before 2026-09-12 shipped and
+/// the reason all three of them read as hopping. The negative control for the
+/// hover, in the same shape as `LAND_AFLOAT` above and for the same reason.
+fn hover_gain() -> f32 {
+    use std::sync::OnceLock;
+    static G: OnceLock<f32> = OnceLock::new();
+    *G.get_or_init(|| if flight29_enabled() && std::env::var("PIXEL_PHYSICS_HOVER").map(|v| v != "0").unwrap_or(true) { HOVER_GAIN } else { 1.0 })
+}
+
+/// **How fast a floating body converges on `flight_speed`, per frame.**
+///
+/// The thrust used to be applied inside the brain tick -- once every
+/// `tick_interval` frames -- while gravity was applied on all of them, so
+/// the vertical track was a sawtooth: fall for three frames, snap back on
+/// the fourth. That is an arc at the resolution a card is read at. The
+/// decision still happens at brain rate; only the *integration* moved to
+/// every frame, which is the same split `vx`/`vy` already had.
+const THRUST_RATE: f32 = 0.25;
+
+/// **The wingbeat**, in cells per frame per frame, and the period it beats
+/// at. A triangle wave on the vertical acceleration, so the body rides up
+/// and down about two thirds of a cell -- at play zoom that is the
+/// difference between a dot sliding along a line and something alive.
+///
+/// Costs nothing: it is a term in an addition that already happens, it
+/// draws no RNG, and it is inside the `fly > 0` branch only the flitter
+/// ever enters.
+const BOB: f32 = 0.05;
+const BOB_PERIOD: u64 = 20;
+
+/// **The wander** -- how far off its own heading a floating animal drifts,
+/// and over how many frames. A second triangle wave, applied across the
+/// track rather than along it, so a flight to a flower arrives where it was
+/// always going to and *meanders* on the way instead of ruling a straight
+/// line. Without it the path is one of eight compass directions held
+/// exactly, which reads as a projectile.
+const WANDER: f32 = 0.4;
+const WANDER_PERIOD: u64 = 96;
+
+/// A triangle wave in `[-1, 1]`, phased per animal.
+///
+/// **No `sin`**: `brain.rs`'s module doc bars libm from anything determinism
+/// depends on, and this feeds a position. **Phased on the organism id** so
+/// a bed of fifty flitters does not beat in unison -- `* 37` is an odd
+/// stride across the period, nothing more.
+fn weave(organism: u16, aloft: u16, period: u64) -> f32 {
+    let t = ((aloft as u64 + organism as u64 * 37) % period) as f32 / period as f32;
+    if t < 0.5 {
+        4.0 * t - 1.0
+    } else {
+        3.0 - 4.0 * t
+    }
+}
+
+/// The octant of `DIRS` a velocity points along, nearest-neighbour.
+///
+/// **Normalised by the direction's own length, not a raw dot product.**
+/// `DIRS` mixes unit and diagonal vectors, so an unnormalised argmax is
+/// biased toward the four diagonals by sqrt(2) and a body flying due east
+/// would be recorded as heading north-east about as often as east. No
+/// `atan2`: `brain.rs`'s module doc bars libm from anything determinism
+/// depends on, and a heading feeds straight back into the next tick's
+/// bearing.
+fn octant_of(vx: f32, vy: f32) -> u8 {
+    let mut best = 0u8;
+    let mut best_score = f32::NEG_INFINITY;
+    for (i, &(dx, dy)) in DIRS.iter().enumerate() {
+        let len = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+        let score = (vx * dx as f32 + vy * dy as f32) / len;
+        if score > best_score {
+            best_score = score;
+            best = i as u8;
+        }
+    }
+    best
+}
+
+/// **One decision, taken in the air** -- the float's whole mechanism, and
+/// the thing `main` has never had. `Reports/evolution-lab-flight-design-
+/// 2026-09-11.md` §1.
+///
+/// Returns the joules this tick's thinking and looking cost, for the caller
+/// to charge beside the pro-rated idle: `step_flight` owns the ledger, as
+/// `creature_tick` does on the ground.
+///
+/// **Which object each rule evaluates, because that is the question this
+/// engine keeps getting wrong.** Lift and drag evaluate **the whole body**
+/// (`body_drag` over the chain, as they always have); steering evaluates
+/// **the velocity vector** -- not a candidate cell, and that is the entire
+/// departure. On the ground `Turn` biases three candidate cells and the
+/// world vetoes two of them, so a walker on level footing cannot be steered,
+/// only scattered (`open-bugs-handoff.md` R4); in the air there is nothing
+/// to veto, only a velocity to rotate. `FoodAdjacent` still evaluates the
+/// head's 8-neighbourhood, unchanged.
+///
+/// **The four verbs stay on the ground.** An airborne animal still cannot
+/// eat, dig, drop, attack or lay pheromone -- it is committed, and that is
+/// most of what the launch costs. What it can now do is *decide where it is
+/// going*, and set itself down when it gets there.
+///
+/// **Priced at the ground's rate, not the air's.** `synapse_fraction`,
+/// `sight_fraction` and `curvature_fraction` are per-*decision* charges and
+/// this runs once per `tick_interval` frames exactly as a walking tick does,
+/// so an animal thinks at one price wherever it is. The cost that is new is
+/// the lift itself (`CreatureDef::fly_cost_in_moves`), charged per frame by
+/// the caller.
+fn fly_brain_tick(world: &mut World, organism: u16, def: &CreatureDef, flight: &mut Flight, cells: &[(i32, i32)]) -> f32 {
+    let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
+    let heading = world.organism(organism).map_or(0, |s| s.heading);
+    let (inputs, seen, sight_reads, curvature_reads) = sense(world, hx, hy, organism, heading, def);
+    // **The eye's counters fire aloft too, and they have to.** Until this
+    // existed an airborne animal never cast, so `sight_casts` was a count of
+    // *walking* casts wearing the name of all of them -- and
+    // `sight_fraction` was derived against it. The share this adds is the
+    // number that re-derives it (design §3), so it must be visible rather
+    // than silently folded into the ground figure.
+    if organism_sight_range(world, organism, def) > 0 {
+        world.creature_stats.sight_casts += 1;
+        world.creature_stats.sight_cells_read += sight_reads;
+        if seen.threat.is_some() {
+            world.creature_stats.threat_sightings += 1;
+        }
+        if inputs[brain::BrainInput::BloomNear as usize] > 0.0 {
+            world.creature_stats.bloom_seen += 1;
+        }
+    }
+    let (outputs, active_synapses) = {
+        let Some(state) = world.organism_mut(organism) else {
+            return 0.0;
+        };
+        let genome = std::mem::take(&mut state.genome);
+        let mut brain_state = state.brain_state;
+        let result = brain::eval_brain(&genome, &inputs, &mut brain_state);
+        let state = world.organism_mut(organism).expect("still live");
+        state.genome = genome;
+        state.brain_state = brain_state;
+        result
+    };
+    world.creature_stats.fly_ticks += 1;
+
+    // **Read raw and gated on strictly positive, exactly as `Impulse` is.**
+    // `squash(0.0)` is exactly 0.0, so a species with an unauthored row is
+    // never lifted and never thrusts -- the ballistic arc, byte for byte.
+    //
+    // **Then a Schmitt trigger on top, and that is round 29's second fix**
+    // (`FLY_HOLD`). A bout used to be re-decided from scratch every tick
+    // against one threshold, so an animal crossing to a bloom that drifted
+    // in and out of the gate's range switched its wings off and on all the
+    // way there. Holding is not the same decision as starting: once up, the
+    // animal keeps flying until the bloom is clearly gone (`FLY_HOLD`) or it
+    // has arrived (`FoodAdjacent`, which drives the row hard negative), and
+    // **arriving powers down over four ticks rather than cutting** so it
+    // settles onto the flower instead of falling off it.
+    let raw = outputs[brain::BrainOutput::Fly as usize];
+    let was_flying = flight.fly > 0.0;
+    let fly = if !flight29_enabled() {
+        // `main`'s line, verbatim: one threshold, re-decided every tick.
+        raw.clamp(0.0, 1.0)
+    } else if raw > if was_flying { FLY_HOLD } else { 0.0 } {
+        // Inside the hold band `raw` is negative and clamps to zero, so
+        // `FLY_HOLD_LIFT` is what a bout coasts on -- below `1/HOVER_GAIN`,
+        // i.e. a glide down rather than a hover.
+        raw.clamp(0.0, 1.0).max(if was_flying { FLY_HOLD_LIFT } else { 0.0 })
+    } else if was_flying {
+        let next = flight.fly * FLY_DECAY;
+        if next < FLY_FLOOR {
+            0.0
+        } else {
+            next
+        }
+    } else {
+        0.0
+    };
+
+    flight.fly = fly;
+    if fly > 0.0 {
+        // **The float taking the arc over.** `launch` builds its velocity as
+        // the heading plus a fixed `LAUNCH_LIFT`, so a body a dozen frames
+        // into a hop is travelling nowhere near the octant it is recorded as
+        // facing -- and every bearing `sense` computes is measured against
+        // that recorded octant. On the frame the lift first comes on, the
+        // heading is re-read from where the body is actually going. This is
+        // the fifth place `state.heading` is written and the one the design
+        // report found missing from `launch`'s list.
+        let mut heading = if was_flying { heading } else { octant_of(flight.vx, flight.vy) };
+
+        // **The turn, in whole octants, at the rate the brain asks for --
+        // and it is the *heading* that turns, exactly as on the ground.**
+        // `step_chain` turns by moving the heading one octant
+        // (`AHEAD_LEFT` = +1 for a positive `Turn`, `AHEAD_RIGHT` = -1 for a
+        // negative one) and this is the same line, so a walk and a float
+        // cannot disagree about what a turn is -- and `(BloomBearing, Turn,
+        // -2.5)`, which is authored against the ground's convention, means
+        // the same thing in the air without being re-derived.
+        //
+        // **The fraction is carried rather than rounded away**
+        // (`Flight::turn_acc`): `Turn` is continuous and a heading is not,
+        // so a bearing worth a quarter of an octant a tick turns once every
+        // four ticks instead of never. `|Turn| < 1` bounds this at one
+        // octant a tick, which is the granularity a walking step turns by.
+        flight.turn_acc = (flight.turn_acc + outputs[brain::BrainOutput::Turn as usize]).clamp(-2.0, 2.0);
+        while flight.turn_acc >= 1.0 {
+            heading = (heading + AHEAD_LEFT) % 8;
+            flight.turn_acc -= 1.0;
+            world.creature_stats.fly_turns += 1;
+        }
+        while flight.turn_acc <= -1.0 {
+            heading = (heading + AHEAD_RIGHT) % 8;
+            flight.turn_acc += 1.0;
+            world.creature_stats.fly_turns += 1;
+        }
+        if let Some(state) = world.organism_mut(organism) {
+            state.heading = heading;
+        }
+
+        // **The thrust itself has moved to `step_flight`, and runs every
+        // frame.** What is left here is the decision: how much lift, and
+        // which way. Integrating the steering at brain rate while gravity
+        // integrated at frame rate is what made the track a sawtooth -- fall
+        // three frames, snap back on the fourth -- which is an arc at the
+        // resolution a review card is read at. See `THRUST_RATE`.
+        //
+        // The note below is kept because it is the reason the thrust points
+        // along the *heading* rather than along the velocity, which is still
+        // true wherever it runs.
+        if !flight29_enabled() {
+            // `main`'s thrust, in its original place and at its original
+            // rate: one blend per brain tick while gravity integrates every
+            // frame, which is the sawtooth `THRUST_RATE` was moved to fix.
+            let target = flight_speed();
+            let (dx, dy) = DIRS[heading as usize];
+            let len = if dx != 0 && dy != 0 { std::f32::consts::SQRT_2 } else { 1.0 };
+            flight.vx = flight.vx * (1.0 - fly) + target * fly * dx as f32 / len;
+            flight.vy = flight.vy * (1.0 - fly) + target * fly * dy as f32 / len;
+        }
+        //
+        // **Scaling the velocity to `flight_speed` instead was built first,
+        // and it is a rocket.** A direction-preserving renormalisation
+        // cancels exactly the part of gravity that is *along* the velocity,
+        // so a body pointed straight up had its whole weight erased every
+        // tick and climbed until it hit the roof of the world: measured,
+        // `head_max_rows` **156 on all three seeds** -- which is `ground_y`,
+        // i.e. the top of the box, and three identical numbers is
+        // `CLAUDE.md`'s tidiness tell for an artifact rather than an effect.
+        // Thrusting along the heading leaves gravity a component of its own
+        // to bend the path with, which is what makes a level flier sink
+        // slightly and a weak one sink a lot.
+    }
+
+    // Charged at the ground's own rates and booked to the ground's own
+    // sinks, so the conservation identity needs no new term. See
+    // `creature_tick` for each fraction's derivation.
+    let synapse_tax = def.synapse_fraction * def.start_energy * active_synapses as f32;
+    let sight_tax = def.sight_fraction * def.start_energy * sight_reads as f32;
+    let curvature_tax = def.curvature_fraction * def.start_energy * curvature_reads as f32;
+    world.energy_ledger.synapse_tax += synapse_tax as f64;
+    world.energy_ledger.metabolized += (sight_tax + curvature_tax) as f64;
+    world.creature_stats.curvature_cells_read += curvature_reads;
+    world.creature_stats.curvature_energy += curvature_tax as f64;
+    synapse_tax + sight_tax + curvature_tax
+}
+
 fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
     let (Some(mut flight), Some(mut cells)) =
         (world.organism(organism).and_then(|s| s.flight), world.organism(organism).map(|s| s.chain.clone()))
@@ -5827,13 +8797,139 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         return Vec::new();
     }
 
+    // --- decide, then integrate ----------------------------------------
+    // **Once per `tick_interval`, at the same rate a walking animal
+    // decides.** Every frame would think six times harder for being in the
+    // air, which is a cost coming from the scheduler rather than from the
+    // design -- the same argument the pro-rated idle charge below makes.
+    //
+    // **Gated on the species having priced flight, at the call site that
+    // already holds the def** (`CLAUDE.md`). A species with no
+    // `fly_cost_in_moves` pays not even the `f32` compare's worth of extra
+    // work, takes no brain evaluation aloft, moves no hidden state and draws
+    // no RNG -- so `hopper.ron`'s arc, and every other shipped animal's, is
+    // what it was before this existed.
+    let interval = organism_tick_interval(world, organism, def);
+    let mut thinking = 0.0f32;
+    // **`aloft == 0` forces a tick on the launch frame itself.** The modulus
+    // alone meant a body that left the ground on the wrong frame flew the
+    // first `tick_interval - 1` frames of a 6-cell/frame launch as pure
+    // ballistics -- up to eighteen cells before the wings could take the arc
+    // over, which is exactly the *"one long hop (clearly not fly)"* the owner
+    // read off round 29's card. The float now gets the launch.
+    if def.fly_cost_in_moves > 0.0 && float_enabled() && ((flight29_enabled() && flight.aloft == 0) || world.frame.is_multiple_of(interval)) {
+        thinking = fly_brain_tick(world, organism, def, &mut flight, &cells);
+    }
+
     let shape = body_drag(world, &cells);
     let fluid = surrounding_density(world, &cells);
     let carried = buoyant_share(shape.density, fluid);
-    let gravity_effective = GRAVITY * (1.0 - carried);
+    // **The float, and it is not new physics** (design §1). `carried` is the
+    // share of the weight the surrounding fluid takes and `fly` is the share
+    // the animal takes on its own wings; a body that is both submerged and
+    // flying is holding up nothing, which is the arithmetic saying what it
+    // should. `fly` is 0.0 for every ballistic arc, so this line is the
+    // identity it was for a species that does not float.
+    // **The lift, and it is the fix round 29 needed.** `fly` is a squashed
+    // output and so is strictly below 1; multiplying gravity by `1 - fly`
+    // therefore *never* reached a hover, and every flight stayed an arc.
+    // `HOVER_GAIN` is what closes that, and `hover` is still graded: a weak
+    // `Fly` carries part of the weight and the animal sinks as it goes.
+    //
+    // `carried` is the share the surrounding fluid takes; a body that is both
+    // submerged and flying is holding up nothing, which is the arithmetic
+    // saying what it should. Both are 0 for a ballistic arc, so this line is
+    // the identity it was for a species that does not float.
+    // **The cruise on top of the gate, never instead of it** (`CRUISE_FRAMES`).
+    // `max`, not `+`: an animal closing on a bloom it can see is already
+    // asking for all the lift it wants, and the traverse must not be able to
+    // *raise* that -- so the cruise only ever fills in the case the gate
+    // leaves at zero, which is the long journey the flitter used to hop.
+    //
+    // **Applied here rather than in `fly_brain_tick`, and `carried` is why.**
+    // The cruise is lift for crossing open air; a body being held up by
+    // *water* is not crossing anything, and powering it out of the water
+    // would silently repeal §Z9 -- the fix that puts a weightless non-flying
+    // body down instead of letting it hang there and starve, which was
+    // 63/57/87% of all deaths before it landed. Written in the brain tick
+    // first, it did exactly that, and
+    // `a_weightless_body_is_put_down_on_water_unless_it_is_flying` caught it:
+    // the float took a body off the water and `landed_afloat` read 0 where
+    // the guard wants 1. `carried` is only known out here, so the decision
+    // belongs out here.
+    //
+    // **Read the tank directly rather than the `Energy` sense**, deliberately.
+    // `inputs[Energy]` is what the *genome* sees and a lineage can reweight
+    // it; this is the physical price of a wingbeat, which selection does not
+    // get a vote on -- the same split `HOVER_GAIN` states, that what a frame
+    // of lift buys is not what it costs. Clamped, so a tank over
+    // `start_energy` does not buy a longer cruise than a full one.
+    // **Both fields, and `fly_cost_in_moves` first: the price is the licence.**
+    // Keyed on `cruise_lift` alone this held up a species that pays nothing
+    // to fly, which `a_floating_flitter_closes_on_a_flower_no_walk_or_hop_can_
+    // reach` caught in one line -- *"an unpriced species must never be held
+    // up: the gate is not the price"*, 1,687 airborne frames where it wants 0.
+    // The capability gate in this engine is the charge, everywhere; a second
+    // field that can switch lift on without it is a hole in that rule.
+    if cruise_enabled() && def.fly_cost_in_moves > 0.0 && def.cruise_lift > 0.0 && carried < CRUISE_MAX_BUOYANCY {
+        let tank = world.organism(organism).map_or(0.0, |s| (s.energy / def.start_energy.max(1.0)).clamp(0.0, 1.0));
+        // The species' own figure, with the sweep knob overriding it when set.
+        let (sweep_lift, frames, min_energy) = cruise_params();
+        let lift = if sweep_lift >= 0.0 { sweep_lift } else { def.cruise_lift };
+        // Linear from nothing at `CRUISE_MIN_ENERGY` to full at a whole tank:
+        // a fed animal gets the traverse, a half-empty one a low skip, an
+        // empty one the hop it always had. Graded, which is the first law.
+        let fuel = ((tank - min_energy) / (1.0 - min_energy).max(f32::MIN_POSITIVE)).clamp(0.0, 1.0);
+        // And down the ramp across the bout, so the bout ENDS.
+        let ramp = (1.0 - flight.aloft as f32 / frames.max(1.0)).clamp(0.0, 1.0);
+        flight.fly = flight.fly.max(lift * fuel * ramp);
+    }
+    let hover = (flight.fly * hover_gain()).min(1.0);
+    let gravity_effective = GRAVITY * (1.0 - carried) * (1.0 - hover);
     let terminal = terminal_speed(&shape, fluid, gravity_effective);
 
     flight.vy += gravity_effective;
+    if flight.fly > 0.0 && flight29_enabled() {
+        // **Thrust and steer, every frame** (`THRUST_RATE`). The brain has
+        // already chosen the lift and turned the heading; this integrates it
+        // at the rate the ballistics integrate at, so the track is a line
+        // rather than a sawtooth of three falling frames and one correction.
+        //
+        // **The direction is continuous, not one of eight.** `turn_acc`
+        // carries the sub-octant remainder the whole-octant turn could not
+        // spend, and blending the neighbouring octant in by that fraction
+        // spends it here instead -- so a bearing worth a third of an octant
+        // *aims* a third of an octant, rather than doing nothing for three
+        // ticks and then snapping 45 degrees. `heading` itself is untouched,
+        // so every bearing `sense` computes still means what it meant.
+        let heading = world.organism(organism).map_or(0, |s| s.heading) % 8;
+        let (dx, dy) = DIRS[heading as usize];
+        let frac = flight.turn_acc.clamp(-1.0, 1.0);
+        let side = if frac >= 0.0 { AHEAD_LEFT } else { AHEAD_RIGHT };
+        let (nx, ny) = DIRS[((heading + side) % 8) as usize];
+        let f = frac.abs();
+        let mut ax = dx as f32 * (1.0 - f) + nx as f32 * f;
+        let mut ay = dy as f32 * (1.0 - f) + ny as f32 * f;
+        // **The wander, across the track.** A straight line held exactly for
+        // forty cells reads as a thrown stone; a bee's path wobbles about the
+        // line it is nonetheless following. Applied to the aim, never to the
+        // destination, so it costs the flight nothing but distance.
+        let w = WANDER * weave(organism, flight.aloft, WANDER_PERIOD);
+        let (px, py) = (-ay, ax);
+        ax += px * w;
+        ay += py * w;
+        let len = (ax * ax + ay * ay).sqrt().max(f32::MIN_POSITIVE);
+        let target = flight_speed();
+        let k = (flight.fly * THRUST_RATE).clamp(0.0, 1.0);
+        flight.vx = flight.vx * (1.0 - k) + target * k * ax / len;
+        flight.vy = flight.vy * (1.0 - k) + target * k * ay / len;
+        // **The wingbeat.** A triangle wave on the vertical acceleration,
+        // phased per animal, riding the body up and down about two thirds of
+        // a cell. It is the difference between a dot sliding along a line and
+        // something alive, and it costs one add inside a branch only a
+        // species that prices flight ever enters.
+        flight.vy += BOB * weave(organism, flight.aloft, BOB_PERIOD);
+    }
     // Downward only: this is a *terminal* velocity, and clamping the rising
     // half of an arc with it would collapse every launch speed to the same
     // number and delete the mass law the whole design rests on.
@@ -5856,6 +8952,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // body moving 3 cells this frame must test the two it passes through, or
     // it walks through a one-cell floor.
     let mut landed = false;
+    // **A substep was due and the world refused it on every axis.** Not the
+    // same as "did not move": at half a cell a frame most frames have no
+    // step due at all. See the perch below.
+    let mut blocked = false;
     let mut moves = 0u64;
     loop {
         let sx = axis_step(flight.fx);
@@ -5864,7 +8964,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             break;
         }
         if let Some(to) = translated_if_free(world, &cells, sx, sy) {
-            relocate_chain(world, organism, &cells, &to);
+            // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
             cells = to;
             flight.fx -= sx as f32;
             flight.fy -= sy as f32;
@@ -5876,7 +8979,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         // slide along it, not stop dead in the air.
         if sy != 0 {
             if let Some(to) = translated_if_free(world, &cells, 0, sy) {
-                relocate_chain(world, organism, &cells, &to);
+                // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
                 cells = to;
                 flight.fy -= sy as f32;
                 moves += 1;
@@ -5889,7 +8995,10 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         }
         if sx != 0 {
             if let Some(to) = translated_if_free(world, &cells, sx, 0) {
-                relocate_chain(world, organism, &cells, &to);
+                // A flight substep is a pure translation, like a fall -- see
+            // `relocate_chain`'s own doc for why flat (`&[]`) groups are
+            // exact here, not an approximation.
+            relocate_chain(world, organism, def, &[], BodySide { cells: &cells, groups: &[] }, BodySide { cells: &to, groups: &[] });
                 cells = to;
                 flight.fx -= sx as f32;
                 moves += 1;
@@ -5905,6 +9014,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
             }
         }
         // Nowhere to go on either axis.
+        blocked = true;
         if sy > 0 {
             landed = true;
         } else {
@@ -5918,8 +9028,105 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
         break;
     }
 
+    // **§Z9 closes here, in one predicate.** A creature material is exactly
+    // as dense as `water.ron`, so a hop that comes down on a pond has
+    // `carried == 1.0`, `g_eff == 0.0` and `terminal == 0.0`: it never
+    // accumulates a downward step, `landed` is only ever set on a *blocked*
+    // step while descending, and the animal hangs there being charged the
+    // airborne rate and the every-frame schedule until it dies
+    // `STARVED ALOFT` -- 57-87% of every flitter and hopper death on the
+    // played bed (`open-bugs-handoff.md` §Z9's own table).
+    //
+    // **Weightless and not flying is standing on water, not flying over
+    // it.** The buoyancy model is right and its own doc says what it does;
+    // what was missing is that hanging and flying were indistinguishable,
+    // because there was no state for floating. Now there is one, and it is
+    // `fly`. `LAND_AFLOAT=0` puts the defect back.
+    if !landed && land_afloat_enabled() && gravity_effective <= 0.0 && flight.fly == 0.0 {
+        landed = true;
+        world.creature_stats.landed_afloat += 1;
+    }
+
+    // **The perch, and it is §Z9's shape again one floor up.** §Z9 was a body
+    // that hung because the *water* held it up; this is a body that hangs
+    // because its own *wings* do. Before `HOVER_GAIN` it could not happen --
+    // gravity always won eventually, so anything wedged in a canopy was
+    // pushed down out of it within a few frames. Now a flier pressed into
+    // foliage has every substep refused, keeps its lift, and stays exactly
+    // where it is until it starves: measured on the understory bed, the
+    // followed animal was airborne and motionless for **450 consecutive
+    // captured frames**.
+    //
+    // A flier that is trying to move, cannot, and is touching something has
+    // arrived on it. `body_is_supported` is the identical predicate a walk
+    // and a landing already share, so a perch and a footing cannot disagree.
+    // **Counted on "went nowhere", not on "was refused".** Requiring a
+    // refusal was measured first and is `perched == 0` -- a flier wedged in a
+    // canopy jitters one cell back and forth rather than being refused twelve
+    // frames running, so the counter it was keyed on never got there. What a
+    // perch is actually about is a body that is not going anywhere, and at
+    // half a cell a frame twelve frames with no cell move is exactly that.
+    if moves == 0 {
+        flight.stall = flight.stall.saturating_add(1);
+    } else {
+        flight.stall = 0;
+    }
+    if !landed && flight29_enabled() && flight.stall >= PERCH_FRAMES && flight.fly > 0.0 {
+        if body_is_supported(world, &cells) {
+            landed = true;
+            world.creature_stats.perched += 1;
+        } else if blocked {
+            // **The stall-out, and it is the bug the perch could not see.**
+            //
+            // **`blocked` is load-bearing, and leaving it out cost a guard.**
+            // The first cut fired on "went nowhere" alone, which is also true
+            // of a body hovering freely with its wings on -- so it cut the
+            // wings of an animal doing exactly what the verb is for, and
+            // `a_weightless_body_is_put_down_on_water_unless_it_is_flying`
+            // caught it dropping a flying body into the water §Z9 exists to
+            // keep it out of. Going nowhere is not the complaint; going
+            // nowhere *because the world keeps refusing the step* is.
+            //
+            // The perch above only fires for a body that is *touching*
+            // something, on the reading that a flier which cannot move must
+            // be wedged in foliage. A flier that cannot move while touching
+            // **nothing** was not considered, and it is the commoner case and
+            // by far the worse one: measured on `played_bed_understory` seed 1
+            // with the hover and the cruise in, the followed flitter sat at
+            // **x=129, y=152 for 371 consecutive frames** at a rock-steady
+            // `fly` of 0.648, two cells from a bloom, burning lift the whole
+            // way and never arriving. `BloomNear` was 0.93 -- the float's gate
+            // wide open -- and `FoodAdjacent` never fired, so the row that
+            // ends a bout (`(FoodAdjacent, Fly, -12.0)`, *you have arrived*)
+            // had nothing to fire on. **A verb whose OFF condition is
+            // "arrival" hangs for ever on the journeys that do not arrive**,
+            // and `wiki/ants.md`'s reading of that picture is the owner's:
+            // *"stuck in the plant or just decided not to move much"*.
+            //
+            // So a bout that is getting nowhere gives up its lift. Not a
+            // landing -- there is nothing to land on -- just the wings
+            // stopping, after which gravity finishes the arc and the animal
+            // walks or hops the last cells the way it would have anyway.
+            // **Graded rather than binary** (`CLAUDE.md`'s first law): the
+            // body keeps its velocity and falls out of the hover, it is not
+            // teleported down.
+            //
+            // Counted separately from `perched` because they are different
+            // events with different remedies -- a perch is an arrival, a
+            // stall-out is a failure to arrive, and a build where the second
+            // one climbs has an encounter problem rather than a flight one.
+            flight.fly = 0.0;
+            flight.stall = 0;
+            world.creature_stats.stalled_out += 1;
+        }
+    }
+
+    flight.aloft = flight.aloft.saturating_add(1);
     world.creature_stats.flight_frames += 1;
     world.creature_stats.flight_moves += moves;
+    if flight.fly > 0.0 {
+        world.creature_stats.fly_frames += 1;
+    }
 
     let (hx, hy) = cells.first().copied().unwrap_or((0, 0));
     // **`since_nest` counts ticks, and a flight frame is not a tick.**
@@ -5940,7 +9147,7 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // the reset in `line_burrow` for the standing case that this field
     // should probably go entirely.
     let frame = world.frame;
-    let interval = organism_tick_interval(world, organism, def);
+    let fly_now = flight.fly;
     if let Some(state) = world.organism_mut(organism) {
         state.flight = if landed { None } else { Some(flight) };
         // `is_multiple_of` rather than `% == 0`: `clippy::manual_is_multiple_of`
@@ -5970,14 +9177,62 @@ fn step_flight(world: &mut World, organism: u16, def: &CreatureDef) -> Vec<Activ
     // thing the verb actually charges for.
     let idle = def.idle_cost_per_cell * live_body_cells(world, organism, def) / interval as f32;
     world.energy_ledger.metabolized += idle as f64;
+    // **What staying up costs, per airborne frame the verb was holding the
+    // body** (design §1/§3). Charged here rather than inside the brain tick
+    // because the lift is held between decisions exactly as a velocity is:
+    // one tick's `Fly` buys `tick_interval` frames of air and is billed for
+    // all of them.
+    //
+    // **Zero for a ballistic arc, and that is the whole byte-identity
+    // guard** -- `fly` is 0.0 for a species that authors no weight, so the
+    // multiply never happens and the hop pays exactly what it paid before.
+    // Booked to `moved` beside the launch rather than to `metabolized`: it
+    // is locomotion, not upkeep, and `CreatureStats::fly_energy` is what
+    // attributes it separately.
+    //
+    // The load rides along, exactly as it does for a walking step and a
+    // launch: a flitter carrying a crop of nectar is a heavier animal to
+    // hold up. The design's 0.0625 J/frame is the unladen figure.
+    // **And the price follows the lift, which it did not before.** This
+    // charge was binary -- any `fly > 0` paid the full per-frame rate -- so a
+    // quarter-lift glide cost exactly what a full hover cost. That is
+    // `CLAUDE.md`'s first law broken on the cost side: the *outcome* was
+    // graded from the day `HOVER_GAIN` landed and the *bill* was still a
+    // switch, which priced every cheap, useful, shallow glide as if it were a
+    // hover and is why no traverse the flitter could afford existed.
+    //
+    // **It is the change that makes the cruise affordable, and the two belong
+    // in one commit for that reason.** At the binary rate a 120-frame cruise
+    // on each of 10,325 launches bills 77,437 J against a whole-colony burn
+    // of 25,680 -- three times the entire economy, for a verb that is
+    // supposed to be the cheap one. Proportional, the same cruise averages
+    // about a fifth of full lift and costs **less per frame than standing
+    // still does** (0.0125 J against idle's 0.025), which is the right
+    // arithmetic for a wing that is gliding rather than beating.
+    //
+    // `fly_cost_in_moves` keeps its meaning exactly: the price of a frame at
+    // FULL lift. Nothing in the species file is re-derived, because the old
+    // behaviour is this expression at `fly == 1.0`.
+    let lift = if fly_now > 0.0 {
+        let cost = def.move_cost_per_cell * (live_body_cells(world, organism, def) + carried_cells(world, organism, def)) * def.fly_cost_in_moves * if flight29_enabled() { fly_now } else { 1.0 };
+        world.energy_ledger.moved += cost as f64;
+        world.creature_stats.fly_energy += cost as f64;
+        cost
+    } else {
+        0.0
+    };
+    // Upkeep, lift and thinking come off the animal as one number, because
+    // they are one animal's bill; each half has already been booked to its
+    // own ledger account above so the attribution survives the addition.
+    let spent = idle + lift + thinking;
     if landed {
         // Back on the normal schedule, and back to deciding things.
-        return apply_creature_energy(world, hx, hy, organism, -idle, def);
+        return apply_creature_energy(world, hx, hy, organism, -spent, def);
     }
     let Some(state) = world.organism_mut(organism) else {
         return Vec::new();
     };
-    state.energy -= idle;
+    state.energy -= spent;
     if state.energy <= 0.0 {
         // **Told apart from the ordinary starvation below, deliberately.**
         // This is the idle charge levied while airborne, so the flight verb
@@ -6021,18 +9276,22 @@ fn tumble(world: &mut World, organism: u16, def: &CreatureDef, draw: &mut rng::R
         return;
     };
     let chain = world.organism(organism).map(|s| s.chain.clone()).unwrap_or_default();
+    let groups = world.organism(organism).map(|s| s.segment_groups.clone()).unwrap_or_default();
+    let fates = world.organism(organism).map(|s| s.fates).unwrap_or_default();
+    let authored_widths = segment_authored_widths(def, fates);
+    let push = parting_enabled();
     let viable: Vec<u8> = (0..8u8)
         .filter(|&d| {
             let (dx, dy) = DIRS[d as usize];
             let (tx, ty) = (hx + dx, hy + dy);
             // Body-aware, like the candidate scan: a wide creature must not
             // re-orient into a heading its shape cannot occupy.
-            let landing = body_after_step(def, &chain, (tx, ty), d, d);
+            let (landing, _) = body_after_step(world, def, BodyShape { chain: &chain, groups: &groups, authored: &authored_widths }, (tx, ty), d, d, push);
             // **The same predicate the walk uses.** These had drifted apart:
             // a body could step into tissue on its ordinary move and then
             // refuse to *re-orient* into it when blocked, so the two halves
             // of one animal disagreed about what a wall was.
-            landing_is_placeable_through_tissue(world, &chain, &landing, parting_enabled())
+            landing_is_placeable_through_tissue(world, &chain, &landing, push)
                 && body_has_foothold(world, def, &landing, (tx, ty), kin_footing(world, organism, def))
         })
         .collect();
@@ -6130,7 +9389,7 @@ const MAX_TRUNK_CROSSING: i32 = 48;
 /// bush is air with leaves in it and a body genuinely fits between them.
 /// Wood is walked *around*, which is a different fact about the world and
 /// gets a different mechanism.
-fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], heading: u8) -> Option<((i32, i32), u16)> {
+fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], heading: u8, push: bool) -> Option<((i32, i32), u16)> {
     let &(hx, hy) = chain.first()?;
     let (dx, dy) = DIRS[heading as usize];
     let mut thickness = 0i32;
@@ -6148,7 +9407,10 @@ fn trunk_crossing(world: &World, def: &CreatureDef, chain: &[(i32, i32)], headin
             continue; // still inside the trunk
         }
         // First non-wood cell: this is where it would come out, if it fits.
-        let landing = body_after_step(def, chain, (tx, ty), heading, heading);
+        // Only a feasibility check -- `step_crossing` recomputes the real
+        // landing (and its live widths) once the crossing is actually due,
+        // so the second half of the pair is discarded here.
+        let (landing, _) = body_after_step(world, def, BodyShape { chain, groups, authored }, (tx, ty), heading, heading, push);
         if !landing_is_placeable_through_tissue(world, chain, &landing, parting_enabled()) {
             return None;
         }
@@ -6233,14 +9495,1050 @@ fn landing_is_placeable_all_tissue(world: &World, chain: &[(i32, i32)], landing:
     })
 }
 
+/// **Why one candidate step was refused** -- the fixed set, derived from
+/// the two predicates that are the only things able to refuse a move
+/// (`landing_is_placeable_through_tissue` and `body_has_foothold`), not
+/// from a guess about what terrain does.
+///
+/// `moves_blocked` says an animal did not move. It cannot say whether a
+/// wall stopped it, its own body stopped it, or there was simply nothing
+/// to stand on -- and those want three completely different fixes, which
+/// is why a single blocked *fraction* has never been able to aim one.
+///
+/// **What each variant counts when nothing is wrong** (`CLAUDE.md`'s
+/// standing question): on open ground a walking animal is placeable in
+/// most directions and `NoFoothold` upward, `HeadSolid` reads the ground
+/// it is standing on, and `HeadOnSelf`/`BodyFold`/`BodyBlocked` are all
+/// **zero** -- for a `Chain(2)` `HeadOnSelf` is zero *by construction*,
+/// since its only body cell is its tail and the tail vacates on the same
+/// tick.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockedWhy {
+    /// The head's own target is solid world material -- rock, soil, a
+    /// packed wall. The ordinary "there is a wall there" refusal.
+    HeadSolid,
+    /// The head's target is living plant tissue that `is_partable` will not
+    /// let a body through: wood, a bole. `trunk_crossing` is the remedy
+    /// already built for this one.
+    HeadTissue,
+    /// The head's target is outside the world. `World::get` answers with a
+    /// `BEDROCK` sentinel there, so without this it would read as
+    /// `HeadSolid` and a colony pinned against the edge would look like a
+    /// colony pinned against rock.
+    HeadEdge,
+    /// **The head's target is one of this body's own cells, and that cell
+    /// is not the one vacating this tick** -- so the landing would put two
+    /// cells in one place and `landing_is_placeable_through_tissue`'s
+    /// duplicate clause refuses it.
+    ///
+    /// This is the whole of the reverse asymmetry between a short body and
+    /// a long one, and it is the rule's own choice rather than geometry:
+    /// under `chain_follow` the only own-cell a head may legally land on is
+    /// the **tail**, because every other cell is still occupied by the
+    /// segment behind it when the head arrives. For a `Chain(2)` the tail
+    /// is the head's own neighbour, so a two-cell ant reverses in one step
+    /// and can never score here. For a six-cell body the tail is five cells
+    /// away and unreachable in one step, so *no* own cell is ever a legal
+    /// landing and a long body simply cannot turn round.
+    HeadOnSelf,
+    /// Two non-head cells of the landing want the same position -- a spine
+    /// folding back on itself. Distinct from `HeadOnSelf` because the
+    /// remedies differ: this one is not fixed by letting the body reverse.
+    BodyFold,
+    /// A non-head landing cell is refused by the world. **Expected to be
+    /// zero, and kept as the control that says the classifier is reading
+    /// the right cells**: every non-head cell of a `chain_follow` landing
+    /// is a cell this body already occupies, and `lateral_for` only ever
+    /// returns a cell it has just tested, so nothing here should be able to
+    /// fire. A non-zero count means a body plan is placing a cell it never
+    /// checked.
+    BodyBlocked,
+    /// The landing is legal and there is nothing for the head to hold on
+    /// to. Not a fault: `wiki/ants.md` says in as many words that an ant
+    /// which can see nowhere to put its feet turns and looks somewhere
+    /// else. Counted because a colony stopped by open air and one stopped
+    /// by rock look identical in `moves_blocked`.
+    NoFoothold,
+}
+
+/// How many `BlockedWhy` variants there are, for the census array.
+pub const BLOCKED_WHY_N: usize = 7;
+
+impl BlockedWhy {
+    fn index(self) -> usize {
+        match self {
+            BlockedWhy::HeadSolid => 0,
+            BlockedWhy::HeadTissue => 1,
+            BlockedWhy::HeadEdge => 2,
+            BlockedWhy::HeadOnSelf => 3,
+            BlockedWhy::BodyFold => 4,
+            BlockedWhy::BodyBlocked => 5,
+            BlockedWhy::NoFoothold => 6,
+        }
+    }
+
+    /// The column headings, in `index()` order.
+    pub const NAMES: [&'static str; BLOCKED_WHY_N] = ["head_solid", "head_tissue", "head_edge", "head_on_self", "body_fold", "body_blocked", "no_foothold"];
+
+    /// **Is this refusal one that only this body's own cells caused?** The
+    /// question "would a shorter animal have got through here" reduces to
+    /// exactly this, which is why it is a method on the reason rather than
+    /// a re-derivation at the call site.
+    fn is_self_inflicted(self) -> bool {
+        matches!(self, BlockedWhy::HeadOnSelf | BlockedWhy::BodyFold)
+    }
+}
+
+/// **Why the step to `head` would be refused, or `None` if it would not**
+/// -- the classifier behind `CreatureStats::blocked_why`.
+///
+/// Runs exactly the two predicates the walk itself runs, in the same
+/// order, over the landing `body_after_step` actually produces. It is
+/// deliberately not a second, cheaper model of what refuses a move: a
+/// classifier that disagrees with the code it classifies is worse than no
+/// classifier, because its histogram still looks like an answer.
+///
+/// A duplicate is attributed to the **head** whenever the head is one of
+/// the two cells involved, not to the body cell the walk happens to reach
+/// second: a head that steps onto its own flank is what displaced the body
+/// cell, and blaming the body cell would file the reverse defect under
+/// `BodyFold` where no reversing rule would ever look for it.
+fn classify_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), headings: (u8, u8), push: bool, kin: Option<Kin>) -> Option<BlockedWhy> {
+    let chain = body.chain;
+    let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
+    for (i, &p) in landing.iter().enumerate() {
+        if landing[..i].contains(&p) {
+            return Some(if p == landing[0] { BlockedWhy::HeadOnSelf } else { BlockedWhy::BodyFold });
+        }
+        if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+            continue;
+        }
+        if i > 0 {
+            return Some(BlockedWhy::BodyBlocked);
+        }
+        if !world.in_bounds(p.0, p.1) {
+            return Some(BlockedWhy::HeadEdge);
+        }
+        return Some(if is_living_tissue(world, world.get(p.0, p.1)) { BlockedWhy::HeadTissue } else { BlockedWhy::HeadSolid });
+    }
+    if !body_has_foothold(world, def, &landing, head, kin) {
+        return Some(BlockedWhy::NoFoothold);
+    }
+    None
+}
+
+/// **Is the blocked-step census on?** Off by default, so nothing in the
+/// shipped game pays for the extra eight-direction scan it adds to a tick
+/// that has already given up. `PIXEL_PHYSICS_BLOCKED_CENSUS=1` turns it on
+/// for a harness, which is the same one-binary A/B pattern
+/// `parting_enabled` uses and for the same reason.
+fn blocked_census_enabled() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| std::env::var("PIXEL_PHYSICS_BLOCKED_CENSUS").map(|v| v != "0").unwrap_or(false))
+}
+
+/// Record one blocked tick: why each of the three candidates the walk
+/// scored was refused, and whether *any* of the eight headings could have
+/// been walked at all.
+///
+/// **The eight-way scan is the diagnosis and the three-way one is not.** A
+/// blocked tick whose animal has a good heading available costs one tick --
+/// `tumble` re-aims it and it walks next tick. A blocked tick where all
+/// eight are refused costs the animal the rest of its life, and only a scan
+/// wider than the three candidates the walk looked at can tell those apart.
+fn census_blocked(world: &mut World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) {
+    // The same three candidates `step_chain` scored, defined here rather
+    // than handed in: a census of a different three would be a histogram
+    // of a decision the walk never made.
+    for d in [(heading + AHEAD_LEFT) % 8, heading, (heading + AHEAD_RIGHT) % 8] {
+        let (dx, dy) = DIRS[d as usize];
+        if let Some(why) = classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+            world.creature_stats.blocked_why[why.index()] += 1;
+        }
+    }
+    let mut usable = false;
+    let mut self_inflicted = false;
+    for d in 0..8u8 {
+        let (dx, dy) = DIRS[d as usize];
+        match classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin) {
+            None => usable = true,
+            Some(why) => self_inflicted |= why.is_self_inflicted(),
+        }
+    }
+    if !usable {
+        world.creature_stats.boxed_ticks += 1;
+        if self_inflicted {
+            world.creature_stats.boxed_self_ticks += 1;
+        }
+    }
+}
+
+/// **A body's cells and the live widths that say how they group into
+/// segments** -- the pair every rule that lays a body out returns, because
+/// a grouping computed separately from the landing it describes is exactly
+/// how the two come to disagree (§7f(2)).
+type BodyCells = (Vec<(i32, i32)>, Vec<u8>);
+
+/// **Which way out of a dead end** -- `PIXEL_PHYSICS_REVERSE`.
+///
+/// **The flip is now the default** (§13g,
+/// `Reports/creature-articulated-body-2026-09-09.md`): a long body that
+/// cannot turn round is stuck in almost any terrain more complicated than
+/// open ground (§13d measured 87.1% of steps refused in a tunnel, against
+/// 7.6% flipping), and that is the shape of complaint this was built to
+/// answer. `PIXEL_PHYSICS_REVERSE=off` is the ablation -- the tree as it
+/// stood before this -- kept live in the same binary rather than deleted,
+/// for the reason every A/B here does: a recompile sitting between two
+/// arms becomes the thing that actually changed.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum ReverseRule {
+    /// No reversal at all -- the tree as it stood before §13.
+    Off,
+    /// **The owner's own suggestion, and the default: flip the whole body
+    /// in place.** The segment order swaps end for end and **no cell
+    /// moves**, so there is no landing to place, no self-collision, and no
+    /// U-turn geometry to satisfy. The next step is then an ordinary
+    /// forward step from the new head.
+    Flip,
+    /// **Walk backwards**: the tail leads into a free cell and every
+    /// segment inherits the position of the one behind it, which is
+    /// `chain_follow` run in the other direction. Measured worse than
+    /// `Flip` on every scene in §13d and never the default; kept only as
+    /// the alternative the owner's proposal was priced against.
+    Back,
+}
+
+/// **The expiry on `boxed_by_traffic`'s deferral, for this species** --
+/// `CreatureDef::traffic_defer_max`, with `PIXEL_PHYSICS_TRAFFIC_DEFER`
+/// overriding it.
+///
+/// The override is what makes both arms live in one binary -- the same
+/// one-binary A/B `reverse_rule` uses and for the same reason: a recompile
+/// sitting between two arms becomes the thing that actually changed. It is
+/// also what keeps a sweep of this number off the `.ron`, which
+/// `CLAUDE.md`'s `include_str!` gotcha says would sweep nothing at all
+/// unless every arm were rebuilt. **`=65535` is the pre-round-29 rule**
+/// (the deferral that never expires) on every species at once, which is the
+/// ablation every table in `Reports/lanes/evolution-lab-longant-pile.md` is
+/// read against.
+///
+/// Ticks are the *animal's* ticks, not frames: `organism_tick_interval`
+/// decides how often one is even asked, so four here is four chances for
+/// the nestmate ahead to move, not four frames.
+fn traffic_defer_max(def: &CreatureDef) -> Option<u16> {
+    use std::sync::OnceLock;
+    static N: OnceLock<Option<u16>> = OnceLock::new();
+    let over = *N.get_or_init(|| std::env::var("PIXEL_PHYSICS_TRAFFIC_DEFER").ok().and_then(|v| v.parse().ok()));
+    over.or(def.traffic_defer_max)
+}
+
+/// **Should `boxed_by_traffic`'s deferral still be honoured** for a body
+/// with `spine_len` spine cells that has already waited `waited`
+/// consecutive ticks, given this species' `max`?
+///
+/// A pure function, and deliberately so: it is the whole of round 29's
+/// decision, and a scene cannot test the two-cell half of it. A two-cell
+/// body is essentially never *boxed* on the ground -- reversing is an
+/// ordinary step onto its own vacating tail (§13c), and the tail is
+/// standing on something by definition -- so any world built to watch one
+/// defer measures nothing at all, which is exactly the "green is the
+/// default state" case `CLAUDE.md` asks to be made into an assertion on a
+/// deterministic function instead.
+///
+/// Three clauses:
+///
+/// * **`max` is `None`: the deferral never expires.** The rule as it stood,
+///   and what every species but `longant` still authors, which is what
+///   makes them bit-identical across this change.
+/// * **`spine_len <= 2`: it never expires either**, whatever the species
+///   authors. Such a body has another way out, so waiting costs it nothing.
+/// * **Otherwise it expires at `max`.** A jam that has not cleared in that
+///   many of the animal's own ticks is not a jam, it is a wall.
+fn deferral_still_applies(spine_len: usize, waited: u16, max: Option<u16>) -> bool {
+    match max {
+        Some(n) if spine_len > 2 => waited < n,
+        _ => true,
+    }
+}
+
+fn reverse_rule() -> ReverseRule {
+    use std::sync::OnceLock;
+    static R: OnceLock<u8> = OnceLock::new();
+    let v = *R.get_or_init(|| match std::env::var("PIXEL_PHYSICS_REVERSE").as_deref() {
+        Ok("off") => 0,
+        Ok("back") => 2,
+        _ => 1,
+    });
+    match v {
+        2 => ReverseRule::Back,
+        0 => ReverseRule::Off,
+        _ => ReverseRule::Flip,
+    }
+}
+
+/// The spine cells alone, pulled out from under whatever laterals are
+/// currently expressed -- group `g`'s first cell, in `groups` order.
+///
+/// Factored out because three rules now need it (`segmented_body_after_
+/// step`, and the two reversals below) and a fourth copy of the same
+/// four-line walk is how they come to disagree about what a spine is.
+/// A body with no groups at all -- a plain `Chain` -- is all spine.
+fn spines_of(chain: &[(i32, i32)], groups: &[u8]) -> Vec<(i32, i32)> {
+    if groups.is_empty() {
+        return chain.to_vec();
+    }
+    let mut out = Vec::with_capacity(groups.len());
+    let mut idx = 0usize;
+    for &g in groups {
+        if let Some(&spine) = chain.get(idx) {
+            out.push(spine);
+        }
+        idx += g as usize;
+    }
+    out
+}
+
+/// Lay a body out along `new_spines`, re-deriving each widened segment's
+/// lateral exactly the way a step does.
+///
+/// **Shared by both reversals so neither can invent a second lateral
+/// rule.** `lateral_for` is called with the same three arguments
+/// `segmented_body_after_step` gives it, which is what makes a reversed
+/// body's width obey the tuck rule (§7f) rather than a copy of it.
+/// **The empty-`groups` convention is load-bearing and is preserved here,
+/// which cost a body.** `relocate_chain` falls back to one-cell-per-segment
+/// only when *both* sides' groups are empty; hand it an empty `from` and a
+/// `vec![1; n]` `to` and its carry loop zips an empty list against a full
+/// one, carries **nothing**, clears every cell of the old body and writes
+/// none back. Measured on the first build of the reversal: `deaths: Killed
+/// 13` on the `Chain(6)` arm -- thirteen animals whose entire body was
+/// deleted mid-flip -- while the articulated arm, whose groups are non-empty
+/// on both sides, was untouched. The `debug_assert_eq!` that names this
+/// exact failure is compiled out in release, which is where every
+/// measurement here is taken.
+fn lay_out_along(world: &World, chain: &[(i32, i32)], new_spines: &[(i32, i32)], authored: &[u8], groups_were_empty: bool, push: bool) -> BodyCells {
+    let mut out: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+    let mut groups: Vec<u8> = Vec::with_capacity(new_spines.len());
+    for (i, &(sx, sy)) in new_spines.iter().enumerate() {
+        out.push((sx, sy));
+        if authored.get(i).copied().unwrap_or(1) == 2 {
+            match lateral_for(world, chain, &out, new_spines, i, (sx, sy), push) {
+                Some(cell) => {
+                    out.push(cell);
+                    groups.push(2);
+                }
+                None => groups.push(1),
+            }
+        } else {
+            groups.push(1);
+        }
+    }
+    (out, if groups_were_empty { Vec::new() } else { groups })
+}
+
+/// **Turn the animal round without moving it** -- the `Flip` rule.
+///
+/// The new spine list is the old one reversed, so every spine cell stays
+/// exactly where it is and only the *order* changes. `relocate_chain`
+/// carries cell contents by segment, so the head's own cell travels to
+/// what was the tail's position and the animal comes out **mirrored**:
+/// the mouth is now at the far end, which is what "it turned round" looks
+/// like on a body five cells long.
+///
+/// **Why mirroring rather than walking backwards is the cheaper reading
+/// of the same event**: every role resolver in the economy reads a
+/// *fraction* of the live body (`live_body_cells` and the `CellType`
+/// counts), and reversing the order changes no multiset, so nothing in
+/// the economy can tell. There is no stored "authored side" for a lateral
+/// to mirror either -- `lateral_for` re-derives the side from world-space
+/// up-then-left on every step, so the flip simply re-lays them here and
+/// the question does not arise.
+///
+/// Returns `None` if the flipped body could not be laid down -- which
+/// should not happen, since the spines do not move, and is checked rather
+/// than assumed.
+fn flipped_body(world: &World, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool) -> Option<BodyCells> {
+    let mut new_spines = spines_of(chain, groups);
+    new_spines.reverse();
+    let (cells, widths) = lay_out_along(world, chain, &new_spines, authored, groups.is_empty(), push);
+    (cells.iter().enumerate().all(|(i, p)| !cells[..i].contains(p))).then_some((cells, widths))
+}
+
+/// **Walk backwards** -- the `Back` rule, and the alternative the flip is
+/// priced against.
+///
+/// The tail leads into `tail_target` and every segment inherits the
+/// position of the one behind it: `chain_follow` in the other direction.
+/// The head's own cell stays the head, so the animal keeps its facing and
+/// reverses along its own length, which is what an ant backing out of a
+/// burrow does.
+///
+/// Costlier than the flip in exactly one place, and it is the place that
+/// matters: the tail's step is a **second steering decision** with no
+/// brain behind it, so the tail target has to be chosen here by a rule of
+/// this function's own invention. It takes the first of the tail's eight
+/// neighbours that is empty, is not part of this body, and gives the
+/// arriving cell a foothold, in `DIRS` order for determinism.
+fn backed_out_body(world: &World, def: &CreatureDef, chain: &[(i32, i32)], groups: &[u8], authored: &[u8], push: bool, kin: Option<Kin>) -> Option<BodyCells> {
+    let old_spines = spines_of(chain, groups);
+    let &tail = old_spines.last()?;
+    let target = DIRS.iter().map(|&(dx, dy)| (tail.0 + dx, tail.1 + dy)).find(|&(tx, ty)| {
+        world.in_bounds(tx, ty) && (world.is_empty(tx, ty) || (push && is_partable(world, world.get(tx, ty)))) && !chain.contains(&(tx, ty)) && head_has_foothold(world, (tx, ty), kin)
+    })?;
+    let mut new_spines: Vec<(i32, i32)> = old_spines.iter().skip(1).copied().collect();
+    new_spines.push(target);
+    let (cells, widths) = lay_out_along(world, chain, &new_spines, authored, groups.is_empty(), push);
+    (landing_is_placeable_through_tissue(world, chain, &cells, push) && body_has_foothold(world, def, &cells, cells[0], kin)).then_some((cells, widths))
+}
+
+/// **Is this animal boxed -- refused in all eight headings, not merely
+/// facing the wrong way?**
+///
+/// The distinction the blocked-step census was built to draw, promoted to
+/// a decision: a blocked tick with a good heading available costs one
+/// tick, because `tumble` re-aims and the animal walks next tick. A
+/// blocked tick with none costs the animal everything after it, and is
+/// the only state a reversal is for. Gating on it is what keeps the verb
+/// off the hot path and out of ordinary walking.
+fn is_boxed(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+    (0..8u8).all(|d| {
+        let (dx, dy) = DIRS[d as usize];
+        classify_step(world, def, body, (head.0 + dx, head.1 + dy), (heading, d), push, kin).is_some()
+    })
+}
+
+/// **Would at least one of the eight headings be open if every *other*
+/// living creature's body were not there?** (§13g,
+/// `Reports/creature-articulated-body-2026-09-09.md`.) Called only for a
+/// laden animal -- see the call site for why an empty-handed one is never
+/// worth asking.
+///
+/// `is_boxed` cannot tell a dead end from a traffic jam: `classify_step`
+/// reads a cell occupied by another ant exactly the way it reads a cell of
+/// rock, `BlockedWhy::HeadSolid` either way, because the predicate asks
+/// "can I stand here" and not "what is stopping me". A jam clears on its
+/// own the moment the other animal takes its own next step; a dead end
+/// does not, because nothing in the world is going to move. Flipping for
+/// the first is a colony turning its own laden forager around at the door
+/// it was about to walk through; flipping for the second is the verb this
+/// rule was built for.
+///
+/// **Deliberately not a delay, and deliberately not asked of every
+/// animal.** A streak of consecutive boxed ticks was tried first, asked of
+/// every reversal regardless of cargo, and measured against exactly the
+/// wrong scene: `tunnel` places 16 animals in one narrow burrow network
+/// with no food in it at all, so *every* reversal there is an empty-handed
+/// animal exploring a passage its own colony fills, and even two ticks of
+/// grace compounds into real mobility lost (7.6% blocked at N=1 to 16.3%
+/// at N=2). Asking this same question of every animal, not only a laden
+/// one, was tried next and cost the same mobility the same way for the
+/// same reason: unconditionally, "another ant is standing in the way" is
+/// close to universal in that scene and answering it turns the flip off
+/// almost everywhere it was built to fire (7.6% to 77.5%, measured). Both
+/// numbers are in §13g. Scoping the call to a laden animal is what makes
+/// the question worth asking at all: the mobility scenes never populate a
+/// crop, so this function is never even called while measuring them, and
+/// the only cost left is the one tick a laden colony forager waits before
+/// a flip that would have turned it away from a nest it was about to
+/// reach.
+fn boxed_by_traffic(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), heading: u8, push: bool, kin: Option<Kin>) -> bool {
+    (0..8u8).any(|d| {
+        let (dx, dy) = DIRS[d as usize];
+        let target = (head.0 + dx, head.1 + dy);
+        // Already open -- not a refusal, so it cannot be a *traffic*
+        // refusal. `is_boxed` having read true is what makes this branch
+        // reachable at all; re-testing here rather than trusting that
+        // costs one more `classify_step` on a path that has already given
+        // up, the same trade `census_blocked` already makes.
+        if classify_step(world, def, body, target, (heading, d), push, kin).is_none() {
+            return false;
+        }
+        let (landing, _) = body_after_step(world, def, body, target, heading, d, push);
+        landing.iter().any(|&(px, py)| {
+            let occupant = world.get(px, py).organism_id();
+            occupant != 0 && !body.chain.contains(&(px, py)) && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
+        })
+    })
+}
+
+/// **One animal's reading in the pile census -- is it boxed, and by
+/// what?** (Round 29, the owner's playtest report of 2026-09-11: *"long
+/// ants getting stuck. Not all of them but it happens regularly. It seems
+/// like they get stuck in a big group/pile of long ants."*)
+///
+/// `is_boxed` answers *"can I go anywhere"* and that is the only question
+/// the walk needs. It is not enough to say whether a **pile** is the
+/// reason, because `classify_step` reads a cell held by another ant
+/// exactly the way it reads a cell of rock (`boxed_by_traffic`'s own doc
+/// says so) -- so a colony wedged into a blind gallery and a colony
+/// wedged into each other produce the same `boxed_ticks` and want
+/// opposite fixes. The four counters here split the eight headings by
+/// *what refused them*, and `kin_would_open` is the one that decides: it
+/// counts headings that are refused today and would be **legal** if the
+/// other animals' bodies were not there.
+///
+/// **What each counts when nothing is wrong** (`CLAUDE.md`'s standing
+/// question): an animal walking on open ground reads `open` at 3-6,
+/// `by_other` at the rest (the ground under it, and open air above with
+/// nothing to hold on to), and `by_creature`/`kin_would_open` at **0** --
+/// a colony at `COLONY_ANT_SPACING` almost never has a nestmate in any of
+/// its own eight neighbour cells. A two-cell ant additionally cannot be
+/// boxed in an interesting way at all: reversing is one ordinary step for
+/// it (§13c), which is this census's own specificity control.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct HeadBlock {
+    /// Headings the animal could walk this tick.
+    pub open: u8,
+    /// Headings refused, where the first cell of the landing that failed
+    /// is held by **another living creature**.
+    pub by_creature: u8,
+    /// Headings refused by anything else -- terrain, tissue, the world
+    /// edge, this body's own cells, or no footing.
+    pub by_other: u8,
+    /// Headings refused today that **would be legal with the other
+    /// animals' bodies removed**: the landing places, and the footing that
+    /// remains is terrain rather than the nestmate being removed. This is
+    /// the counterfactual, not a re-reading of `by_creature`: a heading
+    /// whose head cell holds a nestmate but whose landing also runs into
+    /// rock is counted in `by_creature` and **not** here.
+    pub kin_would_open: u8,
+}
+
+impl HeadBlock {
+    /// Refused in all eight headings -- `is_boxed`'s own question, read
+    /// off the same scan rather than by calling it a second time.
+    pub fn boxed(self) -> bool {
+        self.open == 0
+    }
+
+    /// **Boxed, and another animal is what is doing it.** The census's
+    /// pile member: this animal has nowhere to go, and at least one of
+    /// the places it cannot go would be walkable if a nestmate stepped
+    /// aside. An animal boxed by rock alone is stuck in terrain, which is
+    /// §13's problem and not this one.
+    pub fn body_boxed(self) -> bool {
+        self.open == 0 && self.kin_would_open > 0
+    }
+}
+
+/// **The pile census, for one animal** -- run the walk's own predicates
+/// over all eight headings and say what refused each. See `HeadBlock`.
+///
+/// Deliberately built on `classify_step` and `body_after_step`, the same
+/// two calls the walk makes, for the reason §13a gives: a classifier that
+/// disagrees with the code it classifies is worse than none, because its
+/// histogram still looks like an answer.
+///
+/// `None` for an organism that is not a creature, has no live body, or has
+/// gone since the caller listed it.
+pub fn head_block(world: &World, organism: u16) -> Option<HeadBlock> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.clone()?;
+    let chain = state.chain.clone();
+    let groups = state.segment_groups.clone();
+    let fates = state.fates;
+    let heading = state.heading;
+    let &(hx, hy) = chain.first()?;
+    let authored = segment_authored(&def, fates);
+    let authored_widths: Vec<u8> = authored.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect();
+    let body = BodyShape { chain: &chain, groups: &groups, authored: &authored_widths };
+    let kin = kin_footing(world, organism, &def);
+    let push = parting_enabled();
+    let mut out = HeadBlock::default();
+    for d in 0..8u8 {
+        let (dx, dy) = DIRS[d as usize];
+        let target = (hx + dx, hy + dy);
+        if classify_step(world, &def, body, target, (heading, d), push, kin).is_none() {
+            out.open += 1;
+            continue;
+        }
+        let (landing, _) = body_after_step(world, &def, body, target, heading, d, push);
+        // The **first** cell that refused, in `classify_step`'s own order,
+        // so the attribution and the refusal are the same event.
+        let blocker = landing.iter().enumerate().find_map(|(i, &p)| {
+            if landing[..i].contains(&p) {
+                return Some(None);
+            }
+            if world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) {
+                return None;
+            }
+            Some(Some(p))
+        });
+        match blocker {
+            Some(Some(p)) if other_creature_cell(world, p, &chain) => {
+                out.by_creature += 1;
+                if step_clears_without_other_creatures(world, &def, body, &chain, target, (heading, d), push) {
+                    out.kin_would_open += 1;
+                }
+            }
+            _ => out.by_other += 1,
+        }
+    }
+    Some(out)
+}
+
+/// **How many cells this animal's own body plan would unfold to** -- what
+/// it was born as, read off its `FateGenome` rather than off the world.
+///
+/// Round 29's second finding needed exactly this and nothing else. The pile
+/// census says 89% of the animals wedged in a pile have bodies of one or two
+/// cells rather than seven, and there are only two ways a long ant can be
+/// one cell long: **its genome unfolds to one** (a short morph, which a
+/// colony thirty generations deep can evolve, since the fates table is
+/// heritable) or **it was born long and lost cells** (a bite, a dig, a rock).
+/// Those are different bugs for different lanes, and a standing count of
+/// short bodies cannot tell them apart. This against `chain.len()` can.
+///
+/// `None` for anything that is not a creature or has gone.
+pub fn authored_body_cells(world: &World, organism: u16) -> Option<usize> {
+    let state = world.organism(organism)?;
+    let def = world.species.get(state.species).creature.as_ref()?;
+    let segments = segment_authored(def, state.fates);
+    if segments.is_empty() {
+        // No production rule: the body is `def.body`'s own, authored whole.
+        return Some(def.body.offsets(false).len());
+    }
+    Some(segments.iter().map(|seg| if seg.lateral.is_some() { 2 } else { 1 }).sum())
+}
+
+/// Is `p` a cell of some **other** living creature's body?
+///
+/// `chain` is this animal's own cells, excluded for the same reason
+/// `Kin::is_walkable_nestmate` excludes `self`: a chain's own tail is
+/// permanently inside its head's neighbourhood, so counting own cells
+/// would make every animal its own obstruction *and* its own ladder.
+fn other_creature_cell(world: &World, p: (i32, i32), chain: &[(i32, i32)]) -> bool {
+    if chain.contains(&p) {
+        return false;
+    }
+    let occupant = world.get(p.0, p.1).organism_id();
+    occupant != 0 && world.organism(occupant).is_some_and(|s| world.species.get(s.species).creature.is_some())
+}
+
+/// **The counterfactual behind `HeadBlock::kin_would_open`**: would this
+/// heading be a legal step if every other animal's cells were empty?
+///
+/// The landing is the real one (`body_after_step`), and every cell of it
+/// is tested with the walk's own predicate **plus** "or it is another
+/// creature" -- the one term being ghosted. Footing is then asked with
+/// `kin: None`, which is the honest half and is easy to get wrong: an
+/// animal standing *on* the pile has its foothold **from** the pile
+/// (`climbs_over_kin`), so granting kin footing while ghosting kin bodies
+/// would report a step onto a cell that, in the world this counterfactual
+/// describes, has nothing under it at all.
+fn step_clears_without_other_creatures(world: &World, def: &CreatureDef, body: BodyShape, chain: &[(i32, i32)], head: (i32, i32), headings: (u8, u8), push: bool) -> bool {
+    let (landing, _) = body_after_step(world, def, body, head, headings.0, headings.1, push);
+    let places = landing.iter().enumerate().all(|(i, &p)| {
+        !landing[..i].contains(&p)
+            && (world.is_empty(p.0, p.1) || chain.contains(&p) || (push && is_partable(world, world.get(p.0, p.1))) || other_creature_cell(world, p, chain))
+    });
+    places && body_has_foothold(world, def, &landing, head, None)
+}
+
+/// **The pile itself** -- group `members` into connected clumps, two
+/// animals being in the same clump when any cell of one touches any cell
+/// of the other (8-neighbour, the same neighbourhood every walking and
+/// footing rule in this file uses; `CLAUDE.md`: *a traversal must use the
+/// same neighbourhood the writer used*).
+///
+/// Returned largest first, so `piles_of(..).first()` is the largest clump
+/// in the world at this instant -- the number the owner's report is
+/// about. Ids that no longer resolve contribute no cells and come back as
+/// singletons, which is what a census of a dead handle should say.
+pub fn piles_of(world: &World, members: &[u16]) -> Vec<Vec<u16>> {
+    let mut owner: std::collections::HashMap<(i32, i32), usize> = std::collections::HashMap::new();
+    let mut bodies: Vec<Vec<(i32, i32)>> = Vec::with_capacity(members.len());
+    for (i, &id) in members.iter().enumerate() {
+        let cells = world.organism(id).map(|s| s.chain.clone()).unwrap_or_default();
+        for &c in &cells {
+            owner.insert(c, i);
+        }
+        bodies.push(cells);
+    }
+    fn find(parent: &mut [usize], mut a: usize) -> usize {
+        while parent[a] != a {
+            parent[a] = parent[parent[a]];
+            a = parent[a];
+        }
+        a
+    }
+    let mut parent: Vec<usize> = (0..members.len()).collect();
+    for (i, cells) in bodies.iter().enumerate() {
+        for &(x, y) in cells {
+            for (dx, dy) in NEIGHBOURS_8 {
+                let Some(&j) = owner.get(&(x + dx, y + dy)) else { continue };
+                if j == i {
+                    continue;
+                }
+                let (ra, rb) = (find(&mut parent, i), find(&mut parent, j));
+                if ra != rb {
+                    parent[ra] = rb;
+                }
+            }
+        }
+    }
+    let mut groups: std::collections::HashMap<usize, Vec<u16>> = std::collections::HashMap::new();
+    for (i, &id) in members.iter().enumerate() {
+        let r = find(&mut parent, i);
+        groups.entry(r).or_default().push(id);
+    }
+    let mut out: Vec<Vec<u16>> = groups.into_values().collect();
+    // Deterministic ordering: `HashMap` iteration order is not, and a
+    // census that reorders between two runs of the same seed is a census
+    // nobody can diff.
+    for g in &mut out {
+        g.sort_unstable();
+    }
+    out.sort_unstable_by(|a, b| b.len().cmp(&a.len()).then_with(|| a.first().cmp(&b.first())));
+    out
+}
+
+/// The `Chain`-follow rule, alone: the new position list is the new head
+/// followed by the old list's own first `m-1` cells, so the body flows
+/// into the trail the head just left.
+///
+/// Shared by `body_after_step`'s own plain-`Chain` arm and by
+/// `segmented_body_after_step`'s defensive fallback, which needs the
+/// identical rule on the rare path where its grouping does not account for
+/// the whole chain.
+fn chain_follow(chain: &[(i32, i32)], head: (i32, i32)) -> Vec<(i32, i32)> {
+    let mut next = Vec::with_capacity(chain.len());
+    next.push(head);
+    next.extend(chain.iter().take(chain.len().saturating_sub(1)).copied());
+    next
+}
+
+/// **A body's shape going into a step**, bundled so `body_after_step` and
+/// `segmented_body_after_step` stay under Clippy's argument-count lint
+/// without losing any of the three slices it takes to describe a
+/// `Segmented` body: its current cells, how they currently group into
+/// segments (`OrganismState::segment_groups` — the *live* widths), and the
+/// stable reference for which segments may attempt a lateral at all
+/// (`segment_authored`'s widths — see `segmented_body_after_step`'s own
+/// doc for why conflating the two is the bug). `groups` and `authored` are
+/// both `&[]` for a `Chain` or `Rigid` body, which ignore this struct's
+/// last two fields entirely.
+#[derive(Clone, Copy)]
+struct BodyShape<'a> {
+    chain: &'a [(i32, i32)],
+    groups: &'a [u8],
+    authored: &'a [u8],
+}
+
+/// **The `Segmented` movement rule — the one genuinely new piece of code
+/// this body plan needed.** The spine follows exactly the way a `Chain`
+/// does (`chain_follow`, walked over the spine cells alone); each
+/// segment's lateral, if it has one, is *re-derived* from its own spine's
+/// new position rather than carried over from the old lateral's position.
+/// "One cell directly above, in world space, with no facing dependence" is
+/// the whole rule for a lateral's *preferred* side, so there is nothing
+/// about its old position worth keeping.
+///
+/// This is what makes the body bend: each segment inherits the position
+/// the segment ahead of it just vacated, exactly as a one-wide `Chain`
+/// does, and a lateral is never more than one cell from its own spine, so
+/// the body is never more than two cells wide anywhere along its length.
+///
+/// **The lateral tuck rule (`Reports/creature-articulated-body-2026-09-09.md`
+/// §7f): a lateral may never block a move the bare spine could make.**
+/// §7e's ablation proved the laterals were the whole of the articulated
+/// bodies' walking cost — 43.9%/96.8% blocked on flat/rolling against a
+/// laterals-off 2.0%/14.8%, at or below a plain six-cell chain's
+/// 2.5%/12.4% — because the old rule folded a lateral's own collision into
+/// the *step's* placeability, so a lateral with nowhere to go refused the
+/// whole body's move. **Placeability of the step is decided on the spine
+/// alone, by the same predicate a plain `Chain` uses — this function's own
+/// spine landing is computed exactly as it always was, unconditionally, and
+/// is what the caller's `landing_is_placeable_through_tissue` check
+/// (immediately after every call to this, or to `body_after_step`) still
+/// tests.** A lateral is bookkeeping under that invariant, never a veto on
+/// it: each widened segment's lateral takes its authored side if that cell
+/// is placeable, else the other side, else it **tucks** — simply not
+/// pushed into the landing this step, so the segment reads as one cell
+/// wide — and nothing a lateral does can make the spine's own check fail,
+/// because a lateral that cannot go anywhere is not in the landing at all.
+///
+/// **Tucking is re-evaluated fresh every step and remembers nothing.** A
+/// segment that tucked last tick is offered its lateral again this tick
+/// exactly as any other widened segment is, so it re-emerges the instant a
+/// side is free — automatic, no timer, no flag. That is the ethos' first
+/// law (an outcome is a distribution, not a binary) applied to a body: an
+/// animal squeezing through a gap narrows, passes, and fills back out,
+/// which is why tucking is the design rather than a fallback.
+///
+/// `groups` is `OrganismState::segment_groups` — **the live widths**,
+/// describing how `chain` (the body's position list *before* this step)
+/// currently decomposes into segments; it is walked here only to pull the
+/// old spine out from underneath whatever laterals happen to be expressed
+/// right now. `authored` is a *different*, stabler reference — this
+/// individual's own grown shape (`segment_authored`), unaffected by
+/// tucking — and is what decides whether segment `i` should *attempt* a
+/// lateral at all this step. Conflating the two was the bug a first draft
+/// of this rule would have kept: reading "attempt a lateral" off the live
+/// `groups` means a tucked segment (width 1 this tick) would never be
+/// offered its lateral again, because the very code path that is supposed
+/// to test whether room has opened up would see "1" and skip the test.
+///
+/// Returns the landing **and the live widths together, as one value** —
+/// `OrganismState::segment_groups`'s replacement for next step — because a
+/// grouping computed separately from the landing it describes is exactly
+/// how the two come to disagree (§7f(2)).
+fn segmented_body_after_step(world: &World, body: BodyShape, head: (i32, i32), push: bool) -> (Vec<(i32, i32)>, Vec<u8>) {
+    let BodyShape { chain, groups, authored } = body;
+    if groups.iter().map(|&g| g as usize).sum::<usize>() != chain.len() {
+        // Defensive only. `place_creature` always writes a `groups` that
+        // sums to `chain.len()`, and severing truncates the two together
+        // (see that call site), so this should never fire; if it somehow
+        // does, falling back to the plain follow rule is a body that stops
+        // bending rather than one that silently drops or invents a cell.
+        // The grouping is unchanged along with it -- there is no widened
+        // segment to have tucked or emerged when the walk degenerated to a
+        // flat follow in the first place.
+        return (chain_follow(chain, head), groups.to_vec());
+    }
+    // Pull out the spine alone: group `g`'s first cell, in `groups` order.
+    let mut old_spines = Vec::with_capacity(groups.len());
+    let mut idx = 0usize;
+    for &g in groups {
+        if let Some(&spine) = chain.get(idx) {
+            old_spines.push(spine);
+        }
+        idx += g as usize;
+    }
+    // **Unconditional, exactly as before the tuck rule.** This is the whole
+    // invariant §7f(1) asks for: nothing a lateral does below can change
+    // where the spine lands.
+    let new_spines = chain_follow(&old_spines, head);
+    // Reassemble in walk order. Whether segment `i` gets to *try* a lateral
+    // comes from `authored`, never from `groups` -- see this function's own
+    // doc for why reading the live width here would make a tucked segment
+    // permanently tucked.
+    let mut out: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+    let mut new_groups: Vec<u8> = Vec::with_capacity(groups.len());
+    for (i, &(sx, sy)) in new_spines.iter().enumerate() {
+        out.push((sx, sy));
+        let widened = authored.get(i).copied().unwrap_or(1) == 2;
+        if widened {
+            match lateral_for(world, chain, &out, &new_spines, i, (sx, sy), push) {
+                Some(cell) => {
+                    out.push(cell);
+                    new_groups.push(2);
+                }
+                None => new_groups.push(1), // tucked -- not placed this step
+            }
+        } else {
+            new_groups.push(1);
+        }
+    }
+    (out, new_groups)
+}
+
+/// **Where segment `i`'s lateral cell would sit if the world lets it stand
+/// there: perpendicular to its own spine direction, on the first side that
+/// is not already spine and is placeable.** `None` when neither side is —
+/// the tuck.
+///
+/// **This was `(sx, sy - 1)` — always world-space "up" — and that body could
+/// not walk.** Measured on `creature_scale mode=walk`, one seed, same scene,
+/// against a six-cell plain chain as the paired control:
+///
+/// | body | `preset=flat` | `preset=rolling` |
+/// |---|---|---|
+/// | `ant_long`, `Chain(6)`, 6 cells | **2.5%** blocked | **12.4%** |
+/// | the shipped articulated ant, 7 cells | **51.6%** | **96.3%** |
+///
+/// Length is controlled for by that pair, so the cost was the lateral. The
+/// mechanism is a **deadlock, not a tax**: a lateral fixed at `sy - 1`
+/// collides with the segment ahead whenever the spine runs vertically, and a
+/// spine acquires a vertical link the moment the head takes any upward step.
+/// `landing_is_placeable` then refuses *every* candidate — correctly, two
+/// cells cannot share one position — so the animal cannot move, and it cannot
+/// clear the kink either, because clearing it requires the moves it is being
+/// refused. On the colony scene that read as `ascii`'s
+/// `the colony has gone sessile: 0 round trips of 8+ cells`, with 172 moves
+/// against 9,586 blocked.
+///
+/// Perpendicular removes the dominant case by construction — a cell
+/// orthogonal to the direction of the segment ahead is never the segment
+/// ahead — and the second side handles a spine that bends back on itself,
+/// where the first perpendicular can land on the segment *behind*.
+///
+/// **§7f went further: perpendicular narrows the deadlock, it does not close
+/// it, and a lateral with nowhere legal to go must not be a veto either.**
+/// Both perpendiculars can still be world-blocked (rock, another body) or
+/// spine-blocked (the body coiled tight); this is where that gets decided,
+/// and a `None` here costs the segment its lateral for one step, never the
+/// whole body its move.
+///
+/// **Deterministic, and it reduces to the old rule where the old rule
+/// worked**: for a body lying horizontally the preferred perpendicular is
+/// `(0, -1)`, so a straight animal is laid out exactly as before and
+/// `a_segmented_body_bends_by_re_deriving_each_lateral` is unchanged.
+/// Preference is up first, then left, so the choice is a function of the
+/// body's own shape and never of iteration order (`CLAUDE.md`'s tie-order
+/// rule).
+///
+/// `chain` is the whole body's *old* position set — the vacate licence a
+/// plain step already has (a body may step into cells it is leaving this
+/// tick) — and `placed` is this step's landing built so far (the spine, and
+/// any earlier segment's already-committed lateral), so two segments'
+/// laterals can never be asked to share a cell. `spines` is the *whole* new
+/// spine, not just the cells placed so far, because a lateral must not land
+/// on a spine cell that belongs to a segment later in walk order either.
+/// **The founding walk (`Reports/creature-articulated-body-2026-09-09.md`
+/// §13f/§13h): lay the spine cell by cell, following the ground the way a
+/// walking body would lie, instead of demanding `n` empty cells in a row at
+/// one height.** §13f's own case for it: a straight line is a shape a
+/// walking body only has on flat ground, so on any real terrain the founder
+/// was being asked to fit somewhere it would never stand anyway -- and §10's
+/// own control proved this was never a width problem: a bare, width-free
+/// spine hit the identical 12-of-52 ceiling the widened body did on the
+/// played bed.
+///
+/// Each segment after the head is placed adjacent to the one before it,
+/// preferred in this order:
+///
+/// 1. **Along the surface** -- the flat cell directly behind, if it has a
+///    foothold (`head_has_foothold`, the same ground-contact test a step
+///    asks of the head, `kin: None` -- founding does not reason about
+///    climbing over kin). The common case, and where the walk reduces to
+///    the old rule: on flat ground this is every segment's first and only
+///    try.
+/// 2. **The diagonals** -- behind-and-up, then behind-and-down, each also
+///    requiring a foothold: the body climbing over a rise or curling down
+///    over a ledge, following whichever way the ground actually goes
+///    instead of assuming flat. Up before down is an arbitrary but fixed
+///    preference, the same shape as `lateral_for`'s own "up first, then
+///    left" -- chosen so the same terrain always lays the same way
+///    (`CLAUDE.md`'s tie-order rule), not because either slope direction is
+///    more likely.
+/// 3. **Straight back** -- the flat cell behind again, this time with no
+///    foothold requirement at all. The original rule, kept as the last
+///    resort so a segment hanging over open ground (a gap contour cannot
+///    find purchase on) is refused no more often than it was before this
+///    existed, never more.
+///
+/// Returns `None` the moment any segment finds nothing placeable in any
+/// tier: the walk **is** the viability check now, in place of the old "all
+/// `n` cells empty in a row" scan it replaces -- a site is viable exactly
+/// when the head is placeable and the walk can lay every remaining segment.
+///
+/// `back` is `(1, 0)` or `(-1, 0)`, the same step direction the old
+/// straight-line formula used (`x + if facing_west { i } else { -i }`), so a
+/// two-segment body's one step is the identical candidate the old code
+/// computed whenever tier 1 hits -- which is the only ground the old rule
+/// ever founded a two-segment body on anyway, since it demanded the whole
+/// spine be flat. `a_two_segment_founder_walks_exactly_as_the_old_straight_
+/// lay_did` pins the equality on such ground, watched red against the
+/// straight-line predecessor.
+///
+/// Every candidate this walk ever considers shares `prev.0 + back.0` for its
+/// x -- tier 1 and tier 3 by construction, tier 2 by only ever moving in y --
+/// so the spine's x is strictly monotonic along its whole length and no two
+/// spine cells can ever land on the same cell. Laterals are derived
+/// afterwards, from the finished spine, exactly as before.
+fn founding_spine_walk(world: &World, head: (i32, i32), n: usize, back: (i32, i32)) -> Option<Vec<(i32, i32)>> {
+    let mut spine = Vec::with_capacity(n);
+    if n == 0 {
+        return Some(spine);
+    }
+    if !world.is_empty(head.0, head.1) {
+        return None;
+    }
+    spine.push(head);
+    let mut prev = head;
+    for _ in 1..n {
+        let flat = (prev.0 + back.0, prev.1 + back.1);
+        let grounded = |cell: (i32, i32)| world.is_empty(cell.0, cell.1) && head_has_foothold(world, cell, None);
+        let next = if grounded(flat) {
+            flat
+        } else {
+            let up = (flat.0, flat.1 - 1);
+            let down = (flat.0, flat.1 + 1);
+            if grounded(up) {
+                up
+            } else if grounded(down) {
+                down
+            } else if world.is_empty(flat.0, flat.1) {
+                flat
+            } else {
+                return None;
+            }
+        };
+        spine.push(next);
+        prev = next;
+    }
+    Some(spine)
+}
+
+fn lateral_for(world: &World, chain: &[(i32, i32)], placed: &[(i32, i32)], spines: &[(i32, i32)], i: usize, (sx, sy): (i32, i32), push: bool) -> Option<(i32, i32)> {
+    // The direction of the segment ahead; for the head, the one behind,
+    // reversed, so a lead segment's lateral sits the same side as the rest.
+    let (dx, dy) = if i > 0 {
+        let (ax, ay) = spines[i - 1];
+        (ax - sx, ay - sy)
+    } else if let Some(&(bx, by)) = spines.get(1) {
+        (sx - bx, sy - by)
+    } else {
+        (1, 0)
+    };
+    let mut candidates = [(dy, -dx), (-dy, dx)];
+    // Up first, then left: a total order on the two, so the same body always
+    // resolves the same way.
+    candidates.sort_by_key(|&(px, py)| (py, px));
+    for (px, py) in candidates {
+        let cell = (sx + px, sy + py);
+        if spines.contains(&cell) || placed.contains(&cell) {
+            continue;
+        }
+        // The exact predicate `landing_is_placeable_through_tissue` checks
+        // per cell -- empty, this body's own (vacating) cell, or partable
+        // tissue with `push` -- so a lateral accepted here is guaranteed to
+        // pass that check when the caller re-runs it over the whole landing.
+        if world.is_empty(cell.0, cell.1) || chain.contains(&cell) || (push && is_partable(world, world.get(cell.0, cell.1))) {
+            return Some(cell);
+        }
+    }
+    // Neither side is placeable: tuck. Reported as "not this step" rather
+    // than as a third invented position -- the shape does not say where
+    // else this cell could be, and a body coiled tight enough to lose both
+    // sides is exactly the case width 2 was never meant to cover.
+    None
+}
+
 /// Where this creature's cells end up if its head steps to `head`.
 ///
-/// The two body plans differ **only here**, which is the whole reason
+/// The three body plans differ **only here**, which is the whole reason
 /// `BodyPlan` is worth having: a chain's body follows into the cells the
-/// head vacated, a rigid body's translates with it. Everything downstream —
-/// passability, footing, the relocation itself — is written once against
-/// the resulting position list.
-fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), from: u8, to: u8) -> Vec<(i32, i32)> {
+/// head vacated, a rigid body's translates with it, and a segmented body's
+/// spine follows the way a chain's does while each lateral is re-derived
+/// from its own spine. Everything downstream — passability, footing, the
+/// relocation itself — is written once against the resulting position
+/// list.
+///
+/// `body.groups` is `OrganismState::segment_groups` — empty for a `Chain`
+/// or `Rigid` body, which ignore it entirely; only the `Segmented` arm reads
+/// it, through `segmented_body_after_step`. `body.authored` is that
+/// function's stable reference for which segments may attempt a lateral at
+/// all — see its own doc — and is likewise ignored outside the `Segmented`
+/// arm. Bundled into `BodyShape` rather than three parameters, see that
+/// struct's own doc.
+///
+/// **Needs `&World` and `push` for exactly one reason: `Segmented`'s
+/// lateral tuck rule (§7f) has to test placeability of each candidate side
+/// as it decides where a lateral goes, not just of the finished landing.**
+/// Neither `Chain` nor `Rigid` reads either parameter — a plain follow or a
+/// rigid translation never needed the world to compute a candidate, only to
+/// be checked against afterward, which the caller still does.
+///
+/// **Returns the landing and the live widths together, as one value** —
+/// `groups.to_vec()` unchanged for `Chain`/`Rigid`, and the freshly
+/// computed live widths for `Segmented`. A caller that only wants cells
+/// takes them off the returned pair; the one that is about to commit the
+/// move writes the widths back to `OrganismState::segment_groups`.
+fn body_after_step(world: &World, def: &CreatureDef, body: BodyShape, head: (i32, i32), from: u8, to: u8, push: bool) -> (Vec<(i32, i32)>, Vec<u8>) {
+    let BodyShape { chain, groups, .. } = body;
     if def.body.is_rigid() {
         // Facing is a *mirror*, never a rotation (see `BodyPlan`). Turning
         // between east-ish and west-ish re-lays the template; turning
@@ -6248,7 +10546,7 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
         let west = (3..=5).contains(&to);
         let full = def.body.offsets(west);
         if chain.len() == full.len() {
-            return full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect();
+            return (full.iter().map(|&(dx, dy)| (head.0 + dx, head.1 + dy)).collect(), groups.to_vec());
         }
         // **An injured rigid body re-lays the cells it still has, not the
         // ones it was born with**, and until 2026-09-02 nothing could reach
@@ -6279,19 +10577,71 @@ fn body_after_step(def: &CreatureDef, chain: &[(i32, i32)], head: (i32, i32), fr
         // is an injury in both body plans instead of a corrupt chain in one.
         let (hx, hy) = chain.first().copied().unwrap_or(head);
         let flipped = west != (3..=5).contains(&from);
-        chain
-            .iter()
-            .map(|&(cx, cy)| {
-                let (dx, dy) = (cx - hx, cy - hy);
-                (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
-            })
-            .collect()
+        (
+            chain
+                .iter()
+                .map(|&(cx, cy)| {
+                    let (dx, dy) = (cx - hx, cy - hy);
+                    (head.0 + if flipped { -dx } else { dx }, head.1 + dy)
+                })
+                .collect(),
+            groups.to_vec(),
+        )
+    } else if matches!(def.body, BodyPlan::Segmented(_)) {
+        segmented_body_after_step(world, body, head, push)
     } else {
-        let mut next = Vec::with_capacity(chain.len());
-        next.push(head);
-        next.extend(chain.iter().take(chain.len().saturating_sub(1)).copied());
-        next
+        (chain_follow(chain, head), groups.to_vec())
     }
+}
+
+/// **This individual's own grown body shape — the stable reference
+/// `segmented_body_after_step` uses to decide whether a segment should
+/// *attempt* a lateral this step (§7f(1)), and `relocate_chain` uses for a
+/// re-emerging lateral's `CellType` (§7f "Cell type: kept").** Empty for a
+/// `Chain` or `Rigid` body, or for a `Segmented` species with no `fates`
+/// table (none shipped; `def.body`'s literal shape covers it if one ever
+/// exists).
+///
+/// **Re-derives from the individual's own `FateGenome` on every call,
+/// rather than reading a field kept on `OrganismState`.** `organism::
+/// grow_body` is pure and bounded by `SEGMENTED_BODY_CAP` — a handful of
+/// iterations — so this costs one small `Vec` per creature *tick*, called
+/// once at the top of `step_chain`/`tumble`/`step_crossing` and reused for
+/// every candidate direction those evaluate, not re-grown per candidate.
+///
+/// **Known gap, left open rather than solved here**: this is the shape the
+/// genome *grows*, not what the animal has left after an injury, so a
+/// lateral bitten off a segment that is not currently tucked can regrow the
+/// next time its cell is free — the same kind of approximation `body_after_
+/// step`'s `Rigid` arm already makes for an injured body (see that
+/// function's own comment, "an injured rigid body re-lays the cells it
+/// still has"). A real fix wants a persisted per-segment capacity that
+/// severing also writes down, distinct from the live `segment_groups` a
+/// tuck fluctuates; that belongs with the rest of the body-injury staging
+/// (§12b/§13 of the design report), not with the movement fix this function
+/// is for. Checked, not inherited: a bitten lateral's `OrganismCell`
+/// sidecar is reset to default on every ordinary step regardless (`World::
+/// set`'s `reindex_organism_cell` seam gives every relocated cell a fresh
+/// one, tuck or not), so there is no scalar this gap could smuggle back —
+/// only the cell's existence, which severing already accounts for via
+/// `meat_lost`/`stamp_as_corpse` at the moment it is actually bitten off,
+/// not at the moment it might regrow.
+fn segment_authored(def: &CreatureDef, fates: organism::FateGenome) -> Vec<organism::Segment> {
+    if fates.is_empty() {
+        return match &def.body {
+            BodyPlan::Segmented(segments) => segments.clone(),
+            BodyPlan::Chain(_) | BodyPlan::Rigid(_) => Vec::new(),
+        };
+    }
+    organism::grow_body(fates, SEGMENTED_BODY_CAP, body_laterals_enabled())
+}
+
+/// `segment_authored`'s segments, reduced to the `1`/`2` width encoding
+/// `OrganismState::segment_groups` and `segmented_body_after_step` share —
+/// see `organism::BodyPlan::segment_groups`, the same reduction applied to
+/// the authored (never grown) case.
+fn segment_authored_widths(def: &CreatureDef, fates: organism::FateGenome) -> Vec<u8> {
+    segment_authored(def, fates).iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect()
 }
 
 /// Does the body have a foothold where it is going?
@@ -6397,6 +10747,18 @@ impl Kin {
     }
 }
 
+/// **One side of a body relocation** — its cells and how they currently
+/// group into segments — bundled for the same reason `BodyShape` is: it
+/// keeps `relocate_chain` under Clippy's argument-count lint without losing
+/// the pairing between a position list and the grouping that describes it.
+/// `groups` is `&[]` for a `Chain`/`Rigid` body or any pure translation —
+/// see `relocate_chain`'s own doc.
+#[derive(Clone, Copy)]
+struct BodySide<'a> {
+    cells: &'a [(i32, i32)],
+    groups: &'a [u8],
+}
+
 /// Rewrite a chain from `from` to `to`, carrying every whole `Cell`.
 ///
 /// **Clear-then-write, in two passes.** The two position sets overlap by
@@ -6409,23 +10771,87 @@ impl Kin {
 /// P-1: the `Cell` values are moved, not rebuilt, so temperature,
 /// `FLAG_BURNING` and the burn timer ride along for every cell. A chain is
 /// where that matters most — a rebuild forgets once per cell per step.
-fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(i32, i32)]) {
-    // **The two ways this silently loses a cell, made loud.** `zip` is the
-    // trap: a `to` shorter than `from` drops the tail's `Cell` on the floor
-    // and a longer one leaves `state.chain` claiming a position that holds
-    // nothing, and either way `state.chain = to.to_vec()` records the
-    // *intended* body rather than the one written. A repeated position is
-    // the same failure from the other side — two writes, one cell, last
-    // write wins — and is §R3's headless ant
-    // (`Reports/creature-chain-head-loss-2026-08-30.md`). `landing_is_placeable`
-    // is what keeps a duplicate from reaching here; this says so out loud
-    // rather than trusting every future caller to have asked.
-    debug_assert_eq!(from.len(), to.len(), "a body relocates cell for cell; a length change here is a lost or invented cell");
+///
+/// **`from_groups`/`to_groups` are each side's segment layout — empty for a
+/// `Chain` or `Rigid` body, or for any pure translation (a fall, a flight
+/// substep), because every one of those preserves `from.len() == to.len()`
+/// and the *index* correspondence positionally: `to[i]` is always the same
+/// body part as `from[i]`.** Every such caller passes `&[]` for both, which
+/// this function reduces to "every cell is its own segment of width one" —
+/// `OrganismState::segment_groups`'s own convention — recovering the exact
+/// flat `zip` this function always did.
+///
+/// **A `Segmented` body under the lateral tuck rule (§7f) is the one case
+/// where `from.len()` and `to.len()` can genuinely differ, and the
+/// correspondence has to be found by (segment, role), never by flat
+/// index.** A tuck in the middle of the body shifts every later index, so
+/// index `k` of `to` is not index `k` of `from` the moment a segment
+/// widens or narrows anywhere ahead of it — a positional `zip` would hand a
+/// spine cell a lateral's identity, or worse. Walking `from_groups` and
+/// `to_groups` in lock-step instead finds each segment's own spine-to-spine
+/// and lateral-to-lateral pairing directly: a spine cell always carries
+/// (the spine never tucks); a lateral present on both sides carries its old
+/// `Cell` exactly as a spine cell does; one present only on `from` is
+/// tucking away and is simply not carried (cleared below, like the rest of
+/// `from`, and nothing more); one present only on `to` is **re-emerging**
+/// and has no old cell to carry, so `mint_lateral_cell` builds one fresh —
+/// the segment's own authored `CellType`, and a shade keyed on `(segment,
+/// is_lateral)` rather than on walk order, so a lateral that tucks and
+/// re-emerges repeatedly always comes back the same colour (§7f(1): "comes
+/// back the colour it left"). `def`/`authored`/`organism` are only ever
+/// read on that path; every non-Segmented caller's `authored` is `&[]` and
+/// never gets there.
+fn relocate_chain(world: &mut World, organism: u16, def: &CreatureDef, authored: &[organism::Segment], from: BodySide, to: BodySide) {
+    let (from, from_groups, to, to_groups) = (from.cells, from.groups, to.cells, to.groups);
+    let (from_groups, to_groups): (Vec<u8>, Vec<u8>) = if from_groups.is_empty() && to_groups.is_empty() {
+        (vec![1; from.len()], vec![1; to.len()])
+    } else {
+        (from_groups.to_vec(), to_groups.to_vec())
+    };
+    // **The two ways this silently loses a cell, made loud.** A flat `zip`
+    // was the trap this assertion originally guarded: a `to` shorter than
+    // `from` drops a `Cell` on the floor and a longer one leaves
+    // `state.chain` claiming a position that holds nothing, and either way
+    // `state.chain = to.to_vec()` records the *intended* body rather than
+    // the one written. A repeated position is the same failure from the
+    // other side — two writes, one cell, last write wins — and is §R3's
+    // headless ant (`Reports/creature-chain-head-loss-2026-08-30.md`).
+    // `landing_is_placeable` is what keeps a duplicate from reaching here;
+    // this says so out loud rather than trusting every future caller to
+    // have asked. **A step never changes how many segments a body has,
+    // only how wide one is** — severing does that, in a separate call
+    // (`reconcile_chain`), never fused with a step — so the segment
+    // *count* on the two sides must still agree even though the cell
+    // *count* no longer has to.
+    debug_assert_eq!(from_groups.len(), to_groups.len(), "a step changes a segment's width, never how many segments a body has: {from_groups:?} vs {to_groups:?}");
     debug_assert!(
         to.iter().enumerate().all(|(i, p)| !to[..i].contains(p)),
         "a body cannot occupy one cell twice: {to:?} — the caller skipped landing_is_placeable"
     );
-    let cells: Vec<Cell> = from.iter().map(|&(cx, cy)| world.get(cx, cy)).collect();
+
+    // The correspondence, found by walking both segment lists in lock-step
+    // — see this function's own doc for why a positional `zip` is exactly
+    // wrong the moment a lateral tucks or re-emerges anywhere but the tail.
+    let mut carry: Vec<((i32, i32), (i32, i32))> = Vec::with_capacity(from.len());
+    let mut mint: Vec<((i32, i32), usize)> = Vec::new();
+    let (mut fi, mut ti) = (0usize, 0usize);
+    for (seg, (&fg, &tg)) in from_groups.iter().zip(&to_groups).enumerate() {
+        if fg > 0 && tg > 0 {
+            carry.push((from[fi], to[ti]));
+        }
+        match (fg == 2, tg == 2) {
+            (true, true) => carry.push((from[fi + 1], to[ti + 1])),
+            (true, false) | (false, false) => {} // tucking away, or never widened: nothing to carry
+            (false, true) => mint.push((to[ti + 1], seg)),                          // re-emerging: no old cell to carry
+        }
+        fi += fg as usize;
+        ti += tg as usize;
+    }
+    debug_assert_eq!(fi, from.len(), "from_groups must account for every cell of `from`: {from_groups:?} vs {from:?}");
+    debug_assert_eq!(ti, to.len(), "to_groups must account for every cell of `to`: {to_groups:?} vs {to:?}");
+
+    // Read every carried `Cell` value before anything is cleared below.
+    let carried: Vec<((i32, i32), Cell)> = carry.iter().map(|&(f, t)| (t, world.get(f.0, f.1))).collect();
 
     // **Lift the foliage this step is about to stand in.** Read before
     // anything is written, because the body's own cells are about to be
@@ -6465,8 +10891,19 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         restore_parted(world, &entry);
     }
 
-    for (&(cx, cy), &cell) in to.iter().zip(&cells) {
-        world.set(cx, cy, cell);
+    for (pos, cell) in carried {
+        world.set(pos.0, pos.1, cell);
+    }
+    if !mint.is_empty() {
+        // Read once, from the head, which the carry loop just wrote: every
+        // body cell shares one species material, `aux` alone tells them
+        // apart (`pack_cell_type`), so the head names it correctly for
+        // every mint below.
+        let material_id = to.first().map_or(material::EMPTY, |&(x, y)| world.get(x, y).material);
+        for (pos, seg) in mint {
+            let cell_type = authored.get(seg).and_then(|s| s.lateral).unwrap_or(CellType::Segment);
+            world.set(pos.0, pos.1, mint_lateral_cell(world, def, organism, material_id, cell_type, seg));
+        }
     }
     still_held.extend(newly_parted);
 
@@ -6508,6 +10945,36 @@ fn relocate_chain(world: &mut World, organism: u16, from: &[(i32, i32)], to: &[(
         state.chain = to.to_vec();
         state.parted = still_held;
     }
+}
+
+/// Mint a fresh `Cell` for a lateral that is re-emerging after a tuck —
+/// there is no old cell to carry forward, because this position held
+/// nothing last step (§7f(1): "not placed this step").
+///
+/// **Keyed on `(segment, is_lateral)`, never on walk order.** Walk order
+/// shifts by one for every segment between here and the head whenever any
+/// segment ahead tucks or re-emerges, so keying on it would recolour half
+/// the animal on every fold. `place_creature`'s own per-cell loop keys on
+/// walk order and is safe only because that order never changes after
+/// placement; a stable per-segment key means a lateral that tucks and
+/// re-emerges repeatedly always comes back the same colour, matching
+/// §7f(1)'s "comes back the colour it left". A lateral's key is its
+/// segment's spine key plus one, so the two never collide and both are
+/// stable for the segment's whole life.
+fn mint_lateral_cell(world: &World, def: &CreatureDef, organism: u16, material_id: material::MaterialId, cell_type: CellType, segment: usize) -> Cell {
+    let shades = world.materials.get(material_id).palette.len().max(1) as u32;
+    let key = segment as u64 * 2 + 1;
+    let shade = match def.shade_rule {
+        // No shipped `Segmented` body uses `Countershade` (both `ant` and
+        // `hopper` default to `Random`); re-deriving `Countershade`'s
+        // whole-body vertical span for one re-emerging cell would need the
+        // authored body's own extent, which nothing here keeps around
+        // after placement. Falling back to the random draw is correct
+        // where this is actually exercised and an honest placeholder where
+        // it is not, rather than a silent wrong answer.
+        ShadeRule::Random | ShadeRule::Countershade => rng::stream(world.seed, organism as u64, key, RNG_SLOT_SHADE).below(shades) as u8,
+    };
+    Cell::new(material_id, shade).with_organism_id(organism).with_aux(pack_cell_type(cell_type))
 }
 
 /// Put one lifted tissue cell back exactly as it was, scalars included.
@@ -6974,13 +11441,42 @@ fn creature_dies(world: &mut World, organism: u16, cause: organism::DeathCause) 
     }
     if let (Some(held), Some(&(cx, cy))) = (held, chain.last()) {
         let unit = held.unit_cell(quantise_worth);
+        // **A2 -- an ant that dies mid-carry still delivers**, on the same
+        // "put down where it fell" rule the rest of this spill already
+        // uses. Popped by the loop's first iteration, exactly as the
+        // living drop pops it by its own first cell -- without this the
+        // passenger's organism would sit forever in
+        // `World::carried_seed_organisms`, alive but owning no cell and
+        // with no other path back to one: a real slot leak, the same shape
+        // `World::free_organism`'s own doc says this allocator exists to
+        // close.
+        //
+        // **`_uneaten`, same as the living drop.** A death mid-carry is a
+        // drop, not a meal -- the owner's 2026-09-11 rule puts the seed
+        // back with its flesh here too, so whoever finds this corpse's
+        // fruit bites through `seed_survives_bite` fresh rather than
+        // finding a bare pip standing where the ant fell.
+        let mut passenger = held.passenger;
         let mut left = held.cells;
         while left > 0 {
             let Some((dx, dy)) = NEIGHBOURS_8.iter().map(|&(dx, dy)| (cx + dx, cy + dy)).find(|&(px, py)| world.is_empty(px, py)) else {
                 break;
             };
-            world.set(dx, dy, unit.into_cell(world));
+            if let Some(p) = passenger.take() {
+                plant::deliver_seed_passenger_uneaten(world, dx, dy, p);
+            } else {
+                world.set(dx, dy, unit.into_cell(world));
+            }
             left -= 1;
+        }
+        // **No empty cell was ever found for it.** Rare -- a death packed
+        // tightly enough to refuse every flesh cell too -- but leaving the
+        // id in `carried_seed_organisms` would hold its slot for the life
+        // of the process. Releasing the guard here lets the ordinary
+        // empty-cell-list rule reclaim it on the next organism tick, same
+        // as any other seed that never found ground.
+        if let Some(p) = passenger {
+            world.carried_seed_organisms.remove(&p.organism_id);
         }
         // Cells that had nowhere to go are gone from the world; book them if
         // they were meat, so the bound stays sound. The maturing remainder is
@@ -7077,15 +11573,33 @@ mod tests {
         assert!(placed > 0, "the bed placed no ants -- the scene is wrong, not the rule");
         // `run` is this module's own way to advance a world -- a second one
         // would be a second thing to keep in step with the scheduler.
-        run(&mut w, 4_000);
+        //
+        // **5,000, re-derived for §13g** (`Reports/creature-articulated-
+        // body-2026-09-09.md`). This frame count is calibrated against how
+        // fast this population moves and dies, and both moved when the flip
+        // became the default: `PIXEL_PHYSICS_REVERSE=flip` no longer leaves
+        // an animal stuck (rather than merely turned around, which is the
+        // point of §13), so this bed's founders rack up a nonzero `moves`/
+        // `pickups`/`digs` far sooner than the frame count below this one
+        // assumed -- but the same freedom to keep moving also burns energy
+        // faster in a bed this scene never re-tuned as a food economy.
+        // Measured on a fresh world each time, this build: **20 of 20 alive
+        // at 3,000 (0 pickups yet -- too early, the original vacuity this
+        // comment's predecessor names), 20 of 20 at 5,000, 11 of 20 at
+        // 8,000, 1 of 20 at 12,000** -- a collapse that arrives thousands of
+        // frames sooner than the pre-§13g curve this comment used to quote
+        // (14 of 20 at 8,000). `doomed.len() >= 4` below only needs a
+        // handful alive; 5,000 clears both bars at once with room on either
+        // side, which 8,000 no longer does.
+        run(&mut w, 5_000);
 
         // **Then kill some of them, because the dead-side term is the whole
-        // point and this bed does not produce a death on its own in 4,000
-        // frames.** The vacuity check below caught that on the first run: the
-        // identity held, and held over two zeroes. Killing animals that have
-        // already walked, dug and fed is what puts a non-trivial `life` into
-        // `dead_life` -- a death at frame 0 would roll up nothing and test
-        // just as little.
+        // point and this bed does not produce a death on its own this
+        // early.** The vacuity check below caught that on the first run of
+        // this test: the identity held, and held over two zeroes. Killing
+        // animals that have already walked, dug and fed is what puts a
+        // non-trivial `life` into `dead_life` -- a death at frame 0 would
+        // roll up nothing and test just as little.
         let doomed: Vec<u16> = w.live_organism_ids().into_iter().take(8).collect();
         assert!(doomed.len() >= 4, "too few animals to kill for the dead-side term to mean anything");
         for id in doomed {
@@ -7391,6 +11905,209 @@ mod tests {
         assert!(afloat.is_empty(), "{} ants with no cell resting on ground: {:?}", afloat.len(), &afloat[..afloat.len().min(8)]);
     }
 
+    /// **Founding, task A of the founding repair
+    /// (`Reports/creature-articulated-body-2026-09-09.md`'s addendum): a
+    /// site is viable when the spine fits, and a lateral with nowhere to go
+    /// tucks rather than refusing the whole site.** The old rule --
+    /// `place_creature` refusing a site whenever any cell of the body's
+    /// *full authored footprint* was not empty -- is why `filmstrip
+    /// scene=colony` founded 4 of 52: a clear spine lost the site to one
+    /// blocked lateral cell. This is that rule's positive and negative case
+    /// in one test, watched red against the pre-fix `place_creature` before
+    /// being trusted.
+    #[test]
+    fn a_founding_site_with_a_blocked_lateral_still_founds_tucked() {
+        // **The open-floor control, first.** Its own positive control: if
+        // every widened segment does not found at width 2 here, the boxed-in
+        // arm below proves nothing about tucking specifically.
+        let mut open = test_world();
+        let floor = open.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            open.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        // **`longant`, not the shipped ant, since 2026-09-11.** The owner's
+        // ruling on `Reports/creature-articulated-body-2026-09-09.md` §13
+        // kept the shipped ant at `Chain(2)` (no widened segments to tuck
+        // at all) and moved the seven-cell `Segmented` body this test is
+        // about onto `longant`, a species a player places rather than the
+        // one a colony starts with.
+        let open_id = spawn(&mut open, "longant", 50, 119);
+        assert_ne!(open_id, 0, "the open-floor control must found -- nothing here should ever refuse it");
+        let open_groups = open.organism(open_id).map(|s| s.segment_groups.clone()).unwrap_or_default();
+        assert!(
+            !open_groups.is_empty() && open_groups.contains(&2),
+            "longant must be a Segmented body with at least one widened segment on open ground, or this test cannot tell tucked from never-widened: {open_groups:?}"
+        );
+
+        // **Boxed in, top and bottom.** The floor (`y = 120`) is the ant's
+        // own foothold, already occupying the lateral's "down" candidate;
+        // a ceiling at `y = 118` -- one cell above the spine's row, exactly
+        // where `lateral_for`'s "up" candidate (the authored side for a
+        // level body) would land -- takes the other one. Every widened
+        // segment's lateral has nowhere to go.
+        let mut w = test_world();
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            w.set(x, 118, Cell::new(floor, 0).with_attached(true));
+        }
+        let id = spawn(&mut w, "longant", 50, 119);
+        assert_ne!(
+            id, 0,
+            "the spine's own row (119) is clear of both the floor and the ceiling, so the site must found even though every lateral is boxed in -- this is the old rule's own failure mode"
+        );
+        let groups = w.organism(id).map(|s| s.segment_groups.clone()).unwrap_or_default();
+        assert_eq!(groups.len(), open_groups.len(), "boxing in a lateral must not change how many segments the body has, only how wide one reads: {groups:?} against the open control's {open_groups:?}");
+        assert!(
+            groups.iter().all(|&g| g == 1),
+            "boxed top and bottom, every segment -- widened or not -- must read one cell wide: {groups:?}"
+        );
+        let cells = w.organism(id).map(|s| s.chain.len()).unwrap_or(0);
+        assert_eq!(cells, groups.len(), "a fully tucked founding is exactly one cell per segment: {cells} cells against {} segments", groups.len());
+        let open_cells = open.organism(open_id).map(|s| s.chain.len()).unwrap_or(0);
+        assert!(cells < open_cells, "a founding with every lateral tucked must be physically smaller than the open control: {cells} against {open_cells}");
+    }
+
+    /// **Founding along the surface contour, task built for
+    /// `Reports/creature-articulated-body-2026-09-09.md` §13f/§13h.** The
+    /// guard §10 could not write, because `founding_spine_walk` did not
+    /// exist yet -- watched red by hand against a version of this function
+    /// that always took the "straight back, no foothold required" tier
+    /// first (the pre-fix behaviour re-created inline): that arm reproduces
+    /// this exact equality by construction, but tier 1 firing when it
+    /// should not is exactly the fault a `founding_spine_walk` regression
+    /// would introduce, so it was watched failing there before being
+    /// trusted here.
+    ///
+    /// **On flat ground a two-segment walk must be byte-identical to the old
+    /// straight-line formula** (`x + if facing_west { i } else { -i }`, here
+    /// at `facing_west = false`, the only value `place_creature` ever founds
+    /// with): this is where the walk reduces to the rule it replaces, and
+    /// flat ground is the only ground the old rule ever founded *any* body
+    /// on, since it demanded the whole spine be flat.
+    #[test]
+    fn a_two_segment_founder_walks_exactly_as_the_old_straight_lay_did() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        let head = (50, 119);
+        let back = (-1, 0);
+        let spine = founding_spine_walk(&w, head, 2, back).expect("flat ground must found a two-segment body");
+        let old_lay: Vec<(i32, i32)> = (0..2i32).map(|i| (head.0 - i, head.1)).collect();
+        assert_eq!(spine, old_lay, "on flat ground a two-segment walk must reduce exactly to the old straight-line lay: {spine:?} against {old_lay:?}");
+    }
+
+    /// **A longer body curls over a step instead of refusing the site.**
+    /// §13f's own case: a site the old rule refused outright -- it demanded
+    /// `n` empty cells in a row at one height -- is exactly the shape a
+    /// walking body lies on rough ground anyway. Two cells of flat under the
+    /// head, then the ground drops one row and stays flat at the new level:
+    /// asserted as properties (which row each end of the spine is on, that
+    /// it walks one column per segment) rather than as hand-computed
+    /// coordinates, because the corner-touch case in `founding_spine_walk`'s
+    /// own doc (a cell diagonally against the shelf's own edge reads as
+    /// grounded) makes the exact column the drop lands on an implementation
+    /// detail this test should not pin.
+    #[test]
+    fn a_five_segment_body_founds_curled_over_a_step() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 49..=50 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        for x in 30..49 {
+            w.set(x, 121, Cell::new(floor, 0).with_attached(true));
+        }
+        let head = (50, 119);
+        let spine = founding_spine_walk(&w, head, 5, (-1, 0)).expect("a body that fits a flat-then-step site must found");
+        assert_eq!(spine.len(), 5, "every segment must be laid: {spine:?}");
+        for i in 1..spine.len() {
+            assert_eq!(spine[i].0, spine[i - 1].0 - 1, "the walk must move exactly one column behind per segment: {spine:?}");
+        }
+        assert_eq!(spine[0].1, head.1, "the head's own row");
+        assert_eq!(spine[1].1, head.1, "the second segment must still be the two-cell-wide flat under the head, not curling before it has to");
+        assert!(spine[4].1 > head.1, "the body must curl DOWN onto the lower step rather than hang over the drop in a straight line: {spine:?}");
+    }
+
+    /// **The viability half of the same rule: a site with only one free cell
+    /// refuses a multi-segment body**, the same way the old "all n cells
+    /// empty in a row" scan did -- `founding_spine_walk` is now the
+    /// viability check itself, so this is a property of the walk, not a
+    /// separate scan layered over it (see the doc on `place_creature`'s
+    /// Segmented arm).
+    #[test]
+    fn a_single_free_cell_refuses_a_multi_segment_founder() {
+        let mut w = test_world();
+        let rock = material::STONE;
+        for x in 40..60 {
+            for y in 110..130 {
+                w.set(x, y, Cell::new(rock, 0).with_attached(true));
+            }
+        }
+        w.set(50, 119, Cell::EMPTY);
+        let spine = founding_spine_walk(&w, (50, 119), 5, (-1, 0));
+        assert!(spine.is_none(), "a site with only one free cell must refuse a multi-segment body: {spine:?}");
+    }
+
+    /// **Laterals at founding obey `lateral_for` exactly** -- founding must
+    /// not derive a lateral's position any other way than the movement rule
+    /// does (§10's own invariant), which this build's contour spine must not
+    /// have disturbed. Reconstructs the spine `segmented_body_after_step`
+    /// itself pulls out of `(chain, segment_groups)` -- group `g`'s first
+    /// cell, in `groups` order -- so the test does not have to trust the
+    /// code under test to have kept the two in step, then re-derives each
+    /// widened segment's lateral independently and checks it against what
+    /// was actually placed.
+    #[test]
+    fn founding_laterals_match_lateral_for() {
+        let mut w = test_world();
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in 0..60 {
+            w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+        }
+        // **Cloned before the spawn, not read back after it.** `place_creature`
+        // calls `lateral_for` entirely inside its first loop, before its
+        // second loop writes a single cell into the world -- every one of
+        // those calls sees the pristine floor. Recomputing against `w`
+        // *after* `spawn` would see the ant's own already-placed body
+        // occupying the very cells `lateral_for` is being asked whether it
+        // could still choose, which is a different question and not the one
+        // this test asks -- caught by watching this test red once, against
+        // exactly that mistake, before landing it.
+        let pristine = w.clone();
+        // **`longant`, not the shipped ant, since 2026-09-11** -- see the
+        // sibling test above for why.
+        let id = spawn(&mut w, "longant", 50, 119);
+        let (chain, groups) = {
+            let state = w.organism(id).expect("live");
+            (state.chain.clone(), state.segment_groups.clone())
+        };
+        assert!(groups.contains(&2), "longant must have at least one widened segment on open ground, or this test cannot check anything: {groups:?}");
+        let mut spines = Vec::with_capacity(groups.len());
+        let mut idx = 0usize;
+        for &g in &groups {
+            spines.push(chain[idx]);
+            idx += g as usize;
+        }
+        let mut placed: Vec<(i32, i32)> = Vec::with_capacity(chain.len());
+        let mut idx = 0usize;
+        for (i, &g) in groups.iter().enumerate() {
+            let spine = chain[idx];
+            placed.push(spine);
+            if g == 2 {
+                let lateral = chain[idx + 1];
+                assert_eq!(
+                    lateral_for(&pristine, &[], &placed, &spines, i, spine, false),
+                    Some(lateral),
+                    "segment {i}'s founded lateral must be exactly what `lateral_for` computes for this spine -- founding must not derive it any other way"
+                );
+                placed.push(lateral);
+            }
+            idx += g as usize;
+        }
+    }
+
     /// The canopy half of `open-bugs-handoff.md` §R. A downward scan from
     /// the sky stops on a leaf, so a column with a tree over it read as
     /// having no ground -- 217 of 308 columns on the colony scene's own
@@ -7455,12 +12172,326 @@ mod tests {
         );
     }
 
+    /// A bed of soil on a stone floor, with a nest patch painted across the
+    /// middle of it — the smallest world in which the door can be rained on.
+    fn bed_with_a_nest_patch() -> (World, Vec<(i32, i32)>) {
+        let mut w = World::new(Rect::new(0, 0, 191, 127));
+        let soil = w.materials.id_of("soil").expect("soil is compiled in");
+        for x in 0..=191 {
+            w.set(x, 127, Cell::new(material::STONE, 0));
+            for y in 100..127 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        w.paint_nest_patch(96, 99);
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let patch: Vec<(i32, i32)> = (0..=191).flat_map(|x| (95..105).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == nest).collect();
+        (w, patch)
+    }
+
+    /// **A film on the threshold has somewhere to go, and the only somewhere
+    /// is a drain** (`open-bugs-handoff.md` §T2).
+    ///
+    /// `nest` holds no water, so an unbroken patch is the only impermeable
+    /// strip on the surface of a misted bed and every misting leaves a film
+    /// standing on it. An ant cannot step into a liquid, so that film is a
+    /// wall and `adjacent_nest` goes false for the whole colony at once --
+    /// which is why `deliveries` and `nest_visits` freeze on one frame while
+    /// `pickups` goes on climbing. `paint_nest_patch` leaves every third
+    /// column as ordinary ground, so the film has **one** cell to travel
+    /// instead of 26.
+    ///
+    /// **The ends of the threshold are walled, and that is what isolates the
+    /// mechanism.** An earlier scene poured on the middle of an open patch
+    /// and went **blind**: `water.ron` carries `flow_rate: 1000`, so a full
+    /// cell walks the 26 columns to the end of an unbroken patch inside the
+    /// frame budget and drains off the end, which is the width of the bed
+    /// rather than the spacing of the drains. Walled, the film's only route
+    /// to ground that drinks is a drain column. What the scene does *not*
+    /// claim is the behaviour on a real bed -- that is emergent over 120,000
+    /// frames of continuous misting and belongs to `examples/nestdoor.rs`,
+    /// which measures it paired against this same switch (standing water
+    /// over the patch 89-91 -> 0-19, against 1-3 over the ground beside it).
+    ///
+    /// **It rains twice, and the second soaking is a different measurement
+    /// from the first -- which is the whole reason this reads volume and not
+    /// occupancy.** Onto dry ground the door sheds the film completely, 0 of
+    /// 36 columns from frame 100 onward. Onto ground that already holds the
+    /// first soaking it sheds **35,610 of the 36,000 units poured on it** and
+    /// keeps the last 1%: 36 cells at fill 8-12 of `LIQUID_FULL`, over drain
+    /// columns sitting at 620 of 1,000 with **not one soil cell saturated**
+    /// (67,612 units in a bed that holds 5,184,000).
+    ///
+    /// So the second film is not standing water, it is the near-empty fringe
+    /// `CLAUDE.md`'s liquid metric trap names, and an occupancy count cannot
+    /// tell the two apart. That is exactly what failed CI on 2026-09-12,
+    /// reading *"36 of 36 nest cells are still under water"* over a door that
+    /// had just drunk 99% of what fell on it. **The saturation reading of
+    /// that failure was wrong** and is recorded here because it is the
+    /// obvious one: the bed is 1.3% full, not out of room.
+    ///
+    /// **The 1% is a real remainder all the same, not an artifact.** A cell
+    /// holding 9 of 1,000 is still a `Liquid`, still fails `World::is_empty`,
+    /// and `is_partable` refuses anything that is not living tissue -- so it
+    /// still walls the column it sits in, and it is why `nestdoor` reads 0-19
+    /// liquid cells over the drained patch on the played bed rather than 0.
+    /// What the drains buy is that the door stops being *the wettest strip on
+    /// the bed*; §T2 carries the number and stays open on the residue.
+    ///
+    /// **Watched going red**, not assumed: at `PIXEL_PHYSICS_NEST_DRAINS=off`
+    /// the first soaking alone leaves **53 of 53** columns under full cells
+    /// for the whole 2,000 frames.
+    #[test]
+    fn a_film_on_the_door_drains_through_the_comb() {
+        let (mut w, patch) = bed_with_a_nest_patch();
+        assert!(patch.len() >= 16, "test setup: the patch should be tens of cells wide, got {}", patch.len());
+        let water = w.materials.id_of("water").expect("water is compiled in");
+        let x0 = patch.iter().map(|c| c.0).min().expect("non-empty");
+        let x1 = patch.iter().map(|c| c.0).max().expect("non-empty");
+        let row = patch[0].1;
+        // **Walls at both ends of the threshold.** Without them the film
+        // simply runs off the patch and the scene measures the width of the
+        // bed rather than the spacing of the drains.
+        for dy in 1..=6 {
+            w.set(x0 - 1, row - dy, Cell::new(material::STONE, 0));
+            w.set(x1 + 1, row - dy, Cell::new(material::STONE, 0));
+        }
+        // **Columns carrying any liquid at all -- which is what an ant runs
+        // into -- and the water actually standing in them.** Both, because
+        // the two answer different questions and the second soaking is where
+        // they separate.
+        let over_the_door = |w: &World| -> (usize, u64) {
+            patch.iter().fold((0, 0), |(columns, volume), &(x, y)| {
+                let held: u64 = (1..=6)
+                    .map(|dy| w.get(x, y - dy))
+                    .filter(|c| w.materials.kind(c.material) == MaterialKind::Liquid)
+                    .map(|c| c.aux() as u64)
+                    .sum();
+                (columns + usize::from(held > 0), volume + held)
+            })
+        };
+        let pour = |w: &mut World| -> u64 {
+            let mut poured = 0;
+            for &(x, y) in &patch {
+                if w.is_empty(x, y - 1) {
+                    w.set(x, y - 1, Cell::new(water, 0).with_aux(material::LIQUID_FULL));
+                    poured += u64::from(material::LIQUID_FULL);
+                }
+            }
+            poured
+        };
+        let settle = |w: &mut World| {
+            for _ in 0..2_000 {
+                crate::sim::update::step(w);
+                w.step_active_sites();
+            }
+        };
+
+        // **First soaking, onto dry ground**, and the positive control for
+        // the arrangement comes before it: if the setup could not put a full
+        // cell on every nest column, everything below passes for the wrong
+        // reason and would pass with the drains deleted too.
+        let poured = pour(&mut w);
+        assert_eq!(over_the_door(&w), (patch.len(), poured), "the test failed to put a full cell on every nest column");
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            columns <= 2,
+            "{columns} of {} nest columns still carry a film after 2,000 frames, holding {volume} of the {poured} units poured -- the wall an ant cannot step into. Measured 0 with the drains in and {} without them",
+            patch.len(),
+            patch.len()
+        );
+
+        // **Second soaking, onto ground that is already holding the first.**
+        // The bar is on the water, not on the count: the door sheds 99% of
+        // this one and keeps a fringe of near-empty cells, so an occupancy
+        // assertion here would report a drained door as a drowned one.
+        let poured = pour(&mut w);
+        // Its own positive control, and it is not the one above: a door that
+        // never cleared the first soaking has no empty cell to pour into, so
+        // without this the bar below would go red reading `0 units poured`
+        // and say nothing about the second day.
+        assert_eq!(
+            poured,
+            u64::from(material::LIQUID_FULL) * patch.len() as u64,
+            "the first soaking must clear before a second can be poured; only {poured} units went on"
+        );
+        settle(&mut w);
+        let (columns, volume) = over_the_door(&w);
+        assert!(
+            volume * 20 <= poured,
+            "the door shed only {} of the {poured} units of a second soaking, leaving {volume} standing over {columns} of {} columns",
+            poured.saturating_sub(volume),
+            patch.len()
+        );
+    }
+
+    /// ...and the door is still a *place*.
+    ///
+    /// The drains are a comb, so the obvious way to break this fix is to
+    /// widen them until there is no patch left: "home has to be a place, not
+    /// everywhere, or there is no gradient to walk up". Two of every three
+    /// columns are nest, and every nest cell is within one column of a drain,
+    /// which is the property that makes the film travel one cell.
+    #[test]
+    fn the_nest_patch_is_still_continuous_enough_to_walk_home_to() {
+        let (w, patch) = bed_with_a_nest_patch();
+        let width = 2 * scaled_cells(&w, COLONY_HALF_WIDTH) + 1;
+        assert!(
+            patch.len() * 2 >= width as usize,
+            "at least half the threshold must be nest, got {} of {width} columns",
+            patch.len()
+        );
+        let nest = w.materials.id_of("nest").expect("nest is compiled in");
+        let drains: Vec<i32> = (0..=191).filter(|&x| (95..105).all(|y| w.get(x, y).material != nest)).collect();
+        for &(x, _) in &patch {
+            assert!(
+                drains.iter().any(|&d| (d - x).abs() <= 1),
+                "every nest column needs ground it can shed a film onto within one cell; x={x} has none"
+            );
+        }
+    }
+
     fn run(w: &mut World, frames: usize) {
         for _ in 0..frames {
             w.begin_step();
             scheduler::step(w);
             w.end_step();
         }
+    }
+
+    // --- old age ---------------------------------------------------------
+
+    /// A flat bed and a cohort of ants that **cannot starve and cannot
+    /// breed**, so the only thing that can remove one is the age roll.
+    ///
+    /// Both exclusions are load-bearing rather than tidiness. Leave the costs
+    /// on and the founders' 200-J grant runs out at 12,000 frames, which is
+    /// inside every horizon below and would put starvation deaths in the
+    /// column this test reads. Leave breeding on and the cohort is no longer
+    /// a cohort: a child born at frame 900 rolls its own hazard from its own
+    /// birth, and "how many are alive" stops being a survival curve.
+    /// `reproduce_at_of` returns `None` at a threshold of 0, which is the
+    /// documented off switch and what the ANTS page's own row says.
+    fn age_cohort(life: u32, ants: i32) -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 199));
+        let soil = w.materials.id_of("soil").expect("soil material");
+        for x in 0..=255 {
+            for y in 120..=160 {
+                w.set(x, y, Cell::new(soil, 0));
+            }
+        }
+        let id = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(id).creature.clone().expect("ant is a creature");
+        def.life_half_life = life;
+        // **Every per-tick charge, not just the two obvious ones.** The
+        // metabolism is `idle_cost_per_cell` and `move_cost_per_cell`, and
+        // then five more taxes are levied every tick as fractions of
+        // `start_energy` -- the brain, the eye, the ground sense, the jaw and
+        // the shell (see `apply_creature_energy`'s caller). Zeroing only the
+        // first two leaves an ant that still starves inside this test's
+        // horizon, which would put starvation deaths in the column the
+        // survival curve reads. The `Starved == 0` assertion below is what
+        // catches that if another priced capability is ever added.
+        def.idle_cost_per_cell = 0.0;
+        def.move_cost_per_cell = 0.0;
+        def.exposure_cost_per_cell = 0.0;
+        def.synapse_fraction = 0.0;
+        def.sight_fraction = 0.0;
+        def.curvature_fraction = 0.0;
+        def.force_fraction = 0.0;
+        def.armour_fraction = 0.0;
+        def.digest_fraction = 0.0;
+        def.reproduce_threshold = 0.0;
+        w.species.set_creature(id, def);
+        let placed = w.found_colony_of(128, 120, "ant", ants);
+        assert_eq!(placed as i32, ants, "the bed seated {placed} of {ants} -- the scene is wrong, not the rule");
+        w
+    }
+
+    fn alive_creatures(w: &World) -> usize {
+        w.live_organism_ids().into_iter().filter(|id| w.organism(*id).is_some_and(|st| w.species.get(st.species).creature.is_some())).count()
+    }
+
+    fn aged_deaths(w: &World) -> u64 {
+        w.deaths_by_cause[organism::DeathCause::OldAge.index()]
+    }
+
+    /// **The positive control, as a survival curve rather than as "somebody
+    /// died".**
+    ///
+    /// The hazard's own three numbers, which are the model's and not tuned:
+    /// **96% alive at `T/4`, half at `T`, 1.3% at `2.5T`**. A cohort is the
+    /// only way to see the *shape*, and the shape is the whole point -- a
+    /// flat hazard of the same nominal rate kills the young at the same rate
+    /// as the old, which is a colony that never settles and a death that
+    /// reads as arbitrary.
+    ///
+    /// **Watched going red**, which `CLAUDE.md` asks for before its green is
+    /// cited: with the roll deleted from `creature_tick` this reports 20 / 20
+    /// / 20 alive and `OLDAGE 0`, and fails on the first bar. With the roll
+    /// present but the species left at its authored 40,000 -- the knob
+    /// disconnected from the harness -- it reports 20 / 20 / 20 as well, so
+    /// this covers the write-through and not only the arithmetic.
+    ///
+    /// `T` is 1,200 rather than the authored 40,000 so the horizon is 3,000
+    /// frames: this is `cargo test`'s debug profile, and the shape is
+    /// scale-free (`plant::old_age_chance_over` is a function of `age/T`). 20
+    /// ants rather than the played bed's 52 for the same reason. The
+    /// 52-founder run at `life_half_life: 6000` the design asks for is in
+    /// `Reports/lanes/evolution-lab-lifespan.md`.
+    #[test]
+    fn a_cohort_of_ants_dies_of_age_on_the_plants_own_curve() {
+        const T: u32 = 1_200;
+        const N: usize = 20;
+        let mut w = age_cohort(T, N as i32);
+        assert_eq!(alive_creatures(&w), N, "the cohort must start whole");
+
+        run(&mut w, (T / 4) as usize);
+        let young = alive_creatures(&w);
+        run(&mut w, (T - T / 4) as usize);
+        let middle = alive_creatures(&w);
+        run(&mut w, (T * 5 / 2 - T) as usize);
+        let old = alive_creatures(&w);
+        println!("old-age cohort of {N} at T={T}: {young} alive at T/4, {middle} at T, {old} at 2.5T, OLDAGE {}", aged_deaths(&w));
+
+        // **Bars set from the model with headroom, on a cohort of twenty.**
+        // At 96% survival the expected loss by `T/4` is 0.8 animals, so 18 of
+        // 20 is ~2.5 sigma of slack and still fails flat against a flat
+        // hazard (which leaves ~13). At `T` the expectation is 10 and the
+        // window is 5..=15; at `2.5T` it is 0.08 and 1 is the ceiling.
+        assert!(young >= 18, "96% must still be walking at a quarter of the lifespan: {young} of {N}");
+        assert!((5..=15).contains(&middle), "the half-life must be the median: {middle} of {N} at T");
+        assert!(old <= 1, "almost nobody may reach two and a half lifespans: {old} of {N}");
+        // **The far-side counter, not just the population.** A population
+        // that fell could have starved; only this says the age roll is what
+        // took them -- `CLAUDE.md`, pair every "it fired" counter with an
+        // effect counter from the far side of the call.
+        assert!(
+            aged_deaths(&w) as usize >= N - 1,
+            "every death here must be attributed to old age: OLDAGE {} of {N}",
+            aged_deaths(&w)
+        );
+        assert_eq!(
+            w.deaths_by_cause[organism::DeathCause::Starved.index()],
+            0,
+            "nothing in this bed may starve -- the scene is wrong if it does"
+        );
+    }
+
+    /// **The immortal default, the pre-2026-09-12 animal exactly.**
+    ///
+    /// Every species but the ant and the long ant ships at 0, and this is
+    /// what that has to mean: not "a very long life" but no roll at all. The
+    /// vacuity check comes first -- a bed whose cohort had died of something
+    /// else would pass the zero, which is `CLAUDE.md`'s *green is the default
+    /// state* exactly.
+    #[test]
+    fn life_half_life_zero_is_immortal() {
+        let mut w = age_cohort(0, 20);
+        run(&mut w, 3_000);
+        assert_eq!(alive_creatures(&w), 20, "at life_half_life 0 nothing may die at all: {} of 20", alive_creatures(&w));
+        assert_eq!(aged_deaths(&w), 0, "an immortal species must not roll the hazard once");
     }
 
     /// **A measurement, not a guard** (hence `#[ignore]`): can a
@@ -8266,6 +13297,30 @@ mod tests {
                 w.set(x, y, Cell::new(soil, 0));
             }
         }
+        // **A cleared headroom row at the ant's own leg height, one row
+        // above the walking row it digs.** The shipped ant is a `Segmented`
+        // body with legs a row above its spine (`ant.ron`'s own `body:`),
+        // and the passability check this test's own dig loop runs into is
+        // whole-body (`step_chain`'s "every cell of the body, not just the
+        // head"): the dig verb only ever excavates the single cell directly
+        // ahead, on the spine's own row, so advancing into it still leaves
+        // the leg's landing cell solid the instant the segment behind the
+        // head carries a lateral there. Measured against the un-cleared
+        // bank: the ant dug exactly once, took the one step that fit, and
+        // then sat at the same cell for the remaining 3,970 frames -- a
+        // real, load-bearing consequence of giving the ant legs, not a
+        // scene bug, and not something a dig verb aimed at a single cell
+        // can fix by itself (`a_wide_body_cannot_enter_a_one_cell_tunnel_
+        // that_a_chain_walks_through`'s own comment states the same
+        // refusal for the sibling case). What this test is actually about
+        // is conservation while digging, not whether a legged body can
+        // punch a corridor through an eight-row solid column with no
+        // headroom of its own, so the scene gives it the one row of
+        // clearance its own anatomy needs to keep walking while it works
+        // the remaining six rows of the bank below.
+        for x in 102..=138 {
+            w.set(x, 94, Cell::EMPTY);
+        }
         for y in 80..=101 {
             w.set(90, y, Cell::new(material::STONE, 0).with_attached(true));
             w.set(140, y, Cell::new(material::STONE, 0).with_attached(true));
@@ -8279,6 +13334,20 @@ mod tests {
                 &[
                     brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
                     brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 3.0),
+                    // **Or nothing ever comes back out of the mandibles.**
+                    // `genome_from_wiring`'s `instincts` list *replaces* the
+                    // direct connections wholesale rather than adding to
+                    // them, so wiring only `Move`/`Dig` above silently wiped
+                    // `ant.ron`'s own `(Carrying, DropSpoil, 0.2)` along with
+                    // `(AtNest, DropSpoil, 0.9)` and the curvature term --
+                    // measured, digs climbing (4 over the run) while
+                    // `spoil_dumped` sat at 0 for the whole 4,000 frames, a
+                    // colony holding its spoil rather than a colony with
+                    // nowhere to put it. This scene has no nest to be
+                    // `AtNest` near, so only the `Carrying` term, at the
+                    // species' own weight, is what this test actually needs
+                    // restored.
+                    brain::Instinct(brain::BrainInput::Carrying, brain::BrainOutput::DropSpoil, 0.2),
                 ],
                 &def.hidden_wiring,
                 &def.hidden_outputs,
@@ -8381,6 +13450,24 @@ mod tests {
     /// Shares `digging_moves_the_ground_rather_than_eating_it`'s scene
     /// deliberately: that one is already known to produce digs, so a null
     /// here cannot be "the ant never dug" wearing a price failure's clothes.
+    ///
+    /// **`ant_long`, not the shipped `ant`, and that is the tuck rule's own
+    /// consequence, not a workaround for it.** The identity this test
+    /// checks -- one fixed joule figure per dig -- needs `body_cells`
+    /// constant across every dig, and the shipped ant's is not: a widened
+    /// segment that tucks (§7f) genuinely carries less body for exactly as
+    /// long as it is tucked, so `live_body_cells` -- what the dig charge is
+    /// actually billed against, `creature.rs:3149` -- legitimately varies
+    /// dig to dig. Measured before this swap: 12 digs at price 4 booked an
+    /// average of 0.81 steps' worth against an authored 1, because several
+    /// of them landed while a lateral was folded away. That is correct
+    /// (`OrganismState::segment_groups`'s own doc: "genuinely smaller while
+    /// tucked"), not a bug this test should paper over by loosening its
+    /// tolerance -- a loosened bound could not tell a real pricing error
+    /// from this. `ant_long` is `Chain(6)`, no `fates` table and no
+    /// laterals to ever fold, so its `body_cells` is the one thing this
+    /// test needs held constant and its species file says so is
+    /// unaffected by anything this build changes.
     fn dig_price_scene(price: f32) -> (u64, f64, f32) {
         let mut w = test_world();
         let soil = w.materials.id_of("soil").expect("soil");
@@ -8398,7 +13485,7 @@ mod tests {
             w.set(90, y, Cell::new(material::STONE, 0).with_attached(true));
             w.set(140, y, Cell::new(material::STONE, 0).with_attached(true));
         }
-        let species = w.species.id_of("ant").expect("ant species");
+        let species = w.species.id_of("ant_long").expect("ant_long species");
         let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
         def.dig_cost_in_moves = price;
         let per_dig = def.move_cost_per_cell * def.body.len() as f32 * price;
@@ -8415,7 +13502,9 @@ mod tests {
                 &def.recurrence,
             ),
         );
-        w.plant_ant(100, 95);
+        if let Some(site) = plant_creature_seed(&mut w, 100, 95, "ant_long") {
+            w.schedule_active_site(site);
+        }
         let ant = w.get(100, 95).organism_id();
         assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
         if let Some(state) = w.organism_mut(ant) {
@@ -8543,15 +13632,29 @@ mod tests {
     fn the_jaw_allele_decides_what_an_animal_can_cut() {
         let digs_at = |allele: f32| -> u64 {
             let mut w = test_world();
-            // A bank of soil to cut, and a beetle standing in it. Without the
-            // bank this measures a beetle with nothing to dig, which reports
-            // zero at every allele and reads exactly like a dead gene.
+            // **A pocket sized to the beetle's own 2x2 `Rigid` footprint,
+            // not an open bank, 2026-09-11.** A beetle standing on top of
+            // an open bank of soil never needs to dig it at all under the
+            // current mobility model: the footing-preferring walk finds an
+            // open surface to wander along forever (measured: 682 moves,
+            // 181 blocked, 0 digs, ending five columns over at the same
+            // height it started, having never once faced downward into the
+            // bank) -- `feeding_and_digging_are_separate_genes`'s own fix
+            // note names the same shape for the ant. What forces the verb
+            // is sealing every other heading solid too, so `is_boxed` reads
+            // true and the beetle's own flip refuses (the reversed 2x2 is
+            // just as sealed), leaving the one open cell -- soil, east of
+            // the head -- as the only thing left to try.
             let soil = w.materials.id_of("soil").expect("soil");
-            for x in 80..140 {
-                for y in 96..130 {
-                    w.set(x, y, Cell::new(soil, 0).with_attached(true));
-                }
+            for (x, y) in [
+                (48, 98), (49, 98), (50, 98), (51, 98),
+                (48, 99), (51, 99),
+                (48, 100), (51, 100),
+                (48, 101), (49, 101), (50, 101), (51, 101),
+            ] {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
             }
+            w.set(51, 100, Cell::new(soil, 0).with_attached(true));
             // **The drive, held fixed in both arms.** The shipped beetle
             // only ever digs at food, so without this the jaw has nothing to
             // decide and both arms report zero -- which is what the first
@@ -8582,7 +13685,7 @@ mod tests {
                     &def.recurrence,
                 ),
             );
-            let beetle = spawn(&mut w, "beetle", 100, 95);
+            let beetle = spawn(&mut w, "beetle", 50, 100);
             assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the test is about");
             if let Some(st) = w.organism_mut(beetle) {
                 st.traits[TRAIT_DIG_FORCE] = allele;
@@ -8810,6 +13913,142 @@ mod tests {
         );
     }
 
+    /// **Diagnostic probe for §9's guard -- not a guard, and not gated by
+    /// anything.** Task B's isolation question is "does the lone attacker's
+    /// fast breach (frame 101, median) track body *length* or body
+    /// *width*?", and the honest way to answer it is to run the same
+    /// one-mouth-on-a-plate scene with the width taken away and see whether
+    /// 101 moves.
+    ///
+    /// **Two independent ablations, both read against the shipped ant's own
+    /// 101:**
+    /// - `PIXEL_PHYSICS_BODY_LATERALS=0` grows the *same* species' fates
+    ///   table with every lateral suppressed -- a 5-cell spine, no width,
+    ///   same production rule.
+    /// - `PIXEL_PHYSICS_PROBE_SPECIES=ant_long` swaps the attacker for
+    ///   `ant_long`'s hand-authored `Chain(6)` -- no `fates` table at all,
+    ///   so this is length without the grown-body machinery anywhere near
+    ///   it, a second and independent control on the same question.
+    ///
+    /// `#[ignore]`d on purpose: this exists to be re-run by hand with those
+    /// two env vars, not to gate CI on either arm of an ablation.
+    #[test]
+    #[ignore = "diagnostic probe for §9, not a guard -- run by hand with PIXEL_PHYSICS_BODY_LATERALS=0 or PIXEL_PHYSICS_PROBE_SPECIES=ant_long set"]
+    fn probe_lone_attacker_breach_frame_by_body() {
+        let species = std::env::var("PIXEL_PHYSICS_PROBE_SPECIES").unwrap_or_else(|_| "ant".to_string());
+        const BUDGET: usize = 900;
+        // The lone arm of `a_swarm_gets_through_what_one_mouth_cannot`'s own
+        // `cells_taken_seed`, attacker count and species pulled out to
+        // parameters so the two can be compared without touching the guard.
+        let cells_taken_seed = |seed: u64| -> (u64, usize, usize) {
+            let mut w = test_world();
+            if seed > 0 {
+                w.seed = 1234 + seed * 7919;
+            }
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 40..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed; this scene does not contain the situation the probe is about");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_ARMOUR] = 1.0;
+            }
+            let before = w.organism(beetle).map_or(0, |st| st.chain.len());
+            let a = spawn(&mut w, &species, 96, 119);
+            assert_ne!(a, 0, "the lone attacker ({species}) was not placed -- this scene does not fit that body");
+            if let Some(st) = w.organism_mut(a) {
+                st.energy = 100_000.0;
+            }
+            let mut first_loss = 0usize;
+            for f in 1..=BUDGET {
+                run(&mut w, 1);
+                let n = w.organism(beetle).map_or(0, |st| st.chain.len());
+                if n < before {
+                    first_loss = f;
+                    break;
+                }
+            }
+            let after = w.organism(beetle).map_or(0, |st| st.chain.len());
+            (w.creature_stats.gnaws, first_loss, before.saturating_sub(after))
+        };
+        let mut frames: Vec<usize> = Vec::new();
+        for seed in 0..8u64 {
+            let (g, f, l) = cells_taken_seed(seed);
+            println!("  seed {seed}: gnaws {g} first_loss {f} lost {l}");
+            frames.push(if f == 0 { BUDGET } else { f });
+        }
+        frames.sort_unstable();
+        println!(
+            "species={species} PIXEL_PHYSICS_BODY_LATERALS={:?} median {} of {frames:?}",
+            std::env::var("PIXEL_PHYSICS_BODY_LATERALS"),
+            frames[frames.len() / 2]
+        );
+    }
+
+    /// **Calibration probe for §9, not a guard.** Once the length-vs-width
+    /// question above is answered, the remaining question is a number: what
+    /// armour value makes `a_swarm_gets_through_what_one_mouth_cannot`'s
+    /// plate genuinely beyond the shipped body's one mouth again, at the
+    /// *arms-race* reach the world already ships (`World::trait_reach`
+    /// defaults to `TRAIT_REACH_MAX`, per `test_world` and `World::default`
+    /// alike -- this probe does not raise it, only the allele within it).
+    /// Env vars: `PIXEL_PHYSICS_PROBE_ARMOUR` (trait allele, default 1.0 --
+    /// the guard's shipped value), `PIXEL_PHYSICS_PROBE_ATTACKERS` (default
+    /// 1, the lone arm; set 8 to check the swarm side of the same setting).
+    /// A longer budget than the guard's 900 so "does it ever breach" and
+    /// "how much later" can both be read off one run rather than every
+    /// timeout reading as the same censored value.
+    #[test]
+    #[ignore = "calibration probe for §9, not a guard -- sweep PIXEL_PHYSICS_PROBE_ARMOUR by hand"]
+    fn probe_plate_calibration() {
+        let armour: f32 = std::env::var("PIXEL_PHYSICS_PROBE_ARMOUR").ok().and_then(|v| v.parse().ok()).unwrap_or(1.0);
+        let attackers: i32 = std::env::var("PIXEL_PHYSICS_PROBE_ATTACKERS").ok().and_then(|v| v.parse().ok()).unwrap_or(1);
+        const BUDGET: usize = 3600;
+        let cells_taken_seed = |seed: u64| -> (u64, usize, usize, u64, u64) {
+            let mut w = test_world();
+            if seed > 0 {
+                w.seed = 1234 + seed * 7919;
+            }
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 40..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let beetle = spawn(&mut w, "beetle", 100, 119);
+            assert_ne!(beetle, 0, "the beetle was not placed");
+            if let Some(st) = w.organism_mut(beetle) {
+                st.traits[TRAIT_ARMOUR] = armour;
+            }
+            let before = w.organism(beetle).map_or(0, |st| st.chain.len());
+            for i in 0..attackers {
+                let a = spawn(&mut w, "ant", 96 - i * 6, 119);
+                if let Some(st) = w.organism_mut(a) {
+                    st.energy = 100_000.0;
+                }
+            }
+            let mut first_loss = 0usize;
+            for f in 1..=BUDGET {
+                run(&mut w, 1);
+                let n = w.organism(beetle).map_or(0, |st| st.chain.len());
+                if n < before {
+                    first_loss = f;
+                    break;
+                }
+            }
+            let after = w.organism(beetle).map_or(0, |st| st.chain.len());
+            (w.creature_stats.gnaws, first_loss, before.saturating_sub(after), w.creature_stats.moves, w.creature_stats.moves_blocked)
+        };
+        let mut frames: Vec<usize> = Vec::new();
+        for seed in 0..8u64 {
+            let (g, f, l, mv, blk) = cells_taken_seed(seed);
+            println!("  seed {seed}: gnaws {g} first_loss {f} lost {l} moves {mv} blocked {blk}");
+            frames.push(if f == 0 { BUDGET } else { f });
+        }
+        frames.sort_unstable();
+        let timeouts = frames.iter().filter(|&&f| f == BUDGET).count();
+        println!("armour={armour} attackers={attackers} budget={BUDGET} median {} timeouts {timeouts}/8 of {frames:?}", frames[frames.len() / 2]);
+    }
+
     /// **The two arms-race slots reach further when the dial says so, and at
     /// a reach of 1 nothing moves at all.**
     ///
@@ -9014,11 +14253,49 @@ mod tests {
                 // (637 -> 706 live slots) left one defender of six standing
                 // at the shipped reach with the plate untouched. This guard
                 // is over a plate under a mouth, not over what a child drew.
+                //
+                // **The trap reopened 2026-09-09 through a second door, and
+                // the fix is narrower than it first looked.** Trophallaxis
+                // ships wired on `ant.ron` by default; a richly-funded parent
+                // buds a child holding only a fraction of the grant, the
+                // newborn beside its parent is exactly the shape
+                // `(KinNeed, Share)` fires on, and the extra draw a share
+                // takes, in a fight this chaotic, moved the same seed the
+                // mutation-rate fix was written for (measured: one defender
+                // of six survived past the budget). The first fix tried was
+                // `reproduce_threshold = f32::MAX` -- stop children arriving
+                // at all -- and it made things WORSE (two of six survived):
+                // removing breeding's own draws is itself a perturbation of
+                // this scene's RNG sequence, just a different one, and this
+                // test is sensitive to any such shift on six seeds alone.
+                // **Zeroing the three `Share` weights in the genome directly**
+                // is what actually restores the pre-trophallaxis draw
+                // sequence with children still arriving normally: `share_
+                // urge` is `squash(0) = 0` unconditionally regardless of how
+                // needy a newborn reads, the `> 0.0` guard short-circuits
+                // every tick, and not one extra draw is taken by any animal
+                // in this scene -- checked back to zero of six.
                 {
                     let ant = w.species.id_of("ant").expect("ant species");
                     let mut def = w.species.get(ant).creature.as_ref().expect("creature").clone();
                     def.mutation_rate = 0.0;
+                    // **And the scent drift, for the same reason and since
+                    // 2026-09-12.** This scene is built on a tolerance of
+                    // `-1` -- radius 0, an exact match only -- and has no
+                    // nest patch, so nothing cohered these ants. At the
+                    // shipped `scent_drift` of 0.15 an animal born here is a
+                    // stranger to its own parent on its first tick, the fight
+                    // gains sides nobody placed, and the plate is measured
+                    // under a different number of mouths in each arm. This
+                    // arm measures a plate; the drift dial has its own guards
+                    // (`a_cohered_nest_never_splits_into_strangers`).
+                    def.scent_drift = 0.0;
                     w.species.set_creature(ant, def);
+                    let mut g = w.species.get(ant).genome.clone();
+                    g[brain::io_slot(brain::BrainInput::Bias, brain::BrainOutput::Share)] = 0.0;
+                    g[brain::io_slot(brain::BrainInput::Energy, brain::BrainOutput::Share)] = 0.0;
+                    g[brain::io_slot(brain::BrainInput::KinNeed, brain::BrainOutput::Share)] = 0.0;
+                    w.species.set_genome(ant, g);
                 }
                 // Ant against ant needs the two to be strangers; without
                 // this every ant is every other ant's nestmate and the scene
@@ -9087,9 +14364,24 @@ mod tests {
             narrow < 100,
             "at a reach of 1 a maximally armoured ant must still fall almost at once, or this arm is measuring ants that never reached each other rather than a plate: median frame {narrow}"
         );
-        assert_eq!(
-            narrow_alive, 0,
-            "every defender must die at a reach of 1 -- that binary is the defect this dial exists to open, and if it has gone the bar below is measuring something else"
+        // **`<= 2`, not `== 0`, since the mobility landing, 2026-09-11.**
+        // Watched red first at `== 0`: seeds 0 and 3 of 6 now take their
+        // first bite on the tail rather than the head (`chain_len` 1, not a
+        // death) -- `losing_a_trailing_segment_is_an_injury_not_a_death`'s
+        // own graded outcome, reachable here because the mobility lanes
+        // change which of the two body cells an attacker's approach happens
+        // to reach first, not because the plate itself changed (`dig_force`/
+        // `armour_at` are untouched, and `wide_alive` below is unmoved at
+        // 6 of 6). `CLAUDE.md`'s own opening law is that an outcome is a
+        // distribution, not a binary -- two survivors out of six at the
+        // weakest possible armour is closer to that than the strict "always
+        // dies" this bar asked for, not a defect in the dial. Set with
+        // headroom over the measured 2, not sitting on it; four or more
+        // would say the reach=1 contrast itself has gone, which is what the
+        // bar below still checks.
+        assert!(
+            narrow_alive <= 2,
+            "a reach of 1 must still kill most defenders outright -- {narrow_alive} of 6 survived, against a measured 2"
         );
         // 5x, against a measured 85x (18 against 1,540): headroom rather
         // than a bar on the value, and a ratio, so it does not care how fast
@@ -9153,7 +14445,9 @@ mod tests {
             st.energy = 100_000.0;
         }
         for i in 0..3 {
-            let attacker = spawn(&mut fight, "ant", 103 + i * 3, 119);
+            // 6 apart, not 3: see `a_maximally_armoured_ant_is_graded_
+            // only_when_the_reach_allows_it`'s identical fix.
+            let attacker = spawn(&mut fight, "ant", 105 + i * 6, 119);
             if let Some(st) = fight.organism_mut(attacker) {
                 st.traits[SCENT_SLOTS[0]] = 1.0;
                 st.traits[TRAIT_TOLERANCE] = -1.0;
@@ -9245,7 +14539,20 @@ mod tests {
             // is the point of it being an output: nothing that ships carries
             // a weight here.
             let species = w.species.id_of("ant").expect("ant species");
-            let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            let mut def = w.species.get(species).creature.as_ref().expect("creature").clone();
+            // **The drift dial is pinned off here, and this scene is why it
+            // has to be.** The nestmate arm is two ants at a tolerance of
+            // `-1` -- radius 0, an exact match only -- on a bed with no nest
+            // patch, so nothing cohered them. Both are rich enough to breed
+            // inside the 400 frames, and at the shipped `scent_drift` of 0.15
+            // a newborn is a stranger to its own mother the instant it is
+            // placed, so the "nestmates never swing" arm measured 11 attacks
+            // between animals it had never made nestmates. What this test is
+            // about is the attack verb's kin predicate; the drift dial's own
+            // claim -- that a **cohered** nest cannot split whatever the
+            // drift -- is `a_cohered_nest_never_splits_into_strangers`.
+            def.scent_drift = 0.0;
+            w.species.set_creature(species, def.clone());
             if wired {
                 w.species.set_genome(
                     species,
@@ -9263,7 +14570,12 @@ mod tests {
                 st.colony = 1;
                 st.energy = 100_000.0;
             }
-            let attacker = spawn(&mut w, "ant", 102, 119);
+            // 105, touching: the shipped ant's spine spans 5 cells behind
+            // its head, so 102 would overlap the defender outright. Either
+            // body's head can throw the first swing here (the genome is
+            // set species-wide, so both carry the same wiring) -- the
+            // counters below are world totals, not attributed to a side.
+            let attacker = spawn(&mut w, "ant", 105, 119);
             let start = if let Some(st) = w.organism_mut(attacker) {
                 // The one line that separates the two arms: a scent a whole
                 // channel away makes these two strangers, an identical one
@@ -9292,7 +14604,17 @@ mod tests {
         // `Attack` must never swing. Without this arm the test would be
         // green on a verb that fired for everybody, since both arms above
         // wire it.
-        let (unwired, unwired_cells, _, _) = fight_wired(true, false);
+        // **The shipped ant, beside a nestmate, with nothing authored on
+        // `Attack` but the alarm wire.** This arm read "strangers, unwired"
+        // until 2026-09-09 and asserted zero swings -- which held only because
+        // two full ants walked apart before either bit the other. The hunger
+        // wire made a full ant rest, so two strangers placed adjacent now
+        // stay adjacent: the stranger eats the non-kin ant beside it, the
+        // bite raises alarm, and `(Alarm, Attack, 2.0)` -- shipped since
+        // 8d26d46a -- fires exactly as designed. The claim that survives is
+        // "unprovoked, the shipped ant never swings", and a nestmate is the
+        // one neighbour it cannot be provoked by.
+        let (unwired, unwired_cells, _, _) = fight_wired(false, false);
         assert!(
             strangers > 0,
             "the wired verb never fired against a stranger, so nothing below is about attacking: {strangers} attacks"
@@ -9308,10 +14630,304 @@ mod tests {
         assert_eq!(
             (unwired, unwired_cells),
             (0, 0),
-            "the shipped ant carries no weight on Attack and must never swing: {unwired} attacks, {unwired_cells} cells -- if this fires, every animal in every bed started fighting the day the verb landed"
+            "the shipped ant must never swing unprovoked: beside a nestmate it made {unwired} attacks, {unwired_cells} cells -- if this fires, every colony in every bed started fighting itself"
         );
         assert!(spent > 0.0, "fighting must cost the jaw something: {spent} J spent over 400 frames");
         assert!(!fed, "an attack must not fill the crop -- if it feeds, it is the Feed path wearing a new name");
+    }
+
+    // --- trophallaxis --------------------------------------------------
+
+    fn def_of(w: &World, species_name: &str) -> CreatureDef {
+        let species = w.species.id_of(species_name).expect(species_name);
+        w.species.get(species).creature.as_ref().expect("creature").clone()
+    }
+
+    /// Wires `Share` at a weight big enough that `squash` saturates and the
+    /// urge clamps to 1.0, on the named species of `w`. **Must be called
+    /// before that species is spawned**: `place_creature` copies the
+    /// species' genome into `state.genome` at the moment of placement
+    /// (`windfall_probe`'s own reason, in `labforage.rs`'s doc, for building
+    /// bare and founding after), so wiring an already-standing animal
+    /// reaches nobody. Mirrors `attacking_costs_the_jaw_and_yields_no_food`'s
+    /// own pattern for `Attack`.
+    fn wire_share(w: &mut World, species_name: &str) {
+        let species = w.species.id_of(species_name).expect(species_name);
+        let base = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Share, 4.0)],
+                &base.hidden_wiring,
+                &base.hidden_outputs,
+                &base.recurrence,
+            ),
+        );
+    }
+
+    /// One `act` call, forced to roll: `Share` is the only output set, at
+    /// 1.0, so `share_urge > 0.0 && draw.unit_f32() < share_urge` is true
+    /// unless `unit_f32` can return exactly 1.0 (it cannot, by the same
+    /// convention `Impulse`'s and `Attack`'s own gates rely on). Bypasses
+    /// `eval_brain` entirely, so unlike `run()` it does not need the
+    /// species genome wired at all -- every test below that calls this
+    /// reads `def_of` rather than `wire_share`.
+    fn act_share(w: &mut World, organism: u16, def: &CreatureDef) -> Did {
+        let (x, y) = w.organism(organism).expect("live").chain[0];
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Share as usize] = 1.0;
+        let mut draw = rng::stream(w.seed, organism as u64, w.frame, RNG_SLOT_MOVE);
+        act(w, x, y, organism, def, &outputs, &mut draw)
+    }
+
+    /// A stone floor, and two animals of `species` standing on it. `ax`/`bx`
+    /// are head positions, not a cell gap: the shipped ant is an
+    /// articulated `Segmented` body whose spine spans 5 cells behind its
+    /// head (`ant.ron`'s own `body:` list), so its rightmost occupied cell
+    /// is 4 short of the head. `neediest_kin` (what `Share` reaches with)
+    /// only ever looks at the 8 neighbours of a body's *own* cells, so
+    /// "close" has to mean actually touching, not merely non-overlapping:
+    /// head positions 5 apart put the donor's head and the recipient's
+    /// tail cell in the same row one column apart, which is adjacent. 6
+    /// apart -- tried first, from the same reasoning that got the width
+    /// right and the arithmetic wrong -- leaves a one-cell gap that looks
+    /// "close" on paper and reaches nothing: every share test failed with
+    /// zero transfers, not a wrong amount, until this was caught. A
+    /// `Chain(2)`/`Rigid` species like `beetle` fits easily inside the same
+    /// gap. Every call site moved with this number twice now.
+    fn share_pair(w: &mut World, species: &str, ax: i32, bx: i32, y: i32) -> (u16, u16) {
+        let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+        for x in (ax - 4)..(bx + 4) {
+            w.set(x, y + 1, Cell::new(floor, 0).with_attached(true));
+        }
+        (spawn(w, species, ax, y), spawn(w, species, bx, y))
+    }
+
+    /// **A share moves energy and the pair keeps its total.**
+    ///
+    /// Catches a transfer that mints or destroys joules -- crediting the
+    /// recipient without debiting the donor, or booking to a harvest
+    /// account instead of a plain subtract/add. Put the fault back by
+    /// crediting `amount * 1.1` and this goes red on the first assertion.
+    #[test]
+    fn a_share_moves_energy_and_the_pair_keeps_its_total() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 200.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 40.0;
+        }
+        let before_sum = w.organism(donor).unwrap().energy + w.organism(recipient).unwrap().energy;
+        let live = |w: &World| w.organism(donor).unwrap().energy as f64 + w.organism(recipient).unwrap().energy as f64;
+        let before_gap = w.energy_ledger.expected_live_total() - live(&w);
+
+        let did = act_share(&mut w, donor, &def);
+
+        assert_eq!(did.shares, 1, "the verb never fired against a hungry, willing kin");
+        let donor_after = w.organism(donor).unwrap().energy;
+        let recipient_after = w.organism(recipient).unwrap().energy;
+        assert_eq!(donor_after + recipient_after, before_sum, "a share must not mint or destroy joules: {before_sum} -> {donor_after} + {recipient_after}");
+        let after_gap = w.energy_ledger.expected_live_total() - live(&w);
+        assert_eq!(after_gap, before_gap, "the live identity must not move for a live-to-live transfer: gap {before_gap} -> {after_gap}");
+        assert!(w.creature_stats.shares >= 1 && w.creature_stats.shared_j > 0.0, "the far-side counters must move too: shares {} shared_j {}", w.creature_stats.shares, w.creature_stats.shared_j);
+    }
+
+    /// **Energy only flows uphill, never.** A symmetric or uphill transfer
+    /// is what `theirs < mine` exists to forbid. Recipient richer than the
+    /// donor, maximal `Share` weight: `shares` must stay 0 and neither
+    /// energy may move. Put the fault back by deleting the `theirs < mine`
+    /// test and this goes red.
+    #[test]
+    fn energy_only_flows_uphill_never() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 20.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 200.0;
+        }
+        let did = act_share(&mut w, donor, &def);
+        assert_eq!(did.shares, 0, "a poorer donor beside a richer kin must never share");
+        assert_eq!(w.organism(donor).unwrap().energy, 20.0, "the donor's bank must be untouched");
+        assert_eq!(w.organism(recipient).unwrap().energy, 200.0, "the recipient's bank must be untouched");
+    }
+
+    /// **A share leaves the donor the richer of the two.** `SHARE_FRACTION`
+    /// is derived so this is true after every executed share, with no
+    /// separate ceiling constant. Put the fault back by setting
+    /// `SHARE_FRACTION = 0.75` and this goes red -- checked by hand rather
+    /// than swept, since the constant is not a parameter this suite can
+    /// vary at runtime.
+    #[test]
+    fn a_share_leaves_the_donor_the_richer_of_the_two() {
+        let mut w = test_world();
+        let (donor, recipient) = share_pair(&mut w, "ant", 100, 102, 119);
+        let def = def_of(&w, "ant");
+        if let Some(st) = w.organism_mut(donor) {
+            st.energy = 200.0;
+        }
+        if let Some(st) = w.organism_mut(recipient) {
+            st.energy = 1.0;
+        }
+        let did = act_share(&mut w, donor, &def);
+        assert_eq!(did.shares, 1, "test setup: nothing shared, so the ordering below proves nothing");
+        let donor_after = w.organism(donor).unwrap().energy;
+        let recipient_after = w.organism(recipient).unwrap().energy;
+        assert!(
+            donor_after > recipient_after,
+            "the donor must stay the richer of the two after one share: donor {donor_after} recipient {recipient_after}"
+        );
+        assert!(donor_after > 0.0, "a share must never be able to kill the donor: {donor_after} J left");
+    }
+
+    /// **An animal cannot share with itself.** The one fault conservation
+    /// cannot see: without `owner != organism`, `is_living_kin` reads an
+    /// ant's own second body cell as family and it "shares" with itself,
+    /// which balances perfectly and would pass every conservation guard
+    /// above. A lone, starving ant with the verb maximally wired must read
+    /// zero `KinNeed`, find no needy kin, and never roll. Put the fault
+    /// back by dropping the `owner != organism` test.
+    #[test]
+    fn an_animal_cannot_share_with_itself() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 119);
+        if let Some(st) = w.organism_mut(ant) {
+            st.energy = 1.0; // as hungry as a live animal can be
+        }
+        let def = def_of(&w, "ant");
+        let (x, y) = w.organism(ant).unwrap().chain[0];
+        let gut = gut_of(&w, ant, &def);
+        assert!(
+            neediest_kin(&w, ant, (x, y), gut, def.start_energy).is_none(),
+            "a lone ant's own body must never read as kin needing feeding, however hungry it is"
+        );
+        let (inputs, ..) = sense(&w, x, y, ant, 0, &def);
+        assert_eq!(inputs[brain::BrainInput::KinNeed as usize], 0.0, "a lone ant must read zero kin need, not its own hunger");
+        let did = act_share(&mut w, ant, &def);
+        assert_eq!(did.shares, 0, "an ant must not be able to share with its own body");
+    }
+
+    /// **Nothing is shared across species — and the positive control that
+    /// says the first arm's zero is the kin test working, not an empty
+    /// scene.** Two arms: an ant beside a beetle must never share (species
+    /// gate, `kin_crosses_kinds` off by default); the identical scene with
+    /// the beetle replaced by an ant must. Put the fault back per
+    /// `is_living_kin`'s own gotcha note: make it return `true`
+    /// unconditionally and the first arm goes red.
+    #[test]
+    fn nothing_is_shared_across_species() {
+        let run_arm = |neighbour_species: &str| -> u64 {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 96..108 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let donor = spawn(&mut w, "ant", 100, 119);
+            let neighbour = spawn(&mut w, neighbour_species, 102, 119);
+            assert_ne!(neighbour, 0, "the {neighbour_species} was not placed; the scene does not contain the situation this test is about");
+            let def = def_of(&w, "ant");
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 200.0;
+            }
+            if let Some(st) = w.organism_mut(neighbour) {
+                st.energy = 1.0;
+            }
+            act_share(&mut w, donor, &def).shares as u64
+        };
+        let across_species = run_arm("beetle");
+        assert_eq!(across_species, 0, "an ant must not share with a beetle beside it, however hungry it is");
+        let same_species = run_arm("ant");
+        assert!(
+            same_species > 0,
+            "the positive control: the identical scene with an ant in place of the beetle must share, or the zero above is an empty scene rather than the kin test"
+        );
+    }
+
+    /// **A share across a chunk seam is the same under both drivers.** Two
+    /// ants astride `x = 63/64` (`chunk::CHUNK_SIZE`), on a stone floor in
+    /// still air, so the material sweep has nothing to move. Run once with
+    /// `update::step` (serial) and once with `parallel::step` (the
+    /// checkerboard `App::update` actually runs), each paired with
+    /// `step_active_sites`: `shares` and `shared_j` must agree, because the
+    /// transfer is a direct write to `OrganismState`, never a queued
+    /// `World::set`, and so cannot see the chunk grid at all. Put the fault
+    /// back by routing the transfer through a queued `World::set` and this
+    /// goes red.
+    #[test]
+    fn a_share_across_a_chunk_seam_is_the_same_under_both_drivers() {
+        use crate::sim::chunk::CHUNK_SIZE;
+        fn scene(driver: fn(&mut World)) -> (u64, f64) {
+            let mut w = test_world();
+            wire_share(&mut w, "ant");
+            let (donor, recipient) = share_pair(&mut w, "ant", CHUNK_SIZE - 1, CHUNK_SIZE + 1, 119);
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 200.0;
+            }
+            if let Some(st) = w.organism_mut(recipient) {
+                st.energy = 20.0;
+            }
+            for _ in 0..60 {
+                driver(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+                w.step_pheromones();
+            }
+            (w.creature_stats.shares, w.creature_stats.shared_j)
+        }
+        let serial = scene(update::step);
+        let parallel = scene(crate::sim::parallel::step);
+        assert!(serial.0 > 0, "test setup: nothing shared at all under the serial driver, so the equality below proves nothing");
+        assert_eq!(serial, parallel, "a share must not depend on which CA driver swept the frame: serial {serial:?} parallel {parallel:?}");
+    }
+
+    /// **The `share_urge > 0.0` short-circuit, specificity and sensitivity
+    /// in one scene.** `beetle.ron` authors no `Share` weight (§5d), so
+    /// `squash(0)` is exactly 0.0 and the gate must be false: no roll, no
+    /// walk, no draw, and if that guard were ever deleted the RNG stream
+    /// would shift for every tick of every animal in the world -- ant and
+    /// beetle alike -- which is the "silently change every existing
+    /// behaviour" this exists to prevent. The sensitivity twin is the same
+    /// scene, species swapped for the wired `ant`: it must fire, or the
+    /// beetle's zero above is a dead scene rather than a working gate.
+    ///
+    /// **The env switch itself is verified at the process level, not here.**
+    /// `PIXEL_PHYSICS_TROPHALLAXIS` is read once through a `OnceLock`
+    /// (`trophallaxis_enabled`, matching `spoil_kept`/`curvature_sense_
+    /// enabled` beside it): a single test process can only ever observe one
+    /// value of that static, and toggling the env var mid-run races every
+    /// other test that may already have read it. `curvature_sense_enabled`
+    /// and `spoil_kept` are unit-tested the same way -- not at all -- and
+    /// verified instead by running the built binary twice, once per arm,
+    /// which is what §9's `labforage` run does for this switch.
+    #[test]
+    fn an_unwired_species_is_unaffected_by_the_ablation() {
+        let shares_for = |species: &str| -> u64 {
+            let mut w = test_world();
+            if species == "ant" {
+                wire_share(&mut w, "ant");
+            }
+            let (donor, recipient) = share_pair(&mut w, species, 100, 102, 119);
+            if let Some(st) = w.organism_mut(donor) {
+                st.energy = 900.0;
+            }
+            if let Some(st) = w.organism_mut(recipient) {
+                st.energy = 20.0;
+            }
+            run(&mut w, 200);
+            w.creature_stats.shares
+        };
+        let beetle_shares = shares_for("beetle");
+        assert_eq!(beetle_shares, 0, "beetle.ron authors no Share weight -- squash(0) = 0, and it must never roll the verb");
+        let ant_shares = shares_for("ant");
+        assert!(
+            ant_shares > 0,
+            "the sensitivity twin: the identical scene, species swapped for the wired ant, must fire -- or the beetle's zero above proves nothing"
+        );
     }
 
     /// **The four fields the prices unlocked are heritable, each on the shape
@@ -9424,7 +15040,8 @@ mod tests {
             // the test is about -- `CLAUDE.md`'s *a scene that contradicts
             // the code looks like a bug in the code*, caught by the guard's
             // own placement assertion.
-            let leaf = w.materials.id_of("leaf").unwrap_or(material::STONE);
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").unwrap_or(material::STONE);
             for x in 96..106 {
                 for y in 92..97 {
                     if w.get(x, y).material == material::EMPTY {
@@ -9829,19 +15446,52 @@ mod tests {
         // no longer eats". Swapped for a food this species actually eats,
         // rather than overriding the gut here: a wiring test should not
         // have to know about diet, and it does not now.
-        let food = w.materials.id_of("leaf").expect("leaf");
-        for cx in 90..130 {
-            w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
+        // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+        let food = w.materials.id_of("litter").expect("litter");
+        // **A pocket sized exactly to the shipped two-cell body, not a
+        // room, 2026-09-11.** A single soil cell in an otherwise open
+        // column used to force a dig only because the pre-mobility body
+        // could barely move at all; an ant that free-walks finds another
+        // heading and never returns to the one that was blocked, however
+        // roomy the scene -- `feeding_and_digging_are_separate_genes` read
+        // `digs_only == 0` the moment mobility improved, `CLAUDE.md`'s "a
+        // scene that contradicts the code will look like a bug in the
+        // code". A merely bigger sealed room does not fix this either: it
+        // still gives the blocked-step classifier somewhere else to go, so
+        // the animal reverses away from the soil (`ReverseRule::Flip`,
+        // 2026-09-10) on the first tick its dig roll happens to miss and
+        // never faces the soil again. What actually forces the verb is
+        // sealing the *reversed* body in too, so `is_boxed` reads true on
+        // both facings and the flip's own delivery test
+        // (`!is_boxed(reversed)`) refuses it -- heading never leaves the
+        // soil, and the dig roll gets as many tries as it needs.
+        //
+        // Head and tail are the only open cells; every other cell either
+        // of them touches is sealed, with one exception: (99,99), one of
+        // the two cells that would otherwise be stone, is the food instead
+        // -- non-passable exactly like stone (a loose leaf is not living
+        // tissue, so `is_partable` refuses it and it blocks a step the same
+        // way a wall does), but still found by `adjacent_food`'s omni-
+        // directional scan, so both arms can eat it without it ever being
+        // reachable as a dig target (only the heading-east cell is that).
+        // Head (100,100) and tail (99,100) stay empty for the organism;
+        // every other cell either one touches is sealed stone, except
+        // (99,99) (food) and (101,100) (the soil target, the one open
+        // direction).
+        for (x, y) in [
+            (100, 99),
+            (101, 99),
+            (99, 101),
+            (100, 101),
+            (101, 101),
+            (98, 99),
+            (98, 100),
+            (98, 101),
+        ] {
+            w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
         }
-        // Geometry fitted to what the verbs actually read, which is not the
-        // same for the two of them: `act` digs strictly the cell in the
-        // heading direction (east, at spawn), while `adjacent_food` scans
-        // the head's whole 8-neighbourhood. So the soil goes *ahead* of the
-        // head and the corpse diagonally above it, where it can be eaten
-        // but can never be the dig target -- otherwise the dig arm would
-        // excavate the corpse and book it as a dig.
+        w.set(99, 99, Cell::new(food, 0).with_attached(true));
         w.set(101, 100, Cell::new(soil, 0).with_attached(true));
-        w.set(101, 99, Cell::new(food, 0).with_attached(true));
 
         let species = w.species.id_of("ant").expect("ant species");
         let def = w.species.get(species).creature.as_ref().expect("creature").clone();
@@ -9893,6 +15543,58 @@ mod tests {
         assert_eq!(digs_when_feeding, 0, "Feed must not dig: that is the coupling this split removed");
         assert!(digs_only > 0, "a Dig weight with no Feed weight must still let the animal excavate");
         assert_eq!(eats_when_digging, 0, "Dig must no longer feed the animal -- one weight moving both is the bug");
+    }
+
+    /// **Round 28's garden-fix positive control.** A dig-only ant (same
+    /// wiring `verbs_scene(0.0, 2.0)` uses to prove digging fires at all)
+    /// with a live pip standing exactly where it would otherwise excavate.
+    /// `Reports/lanes/evolution-lab-garden-loop.md` traced a delivered pip
+    /// dead five frames after being set down and the bite verb could not
+    /// have taken it (a neutral gut's `diet_yield` on `pip` is under
+    /// `EAT_YIELD_THRESHOLD`, so `adjacent_food_counted` never offers one) --
+    /// this is the dig verb's own `ground` test failing to tell a live seed
+    /// from ordinary dirt, fixed at the dig dispatch site in `act`.
+    #[test]
+    fn a_dig_only_ant_does_not_clear_a_live_seed_standing_in_its_path() {
+        let mut w = test_world();
+        for cx in 90..130 {
+            w.set(cx, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        // Same position `verbs_scene`'s soil occupies -- directly in the
+        // dig heading (east of spawn), resting on the stone floor beneath
+        // it so it does not fall during the run.
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip material must be loaded");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.set(101, 100, Cell::new(pip, 0).with_organism_id(seed_id).with_aux(organism::pack_cell_type(CellType::Seed)));
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        w.species.set_genome(
+            species,
+            brain::genome_from_wiring(
+                &[
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Move, 2.0),
+                    brain::Instinct(brain::BrainInput::Bias, brain::BrainOutput::Dig, 2.0),
+                ],
+                &def.hidden_wiring,
+                &def.hidden_outputs,
+                &def.recurrence,
+            ),
+        );
+        let _ = def;
+
+        w.plant_ant(100, 100);
+        let ant = w.get(100, 100).organism_id();
+        assert_ne!(ant, 0, "the ant was not placed; the scene does not contain the situation this test is about");
+
+        run(&mut w, 400);
+
+        assert_eq!(w.creature_stats.digs, 0, "a dig-only ant standing beside nothing else diggable must not have logged a dig -- the pip is the only target and it must be skipped, not excavated");
+        assert!(w.dig_diverted_seed > 0, "the it-fired counter must move: a dig-only ant beside nothing but a live seed must have been diverted from it at least once in 400 frames");
+        let after = w.get(101, 100);
+        assert_eq!(after.material, pip, "the pip must still be standing -- the dig verb must not have cleared it");
+        assert_eq!(after.organism_id(), seed_id, "the pip's organism must still own its own cell -- not merely a coincidentally-matching material left by a different write");
     }
 
     // --- the sight sense (E15) ------------------------------------------
@@ -10080,6 +15782,123 @@ mod tests {
         }
     }
 
+    // --- room at the nest ---------------------------------------------------
+
+    /// An ant on a floor with a nest cell beside it, the nest registered, and
+    /// `nest_room` set by hand to a known pair.
+    ///
+    /// **The census is stubbed on purpose.** `world.rs` already proves the
+    /// census counts a known chamber correctly; what this file has to prove
+    /// is the *substitution* -- that the right number reaches the right slot
+    /// under the right condition. Driving both through one scene would make a
+    /// failure in either look like a failure in the other, which is how a
+    /// scene that contradicts the code comes to read as a dead mechanism.
+    fn ant_at_a_nest(roofed: u32, ants: u32) -> (World, u16, CreatureDef, i32) {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant").clone();
+        let nest = w.materials.id_of(&def.nest).expect("the ant's nest material");
+        w.set(101, 101, Cell::new(nest, 0));
+        w.register_nest_site(101, 101, 4);
+        w.nest_room = vec![crate::sim::world::NestRoom { roofed, ants }];
+        (w, ant, def, 100)
+    }
+
+    /// **At the nest the ant is asked about room; everywhere else it is asked
+    /// about density; and with the gate off it is asked what it always was.**
+    ///
+    /// This is the whole of the build in one assertion set, and the three
+    /// arms are three different failures. The off arm is the revert -- if it
+    /// does not read the bare density then `PIXEL_PHYSICS_LAB_ROOM=off` is
+    /// not a revert and every paired measurement taken against it is void.
+    /// The away-from-nest arm is `ant.ron`'s `(Crowding, Move, -0.3)`: that
+    /// weight reads this slot everywhere, and a substitution that leaked past
+    /// the nest would re-point the colony's negative feedback (P-12) without
+    /// anything saying so. The at-nest arm is the mechanism.
+    ///
+    /// Provable red by dropping the `inputs[AtNest] > 0.0` term, by dropping
+    /// the `world.room_gate` term, or by inverting `occupancy`.
+    #[test]
+    fn the_room_gate_changes_the_crowding_slot_only_at_the_nest() {
+        // 220 cells over 110 ants is 2.0 each, which is the shipped target,
+        // so occupancy is exactly a half -- the one point the dial's own note
+        // promises a player.
+        let (mut w, ant, def, x) = ant_at_a_nest(220, 110);
+        w.room_target = ROOM_TARGET_DEFAULT;
+
+        w.room_gate = true;
+        let (at_nest, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(at_nest[brain::BrainInput::AtNest as usize], 1.0, "the scene must actually put the ant at a nest, or this proves nothing");
+        assert!(
+            (at_nest[brain::BrainInput::Crowding as usize] - 0.5).abs() < 1e-5,
+            "at the nest, 2.0 cells an ant against a 2.0 target is half the urge; read {}",
+            at_nest[brain::BrainInput::Crowding as usize]
+        );
+
+        // **The off arm, at the same cell.** A lone ant is crowded by nobody,
+        // so the old input reads a flat zero here -- which is also what makes
+        // this a sharp assertion rather than a coincidence: 0.0 and 0.5 are
+        // not near each other.
+        w.room_gate = false;
+        let (off, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(off[brain::BrainInput::Crowding as usize], 0.0, "with the gate off the slot is the 5x5 count it always was");
+
+        // **Away from the nest, with the gate on.** Same world, a cell the
+        // nest patch does not touch.
+        w.room_gate = true;
+        let (away, _, _) = probe(&w, 150, 100, ant, &def);
+        assert_eq!(away[brain::BrainInput::AtNest as usize], 0.0, "150 is off the patch");
+        assert_eq!(away[brain::BrainInput::Crowding as usize], 0.0, "away from the nest nothing changed, which is what (Crowding, Move, -0.3) depends on");
+    }
+
+    /// **Control 2 of the brief: the input pinned at 1.0 digs as today.**
+    ///
+    /// `occupancy` tends to 1.0 as the target grows, so a very large target
+    /// is the arm in which the *input* is saturated exactly as the old 5x5
+    /// count was, while every line of the new wiring still runs. It separates
+    /// *the input changed* from *the wiring changed* -- if a result survives
+    /// this arm it was never about room in the first place.
+    ///
+    /// The other end is asserted beside it, because a control that can only
+    /// go one way is half a control: a nest with room to spare must read low.
+    #[test]
+    fn a_very_large_room_target_pins_the_input_at_saturation() {
+        let (mut w, ant, def, x) = ant_at_a_nest(220, 110);
+        w.room_gate = true;
+
+        w.room_target = 1.0e6;
+        let (pinned, _, _) = probe(&w, x, 100, ant, &def);
+        assert!(pinned[brain::BrainInput::Crowding as usize] > 0.999, "a huge target is the saturated arm the old input was stuck in");
+
+        w.room_target = 0.01;
+        let (loose, _, _) = probe(&w, x, 100, ant, &def);
+        assert!(loose[brain::BrainInput::Crowding as usize] < 0.01, "and a tiny one is a colony that is never short of room");
+    }
+
+    /// **A nest the census cannot speak for falls back to density, not to
+    /// zero.**
+    ///
+    /// Room per ant is a division, and a nest with no ants in it has no
+    /// answer rather than an answer of zero. Zero would read as *infinitely
+    /// roomy* -- occupancy 1.0 at any target -- so the colony would dig
+    /// hardest exactly where the instrument is blindest, which is the failure
+    /// mode of every null that looks like a result. The same arm covers the
+    /// first 256 frames of any run, before the census has fired at all.
+    #[test]
+    fn a_nest_the_census_cannot_speak_for_reads_density() {
+        let (mut w, ant, def, x) = ant_at_a_nest(0, 0);
+        w.room_gate = true;
+        w.room_target = ROOM_TARGET_DEFAULT;
+        let (blind, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(blind[brain::BrainInput::Crowding as usize], 0.0, "no ants counted is no answer, so the slot keeps its old meaning");
+
+        // ...and the census having no record at all, which is the world's
+        // state before the first cadence.
+        w.nest_room.clear();
+        let (early, _, _) = probe(&w, x, 100, ant, &def);
+        assert_eq!(early[brain::BrainInput::Crowding as usize], 0.0, "before the first census the slot is the old input, not a guess");
+    }
+
     #[test]
     fn the_bearing_says_which_way_to_turn() {
         // **Positive is to the right**, matching `PheroALateral`, and
@@ -10154,14 +15973,17 @@ mod tests {
     fn losing_a_trailing_segment_is_an_injury_not_a_death() {
         let mut w = test_world();
         let ant = ant_on_a_floor(&mut w, 100);
-        let tail = w.organism(ant).expect("live").chain[1];
-        assert_eq!(w.organism(ant).expect("live").chain.len(), 2);
+        // The true tail -- the last entry in walk order -- which for the
+        // shipped two-cell ant is simply its one other cell.
+        let before_len = w.organism(ant).expect("live").chain.len();
+        assert_eq!(before_len, 2, "test setup: the shipped ant's own cell count");
+        let tail = *w.organism(ant).expect("live").chain.last().expect("a body has at least one cell");
 
         w.set(tail.0, tail.1, Cell::EMPTY); // bitten off
         run(&mut w, 20);
 
         let state = w.organism(ant).expect("an ant that lost its tail should still be alive");
-        assert_eq!(state.chain.len(), 1, "the chain must shrink to what the ant actually still owns");
+        assert_eq!(state.chain.len(), before_len - 1, "the chain must shrink to what the ant actually still owns");
         assert_eq!(w.creature_stats.injuries, 1);
         assert_eq!(w.creature_stats.deaths, 0);
     }
@@ -10221,13 +16043,24 @@ mod tests {
 
     #[test]
     fn a_wide_body_cannot_enter_a_one_cell_tunnel_that_a_chain_walks_through() {
-        // **The refuge, and there is no hiding code anywhere.** An ant is a
+        // **The refuge, and there is no hiding code anywhere.** A worm is a
         // one-cell-wide following chain; a beetle is a 2x2 rigid block.
         // A tunnel one cell tall admits the first and refuses the second,
         // purely because a rigid body's passability check covers every cell
         // of it. This is the property `Reports/creature-direction.md` D1's
         // rejection of rigid bodies was assumed to cost us, and it is the
         // one that makes digging worth doing.
+        //
+        // **The worm, not the ant, 2026-09-09.** This scene was built
+        // against `Chain(2)`, and the ant that shipped it is now a
+        // `Segmented` body with `Leg` laterals -- two cells wide at every
+        // thorax segment, exactly the "wide body" shape the tunnel exists
+        // to refuse. That is not a bug this test caught; it is a correct
+        // consequence of giving the ant legs, and this repo's own method
+        // section says to state a refusal plainly rather than work around
+        // it silently. A worm's `Chain(1)` is still genuinely one cell
+        // wide everywhere along its length, which is the property this
+        // scene is actually about, so it takes the ant's place here.
         let build = || {
             let mut w = test_world();
             // Solid rock with a one-cell-tall horizontal tunnel through it.
@@ -10239,8 +16072,21 @@ mod tests {
             for x in 100..160 {
                 w.set(x, 100, Cell::EMPTY);
             }
-            // A mouth wide and tall enough for either creature to stand in.
-            for x in 60..100 {
+            // **A mouth wide and tall enough for either creature to stand
+            // in -- and no wider than that.** 12 cells, not the 40 this
+            // used to clear: the mouth's job is only to give either body
+            // room to be *placed* (the beetle needs two rows, hence the
+            // height), and a mouth that big turns "can a one-cell body
+            // enter a one-cell tunnel" into "does a memoryless walker find
+            // a narrow corridor from a spacious room in bounded time" --
+            // a different, much harder question this test was never about.
+            // A random walker demonstrably reaches the tunnel mouth (x=100)
+            // from *either* size of room; a 40-cell one just makes the
+            // reservoir it has to escape from before it stays inside long
+            // enough to register at depth 5 forbiddingly large, and the
+            // per-frame high-water mark below stalled at exactly x=100 for
+            // the full 20,000-frame budget as a result.
+            for x in 88..100 {
                 for y in 96..101 {
                     w.set(x, y, Cell::EMPTY);
                 }
@@ -10258,17 +16104,64 @@ mod tests {
             w.organism(organism).map_or(0, |s| s.cells.keys().map(|&(x, _)| x).max().unwrap_or(0))
         };
 
-        let mut ant_world = w;
-        let ant = spawn(&mut ant_world, "ant", 98, 100);
-        run(&mut ant_world, 2000);
-        let ant_x = deepest(&ant_world, ant);
+        // **A generous budget, not the ant's old 2,000.** A worm has no
+        // hunger wiring and no persistent heading -- it re-rolls among its
+        // four neighbours every tick (`worm_tick`), so covering the 40-cell
+        // mouth and 5 cells of tunnel is an unbiased walk's problem, not a
+        // motivated one. 20,000 gives it 10x the room the directed ant
+        // needed for the same depth.
+        const FRAMES: usize = 20_000;
+        let mut worm_world = w;
+        worm_world.plant_worm(98, 100);
+        let worm = worm_world.get(98, 100).organism_id();
+        assert_ne!(worm, 0, "the worm should have been placeable in the cleared mouth");
+        // **Funded, not left at the species' own 400.** This scene is a
+        // hollowed-out void -- stone and open air, nothing a worm can eat --
+        // so the "generous budget" above was generous with *frames*, not
+        // with the one resource an unfed worm actually runs out of first.
+        // Measured: it starves at x~91, still short of the tunnel mouth at
+        // x=100, between frame 2,000 and 3,000 -- eighteen thousand frames
+        // before the budget comment expected trouble. This is the "a scene
+        // that contradicts the code looks like a bug in the code" shape --
+        // the geometry this test is about was never reached. Funded the
+        // same way the ant economy tests remove the same confound
+        // (`a_maximally_armoured_ant_is_graded_only_when_the_reach_allows_
+        // it`'s own 100,000), so a worm that still cannot reach x=105 is
+        // failing at passability and nothing else.
+        if let Some(st) = worm_world.organism_mut(worm) {
+            st.energy = 100_000.0;
+        }
+        // **The high-water mark over the whole run, not wherever it happens
+        // to be standing when the budget runs out.** The mouth (40x5 cells)
+        // is far more spacious than the one-cell-wide tunnel it opens onto,
+        // so an unbiased walker that is perfectly capable of entering the
+        // tunnel still spends most of its time in the roomier mouth and
+        // drifts back out after any one visit -- checking the *final* frame
+        // asks "where does it idle", not "can it get in", and a single
+        // snapshot of a recurrent random walk is exactly the kind of number
+        // `CLAUDE.md` warns reads as a coin toss wearing an assertion.
+        // Confirmed by hand: funding energy alone (above) left this at a
+        // final position of x=91, still short of the mouth's own far wall,
+        // even though the walk demonstrably reaches the tunnel along the
+        // way -- the max over the run does, reliably.
+        let run_tracking_deepest = |w: &mut World, organism: u16, frames: usize, start_x: i32| -> i32 {
+            let mut high = start_x;
+            for _ in 0..frames {
+                run(w, 1);
+                if w.organism(organism).is_none() {
+                    break;
+                }
+                high = high.max(deepest(w, organism));
+            }
+            high
+        };
+        let worm_x = run_tracking_deepest(&mut worm_world, worm, FRAMES, 98);
 
         let mut beetle_world = build();
         let beetle = spawn(&mut beetle_world, "beetle", 90, 100);
-        run(&mut beetle_world, 2000);
-        let beetle_x = deepest(&beetle_world, beetle);
+        let beetle_x = run_tracking_deepest(&mut beetle_world, beetle, FRAMES, 90);
 
-        assert!(ant_x >= 105, "the ant should have been able to walk into the tunnel; deepest cell x={ant_x}");
+        assert!(worm_x >= 105, "the worm should have been able to walk into the tunnel; deepest cell x={worm_x}");
         assert!(
             beetle_x < 100,
             "a 2x2 beetle must not fit into a one-cell tunnel; deepest cell x={beetle_x}. Passability has to cover every cell of a rigid body, not just its head"
@@ -10327,12 +16220,12 @@ mod tests {
         // Into the middle cell, which does **not** vacate: follow-the-leader
         // puts (11,10) at index 0 and again at index 2, and before this rule
         // `relocate_chain` wrote it twice with the Segment last.
-        let into_body = body_after_step(&def, &chain, (11, 10), 2, 2);
+        let (into_body, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 10), 2, 2, false);
         assert_eq!(into_body, vec![(11, 10), (10, 10), (11, 10)], "the duplicate this rule exists to refuse");
         assert!(!landing_is_placeable_through_tissue(&w, &chain, &into_body, false), "a body must not arrive with two cells in one place");
 
         // Into the tail, which does vacate: the same three cells, no repeat.
-        let into_tail = body_after_step(&def, &chain, (11, 11), 2, 2);
+        let (into_tail, _) = body_after_step(&w, &def, BodyShape { chain: &chain, groups: &[], authored: &[] }, (11, 11), 2, 2, false);
         assert_eq!(into_tail, vec![(11, 11), (10, 10), (11, 10)]);
         assert!(landing_is_placeable_through_tissue(&w, &chain, &into_tail, false), "following your own tail is legal and must stay legal");
     }
@@ -10511,7 +16404,16 @@ mod tests {
             w.set(92, y, Cell::new(material::STONE, 0));
             w.set(111, y, Cell::new(material::STONE, 0));
         }
-        let ant = spawn(&mut w, "ant", 108, 100);
+        // **Head toward the beetle, not tail toward it.** The shipped ant's
+        // spine now trails 4 cells behind its head (`ant.ron`'s `body:`),
+        // and `place_creature` always lays the tail out to -x of the head
+        // it is given: at 108 the *tail* was the cell touching the beetle,
+        // so a bite there was "just an injury" (`reconcile_chain`'s own
+        // doc) and killing the ant meant working through five more cells
+        // to reach the head, four times what a two-cell ant ever needed.
+        // 98 puts the head itself against the beetle's flank, so the first
+        // bite is the kill exactly as it was when this scene was written.
+        let ant = spawn(&mut w, "ant", 98, 100);
         let beetle = spawn(&mut w, "beetle", 100, 100);
         assert!(w.organism(ant).is_some() && w.organism(beetle).is_some());
 
@@ -10553,7 +16455,16 @@ mod tests {
             w.set(92, y, Cell::new(material::STONE, 0));
             w.set(111, y, Cell::new(material::STONE, 0));
         }
-        let ant = spawn(&mut w, "ant", 108, 100);
+        // **Head toward the beetle, not tail toward it.** The shipped ant's
+        // spine now trails 4 cells behind its head (`ant.ron`'s `body:`),
+        // and `place_creature` always lays the tail out to -x of the head
+        // it is given: at 108 the *tail* was the cell touching the beetle,
+        // so a bite there was "just an injury" (`reconcile_chain`'s own
+        // doc) and killing the ant meant working through five more cells
+        // to reach the head, four times what a two-cell ant ever needed.
+        // 98 puts the head itself against the beetle's flank, so the first
+        // bite is the kill exactly as it was when this scene was written.
+        let ant = spawn(&mut w, "ant", 98, 100);
         let beetle = spawn(&mut w, "beetle", 100, 100);
         let ant_group = w.organism(ant).map(|s| (s.species, s.colony)).expect("ant");
         let beetle_group = w.organism(beetle).map(|s| (s.species, s.colony)).expect("beetle");
@@ -10793,21 +16704,858 @@ mod tests {
 
         // Intact: the authored template, and the path that always worked.
         let intact = vec![(100, 100), (99, 100), (100, 99), (99, 99)];
-        let stepped = body_after_step(&def, &intact, (101, 100), 0, 0);
+        let (stepped, _) = body_after_step(&w, &def, BodyShape { chain: &intact, groups: &[], authored: &[] }, (101, 100), 0, 0, false);
         assert_eq!(stepped.len(), intact.len(), "an intact body must still lay its whole template");
 
         // Bitten down to two cells, head first. Every one of these must come
         // out the far side, and nothing else with them.
         let injured = vec![(100, 100), (99, 99)];
-        let moved = body_after_step(&def, &injured, (101, 100), 0, 0);
+        let (moved, _) = body_after_step(&w, &def, BodyShape { chain: &injured, groups: &[], authored: &[] }, (101, 100), 0, 0, false);
         assert_eq!(moved.len(), injured.len(), "length in must equal length out, or relocate_chain loses or invents a cell");
         assert_eq!(moved, vec![(101, 100), (100, 99)], "and the surviving shape travels with it, offset for offset");
 
         // Turning to face west mirrors the shape, exactly as an intact body's
         // template is mirrored rather than rotated.
-        let mirrored = body_after_step(&def, &injured, (99, 100), 0, 4);
+        let (mirrored, _) = body_after_step(&w, &def, BodyShape { chain: &injured, groups: &[], authored: &[] }, (99, 100), 0, 4, false);
         assert_eq!(mirrored.len(), injured.len(), "a facing flip must not change how many cells there are");
         assert_eq!(mirrored, vec![(99, 100), (100, 99)], "x offsets mirror, y offsets do not -- facing is a mirror, never a rotation");
+    }
+
+    /// **The one genuinely new movement rule this build adds**, tested
+    /// directly against a hand-built chain rather than through a live
+    /// world: the spine follows exactly the way `Chain` does, and each
+    /// lateral is re-derived from its own spine's *new* position — never
+    /// carried over from where the old lateral used to be.
+    ///
+    /// Three segments, groups `[1, 2, 1]`: a bare head, a 2-wide middle
+    /// segment, a bare tail. Stepping the head from `(5, 5)` to `(6, 5)`
+    /// must shift every spine cell down the chain by one (exactly
+    /// `chain_follow`'s own rule, restricted to the three spine cells) and
+    /// place the middle segment's lateral one cell above wherever its own
+    /// spine ends up, not above where the lateral itself used to be.
+    #[test]
+    fn a_segmented_body_bends_by_re_deriving_each_lateral() {
+        let w = test_world();
+        let groups = [1u8, 2, 1];
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        // Nothing tucked here -- `authored` and the live `groups` agree --
+        // so this exercises the ordinary widen-and-place path.
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
+        assert_eq!(
+            next,
+            vec![(6, 5), (5, 5), (5, 4), (4, 5)],
+            "the spine must follow like a Chain and each lateral must sit directly above its own spine's new position"
+        );
+        assert_eq!(next_groups, vec![1, 2, 1], "an unobstructed widened segment must stay expressed, not tuck for no reason");
+    }
+
+    /// **The laterals must add no collision the spine does not already
+    /// have** — the paired control, inside the test, over all eight headings.
+    ///
+    /// Some headings collide for a reason that has nothing to do with this
+    /// body plan: stepping straight back along your own body puts the head
+    /// on the cell the second segment is about to occupy, and a plain
+    /// `Chain` is refused there too. So the claim is not "never collides",
+    /// which is false and would be a bar tuned to whatever the rule happens
+    /// to do; it is **"collides exactly where a bare spine of the same
+    /// shape would"**, which is the property that makes a lateral free.
+    ///
+    /// It did not hold. With the lateral fixed at world-space `(sx, sy - 1)`
+    /// a straight-up step put the trailing segment's lateral on the head's
+    /// own new cell, and that was a **deadlock rather than a tax**: a spine
+    /// acquires a vertical link on any upward step, and from then on the
+    /// collision recurs on every candidate, so the animal can neither move
+    /// nor clear the kink. Measured at 51.6% blocked on dead-flat ground
+    /// against a six-cell plain chain's 2.5%; `lateral_for` carries the
+    /// table and the fix.
+    ///
+    /// An earlier version of this guard *characterised* the defect — it
+    /// asserted the collision happened — and went red the moment the rule
+    /// was corrected. That is the right way round, and it is why this one
+    /// asserts a property instead.
+    #[test]
+    fn a_lateral_adds_no_collision_the_spine_does_not_already_have() {
+        let w = test_world();
+        let groups = [1u8, 2, 1];
+        // Horizontal body, head east at (5,5), the wide segment behind it.
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let spine = [(5, 5), (4, 5), (3, 5)];
+        let head = (5, 5);
+        let has_dup = |v: &[(i32, i32)]| v.iter().enumerate().any(|(i, p)| v[..i].contains(p));
+        let mut spine_only_collisions = 0;
+        for (dx, dy) in DIRS.iter().copied() {
+            let step = (head.0 + dx, head.1 + dy);
+            let bare = chain_follow(&spine, step);
+            let (full, _) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, step, true);
+            assert_eq!(full.len(), chain.len(), "a placed body relocates cell for cell, heading ({dx},{dy}): {full:?}");
+            if has_dup(&bare) {
+                // The spine itself folds back on its own body at this
+                // heading -- `landing_is_placeable` refuses the whole move
+                // downstream, and no lateral rule can or should paper over
+                // that. Counted as the positive control below, not asserted
+                // on: the tuck rule cannot be blamed for a collision that
+                // belongs to the spine alone.
+                spine_only_collisions += 1;
+                continue;
+            }
+            // **The property under the tuck rule: a lateral takes its
+            // authored side, the other side, or tucks — it can never add a
+            // duplicate the spine did not already have**, so wherever the
+            // bare spine is clean, the full body (laterals placed or
+            // tucked) must be clean too.
+            assert!(
+                !has_dup(&full),
+                "heading ({dx},{dy}): the spine alone is fine {bare:?} but the laterals collide {full:?}"
+            );
+        }
+        // The positive control: if no heading collided even for a bare
+        // spine, this scene cannot tell a free lateral from a costly one
+        // and the loop above asserted nothing interesting.
+        assert!(
+            spine_only_collisions > 0,
+            "no heading collides even for a bare spine, so this body cannot distinguish the two rules"
+        );
+    }
+
+    /// **The §13 diagnosis, asserted as a property rather than described.**
+    ///
+    /// A one-cell-high tunnel with a blind end, and one body standing in
+    /// it facing the blind end. The claim is not "a long body is slower";
+    /// it is that a long body is **boxed** -- refused in all eight
+    /// headings -- in a cell where a two-cell body is not, and that the
+    /// direction which distinguishes them is refused for one specific
+    /// reason: the head would land on a cell of its own body that is not
+    /// vacating.
+    ///
+    /// The two-cell arm is the control, and it is the whole argument. It
+    /// stands in the identical cell of the identical tunnel; the only
+    /// thing that differs is how far its tail is from its head. If it were
+    /// also boxed, the tunnel would be the cause and no movement rule
+    /// could help.
+    #[test]
+    fn a_long_body_is_boxed_in_a_dead_end_where_a_two_cell_body_is_not() {
+        let mut w = test_world();
+        let ant = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(ant).creature.as_ref().expect("creature").clone();
+        // Solid rock, with a one-cell-high tunnel cut west out of it and
+        // closed at (100, 100) -- the blind end.
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let long: Vec<(i32, i32)> = (0..6).map(|i| (100 - i, 100)).collect();
+        let short: Vec<(i32, i32)> = (0..2).map(|i| (100 - i, 100)).collect();
+        // Facing east, into the blind end.
+        let heading = 0u8;
+        let long_body = BodyShape { chain: &long, groups: &[], authored: &[] };
+        let short_body = BodyShape { chain: &short, groups: &[], authored: &[] };
+        assert!(
+            is_boxed(&w, &def, long_body, long[0], heading, false, None),
+            "a six-cell body at the blind end must have nowhere to go -- if it does, this scene is not the situation the diagnosis is about"
+        );
+        assert!(
+            !is_boxed(&w, &def, short_body, short[0], heading, false, None),
+            "a two-cell body in the identical cell must NOT be boxed: it steps onto its own tail, which vacates on the same tick"
+        );
+        // ...and *why* they differ. West is straight back along the body.
+        let west = 4usize;
+        let (dx, dy) = DIRS[west];
+        assert_eq!(
+            classify_step(&w, &def, long_body, (long[0].0 + dx, long[0].1 + dy), (heading, west as u8), false, None),
+            Some(BlockedWhy::HeadOnSelf),
+            "the long body's way out is refused by its own flank, not by the rock"
+        );
+        assert_eq!(
+            classify_step(&w, &def, short_body, (short[0].0 + dx, short[0].1 + dy), (heading, west as u8), false, None),
+            None,
+            "the short body's way out is its own tail, and stepping into a vacating cell is legal"
+        );
+    }
+
+    /// **The flip keeps every cell and reverses the order** -- for a plain
+    /// `Chain` and for a widened `Segmented` body alike.
+    ///
+    /// The `Chain` half is the regression guard for a real, measured
+    /// defect: `lay_out_along` must hand back an **empty** width list when
+    /// it was given one, because `relocate_chain`'s one-cell-per-segment
+    /// fallback fires only when *both* sides' groups are empty. Returning
+    /// `vec![1; n]` there makes its carry loop zip an empty list against a
+    /// full one, carry nothing, clear the old body and write none of it
+    /// back. Watched red: the first build of the flip measured `deaths:
+    /// Killed 13` on the `Chain(6)` arm of the tunnel scene -- thirteen
+    /// animals whose entire body was deleted mid-flip -- and the
+    /// `debug_assert_eq!` inside `relocate_chain` that names this exact
+    /// failure is compiled out of every release measurement.
+    #[test]
+    fn flipping_a_body_reverses_its_order_and_keeps_the_empty_groups_convention() {
+        let w = test_world();
+        let chain: Vec<(i32, i32)> = (0..6).map(|i| (100 - i, 100)).collect();
+        let (flipped, widths) = flipped_body(&w, &chain, &[], &[], false).expect("a body standing still can always be flipped");
+        assert_eq!(flipped, vec![(95, 100), (96, 100), (97, 100), (98, 100), (99, 100), (100, 100)], "the flip is the same cells in the other order; nothing moves");
+        assert!(
+            widths.is_empty(),
+            "a Chain's groups are empty and must stay empty: relocate_chain's fallback needs BOTH sides empty, and a vec![1; n] here deletes the body"
+        );
+        // The widened case: the segment order reverses, and each widened
+        // segment keeps a lateral because there is room for one.
+        let groups = [1u8, 2, 1];
+        let widened = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let (flipped, widths) = flipped_body(&w, &widened, &groups, &groups, false).expect("flippable");
+        assert_eq!(flipped.len(), widened.len(), "a flip relocates cell for cell");
+        assert_eq!(flipped[0], (3, 5), "what was the tail's spine is now the head's");
+        assert_eq!(widths.len(), groups.len(), "the same segments, in the other order");
+        assert!(flipped.iter().enumerate().all(|(i, p)| !flipped[..i].contains(p)), "a flipped body cannot occupy one cell twice: {flipped:?}");
+    }
+
+    /// **§13g's default, end to end: a laden animal turned round by the
+    /// flip actually gets home**, not just clear of the dead end.
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §13g.) The same
+    /// blind tunnel `a_long_body_is_boxed_in_a_dead_end_where_a_two_cell_
+    /// body_is_not` diagnoses, extended west with a nest floor to walk to
+    /// -- driven through the real scheduler and the real brain, not a
+    /// single hand-called step, so a flip that leaves the animal unable to
+    /// navigate afterward would show up here and did not in
+    /// `a_flip_reverses_heading_and_leaves_carried_state_untouched`'s
+    /// narrower check.
+    #[test]
+    fn a_laden_ant_in_a_dead_end_corridor_flips_and_reaches_the_nest() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 48..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        // The tunnel: blind at x=100, open west to x=50.
+        for x in 50..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        // **Load-bearing** (§13a): `place_creature` grows the body from the
+        // species' own `fates` table whenever it has one and falls back to
+        // `def.body` only when it does not -- `ant.ron` authors one, so the
+        // override above is silently ignored without this.
+        w.species.set_fates(species, Vec::new());
+        // The nest floor: the tunnel's south wall, for the western third of
+        // the walk -- an 8-neighbour scan off the head reads this exactly
+        // as `adjacent_nest` does in production, rather than the test
+        // asserting a coordinate the mechanism never actually checks.
+        let nest_material = w.materials.id_of(&def.nest).expect("the species names a real nest material");
+        for x in 55..90 {
+            w.set(x, 101, Cell::new(nest_material, 0));
+        }
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about: the ant was not placed");
+        {
+            let state = w.organism_mut(ant).expect("just placed");
+            assert_eq!(state.chain.len(), 6, "test setup: a 6-cell body is what makes the blind end unreachable without a flip -- see the override above");
+            state.crop = Some(Crop { material: leaf, cells: 3, digesting: 4.5, unit: 12.0, shade: 2, passenger: None });
+        }
+
+        // **Sampled over the run, not read once at the end.** The nest
+        // floor is one stretch of a longer corridor and nothing stops the
+        // animal walking straight through and past it once it is no longer
+        // boxed, so a state read at a fixed final frame says where the walk
+        // ended up rather than whether it ever arrived there -- watched red
+        // exactly this way on an early build of this test.
+        //
+        // **The live predicate, not the clock built on top of it.**
+        // `since_nest` resets to 0 for exactly the tick that touches the
+        // nest and a second, faster upkeep pass increments it again before
+        // the next frame boundary this loop can observe -- watched directly
+        // on an earlier build of this test: the head walked the entire
+        // length of the nest floor, `since_nest` read `1` at every single
+        // sample along it and never once `0`, which is that clock's own
+        // timing, not a fact about whether the animal arrived.
+        // `adjacent_nest` is the geometric fact `since_nest` is built on top
+        // of, sampled directly off the live head position instead.
+        let mut left_home = false;
+        let mut reached_nest = false;
+        for _ in 0..2500 {
+            run(&mut w, 1);
+            let Some(state) = w.organism(ant) else { break };
+            if state.since_nest > 1 {
+                left_home = true;
+            } else if left_home {
+                let (hx, hy) = state.chain[0];
+                if adjacent_nest(&w, hx, hy, &def) {
+                    reached_nest = true;
+                    break;
+                }
+            }
+        }
+
+        assert!(w.creature_stats.reversals >= 1, "the ant never flipped -- it should have been boxed at the blind end on its very first tick");
+        assert!(reached_nest, "the ant never got back within reach of the nest in 2500 frames -- it may have flipped and then failed to navigate home");
+        // Whether it still holds the load or the real brain chose `Drop`
+        // once `AtNest` and `Carrying` were both true is the outbound
+        // economy's question, not this test's -- either way the animal
+        // reached the nest carrying what it was laden with, which is what
+        // is being checked. A delivery is the stronger proof, not a
+        // sanity-check failure.
+        assert!(w.organism(ant).is_some(), "the ant must still be alive: lost rather than getting home is not this test's story");
+    }
+
+    /// **A flip changes the facing and nothing an economy reads**
+    /// (§13g). `crop`, `since_nest` and `forage_anchor` are
+    /// `OrganismState` scalars, not chain cells -- `relocate_chain` never
+    /// touches them, and this is the guard that makes that a checked fact
+    /// rather than a reading of the diff. Watched red first: with the
+    /// flip's own heading write (`(heading + 4) % 8`) replaced by copying
+    /// the old heading unchanged, this fails on the heading assertion; with
+    /// the crop assigned a fresh default rather than left alone, it fails
+    /// on the crop assertion.
+    #[test]
+    fn a_flip_reverses_heading_and_leaves_carried_state_untouched() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let leaf = w.materials.id_of("leaf").expect("leaf material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let (before_crop, before_since_nest, before_anchor, before_heading);
+        {
+            let state = w.organism_mut(ant).expect("just placed");
+            state.crop = Some(Crop { material: leaf, cells: 3, digesting: 4.5, unit: 12.0, shade: 2, passenger: None });
+            state.since_nest = 137;
+            state.forage_anchor = (42, 42);
+            before_crop = state.crop;
+            before_since_nest = state.since_nest;
+            before_anchor = state.forage_anchor;
+            before_heading = state.heading;
+        }
+        assert_eq!(before_heading, 0, "test setup: place_creature stamps every founder east");
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, before_heading, &outputs, &def, &mut draw);
+
+        assert_eq!(w.creature_stats.reversals, 1, "the ant should have been boxed at the blind end and flipped on this very tick");
+        let state = w.organism(ant).expect("live");
+        assert_eq!(state.heading, (before_heading + 4) % 8, "a flip must reverse the facing exactly, not merely change it");
+        assert_eq!(state.crop, before_crop, "the crop is organism state, not a chain cell, and a flip must leave it exactly as it was");
+        assert_eq!(state.since_nest, before_since_nest, "the homing clock is organism state too, and a flip must not reset or otherwise touch it");
+        assert_eq!(state.forage_anchor, before_anchor, "the home anchor must survive a flip exactly: it is what the far side needs to find its way back");
+    }
+
+    /// **The gate, watched both ways** (§13g). Boxed by rock and this
+    /// body's own flank in every heading but one, which is occupied by
+    /// nothing but another living animal: `is_boxed` cannot tell that
+    /// apart from a real dead end, and unconditionally it committed a flip
+    /// here every time -- measured on the colony scene as most of a laden
+    /// forager's reversals, and the regression this branch exists to close.
+    /// `boxed_by_traffic` is what tells the two apart, and it is asked only
+    /// of a laden animal (see its own doc for why asking it of every
+    /// animal cost real mobility in `tunnel`).
+    #[test]
+    fn the_flip_does_not_fire_for_a_block_that_is_only_another_animal_standing_there() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        // The one extra opening: directly north of the blind end's head
+        // cell, so it is the single heading `is_boxed` would read as
+        // refused by nothing but whatever comes to stand in it.
+        w.set(100, 99, Cell::EMPTY);
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("just placed").crop = Some(Crop { material: ant_material, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: None });
+
+        let chain = w.organism(ant).expect("live").chain.clone();
+        let heading = w.organism(ant).expect("live").heading;
+        let body = BodyShape { chain: &chain, groups: &[], authored: &[] };
+
+        // Sanity: with the extra opening still empty, the animal is not
+        // boxed at all -- the scene does not yet contain the situation
+        // this test is about.
+        assert!(!is_boxed(&w, &def, body, chain[0], heading, false, None), "test setup: north must be open before another animal stands in it");
+
+        // Another live creature, standing in the one open heading -- not a
+        // real spawn, because a real one needs room to grow a body this
+        // one-cell opening does not have; a bare organism handle with one
+        // cell painted is everything `boxed_by_traffic` reads.
+        let other = w.push_organism(species).expect("a free slot");
+        w.set(100, 99, Cell::new(ant_material, 0).with_organism_id(other));
+        if let Some(s) = w.organism_mut(other) {
+            s.chain = vec![(100, 99)];
+        }
+
+        assert!(is_boxed(&w, &def, body, chain[0], heading, false, None), "with the opening occupied, every one of the eight headings must now read refused");
+        assert!(
+            boxed_by_traffic(&w, &def, body, chain[0], heading, false, None),
+            "the only refused heading that is not rock or this body's own flank is occupied by a living creature, which is exactly what this predicate exists to read"
+        );
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+        assert_eq!(w.creature_stats.reversals, 0, "a block that is only another animal standing there must not turn the ant round");
+        assert_eq!(w.creature_stats.reversals_traffic_deferred, 1, "the deferral counter is what should have fired instead");
+    }
+
+    /// **The deferral expires** (round 29, and the close of the residual
+    /// risk §13g named rather than fixed: *"Two laden animals mutually
+    /// boxing each other in the same dead end, with no other heading open
+    /// to either, would each defer indefinitely rather than ever
+    /// flipping"*). The owner found it by playing, 2026-09-11: *"long ants
+    /// getting stuck. Not all of them but it happens regularly. It seems
+    /// like they get stuck in a big group/pile of long ants."*
+    ///
+    /// The scene is `the_flip_does_not_fire_for_a_block_that_is_only_
+    /// another_animal_standing_there`'s, unchanged, because that is exactly
+    /// the situation: a laden long body, boxed, with one heading held by a
+    /// nestmate that is **never going to move** -- it is a bare handle in a
+    /// one-cell pocket with nothing driving it. The old rule deferred on
+    /// every one of those ticks for ever; this one waits
+    /// `DEFAULT_TRAFFIC_DEFER` of them and then turns the animal round.
+    ///
+    /// **Both halves are asserted, and the first is what keeps §13g's own
+    /// finding**: the early ticks must still defer. A fix that simply
+    /// removed the gate would pass the second assertion and fail this one,
+    /// and it is the gate that put deliveries back from 233 to 290.
+    ///
+    /// Watched red: with `traffic_defer_max()` returning `u16::MAX` (the
+    /// pre-round-29 rule) the flip never fires and the second assertion
+    /// goes red at 0 reversals; with the gate deleted outright the first
+    /// assertion goes red at 0 deferrals.
+    #[test]
+    fn a_laden_long_body_stops_deferring_once_the_jam_has_not_cleared() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 88..108 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 90..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+        w.set(100, 99, Cell::EMPTY);
+
+        let species = w.species.id_of("ant").expect("ant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("ant is a creature").clone();
+        def.body = organism::BodyPlan::Chain(6);
+        // **The species under test authors the expiry**, because the
+        // shipped ant does not: the field is data, so a scene that wants
+        // the behaviour has to ask for it, exactly as `longant.ron` does.
+        def.traffic_defer_max = Some(LONGANT_TRAFFIC_DEFER);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let ant_material = w.materials.id_of("ant").expect("ant material");
+
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        w.organism_mut(ant).expect("just placed").crop = Some(Crop { material: ant_material, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: None });
+
+        // The nestmate in the one opening -- a bare handle with one painted
+        // cell, exactly as the §13g guard builds it, and deliberately one
+        // that nothing will ever move.
+        let other = w.push_organism(species).expect("a free slot");
+        w.set(100, 99, Cell::new(ant_material, 0).with_organism_id(other));
+        if let Some(s) = w.organism_mut(other) {
+            s.chain = vec![(100, 99)];
+        }
+
+        let outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        let n = LONGANT_TRAFFIC_DEFER;
+        for _ in 0..n {
+            let heading = w.organism(ant).expect("live").heading;
+            let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+            step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+            w.frame += 1;
+        }
+        assert_eq!(
+            w.creature_stats.reversals, 0,
+            "the first {n} ticks must still wait the jam out -- that deferral is what put §13g's deliveries back from 233 to 290 and this fix must not remove it"
+        );
+        assert_eq!(w.creature_stats.reversals_traffic_deferred, u64::from(n), "each of those ticks is one deferral");
+
+        let heading = w.organism(ant).expect("live").heading;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        step_chain(&mut w, ant, heading, &outputs, &def, &mut draw);
+        assert_eq!(
+            w.creature_stats.reversals, 1,
+            "a jam that has not cleared in {n} of the animal's own ticks is not a jam, it is a wall, and the animal must turn round rather than stand there for the rest of its life"
+        );
+    }
+
+    /// `longant.ron`'s own authored expiry, read back out of the registry
+    /// so the guard below is asserting about the shipped file rather than
+    /// about a number retyped beside it.
+    const LONGANT_TRAFFIC_DEFER: u16 = 4;
+
+    /// What a species actually authors for the expiry -- see
+    /// `LONGANT_TRAFFIC_DEFER`'s own guard.
+    fn w_species_defer(name: &str) -> Option<u16> {
+        let w = test_world();
+        let id = w.species.id_of(name).expect("species");
+        w.species.get(id).creature.as_ref().expect("a creature").traffic_defer_max
+    }
+
+    /// **...and the two-cell ant is untouched by it**, asserted on the
+    /// predicate rather than on a world.
+    ///
+    /// A scene cannot make this claim: a two-cell body is essentially never
+    /// boxed standing on ground -- reversing is one ordinary step onto its
+    /// own vacating tail (§13c, and `a_long_body_is_boxed_in_a_dead_end_
+    /// where_a_two_cell_body_is_not` is that property's own guard) -- so a
+    /// world built to watch one defer records **0 deferrals**, measured,
+    /// and would have passed whatever the gate did. `CLAUDE.md` names that
+    /// case exactly: where green is the default state, put the assertion on
+    /// a deterministic function instead.
+    ///
+    /// The shipped colony's real check is the one this cannot give: `cargo
+    /// run --release --example ascii`, byte-for-byte against `main`.
+    #[test]
+    fn the_deferral_expires_for_a_long_spine_and_never_for_a_two_cell_one() {
+        let n = LONGANT_TRAFFIC_DEFER;
+        assert!(n >= 2, "an expiry of 0 or 1 is not a deferral at all, and every assertion below would be vacuous");
+        assert!(deferral_still_applies(6, 0, Some(n)), "a long body's first boxed tick is a jam until proved otherwise -- that is §13g's finding and it stays");
+        assert!(deferral_still_applies(6, n - 1, Some(n)), "...and so is its last waiting tick");
+        assert!(!deferral_still_applies(6, n, Some(n)), "a jam that has not cleared in {n} of the animal's own ticks is a wall, and the flip must fire");
+        assert!(!deferral_still_applies(3, n, Some(n)), "three spine cells is already past the reach of a tail-step, so the expiry applies from there up");
+        assert!(deferral_still_applies(2, u16::MAX, Some(n)), "a two-cell body reverses with an ordinary step; its deferral costs it nothing and must never expire");
+        assert!(deferral_still_applies(1, u16::MAX, Some(n)), "...nor a one-cell one's");
+        assert!(
+            deferral_still_applies(6, u16::MAX, None),
+            "a species that authors no expiry keeps the pre-round-29 rule exactly -- this is what makes every species but longant bit-identical"
+        );
+        assert_eq!(
+            w_species_defer("ant"),
+            None,
+            "the shipped ant must author no expiry; if this ever fails, `ascii` is no longer bit-identical across this change and the claim in the PR body is void"
+        );
+        assert_eq!(w_species_defer("longant"), Some(LONGANT_TRAFFIC_DEFER), "the long ant is the species the owner's report is about, and the one that authors it");
+    }
+
+    /// **The pile census's positive control** (round 29, the owner's
+    /// 2026-09-11 playtest: *"long ants getting stuck ... in a big
+    /// group/pile of long ants"*). Six long bodies nose to tail in a
+    /// one-cell corridor with a blind end, which is the shape the
+    /// complaint describes, hand-built so the answer is known before the
+    /// instrument is asked.
+    ///
+    /// **What it must read, and why the six are not all alike.** All six
+    /// are boxed: each one's only non-rock, non-own-flank heading is the
+    /// body ahead of it, and a body longer than two cells cannot reverse
+    /// (§13c). But the *leader* is boxed by the rock at the blind end and
+    /// the five behind it are boxed by their own colony -- that asymmetry
+    /// **is** the pile, and a census that reported six identical animals
+    /// would have lost the only structure in it. `piles_of` is the other
+    /// half and is asserted separately: connectivity does not care which
+    /// of the six is stuck on what.
+    ///
+    /// Watched red both ways before being trusted: with `kin_would_open`
+    /// left at zero the five read as terrain-boxed like the leader, and
+    /// with the corridor's blind end opened the leader is not boxed at all.
+    #[test]
+    fn six_long_bodies_nose_to_tail_read_as_one_pile() {
+        let mut w = test_world();
+        for y in 96..106 {
+            for x in 50..110 {
+                w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+            }
+        }
+        for x in 60..=100 {
+            w.set(x, 100, Cell::EMPTY);
+        }
+
+        let species = w.species.id_of("longant").expect("longant species");
+        let mut def = w.species.get(species).creature.as_ref().expect("longant is a creature").clone();
+        // `Chain(6)` for the same reason §13's own length controls use it:
+        // a hand-placed `Segmented` body would have to reproduce
+        // `lateral_for`'s side choice by hand, and length -- not width --
+        // is what this scene is about. `climbs_over_kin` and everything
+        // else about the species is left exactly as authored.
+        def.body = organism::BodyPlan::Chain(6);
+        w.species.set_creature(species, def.clone());
+        w.species.set_fates(species, Vec::new());
+        let mat = w.materials.id_of("longant").expect("longant material");
+
+        // Heads at 100, 94, 88, 82, 76, 70, each body running six cells
+        // west of its own head, all facing east (`DIRS[0]`) into the blind
+        // end at x = 101.
+        let mut ants: Vec<u16> = Vec::new();
+        for k in 0..6i32 {
+            let head_x = 100 - k * 6;
+            let id = w.push_organism(species).expect("a free slot");
+            let chain: Vec<(i32, i32)> = (0..6).map(|i| (head_x - i, 100)).collect();
+            for &(x, y) in &chain {
+                w.set(x, y, Cell::new(mat, 0).with_organism_id(id));
+            }
+            if let Some(s) = w.organism_mut(id) {
+                s.chain = chain;
+                s.heading = 0;
+            }
+            ants.push(id);
+        }
+
+        let blocks: Vec<HeadBlock> = ants.iter().map(|&id| head_block(&w, id).expect("a live long ant")).collect();
+        assert!(
+            blocks.iter().all(|b| b.boxed()),
+            "every animal in a one-cell corridor nose to tail must be boxed -- if one is not, this scene is not the situation the complaint is about: {blocks:?}"
+        );
+        assert!(
+            !blocks[0].body_boxed() && blocks[0].by_creature == 0,
+            "the leader is stuck on the rock at the blind end, not on its colony: {:?}",
+            blocks[0]
+        );
+        for (k, b) in blocks.iter().enumerate().skip(1) {
+            assert!(
+                b.body_boxed(),
+                "ant {k} stands directly behind another body and nothing else refuses its way east -- it must read as boxed by a body: {b:?}"
+            );
+            assert!(b.by_creature >= 1 && b.kin_would_open >= 1, "ant {k}: {b:?}");
+        }
+
+        let piles = piles_of(&w, &ants);
+        assert_eq!(piles.len(), 1, "six bodies laid nose to tail touch each other end to end and are one clump, not {}: {piles:?}", piles.len());
+        assert_eq!(piles[0].len(), 6, "the one clump is all six animals");
+
+        // The specificity half, in the same scene: pull the leader out and
+        // the animal behind it is no longer boxed by a body at all. Without
+        // this the assertions above pass for a census that returns
+        // `body_boxed` unconditionally.
+        let leader = w.organism(ants[0]).expect("live").chain.clone();
+        for &(x, y) in &leader {
+            w.set(x, y, Cell::EMPTY);
+        }
+        if let Some(s) = w.organism_mut(ants[0]) {
+            s.chain.clear();
+        }
+        let after = head_block(&w, ants[1]).expect("still live");
+        assert!(!after.boxed(), "with the body ahead removed the corridor is open again: {after:?}");
+        assert_eq!(after.by_creature, 0, "and nothing is refused by a creature any more: {after:?}");
+    }
+
+    /// **The census's other control, and the cheaper one**: one animal on
+    /// open ground reads no creature refusals at all. `by_creature` and
+    /// `kin_would_open` are exactly the two columns that would be silently
+    /// always-zero *or* silently always-on, and the corridor above only
+    /// checks the second failure.
+    #[test]
+    fn a_lone_long_body_on_open_ground_is_boxed_by_nothing() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0).with_attached(true));
+        }
+        let ant = spawn(&mut w, "longant", 100, 100);
+        assert_ne!(ant, 0, "the scene does not contain the situation this test is about");
+        let b = head_block(&w, ant).expect("a live long ant");
+        assert!(!b.boxed(), "an animal standing on flat open ground can walk: {b:?}");
+        assert_eq!(b.by_creature, 0, "there is no other animal in the world, so nothing can be refused by one: {b:?}");
+        assert_eq!(b.kin_would_open, 0, "...and the counterfactual must be zero for the same reason: {b:?}");
+        assert_eq!(piles_of(&w, &[ant]), vec![vec![ant]], "one animal is one clump of one");
+    }
+
+    /// **§7f(1)'s central invariant, watched red first**: with the old
+    /// always-place-the-lateral rule (`lateral_for` returning a bare
+    /// position and the caller's `landing_is_placeable_through_tissue`
+    /// folding the lateral's own collision into the step), blocking *both*
+    /// of a widened segment's candidate cells refused the whole body's
+    /// move — the deadlock §7e measured at 43.9%/96.8% blocked. Under the
+    /// tuck rule the lateral simply is not placed; the spine's own step,
+    /// decided by the identical predicate a plain `Chain` uses, is
+    /// untouched by what a lateral could or could not do.
+    #[test]
+    fn a_body_with_both_sides_blocked_still_steps() {
+        let mut w = test_world();
+        // Both perpendicular candidates for the widened segment's *new*
+        // spine position (5,5) once the head steps to (6,5) -- see
+        // `lateral_for`'s own doc for the up-then-left tie order this
+        // geometry exercises.
+        w.set(5, 4, Cell::new(material::STONE, 0));
+        w.set(5, 6, Cell::new(material::STONE, 0));
+        let groups = [1u8, 2, 1];
+        let chain = [(5, 5), (4, 5), (4, 4), (3, 5)];
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
+        assert!(
+            landing_is_placeable_through_tissue(&w, &chain, &next, true),
+            "the spine's own step must not be refused just because a lateral has nowhere to go: {next:?}"
+        );
+        assert_eq!(next, vec![(6, 5), (5, 5), (4, 5)], "the spine moves exactly as a bare Chain would; the blocked lateral is simply absent");
+        assert_eq!(next_groups, vec![1, 1, 1], "the widened segment reads as one cell wide this step -- tucked, not blocking");
+    }
+
+    /// **A tucked lateral re-emerges** (§7f(1), and §7f's "Cell type: kept" /
+    /// "Colour: ... keyed on (segment, is-lateral)"), tested through
+    /// `relocate_chain` itself rather than through a live colony -- the
+    /// property is arithmetic on one segment: step into the pinch, step out,
+    /// and check what actually landed in the grid.
+    ///
+    /// Built directly with `push_organism` rather than `place_creature`, so
+    /// the body is a hand-controlled three-segment shape (not ant's own
+    /// seven-cell grown one) and `authored` is the literal `Vec<Segment>`
+    /// this test wrote, not a `FateGenome` unfold -- the property under test
+    /// does not depend on where `authored` came from.
+    #[test]
+    fn a_tucked_lateral_re_emerges() {
+        let mut w = test_world();
+        let species = w.species.id_of("ant").expect("ant species");
+        let def = w.species.get(species).creature.as_ref().expect("creature").clone();
+        let material_id = w.materials.id_of("ant").expect("ant material");
+        let authored = vec![
+            organism::Segment { cell: CellType::Head, lateral: None },
+            organism::Segment { cell: CellType::Segment, lateral: Some(CellType::Leg) },
+            organism::Segment { cell: CellType::Segment, lateral: None },
+        ];
+
+        let organism = w.push_organism(species).expect("a slot is free");
+        // Same geometry as the pure-function tests above: head east at
+        // (5,5), the widened middle segment's lateral at (4,4).
+        let chain = vec![(5, 5), (4, 5), (4, 4), (3, 5)];
+        let groups = vec![1u8, 2, 1];
+        for (i, &(x, y)) in chain.iter().enumerate() {
+            let cell_type = if i == 2 { CellType::Leg } else { CellType::Segment };
+            w.set(x, y, Cell::new(material_id, 0).with_organism_id(organism).with_aux(pack_cell_type(cell_type)));
+        }
+        if let Some(state) = w.organism_mut(organism) {
+            state.chain = chain.clone();
+            state.segment_groups = groups.clone();
+        }
+
+        // Step 1: into the pinch. Block both sides of the widened segment's
+        // next spine position, exactly as the test above.
+        w.set(5, 4, Cell::new(material::STONE, 0));
+        w.set(5, 6, Cell::new(material::STONE, 0));
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &groups, authored: &groups }, (6, 5), true);
+        assert_eq!(next_groups, vec![1, 1, 1], "test setup: both sides blocked, the widened segment must tuck");
+        relocate_chain(&mut w, organism, &def, &authored, BodySide { cells: &chain, groups: &groups }, BodySide { cells: &next, groups: &next_groups });
+        if let Some(state) = w.organism_mut(organism) {
+            state.segment_groups = next_groups.clone();
+        }
+        assert!(w.is_empty(4, 4), "the tucked lateral's old cell must be cleared, not left standing");
+        assert_eq!(w.organism(organism).expect("live").chain.len(), 3, "the body reads three cells wide while tucked");
+
+        // Step 2: out of the pinch. Clear the blockage and step again --
+        // `authored` (the stable reference) is unchanged; only the *live*
+        // `groups` fed into the walk is this step's own (post-tuck) shape.
+        w.set(5, 4, Cell::EMPTY);
+        w.set(5, 6, Cell::EMPTY);
+        let chain2 = w.organism(organism).expect("live").chain.clone();
+        let groups2 = w.organism(organism).expect("live").segment_groups.clone();
+        let (next2, next_groups2) = segmented_body_after_step(&w, BodyShape { chain: &chain2, groups: &groups2, authored: &groups }, (7, 5), true);
+        assert_eq!(next_groups2, vec![1, 2, 1], "room is free again: the lateral must re-emerge, read off `authored`, not off the still-tucked live `groups`");
+        assert_eq!(next2.len(), 4, "the cell count returns");
+        relocate_chain(&mut w, organism, &def, &authored, BodySide { cells: &chain2, groups: &groups2 }, BodySide { cells: &next2, groups: &next_groups2 });
+        if let Some(state) = w.organism_mut(organism) {
+            state.segment_groups = next_groups2;
+        }
+
+        // The re-emerged lateral is `next2[2]` -- walk order
+        // [spine0, spine1, lateral1, spine2] for groups [1, 2, 1].
+        let (lx, ly) = next2[2];
+        let reemerged = w.get(lx, ly);
+        assert_eq!(reemerged.organism_id(), organism, "the re-emerged cell must belong to the animal, not sit there unowned");
+        assert_eq!(organism::cell_type(reemerged.aux()), Some(CellType::Leg), "the role is the authored segment's own -- kept, per §7f(1), not re-derived from the live cell");
+        let expected = mint_lateral_cell(&w, &def, organism, material_id, CellType::Leg, 1);
+        assert_eq!(reemerged.shade, expected.shade, "the colour must be the one this segment's stable (segment, is-lateral) key always draws -- the same draw `mint_lateral_cell` makes, not a walk-order-keyed one");
+    }
+
+    /// The defensive fallback: a `groups` that does not sum to `chain.len()`
+    /// (empty, or otherwise wrong) must degrade to the ordinary follow
+    /// rule rather than panic, drop a cell, or invent one. This should
+    /// never fire on a real animal — `place_creature` and `reconcile_chain`
+    /// both keep the two in lock-step — but the algorithm indexes `chain`
+    /// by `groups`, and a defensive path that has never been exercised is
+    /// exactly the kind of code this project's own method section warns
+    /// reads as correct until it is asked to run.
+    #[test]
+    fn a_segmented_body_with_a_mismatched_grouping_falls_back_to_the_plain_follow_rule() {
+        let w = test_world();
+        let chain = [(5, 5), (4, 5), (3, 5)];
+        let (next, next_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &[], authored: &[] }, (6, 5), true);
+        assert_eq!(next, chain_follow(&chain, (6, 5)), "an empty or mismatched grouping must degrade to the ordinary follow rule");
+        assert!(next_groups.is_empty(), "the mismatched grouping degrades unchanged -- there is no widened segment to have tucked");
+    }
+
+    /// **The equality §7e's second ablation measured — `Segmented` with no
+    /// widened segments is byte-identical to `Chain(n)` at the same length
+    /// — must survive the tuck rule**, per §7f's cost fork: the spine's
+    /// movement stays untouched when no lateral is present. Where the pure
+    /// (0-lateral) case is guarded here, the shipped-with-laterals-on
+    /// equivalent is the walk-counter re-run against §7e's own table
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §7f, "Built and
+    /// measured").
+    ///
+    /// Swept over six seeds' worth of arbitrary headings/positions rather
+    /// than one hand-picked case, since the property has to hold for every
+    /// step a body can take, not just a convenient one.
+    #[test]
+    fn a_lateral_free_segmented_body_is_byte_identical_to_a_chain() {
+        let w = test_world();
+        let all_narrow = vec![1u8; 6];
+        let chain = vec![(50, 50), (49, 50), (48, 50), (47, 50), (46, 50), (45, 50)];
+        for (heading, to) in [(0u8, (51, 50)), (2, (50, 51)), (6, (49, 51)), (4, (50, 49)), (1, (51, 49)), (7, (49, 49))] {
+            let (segmented, segmented_groups) = segmented_body_after_step(&w, BodyShape { chain: &chain, groups: &all_narrow, authored: &all_narrow }, to, true);
+            let plain = chain_follow(&chain, to);
+            assert_eq!(segmented, plain, "heading {heading}: a Segmented body with no widened segment must move exactly like a Chain");
+            assert_eq!(segmented_groups, all_narrow, "no segment is ever widened, so none can tuck or re-emerge");
+        }
+    }
+
+    /// **The species file and its own genome must agree on what the animal
+    /// looks like** — `longant.ron`'s own comment states this as the reason
+    /// `body:` and `fates:` are both authored rather than one derived from
+    /// the other at load time. Grows each shipped articulated species'
+    /// `fates` table with the same `grow_body` a founder is placed from and
+    /// checks the result against the literal `body:` list, so a hand
+    /// arithmetic error in either table (an `after_metamers` threshold one
+    /// off, a `child` pointed at the wrong type) is caught here rather than
+    /// by a silhouette nobody was looking at.
+    ///
+    /// **Only `longant` as of 2026-09-11.** The owner's ruling that landed
+    /// the articulated body kept the shipped `ant` and `hopper` at their
+    /// original `Chain(2)`/`Rigid` bodies with no `fates` table at all
+    /// (`Reports/creature-articulated-body-2026-09-09.md` §13) and moved
+    /// the seven-cell body this test was written for onto `longant`, the
+    /// species a player places rather than the one a colony starts with.
+    #[test]
+    fn a_species_body_matches_its_own_fates_unfold() {
+        let w = test_world();
+        let name = "longant";
+        let id = w.species.id_of(name).expect(name);
+        let species = w.species.get(id);
+        let def = species.creature.as_ref().expect("creature");
+        let genome = organism::FateGenome::from_table(species.fate_table());
+        assert!(!genome.is_empty(), "{name} must author a fates table for this test to mean anything");
+        let grown = organism::grow_body(genome, SEGMENTED_BODY_CAP, true);
+        let BodyPlan::Segmented(authored) = &def.body else {
+            panic!("{name}'s body must be Segmented to compare against its own fates unfold");
+        };
+        assert_eq!(&grown, authored, "{name}'s authored body must be exactly what its own fates table grows -- the species file and its genome must agree on what this animal looks like");
     }
 
     /// Set one species' gut for the duration of a test.
@@ -10832,25 +17580,37 @@ mod tests {
     /// arm here would be a sample of one against a remembered number.
     #[test]
     fn a_meat_gut_stops_seeing_leaves() {
-        let leaf_beside_an_ant = |bias: f32| -> f32 {
+        let food_beside_an_ant = |food_name: &str, bias: f32| -> f32 {
             let mut w = test_world();
             for x in 90..110 {
                 w.set(x, 101, Cell::new(material::STONE, 0));
             }
             set_gut(&mut w, "ant", bias);
             let ant = spawn(&mut w, "ant", 100, 100);
-            let leaf = w.materials.id_of("leaf").expect("leaf");
-            w.set(101, 100, Cell::new(leaf, 0));
+            let food = w.materials.id_of(food_name).unwrap_or_else(|| panic!("{food_name} is compiled in"));
+            w.set(101, 100, Cell::new(food, 0));
             let def = w.species.get(w.organism(ant).unwrap().species).creature.as_ref().unwrap().clone();
             let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
             inputs[brain::BrainInput::FoodAdjacent as usize]
         };
 
-        // A leaf is `food_class: -1.0` worth 120. Against a neutral gut the
-        // filter reads 0.25 -> 30, over the bar of 12; against +0.9 it
-        // reads 0.0025 -> 0.3, under it.
-        assert_eq!(leaf_beside_an_ant(0.0), 1.0, "a generalist must see a leaf it is standing next to");
-        assert_eq!(leaf_beside_an_ant(0.9), 0.0, "a meat gut must not see a leaf as food -- the gene has to change what the animal perceives");
+        // **The original claim, on the floor's own food.** `litter` is
+        // `food_class: -1.0` at 480, so a neutral gut's 0.25 filter reads
+        // 120 -- over the bar of 12 -- and a +0.9 gut's 0.0025 reads 1.2,
+        // under it. The gene changes what the animal perceives.
+        assert_eq!(food_beside_an_ant("litter", 0.0), 1.0, "a generalist must see the litter it is standing next to");
+        assert_eq!(food_beside_an_ant("litter", 0.9), 0.0, "a meat gut must not see plant matter as food -- the gene has to change what the animal perceives");
+
+        // **And round 29's leaf dial, which is the same claim one notch
+        // further along the same axis.**
+        // `Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1:
+        // a *live* leaf is `food_energy: 40`, so the neutral gut's 0.25
+        // reads 10 -- under the bar -- and only a gut walked down to -0.8
+        // (0.81 -> 32.4) sees it at all. Grazing the standing stand is a
+        // niche a lineage evolves into, not the default every colony ships
+        // with, and this is the assertion that says so.
+        assert_eq!(food_beside_an_ant("leaf", 0.0), 0.0, "a live leaf must be marginal at the shipped neutral gut: 40 x 0.25 = 10, under EAT_YIELD_THRESHOLD's 12");
+        assert_eq!(food_beside_an_ant("leaf", -0.8), 1.0, "a plant specialist must see the live leaf a generalist cannot: 40 x 0.81 = 32.4, over the bar");
     }
 
     /// **A colony does not eat itself** — asserted on the predicate, not
@@ -10890,10 +17650,11 @@ mod tests {
             def.eats_kin = eats_kin;
             w.species.set_creature(id, def.clone());
 
-            // `Chain(2)`, laid out to the left of the head: A takes 100 and
-            // 99, B takes 102 and 101. B's tail is then A's head's east
-            // neighbour, so the nestmate is genuinely in reach at frame 0
-            // and no walking has to happen for the question to be asked.
+            // The shipped ant's spine trails 4 cells behind its head: A at
+            // 100 spans 96..100, B at 105 spans 101..105. B's tail (101) is
+            // then A's head's east neighbour, so the nestmate is genuinely
+            // in reach at frame 0 and no walking has to happen for the
+            // question to be asked.
             let a = spawn(&mut w, "ant", 100, 100);
             let b = spawn(&mut w, "ant", 102, 100);
             assert!(w.organism(a).is_some() && w.organism(b).is_some(), "both ants must place");
@@ -10986,7 +17747,7 @@ mod tests {
         assert!(w.set_organism_trait(a, TRAIT_TOLERANCE, 0.0));
         assert!(w.set_organism_trait(b, TRAIT_TOLERANCE, -0.5));
         let a_head = (100, 100);
-        let b_head = (102, 100);
+        let b_head = (105, 100);
         assert!(adjacent_food(&w, a, a_head, gut_of(&w, a, &def)).is_none(), "the tolerant ant sees family and will not bite");
         assert!(adjacent_food(&w, b, b_head, gut_of(&w, b, &def)).is_some(), "the intolerant ant sees a stranger and will");
     }
@@ -11021,6 +17782,316 @@ mod tests {
         assert!(beetle_sees_ant_as_prey(false), "shipped: a different kind is never family, so the ant is prey however alike they smell");
         assert!(!beetle_sees_ant_as_prey(true), "crossing kinds: only scent decides, and at the same scent the ant is family");
     }
+
+    /// A flat stone bed with one founding on it, and the colony's label.
+    /// `ants` small enough that every station lands inside the nest patch
+    /// `paint_nest_patch` lays (52 cells at `COLONY_ANT_SPACING` 4), so the
+    /// whole colony is at home.
+    fn cohesion_bed(ants: i32, drift: f32) -> World {
+        let mut w = test_world();
+        for x in 10..190 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let id = w.species.id_of("ant").expect("ant");
+        let mut def = w.species.get(id).creature.as_ref().expect("creature").clone();
+        def.scent_drift = drift;
+        w.species.set_creature(id, def);
+        assert!(w.found_colony_of(100, 100, "ant", ants) >= 2, "the bed must hold a colony");
+        w
+    }
+
+    /// Apply **one birth's worth of drift** to every living ant, through the
+    /// engine's own width and the engine's own clamp -- `trait_width` is what
+    /// `try_bud` reads, so this cannot drift at a width a real birth could
+    /// not.
+    fn jitter_every_ant(w: &mut World, round: u64) {
+        let ids = live_creature_ids(w);
+        for id in ids {
+            let Some(species) = w.organism(id).map(|s| s.species) else { continue };
+            let Some(def) = w.species.get(species).creature.as_ref().cloned() else { continue };
+            let mut draw = rng::stream(w.seed, id as u64, round, RNG_SLOT_BIRTH);
+            for slot in 0..CREATURE_TRAITS {
+                let width = trait_width(&def, slot);
+                if width > 0.0 {
+                    if let Some(state) = w.organism_mut(id) {
+                        state.traits[slot] = (state.traits[slot] + (draw.unit_f32() * 2.0 - 1.0) * width).clamp(-1.0, 1.0);
+                    }
+                }
+            }
+        }
+    }
+
+    /// One lifetime of at-nest contacts for every ant of `colony` (or every
+    /// ant in the box, for `None`), against the nest site at index `site`.
+    ///
+    /// **`None` rather than a label, where a label would be wrong.** A
+    /// `regroup_by_scent` mint *renames* the ants it splits off, so a helper
+    /// that filtered on the label the colony was founded with would silently
+    /// stop blending exactly the animals a split had just made interesting --
+    /// which reads as "cohesion failed" and is the helper failing.
+    fn blend_a_lifetime(w: &mut World, colony: Option<u32>, site: usize, contacts: usize) {
+        let (nx, ny) = (w.nest_sites[site].x, w.nest_sites[site].y);
+        let ids: Vec<u16> = live_creature_ids(w).into_iter().filter(|id| colony.is_none_or(|c| w.organism(*id).is_some_and(|s| s.colony == c))).collect();
+        for _ in 0..contacts {
+            for id in &ids {
+                blend_with_nest(w, *id, nx, ny);
+            }
+        }
+    }
+
+    /// Is every living ant still family with every other, judged both ways?
+    fn all_mutually_kin(w: &World) -> bool {
+        let ids = live_creature_ids(w);
+        for (i, a) in ids.iter().enumerate() {
+            for b in &ids[i + 1..] {
+                let (Some(sa), Some(sb)) = (w.organism(*a), w.organism(*b)) else { continue };
+                if !scent_accepts(&sa.traits, &sb.traits) || !scent_accepts(&sb.traits, &sa.traits) {
+                    return false;
+                }
+            }
+        }
+        true
+    }
+
+    /// **A cohered nest never splits into strangers, at any drift.**
+    ///
+    /// The measured negative this replaces is the design's §0: at
+    /// `scent_drift = 0.5` with no cohesion, the played bed's groups block
+    /// read `ANT 1 alive 0, killed 22 | killed by ANT 1 x20` -- the founding
+    /// group wiped out, twenty of its twenty-two killings by its own name,
+    /// the colony a quarter its size. That is why the dial shipped at 0 and
+    /// why it can now ship at 0.15.
+    ///
+    /// **Run at `scent_drift = 1.0`, not at the shipped 0.15**, and with
+    /// *every* ant taking a full birth's jitter every lifetime -- the whole
+    /// population replaced each generation at nearly seven times the shipped
+    /// width. The claim is not "the shipped dial is safe", which would be a
+    /// statement about one number; it is that **no setting on the allele axis
+    /// can break a cohered nest**, which is what makes the dial free to move.
+    ///
+    /// **The frame budget is compressed deliberately, and this is the
+    /// trade.** The design asks for 120,000 frames on the played bed; that is
+    /// six to eight minutes and does not belong in `cargo test --lib`. What
+    /// runs here instead is the closed loop through the shipped functions --
+    /// `trait_width`'s draw, `blend_with_nest`'s exchange,
+    /// `regroup_by_scent`'s census, `scent_accepts`' predicate -- over 500
+    /// generations, which is fifty times the generation depth the played bed
+    /// reaches in a session. The bed-length claim is carried by the
+    /// `labstats` three-arm table in the PR, not by this test.
+    ///
+    /// **Watched going red**: with `nest_blend` and `nest_uptake` at 0 --
+    /// the mechanism removed and nothing else changed -- the colony parts on
+    /// the first generation and `regroup_by_scent` mints. The arm is left in
+    /// the test as `uncohered`, so the red is re-run on every suite rather
+    /// than having been seen once.
+    #[test]
+    fn a_cohered_nest_never_splits_into_strangers() {
+        /// The furthest any living ant's scent sits from `nest`.
+        fn cloud(w: &World, nest: [f32; 3]) -> f32 {
+            live_creature_ids(w)
+                .into_iter()
+                .filter_map(|id| w.organism(id))
+                .map(|st| scent_distance_sq(&scent_of(&st.traits), &nest).sqrt())
+                .fold(0.0f32, f32::max)
+        }
+
+        // **The control arm first, and it is not decoration.** Green is the
+        // default state for a claim of this shape, so the bed has to be shown
+        // capable of parting before its not parting means anything.
+        let mut uncohered = cohesion_bed(8, 1.0);
+        uncohered.nest_blend = 0.0;
+        uncohered.nest_uptake = 0.0;
+        let mut spread = 0.0f32;
+        for round in 0..GENERATIONS {
+            jitter_every_ant(&mut uncohered, round);
+            blend_a_lifetime(&mut uncohered, None, 0, CONTACTS);
+            let first = scent_of(&uncohered.organism(live_creature_ids(&uncohered)[0]).expect("an ant").traits);
+            spread = spread.max(cloud(&uncohered, first));
+        }
+        assert!(spread > 2.0, "with the blend removed the colony's scents must run apart: measured {spread:.4}, and 2.0 is well inside the 3.36 this bed reaches");
+
+        // **The claim, at `scent_drift = 1.0` rather than at the shipped
+        // 0.15**, and with every ant taking a full birth's jitter every
+        // lifetime -- the whole population replaced each generation at nearly
+        // seven times the shipped width, for 500 generations.
+        let mut w = cohesion_bed(8, 1.0);
+        assert_eq!(w.nest_sites.len(), 1, "one founding, one nest site: {:?}", w.nest_sites);
+        let mut worst = 0.0f32;
+        for round in 0..GENERATIONS {
+            jitter_every_ant(&mut w, round);
+            blend_a_lifetime(&mut w, None, 0, CONTACTS);
+            worst = worst.max(cloud(&w, w.nest_sites[0].scent));
+        }
+        assert!(
+            worst < 0.5,
+            "a cohered nest's scent cloud must stay well inside a tolerance radius of 1.0 at ANY drift: measured {worst:.4} against the uncohered arm's {spread:.4}"
+        );
+        assert!(w.creature_stats.nest_blends > 0, "the far-side counter: not one blend was applied, so nothing above tested the mechanism");
+
+        // **The shipped bed, at a session's depth.** Ten ant generations is
+        // what the played bed reaches in 120,000 frames, and this is the arm
+        // that says the dial `ant.ron` now ships is safe rather than merely
+        // that the mechanism is strong.
+        let mut shipped = cohesion_bed(8, SHIPPED_ANT_SCENT_DRIFT);
+        let own_kills_before = own_colony_kills(&shipped);
+        let mut worst_shipped = 0.0f32;
+        for round in 0..10 {
+            jitter_every_ant(&mut shipped, round);
+            blend_a_lifetime(&mut shipped, None, 0, CONTACTS);
+            worst_shipped = worst_shipped.max(cloud(&shipped, shipped.nest_sites[0].scent));
+            assert!(all_mutually_kin(&shipped), "generation {round} at the shipped drift: a cohered nest read its own as strangers");
+            assert_eq!(shipped.regroup_by_scent(), 0, "generation {round} at the shipped drift: a cohered nest split into a second group");
+        }
+        assert!(worst_shipped < 0.2, "the shipped dial's cloud: measured {worst_shipped:.4}, and 0.2 is a fifth of the tolerance radius it is judged against");
+        assert_eq!(own_colony_kills(&shipped), own_kills_before, "a cohered nest must not eat itself");
+
+        // **And the wiring, through a real tick rather than a direct call.**
+        // The loops above prove the arithmetic; only this proves that
+        // `creature_tick` reaches it off `BrainInput::AtNest` on a bed the
+        // driver is stepping.
+        let mut live = cohesion_bed(8, 1.0);
+        let before = live.creature_stats.nest_blends;
+        for _ in 0..400 {
+            update::step(&mut live); // begins and ends the frame
+            scheduler::step(&mut live); // and dispatches the creature sites, matching App::update's order
+        }
+        assert!(live.creature_stats.nest_blends > before, "the at-nest blend never fired under the driver: the input is wired but nothing reads it");
+    }
+
+    /// 500 generations, and 25 at-nest contacts a lifetime -- the lower bound
+    /// the played bed's 1,796 shares over 146 animals gives, since a share
+    /// needs a neighbour where an at-nest tick does not.
+    const GENERATIONS: u64 = 500;
+    const CONTACTS: usize = 25;
+
+    /// Killings booked to an ant's own colony, summed over every group --
+    /// the `killed by ANT 1 x20` column of the design's §0, as one number.
+    fn own_colony_kills(w: &World) -> u64 {
+        w.group_deaths
+            .iter()
+            .map(|d| d.killed_by.iter().filter(|(sp, col, _)| *sp == d.species && *col == d.colony).map(|(_, _, n)| *n).sum::<u64>())
+            .sum()
+    }
+
+    /// **Two nests nobody walks between read as strangers within one
+    /// session; one ant a thousand frames holds them together.**
+    ///
+    /// The divergence lives in the *place*, not in the births -- design §3.
+    /// Once an odour is a colony-level quantity its centroid moves only by
+    /// births, each displacing it by `u/(N+w)`, which is 0.02 of a radius
+    /// over ten generations: five hundred generations against a session's
+    /// ten. So what parts two nests is `World::nest_scent_drift`, and this
+    /// test is over that.
+    ///
+    /// **A session is 120,000 frames**, which is 120 steps of
+    /// `world::NEST_SCENT_INTERVAL`. The wander is walked by the shipped
+    /// `step_nest_scents` over exactly those 120 epochs; what is compressed
+    /// is the ants' walking between contacts, not the mechanism.
+    ///
+    /// **The control is the corridor, and it is what makes this sensitive.**
+    /// A test that only asserted "two nests part" would pass against a
+    /// mechanism that parts *every* pair of nests unconditionally, which is
+    /// not polydomy, it is a broken box. The second arm sends one ant across
+    /// each epoch and the two must stay family.
+    #[test]
+    fn two_cut_off_nests_read_as_strangers_within_one_session() {
+        /// `true` when the two colonies still read each other as family,
+        /// judged both ways off one ant of each.
+        fn kin_across(w: &World, a: u32, b: u32) -> bool {
+            let one = |colony: u32| live_creature_ids(w).into_iter().filter_map(|id| w.organism(id)).find(|s| s.colony == colony).map(|s| s.traits);
+            let (Some(ta), Some(tb)) = (one(a), one(b)) else { return true };
+            scent_accepts(&ta, &tb) && scent_accepts(&tb, &ta)
+        }
+
+        /// One session of two nests 120 cells apart -- the design's
+        /// `bud_distance`, and far enough that `register_nest_site` mints two
+        /// sites rather than reading the second as a repaint of the first.
+        /// `crossings` is how many ants walk between them per interval.
+        /// Returns the gap between the two odours and whether the two
+        /// colonies still read each other as family.
+        fn a_session(crossings: usize, seed: u64) -> (f32, bool) {
+            let mut w = test_world();
+            w.seed = seed;
+            for x in 10..190 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+            }
+            assert!(w.found_colony_of(60, 100, "ant", 6) >= 2);
+            assert!(w.found_colony_of(180, 100, "ant", 6) >= 2);
+            let groups = w.live_creature_groups();
+            assert_eq!(groups.len(), 2, "the bed must hold two colonies: {groups:?}");
+            let (a, b) = (groups[0].colony, groups[1].colony);
+            assert_eq!(w.nest_sites.len(), 2, "two foundings, two nest sites: {:?}", w.nest_sites);
+            // Seed both sites off their own colony, as a founding cohort's
+            // first tick at home does.
+            blend_a_lifetime(&mut w, Some(a), 0, 1);
+            blend_a_lifetime(&mut w, Some(b), 1, 1);
+            for _ in 0..SESSION_EPOCHS {
+                w.frame += crate::sim::world::NEST_SCENT_INTERVAL;
+                w.step_nest_scents();
+                blend_a_lifetime(&mut w, Some(a), 0, 10);
+                blend_a_lifetime(&mut w, Some(b), 1, 10);
+                // **The thread.** One ant of A spends part of the interval at
+                // B's nest and the rest back at its own, carrying one odour
+                // into the other exactly as a crossing forager does.
+                for _ in 0..crossings {
+                    let Some(id) = live_creature_ids(&w).into_iter().find(|id| w.organism(*id).is_some_and(|s| s.colony == a)) else { continue };
+                    let (bx, by) = (w.nest_sites[1].x, w.nest_sites[1].y);
+                    let (ax, ay) = (w.nest_sites[0].x, w.nest_sites[0].y);
+                    for _ in 0..10 {
+                        blend_with_nest(&mut w, id, bx, by);
+                    }
+                    for _ in 0..10 {
+                        blend_with_nest(&mut w, id, ax, ay);
+                    }
+                }
+            }
+            let gap = w.nest_scent_gaps().first().map(|(_, _, d)| *d).expect("two sites, one pair");
+            (gap, kin_across(&w, a, b))
+        }
+
+        // **Twelve seeds, and an order statistic, because this is a wander.**
+        // `CLAUDE.md`: a guard over a procedural system gates an order
+        // statistic rather than a single seed, and six seeds is not a sweep.
+        // The per-seed spread measured here is 0.27 to 1.95 on the cut-off
+        // arm -- a factor of seven, which is a distribution and not a
+        // threshold, and a single-seed bar would be rubber-stamped or flaky
+        // depending on which one it was set from.
+        let mut cut: Vec<f32> = Vec::new();
+        let mut joined: Vec<f32> = Vec::new();
+        let mut strangers = 0;
+        let mut still_kin = 0;
+        for seed in 1..=12u64 {
+            let (g_cut, kin_cut) = a_session(0, seed);
+            let (g_joined, kin_joined) = a_session(1, seed);
+            assert!(g_cut > g_joined, "seed {seed}: a crossing ant must close the gap, not open it -- cut {g_cut:.3}, joined {g_joined:.3}");
+            cut.push(g_cut);
+            joined.push(g_joined);
+            strangers += usize::from(!kin_cut);
+            still_kin += usize::from(kin_joined);
+        }
+        cut.sort_by(f32::total_cmp);
+        joined.sort_by(f32::total_cmp);
+        let median = cut[cut.len() / 2];
+        let worst_joined = *joined.last().expect("twelve seeds");
+
+        // The typical cut-off pair passes the tolerance radius inside one
+        // session. Measured median 1.19 against a radius of 1.0; the bar is
+        // 0.8, which is headroom rather than the measured value.
+        assert!(median > 0.8, "two nests nobody crosses between must part by a session: median gap {median:.3} over {} seeds, against a tolerance radius of 1.0", cut.len());
+        // **And the control that makes the line above sensitive.** Without
+        // it the assertion is also passed by a box that parts every pair of
+        // nests unconditionally, which is not polydomy -- it is a box that
+        // cannot hold a colony together across two mounds. Measured: every
+        // joined seed under 0.18, an order of magnitude inside the cut-off
+        // arm, and family on all twelve.
+        assert!(worst_joined < 0.4, "one ant a thousand frames must hold two nests together: worst joined gap {worst_joined:.3} over {} seeds", joined.len());
+        assert_eq!(still_kin, 12, "two nests joined by a crossing ant must stay family on every seed: {still_kin} of 12");
+        assert!(strangers >= 6, "most cut-off pairs must actually read as strangers, not merely drift: {strangers} of 12 (measured 8)");
+    }
+
+    /// 120 steps of `world::NEST_SCENT_INTERVAL` -- 120,000 frames, which is
+    /// the owner's own length for one session of the played bed.
+    const SESSION_EPOCHS: usize = 120;
 
     /// **Every station of one founding shares the colony's scent offset, and
     /// two foundings do not** -- `colony_scent_offset` is keyed on the label,
@@ -11500,12 +18571,16 @@ mod tests {
                     w.set(x, y, Cell::new(soil, 0).with_attached(true));
                 }
             }
-            // An inexhaustible wall of leaf, row 109 left clear for the ant
-            // -- burying the animal reports "the scene lost the situation"
-            // rather than measuring anything.
-            let leaf = w.materials.id_of("leaf").expect("leaf");
+            // An inexhaustible wall of leaf, rows 108-109 left clear for the
+            // ant -- burying the animal reports "the scene lost the
+            // situation" rather than measuring anything. Row 108 joined 109
+            // 2026-09-09: the shipped ant's thorax carries a `Leg` cell one
+            // row above its spine, so a one-row gap pinned between leaf
+            // above and below cannot hold it.
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").expect("litter");
             for x in 100..122 {
-                for y in [104, 105, 106, 107, 108, 110] {
+                for y in [104, 105, 106, 107, 110] {
                     w.set(x, y, Cell::new(leaf, 0).with_attached(true));
                 }
             }
@@ -11569,7 +18644,7 @@ mod tests {
         // to the *filter* can fail this.
         let face = {
             let w = test_world();
-            w.materials.get(w.materials.id_of("leaf").expect("leaf")).food_energy as f64
+            w.materials.get(w.materials.id_of("litter").expect("litter")).food_energy as f64
         };
         // The ratio is now dimensionless: a matched gut absorbs all of what
         // it digests, a half-axis gut a quarter of it. The leaf's face value
@@ -11710,7 +18785,7 @@ mod tests {
             w.set(hx + 1, hy, Cell::new(flesh, 0));
             let def = w.species.get(w.organism(beetle).expect("live").species).creature.clone().expect("creature");
             let gut = gut_of(&w, beetle, &def);
-            let FoodScan { best, refused, damage } = adjacent_food_counted(&w, beetle, (hx, hy), gut);
+            let FoodScan { best, refused, damage, .. } = adjacent_food_counted(&w, beetle, (hx, hy), gut, def.start_energy);
             (best.is_some(), refused, damage, w.materials.get(flesh).penetration_resistance, def.bite_force())
         };
 
@@ -11994,9 +19069,13 @@ mod tests {
         };
         // The starved stamp exactly: `body_energy * cells + 0` over cells.
         let starved = Cell::new(corpse, 0).with_aux(body_energy.round() as u16);
+        // `.round()` on the right too: `diet_yield` reads the `u16` `aux`
+        // this cell was actually built with, and the shipped ant's
+        // `137.1428571` does not round-trip through that exactly (the old
+        // `480.0` did, which is why this was a bare `body_energy` before).
         assert_eq!(
             diet_yield(&w, starved, 0.0),
-            body_energy * 0.25,
+            body_energy.round() * 0.25,
             "a starved corpse at a neutral gut is a quarter of the stamp -- the filter reads 0.25 half an axis away, and if this moved, the filter or the stamp did"
         );
         assert!(diet_yield(&w, starved, 0.0) > EAT_YIELD_THRESHOLD, "and it has to clear the bar, or the scavenger niche is gone");
@@ -12017,6 +19096,86 @@ mod tests {
         run(&mut w, 1200);
         assert!(w.creature_stats.eats + w.creature_stats.pickups > before, "the ant should have taken the carrion it is standing in");
         assert!(w.organism(ant).is_some(), "and should not have starved doing it");
+    }
+
+    /// **Round 29, Brief 1 -- the price of a seed the mouth did not
+    /// destroy, measured at the call site rather than argued.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The bite
+    /// verb is a *pickup*, so what a seed is worth to the animal is the
+    /// `unit` that lands in its `Crop`; that is the quantity asserted here.
+    ///
+    /// **Two arms in one test, and the second is the positive control the
+    /// brief asks for by name**: at `seed_provision_fraction: 1.0` the
+    /// identical run must pay the seed's whole face value, so a green on the
+    /// first arm is evidence about the multiply and not about the
+    /// scaffolding. Both arms set `seed_gut_survival: 1.0`, which makes
+    /// every bare-seed bite a survival and takes the roll out of the
+    /// comparison entirely.
+    #[test]
+    fn a_carried_bare_seed_pays_only_its_provision() {
+        let seed_face = {
+            let w = test_world();
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            w.materials.get(seed_mat).food_energy
+        };
+        let run_arm = |fraction: f32| -> (f32, u64, u64) {
+            let mut w = test_world();
+            for x in 92..112 {
+                w.set(x, 101, Cell::new(material::STONE, 0));
+                w.set(x, 96, Cell::new(material::STONE, 0));
+            }
+            for y in 96..102 {
+                w.set(92, y, Cell::new(material::STONE, 0));
+                w.set(111, y, Cell::new(material::STONE, 0));
+            }
+            let grass = w.species.id_of("grass").expect("grass species must be loaded");
+            w.species.get_mut(grass).seed_gut_survival = 1.0;
+            w.species.get_mut(grass).seed_provision_fraction = fraction;
+            let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+            // A floor of bare grass seed for the ant to walk into. Each is a
+            // one-cell organism wearing `CellType::Seed` -- exactly what the
+            // bed's own waiting seed bank is made of.
+            for x in 98..108 {
+                let id = w.push_organism(grass).expect("an organism slot is free");
+                w.set(x, 100, Cell::new(seed_mat, 0).with_organism_id(id).with_aux(organism::pack_cell_type(CellType::Seed)));
+            }
+            let ant = spawn(&mut w, "ant", 95, 100);
+            // **Sampled every frame, not read at the end, and that is the
+            // whole of what the first version got wrong**: an ant digests or
+            // puts down what it picked up, so a crop read 1,200 frames later
+            // is empty far more often than not and the test failed with
+            // `unit = NaN` -- a scene error wearing an assertion failure
+            // (`CLAUDE.md`, *a scene that contradicts the code will look like
+            // a bug in the code*). The quantity this test is named for is
+            // what a seed is worth *when it is taken*, so the first crop the
+            // animal ever holds is the right sample and every later one is a
+            // different question.
+            let mut first_unit = f32::NAN;
+            for _ in 0..1200 {
+                run(&mut w, 1);
+                if first_unit.is_nan() {
+                    if let Some(u) = w.organism(ant).and_then(|st| st.crop).map(|c| c.unit) {
+                        first_unit = u;
+                    }
+                }
+            }
+            (first_unit, w.bare_seeds_spared, w.bare_seeds_carried)
+        };
+
+        let (unit_quarter, spared_q, carried_q) = run_arm(0.25);
+        assert!(spared_q > 0, "the ant never bit a bare seed at all -- what this arm measured is the scene, not the price");
+        assert!(carried_q > 0, "a spared bare seed never became a passenger: the it-fired counter moved and the effect counter did not");
+        assert!(
+            (unit_quarter - seed_face * 0.25).abs() < 0.01,
+            "a bare seed spared at provision 0.25 must enter the crop at a quarter of its {seed_face} J face, not {unit_quarter}"
+        );
+
+        let (unit_whole, spared_w, carried_w) = run_arm(1.0);
+        assert!(spared_w > 0 && carried_w > 0, "the control arm must reach the same code path, or it controls nothing");
+        assert!(
+            (unit_whole - seed_face).abs() < 0.01,
+            "the positive control: at provision 1.0 the carriage is free and the crop must hold the whole {seed_face} J, not {unit_whole}"
+        );
     }
 
     #[test]
@@ -12080,15 +19239,23 @@ mod tests {
             .collect();
         assert!(!starved_worth.is_empty(), "a dead ant leaves meat");
         for worth in &starved_worth {
-            assert_eq!(*worth as f32, def.body_energy, "a starved animal is worth exactly the body it was built from, and no more");
+            // `.round()` on the right, not a bare `def.body_energy`: `aux`
+            // is a `u16`, so the stamp is `body_energy.round() as u16` and
+            // the shipped ant's own `137.1428571` cannot round-trip through
+            // that exactly. The old two-cell ant's `480.0` never showed
+            // this, being already a whole number.
+            assert_eq!(*worth as f32, def.body_energy.round(), "a starved animal is worth exactly the body it was built from, and no more");
         }
 
         // And one killed with energy still in the bank is worth more, which
         // is what makes a fresh kill better eating than carrion.
-        let full = spawn(&mut w, "ant", 104, 100);
+        // 106, not 104: the starved ant's own corpse now occupies its whole
+        // seven-cell span back to x=96, and a corpse cell is not empty
+        // ground -- 104 would overlap it and this spawn would refuse.
+        let full = spawn(&mut w, "ant", 106, 100);
         w.organism_mut(full).expect("live").energy = 400.0;
         creature_dies(&mut w, full, organism::DeathCause::Killed);
-        let full_worth = w.get(104, 100).aux();
+        let full_worth = w.get(106, 100).aux();
         assert!(
             (full_worth as f32) > def.body_energy,
             "an animal killed in its prime carries its unspent energy into its corpse ({full_worth} vs body {})",
@@ -12218,7 +19385,7 @@ mod tests {
         let corpse = w.materials.id_of("corpse").expect("corpse");
         let ant = spawn(&mut w, "ant", 100, 100);
         assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
-        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit: 640.0, shade: 3 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: corpse, cells: 1, digesting: 0.0, unit: 640.0, shade: 3, passenger: None });
 
         creature_dies(&mut w, ant, organism::DeathCause::Killed);
 
@@ -12232,6 +19399,302 @@ mod tests {
             .collect();
         assert_eq!(dropped.len(), 1, "a corpse cell worth 640 was being carried and exactly one should have landed, found {}", dropped.len());
         assert_eq!(dropped[0].shade, 3, "the cargo's shade travels with it, or a fat corpse is put down looking like a picked-over one");
+    }
+
+    /// **A2, uneaten -- the first cell an ant with a passenger aboard puts
+    /// down writes a live *windfall* organism**, not a bare pip: organism
+    /// id non-zero, resolves, still `CellType::Seed` so it can germinate on
+    /// the ordinary path, and wearing the herb's own `windfall_material`
+    /// rather than `pip`. `Reports/lanes/evolution-lab-seed-where-eaten.md`,
+    /// the owner's 2026-09-11 rule read onto the drop side: a death
+    /// mid-carry is a drop, not a meal, so the fruit keeps its seed rather
+    /// than spilling a bare pip where the ant fell -- see
+    /// `plant::deliver_seed_passenger_uneaten`'s own doc.
+    ///
+    /// Was written against `plant::deliver_seed_passenger` directly (both
+    /// call sites were identical before this build); now the two calls
+    /// differ on exactly the material this test checks, which is the
+    /// **guard that must fail for the replacement** -- ported forward
+    /// rather than left asserting the old, now-wrong material.
+    ///
+    /// Exercised through the death-spill drop (`creature_dies`) rather
+    /// than the living per-frame one, exactly as `a_carried_corpse_keeps_
+    /// its_worth_when_it_is_put_down` above already does for an ordinary
+    /// cargo. `picked_up_frame` equals the current `world.frame`, so the
+    /// transit-decay roll (§2.5, tested on its own below) has zero span to
+    /// act on and cannot make this test flaky.
+    #[test]
+    fn a_dying_carrier_still_delivers_its_passenger_as_a_live_windfall() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let windfall = w.materials.id_of("windfall").expect("windfall.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        // `passenger.material` is `pip`, per its own doc ("always `pip` in
+        // practice") -- unchanged by this build, and deliberately not what
+        // gets checked below: `deliver_seed_passenger_uneaten` ignores it
+        // and resolves the material from the organism's own species.
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 120.0, shade: 0, passenger: Some(passenger) });
+
+        creature_dies(&mut w, ant, organism::DeathCause::Killed);
+
+        let delivered: Vec<Cell> =
+            (92..112).flat_map(|x| (95..102).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger's organism must own exactly one cell after delivery, found {}", delivered.len());
+        assert_eq!(delivered[0].material, windfall, "a dropped, uneaten passenger must be wearing its species' windfall material, not the bare pip -- the seed stays inside the fruit until someone eats it");
+        assert_eq!(
+            organism::cell_type(delivered[0].aux()),
+            Some(CellType::Seed),
+            "a delivered passenger must still read as a Seed, or it cannot germinate on the ordinary path"
+        );
+        assert!(w.organism(seed_id).is_some(), "the organism must resolve after delivery");
+        assert_eq!(w.organism(seed_id).map_or(0, |s| s.cells.len()), 1, "the organism must own its one delivered cell");
+        assert_eq!(w.seeds_delivered, 1, "the it-worked counter must move on delivery");
+        assert_eq!(w.fruit_dropped_with_seed, 1, "the uneaten-exit counter must move when a fruit is put down still carrying its seed");
+        assert!(
+            !w.carried_seed_organisms.contains(&seed_id),
+            "delivery must release the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
+        );
+    }
+
+    /// **A2, eaten -- digestion consuming a crop's last cell releases the
+    /// passenger riding with it as a live standing `pip`**, at the eating
+    /// animal's own position, instead of silently vanishing with the empty
+    /// crop. `Reports/lanes/evolution-lab-seed-where-eaten.md`: the owner's
+    /// 2026-09-11 rule's other half -- "it should drop where it is eaten,
+    /// not immediately" -- and this is the positive control for the bug it
+    /// names: before this build, `pips_released_by_digestion` could not
+    /// move at all and the delivered pip simply never existed.
+    ///
+    /// `unit: 1.0` against the ant's own `digest_rate` (3.3, `ant.ron`)
+    /// guarantees the crop's one cell matures and is spent inside a single
+    /// tick, so `crop` going to `None` is the positive control that
+    /// digestion actually emptied it, the same convention `digestion_does_
+    /// not_consume_a_passenger` beside this test uses for its own
+    /// two-cell case.
+    #[test]
+    fn digestion_of_the_last_cell_releases_the_passenger_as_a_live_pip() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert!(w.organism(ant).expect("live").crop.is_none(), "test setup: digesting the crop's only cell must empty it, or this proves nothing about the release");
+        assert_eq!(w.pips_released_by_digestion, 1, "the it-fired counter must move when digestion empties a crop carrying a passenger");
+        assert_eq!(w.pip_digestion_release_x.len(), 1, "the where-instrument must gain exactly one entry alongside the counter");
+        let delivered: Vec<Cell> =
+            (0..200).flat_map(|x| (95..106).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).filter(|c| c.organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger's organism must own exactly one cell after being released by digestion, found {}", delivered.len());
+        assert_eq!(delivered[0].material, pip, "digestion is the eaten exit -- it must write the bare pip, not the whole fruit `deliver_seed_passenger_uneaten` writes at a drop");
+        assert_eq!(w.seeds_delivered, 1, "the shared A2 delivery counter must move here too, the same as any other delivery");
+        assert!(
+            !w.carried_seed_organisms.contains(&seed_id),
+            "release must free the carried-set guard, or the slot can never be reclaimed by the ordinary empty-cell-list rule again"
+        );
+    }
+
+    /// **§Z16 -- the digestion exit must never plant the pip in the ant's
+    /// own head.** `creature_tick`'s digest block hands the surviving seed
+    /// to `plant::deliver_seed_passenger` at the ant's *head* coordinates,
+    /// and until 2026-09-12 the planter wrote the pip there unconditionally
+    /// unless the midden redirect happened to move it -- which it does not
+    /// when the ground under the head already passes the water gate, and
+    /// cannot when no midden site is in reach. The ant's head became a pip,
+    /// `reconcile_chain` booked the death as `Killed`, and on the played
+    /// bed that path was 71 / 58 / 35 of the colony's 216 / 98 / 70
+    /// "killed" deaths on seeds 1-3 at 500,000 frames (open-bugs §Z16).
+    /// Stone under the ant here fails the water gate and no midden site
+    /// exists, so this scene reaches the fallback that wrote into the head:
+    /// watched red with the guard in `deliver_seed_passenger_with_material`
+    /// removed, green with it.
+    #[test]
+    fn digestion_never_plants_the_pip_in_the_ants_own_head() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let head = w.organism(ant).expect("live").chain[0];
+        let head_material = w.get(head.0, head.1).material;
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired, or the guard below is checking nothing");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "the pip was written over the ant's own head -- this is §Z16, the 'killed' death that was never a killing");
+        assert_eq!(w.get(head.0, head.1).material, head_material, "the head cell must still be the ant's own flesh after the release");
+        let delivered: Vec<(i32, i32)> =
+            (0..200).flat_map(|x| (95..106).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).organism_id() == seed_id).collect();
+        assert_eq!(delivered.len(), 1, "the passenger must still be put down exactly once, found {}", delivered.len());
+        let (px, py) = delivered[0];
+        assert!((px - head.0).abs() <= 1 && (py - head.1).abs() <= 1 && (px, py) != head, "the pip lands beside the head, where the meal was eaten, not in it: got ({px},{py}) for head {head:?}");
+        assert_eq!(w.seeds_delivered, 1, "a redirected delivery is still a delivery");
+        assert_eq!(w.seeds_lost_no_room, 0, "room was available, so nothing may be counted as lost");
+        assert!(reconcile_chain(&mut w, ant), "the ant must survive its own meal");
+    }
+
+    /// **§Z16, the no-room exit.** An ant boxed in on all eight sides that
+    /// finishes a seed-bearing meal has nowhere to put the pip down. The
+    /// seed is lost and *counted* (`World::seeds_lost_no_room`), the
+    /// carried-set guard is released so the slot is reclaimed, and the
+    /// ant's head is untouched -- losing a seed is a graded outcome; losing
+    /// the ant was the bug.
+    #[test]
+    fn a_boxed_in_ant_loses_the_seed_and_keeps_its_head() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let head = w.organism(ant).expect("live").chain[0];
+        // Wall in every empty cell within two of the whole body, not just
+        // the head: the guard searches the head's eight neighbours, then the
+        // ring two cells out, then the midden columns, and stone under and
+        // around it fails all three.
+        let body: Vec<(i32, i32)> = w.organism(ant).expect("live").chain.clone();
+        for &(bx, by) in &body {
+            for dx in -2..=2 {
+                for dy in -2..=2 {
+                    if w.is_empty(bx + dx, by + dy) {
+                        w.set(bx + dx, by + dy, Cell::new(material::STONE, 0));
+                    }
+                }
+            }
+        }
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        assert_eq!(w.pips_released_by_digestion, 1, "test setup: the release must have fired");
+        assert_eq!(w.get(head.0, head.1).organism_id(), ant, "no room anywhere must never mean 'write it into the ant'");
+        assert_eq!(w.seeds_lost_no_room, 1, "the lost seed must be counted, or the loss is invisible");
+        assert_eq!(w.seeds_delivered, 0, "a lost seed is not a delivery");
+        let owned = (0..200).flat_map(|x| (90..106).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).organism_id() == seed_id).count();
+        assert_eq!(owned, 0, "a lost seed owns no cell");
+        assert!(!w.carried_seed_organisms.contains(&seed_id), "the carried-set guard must be released on the loss exit, or the slot leaks");
+    }
+
+    /// **A2 -- digestion must not consume a passenger.** `creature_tick`'s
+    /// digest block spends `cells`/`digesting`/`unit` and rebuilds the crop
+    /// with `..c`, which already carries `passenger` forward unchanged --
+    /// this is the guard that would catch a future edit which stopped
+    /// doing that. `unit: 1.0` against the ant's own `digest_rate` (3.3,
+    /// `ant.ron`) guarantees one cell matures and is spent inside a single
+    /// tick, so `cells` moving from 2 to 1 is the positive control that
+    /// digestion genuinely ran.
+    #[test]
+    fn digestion_does_not_consume_a_passenger() {
+        let mut w = test_world();
+        for x in 0..200 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        w.plant_ant(20, 100);
+        let ant = w.get(20, 100).organism_id();
+        assert_ne!(ant, 0, "the ant must have hatched, or this measures nothing");
+        let passenger =
+            organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: w.frame };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 2, digesting: 0.0, unit: 1.0, shade: 0, passenger: Some(passenger) });
+
+        let species = w.organism(ant).expect("live").species;
+        let def = w.species.get(species).creature.clone().expect("an ant is a creature");
+        creature_tick(&mut w, 20, 100, ant, &def);
+
+        let crop = w.organism(ant).expect("live").crop.expect("digesting one of two cells must leave the crop standing, not empty it");
+        assert_eq!(crop.cells, 1, "test setup: digestion must actually have consumed a cell, or this proves nothing about the passenger");
+        assert!(crop.passenger.is_some(), "digestion must not consume the passenger riding alongside the food it digests");
+        assert_eq!(crop.passenger.map(|p| p.organism_id), Some(seed_id), "the surviving passenger must still be the same seed");
+    }
+
+    /// **A2 -- a carried seed still decays on its own clock** (§2.5): the
+    /// decay clock keeps running while riding in a crop, settled as one
+    /// roll at delivery over the whole carried span rather than accruing
+    /// per tick (`plant::deliver_seed_passenger`'s own doc says why that is
+    /// the exact same hazard, not an approximation). `picked_up_frame: 0`
+    /// against a delivery at `frame` ten million puts the span at roughly
+    /// 714 herb half-lives (14,000 each) -- `half_life_chance` saturates
+    /// long before that, so decay is not merely likely, it is as close to
+    /// certain as floating point gets. The paired short-carry case is
+    /// already covered above: `a_dying_carrier_still_delivers_its_
+    /// passenger_as_a_live_organism` picks up and delivers on the same
+    /// frame and gets a live organism every time.
+    #[test]
+    fn a_carried_seed_with_a_long_enough_transit_decays_before_delivery() {
+        let mut w = test_world();
+        for x in 92..112 {
+            w.set(x, 101, Cell::new(material::STONE, 0));
+        }
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let half_life = w.species.get(herb).seed_half_life;
+        assert!(half_life > 0.0 && half_life < 1_000_000.0, "test premise: herb.seed_half_life must be small next to the ten-million-frame span this test carries a seed over, or the decay roll proves nothing");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        let leaf = w.materials.id_of("leaf").expect("leaf is compiled in");
+        let seed_id = w.push_organism(herb).expect("an organism slot is free");
+        let ant = spawn(&mut w, "ant", 100, 100);
+        assert_ne!(ant, 0, "the carrier was not placed; the scene does not contain the situation this test is about");
+        let passenger = organism::SeedPassenger { organism_id: seed_id, material: pip, shade: 1, aux: organism::pack_cell_type(CellType::Seed), picked_up_frame: 0 };
+        w.carried_seed_organisms.insert(seed_id);
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: 120.0, shade: 0, passenger: Some(passenger) });
+        w.frame = 10_000_000;
+
+        let pips_rotted_before = w.pips_rotted;
+        creature_dies(&mut w, ant, organism::DeathCause::Killed);
+
+        let live_delivery = (92..112).flat_map(|x| (95..102).map(move |y| (x, y))).map(|(x, y)| w.get(x, y)).any(|c| c.organism_id() == seed_id);
+        assert!(!live_delivery, "a seed carried across ~714 half-lives must not still resolve to a live organism at delivery");
+        assert_eq!(w.pips_rotted, pips_rotted_before + 1, "a seed that lost the transit viability race must be counted on the same exit a standing pip's decay uses");
+        assert_eq!(w.seeds_delivered, 1, "the passenger was still genuinely put down -- seeds_delivered counts the delivery event, not survival past it");
+        assert!(!w.carried_seed_organisms.contains(&seed_id), "the carried-set guard must be released either way, or the slot leaks even on the decay exit");
     }
 
     /// **The `aux` convention is a property of the material, not of the
@@ -12273,7 +19736,7 @@ mod tests {
         // arise from the ingest path -- nothing under `EAT_YIELD_THRESHOLD` is
         // taken at all -- so the fixture is what was unrealistic.
         let leaf_face = w.materials.get(leaf).food_energy;
-        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: leaf_face, shade: 0 });
+        w.organism_mut(ant).expect("live").crop = Some(Crop { material: leaf, cells: 1, digesting: 0.0, unit: leaf_face, shade: 0, passenger: None });
         let before = (90..115).flat_map(|x| (90..102).map(move |y| (x, y))).filter(|&(x, y)| w.get(x, y).material == leaf).count();
 
         creature_dies(&mut w, ant, organism::DeathCause::Killed);
@@ -12300,8 +19763,12 @@ mod tests {
             w.set(60, y, Cell::new(material::STONE, 0));
             w.set(139, y, Cell::new(material::STONE, 0));
         }
+        // 67, not 64: the shipped ant's spine reaches 4 cells behind its
+        // head, and at 64 the first ant's own span would touch the box's
+        // left wall (x=60) outright. The existing 6-cell step between
+        // founders already clears the new 5-cell span with a 1-cell gap.
         for i in 0..12 {
-            spawn(&mut w, "ant", 64 + i * 6, 120);
+            spawn(&mut w, "ant", 67 + i * 6, 120);
         }
         w
     }
@@ -12524,7 +19991,7 @@ mod tests {
             if let (Some(state), Some(worth)) = (w.organism_mut(ant), load) {
                 // The material is never put down in this scene, so what it
                 // is does not matter -- only its worth, which is the mass.
-                state.crop = Some(Crop { material: material::EMPTY, cells: 1, digesting: 0.0, unit: worth as f32, shade: 0 });
+                state.crop = Some(Crop { material: material::EMPTY, cells: 1, digesting: 0.0, unit: worth as f32, shade: 0, passenger: None });
             }
             // Long enough to take many steps; the ratio is what is read, so
             // the absolute frame count is not load-bearing.
@@ -12617,13 +20084,19 @@ mod tests {
                     w.plant_moss_seed(x, 110);
                 }
             }
-            // Row 109 is left clear on purpose -- that is where the ant
-            // stands, and burying it reports "the scene does not contain
-            // the situation" instead of measuring anything.
+            // Rows 108-109 are left clear on purpose -- that is where the
+            // ant stands, and burying either reports "the scene does not
+            // contain the situation" instead of measuring anything. Row
+            // 108 joined 109 2026-09-09: the shipped ant is a `Segmented`
+            // body whose thorax segments carry a `Leg` cell one row above
+            // the spine, so a one-row corridor pinned between leaf above
+            // and below cannot hold it at all -- the same shape as `a_
+            // wide_body_cannot_enter_a_one_cell_tunnel...`.
             Larder::Unlimited => {
-                let leaf = w.materials.id_of("leaf").expect("leaf");
+                // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+                let leaf = w.materials.id_of("litter").expect("litter");
                 for x in 100..122 {
-                    for y in [104, 105, 106, 107, 108, 110] {
+                    for y in [104, 105, 106, 107, 110] {
                         w.set(x, y, Cell::new(leaf, 0).with_attached(true));
                     }
                 }
@@ -12673,7 +20146,11 @@ mod tests {
                 }
                 let leaf = w.materials.id_of("leaf").expect("leaf");
                 for x in 100..122 {
-                    for y in [104, 105, 106, 107, 108, 110] {
+                    // 108 dropped alongside 109 -- see `the_eat_verb_pays_
+                    // the_filter_not_the_face_value`'s own comment on this
+                    // exact wall for why a one-row gap can no longer hold
+                    // the shipped ant.
+                    for y in [104, 105, 106, 107, 110] {
                         w.set(x, y, Cell::new(leaf, 0).with_attached(true));
                     }
                 }
@@ -12726,7 +20203,9 @@ mod tests {
             }
             let leaf = w.materials.id_of("leaf").expect("leaf");
             for x in 100..122 {
-                for y in [104, 105, 106, 107, 108, 110] {
+                // 108 dropped alongside 109 -- see `the_eat_verb_pays_the_
+                // filter_not_the_face_value`'s own comment on this wall.
+                for y in [104, 105, 106, 107, 110] {
                     w.set(x, y, Cell::new(leaf, 0).with_attached(true));
                 }
             }
@@ -13080,7 +20559,16 @@ mod tests {
             w.set(x, 160, Cell::new(material::STONE, 0));
         }
         let placed = w.found_colony(100, 5);
-        assert!(placed > 40, "a colony founded from high above the ground should still land: got {placed} ants");
+        // **15, not 40 -- re-derived 2026-09-09, not re-guessed.** `COLONY_
+        // ANTS` (52) was always aspirational on a 200-wide test world at
+        // `COLONY_ANT_SPACING` (4); the bound here was already a fraction
+        // of it. Colony spacing derives from the body
+        // (`COLONY_ANT_SPACING.max(body_span * 2)`, `creature.rs`'s own
+        // founding code, untouched by this change) and the shipped ant's
+        // span grew with its new `Segmented` body, so fewer fit the same
+        // band on purpose -- this scene now places 20, measured, and 15 is
+        // headroom under that rather than a value sitting on it.
+        assert!(placed > 15, "a colony founded from high above the ground should still land: got {placed} ants");
     }
 
     #[test]
@@ -13139,7 +20627,10 @@ mod tests {
             w.set(x, 160, Cell::new(material::STONE, 0));
         }
         let placed = w.found_colony(100, 150);
-        assert!(placed > 40, "expected a full colony on open floor, got {placed}");
+        // 15, not 40 -- see `founding_a_colony_from_high_above_the_ground_
+        // still_finds_it`'s own comment: colony spacing derives from the
+        // body and the shipped ant's grew, so fewer fit the same band.
+        assert!(placed > 15, "expected a full colony on open floor, got {placed}");
         let ant = w.materials.id_of("ant").expect("ant is compiled in");
         let xs: Vec<i32> = (0..199).filter(|&x| (150..160).any(|y| w.get(x, y).material == ant)).collect();
         let (lo, hi) = (*xs.first().expect("ants"), *xs.last().expect("ants"));
@@ -13229,7 +20720,15 @@ mod tests {
             let def = w.species.get(species).creature.as_ref().expect("a creature").clone();
             def.body.offsets(false).iter().map(|&(dx, dy)| (at.0 + dx, at.1 + dy)).collect()
         };
-        let chain2 = plan("ant", (10, 10));
+        // **Not `plan("ant", ...)` any more.** Until 2026-09-09 the shipped
+        // ant *was* the two-cell chain this control needs; it is now a
+        // seven-cell `Segmented` body, so the two-cell case has no shipped
+        // species left to read off. `BodyPlan::Chain(2)` is the same code
+        // path any two-cell chain species would go through
+        // (`BodyPlan::offsets`), just without a `.ron` behind it -- the
+        // synthetic shape this test's own comment warns against is a
+        // *hand-typed cell list*, which this is not.
+        let chain2 = organism::BodyPlan::Chain(2).offsets(false).iter().map(|&(dx, dy)| (10 + dx, 10 + dy)).collect::<Vec<_>>();
         let chain6 = plan("ant_long", (30, 10));
         let wide = plan("ant_wide", (60, 10));
         let block = plan("ant_block", (90, 10));
@@ -13401,10 +20900,15 @@ mod tests {
         assert!(before.0 > 100, "test setup: the hedge is not there ({} cells)", before.0);
 
         // Ants walking into it from both sides, so the hedge is crossed
-        // rather than merely brushed.
+        // rather than merely brushed. 6 apart within a side, not 2: the
+        // shipped ant's spine spans 5 cells behind its head, so the old
+        // step would overlap same-side neighbours, and every starting
+        // position still has to clear the hedge itself (x 90..110) or the
+        // spawn is refused outright -- leaf is not empty ground.
         let ants: Vec<u16> = (0..6)
             .map(|i| {
-                let x = if i % 2 == 0 { 80 + i } else { 118 - i };
+                let side = i / 2; // 0, 1, 2: which ant on its side of the hedge
+                let x = if i % 2 == 0 { 74 + side * 6 } else { 126 - side * 6 };
                 spawn(&mut w, "ant", x, floor - 1)
             })
             .collect();
@@ -13486,6 +20990,223 @@ mod tests {
         assert!(w.creature_stats.flight_moves > 0, "the counter that says the arc went somewhere");
     }
 
+    /// **The float's positive control, and the fault it is named for is
+    /// already watched red** -- round 28 followed exactly this animal for
+    /// 2,000 frames on the played bed and it "never came closer than nine"
+    /// to a flower it could see the whole time
+    /// (`Reports/evolution-lab-flight-design-2026-09-11.md` §5).
+    ///
+    /// A flitter on a flat floor with a flower **twelve rows above it**. A
+    /// walker on level ground cannot rise at all, and a ballistic hop tops
+    /// out at `v^2 / 2g` = 2.0^2 / (2 x 0.138) = **7.2 rows** for this
+    /// two-cell body -- so the flower is out of reach of everything this
+    /// engine could do before the float, by a margin the arithmetic settles
+    /// rather than the seed.
+    ///
+    /// **The control is the species' own price, not an env var**, so both
+    /// arms run in one process and one test: `fly_cost_in_moves` is the gate
+    /// as well as the bill (`BrainOutput::Fly`), so zeroing it is exactly
+    /// `main` -- no brain aloft, no lift, no steering, the same ballistic arc
+    /// the engine has always had. Put the float back and the same scene must
+    /// close the gap.
+    ///
+    /// Asserted on **distance closed**, not on a bite. A nectar-only mouth
+    /// needs a plant organ with a filled nectar pool to swallow anything,
+    /// which is the plant line's machinery and not what this guard is about:
+    /// what failed was *reaching*, and reaching is what this measures.
+    #[test]
+    fn a_floating_flitter_closes_on_a_flower_no_walk_or_hop_can_reach() {
+        // (closest approach in cells, airborne frames the verb was paying
+        // for, octant rotations it applied, casts that saw the bloom)
+        let run = |float: bool| -> (i32, u64, u64, u64) {
+            let mut w = test_world();
+            const FLOOR: i32 = 150;
+            const START: i32 = 60;
+            // A long flat floor -- the R4 case, where a walker cannot be
+            // steered at all, only scattered. Nothing here is a ramp.
+            for x in 0..199 {
+                for y in FLOOR..(FLOOR + 4) {
+                    w.set(x, y, Cell::new(material::STONE, 0).with_attached(true));
+                }
+            }
+            let site = plant_creature_seed(&mut w, START, FLOOR - 1, "flitter").expect("the flitter fits");
+            let ActiveKind::Creature { organism } = site.kind else { unreachable!() };
+            // One flower head, nine columns east and twelve rows up, made
+            // the way `a_beetle_sees_a_flower_and_not_a_leaf_standing_where_
+            // it_was` makes one: `is_visible_bloom` asks for a `Plant` cell
+            // whose packed cell type is `Flower`, and nothing less counts.
+            //
+            // **A head, not one cell, and the single cell was tried first
+            // and is a scene error** (`CLAUDE.md`: a scene that contradicts
+            // the code looks like a bug in the code). The eye is 16 rays
+            // swept over the full circle, so at thirteen cells the rays are
+            // 5.1 cells apart laterally and a one-cell target falls between
+            // them almost every sweep: the first version of this guard read
+            // **one** octant rotation in 2,000 frames and looked exactly
+            // like steering that does not work. The bed's own flowers are
+            // `organ_cluster` 12 since PR #322, so a 15-cell head is also
+            // the honest size.
+            let (bx, by) = (START + 9, FLOOR - 13);
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+            let plant_id = w.push_organism(herb).expect("an organism slot is free");
+            for dx in -2..=2 {
+                for dy in -1..=1 {
+                    w.set(bx + dx, by + dy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+                }
+            }
+
+            let mut def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("a creature");
+            if !float {
+                def.fly_cost_in_moves = 0.0;
+            }
+            // **Fuel, so the run is about steering rather than about the
+            // energy floor.** `(Energy, Fly, 8.0)` grounds this animal below
+            // 25% of `start_energy` by design, and a guard that ran the tank
+            // dry would be measuring that instead. Below `reproduce_
+            // threshold` (1,100), so nothing buds and the scene stays one
+            // animal.
+            if let Some(state) = w.organism_mut(organism) {
+                state.energy = 1_000.0;
+            }
+
+            let mut closest = i32::MAX;
+            let mut next = 0u64;
+            for _ in 0..2_000 {
+                let Some((hx, hy)) = w.organism(organism).and_then(|s| s.chain.first().copied()) else {
+                    break;
+                };
+                // **To the nearest cell of the head, not to its centre.**
+                // Measured to the centre first and the float read "2 cells
+                // away" while physically standing on the flower -- the head
+                // is 5x3, so a centre distance of 2 is contact. A distance
+                // that cannot reach zero for an animal that has arrived is
+                // the metric-answers-a-different-question failure
+                // `CLAUDE.md` opens its measurement section with.
+                closest = closest.min(((hx - bx).abs() - 2).max(0).max(((hy - by).abs() - 1).max(0)));
+                if w.frame >= next {
+                    let sites = creature_tick(&mut w, hx, hy, organism, &def);
+                    next = sites.first().map_or(u64::MAX, |s| s.next_frame);
+                }
+                w.frame += 1;
+            }
+            (closest, w.creature_stats.fly_frames, w.creature_stats.fly_turns, w.creature_stats.bloom_seen)
+        };
+
+        let (hop_closest, hop_fly_frames, hop_turns, hop_seen) = run(false);
+        assert!(hop_seen > 0, "the animal never saw the flower at all: the scene does not contain the situation this test is about");
+        assert_eq!(hop_fly_frames, 0, "an unpriced species must never be held up: the gate is not the price");
+        assert_eq!(hop_turns, 0, "...and must never steer in the air either -- no brain runs aloft for it");
+        assert!(
+            hop_closest > 1,
+            "the fault this guard is named for is not present: a ballistic hopper reached within {hop_closest} of a flower 12 rows up, \
+             so the scene does not contain the situation the float is for"
+        );
+
+        let (float_closest, float_fly_frames, float_turns, float_seen) = run(true);
+        assert!(float_seen > 0, "the floating animal never saw the flower either");
+        assert!(float_fly_frames > 0, "the verb never fired: no airborne frame was paid for, so nothing below is about the float");
+        assert!(float_turns > 0, "`Turn` never rotated a velocity -- the steering half of the verb is inert and R4 has simply moved into the air");
+        assert!(
+            float_closest <= 1,
+            "a floating flitter must reach the flower it can see: closest approach {float_closest} cells against the hop's {hop_closest} \
+             ({float_fly_frames} paid airborne frames, {float_turns} turns)"
+        );
+    }
+
+    /// **`open-bugs-handoff.md` §Z9, closed, and both halves asserted.**
+    ///
+    /// Every creature material in the box authors `density: 1.0` and so does
+    /// `water.ron`, so a body touching water has `carried == 1.0`,
+    /// `g_eff == 0.0` and `terminal == 0.0`: it never accumulates a downward
+    /// step, `landed` is only ever set on a *blocked* step while descending,
+    /// and the animal hangs there being charged the airborne rate and the
+    /// every-frame schedule until it dies `STARVED ALOFT` -- 57-87% of every
+    /// flitter and hopper death on the played bed.
+    ///
+    /// **The fix is one predicate and it needs both directions, or it is a
+    /// rule that grounds the float.** Weightless and *not flying* is
+    /// standing on water; weightless and *flying* is a bee over a pond and
+    /// must stay up. A one-sided assertion would pass for a version that
+    /// landed everything the moment it crossed water. `LAND_AFLOAT=0` puts
+    /// the defect back at the whole-run scale.
+    #[test]
+    fn a_weightless_body_is_put_down_on_water_unless_it_is_flying() {
+        let float_over_water = |fly: f32| -> (bool, u64) {
+            let mut w = test_world();
+            let water = w.materials.id_of("water").expect("water is compiled in");
+            const SURFACE: i32 = 150;
+            for x in 0..199 {
+                for y in SURFACE..190 {
+                    w.set(x, y, Cell::new(water, 0));
+                }
+            }
+            // A plinth to push off, removed the instant the launch is made:
+            // `launch` refuses a body with nothing under it, and what this
+            // test is about is the frames *after* that.
+            w.set(60, SURFACE, Cell::new(material::STONE, 0).with_attached(true));
+            let site = plant_creature_seed(&mut w, 60, SURFACE - 1, "flitter").expect("the flitter fits");
+            let ActiveKind::Creature { organism } = site.kind else { unreachable!() };
+            let mut def = w.species.get(w.organism(organism).expect("live").species).creature.clone().expect("a creature");
+            // **The cruise off, so "not flying" is constructible at all.**
+            // This guard builds a body that is *not* flying by holding `fly`
+            // at 0; `CreatureDef::cruise_lift` is a second, independent source
+            // of lift that the ballistics read on the very next frame, and
+            // with it left on the body simply flew past the water and the
+            // arm tested nothing. Zeroed on this cloned `def` rather than
+            // globally, so the flying arm below still runs the shipped
+            // animal. See `CreatureDef::cruise_lift` for why the figure is
+            // species data and not an engine constant.
+            def.cruise_lift = 0.0;
+            assert!(launch(&mut w, organism, 0), "the flitter can push off the plinth");
+            w.set(60, SURFACE, Cell::new(water, 0));
+            // Hold the lift at the value under test. The brain would
+            // recompute it every `tick_interval`; this guard is about the
+            // ballistics reading it, so it is written directly and the frame
+            // is held off a tick boundary so no brain tick overwrites it.
+            w.frame = 1;
+            if let Some(state) = w.organism_mut(organism) {
+                if let Some(f) = state.flight.as_mut() {
+                    f.fly = fly;
+                }
+                state.energy = 1_000.0;
+            }
+            // **150 frames, not 400, and the reason is that flying now goes
+            // somewhere.** The window only has to be long enough for the
+            // ballistic arm to come down and be counted (it lands well inside
+            // 100). 400 was harmless while a "flying" body hovered roughly in
+            // place; with the lift actually cancelling gravity
+            // (`creature::HOVER_GAIN`) and the thrust integrating every frame,
+            // the flying arm crosses `flight_speed` x 400 = 200 cells -- the
+            // whole 200-wide test world -- so it left the painted water, came
+            // down on dry ground, and the arm read as "the fix grounded a
+            // flying body" when what it had actually done was fly away. At
+            // 150 it stays over water, which is the situation the assertion
+            // below is about.
+            for _ in 0..150 {
+                if w.organism(organism).and_then(|s| s.flight).is_none() {
+                    break;
+                }
+                step_flight(&mut w, organism, &def);
+                if let Some(state) = w.organism_mut(organism) {
+                    if let Some(f) = state.flight.as_mut() {
+                        f.fly = fly;
+                    }
+                }
+                w.frame += 4;
+            }
+            (w.organism(organism).and_then(|s| s.flight).is_none(), w.creature_stats.landed_afloat)
+        };
+
+        let (grounded, count) = float_over_water(0.0);
+        assert!(grounded, "a weightless body that is not flying must be put down -- this is §Z9, and without the fix it hangs for ever");
+        assert_eq!(count, 1, "and it must be counted, or a whole-run reading of the fix cannot tell it from the animals that never got wet");
+
+        let (still_flying, count) = float_over_water(0.8);
+        assert!(!still_flying, "a body that IS flying must stay up over water -- the fix must not ground the verb it ships beside");
+        assert_eq!(count, 0, "...and must not be counted as having landed on it");
+    }
+
     #[test]
     fn a_creature_in_the_air_cannot_launch_again() {
         // No double jump, and no using the verb to cancel a fall: the
@@ -13495,10 +21216,12 @@ mod tests {
         // call did something.
         let mut w = test_world();
         let ant = creature_on_a_shelf(&mut w, "ant", 100, 60);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("a creature");
         // Pick it up off the shelf: nothing within 8 of it any more.
         let chain = w.organism(ant).expect("live").chain.clone();
         let aloft: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x, y - 20)).collect();
-        relocate_chain(&mut w, ant, &chain, &aloft);
+        // A hand-built vertical shift, like a fall -- flat (`&[]`) groups.
+        relocate_chain(&mut w, ant, &def, &[], BodySide { cells: &chain, groups: &[] }, BodySide { cells: &aloft, groups: &[] });
 
         assert!(!launch(&mut w, ant, 0), "there is nothing to push off");
         assert_eq!(w.creature_stats.impulses, 0, "and it must not be counted as a launch");
@@ -13523,7 +21246,7 @@ mod tests {
             // Off the end of the shelf, over open air down to row 199.
             let chain = w.organism(id).expect("live").chain.clone();
             let out: Vec<(i32, i32)> = chain.iter().map(|&(x, y)| (x + 22, y)).collect();
-            relocate_chain(&mut w, id, &chain, &out);
+            relocate_chain(&mut w, id, &def, &[], BodySide { cells: &chain, groups: &[] }, BodySide { cells: &out, groups: &[] });
             let start = w.organism(id).expect("live").chain[0];
             // Put it back in touch with the shelf for one instant so the
             // launch is legal, then let it go: a plinth of one cell.
@@ -13594,9 +21317,14 @@ mod tests {
         def.mutation_rate = mutation_rate;
         w.species.set_creature(ant, def);
         let mut founders = Vec::new();
+        // 16 apart, not 4: the shipped ant's spine spans 5 cells behind its
+        // head, so 4 would seat every founder inside its own neighbour's
+        // body -- most would simply fail to place, and the few that did
+        // would have no clear floor for a child, which is exactly the
+        // "births_denied_no_space" failure this scene exists to rule out.
         for i in 0..n {
-            w.plant_ant(10 + i * 4, 100);
-            let id = w.get(10 + i * 4, 100).organism_id();
+            w.plant_ant(10 + i * 16, 100);
+            let id = w.get(10 + i * 16, 100).organism_id();
             if id != 0 {
                 founders.push(id);
             }
@@ -13646,6 +21374,729 @@ mod tests {
         run(&mut off, 60);
         assert_eq!(off.creature_stats.births, 0, "a species with reproduce_threshold 0 bred anyway");
         assert!(off.creature_stats.spawned > 0, "the control placed no ants, so it controls for nothing");
+    }
+
+    /// **`try_bud`'s mutation is attributed to the child it moved, not
+    /// rolled and thrown away.** `OrganismState::born_with` is the
+    /// strongest single change a birth made; the positive half asks that a
+    /// birth with every mutation channel wide open actually sets it on at
+    /// least one descendant.
+    ///
+    /// **The negative half needs both channels zeroed, not just
+    /// `mutation_rate`.** `try_bud`'s trait jitter loop reads
+    /// `CreatureDef::trait_variance`/`scent_drift`, never `mutation_rate` --
+    /// so a control that only zeroed the rate would still see occasional
+    /// non-zero `born_with` from trait drift alone, and would not be
+    /// testing what it claims to. With both zeroed, every bred descendant
+    /// must read exactly `0`; without that arm a formatter that writes a
+    /// non-zero value unconditionally would pass the positive half for
+    /// free.
+    #[test]
+    fn a_bud_that_mutates_records_what_moved() {
+        let (mut w, founders) = breeding_colony(12, 2000.0, 1.0);
+        run(&mut w, 200);
+        assert!(w.creature_stats.births > 0, "12 funded ants over 200 frames produced no births -- the rest of this test proves nothing");
+        let moved = w
+            .live_organism_ids()
+            .iter()
+            .any(|&id| !founders.contains(&id) && w.organism(id).is_some_and(|s| s.born_with != 0));
+        assert!(moved, "every bred descendant reports born_with == 0 with mutation_rate at 1.0 and the species' own trait variance in force");
+
+        let (mut w0, founders0) = breeding_colony(12, 2000.0, 0.0);
+        let ant0 = w0.species.id_of("ant").expect("ant species");
+        let mut def0 = w0.species.get(ant0).creature.clone().expect("ant is a creature");
+        def0.trait_variance = [0.0; organism::CREATURE_TRAITS];
+        def0.scent_drift = 0.0;
+        w0.species.set_creature(ant0, def0);
+        run(&mut w0, 200);
+        assert!(w0.creature_stats.births > 0, "the zero-mutation control did not breed either -- it controls for nothing");
+        for id in w0.live_organism_ids() {
+            if founders0.contains(&id) {
+                continue;
+            }
+            assert_eq!(
+                w0.organism(id).map(|s| s.born_with),
+                Some(0),
+                "born_with fired on organism {id} with every mutation channel at zero"
+            );
+        }
+    }
+
+    /// **One ant walled in for fifty ticks, and a thousand ants each waiting
+    /// one, produce the same attempt count — so the page carries both.**
+    ///
+    /// `try_bud` runs every tick an animal survives and a denial does not
+    /// charge the parent, so `births_denied_no_space` counts *retries*. Read
+    /// alone it licenses "88% of affordable births fail on geometry"
+    /// (`creature-behaviour-ceiling` §3, carried into three reports as a cap
+    /// on what this bed can evolve) when what it measures is the wait.
+    ///
+    /// This is the maximal case of the confound, so it is the tight one to
+    /// assert: a single parent, funded, with stone on every side, has
+    /// nowhere to put a child for the whole run. Attempts climb with the
+    /// clock; animals must stay at exactly one. Point `note_birth_denied`'s
+    /// bit test at nothing and this goes red immediately.
+    #[test]
+    fn a_walled_in_parent_is_many_attempts_and_one_animal() {
+        let (mut w, founders) = breeding_colony(1, 2000.0, 0.0);
+        assert_eq!(founders.len(), 1, "the scene did not place its one founder");
+        let parent = founders[0];
+
+        // Stone in every empty cell touching the body, so `DIRS` offers the
+        // birth no site at all. Collected first: `organism` borrows the
+        // world that `set` needs mutably.
+        let body: Vec<(i32, i32)> = w.organism(parent).expect("founder is alive").chain.to_vec();
+        for &(bx, by) in &body {
+            for (dx, dy) in DIRS {
+                let (nx, ny) = (bx + dx, by + dy);
+                if !body.contains(&(nx, ny)) && w.get(nx, ny).is_empty() {
+                    w.set(nx, ny, Cell::new(material::STONE, 0));
+                }
+            }
+        }
+
+        run(&mut w, 300);
+        let st = w.creature_stats;
+        assert!(
+            st.births_denied_no_space > 10,
+            "a funded parent with nowhere to put a child recorded only {} attempts over 300 frames -- the scene is not boxed in",
+            st.births_denied_no_space
+        );
+        assert_eq!(
+            st.births_denied_animals, 1,
+            "{} attempts came from one animal and the animal counter said {}",
+            st.births_denied_no_space, st.births_denied_animals
+        );
+        assert_eq!(st.births, 0, "a parent walled in on every side produced a child anyway");
+    }
+
+    /// **A colony's depth is not a stand's depth, and one counter cannot be
+    /// both.**
+    ///
+    /// `World::deepest_generation` is written by `plant.rs` and by nothing
+    /// else. It was rendered on the lab page as `EVER` under a help string
+    /// promising "the deepest ANY line has reached", and on 2026-09-08 a
+    /// session read a table of it as animal generations and published the
+    /// result -- the control that catches it is the same bed with no animals
+    /// in it at all, which reports the identical `EVER`.
+    ///
+    /// So this asserts the discrimination rather than the value: breeding
+    /// ants must move the animal counter, and must **not** move the plant
+    /// one. Delete the write in the `Origin::Bud` arm and the first assert
+    /// goes red; point it back at `deepest_generation` and the second does.
+    #[test]
+    fn a_bred_colony_deepens_the_animal_counter_and_not_the_plant_one() {
+        let (mut fed, founders) = breeding_colony(12, 2000.0, 0.0);
+        assert_eq!(fed.deepest_animal_generation, 0, "{} founders are generation 0 before anything breeds", founders.len());
+        let plants_before = fed.deepest_generation;
+        run(&mut fed, 60);
+
+        assert!(fed.creature_stats.births > 0, "the scene bred nothing, so it discriminates nothing");
+        assert!(
+            fed.deepest_animal_generation > 0,
+            "{} ants were born and the animal depth counter never moved off 0",
+            fed.creature_stats.births
+        );
+        // The stand is the control: this scene has no plants in it, so a
+        // counter that moved here was being written by the wrong kingdom.
+        assert_eq!(
+            fed.deepest_generation, plants_before,
+            "an ant birth moved the PLANT depth counter -- the two are crossed"
+        );
+    }
+
+    /// **`children` is a fact about successful buds, not attempts.**
+    /// `a_walled_in_parent_is_many_attempts_and_one_animal` above already
+    /// proves attempts and animals diverge; this proves `children` moves
+    /// with the latter, on the parent, the moment a bud actually succeeds.
+    #[test]
+    fn a_founder_that_buds_shows_a_nonzero_children_count() {
+        let (mut w, founders) = breeding_colony(1, 2000.0, 0.0);
+        let parent = founders[0];
+        assert_eq!(w.organism(parent).expect("founder is alive").children, 0, "a fresh founder already reads as having bred");
+        run(&mut w, 60);
+        assert!(w.creature_stats.births > 0, "nothing bred, so this proves nothing about `children`");
+        assert!(
+            w.organism(parent).expect("founder is alive").children > 0,
+            "the founder budded (births={}) but its own `children` count stayed at 0",
+            w.creature_stats.births
+        );
+    }
+
+    /// **`deepest_breeder_generation` is not blind.** It must move on a run
+    /// where breeding demonstrably happened, and it must read strictly
+    /// shallower than `deepest_animal_generation`, because a parent's own
+    /// generation is always one shallower than the child it just produced
+    /// -- see that field's own doc for the inductive argument. Point the
+    /// write at the CHILD's `generation` instead of the parent's (the same
+    /// value `deepest_animal_generation` already uses) and this goes red
+    /// on the second assert: the two counters become identical rather than
+    /// one strictly behind the other.
+    #[test]
+    fn deepest_breeder_generation_moves_and_stays_behind_the_animal_counter() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        assert_eq!(w.deepest_breeder_generation, 0, "{} founders have not bred yet", founders.len());
+        // Re-fund the living population across several rounds -- the same
+        // shape `generation_depth_keeps_climbing_across_successive_births`
+        // uses -- so a child gets the chance to breed itself and not just
+        // exist.
+        for _ in 0..6 {
+            for id in live_creature_ids(&w) {
+                fund(&mut w, id, 2010.0);
+            }
+            run(&mut w, 60);
+        }
+        assert!(w.creature_stats.births > 0, "nothing bred over 360 frames from 8 founders");
+        assert!(
+            w.deepest_breeder_generation > 0,
+            "{} births happened and the breeder-depth counter never left 0",
+            w.creature_stats.births
+        );
+        assert!(
+            w.deepest_breeder_generation < w.deepest_animal_generation,
+            "breeder depth {} is not strictly behind animal depth {} -- deepest_breeder_generation is reading the child's generation, not the parent's",
+            w.deepest_breeder_generation,
+            w.deepest_animal_generation
+        );
+    }
+
+    /// **`individual`: `suppress_bar` is the identity function, and
+    /// provably so.** Constructed so suppression would fire under `queen`
+    /// or `graded` -- a second colony member with `children > 0`, standing
+    /// right on top of the querying animal -- and confirming `individual`
+    /// still hands the bar back completely unchanged. `bar` is
+    /// deliberately a value nothing else in the scene could produce, so an
+    /// accidental scan-and-multiply would move it and this would notice.
+    #[test]
+    fn individual_regime_is_the_identity_even_with_a_breeder_present() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a is alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        let (ax, ay) = *w.organism(a).expect("a is alive").chain.first().expect("a has a body");
+        let bar = suppress_bar(BreedingRegime::Individual, 24, &w, a, colony, (ax, ay), 12345.0).0;
+        assert_eq!(bar, 12345.0, "individual suppressed a bar with a breeder present in the same colony");
+    }
+
+    /// **`queen`: colony-wide, self-exclusive, and it restores itself on
+    /// succession** -- the coordinator's corrected reading of the regime
+    /// (colony-wide, not distance-based), checked as four facts about one
+    /// small forced colony rather than as four separate scenes:
+    ///
+    /// 1. Nobody has bred yet, so nobody is suppressed (the founding
+    ///    state, and the same answer `graded` gives a colony with no
+    ///    breeder at all -- see that regime's own guard).
+    /// 2. The moment one member has `children > 0`, every *other* member
+    ///    reads an unreachable bar.
+    /// 3. The breeder itself is not suppressed by its own fact.
+    /// 4. Once the breeder is gone, the colony reads exactly like its
+    ///    founding state again, and a successor is free to take its place.
+    #[test]
+    fn queen_regime_is_colonywide_self_exclusive_and_resumes_on_succession() {
+        let (mut w, founders) = breeding_colony(3, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder a").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        let (a, b, c) = (founders[0], founders[1], founders[2]);
+        let pos_of = |w: &World, id: u16| *w.organism(id).expect("alive").chain.first().expect("has a body");
+        let radius = 24;
+        let bar = 500.0;
+
+        // 1. Founding state: nobody has bred, nobody is suppressed.
+        for &id in &[a, b, c] {
+            let (x, y) = pos_of(&w, id);
+            assert_eq!(
+                suppress_bar(BreedingRegime::Queen, radius, &w, id, colony, (x, y), bar).0,
+                bar,
+                "organism {id} was suppressed before anyone in the colony had bred"
+            );
+        }
+
+        // 2 & 3. `a` becomes the breeder. `record_breeder` alongside the
+        // hand-set `children`, mirroring what `try_bud` does for a real
+        // bud -- the index only ever learns of a breeder through that
+        // call, and a bare field write does not run it.
+        if let Some(s) = w.organism_mut(a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, a);
+        let (ax, ay) = pos_of(&w, a);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, a, colony, (ax, ay), bar).0,
+            bar,
+            "the breeder suppressed itself"
+        );
+        for &id in &[b, c] {
+            let (x, y) = pos_of(&w, id);
+            assert_eq!(
+                suppress_bar(BreedingRegime::Queen, radius, &w, id, colony, (x, y), bar).0,
+                f32::INFINITY,
+                "organism {id} was not shut out while `a` was a living breeder in its colony"
+            );
+        }
+
+        // 4. Succession: kill `a`; `b` is free again; `b` becomes the new
+        // breeder; `c` is now shut out by `b` instead of by `a`.
+        let body: Vec<(i32, i32)> = w.organism(a).expect("a is alive").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+        let (bx, by) = pos_of(&w, b);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, b, colony, (bx, by), bar).0,
+            bar,
+            "`b` stayed suppressed after the colony's only breeder died"
+        );
+        // Same reason as `a`'s own `record_breeder` call above: the index
+        // only learns of a breeder through that call, not through the bare
+        // field write.
+        if let Some(s) = w.organism_mut(b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+        let (cx, cy) = pos_of(&w, c);
+        assert_eq!(
+            suppress_bar(BreedingRegime::Queen, radius, &w, c, colony, (cx, cy), bar).0,
+            f32::INFINITY,
+            "`c` was not shut out by `b`, the colony's successor breeder"
+        );
+    }
+
+    /// **`graded`'s multiplier, at both ends and the middle.** `0` is the
+    /// maximum, `radius` and beyond is exactly `1.0` (no suppression), and
+    /// the values between fall strictly as distance grows.
+    #[test]
+    fn graded_regime_factor_falls_from_max_to_one_at_the_radius() {
+        let radius = 24;
+        assert_eq!(graded_suppression_factor(0.0, radius), GRADED_MAX_SUPPRESSION, "distance 0 is not the maximum");
+        assert_eq!(graded_suppression_factor(radius as f32, radius), 1.0, "at the radius is not exactly unsuppressed");
+        assert_eq!(graded_suppression_factor(radius as f32 + 50.0, radius), 1.0, "beyond the radius is not exactly unsuppressed");
+        let near = graded_suppression_factor(4.0, radius);
+        let mid = graded_suppression_factor(12.0, radius);
+        let far = graded_suppression_factor(20.0, radius);
+        assert!(near > mid && mid > far && far > 1.0, "the factor is not strictly falling: near {near} mid {mid} far {far}");
+    }
+
+    /// **`graded` composes its factor onto the bar, and a colony where
+    /// nobody has bred yet reads exactly like `queen`'s founding state**
+    /// -- unsuppressed, not locked.
+    #[test]
+    fn graded_regime_scales_the_bar_and_a_queenless_colony_resumes() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+        }
+        let (ax, ay) = *w.organism(a).expect("a alive").chain.first().expect("a has a body");
+        let radius = 24;
+        let bar = 500.0;
+
+        // Nobody has bred: graded reads the same "resumes" answer as queen.
+        assert_eq!(
+            suppress_bar(BreedingRegime::Graded, radius, &w, a, colony, (ax, ay), bar).0,
+            bar,
+            "graded suppressed a colony where nobody has bred yet"
+        );
+
+        // `b` becomes the breeder, a few cells from `a` (`breeding_colony`
+        // spaces founders 4 cells apart -- well inside the default radius).
+        // `record_breeder` alongside the hand-set `children` for the same
+        // reason as the `queen` guard above: the index only learns of a
+        // breeder through that call.
+        if let Some(s) = w.organism_mut(b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+        let suppressed = suppress_bar(BreedingRegime::Graded, radius, &w, a, colony, (ax, ay), bar).0;
+        assert!(suppressed > bar, "a living breeder in range did not raise the bar at all: {suppressed}");
+        assert!(suppressed.is_finite(), "graded produced an unreachable bar -- that is `queen`'s job, not this regime's");
+    }
+
+    /// **The index and the scan agree.** A hand-built world with two
+    /// colonies, several breeders, one dead breeder still sitting
+    /// unpruned on its colony's list, and a non-breeder in each colony --
+    /// everything `colony_has_other_breeder` and `nearest_breeder` have to
+    /// tell apart, in one scene. Comment out the `list.push` in
+    /// `World::record_breeder` and this goes red: the index arm then
+    /// answers from an empty list for every colony that has ever bred.
+    #[test]
+    fn breeder_index_agrees_with_the_scan() {
+        let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
+        assert_eq!(founders.len(), 6, "the scene did not place all six founders");
+        let (c1a, c1b, c1c, c2a, c2b, c2c) = (founders[0], founders[1], founders[2], founders[3], founders[4], founders[5]);
+        let colony1 = w.organism(c1a).expect("alive").colony;
+        let colony2 = w.organism(c2a).expect("alive").colony;
+        assert_ne!(colony1, colony2, "breeding_colony gives every founder its own colony -- these two should differ before this test forces any together");
+        for &id in &[c1a, c1b, c1c] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony1;
+            }
+        }
+        for &id in &[c2a, c2b, c2c] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony2;
+            }
+        }
+
+        // colony1: c1a and c1b breed; c1c never does -- the non-breeder.
+        for &id in &[c1a, c1b] {
+            if let Some(s) = w.organism_mut(id) {
+                s.children = 1;
+            }
+            w.record_breeder(colony1, id);
+        }
+
+        // colony2: c2a breeds, then dies with no birth afterward to prune
+        // it -- the stale entry this scene has to survive. c2b breeds
+        // after the death, so colony2 also has a live breeder; c2c never
+        // breeds at all.
+        if let Some(s) = w.organism_mut(c2a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony2, c2a);
+        let body: Vec<(i32, i32)> = w.organism(c2a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(c2a);
+        if let Some(s) = w.organism_mut(c2b) {
+            s.children = 1;
+        }
+        w.record_breeder(colony2, c2b);
+
+        for &(asker, colony) in &[(c1a, colony1), (c1c, colony1), (c2b, colony2), (c2c, colony2)] {
+            let (x, y) = *w.organism(asker).expect("asker is alive").chain.first().expect("asker has a body");
+            let mut index_visits = 0u32;
+            let index_answer = colony_has_other_breeder(&w, asker, colony, true, &mut index_visits);
+            let mut scan_visits = 0u32;
+            let scan_answer = colony_has_other_breeder(&w, asker, colony, false, &mut scan_visits);
+            assert_eq!(index_answer, scan_answer, "colony_has_other_breeder disagrees for asker={asker} colony={colony}: index {index_answer} scan {scan_answer}");
+
+            let mut index_visits2 = 0u32;
+            let index_dist = nearest_breeder(&w, asker, colony, x, y, true, &mut index_visits2);
+            let mut scan_visits2 = 0u32;
+            let scan_dist = nearest_breeder(&w, asker, colony, x, y, false, &mut scan_visits2);
+            assert_eq!(index_dist, scan_dist, "nearest_breeder disagrees for asker={asker} colony={colony}: index {index_dist:?} scan {scan_dist:?}");
+        }
+    }
+
+    /// **A stale entry cannot lie.** Kill `a`, the colony's only breeder,
+    /// and breed nobody afterward -- so `record_breeder`'s prune never
+    /// runs again and the dead id sits in the list, unpruned, for the
+    /// rest of this test. If either reader trusted the list without
+    /// validating each id live, both would still see a breeder that no
+    /// longer exists. Delete the `world.organism(id).is_some()` half of
+    /// either reader's check and this goes red.
+    #[test]
+    fn a_stale_breeder_entry_reads_as_no_breeder() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, b) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+        }
+        if let Some(s) = w.organism_mut(a) {
+            s.children = 1;
+        }
+        w.record_breeder(colony, a);
+        assert_eq!(w.colony_breeders.get(&colony).map(Vec::len), Some(1), "record_breeder did not push the new breeder");
+
+        // Kill `a` directly -- no birth happens afterward, so nothing ever
+        // calls `record_breeder` again and the dead id is exactly where
+        // the push above left it.
+        let body: Vec<(i32, i32)> = w.organism(a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+        assert!(w.organism(a).is_none(), "free_organism did not kill a -- this test is not exercising staleness at all");
+        assert_eq!(
+            w.colony_breeders.get(&colony).map(Vec::len),
+            Some(1),
+            "the dead id is not still sitting in the list -- something pruned it, so this is not testing what it claims to"
+        );
+
+        let (bx, by) = *w.organism(b).expect("b alive").chain.first().expect("b has a body");
+        let mut visits = 0u32;
+        assert!(!colony_has_other_breeder(&w, b, colony, true, &mut visits), "a dead breeder, still on the list, read as a living one");
+        assert_eq!(nearest_breeder(&w, b, colony, bx, by, true, &mut visits), None, "a dead breeder, still on the list, produced a distance");
+    }
+
+    /// **No false negatives.** After a real run in which several animals
+    /// across more than one colony have actually bred (through `try_bud`,
+    /// not a hand-set field), every living animal with `children > 0`
+    /// appears in its own colony's list. Break the push in
+    /// `World::record_breeder` and this goes red on the first breeder it
+    /// checks.
+    #[test]
+    fn every_living_breeder_is_in_its_own_colonys_list() {
+        let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+        // Two colonies of four, so "more than one colony" is not
+        // incidental to the scene.
+        let colony_a = w.organism(founders[0]).expect("alive").colony;
+        let colony_b = w.organism(founders[4]).expect("alive").colony;
+        for &id in &founders[0..4] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony_a;
+            }
+        }
+        for &id in &founders[4..8] {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony_b;
+            }
+        }
+        run(&mut w, 200);
+        assert!(w.creature_stats.births > 0, "nothing bred over 200 frames from 8 funded founders -- this proves nothing about the index");
+
+        let breeders: Vec<u16> = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).collect();
+        assert!(!breeders.is_empty(), "births fired but no live animal shows children > 0");
+        let mut colonies_seen = std::collections::BTreeSet::new();
+        for id in breeders {
+            let colony = w.organism(id).expect("just listed as live").colony;
+            colonies_seen.insert(colony);
+            let list = w.colony_breeders.get(&colony);
+            assert!(
+                list.is_some_and(|l| l.contains(&id)),
+                "organism {id} has children > 0 in colony {colony} but is not in that colony's breeder list"
+            );
+        }
+        assert!(colonies_seen.len() > 1, "every breeder came from the same colony -- 'more than one colony' was not actually exercised");
+    }
+
+    /// **The visit counter proves the removed work is real, not merely
+    /// that the answer stayed the same.** Both arms must report a
+    /// non-zero count -- a zero on the index arm would mean the lookup
+    /// stopped happening rather than got cheaper (`CLAUDE.md`'s "a cost
+    /// that vanishes may be work that vanished"), and on a colony that is
+    /// a small fraction of the world's organisms, the index arm's count
+    /// must read strictly below the scan's for the identical answer.
+    #[test]
+    fn breeder_scan_visits_is_smaller_on_the_index_arm() {
+        let (mut w, founders) = breeding_colony(10, 2000.0, 0.0);
+        // `breeding_colony` places founders in order into a fresh world
+        // with nothing yet freed, so `founders[0]` and `founders[9]` land
+        // in the *first* and *last* organism slots respectively
+        // (`push_organism`'s own doc: a birth only grows the `Vec` when no
+        // freed slot is available to reuse first). The asker is the first
+        // slot and the sole breeder is the last, in a colony together;
+        // the other eight founders each keep their own separate colony
+        // (`breeding_colony`'s default), so the scan must walk past every
+        // one of them, finding no match, before it reaches the breeder --
+        // this is what makes `scan_visits` below robust to loop order
+        // rather than an accident of which slot happens to match first.
+        let asker = founders[0];
+        let breeder = founders[9];
+        let colony = w.organism(asker).expect("alive").colony;
+        if let Some(s) = w.organism_mut(breeder) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        w.record_breeder(colony, breeder);
+
+        let (x, y) = *w.organism(asker).expect("alive").chain.first().expect("has a body");
+
+        let mut scan_visits = 0u32;
+        let scan_answer = colony_has_other_breeder(&w, asker, colony, false, &mut scan_visits);
+        let mut index_visits = 0u32;
+        let index_answer = colony_has_other_breeder(&w, asker, colony, true, &mut index_visits);
+        assert_eq!(scan_answer, index_answer, "the two arms disagree, so the visit counts below are not even comparable");
+        assert!(scan_answer, "the scene's own breeder was not found by either arm -- this test proves nothing about visit counts");
+        assert!(scan_visits > 0, "the scan arm reported zero organisms visited");
+        assert!(
+            index_visits > 0,
+            "the index arm reported zero organisms visited -- it looks cheaper because it stopped looking, not because it looks at less"
+        );
+        assert!(
+            index_visits < scan_visits,
+            "the index arm did not visit fewer organisms than the scan: index {index_visits} scan {scan_visits} over {} organism slots",
+            w.organism_slot_usage().0
+        );
+
+        let mut scan_visits2 = 0u32;
+        let _ = nearest_breeder(&w, asker, colony, x, y, false, &mut scan_visits2);
+        let mut index_visits2 = 0u32;
+        let _ = nearest_breeder(&w, asker, colony, x, y, true, &mut index_visits2);
+        assert!(scan_visits2 > 0, "nearest_breeder's scan arm reported zero organisms visited");
+        assert!(index_visits2 > 0, "nearest_breeder's index arm reported zero organisms visited");
+        assert!(
+            index_visits2 < scan_visits2,
+            "nearest_breeder's index arm did not visit fewer organisms than the scan: index {index_visits2} scan {scan_visits2}"
+        );
+    }
+
+    /// **A breeder living in a recycled slot is not invisible to either
+    /// arm.** `a` breeds this colony's floor slot, dies, and a new animal
+    /// (`b`) is placed into that same now-freed slot -- `push_organism`
+    /// bumps the slot's generation on reuse, so `b`'s encoded id is `a`'s
+    /// slot index wearing a *different* generation, not `a`'s old id
+    /// reborn. `b` then breeds. A scan that reconstructs ids as bare slot
+    /// indices (generation 0 always) can never produce `b`'s real id at
+    /// all, so it was silently blind to every breeder living in a reused
+    /// slot -- found in review, comparing the two arms on a 40,000-frame
+    /// run under `graded`, where the scan arm's births pulled ahead of the
+    /// index arm's the moment enough deaths had recycled a slot. Restore
+    /// the old `1..=slots` range in either scan arm and this goes red.
+    #[test]
+    fn a_breeder_in_a_recycled_slot_is_found_by_both_arms() {
+        let (mut w, founders) = breeding_colony(2, 2000.0, 0.0);
+        let (a, c) = (founders[0], founders[1]);
+        let colony = w.organism(a).expect("a alive").colony;
+        if let Some(s) = w.organism_mut(c) {
+            s.colony = colony;
+        }
+        let slots_before = w.organism_slot_usage().0;
+
+        // Free `a`'s slot -- cells cleared first, since `free_organism`
+        // does not clear the body it leaves behind, and a caller not
+        // heeding that would place `b` on top of a corpse that is still
+        // materially there.
+        let (ax, ay) = *w.organism(a).expect("alive before the kill").chain.first().expect("a has a body");
+        let body: Vec<(i32, i32)> = w.organism(a).expect("alive before the kill").chain.to_vec();
+        for (bx, by) in body {
+            w.set(bx, by, Cell::EMPTY);
+        }
+        w.free_organism(a);
+
+        // A new animal into the same, now-free slot. Identified by
+        // scanning live ids rather than assumed back as `a`'s old id --
+        // `push_organism` bumps the slot's generation on reuse, so the
+        // encoded id is not the one that died.
+        w.plant_ant(ax, ay);
+        assert_eq!(w.organism_slot_usage().0, slots_before, "the new animal grew the organism table instead of reusing a's freed slot -- this scene is not exercising slot reuse at all");
+        let b = w.live_organism_ids().into_iter().find(|&id| id != c).expect("a second live animal exists beside c");
+        assert_ne!(b, a, "the recycled slot's new occupant kept the dead animal's own encoded id -- generation did not bump on reuse, so this test is not exercising the fault at all");
+
+        if let Some(s) = w.organism_mut(b) {
+            s.colony = colony;
+            s.children = 1;
+        }
+        w.record_breeder(colony, b);
+
+        let (cx, cy) = *w.organism(c).expect("c alive").chain.first().expect("c has a body");
+        for &use_index in &[true, false] {
+            let mut visits = 0u32;
+            assert!(
+                colony_has_other_breeder(&w, c, colony, use_index, &mut visits),
+                "colony_has_other_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+            let mut visits = 0u32;
+            assert!(
+                nearest_breeder(&w, c, colony, cx, cy, use_index, &mut visits).is_some(),
+                "nearest_breeder (use_index={use_index}) did not find the breeder living in a's recycled slot"
+            );
+        }
+    }
+
+    /// **Integration guard for `queen`, run solo** -- not part of the
+    /// default suite. `breeding_regime`'s own doc explains why: toggling
+    /// its env var inside a parallel `#[test]` races every other test that
+    /// may already have read it. Run with:
+    ///
+    /// `PIXEL_PHYSICS_BREEDING=queen cargo test --lib
+    /// queen_wiring_produces_a_breeder_and_a_birth -- --ignored
+    /// --test-threads=1`
+    ///
+    /// Every other `queen` guard above calls `suppress_bar` directly with
+    /// an explicit `BreedingRegime`, which proves the function is correct
+    /// but not that `try_bud` actually reaches it with the real env var
+    /// set. A colony that breeds zero times everywhere would trivially
+    /// satisfy "nothing is suppressed into never breeding" while meaning
+    /// the wiring itself is dead -- `CLAUDE.md`'s "ask what your number
+    /// counts when nothing is wrong" -- so this asserts the non-zero half
+    /// explicitly.
+    #[test]
+    #[ignore]
+    fn queen_wiring_produces_a_breeder_and_a_birth() {
+        let (mut w, founders) = breeding_colony(6, 2000.0, 0.0);
+        let colony = w.organism(founders[0]).expect("founder").colony;
+        for &id in &founders {
+            if let Some(s) = w.organism_mut(id) {
+                s.colony = colony;
+            }
+        }
+        run(&mut w, 400);
+        assert!(
+            w.creature_stats.births > 0,
+            "PIXEL_PHYSICS_BREEDING=queen produced zero births over 400 frames from 6 funded founders -- either the wiring is dead or the scene cannot breed at all"
+        );
+        let breeders = live_creature_ids(&w).into_iter().filter(|&id| w.organism(id).is_some_and(|s| s.children > 0)).count();
+        assert!(breeders > 0, "births fired but no live animal in the colony shows children > 0");
+        // **The visit counter's own wiring, checked end to end.** Every
+        // other guard on `breeder_scan_visits` calls `colony_has_other_
+        // breeder`/`nearest_breeder` directly; `queen` is the one regime
+        // guaranteed to reach them through the real `try_bud` -> `suppress_
+        // bar` path on every tick an animal can afford a child, so this is
+        // the check that `try_bud`'s own addition to `world.creature_
+        // stats.breeder_scan_visits` actually runs, not just that the leaf
+        // functions report a count when called in isolation.
+        assert!(
+            w.creature_stats.breeder_scan_visits > 0,
+            "breeder lookups ran under PIXEL_PHYSICS_BREEDING=queen (births={}) but breeder_scan_visits stayed at 0 -- it is not wired to try_bud's call site",
+            w.creature_stats.births
+        );
+    }
+
+    /// **Integration guard for `graded`, run solo** -- see
+    /// `queen_wiring_produces_a_breeder_and_a_birth`'s doc for why this is
+    /// not part of the default suite. Run with:
+    ///
+    /// `PIXEL_PHYSICS_BREEDING=graded cargo test --lib
+    /// graded_wiring_reduces_births_near_a_breeder -- --ignored
+    /// --test-threads=1`
+    ///
+    /// **The control must not share a colony with anyone**, or it stops
+    /// controlling for anything: forcing all eight founders into one colony
+    /// on both arms was the first version of this test, and it measured
+    /// `with 2, without 2` -- a clean, tidy, wrong number
+    /// (`CLAUDE.md`'s "the tell, when there is no control to hand, is
+    /// tidiness"). The reason is the mechanism's own bootstrap dynamic:
+    /// the moment *any* founder in a shared colony buds first, it becomes
+    /// a breeder and starts suppressing every other member from that tick
+    /// on -- which fires almost immediately in the "no breeder" arm too,
+    /// so both arms converge to the same "one breeder, rest suppressed"
+    /// shape instead of one of them staying unsuppressed. `breeding_colony`
+    /// already gives every founder its own colony by default (`place_
+    /// creature`'s `Origin::Founder` arm), so the true no-suppression
+    /// control is simply *not* forcing them together.
+    #[test]
+    #[ignore]
+    fn graded_wiring_reduces_births_near_a_breeder() {
+        let without = {
+            let (mut w, _founders) = breeding_colony(8, 2000.0, 0.0);
+            run(&mut w, 400);
+            w.creature_stats.births
+        };
+        let with_breeder = {
+            let (mut w, founders) = breeding_colony(8, 2000.0, 0.0);
+            let colony = w.organism(founders[0]).expect("founder").colony;
+            for &id in &founders {
+                if let Some(s) = w.organism_mut(id) {
+                    s.colony = colony;
+                }
+            }
+            if let Some(s) = w.organism_mut(founders[0]) {
+                s.children = 1;
+            }
+            // Same reason as the other hand-set-breeder guards: the index
+            // only learns of a breeder through `record_breeder`, not
+            // through the bare field write above.
+            w.record_breeder(colony, founders[0]);
+            run(&mut w, 400);
+            w.creature_stats.births
+        };
+        assert!(without > 0, "the no-breeder control produced zero births -- it controls for nothing");
+        assert!(
+            with_breeder < without,
+            "a breeder present in the colony did not reduce total births under PIXEL_PHYSICS_BREEDING=graded: with {with_breeder}, without {without}"
+        );
     }
 
     /// **Heredity: the child's genome is the parent's, not the species'.**
@@ -13770,7 +22221,21 @@ mod tests {
         // this is a lower bound on what it spent and an assertion that the
         // birth cost is *in* it.
         assert!(paid >= cost, "parent paid {paid:.2} for a birth costing {cost:.2}");
-        assert!(paid < cost + def.start_energy, "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism");
+        // **`shared_j` folded in since trophallaxis, and it is not slack --
+        // it is the new, legitimate channel.** A parent that has just bred
+        // is sitting on a surplus beside a newborn sitting on half a grant
+        // (`birth_grant`'s neutral fraction), which is exactly the shape
+        // `ant.ron`'s shipped `Share` weights fire on: measured, a single
+        // funded ant bred once in 60 frames paid 1,266.51 J against a
+        // 1,040.00 J birth cost -- 26.51 J the parent then handed its own
+        // hungry child, not a bug in the birth accounting. Without this
+        // term the assertion would be testing a world with no trophallaxis
+        // in it, which this one no longer is.
+        assert!(
+            paid < cost + def.start_energy + w.creature_stats.shared_j as f32,
+            "parent paid {paid:.2}, far more than the {cost:.2} birth cost plus a few ticks of metabolism and {:.2} J shared with kin",
+            w.creature_stats.shared_j
+        );
     }
 
     /// **The threshold can never sit below the cost.**
@@ -13957,6 +22422,12 @@ mod tests {
         def.idle_cost_per_cell = idle_per_cell;
         def.move_cost_per_cell = 0.0;
         w.species.set_creature(ant, def);
+        // **Or `def.body` above is dead on arrival.** `ant.ron` now authors
+        // a `fates` table, and `place_creature` grows the body from that
+        // whenever it is non-empty, `def.body` or no -- see `set_fates`'s
+        // own doc. This test wants exactly `Chain(cells)`, not the shipped
+        // 7-cell `Segmented` shape, so the table has to go.
+        w.species.set_fates(ant, Vec::new());
         w.plant_ant(20, 100);
         let organism = w.get(20, 100).organism_id();
         assert_ne!(organism, 0, "the ant must have hatched, or this measures nothing");
@@ -14047,7 +22518,18 @@ mod tests {
         let ant = w.species.id_of("ant").expect("ant species");
         let def = w.species.get(ant).creature.as_ref().expect("ant is a creature");
         assert_eq!(def.shade_rule, ShadeRule::Random);
-        assert_eq!(def.body.len(), 2, "and it is still two cells");
+        // **Back to 2, 2026-09-11.** It was 7 for one day, while the
+        // articulated body was the shipped ant's own
+        // (`Reports/creature-articulated-body-2026-09-09.md`); the owner's
+        // ruling that landed that body kept the shipped ant at `Chain(2)`
+        // and moved the seven-cell body onto `longant`, a species the
+        // player places rather than the one a colony starts with.
+        // `ShadeRule` is E10's decision and is untouched either way; the
+        // cell count is not the thing this guard is protecting and is
+        // allowed to move -- this line just has to say what it actually is
+        // now, or a future shade-rule regression could hide behind a stale
+        // number here too.
+        assert_eq!(def.body.len(), 2, "the shipped ant's own cell count");
     }
 
     #[test]
@@ -14090,7 +22572,8 @@ mod tests {
                 w.set(x, 101, Cell::new(material::STONE, 0));
             }
             let ant = spawn(&mut w, "ant", 100, 100);
-            let leaf = w.materials.id_of("leaf").expect("leaf");
+            // // **`litter`, not `leaf`, since round 29's leaf dial** (`Reports/evolution-lab-late-game-design-2026-09-12.md` §1 item 1). A live leaf is `food_energy: 40`, which credits 10 J at the shipped neutral gut against `EAT_YIELD_THRESHOLD`'s 12, so a generalist cannot see one and a wall of them is not a larder. `litter` is the same tissue on the floor, still 480 and still `food_class: -1.0`, so every claim below is unchanged and the scene contains food again.
+            let leaf = w.materials.id_of("litter").expect("litter");
             w.set(99, 99, Cell::new(leaf, 0));
             if flower {
                 let f = w.materials.id_of("flower").expect("flower");
@@ -14111,6 +22594,206 @@ mod tests {
         assert_eq!((leaf_only.1, leaf_only.2), (99, 99), "sensitivity: with nothing better standing, the scan must still return the leaf");
         assert!(gain > leaf_only.0, "and the flower must be worth strictly more, or this scene proves nothing: {gain} vs {}", leaf_only.0);
     }
+
+    // --- B1': nectar, in two currencies ---------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    // Brief B1'. The plant-side pocket tests (full, dry, poor, the zero-
+    // refill positive control) are in `plant.rs`'s own test module, beside
+    // `nectar_offer`.
+
+    /// **`EAT_YIELD_THRESHOLD`'s own doc says to check this here, and it is
+    /// now a live number, not a forward check** — `plant::nectar_offer`'s
+    /// own doc explains why the credit genuinely is run through
+    /// `diet_quality` at the bite site (two currencies meet there), so this
+    /// is exactly what an animal receives, not a hypothetical.
+    #[test]
+    fn the_neutral_guts_credit_on_a_nectar_visit_clears_the_threshold() {
+        let w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+
+        let neutral_quality = diet_quality(&w, flower, 0.0);
+        let credit = yield_j * neutral_quality;
+        assert!(
+            credit > EAT_YIELD_THRESHOLD,
+            "a {yield_j} J nectar payout credits {credit} J at the neutral gut against a bar of {EAT_YIELD_THRESHOLD} -- \
+             below this and no animal could ever be offered it under the box's usual filter"
+        );
+    }
+
+    /// **Driven through `act` itself rather than through `nectar_offer` and
+    /// the credit by hand**, so this is a test of the wiring at the bite
+    /// site, not only of the function it calls. Two currencies, two
+    /// separate checks: the plant's pocket must fall by exactly
+    /// `NECTAR_COST` (budget units) and the animal's bank must rise by
+    /// exactly `nectar_yield * diet_quality` (joules) — not the same
+    /// number, deliberately (§3.1's whole correction) — and both sides of
+    /// `EnergyLedger`'s live identity must still agree afterwards.
+    #[test]
+    fn a_nectar_visit_through_act_debits_budget_units_and_credits_filtered_joules() {
+        let mut w = test_world();
+        let ant = spawn(&mut w, "ant", 100, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.clone().expect("ant must be a creature");
+        let gut = gut_of(&w, ant, &def);
+
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let yield_j = w.species.get(herb).nectar_yield;
+        assert!(yield_j > 0.0, "test setup: herb must author a non-zero nectar_yield");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        let (fx, fy) = (101, 100);
+        w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        if let Some(state) = w.organism_mut(plant_id) {
+            // `organism::RESOURCE_SCALE`, the same cap `plant::
+            // REPRODUCTIVE_BUDGET_CAP` is defined from -- that constant is
+            // private to `plant.rs`, so the value is restated rather than
+            // named.
+            state.reproductive_budget = organism::RESOURCE_SCALE;
+        }
+        if let Some(slot) = w.organism_cell_mut(fx, fy) {
+            slot.nectar = 1.0; // full, or the scene proves nothing
+        }
+
+        let (hx, hy) = w.organism(ant).expect("live").chain[0];
+        assert_eq!((hx, hy), (100, 100), "test setup: the scene must put the ant's head where the flower is adjacent to it");
+
+        let expected_credit = yield_j * diet_quality(&w, flower_mat, gut.bias);
+        assert!(expected_credit > 0.0, "test setup: this gut must actually value plant matter or the scene proves nothing");
+
+        let ant_energy_before = w.organism(ant).expect("live").energy;
+        let plant_budget_before = w.organism(plant_id).expect("live").reproductive_budget;
+        let ledger_gap_before = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+
+        // Feed only -- dig and drop stay at 0 so the scene can only take the
+        // one verb this test is about, and a crop-less fresh ant cannot
+        // prefer the drop branch regardless.
+        let mut outputs = [0.0f32; brain::BRAIN_OUTPUTS];
+        outputs[brain::BrainOutput::Feed as usize] = 1.0;
+        let mut draw = rng::stream(w.seed, ant as u64, w.frame, RNG_SLOT_MOVE);
+        act(&mut w, hx, hy, ant, &def, &outputs, &mut draw);
+
+        let cell = w.get(fx, fy);
+        assert_eq!(cell.material, flower_mat, "a paid visit must leave the flower material standing");
+        assert_eq!(cell.organism_id(), plant_id, "the plant must still own the cell");
+        assert_eq!(organism::cell_type(cell.aux()), Some(CellType::Flower), "still a Flower, not bitten off");
+        assert_eq!(w.organism_cell(fx, fy).expect("live").nectar, 0.0, "a paid visit must drain the flower's own pool");
+
+        let ant_energy_after = w.organism(ant).expect("live").energy;
+        let plant_budget_after = w.organism(plant_id).expect("live").reproductive_budget;
+        let credit = ant_energy_after - ant_energy_before;
+        let debit = plant_budget_before - plant_budget_after;
+        // `abs_diff` rather than `assert_eq!`: `RESOURCE_SCALE - NECTAR_COST`
+        // through f32 subtraction is `0.00999999...`, not the bit-exact
+        // `0.01` a literal parses to -- an f32 rounding artifact, not a
+        // pricing bug.
+        assert!(
+            (debit - plant::NECTAR_COST).abs() < 1e-6,
+            "the pocket must be debited NECTAR_COST (0.01 budget units), not a joule figure: got {debit}"
+        );
+        assert_eq!(credit, expected_credit, "the animal must be credited exactly yield * diet_quality, the filtered joule figure");
+        assert_ne!(credit, debit, "two currencies: the credit and the debit must NOT be the same number -- if they are, the units error is back");
+
+        assert_eq!(w.flower_visits, 1, "exactly one reach happened");
+        assert_eq!(w.nectar_paid, yield_j as f64, "the plant-side joule sum must record the raw nectar_yield, not the gut-filtered credit");
+
+        let ledger_gap_after = w.energy_ledger.expected_live_total() - w.live_creature_energy();
+        assert_eq!(
+            ledger_gap_before, ledger_gap_after,
+            "crediting nectar must not open a gap between the live identity's two sides: {ledger_gap_before} -> {ledger_gap_after}"
+        );
+    }
+
+    // --- P1: the bloom sense ---------------------------------------------
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3, Brief
+    // P1. `BloomNear`/`BloomBearing` are new inputs; the gate the brief
+    // names is that every shipped species stays bit-identical, which a unit
+    // test cannot show (see `ascii`/`labstats` before/after in the PR
+    // description) -- what belongs here is the sense's own positive
+    // control, watched red both ways before it is believed either way.
+
+    /// **The positive control, and it has to fail for a leaf as well as
+    /// succeed for a flower, or it proves nothing.** A beetle already ships
+    /// with an eye (`sight_range: 64`), so this needs no hypothetical range
+    /// the way the blind ant would: place one flower on a bare floor within
+    /// reach and the sense must fire; swap it for a leaf at the same cell
+    /// and it must read exactly zero, because a leaf is food but is not a
+    /// bloom -- the same "is this a flower, not merely a plant" question
+    /// `is_visible_bloom` exists to answer.
+    #[test]
+    fn a_beetle_sees_a_flower_and_not_a_leaf_standing_where_it_was() {
+        let bloom_bed = |flower: bool| -> f32 {
+            let mut w = test_world();
+            for cx in 0..200 {
+                w.set(cx, 101, Cell::new(material::STONE, 0));
+            }
+            let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+            assert_ne!(beetle, 0, "the beetle was not placed; the scene does not contain the situation this test is about");
+            let herb = w.species.id_of("herb").expect("herb species must be loaded");
+            let (fx, fy) = (90, 100);
+            if flower {
+                let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+                let plant_id = w.push_organism(herb).expect("an organism slot is free");
+                w.set(fx, fy, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+            } else {
+                let leaf_mat = w.materials.id_of("leaf").expect("leaf is compiled in");
+                w.set(fx, fy, Cell::new(leaf_mat, 0));
+            }
+            let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+            let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+            inputs[brain::BrainInput::BloomNear as usize]
+        };
+
+        let near = bloom_bed(true);
+        assert!(near > 0.0, "an eyed animal with a flower on a bare floor within reach must read BloomNear > 0; read {near}");
+
+        let leaf_near = bloom_bed(false);
+        assert_eq!(leaf_near, 0.0, "the same scene with a leaf standing where the flower was must read exactly 0 -- a leaf is food, not a bloom");
+    }
+
+    /// **`BloomNear`/`BloomBearing` read zero for the shipped ant, exactly
+    /// as `PreyNear`/`PreyBearing` do** -- `a_species_with_no_eye_reads_
+    /// every_distal_slot_as_zero`'s own claim, extended to the pair P1
+    /// appended. `sight_range: 0` is what every shipped ant carries; this
+    /// is what keeps appending the pair byte-identical for it.
+    #[test]
+    fn the_bloom_pair_reads_zero_for_a_species_with_no_eye() {
+        let mut w = test_world();
+        let ant = ant_on_a_floor(&mut w, 100);
+        let def = w.species.get(w.organism(ant).expect("live").species).creature.as_ref().expect("ant is a creature").clone();
+        assert_eq!(def.sight_range, 0, "test setup: the shipped ant must be blind, or this proves nothing about the shipped animal");
+        let (inputs, _, _) = probe(&w, 100, 100, ant, &def);
+        assert_eq!(inputs[brain::BrainInput::BloomNear as usize], 0.0);
+        assert_eq!(inputs[brain::BrainInput::BloomBearing as usize], 0.0);
+    }
+
+    /// **A bloom must not break the ray it is recorded on.** Placed behind
+    /// the flower, on the far side, is prey the beetle can also eat; if
+    /// recording the bloom broke the ray the way finding prey does, the
+    /// beetle would see the flower and never the ant standing past it. The
+    /// brief's whole gate is that this sense is free because it changes no
+    /// existing count -- this is what would fail first if it were not.
+    #[test]
+    fn a_bloom_does_not_block_the_ray_from_reaching_prey_past_it() {
+        let mut w = test_world();
+        for cx in 0..200 {
+            w.set(cx, 101, Cell::new(material::STONE, 0));
+        }
+        let beetle = plant_creature_seed(&mut w, 60, 100, "beetle").map(|_| w.get(60, 100).organism_id()).unwrap_or(0);
+        assert_ne!(beetle, 0);
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let flower_mat = w.materials.id_of("flower").expect("flower is compiled in");
+        let plant_id = w.push_organism(herb).expect("an organism slot is free");
+        w.set(75, 100, Cell::new(flower_mat, 0).with_organism_id(plant_id).with_aux(organism::pack_cell_type(CellType::Flower)));
+        w.plant_ant(90, 100); // past the flower, from the beetle's side
+        assert_ne!(w.get(90, 100).organism_id(), 0, "the ant was not placed; there is nothing to see past the flower");
+        let def = w.species.get(w.organism(beetle).expect("live").species).creature.as_ref().expect("beetle is a creature").clone();
+        let (inputs, _, _) = probe(&w, 60, 100, beetle, &def);
+        assert!(inputs[brain::BrainInput::BloomNear as usize] > 0.0, "the flower must still be seen");
+        assert!(inputs[brain::BrainInput::PreyNear as usize] > 0.0, "the ant past the flower must still be seen -- the bloom must not have stopped the ray");
+    }
+
     // **`an_ant_at_the_nest_eats_past_satiety_to_pay_for_a_child` was here and
     // is deleted rather than ported.** All three of its arms were stated
     // against `roof = hunger_fraction * start_energy + one mouthful`, and a

@@ -93,6 +93,25 @@ fn main() {
     let stops: String = arg("frames").unwrap_or_else(|| "0,600,3000,9000".to_string());
     let stops: Vec<u64> = stops.split(',').map(|s| s.parse().expect("a frame number")).collect();
     let zoom: i32 = arg("zoom").unwrap_or(1);
+    // **`marks=off|halo|tick` -- the game's mark over every living animal
+    // (`ui::draw_life_marks`/`ui::LifeMarks`), the one piece of it this
+    // harness renders no `Ui` to draw itself.** Unknown values are ignored
+    // rather than rejected, matching `colour=`/`channel=` above. Off (the
+    // shipped default) needs no flag at all -- `draw_life_marks` is called
+    // unconditionally below and is itself a no-op under `Off`.
+    let marks: pixel_physics::lab::ui::LifeMarks = match arg::<String>("marks").as_deref() {
+        Some("halo") => pixel_physics::lab::ui::LifeMarks::Halo,
+        Some("tick") => pixel_physics::lab::ui::LifeMarks::Tick,
+        _ => pixel_physics::lab::ui::LifeMarks::Off,
+    };
+    // **Found the colonies at frame `ants_at` instead of at frame 0.**
+    // Owner, 2026-09-09: the harness's own default -- every colony present
+    // from frame 0, on a bed with no growth in it yet -- is not how the
+    // game is played, where a bed is grown first and colonies come later.
+    // 0 (the default) keeps the old behaviour byte-for-byte: the founding
+    // below only takes the bare-bed detour when this is nonzero. Ignored
+    // under `scenario=`, whose own timeline decides colony placement.
+    let ants_at: u64 = arg("ants_at").unwrap_or(0);
 
     // **The before/after arm, and it is one binary.** `CLAUDE.md` asks for a
     // paired comparison rather than one run against a remembered impression,
@@ -107,12 +126,56 @@ fn main() {
     // and `labbatch` follow for it.
     let scenario_name: Option<String> = arg("scenario");
     let scenario: Option<Scenario> = scenario_name.as_deref().map(|n| {
-        Scenario::load(n).unwrap_or_else(|e| {
+        let mut sc = Scenario::load(n).unwrap_or_else(|e| {
             eprintln!("scenario {n}: {e}");
             std::process::exit(1);
-        })
+        });
+        // **`seed=` overrides the scenario's own bed seed, and it has to
+        // happen HERE, on the scenario, not on `spec` below.** `labforage.
+        // rs` carries the identical three lines and the identical comment,
+        // for the identical reason: `Scenario::build` reads `self.bed`, so
+        // a seed applied only to `spec` reaches nothing at all -- the world
+        // is built at the file's pinned seed every time
+        // (`Reports/evolution-lab-ecology-design-2026-09-10.md` §8.1).
+        // Caught by seeds 1, 2 and 3 on `played_bed` returning
+        // digit-identical output -- `CLAUDE.md`'s own tell for a knob that
+        // was never connected.
+        if let Some(sd) = arg::<u64>("seed") {
+            sc.bed.seed = sd;
+        }
+        // **`colony_species=` swaps who a scenario's own `Colony`/`Colonies`
+        // timeline events found, without touching the scenario file.**
+        // `played_bed.ron`'s founding is baked into its timeline
+        // (`Colony(species: "ant", ...)` at frame 6,000), which is exactly
+        // right for playing the bed and exactly wrong for asking "how many
+        // would a *different* body have seated on this same ground" --
+        // `Reports/creature-articulated-body-2026-09-09.md` §13h's paired
+        // reading needs the identical bed and frame under two bodies, one
+        // binary, one flag. `ancestor` (`assets/species/ancestor.ron`,
+        // `Chain(2)`) is the shipped two-cell body this measures against:
+        // it never reaches `founding_spine_walk` at all, so it is §13h's
+        // control for "how many sites exist for *any* body", independent of
+        // this build's own contour lay. Placements (frame-0 founding, no
+        // scenario here uses it for `Colony` yet) are swapped too, for the
+        // harness's own future use rather than any shipped scenario today.
+        if let Some(species) = arg::<String>("colony_species") {
+            use pixel_physics::lab::scenario::Placement;
+            let swap = |p: &mut Placement| match p {
+                Placement::Colony { species: s, .. } | Placement::Colonies { species: s, .. } => *s = species.clone(),
+                _ => {}
+            };
+            for p in &mut sc.placements {
+                swap(p);
+            }
+            for e in &mut sc.timeline {
+                swap(&mut e.what);
+            }
+        }
+        sc
     });
     let spec = match &scenario {
+        // The scenario's own bed -- **except the seed, which `seed=`
+        // still overrides**, above.
         Some(s) => s.bed.clone(),
         None => LabBox {
             width: arg("width").unwrap_or(512),
@@ -140,26 +203,47 @@ fn main() {
             // like a bug in the code.
             species: arg::<String>("plant").unwrap_or_else(|| LabBox::default().species),
             predators: arg("predators").unwrap_or(0),
+            // **The world seed, which this harness could not set** -- so the
+            // one bed it could photograph was seed 1, and every question of
+            // the form "show me the seed the finding is on" had to be asked
+            // of a different seed. Outcomes here are chaotic in the seed
+            // (`labstats` on the default box ends at 4%, 14% and 51% of the
+            // unfed stand on seeds 3, 2 and 1), so a contact sheet pinned to
+            // one of them is a sample from a wide distribution presented as
+            // the picture. Defaulted to `LabBox::default()`'s own 1, so every
+            // sheet taken before this is reproduced digit for digit.
+            seed: arg("seed").unwrap_or(LabBox::default().seed),
             compartments: arg("walls").unwrap_or(1),
             ..LabBox::default()
         },
     };
     println!(
-        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} walls={} interior={interior} light={} frames={:?}{}",
-        spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators,
+        "labshot: {}x{} soil={} founders={} of {} colonies={} of {} predators={} seed={} walls={} interior={interior} light={} marks={} frames={:?} ants_at={ants_at}{}",
+        spec.width, spec.height, spec.soil_depth, spec.founders, spec.species, spec.colonies, spec.colony_species, spec.predators, spec.seed,
         spec.compartments,
         arg::<f32>("light").map_or("held at noon".to_string(), |f| format!("{f}")),
+        marks.label(),
         stops,
         scenario.as_ref().map(|s| format!(" scenario={} ({})", s.name, s.question)).unwrap_or_default()
     );
 
     let (mut world, placed, scenario_placed) = match &scenario {
         Some(s) => {
+            if ants_at > 0 {
+                println!("  ants_at={ants_at} ignored -- a scenario's own timeline decides colony placement");
+            }
             let (w, p, sp) = s.build();
             (w, p, Some(sp))
         }
         None => {
-            let (w, p) = spec.build_counted();
+            // **The bare bed** -- `labforage.rs`'s own pattern for the same
+            // reason: `build_counted` founds every colony it is asked for as
+            // part of building, so keeping the founders out until `ants_at`
+            // means asking it for none and founding by hand once the clock
+            // gets there. At the default `ants_at=0` this is `spec` itself,
+            // so nothing about the old behaviour moves.
+            let bare = if ants_at > 0 { LabBox { colonies: 0, ..spec.clone() } } else { spec.clone() };
+            let (w, p) = bare.build_counted();
             (w, p, None)
         }
     };
@@ -266,6 +350,19 @@ fn main() {
     // `colour=off|species|colony` -- what an animal wears, the lab's own
     // default being `colony`. Off is the shipped material draw, which is
     // the control arm for any card judging the group colours.
+    // **`style=` -- the magnified look, so the lab can be seen through it.**
+    // `MagnifyStyle` is on the shared `Renderer` and applies to both games,
+    // but the lab's own key handling lives in `src/bin/lab.rs`, which other
+    // lanes hold, so without this there was no way to put a style in front of
+    // anyone on the lab bed at all. Does nothing at `zoom` 1, like the styles
+    // themselves.
+    renderer.magnify_style = match arg::<String>("style").as_deref() {
+        Some("painted") => pixel_physics::render::MagnifyStyle::Painted,
+        Some("painted_ink" | "ink") => pixel_physics::render::MagnifyStyle::PaintedInk,
+        Some("illustrated") => pixel_physics::render::MagnifyStyle::Illustrated,
+        Some("chamfer") => pixel_physics::render::MagnifyStyle::Chamfer,
+        _ => pixel_physics::render::MagnifyStyle::CellArt,
+    };
     renderer.creature_colour = match arg::<String>("colour").as_deref() {
         Some("off") => pixel_physics::render::CreatureColour::Off,
         Some("species") => pixel_physics::render::CreatureColour::Species,
@@ -308,13 +405,32 @@ fn main() {
     println!("  {} organism(s) placed by the builder before the first tick", founders.len());
 
     let mut tiles: Vec<Vec<u8>> = Vec::new();
-    let last = *stops.last().expect("at least one stop");
+    // `.max(ants_at)`: a founding frame past the last requested stop must
+    // still be reached, or `ants_at` past the end of `frames=` would silently
+    // never fire -- the same "an unknown argument is silently ignored" shape
+    // `CLAUDE.md` names, just with a frame number standing in for the flag.
+    let last = stops.last().copied().unwrap_or(0).max(ants_at);
     let mut next = 0usize;
     for f in 0..=last {
+        // **Found the colonies here**, not before the loop -- see `ants_at`'s
+        // own doc above. Checked before the stop/draw block below so a stop
+        // that coincides with `ants_at` (the report's own `frames=0,6000,...
+        // ants_at=6000`) sees the just-founded colony rather than the empty
+        // bed it replaced.
+        if ants_at > 0 && f == ants_at {
+            let cols = spec.colony_columns();
+            let mut founded = 0usize;
+            for &x in &cols {
+                founded += world.found_colony_of(x, spec.ground_y - 2, &spec.colony_species, spec.colony_ants);
+            }
+            println!("  ants_at {ants_at}: founded {founded} ants at {cols:?}");
+        }
         if next < stops.len() && stops[next] == f {
             let mut buf = vec![0u8; (vw * vh * 4) as usize];
             let touched = world.take_touched_chunks();
             renderer.draw(&world, &particles, &touched, &mut buf, (vw, vh), true);
+            // A no-op under `Off`, which `draw_life_marks` itself checks.
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, marks);
             // **How many animals are actually holding something**, printed
             // beside the picture it is a census of. `CLAUDE.md`: an image
             // says *what* and *where* and only a count says *whether it
@@ -458,6 +574,25 @@ fn main() {
                 })
                 .collect();
             println!("            founders (cells): {}", founder_line.join(" "));
+            // **The nest's own room, beside the picture of it.** A chamber
+            // cut and a chamber collapsed are the same photograph at contact-
+            // sheet size, and only the count says which -- `CLAUDE.md`'s
+            // standing rule, and the reason every other line here carries its
+            // counters. `rpa` is cells of roofed void per ant and `reads` is
+            // what the dig gate makes of it (`World::NestRoom`); `digs` is
+            // cells actually removed, beside the rolls that tried.
+            if let Some(room) = world.nest_room.first() {
+                println!(
+                    "            nest room: roofed {:>5} ants {:>4} rpa {} | dig gate reads {} | digs {:>6} of {:>7} rolls | gate {}",
+                    room.roofed,
+                    room.ants,
+                    room.room_per_ant().map_or("-".to_string(), |v| format!("{v:.2}")),
+                    room.occupancy(world.room_target).map_or("-".to_string(), |v| format!("{v:.3}")),
+                    stats.digs,
+                    stats.dig_rolls,
+                    if world.room_gate { "room" } else { "crowding" }
+                );
+            }
             // **Why a stand is shrinking, split by the mechanism that did
             // it.** A plant census says the stand got smaller and cannot say
             // which rule took it -- and they want opposite responses. Owner,
@@ -508,6 +643,40 @@ fn main() {
         }
     }
 
+    // **`bench=1` -- the per-drawn-frame cost of `draw_life_marks`, paired
+    // inside this one run.** Neither `lab_cost` nor `labperf` can answer this
+    // (`Reports/instruments.md`): both time `Renderer::draw` on a bare
+    // `World`, never touching `Ui`, and this pass lives in `Ui::draw`. No
+    // existing instrument reaches it, so this measures it directly rather
+    // than guessing: `draw_life_marks` called repeatedly against the final
+    // world (the most animals any stop reached, so the worst case this run
+    // saw), timed with a warm-up discarded before the mean is taken. Only
+    // the pass itself is timed -- not `renderer.draw`, not the rest of
+    // `Ui::draw` -- because that is the number `CLAUDE.md` asks for and nothing
+    // else here can isolate it.
+    if arg::<i32>("bench").unwrap_or(0) != 0 {
+        const REPS: usize = 500;
+        // Halo, not whatever `marks=` asked for: `Off` returns immediately
+        // and would report the wrong number as the pass's cost.
+        let bench_mode = pixel_physics::lab::ui::LifeMarks::Halo;
+        let live_now = world.live_organism_ids().len();
+        let mut buf = vec![0u8; (vw * vh * 4) as usize];
+        // Warm-up: first calls pay a cold cache, and this is a mean-over-many
+        // number, not a worst-frame one -- `CLAUDE.md`'s ratio check does not
+        // apply to a microbenchmark of one added pass.
+        for _ in 0..20 {
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, bench_mode);
+        }
+        let t = std::time::Instant::now();
+        for _ in 0..REPS {
+            pixel_physics::lab::ui::draw_life_marks(&mut buf, &world, &renderer, renderer.creature_colour, bench_mode);
+        }
+        let each_ms = t.elapsed().as_secs_f64() * 1000.0 / REPS as f64;
+        println!(
+            "bench: draw_life_marks {live_now} live organism(s) in the final world -- {each_ms:.4} ms/call, mean over {REPS} calls"
+        );
+    }
+
     // One column, so a tall thin bed stacks readably.
     //
     // **Every dimension here is the TILE's, and three of them were the
@@ -519,14 +688,32 @@ fn main() {
     // two-cell animal at all, so the one thing this harness grew a crop for
     // was the one thing it could not do.
     let (tw, th) = crop.map_or((vw, vh), |(_, _, w, h)| (w as u32, h as u32));
-    let (sw, sh) = (tw, th * tiles.len() as u32);
+    // **`scale=` -- pixel replication on the way out, and it is not the same
+    // knob as `zoom=`.** `zoom` changes how many world cells fit the lab's
+    // fixed 512x320 viewport, so a tight crop at high zoom is detailed and
+    // *small*: 280x180 px. The review skill is explicit that a card that size
+    // reaches the owner as nothing to see -- "the stills he has been able to
+    // judge are 700-950 px across" -- and the page's own client-side zoom is
+    // not a substitute when the file itself is the thing shared. Nearest
+    // neighbour, integer only, so no pixel is invented: this is the same
+    // `image-rendering: pixelated` upscale the page would do, baked in.
+    let scale = arg::<u32>("scale").unwrap_or(1).max(1);
+    let (sw, sh) = (tw * scale, th * tiles.len() as u32 * scale);
     let mut sheet = vec![0u8; (sw * sh * 4) as usize];
     for (i, tile) in tiles.iter().enumerate() {
-        let y0 = i as u32 * th;
+        let y0 = i as u32 * th * scale;
         for y in 0..th {
-            let src = (y * tw * 4) as usize;
-            let dst = ((y0 + y) * sw * 4) as usize;
-            sheet[dst..dst + (tw * 4) as usize].copy_from_slice(&tile[src..src + (tw * 4) as usize]);
+            for ry in 0..scale {
+                let dst_row = ((y0 + y * scale + ry) * sw * 4) as usize;
+                for x in 0..tw {
+                    let src = ((y * tw + x) * 4) as usize;
+                    let px = &tile[src..src + 4];
+                    for rx in 0..scale {
+                        let dst = dst_row + (((x * scale + rx) * 4) as usize);
+                        sheet[dst..dst + 4].copy_from_slice(px);
+                    }
+                }
+            }
         }
     }
     image::save_buffer(&out, &sheet, sw, sh, image::ColorType::Rgba8).expect("writing the sheet");

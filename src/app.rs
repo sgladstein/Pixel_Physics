@@ -3396,7 +3396,7 @@ impl App {
                 Key("SPACE", "PAUSE"),
                 Key(".", "STEP ONE FRAME"),
                 Key("R", "RESET"),
-                Key("= -", "ZOOM"),
+                Key("= - _", "ZOOM / ZOOM-OUT PIXELS"),
                 Key("F6 F7 F8", "NEW WORLD / PRESET / SEED"),
                 Key("F5", "RELOAD ASSETS"),
                 Blank,
@@ -3940,7 +3940,7 @@ impl App {
             }
         };
         format!(
-            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
+            "Pixel Physics — {:.0} fps — {} (brush {}) — chunks {}/{} awake — {} {:#018X}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}{}",
             fps,
             self.selected_name(),
             self.brush_radius,
@@ -3999,6 +3999,49 @@ impl App {
                 String::new()
             } else {
                 format!(" — grain {}", self.renderer.grain.label())
+            },
+            // **The zoom-out filter (`Shift`+`-`), keyed on the *stride*
+            // rather than on the value.** Every other selector here is silent
+            // at its default; this one is silent whenever the view is not
+            // zoomed out at all, and named on every frame that is — including
+            // at its own default. The reason is this line's own
+            // harness-echo rule: at stride 1 the filter cannot affect a single
+            // pixel, so naming it would be noise, and at stride > 1 it decides
+            // what *every* pixel is, so a zoomed-out screenshot that does not
+            // say which filter drew it cannot be reproduced or compared. The
+            // stride is named with it for the same reason -- the three
+            // filters are indistinguishable at stride 1 and diverge with it.
+            if self.renderer.zoom_out_stride > 1 {
+                format!(
+                    " — zoom-out {}x {}",
+                    self.renderer.zoom_out_stride,
+                    self.renderer.zoom_out_filter.label()
+                )
+            } else {
+                String::new()
+            },
+            // **The magnified style (`Shift`+`=`), keyed on the *zoom***, and
+            // the mirror of the line above in every respect. Below zoom 2 the
+            // style cannot move a single pixel, so naming it would be noise;
+            // at zoom 2 and up it decides what every pixel is, and a magnified
+            // screenshot that does not say which style drew it cannot be
+            // reproduced or compared. The zoom goes with it because the styles
+            // are indistinguishable at 1x and diverge with it -- and because
+            // the chamfer's notch rule is a second dial whose setting is not
+            // guessable from the picture either.
+            if self.renderer.zoom > 1 && self.renderer.magnify_style != render::MagnifyStyle::default() {
+                format!(
+                    " — zoom-in {}x {}{}",
+                    self.renderer.zoom,
+                    self.renderer.magnify_style.label(),
+                    if self.renderer.magnify_style == render::MagnifyStyle::Chamfer {
+                        format!(" notch {}", self.renderer.magnify_notch.label())
+                    } else {
+                        String::new()
+                    }
+                )
+            } else {
+                String::new()
             },
             // Same rule again: silent at the default, named the moment it
             // is not, because the value of a look selector is being able to
@@ -4092,8 +4135,9 @@ impl App {
             // The same rule again, and this one was **missing entirely**
             // until the overlay it names was mistaken for a bug. `V` cycles
             // Off -> Pressure -> Temperature -> Light -> Moisture ->
-            // Pheromone A -> Pheromone B -> Off, and `FieldOverlay::Light`
-            // is a pale cream blended at up to 75% over every pixel
+            // Pheromone A -> Pheromone B -> Pheromone Alarm -> Off, and
+            // `FieldOverlay::Light` is a pale cream blended at up to 75%
+            // over every pixel
             // *including solid rock* -- so a player who pressed `V` four
             // times got "a pale light effect spreading through rock" with
             // nothing on screen to say why, or that it was a debug channel

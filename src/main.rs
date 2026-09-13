@@ -588,9 +588,30 @@ impl Handler {
                     self.app.summon_player(x, y);
                 }
             }
+            KeyCode::BracketLeft if self.held.grab => self.app.renderer.cycle_magnify_notch(),
             KeyCode::BracketLeft => self.app.adjust_brush(-2),
+            KeyCode::BracketRight if self.held.grab => self.app.renderer.cycle_magnify_ink(),
             KeyCode::BracketRight => self.app.adjust_brush(2),
+            // **Shift+`=` cycles the magnified style**, the mirror of
+            // Shift+`-` below and for the same two reasons: every letter on
+            // the keyboard is already bound, and hanging a look selector off
+            // its own zoom key puts it where you reach for it -- you are
+            // already zoomed in and looking at the thing you want to change.
+            // `Shift`+`[` is the chamfer's notch rule and `Shift`+`]` the ink
+            // weight; `magnify_level` and `magnify_grain` are `Renderer`
+            // fields with no key, for an instrument or the parameters page to
+            // drive (that page lives in `src/lab/ui.rs`, which another lane
+            // holds, so wiring them there is a follow-up rather than a gap).
+            KeyCode::Equal if self.held.grab => self.app.renderer.cycle_magnify_style(),
             KeyCode::Equal => self.app.renderer.adjust_zoom(1),
+            // **Shift+`-` cycles the zoom-out filter** rather than a letter
+            // of its own, because every letter on the keyboard is already
+            // bound (`E` was the last one, to `cycle_material`). Hanging it
+            // off the zoom-out key is the discoverable place for it anyway:
+            // it is the control you reach for while you are already zoomed
+            // out and unhappy with what you see. `held.grab` is shift, same
+            // as the tunables group reverse on `Tab`.
+            KeyCode::Minus if self.held.grab => self.app.renderer.cycle_zoom_out_filter(),
             KeyCode::Minus => self.app.renderer.adjust_zoom(-1),
             KeyCode::KeyV => self.app.renderer.cycle_field_overlay(),
             // `L` for the *living* channels. This was `B` until the merge

@@ -378,18 +378,24 @@ fn read_only(group: Group, category: &str, name: &str, shown: String, note: &str
     }
 }
 
-/// The species the `COLONY` tool releases. Named rather than discovered,
-/// because `creature::found_colony` names it too — a panel that tuned a
-/// different ant from the one the button places would be a knob that reads
-/// correctly and reaches nothing.
-pub const COLONY_SPECIES: &str = "ant";
-
 /// **Every parameter the lab exposes, in page and row order.**
 ///
 /// `plant` is the species the bar's chip has armed, so the plant page follows
 /// the tool: the chip picks what you are about to put in the ground and this
 /// page is that plant's numbers. `None` — an asset set with no plantable
 /// species — leaves the page empty rather than guessing at one.
+///
+/// **The ANTS/GENOME/COSTS pages follow `spec.colony_species` the same way,
+/// since 2026-09-09.** They used to read a module constant fixed at "ant",
+/// which was live and correctly labelled for exactly as long as `Y`/the
+/// COLONY tool only ever released an ant — the moment `spec.colony_species`
+/// could be a beetle, a hopper or anything else `found_colony_of` takes a
+/// name for, the three pages went on describing the ant regardless of what
+/// the box's own tool was about to place: a knob that reads correctly and
+/// reaches nothing, which is exactly the failure the constant's own retired
+/// doc comment warned against for `found_colony` and did not itself avoid.
+/// `spec` was already threaded this far for `box_rows`; passing its own
+/// field on is the whole fix.
 ///
 /// Rebuilt fresh on every draw, like `App::tunables_list`: a few dozen entries
 /// off registries that are already in memory, against the alternative of a
@@ -409,9 +415,9 @@ pub fn registry(world: &World, spec: &LabBox, plant: Option<SpeciesId>) -> Vec<P
         let name = world.species.get(id).name.clone();
         plant_rows(world, &name, &mut out);
     }
-    ant_rows(world, &mut out);
-    genome_rows(world, &mut out);
-    cost_rows(world, &mut out);
+    ant_rows(world, &spec.colony_species, &mut out);
+    genome_rows(world, &spec.colony_species, &mut out);
+    cost_rows(world, &spec.colony_species, &mut out);
     box_rows(world, spec, &mut out);
     out
 }
@@ -615,6 +621,14 @@ fn plant_mechanics_rows(world: &World, out: &mut Vec<Param>) {
         world.plant_size_cadence,
         "WHETHER A BIG PLANT RUNS ON A SLOWER CLOCK THAN A SEEDLING. OFF, EVERY PLANT TICKS AT THE SAME RATE WHATEVER ITS SIZE, WHICH IS THE SHIPPED BEHAVIOUR. ON, A PLANT WAITS LONGER BETWEEN TICKS THE BIGGER IT IS -- A SEEDLING EVERY TICK, A GROWN TREE EVERY FIFTH. THIS IS THE ONE DIAL ON THIS PAGE THAT BUYS REAL SPEED IN A FULL BOX, BECAUSE A HANDFUL OF LARGE TREES IS ALMOST ALL OF THE WORK. IT IS ALSO NOT FREE: THE TICK IS THE PLANT'S ECONOMY, SO A SLOWED TREE DOES NOT MERELY UPDATE LESS, IT LIVES SLOWER WHILE THE SEEDS AROUND IT DO NOT -- WHICH CHANGES WHO WINS. LASTS THE SESSION.",
     ));
+    out.push(toggle(
+        Group::Box,
+        Knob::Rule { field: "soil_capillary_levels" },
+        "the bed",
+        "water_levels_sideways",
+        world.soil_capillary_levels,
+        "WHETHER WET SOIL EVENS ITSELF OUT SIDEWAYS. OFF IS THE SHIPPED BEHAVIOUR AND IS WHY THE BED STANDS IN VISIBLE COLUMNS WITH THE SOIL OVERLAY ON: ONCE GROUND IS WETTER THAN IT CAN HOLD AGAINST GRAVITY, TWO COLUMNS SIDE BY SIDE ARE ALLOWED TO SIT A THIRD OF THE WHOLE SCALE APART FOR EVER, SO EACH PATCH OF RAIN SOAKS STRAIGHT DOWN AS A STRIPE AND NEVER SPREADS INTO ITS NEIGHBOURS. ON, THEY LEVEL, AND THE WATER TABLE ON THE FLOOR GOES FROM A COMB OF SPIKES TO A FLAT SHEET -- MEASURED ON AN EMPTY BOX, WIDEST STANDING DIFFERENCE BETWEEN NEIGHBOURING COLUMNS 380 OF 1000 DOWN TO 0. IT IS OFF BY DEFAULT BECAUSE IT IS NOT FREE: THE RULE IT RELAXES EXISTS TO STOP THE BED SHUFFLING WATER BACK AND FORTH FOR EVER, AND TURNING IT ON COSTS ABOUT HALF AS MANY SOIL WRITES AGAIN EVERY TICK. NOTHING ABOVE FIELD CAPACITY IS WATER A PLANT CAN USE, SO THIS IS MOSTLY ABOUT WHAT THE OVERLAY LOOKS LIKE AND ABOUT HOW DEEP A TUNNEL FLOODS. IT IS FELT ON THE NEXT TICK AND IT LASTS THE SESSION.",
+    ));
     out.push(float(
         Group::Heredity,
         Knob::Heredity { field: "mutation_sigma" },
@@ -708,15 +722,15 @@ fn creature_value(world: &World, species: &str, field: &str) -> Option<f32> {
         "curvature_fraction" => def.curvature_fraction,
         "exposure_cost_per_cell" => def.exposure_cost_per_cell,
         "scent_drift" => def.scent_drift,
+        "life_half_life" => def.life_half_life as f32,
         "scent_spread" => def.scent_spread,
         "kin_crosses_kinds" => f32::from(u8::from(def.kin_crosses_kinds)),
         _ => return None,
     })
 }
 
-fn ant_rows(world: &World, out: &mut Vec<Param>) {
+fn ant_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let g = Group::Ants;
-    let species = COLONY_SPECIES;
     let sp = species.to_string();
     let mut cr = |field: &'static str, s: Span, integral, note: &str| {
         let Some(value) = creature_value(world, species, field) else { return };
@@ -751,6 +765,14 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         "HOW HARD THIS KIND CAN BITE, AGAINST HOW TOUGH A THING IS. UNSET IT MATCHES THE DIGGING FORCE, WHICH IS WHY THE ROW SHOWS THAT NUMBER UNTIL YOU MOVE IT. IT IS WHAT DECIDES WHICH FOODS AN ANIMAL CAN ACTUALLY GET THROUGH -- A HARD-SHELLED ANIMAL IS SIMPLY INEDIBLE TO A WEAK MOUTH.");
     cr("tick_interval", span(1.0, 60.0, 1.0), true,
         "HOW MANY WORLD TICKS BETWEEN ONE ANT'S TURNS. IT IS HOW FAST THE ANIMAL LIVES -- AND IT IS A FRAME-COST KNOB IN THE OTHER DIRECTION, BECAUSE A LOWER NUMBER IS MORE THINKING PER SECOND FOR EVERY ANT IN THE BOX.");
+    // **Under `tick_interval` on purpose**: that row is how fast an animal
+    // lives and this is how long, and the two are read together. On the ANTS
+    // page rather than beside `scent_drift` on GENOME, because GENOME is
+    // titled "what a lineage inherits" and this is emphatically not
+    // inherited yet -- see `CreatureDef::life_half_life` for why it is
+    // priced before it is.
+    cr("life_half_life", span(0.0, 200_000.0, 1_000.0), true,
+        "HOW LONG AN ANT LIVES, IN FRAMES. IT IS THE MIDDLE OF A SPREAD AND NOT A STOPWATCH: HALF A BROOD IS STILL WALKING AT THIS NUMBER, NINETEEN IN TWENTY ARE ALIVE AT A QUARTER OF IT, AND ABOUT ONE IN EIGHTY REACHES TWO AND A HALF TIMES IT. ZERO -- WHICH IS WHAT EVERY OTHER ANIMAL IN THE BOX STILL IS -- MEANS NOTHING EVER DIES OF AGE, SO A COLONY CAN ONLY SHRINK BY FAMINE: IT BREEDS UNTIL IT HAS EATEN THE BED AND THEN GOES ALL AT ONCE. GIVE IT A LIFESPAN AND THE COLONY SETTLES NEAR HOW FAST IT BREEDS TIMES HOW LONG IT LIVES, AND ITS FALL IS A SLOPE. EACH ANT THAT GOES LEAVES A BODY, AND A BODY IS FOOD.");
 
     // **The colony-founding rows**, under their own header so a page of one
     // species' numbers does not appear to have grown a row that reaches
@@ -768,6 +790,44 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
             value,
             span(0.0, 1.0, 0.05),
             "HOW DIFFERENT TWO COLONIES OF THIS KIND SMELL WHEN YOU PUT THEM DOWN. EVERY CLICK OF THE COLONY TOOL, EVERY SINGLE ANIMAL PLACED AND EVERY JAR RELEASED DRAWS ITS OWN OFFSET FROM THE ANCESTRAL SCENT, THIS FAR AT MOST ON EACH OF THE THREE SCENT NUMBERS, AND ITS CHILDREN ARE BORN WITH IT. AT 0 -- THE SHIPPED SETTING -- EVERY CLICK IS ONE FAMILY. AT 1 WITH TOLERANCE AT -1 EVERY CLICK IS A STRANGER TO EVERY OTHER, SO A HUNGRY ANT EATS AN ANT FROM THE OTHER CLICK AS IT WOULD A BEETLE, WHICH IS WHAT THE OLD COLONY RIVALRY SWITCH DID. FELT AT THE NEXT FOUNDING, NOT ON ANIMALS ALREADY STANDING.",
+        ));
+    }
+    // **The three dials that make a nest a place with a smell** -- beside
+    // `scent_spread` because the three of them and it are the whole of what
+    // decides who is family, and on this page rather than GENOME because
+    // GENOME is at its two-screen ceiling (`no_page_is_longer_than_two_
+    // screens`, 19 rows before these) and a nest is an ant thing.
+    //
+    // **World rules rather than species fields**, for `World::trait_reach`'s
+    // reason: a nest patch belongs to the box, and two species sharing one
+    // mound cannot be allowed to disagree about how fast it re-mixes.
+    {
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_blend" },
+            "colonies",
+            "nest_blend",
+            world.nest_blend,
+            span(0.0, 1.0, 0.01),
+            "HOW MUCH OF THE NEST'S OWN SMELL AN ANT PICKS UP EACH TURN IT SPENDS STANDING ON IT. THIS IS WHAT HOLDS A COLONY TOGETHER: EVERY ANT THAT COMES HOME IS PULLED BACK TOWARD ONE SHARED SMELL, SO A NEST CANNOT SLOWLY SPLIT INTO STRANGERS NO MATTER HOW FAST ITS CHILDREN DRIFT. AT 0 THERE IS NO NEST SMELL AT ALL AND EACH LINE WANDERS ALONE, WHICH IS HOW THE BOX BEHAVED BEFORE THIS EXISTED AND IS ALSO HOW A COLONY EATS ITSELF. TURN IT UP AND A SINGLE VISIT HOME IS ENOUGH TO MAKE AN ANT FAMILY AGAIN. IT COSTS NOTHING: THE EXCHANGE RIDES A CHECK THE ANT WAS ALREADY MAKING.",
+        ));
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_uptake" },
+            "colonies",
+            "nest_uptake",
+            world.nest_uptake,
+            span(0.0, 1.0, 0.005),
+            "HOW MUCH OF ITS OWN SMELL AN ANT LEAVES IN THE NEST EACH TURN IT STANDS ON IT -- THE OTHER HALF OF THE EXCHANGE ABOVE, AND MUCH SMALLER, BECAUSE ONE ANT SHOULD NOT REPAINT A WHOLE MOUND. IT IS WHAT LETS AN ANT WALKING BETWEEN TWO NESTS CARRY ONE'S SMELL INTO THE OTHER AND HOLD THEM RELATED: AT THE SHIPPED SETTING ONE VISIT MOVES A NEST ABOUT A FIFTH OF THE WAY TO WHAT THE VISITOR IS CARRYING. AT 0 A NEST'S SMELL IS DEAF TO WHO LIVES IN IT AND THE ANTS ONLY EVER TAKE.",
+        ));
+        out.push(float(
+            g,
+            Knob::Heredity { field: "nest_scent_drift" },
+            "colonies",
+            "nest_scent_drift",
+            world.nest_scent_drift,
+            span(0.0, 0.5, 0.005),
+            "HOW FAR A NEST'S OWN SMELL WANDERS ON ITS OWN, EVERY THOUSAND FRAMES. THIS IS THE SPEED AT WHICH TWO SEPARATE MOUNDS BECOME TWO DIFFERENT FAMILIES, AND IT IS A PROPERTY OF THE PLACE RATHER THAN OF THE ANTS -- WHICH IS THE REALISTIC WAY ROUND, SINCE COLONIES SMELL DIFFERENT BECAUSE THEY WERE FOUNDED APART AND NOT BECAUSE THEY SLOWLY MUTATED APART. AT THE SHIPPED SETTING TWO MOUNDS THAT NOBODY WALKS BETWEEN ARE STRANGERS INSIDE ONE SESSION, AND A SINGLE ANT CROSSING EVERY THOUSAND FRAMES IS ENOUGH TO HOLD THEM RELATED. AT 0 EVERY MOUND IN THE BOX KEEPS THE SMELL IT WAS FOUNDED WITH FOR EVER.",
         ));
     }
     if let Some(v) = creature_value(world, species, "kin_crosses_kinds") {
@@ -792,6 +852,26 @@ fn ant_rows(world: &World, out: &mut Vec<Param>) {
         world.pheromones.alarm_rho(),
         span(0.0, 1.0, 0.01),
         "HOW FAST THE SMELL OF A FIGHT FADES. AN ANIMAL THAT IS BITTEN LEAVES A MARK ON THE GROUND WHERE IT HAPPENED -- A THIRD SCENT, SEPARATE FROM THE TWO TRAILS ANTS LAY -- AND THIS IS HOW QUICKLY THE GROUND FORGETS IT. AT THE SHIPPED 0.25 ONE BITE IS LOUD FOR ABOUT A SECOND AND A HALF AND THEN IS SIMPLY NOT THERE, WHICH IS WHAT MAKES IT NEWS RATHER THAN A MAP: TURN IT DOWN TOWARD THE TRAIL RATE AND IT BECOMES A RECORD OF EVERYWHERE A FIGHT HAS EVER HAPPENED, WHICH NO ANIMAL CAN ACT ON. AT 1 IT IS GONE BEFORE ANYTHING COULD SMELL IT. NOTHING THAT SHIPS IS BORN LISTENING FOR IT -- IT IS A SENSE A LINEAGE HAS TO EVOLVE A USE FOR, AND WHAT IT DOES WITH IT (COME RUNNING, OR SCATTER) IS THE GENOME'S TO DECIDE. FELT ON THE NEXT TICK, LASTS THE SESSION.",
+    ));
+    // **The room gate's one number, and only its number.**
+    //
+    // The switch that arms it is `PIXEL_PHYSICS_LAB_ROOM`, an env var with no
+    // row here, which is the same shape `spoil_kept`, `trophallaxis_enabled`
+    // and `curvature_sense_enabled` already ship in: an ablation switch is for
+    // measuring an arm, not for playing with, and the owner's *expose every
+    // constant* ruling is about constants. **The page also has room for
+    // exactly one more row and this is it** -- `no_page_is_longer_than_two_screens`
+    // caps a page at 20 and ANTS stood at 19, so a toggle here would have put
+    // it at 21 and the guard caught that in CI rather than in review. The next
+    // lane to add an ANTS row has to move something.
+    out.push(float(
+        g,
+        Knob::Scalar { field: "room_target" },
+        "colonies",
+        "room_each_ant_wants",
+        world.room_target,
+        span(0.25, 16.0, 0.25),
+        "HOW MANY CELLS OF ROOFED SPACE AN ANT WANTS TO ITSELF BEFORE IT IS HALF AS KEEN TO DIG. AN ANT AT ITS OWN DOOR READS THE ROOM THE NEST HOLDS DIVIDED BY THE ANTS IN IT, SO EVERY CHAMBER THE COLONY CUTS MAKES THE NEXT ONE LESS URGENT, AND YOU CAN WATCH IT SETTLE DOWN AND START AGAIN AS THE BROOD OUTGROWS ITS ROOMS. THE SHIPPED 2.0 COMES OFF A CENSUS RATHER THAN OUT OF THE AIR: COLONIES LIVE AT ROUGHLY HALF A CELL TO TWO CELLS OF CHAMBER EACH AND NEVER STOP DIGGING, SO 2.0 PUTS THE HALFWAY POINT JUST ABOVE THE MOST ROOM ANY OF THEM EVER HELD. TURN IT DOWN AND THE COLONY IS SATISFIED SOONER AND GOES BACK TO THE SURFACE EARLIER; TURN IT UP AND IT KEEPS EXCAVATING. WHAT IT DOES NOT DO IS MAKE THE MOUND SMALLER -- MEASURED OVER TWELVE BEDS RUN TWICE EACH IT DIGS MORE ON ELEVEN OF THEM. WHAT IT DOES INSTEAD IS KEEP THE COLONY GOING: ALIVE AT THREE HUNDRED THOUSAND FRAMES ON FIVE OF THE TWELVE, WHERE THE OLD QUESTION LEFT NONE ALIVE AT ALL. THE WHOLE MECHANISM IS ON UNLESS YOU LAUNCH WITH PIXEL_PHYSICS_LAB_ROOM=off, WHICH PUTS THE OLD HEAD-COUNT BACK EXACTLY. FELT ON THE NEXT TICK, LASTS THE SESSION.",
     ));
 }
 
@@ -840,8 +920,7 @@ pub(crate) const TRAIT_ROWS: &[(usize, &str, &str)] = &[
 /// **What a lineage inherits.** Split off `ant_rows` when unlocking the four
 /// priced fields took that page to 23 rows against a ceiling of 20 — the same
 /// split, for the same reason, that gave `Costs` and `Heredity` their pages.
-fn genome_rows(world: &World, out: &mut Vec<Param>) {
-    let species = COLONY_SPECIES;
+fn genome_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let sp = species.to_string();
     let g = Group::Genome;
     if let Some(id) = world.species.id_of(species) {
@@ -858,11 +937,13 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
             out.push(toggle(g, Knob::Creature { species: sp.clone(), field: "eats_kin" }, species, "eats_kin",
                 def.eats_kin,
                 "WHETHER AN ANT WILL EAT ITS OWN KIND. OFF IS A COLONY; ON IS A COLONY THAT SOLVES A HUNGRY HOUR BY EATING ITSELF, WHICH IS A REAL STRATEGY AND A FAST WAY TO WATCH ONE COLLAPSE. CORPSES ARE FAIR GAME EITHER WAY -- THIS IS ABOUT THE LIVING."));
-            // **The speed of speciation.** Zero is the shipped setting and
-            // the four scent-side slots below are inert at it -- see `TRAIT_SCENT_A`.
+            // **The speed of speciation, and since 2026-09-12 it ships ON.**
+            // What made that safe is the nest holding an odour of its own --
+            // the three dials on the ANTS page -- so the note below no longer
+            // says "at 0, the shipped setting".
             out.push(float(g, Knob::Creature { species: sp.clone(), field: "scent_drift" }, species, "scent_drift",
                 def.scent_drift, span(0.0, 1.0, 0.01),
-                "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION: AT 0 -- THE SHIPPED SETTING -- NO LINEAGE EVER DRIFTS AND A COLONY STAYS ONE FAMILY FOR EVER; TURN IT UP AND LINEAGES WANDER APART UNTIL SOME ARE STRANGERS TO THE REST, AT WHICH POINT THE ANTS PAGE NAMES THEM AS A NEW GROUP AND A HUNGRY ANT WILL EAT ONE. NOBODY CAN SET THIS FROM THEORY; FIND THE RATE AT WHICH COLONIES SPLIT INSIDE A SESSION."));
+                "HOW FAR A NEWBORN'S SCENT AND TOLERANCE MOVE FROM ITS PARENT'S, PER BIRTH. THIS IS THE SPEED OF SPECIATION, AND IT SHIPS ON: EVERY ANT BORN IS A LITTLE DIFFERENT FROM ITS MOTHER, SO LINEAGES WANDER, AND ONE THAT WANDERS FAR ENOUGH IS NAMED AS A NEW GROUP ON THIS PAGE AND A HUNGRY ANT WILL EAT ONE OF ITS OWN OLD FAMILY. IT COULD NOT BE TURNED ON BEFORE A NEST HELD A SMELL: WITHOUT THAT, ANY SETTING EVENTUALLY HAD A COLONY EATING ITSELF. NOW THE MOUND PULLS EVERY ANT THAT COMES HOME BACK TO ONE SMELL, AND NO SETTING OF THIS DIAL CAN SPLIT A COLONY THAT LIVES AT ONE. AT 0 NOTHING EVER DRIFTS AND THE BOX IS ONE FAMILY FOR EVER, WHICH IS WHAT IT DID BEFORE."));
             for (slot, name, note) in TRAIT_ROWS {
                 // **The two arms-race rows widen with the dial below.** A
                 // reach of 4 that the ancestral row could still only be set
@@ -915,9 +996,8 @@ fn genome_rows(world: &World, out: &mut Vec<Param>) {
 /// listing the prices in one place and noticing the list was short. That is
 /// the argument for a page per question rather than per struct: a gap in a
 /// mixed page looks like a page that happens to be long.
-fn cost_rows(world: &World, out: &mut Vec<Param>) {
+fn cost_rows(world: &World, species: &str, out: &mut Vec<Param>) {
     let g = Group::Costs;
-    let species = COLONY_SPECIES;
     let sp = species.to_string();
     let mut cr = |field: &'static str, s: Span, integral, note: &str| {
         let Some(value) = creature_value(world, species, field) else { return };
@@ -995,6 +1075,26 @@ fn box_rows(world: &World, spec: &LabBox, out: &mut Vec<Param>) {
         "HOW MANY BEETLES A REBUILD RELEASES, SPREAD THE SAME WAY THE COLONIES ARE. ZERO BY DEFAULT, BECAUSE A PREDATOR IS THE ONE STOCKING CHOICE THAT CAN EMPTY A BOX. WHAT IT IS FOR IS A PAIR: TWO CHAMBERS ON THE SAME SEED, THIS AT 0 AND AT 4, IS AN EXPERIMENT -- ONE CHAMBER ON ITS OWN IS A STORY. IF A STOCKED BED SIMPLY EMPTIES, RAISE COMPARTMENTS BEFORE BLAMING THE BEETLE: A PREDATOR AND ITS PREY IN ONE SEALED BOX WITH NOWHERE TO HIDE GO EXTINCT IN THEORY AS WELL AS HERE. TAKES EFFECT ON REBUILD.");
     bed("seed", spec.seed as f32, span(0.0, 999.0, 1.0),
         "THE NUMBER THIS BOX IS BUILT FROM. THE SAME SEED AND THE SAME BUILD REBUILD THE SAME BOX EXACTLY, WHICH IS WHAT LETS YOU CHANGE ONE PARAMETER AND COMPARE TWO RUNS RATHER THAN TWO WORLDS. TAKES EFFECT ON REBUILD.");
+    // **The mister, reachable here too -- as an integer 0-3, not a label.**
+    // This page's `bed()` closure only knows `integer`/`float` rows, and
+    // adding a labelled-choice row type for one field is not this lane's to
+    // do; the BOX page's own `RAIN` row (`ui.rs`'s `panel_rows`) is where a
+    // player reads and sets this as OFF/LIGHT/STEADY/HEAVY. What this row
+    // buys is the *other* route in: `resolve_setting` looks a scenario
+    // `Setting` up against this page's own registry, so `(subject: "the
+    // bed", field: "rain", value: 2)` in a `.ron` is how a saved scenario
+    // ships with the mister already on -- exactly the route `hunting_
+    // ground.ron` uses for `ant.sight_range`.
+    //
+    // **This one line, unlike every other row above, does not need a
+    // rebuild** -- `Lab::tick` reads `spec.rain` fresh every tick, so a
+    // change here is felt on the very next one. `needs_rebuild` matches
+    // every `Knob::Bed` field alike, so `adjust_param`'s notice still says
+    // "TAKES EFFECT ON REBUILD" when this is nudged from this page; that is
+    // this shared page's own coarse flag rather than something this field
+    // can opt out of, which is why the note below says the true story.
+    bed("rain", spec.rain.as_index() as f32, span(0.0, 3.0, 1.0),
+        "THE MISTER ON THE LID: 0 OFF, 1 LIGHT, 2 STEADY, 3 HEAVY. SEE THE BOX PAGE'S OWN `RAIN` ROW FOR THE RATES AND THE MEASUREMENT THE SHIPPED DEFAULT RESTS ON. UNLIKE EVERY OTHER ROW ON THIS PAGE THIS TAKES EFFECT IMMEDIATELY, NOT ON REBUILD, WHATEVER THE NOTICE BELOW SAYS.");
 }
 
 /// **The world-level dials the parameters page exposes that are not a
@@ -1018,8 +1118,37 @@ fn shipped_trait_reach() -> f32 {
 
 /// The value a `lab_dials.ron` written before `plasticity` existed loads at:
 /// the shipped dial, for `shipped_trait_reach`'s reason.
+fn shipped_nest_blend() -> f32 {
+    creature::NEST_BLEND_DEFAULT
+}
+
+/// As `shipped_nest_blend`, for the nest's side of the exchange.
+fn shipped_nest_uptake() -> f32 {
+    creature::NEST_UPTAKE_DEFAULT
+}
+
+/// As `shipped_nest_blend`, for the odour a place acquires on its own.
+fn shipped_nest_scent_drift() -> f32 {
+    creature::NEST_SCENT_DRIFT_DEFAULT
+}
+
+/// The value a `lab_dials.ron` written before `plasticity` existed loads at:
+/// the shipped dial, for `shipped_trait_reach`'s reason.
 fn shipped_plasticity() -> f32 {
     creature::PLASTICITY_DEFAULT
+}
+
+/// As `shipped_trait_reach`, for the room gate -- shipped **on**, on the
+/// owner's verdict (`creature::room_gate_default`). The derive's `false` is
+/// the control arm rather than the shipped box, which is exactly the trap
+/// `trait_reach` above records, so this one is named.
+fn shipped_room_gate() -> bool {
+    true
+}
+
+/// As `shipped_trait_reach`, for the room the gate measures against.
+fn shipped_room_target() -> f32 {
+    creature::ROOM_TARGET_DEFAULT
 }
 
 /// As `shipped_trait_reach`, for the alarm scent's decay.
@@ -1029,6 +1158,15 @@ fn shipped_alarm_decay() -> f32 {
 
 #[derive(Clone, Copy, Debug, serde::Serialize, serde::Deserialize)]
 pub struct Dials {
+    /// `World::soil_capillary_levels`. **A plain `#[serde(default)]` is
+    /// correct here, unlike the three named defaults below**, and the
+    /// difference is worth stating because this file makes a point of it:
+    /// those load `0.0` as a *control arm* rather than as the shipped bed,
+    /// so a missing key silently changed behaviour. Here `false` **is** the
+    /// shipped bed (owner's ruling, 2026-09-11), so a dials file written
+    /// before this key existed loads exactly the box it was saved from.
+    #[serde(default)]
+    pub soil_capillary_levels: bool,
     pub plant_load_failure: bool,
     pub plant_bending: bool,
     pub plant_size_cadence: bool,
@@ -1062,6 +1200,34 @@ pub struct Dials {
     /// arm uses: `0` is [`organism::DevelopmentalKey::World`], `n > 0` is
     /// `DevelopmentalKey::Plant { coarseness: n - 1 }`.
     pub developmental_key: u32,
+    /// `World::nest_blend`. **A named default, for `trait_reach`'s reason**:
+    /// a dials file written before cohesion existed would otherwise load
+    /// `0.0`, which is a box whose nests hold no odour at all — and since the
+    /// ant now ships with `scent_drift` on, that is the setting under which a
+    /// colony drifts apart and eats itself.
+    #[serde(default = "shipped_nest_blend")]
+    pub nest_blend: f32,
+    /// `World::nest_uptake`. Named default for `nest_blend`'s reason.
+    #[serde(default = "shipped_nest_uptake")]
+    pub nest_uptake: f32,
+    /// `World::nest_scent_drift`. Named default for `nest_blend`'s reason —
+    /// here a missing key loading as 0 would be *quiet* rather than harmful
+    /// (nests simply never part), which is the more dangerous of the two: a
+    /// mechanism that silently never fires looks exactly like one that did.
+    #[serde(default = "shipped_nest_scent_drift")]
+    pub nest_scent_drift: f32,
+    /// `World::room_gate`. Named default rather than the derive's, even
+    /// though the two agree today: the shipped value is a live question with
+    /// the owner (`creature::room_gate_default`), and a key whose default is
+    /// spelled out moves with that answer instead of silently tracking
+    /// `bool::default()`.
+    #[serde(default = "shipped_room_gate")]
+    pub room_gate: bool,
+    /// `World::room_target`. Named default for `room_gate`'s reason, and
+    /// here a missing key loading as `0.0` would be worse than the control:
+    /// it pins occupancy at 1.0, which is neither arm.
+    #[serde(default = "shipped_room_target")]
+    pub room_target: f32,
 }
 
 impl Dials {
@@ -1079,6 +1245,7 @@ impl Dials {
     /// Read the current value of every dial off a live `World`.
     pub fn from_world(world: &World) -> Self {
         Self {
+            soil_capillary_levels: world.soil_capillary_levels,
             plant_load_failure: world.plant_load_failure,
             plant_bending: world.plant_bending,
             plant_size_cadence: world.plant_size_cadence,
@@ -1093,6 +1260,11 @@ impl Dials {
                 organism::DevelopmentalKey::World => 0,
                 organism::DevelopmentalKey::Plant { coarseness } => coarseness + 1,
             },
+            nest_blend: world.nest_blend,
+            nest_uptake: world.nest_uptake,
+            nest_scent_drift: world.nest_scent_drift,
+            room_gate: world.room_gate,
+            room_target: world.room_target,
         }
     }
 
@@ -1110,12 +1282,18 @@ impl Dials {
     /// [`write`]'s `Knob::Rule`/`Knob::Heredity` arms make, so a restored
     /// session cannot mean something a live edit could not also reach.
     pub fn apply_to(&self, world: &mut World) {
+        world.soil_capillary_levels = self.soil_capillary_levels;
         world.plant_load_failure = self.plant_load_failure;
         world.plant_bending = self.plant_bending;
         world.plant_size_cadence = self.plant_size_cadence;
         world.trait_reach = self.trait_reach;
         world.plasticity = self.plasticity;
         world.pheromones.set_alarm_rho(self.alarm_decay);
+        world.nest_blend = self.nest_blend;
+        world.nest_uptake = self.nest_uptake;
+        world.nest_scent_drift = self.nest_scent_drift;
+        world.room_gate = self.room_gate;
+        world.room_target = self.room_target;
         world.mutation_sigma = self.mutation_sigma;
         world.fate_mutation_chance = self.fate_mutation_chance;
         world.param_mutation_chance = self.param_mutation_chance;
@@ -1129,6 +1307,39 @@ impl Dials {
         // restored key, or the box runs two rules at once -- see
         // `Knob::Heredity`'s own write arm, which this mirrors exactly.
         world.refold_developmental_seeds();
+    }
+
+    /// Which of these differ from `default`, as `"NAME value"` strings in
+    /// declaration order -- `Lab::write_chronicle`'s own use, so a chronicle
+    /// names what the player actually set rather than every dial whether
+    /// touched or not. Plain `!=` rather than a derived `PartialEq`: every
+    /// dial here moves by a whole slider step or a button press, never by
+    /// float noise, so an exact comparison is the right one.
+    pub fn changes_from(&self, default: &Dials) -> Vec<String> {
+        let mut out = Vec::new();
+        macro_rules! diff {
+            ($field:ident, $label:literal) => {
+                if self.$field != default.$field {
+                    out.push(format!("{} {:?}", $label, self.$field));
+                }
+            };
+        }
+        diff!(soil_capillary_levels, "SOIL_CAPILLARY_LEVELS");
+        diff!(plant_load_failure, "PLANT_LOAD_FAILURE");
+        diff!(plant_bending, "PLANT_BENDING");
+        diff!(plant_size_cadence, "PLANT_SIZE_CADENCE");
+        diff!(trait_reach, "TRAIT_REACH");
+        diff!(plasticity, "PLASTICITY");
+        diff!(alarm_decay, "ALARM_DECAY");
+        diff!(mutation_sigma, "MUTATION_SIGMA");
+        diff!(fate_mutation_chance, "FATE_MUTATION_CHANCE");
+        diff!(param_mutation_chance, "PARAM_MUTATION_CHANCE");
+        diff!(param_mutation_sigma, "PARAM_MUTATION_SIGMA");
+        diff!(developmental_key, "DEVELOPMENTAL_KEY");
+        diff!(nest_blend, "NEST_BLEND");
+        diff!(nest_uptake, "NEST_UPTAKE");
+        diff!(nest_scent_drift, "NEST_SCENT_DRIFT");
+        out
     }
 
     /// Write every dial to [`ASSET_PATH`](Self::ASSET_PATH) whole, like
@@ -1210,6 +1421,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "curvature_fraction" => def.curvature_fraction = value,
                 "exposure_cost_per_cell" => def.exposure_cost_per_cell = value,
                 "scent_drift" => def.scent_drift = value,
+                "life_half_life" => def.life_half_life = value.max(0.0).round() as u32,
                 "scent_spread" => def.scent_spread = value,
                 "kin_crosses_kinds" => def.kin_crosses_kinds = value >= 0.5,
                         _ => return false,
@@ -1320,6 +1532,26 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 world.plasticity = value;
                 return true;
             }
+            // **The nest's three, ahead of the rate guard too.** Two of
+            // them are rates and would pass it; `nest_scent_drift` is a step
+            // size per thousand frames whose span stops at 0.5, so they are
+            // kept together rather than split across the guard -- a reader
+            // looking for one of the three should find all three. Each bound
+            // is its own row's span, so the page and the setter cannot
+            // disagree about what a legal setting is.
+            let nest_dial: Option<(&mut f32, f32)> = match *field {
+                "nest_blend" => Some((&mut world.nest_blend, 1.0)),
+                "nest_uptake" => Some((&mut world.nest_uptake, 1.0)),
+                "nest_scent_drift" => Some((&mut world.nest_scent_drift, 0.5)),
+                _ => None,
+            };
+            if let Some((slot, top)) = nest_dial {
+                if !(0.0..=top).contains(&value) {
+                    return false;
+                }
+                *slot = value;
+                return true;
+            }
             if !crate::sim::plant::settable_rate(value) {
                 return false;
             }
@@ -1342,6 +1574,7 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                 "plant_load_failure" => world.plant_load_failure = on,
                 "plant_bending" => world.plant_bending = on,
                 "plant_size_cadence" => world.plant_size_cadence = on,
+                "soil_capillary_levels" => world.soil_capillary_levels = on,
                 _ => return false,
             }
             true
@@ -1355,6 +1588,18 @@ pub fn write(world: &mut World, spec: &mut LabBox, knob: &Knob, value: f32) -> b
                         return false;
                     }
                     world.pheromones.set_alarm_rho(value);
+                }
+                // **Bounded away from zero, not merely clamped by the span.**
+                // A target of 0 pins `NestRoom::occupancy` at 1.0, which is
+                // the saturated input the whole mechanism exists to escape --
+                // so it is refused here as well as on the row's span, for the
+                // reason `Knob::Rule`'s doc gives: a restored dials file must
+                // not be able to reach a state a live edit could not.
+                "room_target" => {
+                    if value <= 0.0 {
+                        return false;
+                    }
+                    world.room_target = value;
                 }
                 _ => return false,
             }
@@ -1409,6 +1654,12 @@ pub fn write_bed(spec: &mut LabBox, field: &str, value: f32) -> bool {
         "colony_ants" => spec.colony_ants = v as i32,
         "predators" => spec.predators = v as usize,
         "seed" => spec.seed = v as u64,
+        // Clamped through `Rain::from_index`, whose own `_ => Rain::Off`
+        // arm already refuses anything past `Heavy` -- so a scenario
+        // `Setting` asking for `value: 9` lands at `OFF` rather than
+        // panicking or reading out of bounds, the same forgiving rounding
+        // every other integral row here already gets from `v.round()`.
+        "rain" => spec.rain = crate::lab::rain::Rain::from_index(v as u8),
         _ => return false,
     }
     true
@@ -1433,6 +1684,7 @@ pub fn read_bed(spec: &LabBox, field: &str) -> Option<f32> {
         "colony_ants" => spec.colony_ants as f32,
         "predators" => spec.predators as f32,
         "seed" => spec.seed as f32,
+        "rain" => spec.rain.as_index() as f32,
         _ => return None,
     })
 }
@@ -1847,6 +2099,11 @@ pub fn specimen_sections(world: &World, id: u16) -> Vec<SpecimenSection> {
 /// -- an individual older than the log's window has a truncated story, and a
 /// truncated story must not read as an uneventful one.
 fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
+    // **Short forms, dropping the subject** -- the page title already names
+    // this individual, so `Ui::log_rows`' full sentence ("KESTREL-3 BORN TO
+    // KESTREL-2") would repeat itself here. See `world::LogEvent`'s doc for
+    // why `lineage`/`generation` are enough to build these with no further
+    // lookup.
     let mut rows: Vec<SpecimenRow> = world
         .run_log
         .about(id, born_frame)
@@ -1854,16 +2111,36 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
             (
                 format!("F{}", e.frame),
                 match e.kind {
-                    world::LogKind::Born => "BORN".to_string(),
+                    world::LogKind::Born => {
+                        if e.generation == 0 {
+                            "GERMINATED".to_string()
+                        } else {
+                            format!("BORN TO {}", crate::lab::names::individual(world.seed, e.lineage, e.generation - 1))
+                        }
+                    }
                     world::LogKind::Died => organism::DEATH_CAUSE_LIST
                         .get(e.other as usize)
                         .map(|c| c.label().to_string())
                         .unwrap_or_else(|| "DIED".to_string()),
                     world::LogKind::FirstFeed => "FIRST FED".to_string(),
                     world::LogKind::FirstSeed => "FIRST SEED".to_string(),
-                    world::LogKind::LineEnded => format!("LINE {} ENDED", e.other),
+                    world::LogKind::LineEnded => format!("LINE ENDED, {} GEN", e.generation),
+                    world::LogKind::GroupSplit => {
+                        let count = world
+                            .live_creature_groups()
+                            .iter()
+                            .find(|g| g.species == e.species && g.colony == e.other as u32)
+                            .map(|g| g.alive)
+                            .unwrap_or(0);
+                        format!("SPLIT OFF, {count}")
+                    }
+                    world::LogKind::LineMilestone => {
+                        let (is_population, threshold) = world::decode_milestone(e.other);
+                        if is_population { format!("LINE NUMBERS {threshold}") } else { format!("LINE REACHES GEN {threshold}") }
+                    }
+                    world::LogKind::LineRecord => crate::lab::plainspeak::describe_record(e.other),
                 },
-                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S WHAT HAPPENED LIST IS THE SAME LOG WITH EVERYBODY IN IT.".to_string(),
+                "A LINE THIS INDIVIDUAL PUT IN THE RUN LOG, AT THE SIMULATED FRAME IT HAPPENED ON. THE BOX PAGE'S LOG LIST IS THE SAME LOG WITH EVERYBODY IN IT, IN FULL SENTENCES.".to_string(),
             )
         })
         .collect();
@@ -1872,6 +2149,19 @@ fn story(world: &World, id: u16, born_frame: u64) -> Vec<SpecimenRow> {
             "NO LINES".into(),
             "--".into(),
             "NOTHING THIS INDIVIDUAL DID HAS REACHED THE RUN LOG. EITHER IT HAS NOT YET DONE ANYTHING NOTABLE, OR IT IS OLD ENOUGH THAT ITS LINES HAVE AGED OUT OF THE LOG -- THE WHAT HAPPENED PAGE SAYS HOW MANY HAVE BEEN LOST FOR GOOD.".into(),
+        ));
+    }
+    // **`BORN WITH`, added here rather than in the STATE group** -- this
+    // function is this lane's only foothold in `params.rs`. `None` (a
+    // founder, a released jar, or a mutation that rolled and changed
+    // nothing visible) means no row at all, not a row that says "nothing":
+    // most individuals in a box will not have one, and a page that grew a
+    // permanent blank row for the common case would be noise.
+    if let Some(phrase) = world.organism(id).and_then(|s| crate::lab::plainspeak::describe_born_with(s.born_with)) {
+        rows.push((
+            "BORN WITH".into(),
+            phrase,
+            "THE STRONGEST SINGLE THING THAT CHANGED BETWEEN THIS INDIVIDUAL AND ITS PARENT. THE STRONGEST ONE ONLY -- EVERY OTHER MUTATION THAT BIRTH MADE IS REAL AND UNREPORTED, THE SAME WAY A HEADLINE NAMES ONE FACT OUT OF MANY.".into(),
         ));
     }
     rows
@@ -2333,6 +2623,92 @@ mod tests {
         assert!(save_check(dig).starts_with("would write"), "dig_force should be savable");
     }
 
+    /// **The ANTS/GENOME/COSTS pages describe whichever species the box's
+    /// COLONY tool is actually about to place, not always "ant".** Before
+    /// 2026-09-09 the three page builders read a module constant fixed at
+    /// "ant", so arming the beetle in the chip and opening any of these
+    /// pages still showed the ant's own numbers under the beetle's chip --
+    /// a knob that reads correctly and reaches nothing the moment the armed
+    /// species is not the one the constant named.
+    #[test]
+    fn arming_the_beetle_makes_the_ant_pages_describe_the_beetle() {
+        let (world, mut spec) = bed();
+        spec.colony_species = "beetle".to_string();
+        let rows = registry(&world, &spec, None);
+        let ants: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Ants).collect();
+        assert!(!ants.is_empty(), "arming the beetle emptied the ANTS page entirely");
+        for p in &ants {
+            // **Most rows are categorised by species; a few (`scent_spread`,
+            // `kin_crosses_kinds`, the alarm decay) are deliberately filed
+            // under "colonies" instead, because what they name is a rule of
+            // the box rather than the animal's own number.** Those still
+            // carry the armed species inside `Knob::Creature`, which is the
+            // half this test is actually about, so the category check
+            // allows that one named exception rather than widening past the
+            // bug it exists to catch.
+            assert!(
+                p.tunable.category == "beetle" || p.tunable.category == "colonies",
+                "an ANTS row named {:?} while the beetle was armed",
+                p.tunable.category
+            );
+            if let Knob::Creature { species, .. } = &p.knob {
+                assert_eq!(species, "beetle", "a Knob::Creature saved against {species:?} while the beetle was armed");
+            }
+        }
+        let genome: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Genome).collect();
+        assert!(!genome.is_empty(), "arming the beetle emptied the GENOME page entirely");
+        for p in &genome {
+            // `arms_race_reach` and `plasticity` are `Knob::Heredity` --
+            // genuinely global dials, filed under "genome" rather than any
+            // species, for the same reason `ant_rows`' two exceptions are
+            // filed under "colonies".
+            assert!(
+                p.tunable.category == "beetle" || p.tunable.category == "genome",
+                "a GENOME row named {:?} while the beetle was armed",
+                p.tunable.category
+            );
+            if let Knob::Creature { species, .. } = &p.knob {
+                assert_eq!(species, "beetle", "a Knob::Creature saved against {species:?} while the beetle was armed");
+            }
+        }
+        let costs: Vec<&Param> = rows.iter().filter(|p| p.group == Group::Costs).collect();
+        assert!(!costs.is_empty(), "arming the beetle emptied the COSTS page entirely");
+        for p in &costs {
+            assert_eq!(p.tunable.category, "beetle", "a COSTS row named {:?} while the beetle was armed", p.tunable.category);
+        }
+        // And the ant is still the default when nothing has armed a beetle --
+        // this is a follow, not a one-way flip.
+        let (world2, spec2) = bed();
+        let still_ant: Vec<Param> = registry(&world2, &spec2, None).into_iter().filter(|p| p.group == Group::Ants).collect();
+        assert!(
+            still_ant.iter().any(|p| p.tunable.category == "ant"),
+            "the default bed's own ANTS page no longer names the ant"
+        );
+        assert!(
+            still_ant.iter().all(|p| p.tunable.category == "ant" || p.tunable.category == "colonies"),
+            "the default bed's ANTS page named something other than the ant or the box's own rules"
+        );
+    }
+
+    /// **The hopper appears on the COLONY chip.** `crate::lab::ui::
+    /// stockable_species` walks the loaded species table for
+    /// `creature.is_some()`, sorted by name, and `hopper.ron` has a
+    /// `creature:` block -- so it is a chip entry the moment it is in
+    /// `EMBEDDED`, whether or not it can yet be placed (it cannot: it has
+    /// no companion material, which `src/lab/mod.rs`'s own
+    /// `the_stocking_chip_puts_the_animal_it_names_in_the_box` would catch
+    /// if it tried to click one down, and this test deliberately does not
+    /// go that far). Mirrors that test's own chip-reading path rather than
+    /// editing `src/lab/ui.rs` or `src/lab/mod.rs`, neither of which this
+    /// change touches.
+    #[test]
+    fn the_hopper_is_on_the_colony_chip() {
+        let (world, _spec) = bed();
+        let names: Vec<String> =
+            crate::lab::ui::stockable_species(&world).into_iter().map(|id| world.species.get(id).name.clone()).collect();
+        assert!(names.contains(&"hopper".to_string()), "the chip does not offer 'hopper': {names:?}");
+    }
+
     /// **`occurrences` counts keys, not substrings.** `seed_cost` inside
     /// `seed_costs` is a different field, and a comment mentioning a field
     /// name is not a field. Getting this wrong in the permissive direction
@@ -2373,6 +2749,7 @@ mod tests {
             "reproduce_threshold", "mutation_rate", "tick_interval",
             "dig_force", "bite_force", "sight_range", "curvature_radius", "sensor_offset",
             "climbs_over_kin", "eats_kin", "scent_spread", "scent_drift", "kin_crosses_kinds",
+            "life_half_life",
             "idle_cost_per_cell", "move_cost_per_cell", "dig_cost_in_moves",
             "emit_cost_in_moves", "spoil_weight_cells", "exposure_cost_per_cell",
             "synapse_fraction", "sight_fraction", "curvature_fraction",
@@ -2550,5 +2927,50 @@ mod tests {
         assert_eq!(world.frame, before, "writing the spec must not touch the running world");
         assert!(needs_rebuild(&Knob::Bed { field: "soil_depth" }));
         assert!(!needs_rebuild(&Knob::Material { material: "soil", field: "density" }));
+    }
+
+    /// **`story`'s value column is the CELL page's, not the LOG page's** --
+    /// 26 characters (`plainspeak::PHRASE_COLUMNS`), not 42. `Ui::log_rows`
+    /// has its own width guard against its own 42-character budget; this is
+    /// the narrower sibling for the shortened forms `story` builds instead
+    /// of reusing them, so a sentence that fits the LOG page could still
+    /// widen the CELL page over the roster -- the exact trap
+    /// `plainspeak::every_phrase_fits_the_column`'s own doc names ("a
+    /// thirty-character phrase pushed the page to 250px").
+    #[test]
+    fn a_story_row_fits_the_specimen_columns_width() {
+        let mut world = World::new(crate::sim::chunk::Rect::new(0, 0, 63, 63));
+        let base = world::LogEvent {
+            frame: 30_000,
+            id: 7,
+            born_frame: 0,
+            species: SpeciesId(0),
+            kind: world::LogKind::Born,
+            other: 0,
+            lineage: 200,
+            generation: 200,
+        };
+        let events = [
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
+            world::LogEvent { kind: world::LogKind::LineRecord, other: ((organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4, ..base },
+        ];
+        for e in events {
+            world.run_log.push(e);
+        }
+        let limit = crate::lab::plainspeak::PHRASE_COLUMNS;
+        for (label, value, _) in story(&world, base.id, base.born_frame) {
+            assert!(
+                value.chars().count() <= limit,
+                "{label:?}/{value:?} is {} characters against a {limit}-character column",
+                value.chars().count()
+            );
+        }
     }
 }

@@ -101,6 +101,8 @@ DOC = Path(__file__).resolve().parent.parent / "README.md"
 GAME = {
     "plants, trees and moss": "engine",
     "creatures — worms and the ant colony": "engine",
+    "the chronicle: names, line events, and a clock that reacts": "lab",
+    "a hand in the box: scent, alarm, fling, lamp": "lab",
     "structural collapse, felling and rigid bodies": "outdoor",
     "fire, heat and phase change": "engine",
     "explosions, particles and debris": "outdoor",
@@ -189,6 +191,11 @@ TOPICS = {
         # Why a dug gallery now stays dug, and why a corpse no longer plugs
         # the passage its owner died in.
         "Lab soil status — a hole that stays a hole anywhere in the bed, and a bed that stops running out",
+        "Hunger status — a fed ant rests, a hungry one walks, and the founding cliff is walking cost",
+        "Hopper status — the jump has a species, and it hops itself to death",
+        "Trophallaxis status — the colony's stomach, shipped on, and a first measurement that says wait",
+        "Trail status — the ant reads its way home, and the food trail is the larder's problem",
+        "Lifespan status — an ant gets old, and the colony's fall becomes a slope",
     ],
     "structural collapse, felling and rigid bodies": [
         "M17 status",
@@ -242,6 +249,7 @@ TOPICS = {
         "World speed — five independent time axes",
     ],
     "rendering, UI and tunables": [
+        "Zoom-in styles status — what a cell's 64 pixels can say",
         "UI improvements — overnight run, section 9",
         "Live tunables panel — overnight run, section 10",
         "Rendering performance — overnight run, section 11",
@@ -325,6 +333,19 @@ TOPICS = {
     # has no reason to look under a lab heading for them.
     "putting things in the box, and what the view shows": [
         "Lab hand-verbs status — what a click puts in the box, and what the view shows",
+    ],
+    # 2026-09-09: the instrument turned toward the player. Names and a
+    # chronicle bounded per lineage, the clock reacting to line events, and
+    # the marks the owner rejected -- one row, because a player meets them
+    # as one thing: the box telling them what happened.
+    "the chronicle: names, line events, and a clock that reacts": [
+        "Chronicle status — the box tells you who did what, at any population",
+        "Event reaction status — the box calls you back",
+        "Life marks status — a pause-time mark, and what the owner rejected",
+    ],
+    # The owner's own idea, the day it was proposed: a hand in the box.
+    "a hand in the box: scent, alarm, fling, lamp": [
+        "Creature tools status — a hand in the box: scent, alarm, fling, lamp",
     ],
     # **What the speed dial costs, which is not what anyone assumed.** Its own
     # row rather than a line under "the box and its lights", because the

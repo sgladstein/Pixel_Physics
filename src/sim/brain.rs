@@ -32,7 +32,14 @@
 
 use serde::{Deserialize, Serialize};
 
-pub const BRAIN_INPUTS: usize = 26;
+/// **29, not 27, since 2026-09-10.** `BloomNear`/`BloomBearing` appended --
+/// see the two variants themselves and
+/// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3. Lawful
+/// under the reserve for the same reason `PreyNear`/`PreyBearing` were:
+/// `INPUT_SLOTS` is 64 against a live count of 27 before this, so lighting
+/// up two more rows moves no existing weight and `GENOME_LEN` does not
+/// change.
+pub const BRAIN_INPUTS: usize = 29;
 /// **Eight, not four, since 2026-09-02.**
 ///
 /// Four was the whole of an animal's internal state, and `ant.ron` already
@@ -52,7 +59,19 @@ pub const BRAIN_INPUTS: usize = 26;
 /// values, so a sampled genome at a given seed is a different animal and
 /// every `creature_space` baseline taken before this is void.
 pub const BRAIN_HIDDEN: usize = 8;
-pub const BRAIN_OUTPUTS: usize = 14;
+/// **16, not 15, since 2026-09-11.** `Fly` appended -- the flitter's float
+/// (`Reports/evolution-lab-flight-design-2026-09-11.md` §1). Lawful under
+/// the reserve exactly as `Feed`, `Impulse`, `DropSpoil`, `Attack`,
+/// `Provision` and `Share` were: `OUTPUT_SLOTS` is 64 against a live count
+/// of 15 before this, so the new row was already there and already zero and
+/// `GENOME_LEN` does not change.
+///
+/// **An output row is the expensive append.** 33 live slots at the 2026-09-06
+/// count and **37** now (29 inputs + 8 hidden), against an input column's 24
+/// -- so `live_slots()` goes 809 -> 846 and every species' `mutation_rate`
+/// is re-derived against it in the same change, which is the whole of the
+/// cost (see `the_live_slot_count_is_pinned_because_mutation_rate_is_derived_from_it`).
+pub const BRAIN_OUTPUTS: usize = 16;
 
 /// **Reserved storage dimensions.** The live counts above say how much of
 /// the scaffold is wired; these say how much room the layout leaves it to
@@ -249,9 +268,13 @@ pub const INPUT_NAMES: [&str; BRAIN_INPUTS] = [
     "ThreatBearing",
     "Alarm",
     "Made",
+    "KinNeed",
+    "BloomNear",
+    "BloomBearing",
 ];
-pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] =
-    ["Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision"];
+pub const OUTPUT_NAMES: [&str; BRAIN_OUTPUTS] = [
+    "Turn", "Move", "EmitA", "EmitB", "Dig", "Drop", "Persist", "Tumble", "Caution", "Feed", "Impulse", "DropSpoil", "Attack", "Provision", "Share", "Fly",
+];
 
 /// **The genome's shape, as a stored jar remembers it.**
 ///
@@ -759,6 +782,66 @@ pub enum BrainInput {
     /// onto `Move` against `KinNear`. Nothing says it must; nothing that
     /// ships reads it.
     Made = 25,
+    /// **The largest energy deficit among living kin touching this animal's
+    /// body**, `1 - energy / start_energy` clamped to `[0, 1]`, from the same
+    /// ring walk `FoodAdjacent` already makes. `0.0` when there is no
+    /// adjacent kin, and `0.0` when every adjacent kin is full -- the two
+    /// mean the same thing to the animal (nothing to give), which is why one
+    /// slot is honest here where `PreyNear` needed `PreyBearing` beside it.
+    ///
+    /// Normalised by the *donor's* `start_energy`, not the recipient's --
+    /// one field read, no species lookup. Exact while kin is same-species
+    /// (`CreatureDef::kin_crosses_kinds` off, every shipped species): a
+    /// cross-kind kin would be normalised against the wrong scale, and the
+    /// fix if that ever ships is a `world.species.get` lookup per kin
+    /// neighbour, at the cost of one lookup.
+    ///
+    /// **A colony-level signal, not an individual one**, which is what makes
+    /// it worth wiring onto `Move` as well as `Share` -- a full animal beside
+    /// hungry kin is the one anticipation a colony has that its own stomach
+    /// cannot supply (`BrainOutput::Share`).
+    KinNeed = 26,
+    /// **How close the nearest visible flower is** — 1.0 touching and 0.0
+    /// out of sight, `PreyNear`'s scale and for the same reason: nearness
+    /// rather than raw distance, so "nothing in sight" and "at the very
+    /// edge of sight" both read ~0 and the input rises as the flower gets
+    /// closer.
+    ///
+    /// **Nothing in this suite pointed at a flower before this.**
+    /// `FoodAdjacent` is the head's 8-neighbourhood, so it fires only once
+    /// an animal is already touching one; the nectar mechanism (B1',
+    /// `plant::nectar_offer`) paid out over 120,000 played-bed frames and
+    /// `flower_visits` read **0**, because nothing in the box could find a
+    /// flower except by walking into it by chance. See
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §2.3.
+    ///
+    /// **The same ray, the same eye, and the cost is what makes this nearly
+    /// free.** `sight` already casts `SIGHT_RAYS` rays for prey, kin and
+    /// threat; a bloom is recorded on those rays and **never breaks one**
+    /// (`is_visible_bloom`, called from `sight` beside `is_visible_kin`),
+    /// so `sight_reads` — what `sight_fraction` bills — does not move and
+    /// the shipped, eyeless ant is bit-identical. **Zero for every species
+    /// that has not authored `sight_range`**, exactly as `PreyNear` is.
+    ///
+    /// **Not gut-filtered**, the same asymmetry `is_visible_kin` documents
+    /// beside `PreyNear`: a flower a gut cannot digest is still a flower to
+    /// look at, and the existing `FoodAdjacent`/diet filter at the bite site
+    /// is what actually decides whether reaching it pays.
+    BloomNear = 27,
+    /// **Which way to turn to face that flower**, as the signed angle from
+    /// the current heading normalized to `-1..1`. `PreyBearing`'s argument
+    /// transfers word for word: **positive = to the right**, so an authored
+    /// pursuit instinct is a *negative* weight into `Turn` (which biases
+    /// left when positive — see `creature.rs`'s candidate scoring), and
+    /// `0.0` means dead ahead *and* means nothing in sight, which is why
+    /// the pair ships together rather than `BloomNear` alone.
+    ///
+    /// A full-circle bearing to one cell found by a ray traced at CA
+    /// resolution — the same reason `PreyBearing` and `KinBearing` are not
+    /// a lateral difference of two coarse-field samples: it keeps this
+    /// input clear of `CLAUDE.md`'s block-nearest degeneracy, hit four
+    /// times on three lines and never once caught by a test.
+    BloomBearing = 28,
 }
 
 /// Which output slot. Positional and append-only, as above.
@@ -930,6 +1013,83 @@ pub enum BrainOutput {
     /// (`World::plasticity`, shipping at 1) says -- nothing changes until a
     /// line wires this.
     Provision = 13,
+    /// **Hand a graded amount of this animal's own energy to the neediest
+    /// living kin touching its body** -- trophallaxis, and the cure the
+    /// colony-economy report names for every founder emptying the same
+    /// grant on the same schedule (`Reports/colony-economy-design-2026-09-09.md`
+    /// §4a). Owner's ruling: ships as a brain output the genome can evolve,
+    /// wired **on by default** in `ant.ron` -- a rule-based always-on
+    /// transfer was rejected as hardcoding the colony.
+    ///
+    /// **Downhill only, and only ever a fraction of the gap** --
+    /// `creature::SHARE_FRACTION` -- so the donor stays the richer of the
+    /// two and a share can never kill it. Live stock to live stock: the
+    /// energy ledger needs no new term, only the jaw price the transfer
+    /// costs to execute (`Did::shares`).
+    ///
+    /// Gated on the urge before the scan, exactly as `Attack` is:
+    /// `squash(0)` is exactly 0.0 for an unauthored row, so `&&`
+    /// short-circuits, no RNG draw is taken, and a species with no `Share`
+    /// weight is bit-identical to the tree before this slot existed.
+    Share = 14,
+    /// **Stay up, and steer** -- the float, and the slot that finally gives
+    /// `Turn` a surface to work on.
+    /// `Reports/evolution-lab-flight-design-2026-09-11.md` §1.
+    ///
+    /// **How much of its own weight this animal is carrying on the air**,
+    /// read raw and gated on strictly positive exactly as `Impulse` is:
+    /// `creature::step_flight` computes `g_eff = GRAVITY * (1 - carried) *
+    /// (1 - fly)`, so 0.0 is the ballistic arc this engine has always had
+    /// and a saturated row is a body that hangs. `squash(0.0)` is exactly
+    /// 0.0, so a species that authors no weight here reads 0.0, is never
+    /// held up, takes no RNG draw, and is bit-identical to the tree before
+    /// the slot existed -- which is why `hopper.ron`'s hop is untouched by
+    /// this append. `unit_scale` would have read 0.5 for the same silent
+    /// row and put every hopper in the world into permanent hover, which is
+    /// `Impulse`'s own argument for why an *action* is read raw.
+    ///
+    /// **It is not only lift -- it is the tick the brain gets at all.**
+    /// Until this existed an airborne animal did not read the world,
+    /// evaluate its brain or act (`creature_tick`'s airborne early return),
+    /// so `(BloomBearing, Turn, ..)` steered nothing for the third to a half
+    /// of a flitter's life it spent in the air. While this row holds the
+    /// body up the brain runs once per `tick_interval` aloft and `Turn`
+    /// moves the *heading* one octant, which is the identical operation
+    /// `step_chain` performs on the ground -- so the two verbs cannot
+    /// disagree about what a turn is, and a weight authored against the
+    /// ground's convention means the same thing in the air. On the ground
+    /// `Turn` biases three candidate cells and the world vetoes two of them
+    /// (`open-bugs-handoff.md` R4); in the air there is no candidate to
+    /// veto, only a heading to thrust along.
+    ///
+    /// **The landing is in the genome, not in Rust.** Three exits and none
+    /// of them a new rule: this row falling to zero (full gravity returns
+    /// and `landed` fires as it always has), an energy term authored as
+    /// `(Energy, Fly, +w)` -- **positive**, because `BrainInput::Energy` is
+    /// `energy / start_energy` clamped to `0..1`, so a *rich* animal reads 1
+    /// and a starving one reads 0 -- and `(FoodAdjacent, Fly, -w)`, which
+    /// sets the animal down on the flower it is drinking at.
+    ///
+    /// **And a verb needs an OFF condition, not only an ON one.**
+    /// `flitter.ron` authors a negative bias that the fuel gauge cancels
+    /// exactly, so the sum is zero until a *sense* lifts it: the float is
+    /// the last nine cells to a flower rather than a way of getting about.
+    /// Built the other way round first -- a positive bias, so a fed animal
+    /// simply flew -- it pinned every animal against the roof of the world.
+    ///
+    /// **The verb is priced by the species, and the price is the licence.**
+    /// `CreatureDef::fly_cost_in_moves` bills every airborne frame this row
+    /// holds up, in `move_cost_per_cell` units like `LAUNCH_COST_IN_MOVES`;
+    /// a species that has not authored a price does not evaluate its brain
+    /// aloft at all, so the gate is one `f32` compare at the call site that
+    /// already holds the def rather than a lookup per airborne cell
+    /// (`CLAUDE.md`, *guard hot-path work at the call site*). The cost of
+    /// that choice is that a lineage which mutates a `Fly` weight inside a
+    /// species with no authored price cannot use it -- deliberate, because
+    /// an unpriced verb is the one thing this engine has ruled out twice
+    /// (`sight_range`, `curvature_radius`), and re-openable the day a
+    /// species-level default price exists.
+    Fly = 15,
 }
 
 /// One authored connection, as a species file writes it:
@@ -1062,6 +1222,9 @@ pub const INPUTS: [BrainInput; BRAIN_INPUTS] = [
     BrainInput::ThreatBearing,
     BrainInput::Alarm,
     BrainInput::Made,
+    BrainInput::KinNeed,
+    BrainInput::BloomNear,
+    BrainInput::BloomBearing,
 ];
 /// See [`INPUTS`].
 pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
@@ -1079,6 +1242,8 @@ pub const OUTPUTS: [BrainOutput; BRAIN_OUTPUTS] = [
     BrainOutput::DropSpoil,
     BrainOutput::Attack,
     BrainOutput::Provision,
+    BrainOutput::Share,
+    BrainOutput::Fly,
 ];
 
 /// A genome written back out as the four sparse lists a species file
@@ -1757,7 +1922,26 @@ mod tests {
         // + 8 hidden) and the developmental block (14, one per
         // `CREATURE_TRAITS` slot) in one change. Every species'
         // `mutation_rate` re-derived to `3.18 / 706 = 0.0045042`.
-        assert_eq!(live, 706, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
+        // 706 -> 763 with `KinNeed` (an input column, 22 slots: 14 outputs +
+        // 8 hidden) and `Share` (an output row, 35: 27 inputs + 8 hidden) in
+        // one change -- trophallaxis. Every species' `mutation_rate`
+        // re-derived to `3.18 / 763 = 0.0041678`.
+        // 763 -> 809 on 2026-09-10 with `BloomNear`/`BloomBearing` (P1, the
+        // bloom sense): two input columns, 23 slots each (15 outputs + 8
+        // hidden), no output. Every species' `mutation_rate` re-derived to
+        // `3.18 / 809 = 0.0039308` -- including `hopper.ron`, which had gone
+        // one append stale at the 706 figure and is caught up to the current
+        // one rather than a second-behind one.
+        // 809 -> 846 on 2026-09-11 with `Fly` (an output row, 37 slots: 29
+        // inputs + 8 hidden) -- the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1. No input
+        // moved. Every species' `mutation_rate` re-derived to
+        // `3.18 / 846 = 0.0037589` in the same change. **Every breeding
+        // scene's numbers move with it**, from birth 1, because
+        // `brain::mutate` draws one `unit_f32` per live slot: that is not a
+        // regression and it cannot be checked by a diff -- the remedy is a
+        // seed sweep (`CLAUDE.md`).
+        assert_eq!(live, 846, "the mutable surface moved; re-derive every species' mutation_rate against it in the same change");
     }
 
     #[test]
@@ -1842,7 +2026,40 @@ mod tests {
         // (+21 for the input column, +34 for the output row, +14 live trait
         // slots) and every species' `mutation_rate` is re-derived to
         // `3.18 / 706 = 0.0045042` in the same change.
-        assert_eq!(genome_manifest(), 2_611_525_623);
+        //
+        // **Moved again 2026-09-09 by `KinNeed` and `Share` together** --
+        // the trophallaxis sense and verb -- lawfully on both axes exactly as
+        // the appends above: inputs 26 -> 27 and outputs 14 -> 15 light up a
+        // column and a row of 64-wide reserves that already existed and were
+        // already zero, `GENOME_LEN` is still 12,416, and not one existing
+        // weight moves. `live_slots` 706 -> 763 and every species'
+        // `mutation_rate` is re-derived to `3.18 / 763 = 0.0041678` in the
+        // same change.
+        //
+        // **Moved again 2026-09-10 by `BloomNear`/`BloomBearing`** -- P1,
+        // the bloom sense (`Reports/evolution-lab-pollinator-design-
+        // 2026-09-10.md` §2.3) -- lawfully on the input axis exactly as the
+        // appends above: inputs 27 -> 29 light up two columns of the
+        // 64-wide reserve that already existed and were already zero,
+        // `GENOME_LEN` is still 12,416, and not one existing weight moves.
+        // `live_slots` 763 -> 809 and every species' `mutation_rate` is
+        // re-derived to `3.18 / 809 = 0.0039308` in the same change --
+        // `hopper.ron` included, which is also the one species that wires
+        // the new pair (`(BloomNear, Move, ..)`, `(BloomBearing, Turn,
+        // ..)`); every other shipped species leaves both rows at
+        // `squash(0) = 0`.
+        //
+        // **Moved again 2026-09-11 by `Fly`** (the flitter's float,
+        // `Reports/evolution-lab-flight-design-2026-09-11.md` §1) -- lawfully
+        // on the OUTPUT axis this time, which is the axis the 6 -> 9 growth
+        // broke before the reserve existed: outputs 15 -> 16 light up one row
+        // of the 64-wide reserve that already existed and was already zero,
+        // `GENOME_LEN` is still 12,416, and not one existing weight moves,
+        // because `io_slot` is `output * INPUT_SLOTS + input` and
+        // `INPUT_SLOTS` is the stride. `live_slots` 809 -> 846 and every
+        // species' `mutation_rate` is re-derived to `3.18 / 846 = 0.0037589`
+        // in the same change.
+        assert_eq!(genome_manifest(), 1_694_868_324);
     }
 
     #[test]

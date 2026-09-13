@@ -230,6 +230,12 @@ fn phrasebook(input: BrainInput, output: BrainOutput) -> Option<(&'static str, &
         (I::Bias, O::Turn) => ("VEERS CONSTANTLY", "HOLDS ONE HEADING"),
         (I::Bias, O::Drop) => ("PUTS THINGS DOWN ANYWHERE", "NEVER LETS GO"),
         (I::Bias, O::Impulse) => ("JUMPS BY DEFAULT", "STAYS ON THE GROUND"),
+
+        // -- the colony's stomach.
+        (I::KinNeed, O::Share) => ("FEEDS HUNGRY NESTMATES", "IGNORES HUNGRY KIN"),
+        (I::Energy, O::Share) => ("SHARES WHEN WELL FED", "SHARES WHEN HUNGRY"),
+        (I::Bias, O::Share) => ("SHARES WITH ANYONE", "KEEPS FOOD TO ITSELF"),
+        (I::KinNeed, O::Move) => ("GOES OUT WHEN KIN HUNGER", "SITS WHILE KIN GO HUNGRY"),
         _ => return None,
     })
 }
@@ -571,6 +577,86 @@ fn generic(input: BrainInput, output: BrainOutput) -> (String, String) {
     }
 }
 
+/// A `CREATURE_TRAITS` slot, as a short label for `describe_born_with`'s and
+/// `describe_record`'s sentences.
+///
+/// **A different vocabulary from `describe`'s own**, deliberately: that
+/// function turns a value into a verdict ("EATS FLESH"), which reads well
+/// once and cannot sit next to a percentage. This is the bare noun a change
+/// is *about* -- "GUT +12%" -- which is what a mutation record needs.
+fn trait_word(slot: usize) -> &'static str {
+    match slot {
+        organism::TRAIT_GUT_BIAS => "GUT",
+        organism::TRAIT_BIRTH_GRANT => "BIRTH GRANT",
+        organism::TRAIT_REPRODUCE_AT => "BREEDING AGE",
+        organism::TRAIT_SIGHT_RANGE => "SIGHT",
+        organism::TRAIT_PACE => "PACE",
+        organism::TRAIT_CURVATURE_RADIUS => "REACH",
+        organism::TRAIT_DIG_FORCE => "DIG STRENGTH",
+        organism::TRAIT_DIGEST_RATE => "DIGESTION",
+        organism::TRAIT_CROP_CAPACITY => "CROP SIZE",
+        organism::TRAIT_ARMOUR => "ARMOUR",
+        organism::TRAIT_SCENT_A | organism::TRAIT_SCENT_B | organism::TRAIT_SCENT_C => "SCENT",
+        organism::TRAIT_TOLERANCE => "TOLERANCE",
+        _ => "A TRAIT",
+    }
+}
+
+/// One of the seven discrete plant loci, named -- see `organism::DISCRETE_LOCI`.
+fn locus_word(locus: usize) -> &'static str {
+    match locus {
+        organism::LOCUS_LEAF_ECONOMY => "LEAF ECONOMY",
+        organism::LOCUS_BRANCH_ANGLE => "BRANCH ANGLE",
+        organism::LOCUS_INTERNODE => "INTERNODE",
+        organism::LOCUS_SYMPODIAL => "SYMPODIAL",
+        organism::LOCUS_TROPISM => "TROPISM",
+        organism::LOCUS_WOOD_DENSITY => "WOOD DENSITY",
+        organism::LOCUS_FLOWER_COLOUR => "PETAL COLOUR",
+        _ => "A LOCUS",
+    }
+}
+
+/// **`OrganismState::born_with`, as a short phrase for the CELL page's own
+/// `BORN WITH` row.** `None` when nothing worth reporting moved -- a
+/// founder, a released jar, or a birth whose roll produced no visible
+/// change -- which is `born_with`'s own zero state; see that field's doc
+/// for the encoding decoded here.
+///
+/// **Per-individual, on demand, never logged** -- this is the CELL page's
+/// own row, not a run-log line: `CLAUDE.md`'s scale constraint is that a
+/// colony click founds 52 lineages and the box runs at 1,000+ animals, so
+/// mutation detail lives here, read only for the one individual a player is
+/// actually looking at.
+pub fn describe_born_with(born_with: u16) -> Option<String> {
+    if born_with == 0 {
+        return None;
+    }
+    let channel = (born_with >> 8) as u8;
+    let low = (born_with & 0x00FF) as u8;
+    Some(match channel {
+        0..=13 => format!("{} {:+}%", trait_word(channel as usize), low as i8),
+        14 => format!("{low} SYNAPSES MOVED"),
+        20 => format!("{} JUMPED", locus_word(low as usize)),
+        21 => format!(
+            "{} MUTATED",
+            organism::FateOp::ALL.get(low as usize).map(|op| op.name().to_uppercase()).unwrap_or_else(|| "A RULE".to_string())
+        ),
+        22 => "A PARAMETER OVERRIDDEN".to_string(),
+        _ => "SOMETHING CHANGED".to_string(),
+    })
+}
+
+/// **A `LineRecord` event's `other`, as a short trait phrase.** No sign: the
+/// payload does not carry one (`LogKind::LineRecord`'s own doc -- `other` is
+/// `slot << 8 | step`, and re-deriving the direction would mean re-reading
+/// the individual's live traits, which may no longer exist by the time this
+/// is read). This names what drifted and how far, never which way.
+pub fn describe_record(other: u16) -> String {
+    let slot = (other >> 8) as usize;
+    let step = (other & 0x00FF) as u32;
+    format!("{} {}%", trait_word(slot), step * 50)
+}
+
 /// **Describe the individual `id` in `world`.**
 pub fn describe(world: &World, id: u16) -> Vec<Phrase> {
     let Some(state) = world.organism(id) else { return Vec::new() };
@@ -903,10 +989,10 @@ fn dig_word(force: f32) -> &'static str {
 fn plant(world: &World, species: SpeciesId, alleles: &[u8], draws: &[f32]) -> Vec<Phrase> {
     let mut out = Vec::new();
 
-    // -- the six jumping genes. **Categorical, not scalar**: two plants that
-    //    differ here are different shapes, not the same shape at different
-    //    sizes, which is exactly what a sentence can say and a multiplier
-    //    cannot.
+    // -- the seven jumping genes. **Categorical, not scalar**: two plants
+    //    that differ here are different shapes, not the same shape at
+    //    different sizes, which is exactly what a sentence can say and a
+    //    multiplier cannot.
     for (locus, table, note) in [
         (
             organism::LOCUS_LEAF_ECONOMY,
@@ -937,6 +1023,11 @@ fn plant(world: &World, species: SpeciesId, alleles: &[u8], draws: &[f32]) -> Ve
             organism::LOCUS_WOOD_DENSITY,
             &["PIONEER WOOD: CHEAP, WEAK", "WOOD AT ITS OWN DENSITY", "DENSE WOOD: STRONG, DEAR"][..],
             "WOOD DENSITY: IT SCALES BOTH WHAT A CANTILEVER CAN CARRY AND WHAT A CELL COSTS TO BUILD, SO IT IS A REAL TRADE AND NOT A FREE STRENGTH KNOB.",
+        ),
+        (
+            organism::LOCUS_FLOWER_COLOUR,
+            &["WARMER-END PETALS", "PETALS AT ITS OWN SHADE", "COOLER-END PETALS"][..],
+            "PETAL COLOUR: WHICH PART OF ITS SPECIES' PETAL RANGE ITS FLOWERS TAKE. THE RANGE RUNS WARM TO COOL, SO THE LOWEST ALLELE IS ALWAYS THE WARMEST OF THE SET. PASSED FROM PARENT TO SEEDLING LIKE EVERY OTHER SHAPE GENE HERE, UNLIKE FRUIT COLOUR, WHICH STILL REDRAWS EVERY GENERATION.",
         ),
     ] {
         let a = alleles.get(locus).copied().unwrap_or(0) as usize;
@@ -1633,7 +1724,7 @@ mod tests {
         );
     }
 
-    /// **A plant's shape genes each say something, and the six are distinct.**
+    /// **A plant's shape genes each say something, and the seven are distinct.**
     ///
     /// A phrasebook that mapped two loci to the same sentence would produce a
     /// page that reads fine and tells you nothing, which is the failure mode

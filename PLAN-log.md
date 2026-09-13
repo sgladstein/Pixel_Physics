@@ -4419,3 +4419,123 @@ condition, and `rebuild_blocked` rescanning only written blocks. Paired,
 alternating, whole-frame: full box 6.6 → 2.7 ms, one small plant 2.8 →
 0.5. Account: `Reports/evolution-lab-frame-cost-2026-09-01.md` §16;
 coordinator note round seventeen.
+
+## 2026-09-11 — water reaches the ground under a plant that is not a tree
+
+Owner's report, on the evolution lab: *"water pools on top of the plants
+instead of going through and soaking into the soil. We fixed this earlier
+with trees, but we are having this issue with other types of plants."* The
+canopy drip (2026-09-07) looks for open **air** on the far side of the leaf,
+which is a tree's situation and nothing else's — grass, herb, shrub and
+scrambler lie on the bed, so the scan found soil, refused, and the drop
+stayed on the leaf for ever. `examples/waterstand` (new) replays that scan
+over every standing drop and names the material that refused it: **876
+liquid cells resting on tissue with 8 able to drip**, 308 stopped by the
+soil under the mat with 276 of those over ground that had room, 500 by water
+already trapped in the mat. Not a rain-rate artifact — at the mister OFF it
+is 408 resting with 3 able to move.
+
+`update::soak_into_ground` makes ground that can still hold water a landing,
+on `update_soil_water`'s own infiltration arithmetic. Ground at capacity
+still refuses, so a soaked bed puddles and the outcome stays graded. Paired
+at the shipped LIGHT rate: standing water above the soil line **1,222 → 401
+cells**, fill **932,589 → 159,148**, drops held over ground with room **242
+→ 11**; `ascii` mean frame flat at 0.695 → 0.689 ms over three alternating
+paired runs. Four-arm guard, every arm confirmed red for its own fault —
+and two of them were **blind on the first writing** (79% of a puddle went
+into stone and 11% into a full bed with all three controls green), which
+only putting the fault back found.
+
+**Second half, measured and deliberately not changed:** the columns of
+standing water in the soil under the moisture overlay are **not** biology —
+an empty box with nothing alive reproduces them exactly, and the same box
+with the mister off holds flat at field capacity. They are capillary's wide
+rest threshold (380, the drainable band) applied to the **sideways** face,
+where the drainage/capillary pump it was derived against cannot happen since
+drainage only moves water down. Every pair in the bed at rest, widest
+standing gap **exactly 380**. `PIXEL_PHYSICS_SOIL_CAPILLARY=level` narrows
+that face and removes the columns outright (380 → 0) at +44–67% soil-moisture
+writes a tick and ~10% of the lab's median tick, so it ships inert and the
+default is the owner's to rule on. Account:
+`Reports/soil-water-columns-2026-09-11.md`, and
+`Reports/canopy-throughfall-2026-09-07.md` §7.
+
+## 2026-09-11 — the soil-column lever becomes a dial, and the downstream question gets swept
+
+Owner's ruling on the soil-column card, verbatim: *"Let me test it in a
+playtest. Are there any downstream affects of the change? Ship off by
+default"*. Three things, and the default was already right.
+
+**A playtest needs a dial.** `PIXEL_PHYSICS_SOIL_CAPILLARY` was a `OnceLock`
+read once per process — a measurement instrument that cannot be reached from
+inside a running box, so testing it would have meant relaunching and
+comparing two boxes rather than one box before and after. It is
+`World::soil_capillary_levels` now, with a row on the parameters page (`the
+bed / water_levels_sideways`), felt on the next tick and lasting the session:
+`plant_load_failure`'s own shape, for the reason that field's doc already
+records. It reaches a saved scenario through `resolve_setting` and `Dials`
+carries it.
+
+**Downstream, twelve seeds, paired per seed on the played bed at the shipped
+rain rate.** Only two things move consistently: the columns go (widest
+standing gap 380 → **0 on 12 of 12**) and the bed does **1.84x the
+soil-moisture writes a tick** (higher on 12 of 12), which is the churn the
+wide threshold was holding down. One unpredicted and welcome effect: standing
+water above the ground falls to a median **0.69**, lower on 10 of 12 — a bed
+that levels sideways keeps room near the surface, so rain infiltrates rather
+than pooling, which compounds with the drip fix that landed the same day.
+**The biology is a null** — plant cells 1.001, plants 1.026, animals 0.986,
+every sign split 6/12 or 7/12, against per-seed spreads of 0.71–1.40,
+0.73–1.42 and **0.21–2.22**. That last spread is why the null is about the
+measurement's power as much as about the world.
+
+**Two more ways the measurement nearly lied**, both from wiring the dial. A
+`CellSurface` default body returning the shipped value left the new guard
+green with `World`'s override deleted, because the moisture phase runs under
+`MoistureView` and `World` is the surface only in a control arm no test
+exercises — the trait method has no body now, so an unanswering surface does
+not compile. And the guard's first version asserted a bed-wide claim a
+four-cell scene cannot make: the moisture pass is change-driven, so in a
+sealed scene the levelling wave **strands** once a pass makes no writes. The
+guard asserts the rule; the sweep owns the bed.
+`Reports/soil-water-columns-2026-09-11.md` §7–§8.
+
+## 2026-09-11 — round three on the water, and the owner found the last one
+
+*"This is not fully fixed. water is still pooling on top of plants."* Right,
+and the evidence was in my own report: 234 drops still standing on tissue,
+against 523 before. I reported the fall and under-called the residue.
+
+Three more blockers. The **entry gate** still demanded a living plant, so a
+drop resting on dead grass never entered the rule at all (41 of 213) — and
+it had two gates, so teaching the scan to walk through plant matter moved
+nothing until the gate was fixed too. A **trapped drop was a dam rather than
+a landing** (66 of 213): leaving it to drain on its own beat only works while
+it has somewhere to go, and over full ground it has none.
+
+And the third is the owner's own diagnosis, which was exactly right and was
+one clause: *"when creatures dig they create a layer of air under soil, and
+water doesn't drop down out of soil into air."* `update_soil_water`'s
+drainage required the cell below to **hold** water, so every gallery an ant
+digs roofs itself with soil that saturates permanently — and saturated ground
+turns away every drop that lands on it. A wet roof sheds into the void as a
+falling drop now, at the same rate and off the same surplus as the
+soil-to-soil branch; damp ground still does not leak, which is the clause
+that keeps it *a wet roof drips* rather than *soil leaks*. Perched cells on
+`played_bed_scrambler` went 1-of-1 saturated to 0-of-7.
+
+**What is left is not the drip rule.** Of 158 drops still standing, 72 are
+over genuinely saturated ground and 53 over water that is itself full. The
+bed under a plant has three doors and all are shut: it cannot evaporate
+(`is_damp_soil_surface` refuses a covered column), cannot spread sideways
+(the capillary rest threshold), and can only drain down into a sealed box.
+**That corrects `soil-water-columns-2026-09-11.md`, which called the sideways
+threshold cosmetic** — it is a direct lever on the pooling, standing water
+397 → 220 with the dial on. Evaporation under cover is untouched and is the
+larger suspect.
+
+Two instrument failures, one shape: the census replayed the rule from outside
+and went stale **twice in one session**, each time naming a blocker the
+engine no longer had; and "arrived" has to count both doors, since a drop
+reaching ground with room becomes soil moisture rather than liquid fill.
+`Reports/canopy-throughfall-2026-09-07.md` §8.

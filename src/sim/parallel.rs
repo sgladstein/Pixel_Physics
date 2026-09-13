@@ -882,6 +882,10 @@ impl CellSurface for ChunkView<'_> {
         self.world.frame
     }
 
+    fn soil_capillary_levels(&self) -> bool {
+        self.world.soil_capillary_levels
+    }
+
     fn organism_due(&self, base_interval: u64) -> u64 {
         self.world.organism_due(base_interval)
     }

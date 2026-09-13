@@ -72,12 +72,74 @@
     // Pale green stem, not bark: a herbaceous axis is not a trunk. Bands
     // 6-7 of `wood` are the lightest it has.
     bark_bands: (first: 6, count: 2),
-    // **Yellow and orange, bands 0-1 of `flower`.** Deliberately the two
-    // furthest from anything foliage can be.
-    flower_bands: (first: 0, count: 2),
+    // **Yellow, orange and red -- bands 0-2 of `flower`.** Deliberately
+    // the furthest from anything foliage can be. Widened from two bands
+    // to three in round 28 (the C2 card's second question,
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.5): two
+    // bands gave a stand a coin-flip between yellow and orange, and a
+    // cross was always one or the other with nothing between; a middle
+    // band gives red as the third outcome, so a bred stand shows a real
+    // spread rather than two colours split down the middle. `flower.ron`
+    // runs warm to cool, so this stays a contiguous slice of the warm
+    // end -- widening never jumps a hue.
+    flower_bands: (first: 0, count: 3),
     // Gold and orange fruit — a ripe seed head, not a berry.
     fruit_bands: (first: 4, count: 2),
     windfall_material: "windfall",
+    // **The seed coat survives an ant's bite 60% of the time** -- the
+    // gnawed fruit is eaten, the seed inside it is not, and it stands as a
+    // `pip` where the fruit was (`plant::seed_survives_bite`,
+    // `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.4). A plant
+    // trait, not the animal's: it is the coat that survives a gut. Rolled
+    // once per bite and clamped to [0, 1] in code, so an evolved value
+    // outside that range is inert rather than a crash.
+    //
+    // **Evolvable from the day it lands, unlike `seed_launch`.**
+    // `Reports/dead-ends.md` line 1708 found `seed_launch` reachable only
+    // within `PARAM_REACH * 1.0 = 4` of zero because no species authored a
+    // non-zero value and the corpus fallback is 1.0 -- and 4 cells falls
+    // short of that lever's useful range. This field is not on
+    // `ParamGenome` yet, so no such clamp applies today, but it is worth
+    // recording now: a probability's whole range is `[0, 1]`, which sits
+    // *inside* `[-4, 4]` with room on both sides, so the fallback that
+    // starved `seed_launch` would not starve this one.
+    seed_gut_survival: 0.6,
+    // **Nectar, in two currencies** (`Reports/evolution-lab-pollinator-
+    // design-2026-09-10.md` §3.1, Brief B1'). `nectar_yield: 120.0` J is a
+    // quarter of a leaf, credited to a feeding animal through
+    // `diet_quality` -- the arithmetic that checks it against
+    // `EAT_YIELD_THRESHOLD` is on that constant's own doc (`creature.rs`),
+    // the same way `pip.ron` checks its own food value there rather than
+    // by argument here. `nectar_refill: 0.25` fills a flower's own pool
+    // (`OrganismCell::nectar`) in four organism ticks; against
+    // `Ripen(rate: 0.02)`'s ~50-tick career as a flower, that is roughly
+    // twelve visits paid across its whole life, the design's own figure.
+    nectar_yield: 120.0,
+    nectar_refill: 0.25,
+    // **A determinate axis re-blooms rather than finishing for good** --
+    // `Reports/evolution-lab-pollinator-design-2026-09-10.md` §1.2 measured
+    // the played bed running out of standing flowers on its own, colony or
+    // no colony (81 -> 25 -> 8 at frames 6,000 / 20,000 / 40,000), which
+    // nectar needs a supply of flowers to keep paying against.
+    // `SpeciesDef::rebloom_after`'s own doc has the full mechanism and cost
+    // account; the number here is the argued-then-measured one.
+    //
+    // **Argued**: one full flower cycle -- `Ripen(rate: 0.02)` to set fruit
+    // (~50 organism ticks) plus `Ripen(rate: 0.012)` to ripen and drop it
+    // (~83 ticks) -- is ~133 ticks, `ORGANISM_TICK_INTERVAL` (45) apart, so
+    // ~5,985 frames collar-to-collar. A rebloom timer shorter than that
+    // would have every axis re-flowering before its own fruit has even
+    // finished ripening, which is a plant flowering faster once it has lost
+    // a flower than while it is growing one -- the wrong direction. 4,000
+    // sits under that floor (roughly 2/3 of it), so at most axes are
+    // reflushing while the *previous* cycle's neighbours are still mid-ripen,
+    // which is what keeps the bed's standing count from ever hitting zero
+    // between cycles rather than only refilling it in bursts.
+    //
+    // **Measured** against `rebloom_after: 0` on `labforage
+    // scenario=played_bed frames=120000`, four arms (colony present/absent x
+    // shipped/off): see this PR's commit message for the table.
+    rebloom_after: 4000,
     stomatal_reserve: 0.2,
     // A ruderal's bank: short-lived seed, fast-rotting remains. Both an
     // order of magnitude below `tree`'s, which is what a herb *is* on the
@@ -178,11 +240,74 @@
                 // this is a few large blades on a bare stem, where a tree is
                 // a continuous canopy of small ones.
                 leaf_cluster: 8,
-                // **The head.** Nine cells is roughly three times the
-                // width of the stalk bearing it, which is the size half of
-                // the only lever that has ever read here -- see
-                // `Behavior::Grow::organ_cluster`.
-                organ_cluster: 9,
+                // **The head, raised in round 28 (Brief C2's sibling,
+                // "bigger flowers with more variety") from 9 to 12 -- 1.33x,
+                // roughly four times the stalk's width rather than three.**
+                // Size plus material is the only lever that has ever read
+                // here -- see `Behavior::Grow::organ_cluster` -- and slot 9
+                // (`genotype_variance` below, `organism::LOCUS_FLOWER_
+                // COLOUR`'s neighbour in spirit) now scales this per
+                // individual at ±70%, so a stand shows heads from ~4 to
+                // ~20 cells rather than one repeated size. `Ripen`'s two
+                // costs below are divided by the same 1.33x so a full
+                // head's total one-off ripening bill holds roughly where
+                // it was -- see the note beside them.
+                //
+                // **16 (1.78x) was tried first and read as costing the
+                // played bed too much population** against a three-seed
+                // `main` baseline (464/574/303). The term identified
+                // (`organ_size_and_the_maintenance_bill`, below) is real --
+                // **every organ cell pays `MAINTENANCE_PER_CELL` like any
+                // other living tissue, continuously, for as long as it
+                // stands**, untouched by the `Ripen`-cost division below,
+                // which only reaches the two one-off charges at flower-set
+                // and fruit-ripen -- but the three-seed population reading
+                // built on top of it did not survive a proper re-measurement
+                // (below), so 16 was never re-tried at the corrected bar;
+                // this entry no longer argues from it.
+                //
+                // **Re-measured round 28, lane D: six seeds, `main` rebuilt
+                // fresh in the same session rather than trusted from the
+                // earlier three-seed table** -- `labforage
+                // scenario=played_bed frames=120000 seed=1..6
+                // sample=60000`, `RAYON_NUM_THREADS=4`, plants standing at
+                // 120,000:
+                //
+                //   arm                           s1   s2   s3   s4   s5   s6  median  worst
+                //   main (fresh rebuild)          544   39  139  138  249  331   194.0     39
+                //   shipped (12, variance ±70%)    974  706   51  903   31  443   574.5     31
+                //   size 12, variance forced 0     974  308  214  870  486  337   411.5    214
+                //
+                // **Both the shipped arm and the no-variance control clear
+                // the coordinator's bar (shipped median within -25% of
+                // main's median) by a wide margin -- shipped's median comes
+                // out *above* main's, not below it.** The original
+                // three-seed shortfall (464/574/303 -> 356/93/158) was read
+                // against a `main` that has since moved: two of its three
+                // original seeds have independently fallen hard (574->39,
+                // 303->139) while the first roughly held (464->544), most
+                // plausibly from other changes landing on `main` since (at
+                // least the pip/Germinate re-arm fix, PR #325) rather than
+                // from anything this PR touches. `CLAUDE.md`'s "always
+                // re-measure the baseline in the same session" rule applies
+                // exactly here: read against a fresh baseline, the shortfall
+                // this comment used to report was noise, not a size or
+                // variance effect.
+                //
+                // **The variance question this comment used to leave open --
+                // is slot 9's ±70% jitter costing population independently
+                // of mean size -- is answered too, and the answer is no.**
+                // Forcing `genotype_variance[9]` to `0.0` at the identical
+                // size 12 gives a *lower* population than shipped (411.5 vs
+                // 574.5 median), the opposite of what "variance is the
+                // term" predicts. So the spread stays as authored; there is
+                // nothing here for narrowing it to buy back.
+                //
+                // **Owner's call on size stands independently of the above**
+                // (round 28 cards e1ee88/83eaba, blind): 16 and 12 both read
+                // as "bigger" against main's 9 and are indistinguishable
+                // from each other by eye; 9 does not. 12 ships.
+                organ_cluster: 12,
                 juvenile_size: 8,
                 juvenile_plastochron: 0.6,
                 juvenile_branch: 1.0,
@@ -249,13 +374,48 @@
             // stand is visibly *in flower* for a long stretch rather than
             // flickering through it, which matters when the artifact is a
             // contact sheet.
-            Ripen(rate: 0.02, cost: 0.3),
+            //
+            // **Both this cost and Fruit's below are divided by 1.33 in
+            // round 28**, the ratio `organ_cluster` (9 -> 12) grew by --
+            // see `Fruit`'s comment for the measurement this rests on and
+            // the alternative it beat, not just assumed.
+            Ripen(rate: 0.02, cost: 0.225),
         ]),
         (Fruit, [
             // Slower again: a seed head takes longer to fill than a flower
-            // takes to set. `cost` is the provisioning that rides down with
-            // the seed as its `endowment`.
-            Ripen(rate: 0.012, cost: 0.35),
+            // takes to set. `cost` is the provisioning that rides down
+            // with the seed as its `endowment`, and it is divided by 1.33
+            // alongside `Flower`'s -- **but that was not the first guess,
+            // and the first guess was measured wrong in the interesting
+            // direction.**
+            //
+            // Holding this cost at its *original* value (so per-seed
+            // endowment would not thin out) was tried first, on the
+            // reasoning that a smaller stake costs more seedlings than a
+            // bigger head is worth. Measured against dividing both,
+            // `labforage scenario=played_bed frames=120000`, three seeds:
+            // plants at 120,000 were **359/228/79** (endowment held) against
+            // **322/170/259** (both divided) -- not better on aggregate
+            // (mean 222 against 250), and `organ_ripening_blocked` came in
+            // far *above* main's own range (68,069-69,538 against
+            // 18,586-122,328) rather than the comfortable margin dividing
+            // both gives (8,832-26,123). Preserving endowment did not buy
+            // back the plants it was supposed to save; it just moved the
+            // congestion from "fewer, better-fed seeds" to "the same
+            // budget paying a bigger bill it increasingly cannot clear."
+            // So the simpler rule ships: total cost tracks total cells,
+            // full stop, on both the construction and the endowment side.
+            //
+            // **This arm (12, at these costs) is what shipped, after 16
+            // measured 15-70% under `main` on every seed** (322/170/259
+            // against 464/574/303) even though `organs_built`,
+            // `fruit_dropped` and `flowers_rebloomed` were all *up* --
+            // see `organ_cluster`'s own comment above for the term that
+            // explains why (per-cell maintenance, not ripening). Standing-
+            // flower/fruit counts at any one frame ride the rebloom
+            // cycle's own phase and should not be read alone --
+            // `flowers_rebloomed` (monotonic) is the trustworthy column.
+            Ripen(rate: 0.012, cost: 0.26),
         ]),
     ],
 )

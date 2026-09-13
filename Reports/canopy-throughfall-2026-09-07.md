@@ -141,3 +141,223 @@ and is untried.
 
 **Stemflow is not modelled** — real water also runs down a trunk. Nothing
 here does that.
+
+---
+
+## 7. The half it missed: a plant that is not a tree — 2026-09-11
+
+**The same complaint came back, in the same words, for everything that is
+not a tree.** The owner, on the evolution lab:
+
+> *"water pools on top of the plants instead of going through and soaking
+> into the soil. We fixed this earlier with trees, but we are having this
+> issue with other types of plants."*
+
+### 7.1 Why the first fix could not have covered them
+
+`drip_through_organism`'s scan looks for **open air** on the far side of the
+tissue, and §6 above already recorded the residue that leaves — *"a third of
+drip attempts still find no air"* — as a dense-crown effect. It is not. For
+a whole class of plants there is **never** any air on the far side: grass,
+herb, shrub and scrambler lie on the bed, so under their tissue is soil. The
+scan hit soil, returned `false`, and the drop stayed on the leaf for ever.
+
+The measurement had to say *why* each drop was refused, which no standing
+count can. `examples/waterstand` (new) censuses every liquid cell by what is
+directly under it and then replays the scan over the ones resting on tissue,
+reporting the material that refused them. On `played_bed_scrambler`, seed 1,
+24,000 frames, the mister at STEADY:
+
+| | cells |
+|---|---|
+| liquid resting on living tissue | 876 |
+| …of which could drip (air within reach) | **8** |
+| …refused by **soil** under the mat | 308 — **276 of them over ground with room to spare** |
+| …refused by water already trapped in the mat | 500 |
+| …refused by dead tissue (`grassblade`, `grassroot`, `litter`, `log`, `deadwood`) | 47 |
+| …tissue deeper than the 16-cell reach | 13 |
+
+**And it is not the mister.** At `rain=OFF`, on condensation alone, the same
+bed reads **408 resting on tissue with 3 able to drip**. The rate only
+changes how much arrives; nothing that arrives can leave.
+
+### 7.2 What shipped
+
+`update::soak_into_ground`. When the scan reaches the far side of the tissue
+and it is not air, ground that can still hold water drinks the drop —
+`min(fill, room)` with the remainder written back as liquid, the identical
+arithmetic and the identical mass-leak clause `update_soil_water`'s own
+infiltration carries. Ground at capacity still refuses, and so does anything
+with no `water_capacity` at all.
+
+That last clause is the whole of what keeps `CLAUDE.md`'s first law: the
+outcome stays a distribution. Rain soaks in until the bed has had enough and
+then it stands, rather than the ground becoming a drain.
+
+Trapped water is left to the same rule one cell lower — the drop blocking a
+scan is itself sitting on tissue, so it soaks on its own beat and the column
+above follows it down. Nothing merges fill across a leaf.
+
+The moisture write goes through `CellSurface::set_moisture`, which reaches
+whichever channel the surface keeps soil wetness on: quiet plus a moisture
+mark on `World`, an ordinary dirtying write on a `ChunkView` — whose dirty
+rows `Chunk::promote_dirty` unions into the next moisture plan, so the
+soaked cell is re-planned either way. That was checked rather than assumed;
+without the union a soaked cell would have sat unvisited by the moisture
+pass.
+
+### 7.3 Measured
+
+Paired, one binary each side, `played_bed_scrambler` seed 1, 24,000 frames,
+the mister at its shipped LIGHT:
+
+| | before | after |
+|---|---|---|
+| standing water above the soil line | 1,222 cells | **401** |
+| fill above the soil line | 932,589 | **159,148** |
+| liquid resting on tissue | 523 | 234 |
+| …held up over ground that had room | 242 | **11** |
+| soil water at 24,000 frames (STEADY arm) | 25,936,413 | 27,323,449 |
+
+The last row is the conservation reading and is the one to check first: the
+bed gains almost exactly what the surface loses, so the water moved rather
+than being deleted.
+
+**Cost.** `examples/ascii`, three alternating paired runs with
+`RAYON_NUM_THREADS` pinned: mean **0.699 / 0.682 / 0.695 ms** before against
+**0.677 / 0.696 / 0.689** after — flat. Worst frame 7.244 / 6.713 / 8.555
+before against 6.427 / 6.500 / 6.424 after, which is lower on every run and
+**is not quotable**: the baseline's own spread is larger than the gap and
+nothing pins it. The hot path is untouched — a liquid cell not sitting on
+tissue still returns on the first branch, before any lookup.
+
+### 7.4 What the guard cost to get right
+
+`a_puddle_on_a_mat_soaks_into_the_ground_but_not_into_stone_or_a_full_bed`,
+four arms, three of them controls. Every one was confirmed red for its own
+fault: the mechanism removed, stone counted as ground, saturated ground
+drinking anyway, the opt-in flag ignored, and the source cell consumed whole
+with its remainder dropped.
+
+**Two of those controls were blind on the first writing, and only putting
+the fault back found it.** Written as *"some of it is still up there"*
+(`> 0`), the stone arm passed while **79%** of the puddle went into stone,
+and the saturated arm passed while **11%** of it went into a full bed. Both
+assert the placed volume exactly now. This is `CLAUDE.md`'s standing rule
+landing on a guard written by a session that had just read it.
+
+A third thing the exercise found, worth carrying to any soil guard:
+**`soil_moisture` clamps at `SOIL_SATURATED`, so over-filling ground that is
+already full reads as no gain at all.** The moisture side cannot see that
+fault; only the water leaving the puddle can.
+
+### 7.5 Still not done
+
+The dead-tissue blockers stand — a `grassblade` or `grassroot` that has lost
+its organism, a fallen `log`, a scrap of `litter` — 47 cells of 876 on the
+measured bed. The 2D-slice argument applies to them exactly as it does to
+living tissue (a dead blade one cell wide is not a shelf either), and
+keying the walk on `MaterialKind::Plant` as well as `organism_id` is the
+obvious next lever. It was left out because it is a second decision about
+what counts as tissue, and this change's job was the 92% that is soil and
+trapped water.
+
+---
+
+## 8. Round three: it was not fully fixed — 2026-09-11
+
+**The owner, after §7 landed: *"This is not fully fixed. water is still
+pooling on top of plants."*** They were right, and §7 had the evidence in it:
+234 drops still standing on tissue at the shipped rain rate, against 523
+before. I reported the fall and under-called the residue.
+
+Three more things were holding water, and the third is the owner's own
+diagnosis rather than mine.
+
+### 8.1 The entry gate still demanded a *living* plant
+
+`drip_through_organism` opens on `below.organism_id() == 0 → return false`.
+A grown bed is full of dead `grassblade` and `grassroot` standing in the mat,
+and a drop resting on one **never entered the rule at all**. Measured at the
+shipped rate: **41 of 213 drops on tissue refused by dead grass.**
+
+It had two gates and fixing one moved nothing — the scan was taught to walk
+through plant matter first, and the numbers did not budge, because the entry
+test rejected the cell before the scan ran. Both read
+`organism_id != 0 || kind == Plant` now. `deadwood`, `log` and `nest` still
+dam a drop on purpose: a snapped branch is chunky enough to hang up in a
+crown, which is `fall_through_organism`'s own existing call for the falling
+side.
+
+### 8.2 A drop is a landing, not a dam
+
+§7 left trapped water to drain on its own beat, reasoning that the column
+above would follow it down. That holds only while the blocking drop has
+somewhere to go; over ground at capacity it has none, and everything above it
+stacks behind it for ever. **66 of 213**, the largest single blocker left,
+with 52 more standing on those. `soak_into_ground` now merges into more of the
+same liquid, on `transfer_liquid_vertical`'s arithmetic to the unit.
+
+### 8.3 A dug tunnel made the bed waterproof — the owner's diagnosis
+
+> *"when creatures dig they create a layer of air under soil, and water
+> doesn't drop down out of soil into air, so a single pixel line of soil gets
+> saturated and then water can pool on top of it."*
+
+Exactly right, and it is **one clause**: `update_soil_water`'s drainage
+required the cell below to be something that *holds* water
+(`below_capacity > 0`), so soil with air underneath had nowhere to send its
+surplus however wet it got. Every gallery an ant digs roofs itself with soil
+that then saturates and stays saturated — and saturated ground turns away
+every drop that lands on it, which is what puts the sheet back on top of the
+planting.
+
+A wet roof now sheds into the void as a falling drop, at the same rate and off
+the same surplus as the soil-to-soil branch beside it. **Damp ground does not
+leak** — the rule fires only above field capacity, which is the clause that
+keeps it *a wet roof drips* rather than *soil leaks*. Measured on
+`played_bed_scrambler`: soil cells perched over air went from **1 of 1
+saturated** to **0 of 7**.
+
+That bed barely digs (27 animals), so it is a poor reproduction of the
+owner's; the mechanism is established by reading the rule and by the guard,
+not by that bed's numbers.
+
+### 8.4 What is left, and it is not this rule
+
+At the shipped rate, of 158 drops still standing on plant matter: **72 are
+over genuinely saturated ground**, 53 over water that is itself full, 19 in
+transit, and 14 on debris or out of reach. The drip rule is close to
+exhausted — nearly everything it now refuses, it refuses because the ground
+or the water below is *full*.
+
+So the remaining pooling is a **water-balance** problem, and the bed under a
+plant has three doors and all of them are shut:
+
+1. it cannot **evaporate** — `evaporation::is_damp_soil_surface` refuses a
+   column whose cell above is not empty, so ground under a plant never dries;
+2. it cannot spread **sideways** — the capillary rest threshold
+   (`soil-water-columns-2026-09-11.md`), whose report claimed this was
+   cosmetic and has been corrected;
+3. it can only drain **down**, into a sealed box with no outlet.
+
+`World::soil_capillary_levels` is a direct lever on (2) and is measurable:
+standing water above the ground **397 → 220**, drops refused by saturated
+ground **87 → 37**. It is off by owner ruling. (1) is untouched and is the
+larger suspect: a dense mat means no column under it dries at all.
+
+### 8.5 Two instrument failures, both the same shape
+
+**The census replayed the rule from outside and went stale twice in one
+session** — once when the rule learned to drink soil and once when it learned
+to merge — each time reporting a blocker the engine no longer had. Counting
+from *inside* the rule is what settled it, and it also killed the chunk-sleep
+hypothesis outright: 625,285 calls over 24,000 frames, 87.4% off-beat exactly
+as the period predicts, and 78.6% of on-beat calls refused rather than never
+reached. `examples/waterstand`'s census mirrors the rule now and says so.
+
+**And "arrived" has to count both doors.** The dead-tissue guard failed on its
+first run reading `0 reached the floor` while the rule worked perfectly: a
+drop that reaches ground with room stops being liquid fill and becomes soil
+moisture. `CLAUDE.md`'s "ask what your number counts", in the shape where the
+number is right and about the wrong quantity.

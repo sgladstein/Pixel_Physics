@@ -159,8 +159,28 @@ pub const ALARM_DEPOSIT: u8 = 240;
 /// Which plane. **Meaning-free by construction for the two trail planes** —
 /// see the module doc. `Alarm` is the exception and says so in its own name:
 /// it carries one meaning, written by one event.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Channel {
+    /// **The default**, so a `Channel` reached for without an opinion (the
+    /// lab's `Ui` derives `Default` and needed one for its `SCENT` tool's
+    /// armed channel) lands on the home scent.
+    ///
+    /// **This was `B` until 2026-09-09 and the reason it moved is the ethos
+    /// rather than the taxis.** The food route is the trail a player would
+    /// *want* first — it is what recruits a colony to a patch already found
+    /// — but `open-bugs-handoff.md` §Z7 measured that the shipped ant cannot
+    /// read channel B at all: hidden units 2/3 sit saturated at the exact
+    /// input an empty ant has, so a hand-laid food trail moves the near-
+    /// target ant-tick count by **exactly zero**, twice, on two independent
+    /// harnesses. A verb that delivers nothing is unfinished, and defaulting
+    /// a player's first drag to the plane nothing acts on is the worst
+    /// version of that. **A drawn channel-A trail is followed** — units 0/1
+    /// were repaired in the same change, and a laden ant climbs it home.
+    ///
+    /// The food route is still one keypress away and the help text says what
+    /// it is worth, so nothing is hidden; only the first thing a player
+    /// touches has changed.
+    #[default]
     A = 0,
     B = 1,
     /// **Emitted by an animal that is being bitten**, decaying fast, read as
@@ -533,6 +553,31 @@ impl Pheromones {
 
     pub fn alarm_rho(&self) -> f32 {
         self.alarm_rho
+    }
+
+    /// **How fast one trail plane forgets** -- `DECAY_RHO` is the shipped
+    /// setting for both, and this makes it a dial on either separately.
+    ///
+    /// The alarm has had one since it was built; A and B never did, and
+    /// nothing could vary them without a rebuild, which is the `include_str!`
+    /// trap in a different costume. Wanted for `open-bugs-handoff.md` §Z7:
+    /// once the ant could actually read channel B, the colony converged on
+    /// patches it had already eaten, and **decay is the lever a real colony
+    /// uses for exactly that** -- a trail to an exhausted patch stops being
+    /// reinforced and has to fade before it stops recruiting. A trail that
+    /// outlives its patch is the failure; how fast it should fade is a
+    /// measurement, not a constant anybody guessed right.
+    ///
+    /// Unlike the alarm's, both planes exist from `new`, so this needs no
+    /// remembered value -- it reaches the standing plane directly.
+    /// `Channel::Alarm` routes to [`Self::set_alarm_rho`] rather than
+    /// panicking, so a caller sweeping all three channels does the right
+    /// thing on each.
+    pub fn set_channel_rho(&mut self, channel: Channel, rho: f32) {
+        match channel {
+            Channel::Alarm => self.set_alarm_rho(rho),
+            c => self.planes[c as usize].set_rho(rho),
+        }
     }
 
     /// Both planes with non-default diffusion/decay — for sweeps only.

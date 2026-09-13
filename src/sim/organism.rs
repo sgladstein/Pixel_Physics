@@ -198,6 +198,30 @@ pub enum CellType {
     /// the seed — and it needs no dispersal code at all, because a powder
     /// already does every part of it.
     Fruit = 9,
+    /// **A creature's locomotion cell** — a segment's lateral half wired to
+    /// `creature::organism_tick_interval`, or a spine cell authored the same
+    /// way. More `Leg` cells among an animal's *live* ones means a shorter
+    /// decision interval, i.e. a faster animal — see `creature::body_mix`
+    /// and `composition_mix` for the fraction-of-live-cells arithmetic and
+    /// why it is a fraction and never a raw count.
+    ///
+    /// **10, not a reuse of `Segment`**, for the reason `Flower` above
+    /// already states about this same 4-bit encoding: positional and
+    /// never-renumbered, with room to 15.
+    Leg = 10,
+    /// **A creature's digestive cell** — more of them, as a fraction of the
+    /// live body, means a larger crop (`creature::organism_crop_capacity`).
+    Gut = 11,
+    /// **A creature's plating** — more of them, as a fraction of the live
+    /// body, means a tougher hide at the point something bites it
+    /// (`creature::armour_at`).
+    ///
+    /// **Unused by both shipped bodies on purpose.** Neither `ant.ron` nor
+    /// `hopper.ron` authors one: the wiring has to exist before anything can
+    /// evolve into it, and a species that never grows the cell type simply
+    /// reads its own baseline forever, exactly as `TRAIT_ARMOUR` did before
+    /// any lineage moved it. See `BASELINE_ARMOUR_FRAC`.
+    Armour = 12,
 }
 
 impl CellType {
@@ -1538,10 +1562,25 @@ impl FateGenome {
             1 => f.child.expect("slot 1 is offered only when child is present"),
             _ => f.lateral.expect("slot 2 is offered only when lateral is present"),
         };
+        // **Draw from the rule's own owner's vocabulary, added 2026-09-09
+        // for creature bodies.** `owner()` decodes the same bits `pack()`
+        // wrote and no operator here ever rewrites them (retarget moves
+        // `becomes`/`child`/`lateral`, never the owner slot), so a rule that
+        // reached this point already carries a real owner; the `unwrap_or`
+        // is defence against a corrupted bit pattern; no authored or drawn
+        // rule takes that branch today. For a plant-owned rule this is
+        // `PLANT_CELL_TYPES` at the same length as before the branch
+        // existed, so the draw below is byte-identical to what shipped
+        // before creature bodies could mutate at all.
+        let pool: &[CellType] = if CREATURE_CELL_TYPES.contains(&self.rules[i].owner().unwrap_or(CellType::Seed)) {
+            &CREATURE_CELL_TYPES
+        } else {
+            &PLANT_CELL_TYPES
+        };
         // Bounded rather than `while`: a degenerate draw set would spin here,
         // and declining to move is a silent no-op rather than a hang.
         for _ in 0..8 {
-            let pick = PLANT_CELL_TYPES[rng.below(PLANT_CELL_TYPES.len() as u32) as usize];
+            let pick = pool[rng.below(pool.len() as u32) as usize];
             if pick != current {
                 self.rules[i] = self.rules[i].retarget(slot, pick);
                 return true;
@@ -1594,7 +1633,25 @@ impl FateGenome {
         if self.len as usize >= MAX_FATES {
             return false;
         }
-        let pick = |r: &mut super::rng::Rng| PLANT_CELL_TYPES[r.below(PLANT_CELL_TYPES.len() as u32) as usize];
+        // **Which vocabulary this genome draws a fresh rule's owner from,
+        // added 2026-09-09 for creature bodies.** There is no existing rule
+        // to read an owner off yet — insert is what creates one — so this
+        // reads rule 0's owner as a proxy for which kingdom the *genome*
+        // belongs to. Safe because a `FateGenome` is founded from exactly
+        // one species' table (`from_table`) and a species is either a plant
+        // or a creature, never both: nothing here ever mixes the two
+        // vocabularies in one genome. `mutate` has already refused an empty
+        // genome before `apply` can reach here, so index 0 always exists.
+        // For a plant genome this resolves to `PLANT_CELL_TYPES` at the same
+        // length as before this branch existed, so the draws below are
+        // byte-identical to what shipped before creature bodies could
+        // mutate at all.
+        let pool: &[CellType] = if CREATURE_CELL_TYPES.contains(&self.rules[0].owner().unwrap_or(CellType::Seed)) {
+            &CREATURE_CELL_TYPES
+        } else {
+            &PLANT_CELL_TYPES
+        };
+        let pick = |r: &mut super::rng::Rng| pool[r.below(pool.len() as u32) as usize];
         let owner = pick(rng);
         let f = Fate {
             when: ALL_FATE_WHENS[rng.below(ALL_FATE_WHENS.len() as u32) as usize],
@@ -1626,6 +1683,75 @@ impl FateGenome {
         self.rules[self.len as usize] = PackedFate(0);
         true
     }
+}
+
+/// **Unfold a `FateGenome` into an articulated body** — one axis, walked
+/// deterministically with no RNG, the same production rule
+/// `plant::organism_tick`'s `Grow` behaviour reads for a stem, applied once
+/// at placement time instead of once a tick.
+///
+/// **The whole mechanism a plant already has, reused rather than
+/// reinvented**, per this build's own hard constraint: `BodyPlan::Segmented`
+/// is the one genuinely new *movement* rule
+/// (`creature::body_after_step`), but a body's *shape* is heritable for
+/// free the moment something walks a `FateGenome` — this is that walk.
+///
+/// Starts at `CellType::Head` with zero metamers, exactly as a plant's own
+/// axis starts at its `Seed`/`GrowingTip`. At each step:
+///
+/// - no rule owned by the current type (at this `metamers`) → stop;
+/// - a rule → push `Segment { cell: rule.becomes, lateral: rule.lateral }`
+///   for *this* position, then move on with `current = rule.child` and
+///   `metamers += 1`;
+/// - `rule.child == None` → the segment above is pushed and the axis ends
+///   here, same as a plant's determinate rule ending a shoot.
+///
+/// `after_metamers` is what gives an axial body its regions — a rule listed
+/// above the ordinary one for the same owner, with `after_metamers:
+/// Some(k)`, fires from segment `k` onward and lets one owner type produce
+/// different segments at different points in the walk (`ant.ron`'s own
+/// `fates` comment walks a worked example: `Segment` produces two
+/// `Leg`-bearing thorax segments and then a bare tail, three shapes off one
+/// owner). First-match-wins lookup already does this — `grow_body` adds
+/// nothing to make it work, which is the point.
+///
+/// `cap` bounds the walk regardless of what the rules say, so a mutated
+/// genome that never returns `child: None` (an `insert_one` draw can
+/// produce exactly that) cannot grow an unbounded body; every caller today
+/// passes `creature::SEGMENTED_BODY_CAP`. **A body always has a head**: if
+/// the walk produces nothing at all — an empty genome, or a `cap` of 0 —
+/// this returns one plain `Head` segment rather than an empty `Vec`, which
+/// is the floor that keeps a mutated genome safe to place.
+///
+/// **`laterals` is the ablation `Reports/creature-articulated-body-
+/// 2026-09-09.md` §7d asks for, threaded in rather than read from an env
+/// var here** — this function stays pure so a test can drive both arms
+/// directly, without fighting the once-per-process cache a `OnceLock`
+/// would need. `false` walks exactly the same rules at exactly the same
+/// `metamers` and stops at exactly the same `cap`; the only thing it
+/// changes is dropping `rule.lateral` on the floor, so the spine a caller
+/// gets back is byte-identical either way and only the lateral cells
+/// differ. The env var itself (`PIXEL_PHYSICS_BODY_LATERALS`) is read once
+/// at the one production call site, `creature::place_creature`.
+pub fn grow_body(genome: FateGenome, cap: usize, laterals: bool) -> Vec<Segment> {
+    let mut out = Vec::new();
+    let mut current = CellType::Head;
+    let mut metamers: u8 = 0;
+    while out.len() < cap {
+        let Some(rule) = genome.fate(current, FateWhen::Grew, metamers) else {
+            break;
+        };
+        out.push(Segment { cell: rule.becomes, lateral: if laterals { rule.lateral } else { None } });
+        let Some(child) = rule.child else {
+            break;
+        };
+        current = child;
+        metamers = metamers.saturating_add(1);
+    }
+    if out.is_empty() {
+        out.push(Segment { cell: CellType::Head, lateral: None });
+    }
+    out
 }
 
 /// Which of the four operators [`FateGenome::mutate`] chose.
@@ -1692,6 +1818,24 @@ pub const PLANT_CELL_TYPES: [CellType; 8] = [
     CellType::Flower,
     CellType::Fruit,
 ];
+
+/// **The cell types a creature's own fate mutation may point at** —
+/// `PLANT_CELL_TYPES`' mirror for the vocabulary `grow_body` unfolds, added
+/// alongside `Leg`/`Gut`/`Armour` so a creature's growth program is
+/// evolvable by the same two operators a plant's already is
+/// (`FateGenome::retarget_one`/`insert_one`).
+///
+/// **`Head` and `Segment` are included here and excluded from
+/// `PLANT_CELL_TYPES`'s own doc comment for the same reason stated there**:
+/// each list is the vocabulary its own kingdom actually uses, and a plant
+/// mutation reaching a creature type (or vice versa) would measure the
+/// operator's carelessness rather than the substrate's tolerance. The two
+/// lists are disjoint by construction — a `FateGenome` is founded from one
+/// species' table and a species is either a plant or a creature, never
+/// both, so nothing here ever has to reconcile a genome carrying rules from
+/// both vocabularies at once.
+pub const CREATURE_CELL_TYPES: [CellType; 5] =
+    [CellType::Head, CellType::Segment, CellType::Leg, CellType::Gut, CellType::Armour];
 
 
 // ---------------------------------------------------------------------
@@ -2628,6 +2772,88 @@ pub struct SpeciesDef {
     /// back to the parent cell's own material, exactly as the three above do.
     #[serde(default = "default_flower_material")]
     pub flower_material: String,
+    /// **The odds a windfall's own seed survives an ant's bite**, in
+    /// `0..=1`, rolled once per bite by `plant::seed_survives_bite`. `0.0`
+    /// (the default) is today's behaviour exactly: every bite destroys the
+    /// seed. A plant trait rather than an animal one -- it is the seed coat
+    /// that survives a gut, not the mouth that spares it.
+    ///
+    /// **Why `PARAM_REACH`'s 1.0-corpus fallback does not bite here, unlike
+    /// `seed_launch` (`Reports/dead-ends.md` line 1708).** That entry is
+    /// about a parameter no species authors landing in `ParamGenome`, whose
+    /// evolvable range then clamps to `PARAM_REACH * 1.0 = 4` regardless of
+    /// what the parameter actually needs -- `seed_launch`'s useful range
+    /// (cells) sails past 4 and the corpus was empty, so the channel was
+    /// heritable and useless on day one. This field is not addressed
+    /// through `ParamGenome` at all yet, so no clamp of any width applies
+    /// to it today -- but the moment it is, a probability's whole range,
+    /// `[0, 1]`, sits **inside** `[-4, 4]` with room either side, so the
+    /// same fallback that starved `seed_launch` would not starve this. Say
+    /// so here rather than let the next session re-derive it from scratch.
+    #[serde(default)]
+    pub seed_gut_survival: f32,
+    /// **What a bite of a *bare* seed pays the mouth, as a fraction of the
+    /// seed's own `food_energy`**, when that bite did not destroy the seed.
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2, Brief 1.
+    ///
+    /// The seed a `seed_gut_survival` roll has just spared is still there --
+    /// it becomes a `pip` and either rides home in the biter's crop or
+    /// stands where it was bitten. So the mouth cannot have eaten it, and
+    /// crediting the whole 480 J would be the seed counted twice: once as
+    /// food and once as a plant. What an ant really gets off a seed it
+    /// carries is the elaiosome -- the provision the plant attaches
+    /// *precisely* to buy the carriage -- and 0.25 is that provision here.
+    ///
+    /// **A plant trait, like `seed_gut_survival` beside it, and for the same
+    /// reason**: it is the seed that decides how much of itself to give
+    /// away, not the mouth that decides how much to take. A species that
+    /// pays nothing (`0.0`) is a seed nobody profits by carrying; a species
+    /// at `1.0` pays the whole seed and the carriage is free, which is the
+    /// positive control this build's brief asks for by name.
+    ///
+    /// Only read when the bitten cell is the bare `seed`/propagule itself.
+    /// A *windfall* is flesh wrapped round a seed: the flesh is the meal and
+    /// the seed is a passenger inside it, so a bitten windfall goes on
+    /// paying its full face value and this fraction never applies to it.
+    #[serde(default = "default_seed_provision_fraction")]
+    pub seed_provision_fraction: f32,
+    /// **What a fully-charged flower pays a feeding animal, in joules** —
+    /// `plant::nectar_offer`, credited through `diet_quality` exactly like
+    /// every other mouthful
+    /// (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1-§3.2,
+    /// the correction to the ecology design's original §3.2, which named
+    /// this a debit against `reproductive_budget` directly and was a units
+    /// error: the budget is plant carbon capped at
+    /// `REPRODUCTIVE_BUDGET_CAP` (4.0), not joules). `0.0` (the default) is
+    /// today's behaviour exactly: paired with `nectar_refill: 0.0`, the
+    /// per-cell pool never climbs off zero, `nectar_offer` always reads it
+    /// dry, and every bite falls through to the destroyed-flower path
+    /// (`flower.food_energy`, 1,440 J) exactly as before either field
+    /// existed.
+    ///
+    /// **120.0 on the two fruiting species, the design's own figure** — a
+    /// quarter of a leaf's 480 J (`leaf.ron`), the richest thing a plant
+    /// offers *without* ending itself. Checked against `EAT_YIELD_THRESHOLD`
+    /// (12.0, `creature.rs`) the way `pip.ron` checks its own value: at the
+    /// shipped neutral gut (bias 0.0) against the flower's `food_class`
+    /// (-1.0, `flower.ron`), `diet_quality` reads `(1 - 1/2)^2 = 0.25`, so
+    /// the credited `120 * 0.25 = 30 > 12` — clear with 2.5x headroom, the
+    /// same margin `pip.ron` reasons about for its own 40 J food value.
+    #[serde(default)]
+    pub nectar_yield: f32,
+    /// **How much a flower's nectar pool (`OrganismCell::nectar`) climbs
+    /// per organism tick, capped at 1.0** — `Behavior::Ripen`'s `Flower`
+    /// arm. `0.0` (the default) means the pool never fills, so
+    /// `nectar_offer` always finds it dry regardless of `nectar_yield`; a
+    /// species must author both to offer nectar at all.
+    ///
+    /// **0.25 on the two fruiting species: full in four organism ticks.**
+    /// `herb`'s `Ripen(rate: 0.02)` gives a flower a ~50-tick career before
+    /// it sets fruit (`herb.ron`'s own comment), so at this rate it pays
+    /// roughly twelve visits across its whole life as a flower — the
+    /// design's own figure.
+    #[serde(default)]
+    pub nectar_refill: f32,
     #[serde(default = "default_fruit_material")]
     pub fruit_material: String,
     /// **What a ripe fruit becomes on the way down** — the powder that
@@ -2644,6 +2870,59 @@ pub struct SpeciesDef {
     pub flower_bands: PaletteBands,
     #[serde(default)]
     pub fruit_bands: PaletteBands,
+    /// **Frames after a fruit drops (or a flower is lost before it sets)
+    /// before the axis that bore it makes a fresh flower** —
+    /// `plant::process_rebloom`'s clock. `0` (the default) is today's
+    /// behaviour exactly: a determinate axis flowers once and the terminal
+    /// is finished for good, which is every species that does not author
+    /// this field, `tree`/`conifer`/`creeper`/`grass`/`moss` included (none
+    /// of them reaches `CellType::Flower` at all) and it was `herb` and
+    /// `scrambler` themselves before this field existed.
+    ///
+    /// **Why this exists**: PR #307 measured that the played bed stops
+    /// flowering on its own, with or without a colony feeding at it --
+    /// standing flowers 81 -> 25 -> 8 at frames 6,000 / 20,000 / 40,000
+    /// (`Reports/evolution-lab-pollinator-design-2026-09-10.md` §1.2). A
+    /// determinate axis is a single-use flower: once its terminal sets fruit
+    /// and the fruit falls, that terminal is spent for the rest of the
+    /// plant's life, so a fixed population of axes flowering once each is a
+    /// bed that necessarily runs dry, independent of whatever is or is not
+    /// eating from it. Nectar (PR #312) needs the opposite: a flower that
+    /// keeps existing to be fed at.
+    ///
+    /// **What "the same terminal" means mechanically.** A ripe fruit *is*
+    /// the axis's terminal cell (`plant::drop_organ`'s own doc: "the cell
+    /// stops being the parent's"), so the instant it drops it belongs to a
+    /// different organism and there is no cell left on this plant to
+    /// relabel back into a flower. `plant::rebloom_collar` finds the stem
+    /// cell one step closer to the collar than the departing fruit was --
+    /// the node the terminal grew from -- and that is where the new flower
+    /// is built once this timer runs out. Structurally this is "the same
+    /// axis, one metamer shorter," not literally the same pixel.
+    ///
+    /// **Paid from `OrganismState::reproductive_budget`, at the species'
+    /// own `Flower` `Ripen.cost`** -- reusing the number the organ economy
+    /// already prices a flower's lifecycle stage at, rather than a fourth
+    /// authored cost. This is a deliberate reading of an ambiguous brief,
+    /// and it is *not* what the first flower on a growing axis pays:
+    /// `Reports/dead-ends.md`'s "charged from the reproductive budget" entry
+    /// (line 911) is explicit that *construction* is charged at the acting
+    /// cell's own carbon (the owner's 2026-08-27 ruling) and only
+    /// *provisioning* an organ's clock draws on the reproductive account.
+    /// A rebloom is not a growing tip spending its own carbon to build
+    /// itself a flower; it is a settled stem cell, off the construction
+    /// economy entirely, making a whole-plant reproductive decision -- the
+    /// same shape `break_buds` already uses to fund a bud flush from the
+    /// plant's richest cell rather than the bud's own. So the account this
+    /// draws from follows the mechanism's *shape*, and the amount follows
+    /// the organ economy's own existing price for "a flower's worth of
+    /// commitment." A plant too poor to pay simply waits -- graded, never a
+    /// rule that mints carbon -- and the refusal is counted in the same
+    /// `World::organ_ripening_blocked` the rest of the organ pipeline uses,
+    /// since it is the same question: did the reproductive account cover
+    /// this organ's price.
+    #[serde(default)]
+    pub rebloom_after: u32,
     /// **How long this species' seeds stay viable**, as a half-life in
     /// frames: the number of frames over which half a dormant seed bank
     /// disappears. `0.0` means immortal, which is what every seed was
@@ -2767,6 +3046,41 @@ pub enum BodyPlan {
     /// form is this mirrored in x. `(0, 0)` is the head and is implicit —
     /// list only the rest. y grows downward, matching the grid.
     Rigid(Vec<(i8, i8)>),
+    /// **A chain of rigid segments, grown rather than authored as a fixed
+    /// offset list.** Segment 0 is the head. Each segment is one spine cell
+    /// plus an optional lateral cell one step above it, so the body is
+    /// never more than two cells wide — the measured mobility-safe bucket
+    /// this module's own doc names above.
+    ///
+    /// **A third movement rule, not a variant on `Chain` or `Rigid`.** The
+    /// spine follows exactly the way a `Chain` does — new spine is `[head]
+    /// ++ old_spine[..m-1]`, so it flows over rough ground the same way —
+    /// but it is not one cell wide, and a lateral is not a `Rigid` offset
+    /// because it has to move *with* its own spine cell rather than by a
+    /// shared translation. `creature::body_after_step`'s own doc has the
+    /// full account; `organism::grow_body` is what produces the `Vec`
+    /// below from a `FateGenome`, which is what makes a body heritable
+    /// rather than only authored.
+    Segmented(Vec<Segment>),
+}
+
+/// One segment of a `BodyPlan::Segmented` body — a spine cell, and
+/// optionally a second cell one step above it (`creature::body_after_step`'s
+/// "directly above, world space, no facing dependence" rule).
+///
+/// **`Copy`, deliberately.** `grow_body` builds these one at a time off a
+/// `Fate`, which is itself `Copy`, and nothing about a segment's *shape*
+/// needs to own anything — the two fields are `CellType` and
+/// `Option<CellType>`, both plain tags.
+#[derive(Clone, Copy, PartialEq, Eq, Debug, Deserialize, Serialize)]
+pub struct Segment {
+    pub cell: CellType,
+    /// `#[serde(default)]` for the same authoring reason `Fate`'s own
+    /// `child`/`lateral` fields have it: most segments in a hand-authored
+    /// `body:` list have no lateral, and spelling `lateral: None` on every
+    /// one of them would be noise on the page.
+    #[serde(default)]
+    pub lateral: Option<CellType>,
 }
 
 impl BodyPlan {
@@ -2787,10 +3101,45 @@ impl BodyPlan {
                     out.push((if facing_west { -(dx as i32) } else { dx as i32 }, dy as i32));
                 }
             }
+            BodyPlan::Segmented(segments) => {
+                // Walk order is spine-then-lateral, per segment
+                // (`[spine0, lat0?, spine1, lat1?, ...]` — `state.chain`'s
+                // own contract, `creature::place_creature`'s doc has why).
+                // `out[0]` is already segment 0's spine cell, seeded above
+                // like every other plan's head, so this appends its lateral
+                // (if any) before moving on to segment 1's spine. Not
+                // folded into one loop over every segment including 0: that
+                // would either duplicate the head push above or special-case
+                // index 0 out of the loop, and this reuses it instead.
+                //
+                // The spine offset is the exact `Chain` formula — a
+                // straight line trailing the head along the facing — because
+                // this is the body's shape at the moment it is *placed*,
+                // before it has taken a step to bend around. The lateral
+                // offset is world-space and never mirrored: the spec this
+                // was built from is explicit that "directly above" does not
+                // depend on facing, unlike every other offset in this
+                // function.
+                if segments.first().is_some_and(|s| s.lateral.is_some()) {
+                    out.push((0, -1));
+                }
+                for (i, seg) in segments.iter().enumerate().skip(1) {
+                    let dx = i as i32;
+                    let spine = (if facing_west { dx } else { -dx }, 0);
+                    out.push(spine);
+                    if seg.lateral.is_some() {
+                        out.push((spine.0, spine.1 - 1));
+                    }
+                }
+            }
         }
         out
     }
 
+    /// **Bends by construction, so `Segmented` is not rigid.** Every segment
+    /// walks the path the one ahead of it left, exactly as a `Chain` cell
+    /// does — see `creature::body_after_step`. Falls out of `matches!`
+    /// without a `Segmented` arm rather than needing one.
     pub fn is_rigid(&self) -> bool {
         matches!(self, BodyPlan::Rigid(_))
     }
@@ -2800,11 +3149,58 @@ impl BodyPlan {
         match self {
             BodyPlan::Chain(n) => *n as usize,
             BodyPlan::Rigid(cells) => cells.len() + 1,
+            BodyPlan::Segmented(segments) => segments.iter().map(|s| 1 + s.lateral.is_some() as usize).sum(),
         }
     }
 
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+
+    /// **The `CellType` at each position `offsets` returns, in the same
+    /// order.** `Chain` and `Rigid` have only ever distinguished the head
+    /// from everything behind it — `CellType::Segment` is the one filler
+    /// type both have needed — so this reproduces that split for them
+    /// rather than reading anything new. A `Segmented` body carries a real
+    /// type per cell instead, walked out spine-then-lateral exactly the way
+    /// `offsets` walks its own positions, so the two vectors always line up
+    /// index for index; `creature::place_creature` zips them to stamp each
+    /// cell once, at the hatch.
+    pub fn cell_types(&self) -> Vec<CellType> {
+        match self {
+            BodyPlan::Chain(n) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, (*n as usize).saturating_sub(1))).collect(),
+            BodyPlan::Rigid(cells) => std::iter::once(CellType::Head).chain(std::iter::repeat_n(CellType::Segment, cells.len())).collect(),
+            BodyPlan::Segmented(segments) => {
+                let mut out = Vec::with_capacity(self.len());
+                for s in segments {
+                    out.push(s.cell);
+                    if let Some(lateral) = s.lateral {
+                        out.push(lateral);
+                    }
+                }
+                out
+            }
+        }
+    }
+
+    /// **How many physical cells each spine segment contributes, in walk
+    /// order** — 1 for a spine cell alone, 2 for a spine plus its lateral.
+    /// The authored counterpart of `OrganismState::segment_groups`, which
+    /// is the per-*individual* copy an injury can shrink; this is what
+    /// `creature::place_creature` seeds it from at the hatch, before
+    /// anything has had a chance to bite a cell off.
+    ///
+    /// **Empty for `Chain` and `Rigid`.** Every one of their cells is its
+    /// own segment of size 1 — `vec![1; self.len()]` — and
+    /// `OrganismState::segment_groups`'s own doc is why that is spelled as
+    /// "empty" rather than materialised: a `Chain` or `Rigid` body never
+    /// reads this field at all, so there is nothing for the distinction to
+    /// buy.
+    pub fn segment_groups(&self) -> Vec<u8> {
+        match self {
+            BodyPlan::Segmented(segments) => segments.iter().map(|s| if s.lateral.is_some() { 2 } else { 1 }).collect(),
+            BodyPlan::Chain(_) | BodyPlan::Rigid(_) => Vec::new(),
+        }
     }
 
     /// **This same body, at the same physical size, in a world built at `k`
@@ -2872,6 +3268,18 @@ impl BodyPlan {
                 }
                 BodyPlan::Rigid(out)
             }
+            // **Not implemented, deliberately.** Supersampling a
+            // `Segmented` body properly would mean scaling each segment
+            // into its own `k`x`k` block the way `Rigid` does above, which
+            // this variant does not need yet — nothing has built a
+            // resolution-scaled world with an articulated creature in it,
+            // and `World::cell_scale` is a whole separate milestone (M10).
+            // Returning the body unscaled is honest about that rather than
+            // pretending a cheap answer is a correct one: at `k=1` (every
+            // world today) `k <= 1` above already returns before this match
+            // is reached, so this arm is unreachable in practice and is
+            // here only so the match stays exhaustive.
+            BodyPlan::Segmented(_) => self.clone(),
         }
     }
 }
@@ -3001,6 +3409,54 @@ pub struct CreatureDef {
     /// steps puts digging at 1.5-2.2% of an ant's total burn.
     #[serde(default)]
     pub dig_cost_in_moves: f32,
+    /// **What holding yourself up on the air costs, per airborne frame, in
+    /// multiples of one step** -- the float's price, and the licence to use
+    /// it at all. `Reports/evolution-lab-flight-design-2026-09-11.md` §1/§3.
+    ///
+    /// In `move_cost_per_cell` units for `dig_cost_in_moves`' own stated
+    /// reason: a verb's price wants to scale with the animal paying it, and
+    /// `move_cost_per_cell * body_cells` is that scale already computed.
+    ///
+    /// **Derived rather than chosen: flying costs half of walking, per cell
+    /// covered.** At the flitter's authored 0.25 that is 0.0625 J on a
+    /// two-cell body, so 0.0875 J per airborne frame against 0.025 standing
+    /// still, and at `flight_speed` 0.5 cells/frame it is 0.125 J/cell
+    /// against walking's 0.25 and the ballistic hop's 0.037 -- **dearer than
+    /// the hop or nothing ever lands, cheaper than walking or nothing ever
+    /// flies.**
+    ///
+    /// **The struct default is 0.0, and that is also the capability gate**:
+    /// `creature::step_flight` evaluates no brain aloft for a species that
+    /// has not priced flight, so every shipped animal but the flitter is
+    /// bit-identical -- the hopper's ballistic arc pays nothing and decides
+    /// nothing in the air, exactly as before. See `BrainOutput::Fly` for why
+    /// the price is the licence and what that costs.
+    #[serde(default)]
+    pub fly_cost_in_moves: f32,
+    /// **The lift this species puts into a traverse it cannot see the end
+    /// of** — the cruise, as a fraction of a full hover at the top of the
+    /// ramp. `creature::CRUISE_FRAMES` has the derivation and the measurement.
+    ///
+    /// Species data rather than an engine constant for two reasons, one of
+    /// them a bug already paid for. **How far an animal will fly on spec is a
+    /// fact about the animal**, the way `fly_cost_in_moves` is; a hoverfly and
+    /// a bumblebee do not search the same way, and nothing here should have to
+    /// be re-derived to give them different ones. And **the guard
+    /// `a_weightless_body_is_put_down_on_water_unless_it_is_flying` cannot
+    /// construct its own premise without it**: that test holds `fly` at 0 to
+    /// build a body that is *not* flying, and a cruise read from a process-wide
+    /// switch overrode it on the next brain tick and flew the body clean past
+    /// the water, so §Z9's fix read as broken when it was not. A species field
+    /// the test can zero on its own cloned `def` is the difference between a
+    /// guard that can state its premise and one that cannot.
+    ///
+    /// **Default 0.0**, so every species but the flitter is bit-identical —
+    /// the same shape `fly_cost_in_moves` above uses as its capability gate,
+    /// and verified the same way (`ascii` byte-identical over 1,099
+    /// non-timing lines; `labforage` on `played_bed` byte-identical for the
+    /// ant, the long ant, the hopper and the beetle).
+    #[serde(default)]
+    pub cruise_lift: f32,
     /// **What laying a full-strength trail on one channel costs, in
     /// multiples of one step**, charged in proportion to what was actually
     /// deposited.
@@ -3416,6 +3872,28 @@ pub struct CreatureDef {
     /// gain pass-through or climb-over"*.
     #[serde(default)]
     pub climbs_over_kin: bool,
+    /// **How many consecutive ticks a laden body waits out a jam before it
+    /// turns round anyway** -- the expiry on `creature::boxed_by_traffic`'s
+    /// deferral. `None`, the default, is the rule as it stood: the deferral
+    /// never expires.
+    ///
+    /// Data rather than a constant because it is exactly one species' bug.
+    /// The owner's playtest, 2026-09-11: *"long ants getting stuck. Not all
+    /// of them but it happens regularly. It seems like they get stuck in a
+    /// big group/pile of long ants."* `boxed_by_traffic` withholds a laden
+    /// animal's flip on the premise that a jam clears on its own the moment
+    /// the other animal takes its next step -- and
+    /// `Reports/creature-articulated-body-2026-09-09.md` §13g named the case
+    /// where that premise is false and left it open: the other animal is
+    /// boxed too, so nothing is going to move, and the deferral repeats for
+    /// ever. This is what ends it.
+    ///
+    /// **Left `None` on every species but `longant`**, so every animal that
+    /// does not author it is bit-identical -- `examples/ascii`, digit for
+    /// digit, when this landed. A two-cell body is additionally unreachable
+    /// by it whatever it authors: see `creature::deferral_still_applies`.
+    #[serde(default)]
+    pub traffic_defer_max: Option<u16>,
     /// Whether this species will bite a **living** member of its own
     /// species.
     ///
@@ -3436,6 +3914,76 @@ pub struct CreatureDef {
     /// trait exists" was one trait short, not one stage short.
     #[serde(default)]
     pub eats_kin: bool,
+    /// **This animal drinks nectar and eats nothing else.** Default `false`,
+    /// so every species that does not author it is bit-identical -- proved
+    /// with `examples/ascii` before and after, digit for digit, when this
+    /// landed.
+    ///
+    /// **It is a switch on the menu, not a weight on it, and that is the
+    /// point.** `TRAIT_GUT_BIAS` already tunes *what a mouthful is worth*
+    /// through `diet_quality`, and it cannot express this: at the flitter's
+    /// authored gut of `-1.0` a leaf still pays 480 J and a whole flower
+    /// cell 1,440, so `adjacent_food`'s ranking made the box's first
+    /// pollinator a leaf-and-flower eater that bred off foliage and ate the
+    /// flowers it was built to serve. Measured before this field existed,
+    /// 120,000 frames on the played bed: **plant cells 960 -> 566 and
+    /// standing flowers 34 -> 4** against the same bed with no flitter in
+    /// it, while `flower_visits` read 1-15. The design named this failure
+    /// before it was built (`Reports/evolution-lab-pollinator-design-2026-
+    /// 09-10.md` §2.2, *"a bed of poor plants gets stripped by its own
+    /// pollinators"*) and no setting of the gut avoids it, because the gut
+    /// scales yields and every yield here is positive.
+    ///
+    /// **Read at three places, all of which have to agree or the animal
+    /// starves beside food**: `creature::adjacent_food_counted` (the menu,
+    /// which for such an animal is only `plant::nectar_available` cells),
+    /// `BrainInput::FoodAdjacent` (the same scan, so the brain's "there is
+    /// food here" means nectar for it), and the swallow block, which for
+    /// such an animal takes the nectar hook or takes nothing -- it never
+    /// clears a cell, so `World::flowers_bitten_by_species` reads exactly
+    /// zero for it while the ant's row still moves.
+    ///
+    /// **Not consulted by the fight.** `nearest_foe` and `BrainOutput::
+    /// Attack` are about what an animal will strike, not what it will
+    /// swallow -- the same separation `eats_kin`'s own doc draws -- so a
+    /// nectar drinker still defends itself and still gets nothing to eat
+    /// for it.
+    #[serde(default)]
+    pub nectar_only: bool,
+    /// **How long an animal of this kind lives, in frames -- the median.**
+    ///
+    /// `0` is immortal, which is every species' default and the behaviour
+    /// everything in this engine had until 2026-09-12: *no* creature died of
+    /// age, so every death in every session was starvation or a fight and a
+    /// colony could only shrink by famine. It booms on the bed's larder to
+    /// hundreds, strips it, and dies all at once
+    /// (`Reports/evolution-lab-late-game-design-2026-09-12.md` §0 measures
+    /// the shape: 73 -> 495 ants by 200,000 frames on seed 3, then 24 ants
+    /// and 13 plants by 260,000 -- a dead bed with a session still to run).
+    ///
+    /// **The plant's hazard, not a second model** -- `plant::
+    /// old_age_chance_over`, a Weibull with shape 2, rolled once per creature
+    /// tick at the individual's own interval. Three consequences worth
+    /// naming because they are what "graded" means here: **this is the
+    /// median**, survival at `T/4` is **96%** and survival at `2.5T` is
+    /// **1.3%** (the design report says 0.4%; that figure was arithmetically
+    /// wrong and is corrected at `plant::old_age_chance`). So a cohort dies over a spread rather than all at once,
+    /// which is `CLAUDE.md`'s first law -- an outcome is a distribution, not
+    /// a binary -- arriving on the animal side of the box. The corpse is laid
+    /// exactly as a starved animal's is, so a death is also 240 J of carrion
+    /// for a nestmate.
+    ///
+    /// **Authored per species, not heritable, and that is deliberate for
+    /// this build.** A trait slot widens the genome and shifts every seeded
+    /// draw in the world, and a lifespan gene with no standing cost is a
+    /// ratchet: every lineage walks it up for ever and nothing pays. The
+    /// design of record (§4) rules that it is priced before it is inherited.
+    ///
+    /// Exposed as a lab dial and as a scenario `Setting`, per the standing
+    /// "stop balancing, start exposing" ruling -- nobody can set this from
+    /// theory and the owner's own bed is the only authority on it.
+    #[serde(default)]
+    pub life_half_life: u32,
     /// **How far apart two colonies of this kind start, in scent.** Every
     /// colony label draws one offset at founding, uniform in
     /// `-spread..=spread` on each of the three signature slots
@@ -3599,6 +4147,20 @@ pub struct CreatureDef {
     /// file that never heard of it still loads.
     #[serde(default)]
     pub plastic: Vec<super::brain::Plastic>,
+    /// **How unequal a cohort's founding reserves are**, as a fraction of
+    /// `start_energy`: each founder's bank is drawn from
+    /// `start_energy * (1 +/- spread)`, paired across the cohort so the
+    /// TOTAL endowment is unchanged (`creature::founder_reserve`) — a
+    /// redistribution, not a subsidy. `0.0`, the default, is every founder
+    /// stamped identically, which is the shipped behaviour that produced
+    /// the disease it is meant to cure: 46 of 52 ants dying inside one
+    /// synchronised 500-frame window because every founder empties the
+    /// same grant on the same schedule
+    /// (`Reports/colony-economy-design-2026-09-09.md` §4a). Drawn from a
+    /// pure hash keyed on the founding position, never a shared `Rng`, so
+    /// the same seed places the same reserves.
+    #[serde(default)]
+    pub founder_reserve_spread: f32,
 }
 
 impl CreatureDef {
@@ -3684,6 +4246,8 @@ impl CreatureDef {
             idle_cost_per_cell,
             move_cost_per_cell,
             dig_cost_in_moves,
+            fly_cost_in_moves,
+            cruise_lift,
             emit_cost_in_moves,
             spoil_weight_cells,
             exposure_cost_per_cell,
@@ -3702,7 +4266,10 @@ impl CreatureDef {
             mutation_rate,
             trait_variance,
             climbs_over_kin,
+            traffic_defer_max,
             eats_kin,
+            nectar_only,
+            life_half_life,
             scent_spread,
             scent_drift,
             kin_crosses_kinds,
@@ -3717,6 +4284,7 @@ impl CreatureDef {
             hidden_outputs,
             recurrence,
             plastic,
+            founder_reserve_spread,
         } = self;
 
         let body_scaled = body.scaled(ki);
@@ -3808,9 +4376,27 @@ impl CreatureDef {
             traits: *traits,
             reproduce_threshold: *reproduce_threshold,
             mutation_rate: *mutation_rate,
+            // Dimensionless -- `mutation_rate`'s class exactly: a fraction
+            // *of* `start_energy`, which is itself passed through unchanged.
+            founder_reserve_spread: *founder_reserve_spread,
             trait_variance: *trait_variance,
             climbs_over_kin: *climbs_over_kin,
+            // A count of ticks, not a length: scaling a body does not change
+            // how long its patience should last.
+            traffic_defer_max: *traffic_defer_max,
             eats_kin: *eats_kin,
+            // A switch, not a length: scaling a body does not change what
+            // its mouth will open.
+            nectar_only: *nectar_only,
+            // **A span of real time, so x 1 -- and that is a claim about
+            // the hazard, not an assumption.** A supersampled animal decides
+            // `k` times as often, so a per-tick chance passed through
+            // unchanged would kill it `sqrt(k)` times sooner; it is safe here
+            // only because `plant::old_age_chance_over` takes the interval as
+            // an argument and divides it back out, which makes the median a
+            // number of *frames* at every cadence. If that ever stops being
+            // true this line becomes a `/ time_factor`.
+            life_half_life: *life_half_life,
             scent_spread: *scent_spread,
             scent_drift: *scent_drift,
             kin_crosses_kinds: *kin_crosses_kinds,
@@ -3842,6 +4428,11 @@ impl CreatureDef {
             // never been swept at k > 1: derive it from a measurement when
             // one exists, not from this comment.
             dig_cost_in_moves: *dig_cost_in_moves,
+            // **Dimensionless, exactly as `dig_cost_in_moves` above.** A
+            // multiple of one step is a ratio, and `move_cost_per_cell` --
+            // the thing it multiplies -- is what carries the scale factor.
+            fly_cost_in_moves: *fly_cost_in_moves,
+            cruise_lift: *cruise_lift,
             emit_cost_in_moves: *emit_cost_in_moves,
             spoil_weight_cells: *spoil_weight_cells,
             // A per-cell-per-decision rate exactly like `idle_cost_per_cell`,
@@ -3900,6 +4491,13 @@ fn default_windfall_material() -> String {
     "seed".to_string()
 }
 
+/// See `SpeciesDef::seed_provision_fraction`. **Not `#[serde(default)]`'s
+/// zero**, which would be "a carried seed feeds nobody" and would make every
+/// species that never authors the field silently unprofitable to harvest.
+fn default_seed_provision_fraction() -> f32 {
+    0.25
+}
+
 /// Set against the measured bank rather than from a target. On the
 /// eight-tree stand the bank stood at **160 seeds at 60,000 frames and was
 /// still climbing** — 42 at 28,800, so it was accelerating, not settling —
@@ -3938,8 +4536,18 @@ pub struct Species {
     pub flower_material: String,
     pub fruit_material: String,
     pub windfall_material: String,
+    /// See `SpeciesDef::seed_gut_survival`.
+    pub seed_gut_survival: f32,
+    /// See `SpeciesDef::seed_provision_fraction`.
+    pub seed_provision_fraction: f32,
+    /// See `SpeciesDef::nectar_yield`.
+    pub nectar_yield: f32,
+    /// See `SpeciesDef::nectar_refill`.
+    pub nectar_refill: f32,
     pub flower_bands: PaletteBands,
     pub fruit_bands: PaletteBands,
+    /// See `SpeciesDef::rebloom_after`.
+    pub rebloom_after: u32,
     /// See `SpeciesDef::seed_half_life`.
     pub seed_half_life: f32,
     /// See `SpeciesDef::remains_half_life`.
@@ -4137,8 +4745,13 @@ impl From<SpeciesDef> for Species {
             flower_material: def.flower_material,
             fruit_material: def.fruit_material,
             windfall_material: def.windfall_material,
+            seed_gut_survival: def.seed_gut_survival,
+            seed_provision_fraction: def.seed_provision_fraction,
+            nectar_yield: def.nectar_yield,
+            nectar_refill: def.nectar_refill,
             flower_bands: def.flower_bands,
             fruit_bands: def.fruit_bands,
+            rebloom_after: def.rebloom_after,
             seed_half_life: def.seed_half_life,
             remains_half_life: def.remains_half_life,
             life_half_life: def.life_half_life,
@@ -4275,6 +4888,89 @@ pub struct Crop {
     /// version would have made against the live identity's 1 J slack never
     /// happen.
     pub digesting: f32,
+    /// **A2 -- the seed rides home**, `Reports/evolution-lab-ecology-design-
+    /// 2026-09-10.md` §2.2. **One seed per crop.** Filled at the bite site
+    /// (`plant::take_seed_passenger`) only when this is still `None` -- a
+    /// second surviving seed in the same crop leaves its `pip` standing
+    /// where it was bitten instead, exactly as A1 always has. Popped by the
+    /// first cell the crop drops (`plant::deliver_seed_passenger`), so an
+    /// ant carrying three fruit delivers exactly one live seed. That
+    /// asymmetry is the graded outcome the brief asks for, not a
+    /// limitation.
+    ///
+    /// Orthogonal to `cells`/`unit`/`digesting`, which price the fruit's
+    /// *flesh* and are unaffected by whether a passenger rides along: a
+    /// passenger is a second, independent cargo that happens to be released
+    /// at the same drop event as one flesh cell, in its place.
+    pub passenger: Option<SeedPassenger>,
+}
+
+/// **What a bite's surviving seed becomes while it rides home.** Filled by
+/// `plant::take_seed_passenger` at the bite site, the instant
+/// `plant::seed_survives_bite` has already converted the bitten cell to
+/// `pip` **in place**; consumed by `plant::deliver_seed_passenger` at the
+/// first cell the crop puts down. `Reports/evolution-lab-ecology-design-
+/// 2026-09-10.md` §2.2, Brief A2.
+///
+/// **Carries the live organism id, not a fresh one.** The fruit's seed was
+/// already a child organism the moment its parent bore it
+/// (`plant::bear_seed_at`) -- alleles, fate table, lineage, endowment, all
+/// already drawn. A passenger only ever moves that same id's one cell from
+/// the bite site to the drop site; nothing here re-rolls a new individual.
+/// See `World::carried_seed_organisms` for what keeps the id alive while it
+/// owns no cell in the grid -- an organism with an empty `cells` map is
+/// ordinarily reclaimed on the very next organism tick
+/// (`step_organisms`'s own "empty cell list" rule).
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub struct SeedPassenger {
+    pub organism_id: u16,
+    /// Always `pip` in practice -- `take_seed_passenger`'s only caller reads
+    /// this straight off a cell `seed_survives_bite` just wrote as `pip` --
+    /// but it is read off the cell rather than looked up again, the same
+    /// conservatism `Carried::material` uses.
+    pub material: super::material::MaterialId,
+    pub shade: u8,
+    /// The packed `Cell::aux` at the moment of pickup -- `CellType::Seed`,
+    /// every time in practice, but carried rather than assumed so a
+    /// delivered pip germinates through the identical path a seed that
+    /// never left the ground does.
+    pub aux: u16,
+    /// `World::frame` at pickup, for `World::seed_transit_frames` --
+    /// `Reports/evolution-lab-ecology-design-2026-09-10.md` §2.5's check on
+    /// whether transit is actually free against `seed_half_life`.
+    pub picked_up_frame: u64,
+}
+
+/// **Round 28's garden-loop instrument** — one row per pip, read straight
+/// off the exact site `plant.rs`'s own `Behavior::Germinate` arm reads
+/// `light`/`soil_water` from, not reconstructed after the fact. Pushed to
+/// `World::pip_checks` on a pip's *first* Germinate evaluation only
+/// (`OrganismState::deferred_germination` false on entry), so a pip that
+/// waits out a dry spell does not multiply its own row.
+///
+/// `Reports/lanes/evolution-lab-garden-loop.md` hypothesis (a): is the pip
+/// set down somewhere it structurally cannot clear these two thresholds —
+/// buried, in shade, or on dry ground? `light`/`soil_water` against their
+/// own `_threshold` twin say pass or fail against the mechanism's own bar,
+/// `resting` says whether it even has ground under it yet, and `overburden`
+/// is a cheap non-zero-cost-elsewhere proxy for "how buried" (see
+/// `plant::overburden_depth` — it is diagnostic-only, not the engine's own
+/// notion of depth, because there isn't one).
+#[derive(Clone, Copy, Debug)]
+pub struct PipCheck {
+    pub x: i32,
+    pub y: i32,
+    pub frame: u64,
+    /// A2 (rode home in a crop, set down by `plant::deliver_seed_passenger`)
+    /// against A1 (stands where the fruit was bitten) — see
+    /// `OrganismState::pip_delivered`.
+    pub delivered: bool,
+    pub resting: bool,
+    pub light: f32,
+    pub light_threshold: f32,
+    pub soil_water: f32,
+    pub soil_water_threshold: f32,
+    pub overburden: i32,
 }
 
 /// **What an animal dug out and has not put down yet.**
@@ -4410,6 +5106,61 @@ pub struct Flight {
     /// cell per frame still produces motion instead of rounding to nothing.
     pub fx: f32,
     pub fy: f32,
+    /// **How much of its weight the animal is carrying on the air right
+    /// now**, `0.0` for the ballistic hop this engine shipped with and up to
+    /// (never reaching) `1.0` for a body that hangs.
+    /// `Reports/evolution-lab-flight-design-2026-09-11.md` §1.
+    ///
+    /// Held on the flight rather than recomputed per frame because the brain
+    /// runs once per `tick_interval` aloft and the ballistics run every
+    /// frame -- so this is the three-or-so frames of lift a decision buys,
+    /// exactly as `vx`/`vy` are the frames of travel a launch buys. Written
+    /// only by `creature::step_flight` from `BrainOutput::Fly`; `launch`
+    /// sets it to 0.0, so a hop is a hop until a brain says otherwise.
+    pub fly: f32,
+    /// **Sub-octant turn remainder**, the steering twin of `fx`/`fy`.
+    ///
+    /// `BrainOutput::Turn` is continuous and the air is turned in whole
+    /// octants -- the granularity a walking step turns by, so a walk and a
+    /// float cannot disagree about what a turn is. Rounding each tick's turn
+    /// to the nearest octant would make every turn below half an octant
+    /// exactly nothing, which is a binary outcome wearing a continuous
+    /// input; accumulating it instead makes the turn *rate* graded (a weak
+    /// bearing turns once every few ticks, a saturated one turns every
+    /// tick) while every individual rotation stays exact. `|Turn| < 1`, so
+    /// at most one octant per tick falls out of the arithmetic rather than
+    /// being clamped in.
+    pub turn_acc: f32,
+    /// **Frames since this body left the ground**, saturating.
+    ///
+    /// Two jobs, both of which `Reports/lanes/evolution-lab-flitter.md`'s
+    /// round-29 verdicts turned on.
+    ///
+    /// **It makes the launch frame a decision point.** The airborne brain
+    /// runs once per `tick_interval`, so a body that left the ground on a
+    /// frame the modulus did not like flew the first three frames of a
+    /// 6-cell/frame launch with no wings on -- up to eighteen cells of pure
+    /// ballistics before anything could take the arc over. That is most of
+    /// what the owner saw as *"one long hop (clearly not fly)"*.
+    /// `aloft == 0` forces the first tick regardless of the modulus.
+    ///
+    /// **And it phases the wingbeat.** `creature::weave` reads it for the
+    /// bob and the wander, so the flutter is a function of how long *this*
+    /// animal has been up rather than of the world clock -- two flitters
+    /// launching a frame apart beat out of step, which is what stops a bed
+    /// full of them pulsing in unison.
+    pub aloft: u16,
+    /// **Consecutive frames a flying body has had a step refused on every
+    /// axis** -- the perch's counter, reset by any successful substep.
+    ///
+    /// One blocked frame is not a stall: a flier crossing a canopy clips a
+    /// leaf constantly and should slide along it, which is what the axis
+    /// fallbacks in `creature::step_flight` are for. Landing on the first
+    /// refusal was built and measured -- it put the animal down so eagerly
+    /// that a bout fell to **12 frames, shorter than the 22-frame wingless
+    /// arc it replaced**, and `flower_visits` with it (381 -> 307). What
+    /// deserves a perch is a body that has been trying and getting nowhere.
+    pub stall: u8,
 }
 
 /// Per-organism state too large (or too semantically distinct) to fit in
@@ -4665,6 +5416,27 @@ pub struct OrganismState {
     /// reader: this is the number a probe asks "is this plant carrying
     /// anything" and the one a review card prints beside the picture.
     pub organ_cells: u32,
+    /// **Stem cells waiting to grow a fresh flower**, as `(x, y, due_frame)`
+    /// triples — `plant::process_rebloom`'s own queue, filled at a fruit's
+    /// drop (or a flower's loss before it sets) by `plant::rebloom_collar`
+    /// and drained once per organism tick.
+    ///
+    /// **On `OrganismState` rather than a field on every `OrganismCell`,
+    /// and that is the memory trade rather than the obvious placement.** A
+    /// per-cell sidecar field costs four bytes on *every* cell of *every*
+    /// organism in the world for a timer that, at any moment, at most a
+    /// handful of cells anywhere are using; a `Vec` here costs nothing on a
+    /// plant that never reblooms (`rebloom_after: 0`, still the default for
+    /// five of seven shipped species) and a few bytes on the rest.
+    ///
+    /// **Not drained by anything but `process_rebloom`, deliberately.** A
+    /// stale entry — its target cell burned, snapped off, or grown over
+    /// before its timer ran out — is simply dropped the next time that pass
+    /// looks at it (`cell.organism_id() != organism_id` reads as "nothing
+    /// to grow from" there exactly as it does for a stray seed in
+    /// `organism_tick`), so nothing has to hunt for orphaned entries when a
+    /// cell disappears by some other route.
+    pub rebloom_pending: Vec<(i32, i32, u64)>,
     /// **How many of this plant's cells are structural anchors** — the
     /// `is_structural_anchor` set, tallied in `anchor_support`'s seeding
     /// loop rather than in a walk of its own.
@@ -4887,6 +5659,42 @@ pub struct OrganismState {
     /// developmental block; `BrainInput::Made` feeds it back to the brain.
     pub made: f32,
     pub chain: Vec<(i32, i32)>,
+    /// **How `chain` groups into spine segments, for a `BodyPlan::Segmented`
+    /// body only.** Each entry is 1 (a spine cell with no lateral *right
+    /// now*) or 2 (a spine cell followed by its lateral) and the entries
+    /// sum to `chain.len()`, in the same walk order `chain` itself is in
+    /// (`[spine0, lat0?, spine1, lat1?, ...]`). `creature::place_creature`
+    /// seeds it at placement, and **it is rewritten with `chain` on every
+    /// step, not just at birth** — `creature::segmented_body_after_step`
+    /// returns the landing and this grouping together as one value, and
+    /// the caller that commits the move writes both back together. That is
+    /// the lateral tuck rule (`Reports/creature-articulated-body-2026-09-09
+    /// .md` §7f): a widened segment whose lateral has nowhere placeable to
+    /// go this step is not placed, and this field's own entry for it drops
+    /// to 1 until a side clears and it re-emerges. **This is the *live*
+    /// width, describing `chain` as it stands this instant — never whether
+    /// a segment is *allowed* a lateral at all**, which is a different,
+    /// stabler question `creature::segment_authored` answers by re-growing
+    /// the individual's own body from its `FateGenome`; reading this field
+    /// for that question would make a tucked segment permanently tucked,
+    /// because the very code path meant to test whether room has opened up
+    /// would see "1" and skip the test.
+    ///
+    /// Severing (`creature::reconcile_chain`) truncates it alongside
+    /// `chain` on genuine, permanent loss — a segment entirely bitten off
+    /// drops from both lists together — which is a different event from a
+    /// tuck: severing is a separate call, never fused with a step, so the
+    /// two never race, and a bite can only ever remove a cell that is
+    /// currently present (a tucked lateral has no cell there to hit).
+    ///
+    /// **Empty for a `Chain` or `Rigid` body** — every one of their cells is
+    /// its own segment of size 1, which is `chain.len()` copies of `1u8`,
+    /// and materialising that for every plant and worm in the world would
+    /// be a `Vec` nobody reads. `creature::relocate_chain` treats an empty
+    /// `segment_groups` on both the old and new side as exactly that: the
+    /// flat, positional correspondence it always used, unaffected by any of
+    /// the above.
+    pub segment_groups: Vec<u8>,
     /// The head's facing, as a **discrete 0..8 compass index** into
     /// `creature::DIRS` — never a float vector.
     ///
@@ -4977,6 +5785,14 @@ pub struct OrganismState {
     /// regenerating animal would make swarming a race against a clock and
     /// give the result a threshold again, which is the shape this replaced.
     pub gnawed: f32,
+    /// **The frame this animal last gave or received a share of
+    /// trophallaxis** (`brain::BrainOutput::Share`), `0` for never. Written
+    /// on both parties at the moment of transfer. Nothing in the sim reads
+    /// it yet -- it exists for the on-screen flash another lane's marker
+    /// pass draws from it (`src/lab/ui.rs`), the same "build the field
+    /// before the mechanism that renders it" order `CLAUDE.md`'s debug-
+    /// readout rule asks for.
+    pub last_share_frame: u64,
     /// Ticks since this creature last touched nest material.
     ///
     /// **This is how an ant finds its way home without ever asking where
@@ -4985,6 +5801,25 @@ pub struct OrganismState {
     /// nest — and a laden ant walking *up* that gradient is walking home.
     /// No creature ever queries the nest's position; the field knows.
     pub since_nest: u16,
+    /// **Consecutive ticks on which this animal's flip has been withheld by
+    /// the traffic gate** -- `creature::boxed_by_traffic`, §13g -- reset to
+    /// 0 the moment it is not.
+    ///
+    /// The gate exists because `is_boxed` cannot tell a dead end from a
+    /// jam, and a laden forager turned round at the door it was about to
+    /// walk through is a real cost (§13g measured deliveries 290 against
+    /// 233 without it). Its premise is that *"a jam clears on its own the
+    /// moment the other animal takes its own next step"* -- and §13g named,
+    /// and did not close, the case where that premise is false: the other
+    /// animal is boxed too, so nothing is going to move, and the deferral
+    /// repeats for ever. The owner found it by playing
+    /// (2026-09-11: *"long ants getting stuck ... in a big group/pile of
+    /// long ants"*). This counter is what lets the deferral **expire**; see
+    /// `creature::traffic_defer_max`.
+    ///
+    /// A `u16` and not a `bool` because the question is *how long*, and a
+    /// tick is the animal's own tick, not a frame.
+    pub traffic_deferred: u16,
     /// **Measurement only — no creature ever reads this, and the moment one
     /// does, the homing model has changed and this doc is a lie.**
     ///
@@ -5122,6 +5957,29 @@ pub struct OrganismState {
     /// and a stand that looks lush while every plant reads generation 0 is
     /// a stand where nothing has bred.
     pub generation: u16,
+    /// **How many buds this individual has itself produced, successfully**
+    /// -- incremented in `try_bud` the moment a child is actually placed,
+    /// not merely attempted.
+    ///
+    /// Exists so a **breeder** can be read off a fact rather than defined
+    /// in terms of itself: `breeding_regime()`'s `queen`/`graded` arms
+    /// suppress every *other* animal in a colony once one member has
+    /// `children > 0`, and "breeder" has to mean something that does not
+    /// already depend on the suppression it feeds. **`children > 0` is the
+    /// whole rule, deliberately not also "or founder"** -- see
+    /// `breeding_regime`'s own doc for why counting a colony's generation-0
+    /// founders as breeders would make the `queen` regime suppress almost
+    /// nothing. At founding this field is `0` on every member, so the
+    /// first one to bud is the first fact the rest of the colony reads.
+    ///
+    /// **Deliberately a field of its own, not a read of `life.offspring`**,
+    /// which mirrors it under every regime today. That counter is
+    /// `place_creature`'s stat bookkeeping for `CreatureStats`; this one
+    /// belongs to the breeding-regime mechanism and is written at the one
+    /// call site that decides whether suppression applies, so the fact the
+    /// mechanism reads can never drift from a mirror kept for a different
+    /// reason.
+    pub children: u16,
     /// **Which founding individual this one descends from.**
     ///
     /// Copied unchanged from parent to child at every birth, so a whole
@@ -5190,6 +6048,42 @@ pub struct OrganismState {
     pub born_frame: u64,
     /// Seeds this organism has set. The other half of the same question.
     pub seeds_set: u32,
+    /// **The strongest single thing that changed between this individual and
+    /// its parent, packed rather than stored as a `String`** -- this field
+    /// lives on the hot organism table, cloned by every batch worker, so it
+    /// stays a `Copy` `u16` and the sentence is built on demand from it, the
+    /// same trade `LogEvent` makes.
+    ///
+    /// **Per-individual, never logged.** `CLAUDE.md`'s scale constraint: a
+    /// colony click founds 52 lineages and the box runs at 1,000+ animals, so
+    /// a line in the run log for every birth's mutation would drown the
+    /// chronicle the log exists to be. This is read on demand, on the CELL
+    /// page, for the one individual a player is actually looking at.
+    ///
+    /// High byte -- which channel changed:
+    /// - `0..=13` -- a `CREATURE_TRAITS` slot; low byte is the signed change
+    ///   as a percentage of that trait's `-1..=1` axis (e.g. `+12` is 12% of
+    ///   the axis, not 12% of the old value, which would be meaningless near
+    ///   zero), stored as an `i8`'s bit pattern.
+    /// - `14` -- no trait moved but synapses did; low byte is how many,
+    ///   saturating at 255 (`brain::mutate`'s own return, otherwise
+    ///   discarded).
+    /// - `20` -- a discrete allele jumped; low byte is the locus index
+    ///   (`DISCRETE_LOCI`).
+    /// - `21` -- the production rule mutated; low byte is the `FateOp`
+    ///   discriminant (`FateOp::ALL`'s index).
+    /// - `22` -- a parameter was overridden; low byte is unused (the
+    ///   specific override is already on `params.overrides()`, which the
+    ///   CELL page reads directly -- this only flags that one exists).
+    ///
+    /// `0` (the whole `u16`) means nothing worth reporting moved: a founder,
+    /// a released jar, or a birth whose mutation rolled and produced no
+    /// visible change. A plant's continuous jitter (every seed's
+    /// `genotype_draws`) never sets this -- see `plant::bear_seed_at`'s own
+    /// comment at the seam that decides it -- because it fires on every seed
+    /// and would make this field mean "this seed existed" rather than "this
+    /// seed's line moved".
+    pub born_with: u16,
     /// **What this individual has done in its life.**
     ///
     /// Every field is mirrored from a site that already increments the
@@ -5237,6 +6131,17 @@ pub struct OrganismState {
     /// dormancy do anything here. The count of *deferrals* would be a
     /// property of the polling interval, not of the mechanic.
     pub deferred_germination: bool,
+    /// **This pip rode home in a crop and was set down (A2), rather than
+    /// standing where the fruit was bitten (A1).** Round 28's garden-loop
+    /// instrument (`Reports/lanes/evolution-lab-garden-loop.md`): set by
+    /// `plant::deliver_seed_passenger` the instant a passenger is written
+    /// back as a live cell, and read once, at the pip's first `Behavior::
+    /// Germinate` check, into `PipCheck::delivered` -- so the diagnostic
+    /// table can tell a crop delivery from an in-place spill without
+    /// re-deriving it from position. Never cleared, but only ever read
+    /// before the cell relabels away from `Seed`, so a stale `true` on a
+    /// later, unrelated organism (slots are reused) cannot be observed.
+    pub pip_delivered: bool,
     /// **This individual is dead and what is left of it is rotting.** Set
     /// by `plant::organism_upkeep` the tick an organism is found holding no
     /// vital cell (see `Species::is_vital`), and never cleared.
@@ -5521,6 +6426,19 @@ pub enum DeathCause {
     /// numbers and cannot say how many plants died this way. This is that
     /// count, for the price of one boolean at the closing seam.
     FelledOrLost,
+    /// **An animal that simply got old**, on the graded hazard
+    /// [`CreatureDef::life_half_life`] describes. Plants have died this way
+    /// since the growth clock landed, but `plant.rs` records it as `Starved`
+    /// -- a plant that cannot pay its maintenance genuinely is starving. An
+    /// animal's age death pays nothing and owes nothing, so it wanted a cause
+    /// of its own, and telling it from `Starved` is the whole point of the
+    /// counter: "the colony settled at a size" and "the colony ran out of
+    /// food" look identical in a population line and nowhere else.
+    ///
+    /// **Appended rather than filed beside `Starved`** so that no existing
+    /// cause's [`DeathCause::index`] moves: `World::deaths_by_cause` and
+    /// every `GroupDeaths::by_cause` row are positional arrays.
+    OldAge,
 }
 
 impl DeathCause {
@@ -5534,12 +6452,13 @@ impl DeathCause {
             DeathCause::Culled => "CULLED",
             DeathCause::LostVitalTissue => "LOST ITS TISSUE",
             DeathCause::FelledOrLost => "FELLED",
+            DeathCause::OldAge => "OLD AGE",
         }
     }
 }
 
 /// How many variants [`DeathCause`] has, for the world's by-cause histogram.
-pub const DEATH_CAUSES: usize = 7;
+pub const DEATH_CAUSES: usize = 8;
 
 /// Every cause, in the order the histogram indexes them.
 pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
@@ -5550,6 +6469,7 @@ pub const DEATH_CAUSE_LIST: [DeathCause; DEATH_CAUSES] = [
     DeathCause::Culled,
     DeathCause::LostVitalTissue,
     DeathCause::FelledOrLost,
+    DeathCause::OldAge,
 ];
 
 impl DeathCause {
@@ -5971,7 +6891,7 @@ fn default_creature_traits() -> [f32; CREATURE_TRAITS] {
 /// already in the engine as authored per-species constants; making them
 /// heritable alleles is what lets the simulation find combinations nobody
 /// wrote down.
-pub const DISCRETE_LOCI: usize = 6;
+pub const DISCRETE_LOCI: usize = 7;
 
 /// **Leaf construction economics** — the acquisitive↔conservative axis,
 /// and the foliage band the individual wears; one allele, both meanings.
@@ -6003,6 +6923,31 @@ pub const LOCUS_TROPISM: usize = 4;
 /// allele (`bark_band_for_density`), so bark tone is a readout of a real
 /// gene, exactly as foliage tone is.
 pub const LOCUS_WOOD_DENSITY: usize = 5;
+/// **Petal colour** — which band of the species' `flower_bands` range an
+/// individual's flowers take. Until this locus existed, petal colour was
+/// the loudest single-pixel channel the plant owns and the one channel
+/// that was *not* heritable: `bear_seed_at` drew it fresh per individual
+/// from `ORGAN_BAND_STREAM`, so a cross's petals looked random rather than
+/// a blend of its parents (Brief C2, `Reports/evolution-lab-pollinator-
+/// design-2026-09-10.md` §3.4-3.5).
+///
+/// **Founded like `LOCUS_WOOD_DENSITY`, not like `LOCUS_LEAF_ECONOMY`.**
+/// Every species declares foliage bands, so founding foliage tone by
+/// drawing the band and backing the allele out of it never starves the
+/// locus of variance. Not every species flowers — `tree`, `conifer`,
+/// `creeper` and `grass` declare no `flower_bands` at all — so the same
+/// trick here would found every one of their individuals on allele 0
+/// always, which is the exact frozen-locus defect `FOUNDER_VARIANT_CHANCE`
+/// exists to avoid. `seed_genotype` instead draws the allele first, on its
+/// own positional stream, and derives the band from it, so every species
+/// gets real per-founder diversity on this locus even where it drives
+/// nothing on screen. Once founded it is fully heritable: a bred seed
+/// derives `flower_band` from this allele in `bear_seed_at`, the direct
+/// clamp `foliage_band` already uses
+/// (`flower_bands.first + allele.min(count - 1)`), rather than taking a
+/// fresh draw. Fruit colour still has no locus; that gap is recorded, not
+/// fixed, where `bear_seed_at` sets `fruit_band`.
+pub const LOCUS_FLOWER_COLOUR: usize = 6;
 
 /// How many alleles each locus has.
 ///
@@ -6013,7 +6958,20 @@ pub const LOCUS_WOOD_DENSITY: usize = 5;
 /// two bands, so a jump landed on the top band five times as often as
 /// the bottom one. Two alleles for two strategies removes the bias by
 /// construction.
-pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3];
+///
+/// `LOCUS_FLOWER_COLOUR` is 3, one wider than the 2 every flowering
+/// species originally shipped with. Round 28 (PR2, the C2 card's second
+/// question) widened `herb` alone from two flower bands to three
+/// (yellow/orange/red) so a cross shows a middle colour instead of a coin
+/// flip; `scrambler` and `shrub` still declare two, and the derivation's
+/// own `.min(flower_bands.count - 1)` clamp folds their otherwise-unreachable
+/// third allele onto their top band, exactly the shape `LOCUS_WOOD_DENSITY`
+/// already handles for a bark range narrower than its own allele count. A
+/// non-flowering species (`tree`, `conifer`, `creeper`, `grass`) still
+/// carries the locus and jumps it like any other — it just drives nothing
+/// visible there, the same free ride `LOCUS_WOOD_DENSITY`'s bark-band
+/// mapping already gives a species with `bark_bands.count == 0`.
+pub const LOCUS_ALLELES: [u8; DISCRETE_LOCI] = [2, 3, 3, 2, 2, 3, 3];
 
 /// Multipliers on the species' `branch_angle`, one per allele of
 /// `LOCUS_BRANCH_ANGLE`. Spread wide enough that the three are *visibly*
@@ -6234,6 +7192,28 @@ const EMBEDDED: &[&str] = &[
     // §10 stage 3). Appended at the end so no existing species' position
     // moves.
     include_str!("../../assets/species/ancestor.ron"),
+    // **The second animal, and the first to author `BrainOutput::Impulse`**
+    // -- see `hopper.ron`'s own header. Appended at the end, same
+    // convention as everything above it. It cannot yet be placed: it needs
+    // a companion `assets/materials/hopper.ron`, which is out of the scope
+    // that added this line (`material.rs`'s own `include_str!` list is a
+    // different file this session does not own).
+    include_str!("../../assets/species/hopper.ron"),
+    // **The articulated body, placeable rather than shipped, 2026-09-11.**
+    // `Reports/creature-articulated-body-2026-09-09.md` §13 built this
+    // seven-cell `Segmented` body as the ant's own; the owner's ruling that
+    // landed it kept the shipped `ant` at `Chain(2)` and put this body on
+    // its own species instead. Appended at the end, same convention as
+    // everything above it. See `assets/species/longant.ron`'s own header.
+    include_str!("../../assets/species/longant.ron"),
+    // **The flitter -- Brief P2, the first animal whose living is flowers.**
+    // Cut from `hopper.ron` (see that file's own header, and this file's),
+    // appended at the end, same convention as everything above it. Its
+    // companion `assets/materials/flitter.ron` lands in the same change --
+    // `hopper.ron`'s own comment above records what shipping one file short
+    // of that produces: the species loads, appears on the COLONY chip, and
+    // places nothing.
+    include_str!("../../assets/species/flitter.ron"),
 ];
 
 /// Where the loader looks for species files, relative to the working
@@ -6517,6 +7497,21 @@ impl SpeciesRegistry {
         self.species[id.0 as usize].creature = Some(def);
     }
 
+    /// Same caveat as `set_genome` and `set_creature`, and the reason this
+    /// one exists is the same shape again: a test that hands a species a
+    /// synthetic `CreatureDef::body` (`creature::priced_ant`'s `Chain(n)`,
+    /// built to isolate the per-cell cost formula from any real species'
+    /// shape) is silently ignored the moment that species also carries a
+    /// `fates` table, because `place_creature` grows the body from
+    /// `body_fates` whenever it is non-empty and only falls back to
+    /// `def.body` when it is not (`grow_body`'s own call site). `ant` and
+    /// `hopper` both author one now, so a caller overriding just `body` gets
+    /// the real shipped shape back instead of the one it asked for. Clearing
+    /// the table here is how a test gets `def.body` honoured again.
+    pub fn set_fates(&mut self, id: SpeciesId, fates: Vec<(CellType, Vec<Fate>)>) {
+        self.species[id.0 as usize].fates = fates;
+    }
+
     pub fn id_of(&self, name: &str) -> Option<SpeciesId> {
         self.by_name.get(name).copied()
     }
@@ -6757,6 +7752,9 @@ pub fn cell_type(aux: u16) -> Option<CellType> {
         7 => Some(CellType::Segment),
         8 => Some(CellType::Flower),
         9 => Some(CellType::Fruit),
+        10 => Some(CellType::Leg),
+        11 => Some(CellType::Gut),
+        12 => Some(CellType::Armour),
         _ => None,
     }
 }
@@ -7027,6 +8025,26 @@ pub struct OrganismCell {
     /// behaviour, so it costs four bytes on a struct that already holds
     /// eleven fields and no work anywhere else.
     pub ripeness: f32,
+    /// **A flower's own standing nectar, `0..=1`** — refilled by
+    /// `Behavior::Ripen` at the species' `nectar_refill` each organism tick
+    /// and drained to 0 by a paid visit (`plant::nectar_offer`).
+    ///
+    /// **Its own field rather than reusing `ripeness`, and that reuse was
+    /// considered and rejected rather than simply not tried.**
+    /// `Reports/evolution-lab-pollinator-design-2026-09-10.md` §3.1:
+    /// `ripeness` is a *one-way clock toward fruit-set* —
+    /// `Behavior::Ripen` only ever adds to it — so draining it on a visit
+    /// would make feeding an animal *delay* fruiting, exactly backwards
+    /// from what a pollination bonus (B2, a different field, not built
+    /// here) is supposed to do, and leaving it undrained says nothing
+    /// about nectar at all. Nectar has to go up *and* down on its own
+    /// clock, which `ripeness`'s contract forbids.
+    ///
+    /// Zero on every non-`Flower` organ cell, and on a `Flower` whose
+    /// species authors no `nectar_refill` (the default, `0.0`) — such a
+    /// cell never climbs off zero and `nectar_offer` always reads it dry,
+    /// which is today's behaviour exactly.
+    pub nectar: f32,
 }
 
 impl Default for OrganismCell {
@@ -7071,6 +8089,7 @@ impl Default for OrganismCell {
             path_len: 0,
             primed: false,
             ripeness: 0.0,
+            nectar: 0.0,
         }
     }
 }
@@ -8034,7 +9053,19 @@ mod tests {
                     def.trait_variance[slot]
                 );
             }
-            assert_eq!(def.scent_drift, 0.0, "{name}.ron ships with no scent drift: the shipped bed is one family");
+            // **The ant ships with drift ON and the beetle does not**, and
+            // the pair is the canary: one non-default value says the field
+            // survived the round trip, one default says the other species was
+            // not dragged along with it.
+            //
+            // The ant's 0.15 is the owner's 2026-09-12 ruling, and it became
+            // safe only once a nest held an odour of its own
+            // (`World::nest_sites`): a cohered colony's scent cloud is
+            // `0.458 * drift` = 0.069 of a 1.0 tolerance radius, and it
+            // cannot reach that radius at any allele-axis setting. Before
+            // cohesion, any non-zero drift ended with a colony eating itself.
+            let expected = if name == "ant" { crate::sim::creature::SHIPPED_ANT_SCENT_DRIFT } else { 0.0 };
+            assert_eq!(def.scent_drift, expected, "{name}.ron's shipped scent drift moved; if that is deliberate, move this line with it and say what the bed measured");
         }
         let beetle = reg.get(reg.id_of("beetle").expect("beetle"));
         let beetle = beetle.creature.as_ref().expect("a creature");
@@ -8147,24 +9178,124 @@ mod tests {
 
     #[test]
     fn an_unrecognized_type_bit_pattern_is_none() {
-        // 0-9 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
-        // Segment/Flower/Fruit, so the first unassigned pattern is 10.
-        // Deliberately the *next* one rather than a far-away value: what
-        // this guards is that adding a variant does not silently start
-        // aliasing a stale bit pattern onto it, and the pattern that has
-        // just become valid is the one that proves the boundary moved with
-        // the enum.
+        // 0-12 are Seed/GrowingTip/MatureBody/Leaf/RootTip/DormantBud/Head/
+        // Segment/Flower/Fruit/Leg/Gut/Armour, so the first unassigned
+        // pattern is 13. Deliberately the *next* one rather than a
+        // far-away value: what this guards is that adding a variant does
+        // not silently start aliasing a stale bit pattern onto it, and the
+        // pattern that has just become valid is the one that proves the
+        // boundary moved with the enum.
         //
-        // **It has now done its job once.** The organ package added `Flower`
-        // and `Fruit` at 8 and 9, and this test went red on the `8 => None`
-        // line -- which is exactly the boundary check working, not a
+        // **It has now done its job twice.** The organ package added
+        // `Flower` and `Fruit` at 8 and 9 and this test went red on the
+        // `8 => None` line; the articulated-body package added `Leg`,
+        // `Gut` and `Armour` at 10-12 and it went red on `10 => None` the
+        // same way. Both are exactly the boundary check working, not a
         // breakage. Updating the numbers is the intended maintenance; what
         // would be wrong is widening the assertion so it stops noticing.
         assert_eq!(cell_type(7), Some(CellType::Segment));
         assert_eq!(cell_type(8), Some(CellType::Flower));
         assert_eq!(cell_type(9), Some(CellType::Fruit));
-        assert_eq!(cell_type(10), None);
+        assert_eq!(cell_type(10), Some(CellType::Leg));
+        assert_eq!(cell_type(11), Some(CellType::Gut));
+        assert_eq!(cell_type(12), Some(CellType::Armour));
+        assert_eq!(cell_type(13), None);
         assert_eq!(cell_type(15), None);
+    }
+
+    /// **A terminal rule must be ordered above its general one, or the axis
+    /// never ends — and the failure is silent.** Lookup is first-match-wins
+    /// (`FateGenome::fate`'s own doc), so an unconditional rule listed
+    /// *before* a higher-`after_metamers` one for the same owner shadows it
+    /// completely: the unconditional rule matches every time, the
+    /// conditional one is never reached, and `grow_body` runs to `cap` on
+    /// every animal. Nothing about that reads as broken from the outside —
+    /// bodies are produced, they are the right shape at the cap, and no
+    /// counter goes red. `ant.ron`'s own `fates` table depends on getting
+    /// this ordering right for exactly this reason (its `Segment` owner
+    /// carries three rules, ordered highest threshold first).
+    ///
+    /// **Both orderings are checked in one test, which is this guard's own
+    /// positive control.** A guard that only ever asserts the correct
+    /// ordering produces a body under the cap could pass by coincidence —
+    /// swapping the two rules and confirming the assertion moves is the
+    /// "put the fault back and watch it go red" `CLAUDE.md` asks for,
+    /// folded into the test itself rather than left for someone else to
+    /// remember to do by hand.
+    #[test]
+    fn a_terminal_rule_ordered_below_its_general_one_never_ends_the_axis() {
+        const CAP: usize = 8;
+        let head_rule = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Never stops on its own: every step it fires, it asks for another.
+        let general = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Ends the axis from metamer 2 onward -- reached at step 3 of the
+        // walk (Head, then two `Segment` steps) if it is ever actually
+        // checked.
+        let terminal = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+
+        let correctly_ordered =
+            FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![terminal, general])]);
+        let misordered = FateGenome::from_table(&[(CellType::Head, vec![head_rule]), (CellType::Segment, vec![general, terminal])]);
+
+        let ordered_body = grow_body(correctly_ordered, CAP, true);
+        let misordered_body = grow_body(misordered, CAP, true);
+
+        assert!(
+            ordered_body.len() < CAP,
+            "the terminal rule listed above the general one must end the axis well short of the cap, got {} segments",
+            ordered_body.len()
+        );
+        assert_eq!(
+            misordered_body.len(),
+            CAP,
+            "the fault put back: swapping the two rules must shadow the terminal one and run the axis to the cap every time"
+        );
+    }
+
+    /// **The ablation `Reports/creature-articulated-body-2026-09-09.md`
+    /// §7d asks for, at the one function that actually produces a
+    /// `Segmented` body's laterals.** `laterals: false` must be a pure
+    /// subtraction: the same owner walked at the same `metamers`, the same
+    /// `child` pointers followed, the same `cap` -- so the spine (`cell`
+    /// per segment, and segment count) is byte-identical between the two
+    /// arms and only `lateral` moves. If this test ever needs to touch the
+    /// spine to make it pass, the switch has stopped being the isolated
+    /// ablation the report calls for.
+    #[test]
+    fn body_laterals_switch_strips_only_the_lateral_field() {
+        const CAP: usize = 8;
+        let head = Fate { when: FateWhen::Grew, becomes: CellType::Head, child: Some(CellType::Segment), lateral: None, after_metamers: None };
+        // Two widened segments (a lateral each) then a bare tail -- small,
+        // but it exercises the same shape `ant.ron`'s own fates table does:
+        // a lateral on an interior segment, none on the terminal one.
+        let widened = Fate {
+            when: FateWhen::Grew,
+            becomes: CellType::Segment,
+            child: Some(CellType::Segment),
+            lateral: Some(CellType::Leg),
+            after_metamers: None,
+        };
+        let tail = Fate { when: FateWhen::Grew, becomes: CellType::Segment, child: None, lateral: None, after_metamers: Some(2) };
+        let genome = FateGenome::from_table(&[(CellType::Head, vec![head]), (CellType::Segment, vec![tail, widened])]);
+
+        let with_laterals = grow_body(genome, CAP, true);
+        let without_laterals = grow_body(genome, CAP, false);
+
+        assert_eq!(
+            with_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            without_laterals.iter().map(|s| s.cell).collect::<Vec<_>>(),
+            "the spine's cell-type sequence must be unmoved by the switch"
+        );
+        assert_eq!(with_laterals.len(), without_laterals.len(), "the switch must not change spine length");
+        assert_eq!(
+            with_laterals.iter().map(|s| s.lateral.is_some()).collect::<Vec<_>>(),
+            vec![false, true, false],
+            "laterals=true must keep the authored rule.lateral: head none, the widened segment Some(Leg), the tail none"
+        );
+        assert!(
+            without_laterals.iter().all(|s| s.lateral.is_none()),
+            "laterals=false must strip every lateral, including the ones the fates table authored: {without_laterals:?}"
+        );
     }
 
     // --- the generational allocator, both ends ------------------------------

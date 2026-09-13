@@ -49,6 +49,8 @@ use crate::render;
 use crate::sim::organism::SpeciesId;
 use crate::sim::world::{self, World};
 
+use super::census;
+use super::names;
 use super::params;
 use super::plainspeak;
 use super::roster;
@@ -405,6 +407,22 @@ pub enum Action {
     RackScroll(i32),
     /// Collapse the rack to one row per swept setting, and back.
     RackGroup,
+    /// Scroll the HISTORY page by one page, `-1` or `+1` -- `RackScroll`'s
+    /// exact shape, wired the same two places (the pager's own widgets in
+    /// `paint_history`, and `Lab::act`) so it does not repeat the gotcha
+    /// `RackScroll`'s own doc records: a scroll field nothing ever moved.
+    HistoryScroll(i32),
+    /// Open one colony's own ended founding lines from the HISTORY page's
+    /// default SUMMARY view -- a stable colony id (`OrganismState::colony`),
+    /// never a row index: `ScenarioLoad`'s own reason, sharpened, since a
+    /// colony can end between the frame this was built and the click that
+    /// fires it, where an index would silently open whatever slid into its
+    /// place.
+    HistoryOpen(u32),
+    /// Close a HISTORY colony back to the SUMMARY view -- `BACK`'s target
+    /// while one is open; `Action::Panel(Panel::Log)` is `BACK`'s target the
+    /// rest of the time, `Ui::paint_history`'s own doc.
+    HistoryBack,
     /// Move one parameter by one of its own steps. The index is into the
     /// **current page's** list, which is what was on screen when the click
     /// landed; the sign is which way.
@@ -414,14 +432,26 @@ pub enum Action {
     /// Write the highlighted parameter back to its asset file.
     ParamSave,
     /// **Show one group of the cell page's specimen rows**, closing whichever
-    /// was open. The index is into `params::specimen_sections`' own order,
-    /// which is fixed and the same for every species.
+    /// was open -- or, clicked on the group already open, fold it back up
+    /// and return the page to its collapsed state. The index is into
+    /// `params::specimen_sections`' own order, which is fixed and the same
+    /// for every species.
     SpecimenSection(usize),
     /// **Put the individual the cell page is open on into a jar.** The
     /// button that replaced the `KEEP` tool: the page is already pointed at
     /// one organism, so the second click the tool needed was a click at
     /// something the interface already knew.
     KeepInspected,
+    /// **Put the cell page away, unconditionally.** The page's own
+    /// put-it-away gesture (click the same cell, or the same organism again)
+    /// depends on being able to click that cell — and the page is drawn
+    /// *over* the world, anchored at the screen's left margin when nothing
+    /// else is open, so a cell clicked near there is exactly the cell the
+    /// page then covers. `Ui::covers` refuses to let a click on the page
+    /// reach the world behind it, so that click closes nothing and there is
+    /// no other way to put the page away. Owner: "there is no easy way to
+    /// make the CELL info box close."
+    CloseInspected,
     /// **Arm the armed jar for placing**, and get the rack out of the way so
     /// there is a box to place it in. The button that replaced the `FREE`
     /// tool.
@@ -532,6 +562,65 @@ pub enum Action {
     /// `Ui::scenarios()`, resolved fresh at the moment the row is clicked --
     /// see `Lab::act`'s own note on why the index is not cached.
     ScenarioLoad(usize),
+    /// Step which automatic reaction a notable event gets --
+    /// Off/Linger/Stop. See `time::Reaction` for what each does and why it
+    /// is three settings rather than a bool.
+    CycleReaction,
+    /// Cycle which mark, if any, every living animal draws on the bed. See
+    /// `LifeMarks`'s own doc for the cycle and why the shipped default is
+    /// `Off`.
+    CycleLifeMarks,
+    /// Cycle the LOG page's filter: the chronicle (line-level events only),
+    /// everything, or just the pinned individual's own timeline. See
+    /// [`LogFilter`].
+    CycleLogFilter,
+    /// **Flip [`Tool::Scent`]'s armed plane** -- what a second press of its
+    /// key does instead of the disarm every other tool's second press would
+    /// give it. Bound in `bin/lab.rs`'s key handler, which routes the *first*
+    /// press of that key to `Action::Tool(Tool::Scent)` as usual and every
+    /// press after, while `SCENT` is already armed, here.
+    ToggleScentChannel,
+    /// Step the mister -- Off/Light/Steady/Heavy. See `super::rain::Rain`
+    /// for the rates and `Lab::act`'s own handler for why this writes
+    /// `Lab::spec` directly rather than through a mirror the way
+    /// `CycleReaction` writes `Ui::reaction`: the BOX page already takes
+    /// `spec: &LabBox` to build its own rows (`FRAME`, `BED`, `SOIL`, ...),
+    /// so there is no second copy for a mirror to disagree with.
+    CycleRain,
+    /// **Move the display-rate floor one stop**, the same ladder `F`
+    /// (`bin/lab.rs`) already cycles. Routed through `Lab::act` rather than
+    /// the direct call `F` used to make, now that the MENU page gives it a
+    /// second route in besides the key: `Lab::act` exists to dispatch a verb
+    /// a button also draws, and this one now has a button.
+    CycleDisplayFloor,
+    /// **Write the chronicle now.** `Digit9`'s own verb (`bin/lab.rs`),
+    /// routed through `Lab::act` for the same reason `CycleDisplayFloor` now
+    /// is -- the MENU page is a button for a verb that used to have none.
+    WriteChronicle,
+    /// Cycle [`render::MagnifyStyle`] -- the zoomed-in cell look. `CellArt`
+    /// ships as the default, byte-identical to a build without the enum, so
+    /// a player who never touches this sees nothing different.
+    CycleMagnifyStyle,
+    /// Cycle [`render::NotchRule`] -- what `MagnifyStyle::Chamfer` does at a
+    /// concave corner. Meaningless outside `Chamfer` and harmless to set
+    /// anywhere else, the same as `CycleOverlay` is harmless with nothing
+    /// armed to look at it.
+    CycleMagnifyNotch,
+    /// Step `Renderer::magnify_ink` through a short preset ladder -- see
+    /// `MAGNIFY_LADDER_INK` in `lab::mod`. A dial with no route was the
+    /// worked example this whole lane was built to fix (round 30's style
+    /// lane, PR #352, left these five fields with none in the lab at all),
+    /// so it gets the same one-click-to-advance shape `CycleOverlay` and
+    /// `CycleCreatureColour` already use rather than a typed number: nobody
+    /// has seen this dial in the lab yet, and a coarse ladder is enough to
+    /// find out whether it is worth a finer one.
+    CycleMagnifyInk,
+    /// `Renderer::magnify_level`'s own ladder step. `CycleMagnifyInk`'s
+    /// sibling.
+    CycleMagnifyLevel,
+    /// `Renderer::magnify_grain`'s own ladder step. `CycleMagnifyInk`'s
+    /// sibling.
+    CycleMagnifyGrain,
 }
 
 /// **What a left-click on the world does.**
@@ -607,6 +696,83 @@ pub enum Tool {
     /// The key is in `HELP`, marked `(NO BUTTON)`, which is the pattern `K`
     /// already set.
     Food,
+    /// **Drag to lay a pheromone trail by hand** — the owner's idea,
+    /// 2026-09-09: *"it might be fun if the user could manually lay down
+    /// pheromone trails."* Every mechanism this needs already existed
+    /// (`sim::pheromone`, laid every tick by a live ant); this is the first
+    /// thing that lets a *player* write into either plane.
+    ///
+    /// **Two channels, one tool, a second press switches between them** —
+    /// see `Ui::scent_channel`. The default is `Channel::A`, the home scent
+    /// a *laden* ant follows back (`ant.ron`'s hidden units 0/1, gated on
+    /// carrying, read `PheroAAlong`); a second press of the key arms
+    /// `Channel::B`, the food route an *empty* ant would follow outward
+    /// (units 2/3, `PheroBAlong`).
+    ///
+    /// **The default was `B` until 2026-09-09, and it moved because a drawn
+    /// B trail does nothing.** `open-bugs-handoff.md` §Z7: units 2/3 sit
+    /// saturated at the exact input an empty ant has, so a hand-laid food
+    /// trail moved a colony's near-target ant-ticks by **zero**, twice, on
+    /// two independent harnesses — and re-weighting them so it *does* work
+    /// makes the animal decisively worse (25.0% of a mirrored race against
+    /// 63.6% for the homing repair alone), so it is not a one-line fix
+    /// waiting to happen. Units 0/1 *were* repaired, so a drawn A trail is
+    /// followed. Arming the plane that works is the difference between a
+    /// verb that delivers something and one that does not, which the ethos
+    /// treats as the difference between finished and unfinished. The food
+    /// route stays one keypress away and the help string says plainly that
+    /// no ant can read it yet.
+    ///
+    /// A brush like `Soil`/`Water`/`Food` — it paints along the drag rather
+    /// than once per click, because a trail is a *line*, not a point.
+    /// **Off the bar**, for `Food`'s own reason: measured full at seven.
+    Scent,
+    /// **Click to drop alarm scent at the cursor** — `sim::pheromone::
+    /// Channel::Alarm`, the plane a bitten animal calls out on
+    /// (`creature.rs`'s `cry_alarm`). One click, not a brush: a real alarm
+    /// is a single event at one cell, and painting a swath of it would be a
+    /// player-only quantity nothing in the engine ever produces.
+    ///
+    /// At `ALARM_DEPOSIT` — the exact strength a bite writes — so a
+    /// player-triggered alarm and a real one are the same signal a nearby
+    /// colony cannot tell apart, which is the point: this is a way to
+    /// *provoke* the recruit-or-flee response the plane exists to drive,
+    /// not a debug poke at a number nothing reads differently.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Alarm,
+    /// **Click an animal to launch it** — the ballistic hop the brain's own
+    /// impulse output already has (`creature::launch`), reached by a
+    /// player's click instead of a decision. One of `CLAUDE.md`'s two laws
+    /// in the most literal form it takes anywhere in this engine: *"there
+    /// must be a verb, and it must deliver something"* was written about
+    /// destruction and applies here unchanged — a creature could already
+    /// fling itself, and there was no way to fling one *at* anything.
+    ///
+    /// Refuses exactly where the brain's own launch refuses: nothing to
+    /// push off (already airborne). Direction is away from the side the
+    /// cursor is on, or straight up if the click landed exactly on the
+    /// animal's own head — see `Lab::fling_at`.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Fling,
+    /// **Click a grow-light fixture to pull it, click bare ceiling to place
+    /// one, drag from a fixture to a new column to move it** —
+    /// `scene::LabBox`'s `lamp_near`/`remove_lamp`/`place_lamp`/`move_lamp`,
+    /// which existed with zero production callers until this tool. The
+    /// parameters page already moves the whole rig by its `lamp_spacing`
+    /// knob; this is the hands-on version, one fixture at a time, for
+    /// *"adjust plant growth by moving lights"* the way a player would
+    /// actually try it — by hand, on the one lamp over the seedling that is
+    /// struggling.
+    ///
+    /// **A click and a drag are two different verbs on the same fixture**,
+    /// which is why this is not a brush: a click that lands back over the
+    /// lamp it started on is a *remove*, and one that lands somewhere else
+    /// is a *move* — see `Lab::press`'s grab and `Lab::lamp_at`'s release.
+    ///
+    /// **Off the bar**, for `Food`'s own reason.
+    Lamp,
 }
 
 /// Every tool **that has a cell on the bar**, in bar order. One list, so the
@@ -650,6 +816,10 @@ impl Tool {
             Tool::Water => "WATER",
             Tool::Wall => "WALL",
             Tool::Food => "FOOD",
+            Tool::Scent => "SCENT",
+            Tool::Alarm => "ALARM",
+            Tool::Fling => "FLING",
+            Tool::Lamp => "LAMP",
             // Never drawn on the bar -- this is what the notice says while it
             // is armed, so it is the verb rather than the old `FREE`: what it
             // does now is put the jar you picked *somewhere*.
@@ -682,6 +852,14 @@ impl Tool {
             // `K` off the run, for the reason `K` states: a tool with no bar
             // cell is not in the row the positional rule is about.
             Tool::Food => "E",
+            // `I J Q U` -- the four keys free when these tools were added
+            // (checked against this whole match and against `HELP`), off
+            // the run for the reason `K` and `E` already state: none of the
+            // four has a bar cell.
+            Tool::Scent => "I",
+            Tool::Alarm => "J",
+            Tool::Fling => "Q",
+            Tool::Lamp => "U",
         }
     }
     /// **Whether this tool puts animals in the box.** The two that do share a
@@ -695,12 +873,21 @@ impl Tool {
     /// Whether this tool paints continuously while the button is held. The
     /// verbs are one-shot — a drag that founded a colony per pixel would empty
     /// the organism table in one gesture.
+    ///
+    /// **`Scent` joins this list and `Alarm`/`Fling`/`Lamp` deliberately do
+    /// not.** A trail is a line, the way soil and water are a heap along a
+    /// stroke — but an alarm call, a launch and a fixture are each one
+    /// object at one cell; painting a stroke of "launched" across whatever
+    /// the cursor crossed would fling the whole colony, and `Lamp`'s own
+    /// click-vs-drag distinction needs the press position remembered
+    /// (`Lab::press`), which `is_brush`'s continuous-paint model has no
+    /// slot for.
     pub fn is_brush(self) -> bool {
-        matches!(self, Tool::Soil | Tool::Water | Tool::Food)
+        matches!(self, Tool::Soil | Tool::Water | Tool::Food | Tool::Scent)
     }
     fn note(self) -> &'static str {
         match self {
-            Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS ALWAYS READ OUT TOP RIGHT, TOOL OR NO TOOL.",
+            Tool::Look => "POINT AT A CELL AND READ IT. CLICK TO PIN THE CELL PAGE OPEN; CLICK IT AGAIN TO PUT IT AWAY. WHAT IS UNDER THE POINTER IS READ OUT WHILE THIS TOOL IS HELD -- SWITCH TOOLS AND IT GOES AWAY, BUT A PINNED PAGE STAYS.",
             Tool::Plant => "PUT ONE SEED IN THE SOIL WHERE YOU CLICK. THE CHIP TO THE RIGHT SAYS WHICH SPECIES AND WHAT IT COSTS TO GROW ONE. A SEED NEEDS BARE SOIL WITH ROOM ABOVE IT.",
             Tool::Colony => "PUT ANIMALS IN THE BOX. THE CHIP TO THE RIGHT SAYS WHICH ANIMAL -- ANT, BEETLE, WORM -- AND THE STOCK DIAL BESIDE IT SAYS HOW MANY. AT 1 IT IS ONE ANIMAL WHERE YOU CLICK, WITH NO NEST. ABOVE 1 IT IS A COLONY AT THE SURFACE UNDER THE CLICK, ARRIVING WITH A PATCH OF NEST TO WALK HOME TO -- WITHOUT ONE THERE IS NO GRADIENT AND NOBODY FORAGES.",
             Tool::Cull => "KILL THE ORGANISM YOU CLICK. IT IS MARKED SENESCENT, NOT DELETED, SO IT ROTS DOWN OVER ITS SPECIES HALF-LIFE AND FEEDS WHATEVER IS STILL ALIVE. THIS IS THE SELECTION LEVER: WHAT YOU CULL DOES NOT BREED.",
@@ -709,6 +896,10 @@ impl Tool {
             Tool::Wall => "DROP A WALL FLOOR TO CEILING IN THE COLUMN YOU CLICK, OR CLICK ONE YOU PLACED TO TAKE IT OUT. A WALL IS WHAT MAKES TWO POPULATIONS IN ONE BOX INTO TWO POPULATIONS: THEY CANNOT MIX, SO THEY CAN DRIFT APART. IT CUTS WHATEVER IS IN THE WAY, WHICH IS THE POINT -- A WALL THROUGH A STAND IS A STAND SPLIT IN HALF. IT SURVIVES A REBUILD.",
             Tool::Food => "PUT FOOD ON THE GROUND WHERE YOU PAINT. IT IS WINDFALL -- THE FRUIT A HERB DROPS -- SO IT FALLS, PILES UP AND ROTS BACK INTO THE SOIL RATHER THAN SITTING THERE FOR EVER. A COLONY WITH FOOD BESIDE THE NEST BREEDS HARD; THE SAME COLONY LEFT TO FORAGE THE SEALED BED MOSTLY DOES NOT. THIS IS HOW YOU TELL THOSE TWO APART.",
             Tool::Release => "PUT THE ARMED JAR BACK IN THE BOX WHERE YOU CLICK. TWO DIALS DECIDE WHAT ARRIVES: THE STOCK DIAL ON THE BAR IS HOW MANY, AND THE DRIFT DIAL ON THE SHELF IS HOW FAR EACH ONE HAS MOVED FROM THE JAR. AT 0 BROODS IT IS THAT EXACT INDIVIDUAL AGAIN, SO A COLONY IS A COLONY OF CLONES; AT 1 EACH IS AS DIFFERENT AS ITS OWN CHILD WOULD HAVE BEEN, DRAWN SEPARATELY, SO A COLONY IS A COLONY OF SIBLINGS. OPEN THE SHELF WITH G TO PICK A JAR AND SET THAT DIAL.",
+            Tool::Scent => "DRAG TO LAY PHEROMONE. STARTS ON THE HOME SCENT (CHANNEL A) -- A ROAD HOME: ANTS CARRYING FOOD FOLLOW IT. DRAW IT FROM A PATCH BACK TO THE NEST AND LADEN FORAGERS WILL RUN IT. PRESS I AGAIN FOR THE FOOD ROUTE (CHANNEL B), WHICH NO ANT CAN READ YET. LAYS AT THE SAME STRENGTH A REAL ANT'S OWN TRAIL DOES AT FULL SIGNAL.",
+            Tool::Alarm => "CLICK TO CALL ALARM AT THE CURSOR, AS LOUD AS A REAL BITE. A NEARBY COLONY READS IT THE SAME AS THE REAL THING -- RECRUIT, SWARM OR FLEE. WATCH IT SPREAD AND FADE WITH THE ALARM OVERLAY (O).",
+            Tool::Fling => "CLICK AN ANIMAL TO LAUNCH IT -- THE SAME BALLISTIC HOP THE BRAIN CAN ALREADY DO ON ITS OWN, NOW ON YOUR CLICK. IT GOES AWAY FROM WHICHEVER SIDE YOU CLICKED, OR STRAIGHT UP IF YOU CLICKED DEAD CENTRE. REFUSED IN MID-AIR -- THERE IS NOTHING TO PUSH OFF.",
+            Tool::Lamp => "CLICK A GROW LIGHT TO PULL IT OUT, CLICK BARE CEILING TO BOLT ONE IN, OR DRAG A LIGHT TO A NEW COLUMN TO MOVE IT. THE BENCH BELOW FOLLOWS ON THE NEXT FIELD STEP.",
         }
     }
 }
@@ -789,6 +980,32 @@ pub enum Panel {
     /// carries a hit target, and the bar was measured full twice over
     /// before this page existed. See `scenario::Scenario` for what one is.
     Scenarios,
+    /// **Every founding line that has ended, one per row, newest first.**
+    /// `ended_lines`' own page -- the graveyard the owner rated a 5 has no
+    /// place in this game, and this is what took its spot: not who died, but
+    /// which *lines* ran out, which is the number a headcount and a
+    /// graveyard both fail to show (`LogKind::LineEnded`'s own doc).
+    ///
+    /// **Draws itself**, `Chambers`' reason: a row here carries six fields
+    /// and a scrollable window, not a label. Reached from the LOG page's own
+    /// row (opened the way `Scenarios` is) rather than from the bar, which
+    /// has had no free chip since before this page existed, and from `F5` --
+    /// the next stop in the `F1..F4` run the other page keys already use.
+    History,
+    /// **Every page in the lab, and every view toggle, in one place — with
+    /// the key that also opens it.** Owner, 2026-09-12: *"There are lots of
+    /// hidden menus that can only be accessed by knowing the F key. There
+    /// should be a master menu accessible from the main UI that leads to all
+    /// the other menus."*
+    ///
+    /// **Additive, not a replacement.** Every key this page lists still
+    /// works exactly as it did — `F1` still opens `Plants` directly — and
+    /// this is one more route to the same `Action::Panel`, not a second
+    /// mechanism: every row fires the identical `Action` the key or the old
+    /// bar chip fired, through the ordinary row list `Log` and `Scenarios`
+    /// already use, so it obeys the one-page-at-a-time rule and latches on
+    /// the bar for free rather than needing a paint function of its own.
+    Menu,
 }
 
 impl Panel {
@@ -805,6 +1022,8 @@ impl Panel {
             Panel::Log => "WHAT HAPPENED",
             Panel::Compare => "SIDE BY SIDE",
             Panel::Scenarios => "SCENARIOS",
+            Panel::History => "HISTORY",
+            Panel::Menu => "MENU",
         }
     }
 }
@@ -1134,29 +1353,28 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         .collect();
 
     // Group 3 — the pages.
+    //
+    // **`PLANTS`/`ANTS`/`BOX` were three chips here; now they are one.**
+    // Owner, 2026-09-12: *"There are lots of hidden menus that can only be
+    // accessed by knowing the F key. There should be a master menu
+    // accessible from the main UI that leads to all the other menus."* The
+    // bar was measured full at the tightest spacing on both rows before this
+    // change (`PIXEL_PHYSICS_BAR_TRACE=1`, 2026-09-12: row 0 and row 1 both
+    // at 508 of 508, zero slack) -- so the fix a single extra chip could not
+    // buy has to come from removing more width than it adds, not adding
+    // more room. `MENU` replaces the three pure-navigation chips (no chip
+    // here ever carried live state the way the jar chip does) and opens a
+    // page listing every page in the lab, `F1`/`F2`/`F3` included, so a
+    // mouse-only player reaches everything a keyboard player already could.
+    // Every key below still works exactly as it did -- this is one more
+    // route in, not a replacement for the other three.
     let panels = [
         button(
-            "PLANTS",
-            "F1",
-            Action::Panel(Panel::Plants),
-            state.panel == Some(Panel::Plants),
-            "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK.",
-            pad,
-        ),
-        button(
-            "ANTS",
-            "F2",
-            Action::Panel(Panel::Ants),
-            state.panel == Some(Panel::Ants),
-            "THE COLONY: HOW MANY ANIMALS ARE ALIVE, WHAT THE POPULATION IS DOING, AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING.",
-            pad,
-        ),
-        button(
-            "BOX",
-            "F3",
-            Action::Panel(Panel::Box),
-            state.panel == Some(Panel::Box),
-            "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE.",
+            "MENU",
+            "F6",
+            Action::Panel(Panel::Menu),
+            state.panel == Some(Panel::Menu),
+            "EVERY PAGE IN THE LAB, AND EVERY VIEW TOGGLE, WITH THE KEY THAT ALSO OPENS IT. F1/F2/F3/P/G STILL OPEN PLANTS/ANTS/BOX/PARAMS/SHELF DIRECTLY -- THIS IS THE SECOND ROUTE IN, NOT THE ONLY ONE.",
             pad,
         ),
         button(
@@ -1271,22 +1489,20 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
         note: "FALSE-COLOUR THE INVISIBLE CHANNELS: PRESSURE, TEMPERATURE, LIGHT, AIR HUMIDITY, AND THE TWO PHEROMONES. AIR HUMIDITY IS THE AIR, NOT THE GROUND -- SOIL WATER IS AN ORGANISM OVERLAY AND IT IS THE ONE A ROOT DRINKS. PHEROMONE IS THE ONE TO WATCH -- IT IS AT FULL CELL RESOLUTION AND IT IS THE COLONY'S OWN MAP OF ITSELF, SO YOU SEE THE TRAIL BEFORE YOU SEE THE ANT.".to_string(),
     };
 
-    // **The numbers behind all of the above.** On row 0 rather than with the
-    // pages on row 1, and that is a measurement rather than a preference: at
-    // the seven-stop ladder row 1 fits at exactly its own width, so one more
-    // button there loses `REBUILD` off the right edge (`PIXEL_PHYSICS_BAR_
-    // TRACE=1` prints both rows). Row 0 has room, and it is not a bad home —
-    // the overlay beside it is not a tool either, and row 0 has become "what
-    // you are working with and how you see it".
-    let params = button(
-        "PARAMS",
-        "P",
-        Action::Panel(Panel::Params),
-        state.panel == Some(Panel::Params),
-        "THE NUMBERS BEHIND THE VERBS: WHAT SOIL COSTS TO DIG, HOW MUCH SHOOT A PLANT NEEDS BEFORE IT SETS SEED, HOW HARD AN ANT CAN DIG, HOW BRIGHT THE LAMPS ARE. GROUPED IN FOUR PAGES, EACH ROW WITH ITS OWN RANGE, AND EVERY ROW EXPLAINS ITSELF ON HOVER.",
-        pad,
-    );
-
+    // **`PARAMS` was a chip on this row; it is now a MENU row (`P` still
+    // opens it directly).** `PIXEL_PHYSICS_BAR_TRACE=1`, 2026-09-12: row 0
+    // was the bar's real bottleneck, not row 1 -- it overflowed at both
+    // looser spacings (522 and 512 of 508) and matched 508 exactly only at
+    // the tightest, where the earlier `SHELF` dead-end already measured zero
+    // pixels spare. Row 1's own "508 of 508" reading at every spacing is not
+    // the same fact: `lay_out`'s slack is redistributed into the gaps
+    // *between* groups, so a row with any non-negative slack always reports
+    // exactly its own width regardless of how much room it actually has --
+    // only an overflow (`right > 508`) says a row is genuinely out of
+    // pixels. `PARAMS` was the chip actually holding row 0 at its ceiling,
+    // and unlike the jar chip it carries no live state on its face -- it is
+    // pure navigation, `MENU`'s whole reason for existing.
+    //
     // **The jar chip: what `RELEASE` is about to put in, and the door to the
     // rack.** The species chip's pattern and the species chip's argument —
     // the design guide says planting has to show what you are about to plant
@@ -1310,7 +1526,7 @@ fn lay_out(state: &BarState<'_>, pad: i32, gap: i32) -> Bar {
     };
 
     let rows: [Vec<Vec<Spec>>; ROWS] = [
-        vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay, params]],
+        vec![tools, vec![species, jar], vec![narrower, size, wider], vec![overlay]],
         vec![vec![phase, slower, faster, readout], presets, panels.into_iter().collect()],
     ];
 
@@ -1802,6 +2018,198 @@ impl Watch {
     }
 }
 
+// ------------------------------------------------------------- life marks
+
+/// **Which mark, if any, every living animal draws.** A runtime selector
+/// rather than a single choice -- `CLAUDE.md`'s "for does this look right,
+/// ship a selector" rule -- because the first shipped shape (a solid 3x3
+/// blob at the anchor cell) was reviewed and rejected outright: it hid the
+/// two-cell body and the colour it already wears, which is the opposite of
+/// what the mark exists for. `Off`/`Halo`/`Tick` replaced it; no blob mode
+/// survived the review.
+///
+/// **Default `Off`.** Reversed from this feature's first ruling (default
+/// on) by a second owner verdict: movement is what makes an animal legible
+/// in play, so a mark is at most a pause-time aid, not a standing HUD.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LifeMarks {
+    #[default]
+    Off,
+    /// A one-cell-thick ring one world cell outside the body's own bounding
+    /// box -- never a body pixel, at any zoom.
+    Halo,
+    /// One world cell, in the colony's colour, directly above the body's
+    /// topmost row. Nothing on the body.
+    Tick,
+}
+
+impl LifeMarks {
+    pub fn next(self) -> Self {
+        match self {
+            LifeMarks::Off => LifeMarks::Halo,
+            LifeMarks::Halo => LifeMarks::Tick,
+            LifeMarks::Tick => LifeMarks::Off,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            LifeMarks::Off => "OFF",
+            LifeMarks::Halo => "HALO",
+            LifeMarks::Tick => "TICK",
+        }
+    }
+}
+
+/// **Every living animal's body extent (every cell it owns, not one anchor)
+/// and group**, read straight off the world -- fresh, on drawn frames only.
+///
+/// **Not a `Watch`-shaped sampled ring.** Sampling on an interval
+/// (`WATCH_EVERY` simulated frames) pays a `live_organism_ids()` walk that
+/// often between two *pictures* at the top of the speed ladder (1024x) --
+/// exactly the per-tick cost `CLAUDE.md`'s "guard hot-path work" rule warns
+/// against, for something only ever seen at the display rate. Reading fresh
+/// only on **drawn** frames (`Advance::draw`, ~10-30/s regardless of the
+/// speed dial) pays that walk far less often, which is why there is no
+/// per-box state on `Chamber` and nothing that can bleed across a chamber
+/// switch either.
+///
+/// The whole-body extent, not the anchor, because both marks below are
+/// defined relative to the body's bounding box rather than one of its
+/// cells.
+fn life_mark_dots(world: &World) -> impl Iterator<Item = ((i32, i32, i32, i32), SpeciesId, u32)> + '_ {
+    world.live_organism_ids().into_iter().filter_map(move |id| {
+        let state = world.organism(id)?;
+        world.species.get(state.species).creature.as_ref()?;
+        let mut b = (i32::MAX, i32::MAX, i32::MIN, i32::MIN);
+        for &(x, y) in state.cells.keys() {
+            b.0 = b.0.min(x);
+            b.1 = b.1.min(y);
+            b.2 = b.2.max(x);
+            b.3 = b.3.max(y);
+        }
+        (b.0 <= b.2).then_some((b, state.species, state.colony))
+    })
+}
+
+/// **Mark every living animal, in the shape `marks` names.**
+///
+/// `pub` rather than `pub(crate)` -- `examples/labshot.rs` renders the world
+/// through the same `Renderer` with no `Ui` at all, and calls this directly.
+///
+/// **Full replace, never a blend** (`Reports/dead-ends.md` 1251, 1285), in
+/// the colour the animal already wears (`render::group_colour`), so the
+/// mark and the ANTS page's population graph agree on what a "group" is --
+/// falling back to the pin's own bright constant under `CreatureColour::
+/// Off`, where that function returns `None` rather than going blank.
+///
+/// **Defers to an active `OrganismOverlay`, and this is not a special case
+/// invented for the mark -- it is the precedence `render.rs`'s own
+/// `cell_colour` already gives these two dials: `apply_organism_overlay` is
+/// called after `group_colour` and replaces it outright (`render.rs:5813`).
+/// Without this, the first (blob) shape painted over three lineage-overlay
+/// pixel tests' own reads; caught the moment it shipped unconditionally.
+pub fn draw_life_marks(
+    frame: &mut [u8],
+    world: &World,
+    renderer: &crate::render::Renderer,
+    colour_mode: render::CreatureColour,
+    marks: LifeMarks,
+) {
+    if marks == LifeMarks::Off || renderer.organism_overlay != render::OrganismOverlay::Off {
+        return;
+    }
+    for (body, species, colony) in life_mark_dots(world) {
+        // A nestless species has no colony to wear -- see `group_colour`.
+        let homeless = world.species.get(species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+        let colour = match render::group_colour(colour_mode, species, colony, homeless) {
+            Some(rgb) => [rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255],
+            None => MARKER,
+        };
+        match marks {
+            LifeMarks::Off => {}
+            LifeMarks::Halo => draw_halo(frame, world, renderer, body, colour),
+            LifeMarks::Tick => draw_tick(frame, world, renderer, body, colour),
+        }
+    }
+}
+
+/// Fill one row of a mark, clipped to the frame's left/right (via `put`),
+/// to the bar along the bottom, and -- pixel by pixel -- to whatever cell
+/// the *world* actually holds there.
+///
+/// **The occupancy check is against the world, not against the one body
+/// this mark belongs to.** A ring or tick sized only to dodge its own
+/// animal is provably wrong the moment two animals stand adjacent, which a
+/// nest guarantees constantly: caught by
+/// `a_life_mark_never_touches_a_body_pixel` going red on exactly that case
+/// (one ant's halo landing on its neighbour). Mapping each candidate pixel
+/// back to a world cell (`screen_to_world`) and skipping any with an
+/// `organism_id` makes "never a body pixel" true of *every* body, not only
+/// the one the mark is for -- and it is cheap, because a mark's own pixel
+/// count is bounded by its shape (a perimeter or a single cell), never by
+/// the population.
+fn fill_mark_row(
+    frame: &mut [u8],
+    world: &World,
+    renderer: &crate::render::Renderer,
+    y: i32,
+    (x0, x1): (i32, i32),
+    cap: i32,
+    colour: [u8; 4],
+) {
+    if y < 0 || y > cap {
+        return;
+    }
+    for x in x0..=x1 {
+        let (wx, wy) = renderer.screen_to_world(x, y);
+        if world.get(wx, wy).organism_id() != 0 {
+            continue;
+        }
+        render::put(frame, W, H, x, y, colour);
+    }
+}
+
+/// **A one-cell ring around `body` (world-cell bounds), one cell out on
+/// every side.**
+///
+/// The rect itself is the screen-space set difference between the body's
+/// own footprint and that same footprint expanded by one world cell each
+/// way, both mapped through the identical `world_rect_to_screen` so the
+/// ring scales with zoom exactly as the body does -- but the rect alone is
+/// only "never *this* body's pixel"; `fill_mark_row`'s per-pixel world
+/// check is what makes it "never *any* body's pixel", which is the shape a
+/// crowded nest actually needs.
+fn draw_halo(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, max_y): (i32, i32, i32, i32), colour: [u8; 4]) {
+    let (ox0, oy0, ox1, oy1, _) = renderer.world_rect_to_screen(min_x - 1, min_y - 1, max_x + 1, max_y + 1);
+    let (ix0, iy0, ix1, iy1, _) = renderer.world_rect_to_screen(min_x, min_y, max_x, max_y);
+    let cap = bar_top() - 1;
+    for y in oy0..iy0 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+    }
+    for y in (iy1 + 1)..=oy1 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ox1), cap, colour);
+    }
+    for y in iy0..=iy1 {
+        fill_mark_row(frame, world, renderer, y, (ox0, ix0 - 1), cap, colour);
+        fill_mark_row(frame, world, renderer, y, (ix1 + 1, ox1), cap, colour);
+    }
+}
+
+/// **One world cell, scaled, one cell above `body`'s topmost row**, centred
+/// on its width. Never lands on the body it names -- it is the row above
+/// its minimum `y` -- but can still land on a *different*, taller neighbour
+/// standing there, which `fill_mark_row`'s world check catches the same way
+/// `draw_halo`'s does.
+fn draw_tick(frame: &mut [u8], world: &World, renderer: &crate::render::Renderer, (min_x, min_y, max_x, _): (i32, i32, i32, i32), colour: [u8; 4]) {
+    let cx = (min_x + max_x) / 2;
+    let (x0, y0, x1, y1, _) = renderer.world_rect_to_screen(cx, min_y - 1, cx, min_y - 1);
+    let cap = bar_top() - 1;
+    for y in y0..=y1 {
+        fill_mark_row(frame, world, renderer, y, (x0, x1), cap, colour);
+    }
+}
+
 /// The bar's short population strip for **one** chamber.
 ///
 /// `pub` and parked in `Chamber` rather than kept on `Ui`, because a strip
@@ -2084,6 +2492,13 @@ pub struct Ui {
     pub panel: Option<Panel>,
     /// What a left-click on the world does. See [`Tool`].
     tool: Tool,
+    /// **Which plane [`Tool::Scent`] lays**, toggled by a second press of
+    /// its key rather than armed and disarmed like every other tool -- see
+    /// `Action::ToggleScentChannel` and `Tool::Scent`'s own doc for why. Not
+    /// reset when a different tool is armed, so leaving `SCENT` and coming
+    /// back to it keeps whichever plane was last chosen rather than
+    /// surprising a player who only meant to check something else.
+    scent_channel: crate::sim::pheromone::Channel,
     /// Which plantable species the planting tool puts in — an **index into
     /// the world's own plantable list**, not a name, so a chip can never name
     /// a species that is not loaded. Wrapped at use rather than clamped, so
@@ -2140,6 +2555,15 @@ pub struct Ui {
     /// The pinned individual's trail and per-individual series.
     /// Per-box, and swapped with the chamber like `history`.
     pub(crate) watch: Watch,
+    /// **Which mark, if any, every living animal draws.** See `LifeMarks`'s
+    /// own doc for the cycle, the shapes, and the review verdict behind
+    /// `Off`'s default.
+    ///
+    /// Not per-box: it names a mode of the interface, like
+    /// `creature_colour`, not a fact about one bed's contents, and it costs
+    /// nothing to leave shared -- the draw pass holds no state that could
+    /// bleed across a chamber switch (see `draw_life_marks`'s doc).
+    life_marks: LifeMarks,
     /// **The other individual**, for `Panel::Compare`.
     ///
     /// Deliberately not a second pin: only one individual is marked in the
@@ -2240,6 +2664,19 @@ pub struct Ui {
     rack_scroll: usize,
     /// Whether the rack is showing one row per setting instead of one per run.
     rack_grouped: bool,
+    /// The HISTORY page's own buttons, retained for `params_bar`'s reason.
+    history_bar: Bar,
+    /// Where the HISTORY page was drawn, so a click on it does not also reach
+    /// the world behind it -- `rack_box`'s reason.
+    history_box: Option<Rect>,
+    /// First visible row of the HISTORY page. A long run ends many lines and
+    /// the page shows a page of them at a time, `rack_scroll`'s reason.
+    history_scroll: usize,
+    /// **Which colony the HISTORY page has open, or `None` for its default
+    /// SUMMARY view.** A stable colony id rather than a row index -- see
+    /// `Action::HistoryOpen`'s own doc for why. The one field that switches
+    /// `paint_history` between its two painters, `rack_grouped`'s own shape.
+    history_open: Option<u32>,
     /// The dial being typed into and the digits so far, if any.
     typing: Option<(TypedField, String)>,
     /// Which column the rack is sorted on, and whether it is descending.
@@ -2253,13 +2690,23 @@ pub struct Ui {
     /// button, which is only there while the page is pointed at something
     /// alive. A `Bar` for `params_bar`'s reason.
     inspect_bar: Bar,
-    /// **Which specimen group the cell page is showing, while it is folded.**
-    /// Kept on the interface rather than per cell, so clicking from one plant
-    /// to the next leaves you looking at the same group -- which is what you
-    /// want when the reason you are clicking around is to compare them.
-    /// Index 1 (`STATE`) is the default: it is the block that moves while the
-    /// box runs, and it is what a player opened the page to watch.
-    specimen_section: usize,
+    /// **Which specimen group the cell page is showing, while it is folded**
+    /// -- `None` while none is: the page's starting state, and the state a
+    /// click on the open group's own heading returns it to. Kept on the
+    /// interface rather than per cell, so clicking from one plant to the
+    /// next leaves you looking at the same group -- which is what you want
+    /// when the reason you are clicking around is to compare them.
+    ///
+    /// **Was a bare `usize` defaulting to 0 (`WORDS`), which meant the page
+    /// always opened on a group and there was no click that closed the last
+    /// one -- toggling `SpecimenSection(i)` while already on `i` just set it
+    /// to `i` again.** Owner: "all the subinformation in the cell box
+    /// should start minimized, right now you cannot even do that manually,
+    /// something always has to be expanded." `None` is a real third state
+    /// rather than an unreachable index, so both halves of that hold: a
+    /// freshly inspected cell shows only the five fixed rows, and clicking
+    /// an open heading a second time is how a player folds it back up.
+    specimen_section: Option<usize>,
     /// **The individual the interface is holding on to**, across frames and
     /// across the thing moving.
     ///
@@ -2324,6 +2771,76 @@ pub struct Ui {
     /// the only reader and it treats `None` as `Off`, which is the enum's
     /// own "nothing has customised this yet" state.
     creature_colour: Option<render::CreatureColour>,
+    /// **Mirrors `TimeControl::react`**, the same shape as `creature_colour`
+    /// just above and for the same reason: `Ui` does not hold `TimeControl`,
+    /// and the BOX page's `EVENTS` row needs to show which of Off/Linger/Stop
+    /// is armed. `Lab::act`'s `CycleReaction` handler is the one writer.
+    ///
+    /// **No `Option` wrapper needed, unlike `creature_colour`.**
+    /// `time::Reaction` derives `Default` (`Off`), which is also
+    /// `TimeControl`'s own starting value, so there is no window where the
+    /// mirror could disagree with the thing it mirrors before the first
+    /// write -- both start at the same value for the same reason.
+    reaction: super::time::Reaction,
+    /// **What the LOG page shows right now.** See [`LogFilter`]; defaults to
+    /// `Lines` (the chronicle), which is `Ui`'s `#[derive(Default)]` picking
+    /// up `LogFilter`'s own `#[default]`.
+    log_filter: LogFilter,
+    /// **Mirrors `Renderer::magnify_style`** -- `creature_colour`'s own
+    /// reason: `Ui` does not hold the renderer, and the MENU page has to
+    /// show which style is armed. `Lab::new` and `CycleMagnifyStyle` are the
+    /// two writers.
+    magnify_style: render::MagnifyStyle,
+    /// Mirrors `Renderer::magnify_notch`. `magnify_style`'s own reason.
+    magnify_notch: render::NotchRule,
+    /// Mirrors `Renderer::magnify_ink`. `magnify_style`'s own reason --
+    /// `f32` rather than an enum, but the same two writers.
+    magnify_ink: f32,
+    /// Mirrors `Renderer::magnify_level`. `magnify_ink`'s own reason.
+    magnify_level: f32,
+    /// Mirrors `Renderer::magnify_grain`. `magnify_ink`'s own reason.
+    magnify_grain: f32,
+    /// **Mirrors `TimeControl::display_floor`.** `creature_colour`'s own
+    /// reason: `Ui` does not hold `TimeControl`, and the MENU page is now
+    /// `MIN {}HZ`'s only home (`time::TimeControl::readout`'s own doc --
+    /// lane R1 left the corner's copy as a temporary second line for
+    /// whoever built this page). `Lab::new` and `CycleDisplayFloor` are the
+    /// two writers.
+    display_floor: u32,
+}
+
+/// **What the LOG page shows** -- `Action::CycleLogFilter`'s target.
+///
+/// `Lines` is the shipped default: the four line-level kinds
+/// (`LogKind::is_line_event`) are bounded per lineage rather than per birth,
+/// so this reads as a chronicle at any population -- 4 ants or 1,000 -- where
+/// `All` (the page's old behaviour, every kind) would be a wall of `BORN`
+/// and `DIED` the moment a colony gets large. `Pinned` narrows to the pinned
+/// individual's own timeline, the filter `RunLog::about` already gives the
+/// CELL page, read here for whoever wants it beside the box's whole history.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum LogFilter {
+    #[default]
+    Lines,
+    All,
+    Pinned,
+}
+
+impl LogFilter {
+    fn next(self) -> Self {
+        match self {
+            LogFilter::Lines => LogFilter::All,
+            LogFilter::All => LogFilter::Pinned,
+            LogFilter::Pinned => LogFilter::Lines,
+        }
+    }
+    pub fn label(self) -> &'static str {
+        match self {
+            LogFilter::Lines => "LINES",
+            LogFilter::All => "ALL",
+            LogFilter::Pinned => "PINNED",
+        }
+    }
 }
 
 /// Every species that can be planted, in a stable order.
@@ -2380,19 +2897,14 @@ impl Ui {
             // shovelful rather than a grain, which is what makes the first
             // stroke read as a verb.
             brush: 6,
-            // **`WORDS`, and this reverses an argued decision.** It used to
-            // be `STATE` -- the group that moves while the box runs, and what
-            // a player opened the page to watch -- against `Default`'s own 0,
-            // which was then `LIFE`, three rows that never change.
-            //
-            // `WORDS` is now 0, and it answers the question the page is most
-            // often opened with: *what kind of thing is this*. The old
-            // reasoning still holds for the second page you open and every
-            // one after, and it does not have to be paid for -- the field is
-            // sticky, so one click on `STATE` puts every later page there and
-            // leaves it there. Defaulting to the summary costs a returning
-            // player one click and costs a new one nothing.
-            specimen_section: 0,
+            // **Minimised, not `WORDS`.** This used to default to `0`
+            // (`WORDS`) on the reasoning that a first-time page should
+            // answer "what kind of thing is this" without a click -- see
+            // `specimen_section`'s own doc for why that reasoning lost to a
+            // direct owner complaint that the page could never be folded
+            // shut at all. The field is still sticky: one click on any
+            // group puts every later page there, exactly as before.
+            specimen_section: None,
             // The shipped colony for `COLONY` and a single individual for a
             // release, so both verbs do for an untouched dial exactly what
             // they have always done.
@@ -2437,6 +2949,7 @@ impl Ui {
             || self.shelf_box.is_some_and(|r| r.contains(x, y))
             || self.rack_box.is_some_and(|r| r.contains(x, y))
             || self.roster_box.is_some_and(|r| r.contains(x, y))
+            || self.history_box.is_some_and(|r| r.contains(x, y))
             || self.inspect_box.is_some_and(|r| r.contains(x, y))
     }
 
@@ -2560,19 +3073,22 @@ impl Ui {
         self.inspect_box
     }
 
-    /// Show one group of the cell page's specimen rows.
+    /// Show one group of the cell page's specimen rows, or fold it back up
+    /// if it is the group already showing.
     ///
-    /// **Not a toggle**, unlike `set_tool`: the page shows exactly one group
-    /// while it is folded, so clicking the open heading again would leave the
-    /// page with no group on it at all -- which reads as the page having
-    /// broken rather than as having been put away. Clicking the *cell* again
-    /// is how the page closes, and that has not changed.
+    /// **A toggle**, like `set_tool` -- reversed from the earlier rule here,
+    /// which read "clicking the open heading again would leave the page
+    /// with no group on it at all, which reads as the page having broken."
+    /// The headings themselves never disappear (`paint_page` draws every
+    /// one, open or shut, with a `+`/`-` and a row count), so "no group
+    /// open" reads as a folded page, not a broken one -- and it is now the
+    /// page's own starting state, not a state nothing could reach.
     pub fn show_specimen_section(&mut self, i: usize) {
-        self.specimen_section = i;
+        self.specimen_section = if self.specimen_section == Some(i) { None } else { Some(i) };
     }
 
-    /// Which group the cell page is showing.
-    pub fn specimen_section(&self) -> usize {
+    /// Which group the cell page is showing, if any is open.
+    pub fn specimen_section(&self) -> Option<usize> {
         self.specimen_section
     }
 
@@ -2584,6 +3100,14 @@ impl Ui {
     /// needs the box back — `PLACE` is the only one so far.
     pub fn close_panel(&mut self) {
         self.panel = None;
+    }
+
+    /// Put the cell page away from its own header button, rather than by
+    /// re-clicking the cell or organism it is pinned to -- see
+    /// [`Action::CloseInspected`] for why that gesture can be unreachable.
+    pub fn close_inspected(&mut self) {
+        self.inspect = None;
+        self.inspect_organism = None;
     }
 
     pub fn tool(&self) -> Tool {
@@ -2610,6 +3134,29 @@ impl Ui {
     /// a chip beside it: picking herb is never a request to stop planting.
     pub fn arm_tool(&mut self, tool: Tool) {
         self.tool = tool;
+    }
+
+    /// Which plane [`Tool::Scent`] is currently laying.
+    pub fn scent_channel(&self) -> crate::sim::pheromone::Channel {
+        self.scent_channel
+    }
+
+    /// Flip [`Tool::Scent`]'s armed plane between the home scent and the food
+    /// route, and hand back the one it lands on so the caller can say so.
+    /// Never touches `Channel::Alarm` -- there is nothing to toggle to,
+    /// `Tool::Alarm` is its own tool.
+    ///
+    /// **`A -> B -> A`, so the first press off the default reaches the food
+    /// route.** The order was `B -> A` until 2026-09-09; it turned over with
+    /// the default (see [`Tool::Scent`]), so that the plane a player lands on
+    /// without asking is the one the shipped ant can actually read.
+    pub fn toggle_scent_channel(&mut self) -> crate::sim::pheromone::Channel {
+        use crate::sim::pheromone::Channel;
+        self.scent_channel = match self.scent_channel {
+            Channel::A => Channel::B,
+            Channel::B | Channel::Alarm => Channel::A,
+        };
+        self.scent_channel
     }
 
     pub fn brush(&self) -> i32 {
@@ -2656,6 +3203,21 @@ impl Ui {
         true
     }
 
+    /// Which mark every living animal currently draws. `pub` for the same
+    /// reason `tool()`/`stock()` are -- a test or the ANTS page row should
+    /// not need a private-field workaround to ask.
+    pub fn life_marks(&self) -> LifeMarks {
+        self.life_marks
+    }
+
+    /// Advance [`Ui::life_marks`] to its next stop. Returns the new mode,
+    /// so the caller's notice can say what just happened without a second
+    /// read.
+    pub fn cycle_life_marks(&mut self) -> LifeMarks {
+        self.life_marks = self.life_marks.next();
+        self.life_marks
+    }
+
     pub fn observe(&mut self, world: &World) {
         self.history.observe(world);
         // **The watch ring is fed from the pin rather than from a separate
@@ -2680,6 +3242,57 @@ impl Ui {
         self.creature_colour.unwrap_or(render::CreatureColour::Off)
     }
 
+    /// **Told by `Lab::new` and `Lab::act`'s magnify handlers** whenever any
+    /// of the five fields moves. One setter for all five rather than five,
+    /// because they only ever change together -- `Lab::act` reads
+    /// `self.renderer.magnify_*` fresh and pushes the whole struct across in
+    /// one call, so the mirror can never show two fields from different
+    /// moments.
+    pub fn set_magnify(
+        &mut self,
+        style: render::MagnifyStyle,
+        notch: render::NotchRule,
+        ink: f32,
+        level: f32,
+        grain: f32,
+    ) {
+        self.magnify_style = style;
+        self.magnify_notch = notch;
+        self.magnify_ink = ink;
+        self.magnify_level = level;
+        self.magnify_grain = grain;
+    }
+
+    /// **Told by `Lab::new` and `Lab::act`'s `CycleDisplayFloor` handler.**
+    /// `set_magnify`'s own reason -- the MENU page's `MIN {}HZ` row.
+    pub fn set_display_floor(&mut self, hz: u32) {
+        self.display_floor = hz;
+    }
+
+    /// **Told by `Lab::act`'s `CycleReaction` handler** whenever the
+    /// setting moves, mirroring `set_creature_colour`'s own reason: the BOX
+    /// page reads this rather than reaching for a `TimeControl` it does not
+    /// have.
+    pub fn set_reaction(&mut self, r: super::time::Reaction) {
+        self.reaction = r;
+    }
+
+    pub fn reaction(&self) -> super::time::Reaction {
+        self.reaction
+    }
+
+    /// The LOG page's current filter. `pub` for the same reason
+    /// `creature_colour` is: a test should not need a private-field
+    /// workaround to ask what a dial reads.
+    pub fn log_filter(&self) -> LogFilter {
+        self.log_filter
+    }
+
+    /// `Action::CycleLogFilter`'s handler.
+    pub fn cycle_log_filter(&mut self) {
+        self.log_filter = self.log_filter.next();
+    }
+
     /// Where the button for `action` was drawn last frame.
     ///
     /// **Reads the retained layout, never a second copy of the arithmetic.**
@@ -2700,6 +3313,7 @@ impl Ui {
             .chain(self.tabs.widgets.iter())
             .chain(self.rack_bar.widgets.iter())
             .chain(self.roster_bar.widgets.iter())
+            .chain(self.history_bar.widgets.iter())
             .chain(self.panel_bar.widgets.iter())
             .chain(self.inspect_bar.widgets.iter())
             .find(|wid| wid.action == Some(action))
@@ -2717,6 +3331,7 @@ impl Ui {
             .or_else(|| self.shelf_bar.hit(x, y))
             .or_else(|| self.rack_bar.hit(x, y))
             .or_else(|| self.roster_bar.hit(x, y))
+            .or_else(|| self.history_bar.hit(x, y))
             .or_else(|| self.panel_bar.hit(x, y))
             .or_else(|| self.tabs.hit(x, y))
             .or_else(|| self.inspect_bar.hit(x, y))
@@ -3068,6 +3683,40 @@ impl Ui {
         self.rack_scroll
     }
 
+    /// Move the HISTORY window by one page. Clamped in `paint_history`
+    /// against the list as it actually is -- `scroll_rack`'s exact shape,
+    /// and for the same reason: a line can end between two frames with
+    /// nobody touching anything.
+    pub fn scroll_history(&mut self, direction: i32) {
+        let page = HISTORY_ROWS.max(1);
+        self.history_scroll = (self.history_scroll as i32 + direction * page as i32).max(0) as usize;
+    }
+
+    pub fn history_scroll(&self) -> usize {
+        self.history_scroll
+    }
+
+    /// Open one colony's own ended founding lines from the HISTORY page's
+    /// SUMMARY view. Resets the scroll -- `sort_roster`'s own reason: a
+    /// window scrolled deep into fifty colonies is not a window onto one
+    /// colony's own three lines.
+    pub fn open_history_colony(&mut self, colony: u32) {
+        self.history_open = Some(colony);
+        self.history_scroll = 0;
+    }
+
+    /// Close a colony back to the SUMMARY view -- `open_history_colony`'s
+    /// own reason for resetting the scroll, reversed.
+    pub fn close_history_colony(&mut self) {
+        self.history_open = None;
+        self.history_scroll = 0;
+    }
+
+    /// Which colony the HISTORY page has open, if any.
+    pub fn history_open(&self) -> Option<u32> {
+        self.history_open
+    }
+
     /// Collapse the rack to one row per swept setting, or expand it again.
     pub fn toggle_rack_grouping(&mut self) {
         self.rack_grouped = !self.rack_grouped;
@@ -3319,6 +3968,72 @@ impl Ui {
     /// subtracts where it can and does not where it cannot is a page whose
     /// blank cells mean two different things. Same-or-different is defined
     /// for every row.
+    /// **Every page in the lab, and every view toggle, one row each.**
+    ///
+    /// A `Row::choice` per destination: the label on the left, and on the
+    /// right either the key that also reaches it or, for the handful of
+    /// controls with no other readout at all (`MIN {}HZ`, the five magnify
+    /// fields), the live value -- the note then carries the key, if any,
+    /// instead. Every row fires the identical `Action` its key or its old
+    /// bar chip already fired; nothing here is a second definition of what a
+    /// control does.
+    fn menu_rows(&self, world: &World) -> Vec<Row> {
+        let ended = ended_lines(world).len();
+        vec![
+            Row::choice("PLANTS", "F1", Action::Panel(Panel::Plants),
+                "THE FLORA: HOW MANY ARE STANDING, HOW MANY HAVE EVER GERMINATED, AND WHETHER THE STAND IS CLIMBING OR DYING BACK."),
+            Row::choice("ANTS", "F2", Action::Panel(Panel::Ants),
+                "THE COLONY: HOW MANY ANIMALS ARE ALIVE AND HOW CLOSE THE BOX IS TO ITS ORGANISM CEILING."),
+            Row::choice("BOX", "F3", Action::Panel(Panel::Box),
+                "THE BED ITSELF: HOW LONG IT HAS RUN, HOW BIG IT IS, AND WHAT IT IS COSTING TO SIMULATE."),
+            Row::choice("PARAMS", "P", Action::Panel(Panel::Params),
+                "THE NUMBERS BEHIND THE VERBS -- WHAT SOIL COSTS TO DIG, HOW BRIGHT THE LAMPS ARE, AND EVERYTHING ELSE A ROW EXPLAINS ON HOVER."),
+            Row::choice("SHELF", "G", Action::Panel(Panel::Shelf),
+                "THE RACK OF KEPT GENETICS, AND WHAT RELEASE WOULD PUT BACK IN THE BOX."),
+            Row::choice("THE RACK", "F4", Action::Panel(Panel::Chambers),
+                "EVERY CHAMBER, WITH WHAT IS ALIVE IN IT AND HOW DEEP ITS GENERATIONS GOT."),
+            Row::choice("HISTORY", "F5", Action::Panel(Panel::History),
+                format!("EVERY FOUNDING LINE THAT HAS ENDED -- {ended} SO FAR.")),
+            Row::choice("EVERY PLANT", "MOUSE", Action::Panel(Panel::PlantList),
+                "EVERY PLANT IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE PLANTS PAGE UNTIL NOW."),
+            Row::choice("EVERY ANIMAL", "MOUSE", Action::Panel(Panel::AntList),
+                "EVERY ANIMAL IN THE BOX, ONE PER ROW. NO KEY -- REACHED FROM THE ANTS PAGE UNTIL NOW."),
+            Row::choice("WHAT HAPPENED", "MOUSE", Action::Panel(Panel::Log),
+                "THE RUN LOG: BIRTHS, DEATHS AND FIRSTS, NEWEST FIRST. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::choice("SCENARIOS", "MOUSE", Action::Panel(Panel::Scenarios),
+                "EVERY SAVED STARTING BOX. NO KEY -- REACHED FROM THE BOX PAGE UNTIL NOW."),
+            Row::choice("SIDE BY SIDE", "MOUSE", Action::Panel(Panel::Compare),
+                "TWO PINNED INDIVIDUALS, WITH WHAT DIFFERS MARKED. NEEDS ONE HELD AND ONE PINNED FIRST -- SEE A ROSTER'S OWN FOOTER."),
+            Row::gap(),
+            Row::choice("ANIMAL COLOUR", "H", Action::CycleCreatureColour,
+                format!("WHAT HUE EVERY ANIMAL WEARS. CURRENTLY {}. ALSO A ROW ON THE ANTS PAGE.", self.creature_colour().label())),
+            Row::choice("LIFE MARKS", "Y", Action::CycleLifeMarks,
+                "WHICH MARK, IF ANY, A LIVING ANIMAL DRAWS. OFF BY DEFAULT. ALSO A ROW ON THE ANTS PAGE."),
+            Row::choice("OVERLAY", "O", Action::CycleOverlay,
+                "FALSE-COLOUR THE INVISIBLE CHANNELS. ALSO ITS OWN CHIP ON THE BAR."),
+            Row::choice("REACTION ON EVENT", "T", Action::CycleReaction,
+                "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS -- OFF, LINGER OR STOP. ALSO A ROW ON THE BOX PAGE."),
+            Row::choice("SAVE CHRONICLE NOW", "9", Action::WriteChronicle,
+                "WRITE THE RUN'S WHOLE CHRONICLE TO DISK RIGHT NOW, RATHER THAN WAITING FOR IT TO CLOSE ON ITS OWN."),
+            Row::choice("DISPLAY FLOOR", format!("MIN {}HZ", self.display_floor), Action::CycleDisplayFloor,
+                "THE FLOOR UNDER THE DISPLAY RATE -- KEY F. THIS ROW IS ITS ONLY OTHER READOUT ANYWHERE IN THE LAB."),
+            Row::choice("MAGNIFY STYLE", self.magnify_style.label().split(" (").next().unwrap_or(""), Action::CycleMagnifyStyle,
+                format!("THE ZOOMED-IN CELL LOOK -- KEY 0. {}", self.magnify_style.label())),
+            Row::choice(
+                "MAGNIFY NOTCH",
+                self.magnify_notch.label().split(" (").next().unwrap_or("").to_uppercase(),
+                Action::CycleMagnifyNotch,
+                format!("WHAT CHAMFER DOES AT A CONCAVE CORNER. MOUSE ONLY. {}", self.magnify_notch.label()),
+            ),
+            Row::choice("MAGNIFY INK", format!("{:.2}", self.magnify_ink), Action::CycleMagnifyInk,
+                "PAINTED+INK'S EDGE DARKENING. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+            Row::choice("MAGNIFY LEVEL", format!("{:.2}", self.magnify_level), Action::CycleMagnifyLevel,
+                "THE OCCUPANCY A MASS NEEDS TO WIN A SUB-PIXEL. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+            Row::choice("MAGNIFY GRAIN", format!("{:.2}", self.magnify_grain), Action::CycleMagnifyGrain,
+                "PAINTED'S GRAIN AMPLITUDE. MOUSE ONLY -- STEPS A SHORT PRESET LADDER."),
+        ]
+    }
+
     fn compare_rows(&self, world: &World) -> Vec<Row> {
         let (Some(a), Some(b)) = (self.held, self.pinned) else {
             return vec![Row::value(
@@ -3429,8 +4144,18 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList => Vec::new(),
+            Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList | Panel::History => {
+                Vec::new()
+            }
             Panel::Compare => self.compare_rows(world),
+            // **`fit_rows`, not a bare return.** Every other generic
+            // (non-self-drawing) page here is short enough to always fit and
+            // none of them call it; this is the first one long enough to
+            // risk running off the bottom of the screen silently -- `page_
+            // rect`'s own doc names `fit_rows` as the thing that actually
+            // keeps a page whole, and a page that skips it just draws past
+            // the frame buffer's edge with nothing on screen to say so.
+            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -3520,7 +4245,12 @@ impl Ui {
                         } else {
                             self.history.group_series(move |sp, _| sp == species)
                         };
-                        (s, tint_of(render::group_colour(paint_mode, species, colony).unwrap_or(render::GROUP_NONE)))
+                        // **`false` here on purpose, unlike the two body sites.** This is the
+                        // legend tint for one *series* on the population chart, and a series
+                        // IS a group -- a nestless species' lines still need telling apart
+                        // from each other, and there is no body on this chart to confuse it
+                        // with.
+                        (s, tint_of(render::group_colour(paint_mode, species, colony, false).unwrap_or(render::GROUP_NONE)))
                     })
                     .collect();
                 let peak = series.iter().flat_map(|(s, _)| s.iter().copied()).max().unwrap_or(0);
@@ -3598,6 +4328,19 @@ impl Ui {
                         Action::CycleCreatureColour,
                         "WHAT COLOUR EVERY ANIMAL WEARS IN THE BOX, AND WHAT THE CHART AND LEGEND BELOW GROUP AND COLOUR BY. CLICK TO CYCLE: OWN COLOUR, BY SPECIES, BY COLONY. THE CHART GROUPS BY COLONY ONLY IN THAT LAST MODE -- OTHERWISE IT SUMS EVERY COLONY OF A SPECIES INTO ONE LINE.",
                     ),
+                    // **The selector for the marker, beside the selector for
+                    // the colour it uses.** Movement is what makes an animal
+                    // legible in play, so this is a pause-time aid rather
+                    // than a standing HUD -- off by default, and a click
+                    // cycles OFF, HALO (a ring one cell outside the body) and
+                    // TICK (one cell above the head), never covering the
+                    // body or the colour it wears.
+                    Row::choice(
+                        "LIFE MARKS",
+                        self.life_marks.label(),
+                        Action::CycleLifeMarks,
+                        "A MARK NEAR EVERY LIVING ANIMAL, IN THE COLOUR IT WEARS ABOVE, WITHOUT COVERING ITS BODY. OFF BY DEFAULT. CLICK TO CYCLE: OFF, HALO (A RING JUST OUTSIDE THE BODY), TICK (ONE CELL ABOVE THE HEAD).",
+                    ),
                     // **Replaces the single TREND spark.** One line per
                     // group on one shared axis, so two groups fighting can be
                     // read off directly -- the gap the owner reported after
@@ -3647,6 +4390,24 @@ impl Ui {
                     FAINT,
                     "ROWS OF SOIL UNDER THE SURFACE. PLANTS ROOT INTO IT AND ANIMALS DIG IN IT, AND DEPTH IS PAID FOR IN FRAME TIME -- 40 ROWS TO 240 COSTS ABOUT TWICE THE FRAME.",
                 ),
+                // **The mister, on a `Row::choice` like `EVENTS` below --
+                // Off/Light/Steady/Heavy, `CLAUDE.md`'s ethos law again: a
+                // graded ladder rather than a switch. The count rides in the
+                // value string once it is nonzero, the same "counter beside
+                // the reading" `CLAUDE.md`'s own method section asks for --
+                // a picture of rain and a body count of zero mean the
+                // mechanism never fired, and this is the box's own reading
+                // of that count with nothing else on the page to carry it.**
+                Row::choice(
+                    "RAIN",
+                    if world.rain_cells > 0 {
+                        format!("{} -- {} CELLS", spec.rain.label(), world.rain_cells)
+                    } else {
+                        spec.rain.label().to_string()
+                    },
+                    Action::CycleRain,
+                    "THE MISTER ON THE LID -- WATER ARRIVES FROM THE TOP OF THE BOX AND FALLS ONTO THE BED, SPREAD ACROSS THE WIDTH, THROUGH THE SAME PLACEMENT THE WATER TOOL USES: A COLUMN WITH ROCK OR A GROWN PLANT ALREADY AT THE CEILING REFUSES A DROP EXACTLY AS IT WOULD REFUSE YOUR OWN BRUSH. CLICK TO CYCLE OFF -> LIGHT -> STEADY -> HEAVY, OR PRESS 8. LIGHTS STAY ON -- THIS ONLY EVER CHANGES WATER. SHIPS AT LIGHT, MEASURED: THE PLAYED BED (WITH ITS THICKET AND TREE) LOSES UP TO 16% OF ITS SOIL WATER ACROSS A FULL 120,000-FRAME SESSION WITH NO WATERING AT ALL, ON THE WORSE OF TWO SEEDS -- LIGHT HOLDS BOTH SEEDS WITHIN 8% OF THEIR STARTING LEVEL AND WITHOUT POOLING ON THE SURFACE, WHERE STEADY OVERWATERS BY 15-19% AND PILES UP STANDING WATER. OFF IS ONE PRESS AWAY IF YOU WANT TO WATER IT YOURSELF. LIGHT/STEADY/HEAVY PLACE ABOUT 50/150/400 CELLS PER 1,000 FRAMES.",
+                ),
                 Row::value(
                     "COMPARTMENTS",
                     spec.compartments.to_string(),
@@ -3676,6 +4437,16 @@ impl Ui {
                     format!("{fps:.0} FPS"),
                     if fps >= 30.0 { GOOD } else { FAIR },
                     "DRAWN FRAMES PER SECOND. THIS IS THE WINDOW, NOT THE SIMULATION -- THE SPEED READOUT ON THE BAR IS THE SIMULATION.",
+                ),
+                // **The box's own "look at this", right above the log it
+                // reacts to.** A `Row::choice` for `ANIMALS WEAR`'s reason:
+                // the bar is full, measured twice (`CLAUDE.md`), and a page
+                // row already proves it can carry a click for free.
+                Row::choice(
+                    "EVENTS",
+                    self.reaction().label(),
+                    Action::CycleReaction,
+                    "WHAT THE CLOCK DOES WHEN A FOUNDING LINE ENDS. CLICK TO CYCLE. LINGER DROPS TO 1X FOR A FEW SECONDS WITH THE CAMERA ON IT, THEN CLIMBS BACK -- STOP HOLDS THE BOX THERE UNTIL YOU RESUME -- OFF STILL LOGS THE LINE BUT NEVER TOUCHES THE CLOCK. A COOLDOWN KEEPS ONE COLONY'S WORTH OF DEATHS FROM BEING ONE LONG STUTTER.",
                 ),
                 // The way in to the log, on the same mechanism as the two
                 // rosters: a `Body::Head` already carries a hit target, and
@@ -3724,15 +4495,27 @@ impl Ui {
         rows
     }
 
-    /// The run log as rows, newest first.
+    /// **The run log as sentences, newest first.**
+    ///
+    /// Every founder and every founding line has a name (`names::line_name`,
+    /// `names::individual`) drawn from `(the box's own seed, its lineage
+    /// number)`, so a line here reads as a thing that happened to somebody
+    /// -- `KESTREL-3 BORN TO KESTREL-2` -- rather than as a handle. See
+    /// [`format_log_line`], which builds the sentence a row draws.
     ///
     /// **Bounded twice, and both bounds are stated on the page.** The log
     /// itself drops its oldest lines past `world::RUN_LOG_CAP`, and this page
-    /// shows only the newest `LOG_ROWS` of what survives. Neither is allowed
-    /// to read as *nothing happened*: the last row says how many lines are
-    /// off the bottom and how many are gone for good. A trimmed history that
-    /// looks like a quiet one is the same failure as a zero body count read
-    /// as "chunks are working".
+    /// shows only the newest `LOG_ROWS` of what survives *the filter below*.
+    /// Neither is allowed to read as *nothing happened*: the last row says
+    /// how many lines are off the bottom and how many are gone for good. A
+    /// trimmed history that looks like a quiet one is the same failure as a
+    /// zero body count read as "chunks are working".
+    ///
+    /// **The filter, defaulting to `LINES`.** `LogKind::is_line_event` is
+    /// exactly the four kinds bounded per *lineage* rather than per birth --
+    /// a colony click founds 52 lineages and the box runs at 1,000+ animals,
+    /// so `ALL` (every `Born`/`Died` too) is unreadable at that scale while
+    /// the chronicle stays a few lines a minute regardless of population.
     fn log_rows(&self, world: &World) -> Vec<Row> {
         let mut rows = vec![Row::head(
             "BACK TO THE BOX",
@@ -3741,62 +4524,84 @@ impl Ui {
             Action::Panel(Panel::Box),
             "RETURN TO THE BOX PAGE.",
         )];
-        let shown: Vec<&world::LogEvent> = world.run_log.recent().take(LOG_ROWS).collect();
+        rows.push(Row::choice(
+            "SHOWING",
+            self.log_filter.label(),
+            Action::CycleLogFilter,
+            "LINES: ONLY WHAT HAPPENED TO A FOUNDING LINE AS A WHOLE -- BOUNDED PER LINE, SO THIS STAYS READABLE AT ANY POPULATION. ALL: EVERY BIRTH AND DEATH TOO. PINNED: ONLY THE PINNED INDIVIDUAL'S OWN TIMELINE. CLICK TO CYCLE.",
+        ));
+        // **The way in to HISTORY**, on the identical mechanism as the way
+        // out to `SCENARIOS`: a `Body::Head` row already carries a hit
+        // target, and the bar has had no free chip since before this page
+        // existed. Sited on the log rather than on the box -- another lane
+        // owns the box page's own rows -- which reads fine anyway: a line
+        // ending is a log event before it is anything else.
+        rows.push(Row::head(
+            "HISTORY",
+            false,
+            ended_lines(world).len(),
+            Action::Panel(Panel::History),
+            "EVERY FOUNDING LINE THAT HAS ENDED, ONE ROW EACH: WHO IT WAS, HOW DEEP IT GOT, HOW MANY IT PEAKED AT, WHEN IT ENDED AND WHAT TOOK ITS LAST MEMBER. THIS PAGE READS EVENTS; THAT ONE READS LINES.",
+        ));
+        let pinned = self.pinned();
+        let matches_filter = |e: &world::LogEvent| match self.log_filter {
+            LogFilter::Lines => e.kind.is_line_event(),
+            LogFilter::All => true,
+            LogFilter::Pinned => pinned.is_some_and(|p| p.id == e.id && p.born_frame == e.born_frame),
+        };
+        let all: Vec<&world::LogEvent> = world.run_log.recent().collect();
+        let shown: Vec<&world::LogEvent> = all.iter().filter(|e| matches_filter(e)).take(LOG_ROWS).copied().collect();
         if shown.is_empty() {
             rows.push(Row::value(
                 "NOTHING YET",
                 "--".to_string(),
                 FAINT,
-                "NO BIRTH, DEATH OR FIRST HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
+                "NOTHING MATCHING THIS FILTER HAS HAPPENED SINCE THE BOX WAS BUILT. THIS IS AN EMPTY LOG, NOT A TRIMMED ONE -- THE ROW BELOW SAYS WHICH.",
             ));
         }
         for e in shown.iter() {
-            let who = param_label(&world.species.get(e.species).name);
-            let (what, tint, note) = match e.kind {
-                world::LogKind::Born => (
-                    format!("{who} {} BORN", e.id),
-                    GOOD,
-                    format!(
-                        "A SEED GERMINATED, OR AN ANIMAL BUDDED FROM {}. THE NUMBER IS THE SLOT IT HOLDS, WHICH IS REUSED AFTER 16 TURNS -- THE ROSTER PINS BY SLOT AND BIRTH FRAME TOGETHER FOR THAT REASON.",
-                        if e.other == 0 { "NOTHING".to_string() } else { format!("PARENT {}", e.other) }
-                    ),
-                ),
-                world::LogKind::Died => (
-                    format!("{who} {} {}", e.id, cause_of(e.other)),
-                    POOR,
-                    "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED OR LOST IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
-                ),
-                world::LogKind::FirstFeed => (
-                    format!("{who} {} FIRST FED", e.id),
-                    VALUE,
-                    "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
-                ),
-                world::LogKind::FirstSeed => (
-                    format!("{who} {} FIRST SEED", e.id),
-                    VALUE,
-                    "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
-                ),
-                world::LogKind::LineEnded => (
-                    format!("LINE {} ENDED", e.other),
-                    POOR,
-                    "THE LAST LIVING MEMBER OF A LINEAGE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
-                ),
-            };
+            let (what, tint, note) = format_log_line(world, e);
             rows.push(Row::value(format!("F{}", e.frame), what, tint, note));
         }
-        let below = world.run_log.len().saturating_sub(shown.len());
+        let matched_total = all.iter().filter(|e| matches_filter(e)).count();
+        let below = matched_total.saturating_sub(shown.len());
         let dropped = world.run_log.dropped();
         rows.push(Row::value(
             "OLDER",
             if dropped == 0 { format!("{below} MORE") } else { format!("{below} MORE, {dropped} LOST") },
             FAINT,
-            "HOW MANY LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
+            "HOW MANY MATCHING LINES ARE OFF THE BOTTOM OF THIS PAGE, AND HOW MANY HAVE AGED OUT OF THE WHOLE LOG FOR GOOD. THE SECOND NUMBER IS WHY NOTHING IN THE LAB IS EVER COUNTED OFF THIS PAGE -- THE COUNTS COME FROM EACH INDIVIDUAL'S OWN TOTALS, WHICH ARE NEVER TRIMMED.",
         ));
         rows
     }
 
-    /// **The cell page's one button**, or `None` when the cell it is open on
-    /// holds nothing alive.
+    /// **The cell page's always-present button**: put the page away without
+    /// having to re-click the cell or organism it is pinned to. Right-most
+    /// in the header so it sits at a fixed spot regardless of whether `KEEP`
+    /// is beside it.
+    ///
+    /// See [`Action::CloseInspected`] for why the page's own toggle gesture
+    /// is not always reachable: the page is drawn over the world and can end
+    /// up sitting on top of the very cell that would close it, and
+    /// [`Ui::covers`] refuses to pass a click on the page through to the
+    /// world behind it.
+    fn close_inspect_button(rect: Rect) -> Widget {
+        let w = cell_width(hud::text_width("CLOSE"), "", PAD);
+        Widget {
+            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
+            line1: "CLOSE".into(),
+            line2: String::new(),
+            action: Some(Action::CloseInspected),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "PUT THE CELL PAGE AWAY. CLICKING THE SAME CELL OR ANIMAL AGAIN STILL WORKS TOO -- THIS IS THE BUTTON FOR WHEN THE PAGE ITSELF IS SITTING ON TOP OF WHAT YOU CLICKED, WHICH A CLICK CANNOT REACH THROUGH.".into(),
+        }
+    }
+
+    /// **The cell page's other button**, or `None` when the cell it is open
+    /// on holds nothing alive. Sits left of `CLOSE`, which is why its own `x`
+    /// is offset by `close_w` rather than anchored to the page's right edge.
     ///
     /// Sited in the page header beside the title, which is the only band on
     /// the page that is not a row: the rows are re-read from the world every
@@ -3804,13 +4609,13 @@ impl Ui {
     /// a button among them would move while the player was reaching for it.
     /// The shelf's `RELOAD` sits in its header for the same reason and this
     /// matches it deliberately — one place on a page is where its verbs are.
-    fn keep_button(&self, world: &World, at: (i32, i32), rect: Rect) -> Option<Widget> {
+    fn keep_button(&self, world: &World, at: (i32, i32), rect: Rect, close_w: i32) -> Option<Widget> {
         let id = world.get(at.0, at.1).organism_id();
         let state = world.organism(id)?;
         let species = world.species.get(state.species).name.to_uppercase();
         let w = cell_width(hud::text_width("KEEP"), "", PAD);
         Some(Widget {
-            rect: Rect { x: rect.right() - PAGE_PAD - w, y: rect.y + 3, w, h: 11 },
+            rect: Rect { x: rect.right() - PAGE_PAD - close_w - 4 - w, y: rect.y + 3, w, h: 11 },
             line1: "KEEP".into(),
             line2: String::new(),
             action: Some(Action::KeepInspected),
@@ -3941,7 +4746,14 @@ impl Ui {
         // can never be crowded out by a group the player did not ask for), and
         // a page whose groups all fit -- an ant's -- never folds at all, so
         // that page is exactly what it always was.
-        let chosen = self.specimen_section.min(sections.len() - 1);
+        // `None` while nothing is chosen yet -- the page's starting state,
+        // and the state `show_specimen_section` returns to when the open
+        // group's own heading is clicked again. Nothing auto-opens in that
+        // state: the fill loop below only runs once a group has been
+        // explicitly asked for, so a freshly inspected cell shows the five
+        // fixed rows and four shut headings, not whichever groups happened
+        // to fit.
+        let chosen = self.specimen_section.filter(|&i| i < sections.len());
         // **The chosen group opens whether or not it fits, and that is a
         // change.** The rule used to be `cost <= room` for every group
         // including the chosen one, which reads as "serve it first" and is
@@ -3965,17 +4777,19 @@ impl Ui {
         let state_at = sections.iter().position(|(l, _, _)| *l == "STATE");
         let spark_h: i32 = sparks.iter().map(Row::height).sum();
 
-        open[chosen] = true;
-        room -= sections[chosen].2.len() as i32 * LINE;
-        if state_at == Some(chosen) {
-            room -= spark_h;
-        }
-        for i in 0..sections.len() {
-            let cost = sections[i].2.len() as i32 * LINE
-                + if state_at == Some(i) { spark_h } else { 0 };
-            if !open[i] && cost <= room {
-                open[i] = true;
-                room -= cost;
+        if let Some(chosen) = chosen {
+            open[chosen] = true;
+            room -= sections[chosen].2.len() as i32 * LINE;
+            if state_at == Some(chosen) {
+                room -= spark_h;
+            }
+            for i in 0..sections.len() {
+                let cost = sections[i].2.len() as i32 * LINE
+                    + if state_at == Some(i) { spark_h } else { 0 };
+                if !open[i] && cost <= room {
+                    open[i] = true;
+                    room -= cost;
+                }
             }
         }
         for (i, (label, note, section)) in sections.iter().enumerate() {
@@ -4686,6 +5500,99 @@ const RACK_LITERALS: [&str; 8] = [
 const RACK_THUMB_SHRINK: u32 = 4;
 const RACK_THUMB_H: i32 = (H / RACK_THUMB_SHRINK) as i32;
 
+// ------------------------------------------------------------- the history
+
+/// How many HISTORY rows a page will draw at most, `ROSTER_ROWS`' own shape
+/// -- the ceiling; the floor is whatever room `paint_history` computes is
+/// actually left.
+const HISTORY_ROWS: usize = 12;
+const HISTORY_ROW: i32 = 11;
+/// The column header's own band.
+const HISTORY_HEAD: i32 = 11;
+
+/// **The HISTORY table's columns after NAME**, which gets whatever room
+/// [`history_name_width`] budgets rather than a fixed slot of its own --
+/// heading and the widest value it can ever hold, `RACK_COLS`' own shape.
+const HISTORY_COLS: [(&str, &str); 5] = [
+    ("KINGDOM", "ANIMAL"),
+    ("GEN", "99999"),
+    ("PEAK", "99999"),
+    ("ENDED", "F9999999"),
+    // The widest `organism::DeathCause::label()` -- `LOST ITS TISSUE`, 15
+    // characters. Measured against the table directly rather than guessed,
+    // for `rack_col_x`'s own reason: a column sized to a typical cause is a
+    // column that clips the first long one.
+    ("CAUSE", "LOST ITS TISSUE"),
+];
+
+/// **The SUMMARY view's own column headers after NAME**, in the order
+/// `paint_history_summary` draws them. Bare labels rather than `HISTORY_
+/// COLS`' `(head, widest)` pairs -- every column past NAME on that view is
+/// sized from the rows actually being drawn (`paint_history_summary`'s own
+/// doc), so there is no fixed "widest" sample to pair a header with. Shared
+/// between the paint site and `every_string_the_bar_can_draw_is_drawable`
+/// for `kingdom_label`'s own reason: two independent copies of a header is
+/// exactly the shape that let a bad character hide behind a passing test.
+const SUMMARY_COLS: [&str; 4] = ["KINGDOM", "ALIVE", "ENDED", "CAUSES"];
+
+/// The widest a founding line's own name can ever be drawn: `names::STEMS`'
+/// widest entry (7 characters, `every_stem_is_drawable`'s own bound) plus
+/// the widest wrap suffix this page budgets column room for. A lineage past
+/// `names::STEMS.len()` wraps to a longer suffix still (`line_name`'s own
+/// doc), which this does not chase -- a run founding past 251 *lines that
+/// have gone extinct* is far outside anything this box has been measured at,
+/// and the column simply runs long rather than wrongly on that day.
+fn history_name_width() -> i32 {
+    hud::text_width("WWWWWWW III")
+}
+
+/// A column's own width: whichever is wider, its heading or the widest value
+/// it can hold. **Not always the value** -- `KINGDOM` (7 characters) is
+/// itself wider than `ANIMAL` (6), the only value that column ever draws,
+/// and sizing on the value alone let the heading overrun into `GEN`'s own
+/// column, read on a rendered frame as `KINGDOMGEN`. `RACK_COLS`' own scar
+/// was a heading colliding with its *neighbour's* text for the same
+/// underlying reason (an unmeasured width); this is the same trap wearing
+/// the value/heading roles reversed.
+fn history_col_width((head, widest): (&str, &str)) -> i32 {
+    hud::text_width(head).max(hud::text_width(widest))
+}
+
+/// Where each HISTORY column starts, relative to the page's left margin.
+/// Derived once and read by both the header and the rows, `roster_col_x`'s
+/// own rule, so a header cannot drift from the column it names.
+fn history_col_x() -> [i32; HISTORY_COLS.len()] {
+    let mut out = [0i32; HISTORY_COLS.len()];
+    let mut x = history_name_width() + RACK_GAP;
+    for (i, col) in HISTORY_COLS.iter().enumerate() {
+        out[i] = x;
+        x += history_col_width(*col) + RACK_GAP;
+    }
+    out
+}
+
+/// The page's width: the sum of its own columns, `roster_page_width`'s
+/// reason -- exactly as wide as it has to be and no wider.
+fn history_page_width() -> i32 {
+    let col = history_col_x();
+    let last = HISTORY_COLS.last().expect("five columns");
+    (col[HISTORY_COLS.len() - 1] + history_col_width(*last) + PAGE_PAD * 2).min(W as i32 - MARGIN * 2)
+}
+
+/// **Every fixed string the HISTORY page's DETAIL view draws that is not a
+/// widget or a row value**, named for
+/// `every_string_the_bar_can_draw_is_drawable`'s reason: this page paints
+/// itself, so nothing in `panel_rows` covers it, and a character outside the
+/// 5x7 set draws as a silent blank (`RACK_LITERALS`' own scar, `#` in a
+/// column header).
+const HISTORY_LITERALS: [&str; 1] = ["NO FOUNDING LINE HAS ENDED YET"];
+
+/// The SUMMARY view's own empty state -- `HISTORY_LITERALS`'s own reason,
+/// kept as a separate array because it is a different sentence for a
+/// different page: a run where nobody has yet lost anyone, not one colony's
+/// own line still short of ending.
+const SUMMARY_LITERALS: [&str; 1] = ["NOTHING HAS BEEN LOST YET"];
+
 /// Wide enough for the widest row this page can produce, measured through
 /// `hud::text_width` rather than counted by hand — `layout`'s rule, for
 /// `layout`'s reason. The picture sets the floor: a page narrower than its own
@@ -4810,6 +5717,584 @@ fn cause_of(index: u16) -> &'static str {
         Some(c) => c.label(),
         None => "DIED",
     }
+}
+
+/// **One run-log line, as a sentence.** Shared between `Ui::log_rows` (the
+/// BOX/LOG page, 42-character column) and `params::story` (the CELL page,
+/// narrower) so the two pages cannot describe the same event two different
+/// ways. Returns `(value text, tint, hover note)`.
+///
+/// **Every sentence names its subject with `names::individual`/
+/// `names::line_name`** -- a pure function of `(world.seed, lineage[,
+/// generation])`, so it costs no lookup beyond the fields already on
+/// `LogEvent` and cannot go stale even for a `LineEnded` or `Died` line
+/// whose organism is already gone.
+pub fn format_log_line(world: &World, e: &world::LogEvent) -> (String, [u8; 4], String) {
+    match e.kind {
+        world::LogKind::Born => {
+            let child = names::individual(world.seed, e.lineage, e.generation);
+            // **Generation 0 is planted, not bred.** Every animal `Born`
+            // line is a bud (generation >= 1 by construction -- founders
+            // never push one), but a plant's germination pushes `Born`
+            // whether it was sown by a player or borne by a parent, and a
+            // sown seed's generation is 0. `individual(..., -1)` would
+            // otherwise name the child its own parent.
+            if e.generation == 0 {
+                (format!("{child} GERMINATED"), GOOD, "A PLANTED SEED CAME UP -- ITS LINE'S FIRST GENERATION, NOT BRED FROM ANYTHING IN THIS BOX.".to_string())
+            } else {
+                let parent = names::individual(world.seed, e.lineage, e.generation - 1);
+                (
+                    format!("{child} BORN TO {parent}"),
+                    GOOD,
+                    "A CREATURE BUDDED, OR A SEED GERMINATED FROM A BRED PARENT. THE NAME IS THE LINE PLUS THIS ONE'S OWN GENERATION -- SIBLINGS OF ONE COHORT SHARE IT, WHICH IS WHY AN EVENT ABOUT ONE OF THEM NAMES THE EVENT, NOT THE SLOT.".to_string(),
+                )
+            }
+        }
+        world::LogKind::Died => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} {}", cause_of(e.other)),
+                POOR,
+                "IT LEFT THE WORLD, AND WHAT KILLED IT. FELLED IS THE ONE THAT IS NOT A DEATH THE ENGINE INTENDED: THE PLANT WAS PULLED APART BY THE SUPPORT CHECK WHILE STILL ALIVE.".to_string(),
+            )
+        }
+        world::LogKind::FirstFeed => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} FED FOR THE FIRST TIME"),
+                VALUE,
+                "THE FIRST TIME THIS ANIMAL EVER PICKED FOOD UP. ONE PER LIFE -- EVERY LATER MOUTHFUL IS COUNTED ON ITS OWN PAGE, NOT HERE, BECAUSE A LOG OF EVERY BITE WOULD DROWN EVERYTHING WORTH READING.".to_string(),
+            )
+        }
+        world::LogKind::FirstSeed => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            (
+                format!("{who} SET ITS FIRST SEED"),
+                VALUE,
+                "THE FIRST SEED THIS PLANT EVER SET -- THE MOMENT IT STOPPED BEING A COST TO THE BOX AND STARTED BEING A PARENT. LATER SEEDS ARE COUNTED ON ITS OWN PAGE: THE SHIPPED BED SETS 3,099 OF THEM IN 90,000 FRAMES AND A LOG OF ALL OF THEM WOULD BE 90% SEED-SET.".to_string(),
+            )
+        }
+        world::LogKind::LineEnded => {
+            let line = names::line_name(world.seed, e.lineage);
+            // `generation` is the last member's, so 0 means the founder itself
+            // was the last -- a line that never bred. On the harness bed that
+            // is 47 of 52 ant founders inside 4,500 frames, and "0
+            // GENERATIONS" read as a bug the first time the chronicle printed.
+            let ended = match e.generation {
+                0 => format!("THE {line} LINE ENDED WITH ITS FOUNDER"),
+                1 => format!("THE {line} LINE ENDED, 1 GENERATION"),
+                g => format!("THE {line} LINE ENDED, {g} GENERATIONS"),
+            };
+            (
+                ended,
+                POOR,
+                "THE LAST LIVING MEMBER OF A FOUNDING LINE LEFT THE WORLD. THIS IS THE EVENT NO STANDING COUNT CAN SHOW: THE POPULATION NUMBER CAN HOLD PERFECTLY STEADY WHILE THE BOX QUIETLY LOSES EVERY DESCENDANT OF ONE FOUNDER.".to_string(),
+            )
+        }
+        world::LogKind::GroupSplit => {
+            let child_colony = e.other as u32;
+            let new_label = world.group_label(e.species, child_colony);
+            let parent_label = world
+                .colony_parents
+                .iter()
+                .find(|(c, _)| *c == child_colony)
+                .map(|(_, p)| world.group_label(e.species, *p))
+                .unwrap_or_else(|| "?".to_string());
+            let count = world
+                .live_creature_groups()
+                .iter()
+                .find(|g| g.species == e.species && g.colony == child_colony)
+                .map(|g| g.alive)
+                .unwrap_or(0);
+            (
+                format!("{new_label} SPLIT FROM {parent_label}, {count}"),
+                VALUE,
+                format!("A FAMILY WHOSE SCENT HAD DRIFTED WAS GIVEN ITS OWN LABEL AND COLOUR, RATHER THAN STAYING COUNTED UNDER {parent_label}'S. {count} ANIMALS ARE IN IT NOW."),
+            )
+        }
+        world::LogKind::LineMilestone => {
+            let line = names::line_name(world.seed, e.lineage);
+            let (is_population, threshold) = world::decode_milestone(e.other);
+            if is_population {
+                (
+                    format!("{line} NUMBERS {threshold}"),
+                    GOOD,
+                    "THIS FOUNDING LINE'S LIVING COUNT FIRST REACHED THIS NUMBER. FIRST-REACH ONLY -- IT DOES NOT FIRE AGAIN EVERY TIME THE COUNT PASSES BACK OVER IT.".to_string(),
+                )
+            } else {
+                (
+                    format!("{line} REACHES GENERATION {threshold}"),
+                    GOOD,
+                    "A DESCENDANT OF THIS FOUNDING LINE FIRST REACHED THIS MANY GENERATIONS OF DEPTH. FIRST-REACH ONLY, LIKE THE POPULATION VERSION OF THIS LINE.".to_string(),
+                )
+            }
+        }
+        world::LogKind::LineRecord => {
+            let who = names::individual(world.seed, e.lineage, e.generation);
+            let frag = plainspeak::describe_record(e.other);
+            (
+                format!("{who}: {frag}"),
+                VALUE,
+                "THE FIRST OF ITS LINE TO DRIFT THIS FAR FROM THE FOUNDER ON ONE TRAIT, IN EITHER DIRECTION. AT MOST FOUR OF THESE PER TRAIT PER LINE, EVER -- THE AXIS IS TWO UNITS WIDE END TO END.".to_string(),
+            )
+        }
+    }
+}
+
+// -------------------------------------------------------------- the legends
+
+/// **One founding line that has ended** -- the HISTORY page's own row, and
+/// what the chronicle export's LEGENDS section is built from.
+///
+/// **Derived from the run log's own `LineEnded` events, never a second
+/// census.** `World::line_stats` is never cleared once a lineage claims it
+/// (`World::seed_line_stats`/`note_line_population`), so a line that ended
+/// five minutes ago still has its standing facts sitting there to be read
+/// alongside the event that ended it -- and `World::graveyard` still has the
+/// grave the same `free_organism` call that pushed `LineEnded` also pushed.
+/// So this appears the instant `LogKind::LineEnded` does, on the very same
+/// event the LOG page's own `LINE ENDED` sentence reads, and cannot disagree
+/// with it about which line or when.
+pub struct EndedLine {
+    pub lineage: u32,
+    pub name: String,
+    /// `true` for the ANTS table, `false` for the PLANTS one -- read off the
+    /// last member's own species, `roster::row_of`'s reason.
+    pub creature: bool,
+    /// The last member's own species -- `HistorySummaryRow`'s own reason:
+    /// grouping ended lines into a colony needs it, and `World::group_deaths`
+    /// is keyed on `(species, colony)`, never `colony` alone.
+    pub species: SpeciesId,
+    /// **The last member's own colony at death**, read off its grave the
+    /// same way `cause` is. `0` for a plant (no plant ever claims a colony --
+    /// `World::claim_colony`'s own doc, only `creature::place_creature`
+    /// calls it) and for a hand-built fixture whose grave was never pushed.
+    /// `HistorySummaryRow` is the only reader: a colony groups the founding
+    /// lines under it by this field, never by re-deriving it.
+    pub colony: u32,
+    /// `0` if the lineage's row was never found -- cannot happen for a real
+    /// `LineEnded` event (a line cannot end without having been founded) but
+    /// a hand-built test fixture can still produce one.
+    pub founder_frame: u64,
+    /// The deepest generation any descendant reached, `LineStats::
+    /// deepest_generation` maxed against the last member's own -- see that
+    /// field's doc for why a plant lineage needs the second half of the max.
+    pub generations: u16,
+    pub peak_living: u32,
+    pub ended_frame: u64,
+    /// The last member's own cause of death, if its grave is still held.
+    /// `None` rather than `Unknown` -- a legend that does not know how a line
+    /// ended should say nothing about it, not print the word `UNKNOWN`.
+    pub cause: Option<crate::sim::organism::DeathCause>,
+}
+
+/// Every founding line that has ended, newest first -- the order the run log
+/// itself reads in. See [`EndedLine`] for where each field comes from.
+pub fn ended_lines(world: &World) -> Vec<EndedLine> {
+    world
+        .run_log
+        .recent()
+        .filter(|e| e.kind == world::LogKind::LineEnded)
+        .map(|e| {
+            let stats = world.line_stats.get(&e.lineage);
+            let grave = world.graveyard.about(e.id, e.born_frame);
+            EndedLine {
+                lineage: e.lineage,
+                name: names::line_name(world.seed, e.lineage),
+                creature: world.species.get(e.species).creature.is_some(),
+                species: e.species,
+                colony: grave.map_or(0, |g| g.colony),
+                founder_frame: stats.map_or(0, |s| s.founder_frame),
+                generations: stats.map_or(e.generation, |s| s.deepest_generation.max(e.generation)),
+                peak_living: stats.map_or(0, |s| s.peak_living),
+                ended_frame: e.frame,
+                cause: grave
+                    .map(|g| g.cause)
+                    .filter(|c| *c != crate::sim::organism::DeathCause::Unknown),
+            }
+        })
+        .collect()
+}
+
+/// **`ANIMAL` or `PLANT`, and the only place either literal is spelled out.**
+/// [`legend_paragraph`] and [`Ui::paint_history`]'s own KINGDOM column both
+/// call this rather than each carrying its own copy of the two words --
+/// two independent copies is exactly the shape that let a typo in one draw
+/// silently escape `every_string_the_bar_can_draw_is_drawable`, which reads
+/// the row through its hover note (built from this same function) and never
+/// saw the column text at all. Found by doing what that test's own doc
+/// demands of a guard: inject the fault and watch for red. One shared
+/// function makes that structurally impossible instead of merely checked.
+pub fn kingdom_label(creature: bool) -> &'static str {
+    if creature {
+        "ANIMAL"
+    } else {
+        "PLANT"
+    }
+}
+
+/// One [`EndedLine`], as the chronicle export's LEGENDS section prints it --
+/// name, kingdom, founder frame, generations reached, peak living count,
+/// frame ended, and the cause when one is known. Shared with the HISTORY
+/// page's hover note so the two cannot describe the same line two different
+/// ways.
+pub fn legend_paragraph(e: &EndedLine) -> String {
+    let kingdom = kingdom_label(e.creature);
+    let span = match e.generations {
+        0 => "ENDED WITH ITS FOUNDER".to_string(),
+        1 => "ENDED, 1 GENERATION".to_string(),
+        g => format!("ENDED, {g} GENERATIONS"),
+    };
+    let cause = match e.cause {
+        Some(c) => format!(" {}.", c.label()),
+        None => String::new(),
+    };
+    format!(
+        "THE {} LINE ({kingdom}) {span}. FOUNDED F{}, PEAK {} LIVING, ENDED F{}.{cause}",
+        e.name, e.founder_frame, e.peak_living, e.ended_frame
+    )
+}
+
+// ------------------------------------------------------- the history summary
+
+/// How many of a colony's own cause-of-death entries [`cause_text`] joins on
+/// a SUMMARY row before folding the rest into one `+N MORE`. Three, matching
+/// the owner's own example of the shape they asked for (2026-09-10):
+/// *"x starved, x killed by y, etc."* -- three items reads as the example
+/// did, and the hover note (`cause_text` called with no cap) always carries
+/// every entry regardless.
+const SUMMARY_CAUSES_CAP: usize = 3;
+
+/// **What a group's dead died of, in the owner's own words**: `"12 STARVED,
+/// 3 KILLED BY ANT 2, 1 FELLED"` -- the SUMMARY row's whole reason to exist.
+/// Built from `d`, never a second census: `World::group_deaths_of`'s own doc.
+///
+/// **Widest first, then capped at `cap` entries** with the rest folded into
+/// one `+N MORE`, so a row's own width is a function of `cap` rather than of
+/// how many ways this group's animals have died -- `history_page_width`'s
+/// rule, extended from a fixed table to a counted one. Pass `usize::MAX` for
+/// the uncapped sentence the hover note and the chronicle paragraph carry.
+///
+/// **`Killed` is split by attacker where one is known.** `GroupDeaths::
+/// killed_by` is booked at the bite and `by_cause[Killed]` at the death, and
+/// the two can disagree -- burned or blasted is `Killed` with no attacker in
+/// `killed_by` at all (`GroupDeaths`' own doc). The gap is shown as a plain
+/// `KILLED` entry rather than silently folded into an attacker's count.
+fn cause_text(world: &World, d: &world::GroupDeaths, cap: usize) -> String {
+    use crate::sim::organism::{DeathCause, DEATH_CAUSE_LIST};
+    let mut entries: Vec<(u64, String)> = Vec::new();
+    for cause in DEATH_CAUSE_LIST {
+        if cause == DeathCause::Killed {
+            continue; // split by attacker below, not lumped as one line
+        }
+        let n = d.by_cause[cause.index()];
+        if n > 0 {
+            entries.push((n, format!("{n} {}", cause.label())));
+        }
+    }
+    let mut attributed = 0u64;
+    for (asp, acol, n) in &d.killed_by {
+        attributed += n;
+        entries.push((*n, format!("{n} KILLED BY {}", world.group_label(*asp, *acol))));
+    }
+    let unattributed = d.by_cause[DeathCause::Killed.index()].saturating_sub(attributed);
+    if unattributed > 0 {
+        entries.push((unattributed, format!("{unattributed} KILLED")));
+    }
+    // Widest first -- the owner's own example leads with the biggest cause,
+    // and it is the cap above that makes the order matter: a colony with
+    // seven kinds of death should keep the three that dominate it.
+    entries.sort_by_key(|(n, _)| std::cmp::Reverse(*n));
+    let shown = entries.len().min(cap);
+    let mut out = entries[..shown].iter().map(|(_, s)| s.clone()).collect::<Vec<_>>().join(", ");
+    if entries.len() > shown {
+        out.push_str(&format!(" +{} MORE", entries.len() - shown));
+    }
+    if out.is_empty() {
+        out.push_str("--");
+    }
+    out
+}
+
+/// **[`cause_text`]'s own string, shrunk to fit `budget_px`** -- the
+/// SUMMARY row's own defence against the trap `history_page_width`'s doc
+/// already names: an unclamped panel would run off a 512px screen, and the
+/// clamp alone only stops the *panel*, not a row whose own text still runs
+/// past its edge into whatever the framebuffer holds next (found by looking
+/// at a rendered frame: `"1 K"`, a `KILLED BY` entry sheared off mid-word by
+/// the CELL panel it happened to sit under).
+///
+/// Drops whole entries from the end (widest-first, `cause_text`'s own
+/// order, so what survives is what matters most) rather than truncating
+/// mid-word, and folds every dropped one into the trailing `+N MORE` --
+/// recomputed here rather than trusted from `s`, because a row already
+/// carrying one from `cause_text`'s own cap can lose more again to width.
+/// Operates on the string alone, never `World`: the hover note and the
+/// chronicle paragraph read the uncapped sentence regardless of what any
+/// screen can show.
+fn fit_causes_to_width(s: &str, budget_px: i32) -> String {
+    if hud::text_width(s) <= budget_px {
+        return s.to_string();
+    }
+    let (body, folded) = match s.rsplit_once(" +") {
+        Some((b, tail)) if tail.ends_with(" MORE") => {
+            (b, tail.trim_end_matches(" MORE").parse::<usize>().unwrap_or(0))
+        }
+        _ => (s, 0),
+    };
+    let parts: Vec<&str> = body.split(", ").collect();
+    for kept in (0..parts.len()).rev() {
+        let more = folded + (parts.len() - 1 - kept);
+        let candidate = if more > 0 {
+            format!("{} +{more} MORE", parts[..=kept].join(", "))
+        } else {
+            parts[..=kept].join(", ")
+        };
+        if kept == 0 || hud::text_width(&candidate) <= budget_px {
+            return candidate;
+        }
+    }
+    "--".to_string()
+}
+
+/// **One row of the HISTORY page's default view** -- an animal colony
+/// (grouping every founding line placed under it) or a plant founding line
+/// (which needs no grouping at all: a plant founder never claims a colony,
+/// `EndedLine::colony`'s own doc). See [`history_summary`].
+pub struct HistorySummaryRow {
+    pub name: String,
+    pub creature: bool,
+    /// `Some` for an animal colony -- the key [`Action::HistoryOpen`] opens.
+    /// `None` for a plant: the row already *is* the one founding line it
+    /// names, so there is nothing under it to expand into.
+    pub colony: Option<u32>,
+    /// Animals alive in this colony right now, or `None` for a colony with
+    /// nobody left in it -- `paint_history`'s `ENDED` reading, the owner's
+    /// own *"ended colonies say so"*. Always `None` for a plant: a plant's
+    /// row is never drawn until its one line has ended.
+    pub alive: Option<u32>,
+    /// The founding lines under this row that have ended, newest first --
+    /// exactly one, itself, for a plant.
+    pub ended: Vec<EndedLine>,
+    /// [`cause_text`], capped at [`SUMMARY_CAUSES_CAP`] -- what the row
+    /// itself draws.
+    pub causes: String,
+    /// [`cause_text`], uncapped -- what the hover note and the chronicle
+    /// paragraph carry. Equal to `causes` for a plant, whose one cause never
+    /// needs capping.
+    pub causes_full: String,
+    /// Sort key: the most recent frame anything happened to this row --
+    /// `history_summary`'s own "newest activity first".
+    pub last_activity: u64,
+}
+
+/// **Every colony (animals) or founding line (plants) that has lost anyone
+/// or ended, newest activity first** -- the HISTORY page's default view, per
+/// the owner's verdict on the page (2026-09-10): *"A summary per colony
+/// could be interesting as the default: x starved, x killed by y, etc. Then
+/// you expand into the individuals?"*
+///
+/// **Built from [`ended_lines`] and `World::group_deaths`, never a second
+/// census** -- `World::group_deaths_of`'s own doc says to reuse it rather
+/// than re-derive it, and it never ages out the way the graveyard it sits
+/// beside does, so a colony's tally is never wrong for outliving the cap.
+///
+/// **A plant founding line is its own row, unchanged from the row PR #304
+/// shipped.** A plant founder never claims a colony (`EndedLine::colony`'s
+/// own doc), so there is no group to fold several plant lines into, and
+/// doing it anyway would invent a level of structure the world does not
+/// have.
+///
+/// **An animal colony's row groups every founding line placed under it.** A
+/// placement gesture claims one colony and, per founder, one lineage
+/// (`creature::place_creature`'s own split of `Origin::Founder`/`Stock`), so
+/// a colony of eight animals starts as eight lines under one colony; as they
+/// end one at a time the colony itself can still be very much alive, which
+/// is exactly the distinction `alive`/`ended` exists to keep separate.
+pub fn history_summary(world: &World) -> Vec<HistorySummaryRow> {
+    // Keyed on the colony id alone, never `(colony, species)`: colony ids
+    // are minted from one global counter (`World::claim_colony`'s own doc),
+    // so no two species ever share one, and a plain `u32` key sidesteps
+    // `SpeciesId` carrying no `Ord` -- it exists to catch a species and a
+    // material slot crossing, not to be sorted.
+    let mut colonies: std::collections::BTreeMap<u32, Vec<EndedLine>> = std::collections::BTreeMap::new();
+    let mut out: Vec<HistorySummaryRow> = Vec::new();
+    for e in ended_lines(world) {
+        if e.creature {
+            colonies.entry(e.colony).or_default().push(e);
+        } else {
+            // A plant line is already its own row -- no grouping, no second
+            // pass. `ended` is newest-first by construction (there is only
+            // ever one), matching every colony row's own order.
+            out.push(HistorySummaryRow {
+                name: e.name.clone(),
+                creature: false,
+                colony: None,
+                alive: None,
+                causes: e.cause.map_or_else(|| "--".to_string(), |c| c.label().to_string()),
+                causes_full: e.cause.map_or_else(|| "--".to_string(), |c| c.label().to_string()),
+                last_activity: e.ended_frame,
+                ended: vec![e],
+            });
+        }
+    }
+    let live = world.live_creature_groups();
+    // **Every colony that has ever lost anyone** -- `World::group_deaths`'s
+    // own row, one per `(species, colony)`, never aged out.
+    for d in &world.group_deaths {
+        let ended = colonies.remove(&d.colony).unwrap_or_default();
+        let alive = live.iter().find(|g| g.species == d.species && g.colony == d.colony).map(|g| g.alive);
+        // Newest ended line under it, or -- a colony that has lost members
+        // without any of its founding lines ending yet -- the newest grave
+        // this colony still has. `Graveyard::recent()` is newest first, so
+        // the first match is the one wanted.
+        let last_activity = ended.first().map_or_else(
+            || world.graveyard.recent().find(|g| g.creature && g.species == d.species && g.colony == d.colony).map_or(0, |g| g.died_frame),
+            |e| e.ended_frame,
+        );
+        out.push(HistorySummaryRow {
+            name: world.group_label(d.species, d.colony),
+            creature: true,
+            colony: Some(d.colony),
+            alive,
+            causes: cause_text(world, d, SUMMARY_CAUSES_CAP),
+            causes_full: cause_text(world, d, usize::MAX),
+            last_activity,
+            ended,
+        });
+    }
+    // **A colony with ended lines but no `group_deaths` row of its own
+    // cannot happen for a real death** -- every animal death books to
+    // `group_deaths_mut` before it can end a line (`World::free_organism`'s
+    // own order) -- but a hand-built test fixture that pushes a `LineEnded`
+    // log event and a `Grave` without going through `free_organism` can
+    // still produce one, `EndedLine::founder_frame`'s own caveat. Shown
+    // rather than silently dropped, with no cause text to report.
+    for (colony, ended) in colonies {
+        // `ended` is never empty here -- it only exists because at least one
+        // `EndedLine` was pushed into this colony's bucket above.
+        let species = ended.first().map_or(SpeciesId(0), |e| e.species);
+        let alive = live.iter().find(|g| g.species == species && g.colony == colony).map(|g| g.alive);
+        out.push(HistorySummaryRow {
+            name: world.group_label(species, colony),
+            creature: true,
+            colony: Some(colony),
+            alive,
+            causes: "--".to_string(),
+            causes_full: "--".to_string(),
+            last_activity: ended.first().map_or(0, |e| e.ended_frame),
+            ended,
+        });
+    }
+    out.sort_by_key(|r| std::cmp::Reverse(r.last_activity));
+    out
+}
+
+/// **One [`HistorySummaryRow`] naming an animal colony**, as the row's own
+/// hover note and the chronicle's per-colony LEGENDS paragraph -- shared for
+/// [`legend_paragraph`]'s own reason: the two must describe one colony the
+/// same way. Never called for a plant row, whose note is [`legend_paragraph`]
+/// on its own one ended line.
+pub fn colony_summary_paragraph(row: &HistorySummaryRow) -> String {
+    let status = match row.alive {
+        Some(n) => format!("{n} ALIVE"),
+        None => "ENDED".to_string(),
+    };
+    let lines = match row.ended.len() {
+        0 => String::new(),
+        1 => " 1 OF ITS FOUNDING LINES HAS ENDED.".to_string(),
+        n => format!(" {n} OF ITS FOUNDING LINES HAVE ENDED."),
+    };
+    let causes = if row.causes_full == "--" { String::new() } else { format!(" {}.", row.causes_full) };
+    format!("THE {} COLONY ({}) {status}.{lines}{causes}", row.name, kingdom_label(row.creature))
+}
+
+/// **One colony's own ended founding lines, newest first** -- what clicking
+/// a SUMMARY row expands into (`Action::HistoryOpen`), in the exact row
+/// format PR #304 shipped: [`ended_lines`] is the one source, filtered
+/// rather than re-derived, so an expansion can never name a line the
+/// summary above it did not count.
+pub fn history_lines_for_colony(world: &World, colony: u32) -> Vec<EndedLine> {
+    ended_lines(world).into_iter().filter(|e| e.creature && e.colony == colony).collect()
+}
+
+/// **The run's whole chronicle, as text** -- `Lab::write_chronicle`'s export
+/// and nothing else, so a file on disk and the LOG/HISTORY pages a player is
+/// looking at are always the same reading of the same events.
+///
+/// Four parts, in the order `examples/chronicle.rs` already prints them: a
+/// header naming the bed plus what the player changed from the shipped
+/// dials, a CENSUS section (`census::chronicle_section`) -- the numbers a
+/// story of events cannot carry, per
+/// `Reports/evolution-lab-late-game-design-2026-09-12.md` brief 0 -- the
+/// LINES view through the identical [`format_log_line`] the LOG page draws
+/// through -- **oldest first**, so it reads as a story rather than as the
+/// page's own newest-first table -- and a LEGENDS section built from
+/// [`ended_lines`]. Per-kind counts last, `CLAUDE.md`'s standing rule: prose
+/// says what and where, only the count says whether it fired.
+pub fn chronicle_text(world: &World, spec: &LabBox, bed_label: &str, dial: u32, census_rows: &[census::ChronicleRow], dial_changes: &[String]) -> String {
+    use std::fmt::Write as _;
+    let mut out = String::new();
+    let _ = writeln!(out, "CHRONICLE OF {bed_label}");
+    let _ = writeln!(
+        out,
+        "SEED {}  FOUNDERS {} OF {}  COLONIES {}  FRAMES {}  DIAL {}X",
+        spec.seed,
+        spec.founders,
+        spec.species.to_uppercase(),
+        spec.colonies,
+        world.frame,
+        dial
+    );
+    if dial_changes.is_empty() {
+        out.push_str("DIALS: SHIPPED DEFAULTS -- NOTHING CHANGED\n");
+    } else {
+        let _ = writeln!(out, "DIALS CHANGED FROM SHIPPED: {}", dial_changes.join(", "));
+    }
+    out.push('\n');
+    out.push_str(&census::chronicle_section(census_rows));
+    out.push('\n');
+    let mut lines: Vec<&world::LogEvent> = world.run_log.recent().filter(|e| e.kind.is_line_event()).collect();
+    lines.reverse(); // the log reads newest first; a story reads forward
+    if lines.is_empty() {
+        out.push_str("NOTHING NOTABLE HAS HAPPENED YET.\n");
+    }
+    for e in &lines {
+        let (what, _, _) = format_log_line(world, e);
+        let _ = writeln!(out, "F{:>7}  {what}", e.frame);
+    }
+    out.push('\n');
+    out.push_str("LEGENDS\n");
+    // **The per-colony summary, above the per-line paragraphs.** Same
+    // function the SUMMARY page's own rows draw from, so the chronicle and
+    // the screen can never disagree about a colony's own numbers.
+    let mut colonies: Vec<HistorySummaryRow> = history_summary(world).into_iter().filter(|r| r.creature).collect();
+    colonies.sort_by_key(|r| r.last_activity); // oldest first, the same reason as the LINES view
+    let mut ended = ended_lines(world);
+    ended.reverse(); // oldest ended first, the same reason as the LINES view
+    if colonies.is_empty() && ended.is_empty() {
+        out.push_str("NO FOUNDING LINE HAS ENDED YET.\n");
+    }
+    for row in &colonies {
+        let _ = writeln!(out, "{}", colony_summary_paragraph(row));
+    }
+    for e in &ended {
+        let _ = writeln!(out, "{}", legend_paragraph(e));
+    }
+    out.push('\n');
+    let mut counts = std::collections::BTreeMap::<&'static str, u32>::new();
+    for e in world.run_log.recent() {
+        *counts.entry(e.kind.label()).or_insert(0) += 1;
+    }
+    let _ = writeln!(
+        out,
+        "COUNTS: {} | LINES ENDED {} | LINEAGES CLAIMED {} | LOG DROPPED {}",
+        counts.iter().map(|(k, v)| format!("{k} {v}")).collect::<Vec<_>>().join(", "),
+        ended.len(),
+        world.lineages_claimed(),
+        world.run_log.dropped()
+    );
+    out
 }
 
 fn param_label(name: &str) -> String {
@@ -5373,6 +6858,363 @@ impl Ui {
         }
         self.rack_bar = Bar { widgets, dividers: Vec::new() };
         if let Some(wid) = self.rack_bar.hovered(self.cursor) {
+            if !wid.note.is_empty() {
+                note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
+            }
+        }
+        note
+    }
+
+    /// **The HISTORY page.** Two views sharing one bar, one box and one
+    /// latch (`self.history_open`, `rack_grouped`'s own shape): the default
+    /// SUMMARY (`paint_history_summary`), one row per animal colony or plant
+    /// founding line that has lost anyone or ended -- the owner's verdict on
+    /// the page (2026-09-10), *"A summary per colony could be interesting as
+    /// the default... Then you expand into the individuals?"* -- and, once a
+    /// colony row is clicked, that colony's own DETAIL (`paint_history_
+    /// detail`), the founding-line-per-row page PR #304 shipped, filtered to
+    /// one colony instead of the whole run. `BACK` reads the latch: to the
+    /// LOG page from SUMMARY, back to SUMMARY from a colony's DETAIL.
+    fn paint_history(&mut self, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
+        match self.history_open {
+            Some(colony) => self.paint_history_detail(frame, world, colony),
+            None => self.paint_history_summary(frame, world),
+        }
+    }
+
+    /// **The SUMMARY view: one row per animal colony or plant founding line
+    /// that has lost anyone or ended, newest activity first.** See
+    /// [`history_summary`] for what a row is and why a plant needs no
+    /// grouping the way an animal colony does.
+    ///
+    /// Draws itself for `paint_rack`'s reason -- a row here carries several
+    /// fields, not a label -- and follows its shape throughout: the row list
+    /// is built first and the panel sized from it, and the pager only
+    /// appears when something is off the page. **Every column but KINGDOM is
+    /// measured against the rows actually being drawn**, rather than a fixed
+    /// worst-case table (`HISTORY_COLS`'s own idiom): a colony's name and its
+    /// causes text have no bounded worst case the way one ended line's own
+    /// fields do, so there is nothing to measure them against ahead of time.
+    fn paint_history_summary(&mut self, frame: &mut [u8], world: &World) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        let rows = history_summary(world);
+        let total = rows.len();
+
+        // How many rows fit is computed, not assumed -- `paint_rack`'s own
+        // scar (a fixed count once made that page taller than the screen).
+        let fixed = PAGE_HEADER + HISTORY_HEAD + PAGE_PAD + 13;
+        let room = ((bar_top() - 4 - MARGIN - fixed) / HISTORY_ROW).max(1) as usize;
+        let shown = total.min(HISTORY_ROWS).min(room);
+        self.history_scroll = self.history_scroll.min(total.saturating_sub(shown));
+        let scroll = self.history_scroll;
+
+        // `ALIVE`'s own text depends on `alive`, not just its width, so this
+        // is a closure and not a second copy of the match at the paint site.
+        let alive_text = |r: &HistorySummaryRow| match r.alive {
+            Some(n) => format!("{n} ALIVE"),
+            None => "ENDED".to_string(),
+        };
+        let name_w = rows.iter().map(|r| hud::text_width(&r.name)).max().unwrap_or(0).max(hud::text_width("NAME"));
+        let kingdom_w = history_col_width(HISTORY_COLS[0]);
+        let alive_w = rows.iter().map(|r| hud::text_width(&alive_text(r))).max().unwrap_or(0).max(hud::text_width("ALIVE"));
+        let ended_w =
+            rows.iter().map(|r| hud::text_width(&format!("{}", r.ended.len()))).max().unwrap_or(0).max(hud::text_width("ENDED"));
+        let causes_w = rows.iter().map(|r| hud::text_width(&r.causes)).max().unwrap_or(0).max(hud::text_width("CAUSES"));
+        let col_kingdom = name_w + RACK_GAP;
+        let col_alive = col_kingdom + kingdom_w + RACK_GAP;
+        let col_ended = col_alive + alive_w + RACK_GAP;
+        let col_causes = col_ended + ended_w + RACK_GAP;
+        let w = (col_causes + causes_w + PAGE_PAD * 2).min(W as i32 - MARGIN * 2);
+        // **The room CAUSES actually has, after the clamp above.** The
+        // column width computed into `w` is what the *ideal* row needs; a
+        // wide bed can still clamp `w` short of that, and without this a
+        // row's own text keeps drawing past where the panel stopped --
+        // `fit_causes_to_width`'s own doc, the `"1 K"` it was written for.
+        let causes_budget = (w - PAGE_PAD * 2 - col_causes).max(0);
+
+        let pager_h = if total > shown { 13 } else { 0 };
+        let h = PAGE_HEADER + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.history_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        text(frame, left, rect.y + 6, Panel::History.title(), TITLE);
+
+        // BACK, to the LOG page this one is opened from -- the roster's own
+        // reason: without it this page is a dead end, since it carries no
+        // bar chip of its own to close it with. `paint_history_detail`'s own
+        // BACK returns here instead -- one label, two targets, chosen by
+        // which painter drew it.
+        let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            line1: "BACK".into(),
+            line2: String::new(),
+            action: Some(Action::Panel(Panel::Log)),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "BACK TO THE LOG THIS PAGE OPENED FROM. THAT PAGE READS EVENTS AS THEY HAPPEN; THIS ONE READS LINES, ONCE THEY ARE OVER.".into(),
+        });
+
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        let mut y = rect.y + PAGE_HEADER;
+        text(frame, left, y, "NAME", FAINT);
+        for (x, head) in [col_kingdom, col_alive, col_ended, col_causes].into_iter().zip(SUMMARY_COLS) {
+            text(frame, left + x, y, head, FAINT);
+        }
+        y += HISTORY_HEAD;
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, y - 2, DIVIDER);
+        }
+
+        // ---- the rows, or the empty state that says which empty it is.
+        if total == 0 {
+            text(frame, left, y + 2, SUMMARY_LITERALS[0], FAINT);
+            y += HISTORY_ROW;
+        }
+        for r in rows.iter().skip(scroll).take(shown) {
+            let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: HISTORY_ROW };
+            // Before the text, `paint_rack`'s reason: a hover fill painted
+            // over the row it highlights erases the line you are reading.
+            let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
+            if hovered {
+                fill(frame, band, FACE_HOVER);
+            }
+            text(frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
+            text(frame, left + col_kingdom, y + 2, kingdom_label(r.creature), FAINT);
+            text(frame, left + col_alive, y + 2, &alive_text(r), if r.alive.is_some() { GOOD } else { FAINT });
+            text(frame, left + col_ended, y + 2, &format!("{}", r.ended.len()), FAINT);
+            let fitted = fit_causes_to_width(&r.causes, causes_budget);
+            text(frame, left + col_causes, y + 2, &fitted, if r.causes == "--" { FAINT } else { POOR });
+            // A colony row opens its own DETAIL; a plant row has nothing
+            // under it to open (`HistorySummaryRow::colony`'s own doc), so
+            // it stays a hover target the same way an ended line always has.
+            let row_note = match (r.colony, r.ended.first()) {
+                (Some(_), _) => colony_summary_paragraph(r),
+                (None, Some(e)) => legend_paragraph(e),
+                (None, None) => String::new(), // a plant row always carries its own one line
+            };
+            widgets.push(Widget {
+                rect: band,
+                line1: String::new(),
+                line2: String::new(),
+                action: r.colony.map(Action::HistoryOpen),
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: row_note,
+            });
+            y += HISTORY_ROW;
+        }
+
+        // ---- the pager, only when there is something off the page.
+        // `paint_rack`'s own idiom: the count is spelled out rather than
+        // implied by the bar, because "13-24 OF 40" is the sentence that
+        // says there are sixteen colonies and lines you have not looked at.
+        if total > shown {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (scroll + shown).min(total);
+            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            for (r2, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r2,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::HistoryScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THE LIST OF COLONIES AND FOUNDING LINES.".into(),
+                });
+            }
+        }
+
+        for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        self.history_bar = Bar { widgets, dividers: Vec::new() };
+        if let Some(wid) = self.history_bar.hovered(self.cursor) {
+            if !wid.note.is_empty() {
+                note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
+            }
+        }
+        note
+    }
+
+    /// **The DETAIL view: one colony's own ended founding lines, one row
+    /// each, newest first** -- the page PR #304 shipped, filtered to
+    /// `colony` (`Action::HistoryOpen`'s own target) instead of the whole
+    /// run. Row shape and layout are unchanged from that page: six fields
+    /// (name, kingdom, generations, peak count, frame ended, cause), the
+    /// widest name and cause measured through `hud::text_width` rather than
+    /// counted by hand (`RACK_COLS`' own scar).
+    ///
+    /// **The rows are [`history_lines_for_colony`] and nothing else.** No
+    /// standing list on `Ui`, no second census: a line that ends shows up
+    /// here the instant its `LineEnded` event does, because that event is
+    /// the only thing this reads.
+    fn paint_history_detail(&mut self, frame: &mut [u8], world: &World, colony: u32) -> Option<(String, Rect, i32)> {
+        let mut widgets: Vec<Widget> = Vec::new();
+        let mut note: Option<(String, Rect, i32)> = None;
+
+        let rows = history_lines_for_colony(world, colony);
+        let total = rows.len();
+        // The colony's own name, read off whichever of its lines is on hand
+        // -- `world.group_deaths` carries the `(species, colony)` pair even
+        // for a colony with nothing yet in `history_lines_for_colony`
+        // (deaths without a line fully ending), so this resolves before the
+        // first row does.
+        let name = world
+            .group_deaths
+            .iter()
+            .find(|d| d.colony == colony)
+            .map(|d| world.group_label(d.species, colony))
+            .unwrap_or_else(|| format!("COLONY {colony}"));
+
+        // How many rows fit is computed, not assumed -- `paint_rack`'s own
+        // scar (a fixed count once made that page taller than the screen).
+        let fixed = PAGE_HEADER + HISTORY_HEAD + PAGE_PAD + 13;
+        let room = ((bar_top() - 4 - MARGIN - fixed) / HISTORY_ROW).max(1) as usize;
+        let shown = total.min(HISTORY_ROWS).min(room);
+        self.history_scroll = self.history_scroll.min(total.saturating_sub(shown));
+        let scroll = self.history_scroll;
+
+        let pager_h = if total > shown { 13 } else { 0 };
+        let h = PAGE_HEADER + HISTORY_HEAD + HISTORY_ROW * shown.max(1) as i32 + pager_h + PAGE_PAD;
+        let w = history_page_width().max(hud::text_width(&name) + hud::text_width("HISTORY -- ") + PAGE_PAD * 2);
+        let bottom = bar_top() - 4;
+        let rect = Rect { x: MARGIN, y: (bottom - h).max(MARGIN), w, h };
+        self.history_box = Some(rect);
+
+        fill(frame, rect, PANEL_BG);
+        outline(frame, rect, PANEL_EDGE);
+        let left = rect.x + PAGE_PAD;
+        let right = rect.right() - PAGE_PAD;
+        text(frame, left, rect.y + 6, &format!("HISTORY -- {name}"), TITLE);
+
+        // BACK, to the SUMMARY this colony was opened from -- SUMMARY's own
+        // BACK goes to the LOG page instead, `Action::HistoryBack`'s own doc.
+        let bw = cell_width(hud::text_width("BACK"), "", PAD) + 4;
+        widgets.push(Widget {
+            rect: Rect { x: right - bw, y: rect.y + 3, w: bw, h: 11 },
+            line1: "BACK".into(),
+            line2: String::new(),
+            action: Some(Action::HistoryBack),
+            latched: false,
+            icon: None,
+            ratio: None,
+            note: "BACK TO THE COLONY SUMMARY. THIS PAGE READS ONE COLONY'S OWN ENDED LINES; THAT ONE READS EVERY COLONY AND FOUNDING LINE AT ONCE.".into(),
+        });
+
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+        }
+
+        // ---- the column header. Measured through `hud::text_width` against
+        // the widest value each column can ever hold, `roster_col_x`'s own
+        // rule -- a header hand-counted first overlapped its neighbour by
+        // eight pixels, reported from play.
+        let mut y = rect.y + PAGE_HEADER;
+        let col = history_col_x();
+        text(frame, left, y, "NAME", FAINT);
+        for (i, (head, _)) in HISTORY_COLS.iter().enumerate() {
+            text(frame, left + col[i], y, head, FAINT);
+        }
+        y += HISTORY_HEAD;
+        for x in rect.x + 1..rect.right() - 1 {
+            render::put(frame, W, H, x, y - 2, DIVIDER);
+        }
+
+        // ---- the rows, or the empty state that says which empty it is.
+        if total == 0 {
+            text(frame, left, y + 2, HISTORY_LITERALS[0], FAINT);
+            y += HISTORY_ROW;
+        }
+        for r in rows.iter().skip(scroll).take(shown) {
+            let band = Rect { x: rect.x + 1, y, w: rect.w - 2, h: HISTORY_ROW };
+            // Before the text, `paint_rack`'s reason: a hover fill painted
+            // over the row it highlights erases the line you are reading.
+            let hovered = self.cursor.is_some_and(|(cx, cy)| band.contains(cx, cy));
+            if hovered {
+                fill(frame, band, FACE_HOVER);
+            }
+            text(frame, left, y + 2, &r.name, if r.creature { GOOD } else { VALUE });
+            let kingdom = kingdom_label(r.creature);
+            text(frame, left + col[0], y + 2, kingdom, FAINT);
+            text(frame, left + col[1], y + 2, &format!("{}", r.generations), FAINT);
+            text(frame, left + col[2], y + 2, &format!("{}", r.peak_living), FAINT);
+            text(frame, left + col[3], y + 2, &format!("F{}", r.ended_frame), FAINT);
+            let (cause, cause_tint) = match r.cause {
+                Some(c) => (c.label(), POOR),
+                // A grave held with no cause, or one that aged out of the
+                // graveyard's own cap -- `EndedLine::cause`'s doc. Honest
+                // rather than a guess: `roster::row_of_grave`'s reason for
+                // never faking a dead row's numbers applies to a word too.
+                None => ("--", FAINT),
+            };
+            text(frame, left + col[4], y + 2, cause, cause_tint);
+            // The whole row is a hover target and nothing else -- there is
+            // no live individual behind a founding line to pin or inspect,
+            // so `action` stays `None` and the note carries the one sentence
+            // that says everything a click on this row could have opened.
+            widgets.push(Widget {
+                rect: band,
+                line1: String::new(),
+                line2: String::new(),
+                action: None,
+                latched: false,
+                icon: None,
+                ratio: None,
+                note: legend_paragraph(r),
+            });
+            y += HISTORY_ROW;
+        }
+
+        // ---- the pager, only when there is something off the page.
+        // `paint_rack`'s own idiom: the count is spelled out rather than
+        // implied by the bar, because "13-24 OF 40" is the sentence that
+        // says there are sixteen lines you have not looked at.
+        if total > shown {
+            let step_w = cell_width(hud::text_width("<"), "", PAD);
+            let up = Rect { x: left, y: y + 2, w: step_w, h: 10 };
+            let down = Rect { x: left + step_w + 2, y: y + 2, w: step_w, h: 10 };
+            let last = (scroll + shown).min(total);
+            text(frame, left + step_w * 2 + 8, y + 3, &format!("{}-{} OF {}", scroll + 1, last, total), FAINT);
+            for (r2, label, dir) in [(up, "<", -1), (down, ">", 1)] {
+                widgets.push(Widget {
+                    rect: r2,
+                    line1: label.into(),
+                    line2: String::new(),
+                    action: Some(Action::HistoryScroll(dir)),
+                    latched: false,
+                    icon: None,
+                    ratio: None,
+                    note: "SCROLL THE LIST OF ENDED LINES.".into(),
+                });
+            }
+        }
+
+        for wid in widgets.iter().filter(|w| !w.line1.is_empty()) {
+            let hover = self.cursor.is_some_and(|(x, y)| wid.rect.contains(x, y));
+            let down = hover && self.pressed.is_some() && self.pressed == wid.action;
+            paint_widget(frame, wid, hover, down);
+        }
+        self.history_bar = Bar { widgets, dividers: Vec::new() };
+        if let Some(wid) = self.history_bar.hovered(self.cursor) {
             if !wid.note.is_empty() {
                 note = Some((wid.note.clone(), wid.rect, wid.rect.y - 4));
             }
@@ -6291,6 +8133,16 @@ impl Ui {
         // graveyard row cannot tell you, and it stays on screen while it is
         // pinned. That is the whole reason the trail is kept on the ring
         // rather than recomputed from the world every frame.
+        // **Every living animal, marked** (unless `LifeMarks::Off`, which
+        // `draw_life_marks` itself checks). Drawn *before* the pinned trail
+        // and the pin's own marker below, so a bed of a thousand marked
+        // animals still lets "which one is pinned" read as the one thing
+        // sitting on top of it -- the same ordering the trail already uses
+        // against the reticle, one layer further out. See
+        // `draw_life_marks`'s own doc for the shapes, the colour rule, and
+        // why this reads the world fresh rather than sampling a ring.
+        draw_life_marks(frame, world, renderer, self.creature_colour(), self.life_marks);
+
         if self.pinned.is_some() {
             let n = self.watch.len();
             for (i, (wx, wy)) in self.watch.path().enumerate() {
@@ -6411,6 +8263,8 @@ impl Ui {
             self.shelf_bar = Bar::default();
             self.roster_box = None;
             self.roster_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
         } else if self.panel == Some(Panel::Chambers) {
             // Its own painter, for `Params`' and `Shelf`'s reason: a row here
             // is a chamber with two verbs attached, not a label.
@@ -6425,6 +8279,8 @@ impl Ui {
             self.shelf_bar = Bar::default();
             self.roster_box = None;
             self.roster_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
         } else if self.panel == Some(Panel::Shelf) {
             // The same deal, and the same reason: a jar row is a verb.
             if let Some((body, avoid, y)) = self.paint_shelf(frame) {
@@ -6438,6 +8294,8 @@ impl Ui {
             self.rack_bar = Bar::default();
             self.roster_box = None;
             self.roster_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
         } else if matches!(self.panel, Some(Panel::PlantList) | Some(Panel::AntList)) {
             // Its own painter, for the same reason as the three above: a row
             // here is an individual with three verbs attached, not a label.
@@ -6457,6 +8315,24 @@ impl Ui {
             self.shelf_bar = Bar::default();
             self.rack_box = None;
             self.rack_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
+        } else if self.panel == Some(Panel::History) {
+            // Its own painter, `Chambers`' reason: a row here carries six
+            // fields and a scrollable window, not a label.
+            if let Some((body, avoid, y)) = self.paint_history(frame, world) {
+                note = Some((body, avoid, y, Note::BesidePage));
+            }
+            self.panel_box = None;
+            self.panel_bar = Bar::default();
+            self.params_box = None;
+            self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
         } else if let Some(panel) = self.panel {
             self.params_box = None;
             self.params_bar = Bar::default();
@@ -6466,6 +8342,8 @@ impl Ui {
             self.rack_bar = Bar::default();
             self.roster_box = None;
             self.roster_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
             let rows = self.panel_rows(panel, world, spec, fps);
             // Anchored under the button that opened it, which is only
             // available because `Lab::act` closes the biosphere page when one
@@ -6507,7 +8385,26 @@ impl Ui {
             let rows = self.inspect_rows(world, at);
             // Beside the open page rather than under it, so opening a page
             // does not hide the cell you are inspecting.
-            let anchor = self.panel_box.or(self.params_box).or(self.shelf_box).or(self.roster_box).map_or(MARGIN, |r| r.right() + 6);
+            // **`history_box` belongs in this chain.** Found by looking at a
+            // rendered frame, `CLAUDE.md`'s own method: a cell pinned from
+            // earlier in a session and left open stays open under HISTORY
+            // (`Action::Panel` never closes the inspector, only the page
+            // list does), and without this the cell page fell back to
+            // `MARGIN` -- the same left edge HISTORY itself starts at --
+            // and the two panels painted directly on top of each other.
+            // **`rack_box` had the identical omission.** Left for a later
+            // lane when `history_box` was added; closed now, same fix,
+            // same reason -- a cell pinned before RACK is opened otherwise
+            // falls back to `MARGIN` and draws directly under the rack's
+            // own left edge. Owner: "menus overlap regularly."
+            let anchor = self
+                .panel_box
+                .or(self.params_box)
+                .or(self.shelf_box)
+                .or(self.roster_box)
+                .or(self.history_box)
+                .or(self.rack_box)
+                .map_or(MARGIN, |r| r.right() + 6);
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.inspect_box = Some(rect);
             // The group headings are hit targets, and they are collected by
@@ -6528,7 +8425,23 @@ impl Ui {
             // rather than present and refusing, because the page is re-read
             // every frame and a permanently-greyed control on a page that
             // changes under you reads as broken.
-            if let Some(button) = self.keep_button(world, at, rect) {
+            //
+            // **`CLOSE` is unconditional**, unlike `KEEP`: the page's own
+            // put-it-away click can be unreachable when the page is drawn
+            // over the cell it is inspecting (`Action::CloseInspected`'s own
+            // doc), so this is the one button that must always be there.
+            let close = Self::close_inspect_button(rect);
+            let close_w = close.rect.w;
+            {
+                let hover = self.cursor.is_some_and(|(x, y)| close.rect.contains(x, y));
+                let down = hover && self.pressed == Some(Action::CloseInspected);
+                if hover && !close.note.is_empty() {
+                    note = Some((close.note.clone(), rect, rect.y, Note::BesidePage));
+                }
+                paint_widget(frame, &close, hover, down);
+                taps.push(close);
+            }
+            if let Some(button) = self.keep_button(world, at, rect, close_w) {
                 let hover = self.cursor.is_some_and(|(x, y)| button.rect.contains(x, y));
                 let down = hover && self.pressed == Some(Action::KeepInspected);
                 if hover && !button.note.is_empty() {
@@ -6592,20 +8505,33 @@ impl Ui {
             }
         }
 
-        // **What is under the pointer, always, with no mode to turn on.**
+        // **What is under the pointer, while LOOK is the tool in hand.**
         // Owner request, 2026-08-30: *"the info option that tells me what
         // material, temp, etc that my mouse is hovering over."* Docked rather
         // than following the cursor, for `draw_note`'s reason — a box under
         // the pointer covers the thing it is describing.
+        //
+        // **Gated on `Tool::Look`, 2026-09-12.** It ran unconditionally from
+        // 2026-08-30 to here, which was the owner's ask at the time; the
+        // later ask narrows it: *"the tooltip... should only show up when the
+        // look tool is open."* Every other tool already has its own readout
+        // (a species chip, a stock dial, a brush ring) telling you what it is
+        // about to do, so the cell readout was competing with that rather
+        // than adding to it. The **pinned** cell page (`self.inspect`, drawn
+        // above) is a different thing and stays up regardless of tool — the
+        // player asked for that one by clicking, so switching tools does not
+        // put it away.
         //
         // **Left column, under the clock, and it was top right first.** The
         // biosphere page is a full-height *right-hand* column and `Lab::draw`
         // paints it after this, so a top-right box spends its life half
         // hidden — which a contact sheet showed and no test could have. The
         // left column is free below the clock.
-        if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
-            let (wx, wy) = renderer.screen_to_world(cx, cy);
-            paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
+        if self.tool == Tool::Look {
+            if let Some((cx, cy)) = self.cursor.filter(|&(x, y)| y < bar_top() && !self.covers(x, y)) {
+                let (wx, wy) = renderer.screen_to_world(cx, cy);
+                paint_hover_cell(frame, world, (wx, wy), self.inspect_box);
+            }
         }
 
         // The last verb's notice, over everything, just above the bar.
@@ -7261,6 +9187,140 @@ mod tests {
             check(SPARED_MARK, "roster keep mark");
         }
 
+        // **The HISTORY page's own strings, both of its views.** Same shape
+        // as the rack block above and for the same reason: it paints itself,
+        // so nothing in `panel_rows` reaches it. Built against a world
+        // carrying one real ended plant line and one animal colony with a
+        // death booked by another colony -- an empty box would only
+        // exercise `HISTORY_LITERALS`/`SUMMARY_LITERALS`, never a row, and a
+        // row's own text (the name, the cause, `cause_text`'s `KILLED BY`)
+        // is exactly where a bad character would hide.
+        {
+            let mut page = Ui::new();
+            let mut buf = vec![0u8; (W * H * 4) as usize];
+            let mut w = world();
+            w.run_log.push(world::LogEvent {
+                frame: 400,
+                id: 7,
+                born_frame: 0,
+                species: crate::sim::organism::SpeciesId(0),
+                kind: world::LogKind::LineEnded,
+                other: 0,
+                lineage: 3,
+                generation: 4,
+            });
+            // A matching grave, so the CAUSE column draws a real
+            // `DeathCause::label()` rather than the empty-cause dash --
+            // `LOST ITS TISSUE`, the widest one `HISTORY_COLS` budgets for.
+            w.graveyard.push(world::Grave {
+                id: 7,
+                born_frame: 0,
+                died_frame: 400,
+                species: crate::sim::organism::SpeciesId(0),
+                lineage: 3,
+                colony: 0,
+                generation: 4,
+                cause: crate::sim::organism::DeathCause::LostVitalTissue,
+                life: crate::sim::organism::LifeCounters::default(),
+                at: (0, 0),
+                creature: false,
+            });
+            // An animal colony, killed in part by a second colony -- the
+            // SUMMARY row that exercises `cause_text`'s `KILLED BY` branch,
+            // never reached by the plant fixture above. One of its own
+            // founding lines ends too, so the DETAIL view opened on it below
+            // draws a real row rather than only its empty state -- `LOST ITS
+            // TISSUE` again, `HISTORY_COLS`' widest sample, now on a
+            // creature's own row rather than only the plant's.
+            let ant = w.species.id_of("ant").expect("ant loaded");
+            let colony = w.claim_colony();
+            let attacker = w.claim_colony();
+            // `tally_kill` mints the `GroupDeaths` row (`group_deaths_mut` is
+            // private to `world.rs`); the rest of its tally is filled in on
+            // the row it just made, through the public `Vec` beside it.
+            w.tally_kill((ant, colony), (ant, attacker), 0.0);
+            let row = w.group_deaths.iter_mut().find(|d| d.species == ant && d.colony == colony).expect("tally_kill made the row");
+            row.by_cause[crate::sim::organism::DeathCause::Starved.index()] = 2;
+            row.by_cause[crate::sim::organism::DeathCause::Killed.index()] = 1;
+            row.by_cause[crate::sim::organism::DeathCause::LostVitalTissue.index()] = 1;
+            w.run_log.push(world::LogEvent {
+                frame: 500,
+                id: 9,
+                born_frame: 0,
+                species: ant,
+                kind: world::LogKind::LineEnded,
+                other: 0,
+                lineage: 5,
+                generation: 2,
+            });
+            w.graveyard.push(world::Grave {
+                id: 9,
+                born_frame: 0,
+                died_frame: 500,
+                species: ant,
+                lineage: 5,
+                colony,
+                generation: 2,
+                cause: crate::sim::organism::DeathCause::LostVitalTissue,
+                life: crate::sim::organism::LifeCounters::default(),
+                at: (0, 0),
+                creature: true,
+            });
+
+            page.paint_history(&mut buf, &w);
+            for wid in &page.history_bar.widgets {
+                check(&wid.line1, "history button");
+                check(&wid.note, "history row or verb explanation");
+            }
+            check(Panel::History.title(), "history title");
+            check("NAME", "history column");
+            for head in SUMMARY_COLS {
+                check(head, "history summary column");
+            }
+            for literal in SUMMARY_LITERALS {
+                check(literal, "history summary literal");
+            }
+            // The row text itself, not only the widgets above -- `cause_text`
+            // and `ALIVE`'s own "N ALIVE"/"ENDED" are drawn straight with
+            // `text()`, outside the widget list `every_string_the_bar_can_
+            // draw_is_drawable` otherwise reaches, the same blind spot the
+            // rack page's column header had before this test existed.
+            for row in history_summary(&w) {
+                check(&row.name, "history summary row name");
+                check(&row.causes, "history summary row causes");
+            }
+            // **The KINGDOM column, and this was a blind spot too.** The
+            // row's `note` (`legend_paragraph`/`colony_summary_paragraph`,
+            // checked above) also names the kingdom, so a first pass at this
+            // block read as covered without this line -- proven wrong by
+            // injecting `~#~` into the KINGDOM column's own literal (then a
+            // second, independent `"ANIMAL"`/`"PLANT"` inline in
+            // `paint_history`) and watching this test stay green: the note's
+            // kingdom came from a different copy of the same two words.
+            // Fixed at the root by [`kingdom_label`], the one function both
+            // call now, and checked here directly rather than only by way of
+            // the note.
+            check(kingdom_label(true), "history kingdom label");
+            check(kingdom_label(false), "history kingdom label");
+
+            // **The DETAIL view**, opened on the colony above -- its own
+            // title (`"HISTORY -- {name}"`, never drawn until a colony is
+            // open) and the row columns PR #304 shipped, unchanged.
+            page.open_history_colony(colony);
+            page.paint_history(&mut buf, &w);
+            for wid in &page.history_bar.widgets {
+                check(&wid.line1, "history detail button");
+                check(&wid.note, "history detail row or verb explanation");
+            }
+            check(&format!("HISTORY -- {}", w.group_label(ant, colony)), "history detail title");
+            for (head, _) in HISTORY_COLS {
+                check(head, "history detail column");
+            }
+            for literal in HISTORY_LITERALS {
+                check(literal, "history detail literal");
+            }
+        }
+
         // **The parameters page's own rows, and this was a blind spot.**
         //
         // Its 42 knobs each carry a hover note and **none of them was
@@ -7300,8 +9360,17 @@ mod tests {
             }
         }
 
+        // **Every stem the line-namer can draw**, checked directly rather
+        // than hoping a fixture happens to found enough lineages to reach
+        // one of the rarer ones -- a stem table is exactly the kind of
+        // string this trap has hit three times already (`[`/`]`, `_`/`<`/
+        // `>`, `;`/`'`, each shipped blank).
+        for stem in names::STEMS {
+            check(stem, "line-name stem");
+        }
+
         let (world, spec, ui) = (world(), LabBox::default(), Ui::new());
-        for panel in [Panel::Plants, Panel::Ants, Panel::Box] {
+        for panel in [Panel::Plants, Panel::Ants, Panel::Box, Panel::Log] {
             check(panel.title(), "page title");
             for row in ui.panel_rows(panel, &world, &spec, 60.0) {
                 match &row.body {
@@ -7329,6 +9398,260 @@ mod tests {
             check(&row.note, "inspector explanation");
         }
         assert!(checked > 200, "the sweep only reached {checked} strings");
+    }
+
+    /// **A LOG row must stay narrow enough that the CELL page still fits
+    /// beside it.** Measured in `lab-arch-map.md`: the LOG page must stay
+    /// under ~316 px so `widest_cell_page()` (183 px) plus the 6 px gap
+    /// between panels still lands inside `W`. Goes red the moment a
+    /// sentence grows past roughly 42 characters in the value column --
+    /// which is exactly the trap a translated or lengthened phrase would
+    /// fall into without this.
+    #[test]
+    fn a_log_line_fits_beside_the_cell_page() {
+        let mut world = world();
+        let base = world::LogEvent {
+            frame: 30_000,
+            id: 7,
+            born_frame: 0,
+            species: crate::sim::organism::SpeciesId(0),
+            kind: world::LogKind::Born,
+            other: 0,
+            lineage: 200, // near the top of `names::STEMS`' wrap-free range
+            generation: 200,
+        };
+        let events = [
+            world::LogEvent { kind: world::LogKind::Born, other: 5, ..base },
+            world::LogEvent { kind: world::LogKind::Died, other: 4, ..base },
+            world::LogEvent { kind: world::LogKind::FirstFeed, ..base },
+            world::LogEvent { kind: world::LogKind::FirstSeed, other: 9, ..base },
+            world::LogEvent { kind: world::LogKind::LineEnded, ..base },
+            world::LogEvent { kind: world::LogKind::GroupSplit, other: 3, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 0x0102, ..base },
+            world::LogEvent { kind: world::LogKind::LineMilestone, other: 8, ..base },
+            world::LogEvent {
+                kind: world::LogKind::LineRecord,
+                other: ((crate::sim::organism::TRAIT_REPRODUCE_AT as u16) << 8) | 4,
+                ..base
+            },
+        ];
+        for e in events {
+            world.run_log.push(e);
+        }
+        let mut ui = Ui::new();
+        ui.log_filter = LogFilter::All; // every kind must fit, not only the default filter's
+        let budget = W as i32 - widest_cell_page() - 6 - MARGIN * 2;
+        for row in ui.log_rows(&world) {
+            if let Body::Value { label, value, .. } = &row.body {
+                let width = row.width();
+                assert!(
+                    width <= budget,
+                    "{label:?}/{value:?} is {width} px against a {budget} px budget -- \
+                     the CELL page would no longer fit beside the LOG page"
+                );
+            }
+        }
+    }
+
+    /// **Three lines founded and ended, the way `world.rs`'s own
+    /// `a_line_ended_line_names_the_line_that_ended` proves the fix it is
+    /// named for**: `claim_lineage` then `free_organism` on the lineage's
+    /// only member, no simulated ticks needed, so this is instant and
+    /// deterministic rather than waiting on starvation. `seed_line_stats`
+    /// alongside it is what gives each ended line a real `founder_frame`
+    /// and `peak_living` rather than the zeroed fallback a hand-set
+    /// `state.lineage` alone would leave `ended_lines` reading.
+    fn world_with_ended_lines(n: u32) -> (World, Vec<u32>) {
+        let mut w = world();
+        let mut lineages = Vec::new();
+        for i in 0..n {
+            w.frame = 10 + i as u64; // a distinct founding frame per line
+            let lineage = w.claim_lineage();
+            w.seed_line_stats(lineage, [0.0; crate::sim::organism::CREATURE_TRAITS]);
+            let id = w.push_organism(crate::sim::organism::SpeciesId(0)).expect("room for one organism");
+            if let Some(state) = w.organism_mut(id) {
+                state.lineage = lineage;
+            }
+            w.frame += 5; // the line outlives its founding frame, however briefly
+            w.free_organism(id);
+            lineages.push(lineage);
+        }
+        (w, lineages)
+    }
+
+    /// **The chronicle export holds every `LINE ENDED` event the log has,
+    /// and names a real one** -- count equality against the log's own
+    /// events, plus a specific line's name actually present in the text.
+    /// The count alone is not enough: `CLAUDE.md`'s own warning about a
+    /// number that is arithmetically correct and about the wrong thing --
+    /// three paragraphs is not evidence they are the *right* three unless at
+    /// least one is checked by name.
+    #[test]
+    fn the_chronicle_export_holds_every_line_that_ended() {
+        let (w, lineages) = world_with_ended_lines(3);
+        let log_count = w.run_log.recent().filter(|e| e.kind == world::LogKind::LineEnded).count();
+        assert_eq!(log_count, 3, "the fixture did not end three lines");
+
+        let text = chronicle_text(&w, &LabBox::default(), "TEST BED", 1, &[], &[]);
+        // One legend paragraph opens `THE <NAME> LINE (`; counting that
+        // prefix is the export's own row count, not a re-derivation of it.
+        let legend_lines = text.lines().filter(|l| l.starts_with("THE ") && l.contains(" LINE (")).count();
+        assert_eq!(
+            legend_lines, log_count,
+            "the LEGENDS section has {legend_lines} paragraphs against {log_count} LINE ENDED events"
+        );
+
+        let name = names::line_name(w.seed, lineages[1]);
+        assert!(text.contains(&name), "the chronicle never names {name:?}, one of the lines that ended");
+    }
+
+    /// **`ended_lines` matches the log's own `LineEnded` events one to
+    /// one** -- the HISTORY page's whole claim, and the reason it reads no
+    /// second census: every lineage the log says ended appears exactly
+    /// once, and nothing else does.
+    #[test]
+    fn history_rows_match_the_line_ended_events_one_to_one() {
+        let (w, lineages) = world_with_ended_lines(4);
+        let logged: std::collections::BTreeSet<u32> =
+            w.run_log.recent().filter(|e| e.kind == world::LogKind::LineEnded).map(|e| e.lineage).collect();
+        assert_eq!(logged.len(), 4, "the fixture did not produce four distinct LINE ENDED events");
+
+        let rows = ended_lines(&w);
+        assert_eq!(rows.len(), logged.len(), "ended_lines has a different count than the log's own LineEnded events");
+        let rowed: std::collections::BTreeSet<u32> = rows.iter().map(|r| r.lineage).collect();
+        assert_eq!(rowed, logged, "ended_lines names a different set of lineages than LineEnded ended");
+
+        // And the standing facts travelled with the event, not just the
+        // identity -- `seed_line_stats` stamped each of these.
+        for r in &rows {
+            assert!(lineages.contains(&r.lineage));
+            assert!(r.founder_frame > 0, "lineage {} has no founder_frame", r.lineage);
+            assert_eq!(r.peak_living, 1, "lineage {} peaked at {} rather than its one member", r.lineage, r.peak_living);
+        }
+    }
+
+    /// **A colony of `n` founders, each its own lineage under one shared
+    /// colony, freed through the real `free_organism` seam** -- the
+    /// creature-side counterpart to `world_with_ended_lines`, so
+    /// `World::group_deaths` and `World::graveyard` populate exactly as they
+    /// would in play rather than being hand-assembled. Alternates
+    /// `Starved`/`Culled` so a colony of more than one founder never reads
+    /// as having died of one thing. Returns the colony id and the lineages
+    /// that ended.
+    fn world_with_ant_colony(n: u32) -> (World, u32, Vec<u32>) {
+        let mut w = world();
+        let ant = w.species.id_of("ant").expect("ant loaded");
+        let colony = w.claim_colony();
+        let mut lineages = Vec::new();
+        for i in 0..n {
+            w.frame = 10 + i as u64; // a distinct founding frame per line
+            let lineage = w.claim_lineage();
+            w.seed_line_stats(lineage, [0.0; crate::sim::organism::CREATURE_TRAITS]);
+            let id = w.push_organism(ant).expect("room for one organism");
+            let state = w.organism_mut(id).expect("just made");
+            state.lineage = lineage;
+            state.colony = colony;
+            state.senescence_cause = if i % 2 == 0 {
+                crate::sim::organism::DeathCause::Starved
+            } else {
+                crate::sim::organism::DeathCause::Culled
+            };
+            w.frame += 5; // the line outlives its founding frame, however briefly
+            w.free_organism(id);
+            lineages.push(lineage);
+        }
+        (w, colony, lineages)
+    }
+
+    /// **A SUMMARY colony row's cause counts equal an independent tally of
+    /// the graveyard itself for that colony.** `history_summary` is built
+    /// from `World::group_deaths`, never the graveyard directly
+    /// (`history_summary`'s own doc: reused rather than re-censused) -- so
+    /// this checks the two sources agree rather than trusting the one the
+    /// row was built from.
+    #[test]
+    fn colony_summary_causes_match_the_graveyard() {
+        let (w, colony, lineages) = world_with_ant_colony(4);
+        assert_eq!(lineages.len(), 4, "the fixture did not found four lines");
+        let ant = w.species.id_of("ant").expect("ant loaded");
+
+        let mut starved = 0u64;
+        let mut culled = 0u64;
+        for g in w.graveyard.recent() {
+            if g.creature && g.species == ant && g.colony == colony {
+                match g.cause {
+                    crate::sim::organism::DeathCause::Starved => starved += 1,
+                    crate::sim::organism::DeathCause::Culled => culled += 1,
+                    other => panic!("the fixture produced an unexpected cause {other:?}"),
+                }
+            }
+        }
+        assert_eq!(starved, 2, "the fixture must starve two of its four founders");
+        assert_eq!(culled, 2, "the fixture must cull two of its four founders");
+
+        let rows = history_summary(&w);
+        let row = rows.iter().find(|r| r.colony == Some(colony)).expect("the colony has its own summary row");
+        assert!(row.causes_full.contains("2 STARVED"), "causes text {:?} missing the graveyard's own starved count", row.causes_full);
+        assert!(row.causes_full.contains("2 CULLED"), "causes text {:?} missing the graveyard's own culled count", row.causes_full);
+    }
+
+    /// **Expanding a colony lists exactly that colony's own ended founding
+    /// lines** -- a second, independent colony in the same world is the
+    /// thing an unfiltered (or wrongly filtered) expansion would wrongly
+    /// include, so its presence is what makes this a real test of the
+    /// filter and not only of the count.
+    #[test]
+    fn expanding_a_colony_lists_exactly_its_own_ended_lines() {
+        let (mut w, colony_a, lineages_a) = world_with_ant_colony(2);
+        let ant = w.species.id_of("ant").expect("ant loaded");
+        let colony_b = w.claim_colony();
+        let lineage_b = w.claim_lineage();
+        w.seed_line_stats(lineage_b, [0.0; crate::sim::organism::CREATURE_TRAITS]);
+        let id_b = w.push_organism(ant).expect("room for one organism");
+        let state = w.organism_mut(id_b).expect("just made");
+        state.lineage = lineage_b;
+        state.colony = colony_b;
+        state.senescence_cause = crate::sim::organism::DeathCause::Starved;
+        w.free_organism(id_b);
+
+        let rows = history_lines_for_colony(&w, colony_a);
+        let got: std::collections::BTreeSet<u32> = rows.iter().map(|r| r.lineage).collect();
+        assert_eq!(
+            got,
+            lineages_a.iter().copied().collect(),
+            "colony A's expansion must be exactly its own two ended lines, no more and no fewer"
+        );
+        assert!(rows.iter().all(|r| r.colony == colony_a), "a row from a different colony leaked into the expansion");
+        assert!(!got.contains(&lineage_b), "colony B's own line leaked into colony A's expansion");
+    }
+
+    /// **A founder that never bred still peaks at one, not zero.** Found by
+    /// reading the chronicle export's own output rather than by a test: a
+    /// plant founder never calls `seed_line_stats` (`World::
+    /// seed_line_stats`'s own doc says why), so a founder that dies without
+    /// any descendant reaches `World::note_line_population` for the first
+    /// and only time on its own death. Reading `living`'s `Default` zero
+    /// there before applying that death left `PEAK 0 LIVING` in the LEGENDS
+    /// paragraph for a line whose founder was alive for real frames -- the
+    /// vacuous-metric shape `CLAUDE.md` names directly, and it shipped in
+    /// the very first chronicle this feature ever produced.
+    ///
+    /// Built the way a plant founder actually arrives here: `claim_lineage`
+    /// with no `seed_line_stats` call, matching that function's own doc for
+    /// why a plant founder skips it.
+    #[test]
+    fn a_founder_that_never_bred_still_peaks_at_one() {
+        let mut w = world();
+        let lineage = w.claim_lineage();
+        let id = w.push_organism(crate::sim::organism::SpeciesId(0)).expect("room for one organism");
+        if let Some(state) = w.organism_mut(id) {
+            state.lineage = lineage;
+        }
+        w.free_organism(id);
+        let rows = ended_lines(&w);
+        let row = rows.iter().find(|r| r.lineage == lineage).expect("the founder's own death did not end its line");
+        assert_eq!(row.peak_living, 1, "a founder that lived and died alone peaked at {} rather than 1", row.peak_living);
+        assert_eq!(row.founder_frame, w.frame, "the founder's own death did not stamp its founding frame");
     }
 
     /// A bar wider than the screen loses its last button off the right edge,
@@ -7410,13 +9733,15 @@ mod tests {
             buttons += usize::from(wid.action.is_some());
         }
         // Row 0: one chip per tool, the species chip, two brush steps, the
-        // overlay, the parameters page and the shelf. Row 1: three transport
-        // buttons (the readout is not one), one chip per stop on the ladder,
-        // and six pages. Written as the sum rather than as a literal so that
+        // overlay and the shelf -- `PARAMS` moved to a MENU row, 2026-09-12
+        // (`P` still opens it directly). Row 1: three transport buttons (the
+        // readout is not one), one chip per stop on the ladder, `MENU`
+        // itself (which folded `PLANTS`/`ANTS`/`BOX`), and `STATS`/`HELP`/
+        // `RESET`. Written as the sum rather than as a literal so that
         // growing either list does not have to come here.
         assert_eq!(
             buttons,
-            TOOLS.len() + 1 + 2 + 1 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 6,
+            TOOLS.len() + 1 + 2 + 1 + 1 + 3 + super::super::time::PRESETS.len() + 4,
             "the bar carried {buttons} pressable buttons"
         );
         // Nothing above the bar is pressable — that belongs to the world.
@@ -7561,6 +9886,49 @@ mod tests {
         assert_eq!(ui.inspecting(), Some((11, 20)));
         ui.inspect(&w, (11, 20));
         assert_eq!(ui.inspecting(), None);
+    }
+
+    /// **The hover readout follows the Look tool.** Owner ask, 2026-09-12:
+    /// *"The tooltip that shows the material, moisture level, if creature is
+    /// present should only show up when the look tool is open."* This is the
+    /// docked box `paint_hover_cell` draws, not the pinned cell page --
+    /// `the_inspector_toggles_on_the_cell_it_is_pointed_at` above covers that
+    /// one, and it is deliberately untouched by this change.
+    #[test]
+    fn the_hover_readout_only_shows_under_the_look_tool() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox::default());
+        lab.show_help = false;
+        // Away from the bar and from the readout's own dock, so only the
+        // readout's presence or absence can move this one pixel.
+        lab.ui.set_cursor(Some((300, 150)));
+        assert_eq!(lab.ui.tool(), Tool::Look, "test setup: LOOK is not the default tool");
+
+        let readout_pixel = |buf: &[u8]| -> [u8; 4] {
+            let i = (((HOVER_TOP + 1) as u32 * W + (MARGIN + 1) as u32) * 4) as usize;
+            [buf[i], buf[i + 1], buf[i + 2], buf[i + 3]]
+        };
+
+        let mut under_look = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut under_look, 60.0);
+        assert_eq!(
+            readout_pixel(&under_look),
+            READOUT_BG,
+            "LOOK is armed and the docked readout box did not draw where it always docks"
+        );
+
+        // Put the fault back, one tool at a time, and watch it go red -- a
+        // gate written `!= Tool::Look` for only the tool someone tried would
+        // pass this for every other tool by accident.
+        for tool in [Tool::Plant, Tool::Colony, Tool::Cull, Tool::Soil, Tool::Water, Tool::Wall] {
+            lab.ui.arm_tool(tool);
+            let mut under_other = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut under_other, 60.0);
+            assert_ne!(
+                readout_pixel(&under_other),
+                readout_pixel(&under_look),
+                "{tool:?} is armed and the hover readout still drew -- it should show only under LOOK"
+            );
+        }
     }
 
     /// Every page row that names a quantity carries its own explanation. The
@@ -8053,7 +10421,7 @@ mod tests {
             // a fold that did nothing would pass.
             let sections = params::specimen_sections(&world, id);
             assert_eq!(sections.len(), 4, "{name}: every kingdom gets the same four groups");
-            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads, and `Ui::new` defaults to index 0");
+            assert_eq!(sections[0].0, "WORDS", "{name}: the summary leads -- group 0 is WORDS");
             assert!(!sections[0].2.is_empty(), "{name}: the summary group is empty, so the page would draw a heading over nothing");
             let flat = 5 * LINE + 4 + sections.len() as i32 * (LINE + 4) + sections.iter().map(|(_, _, r)| r.len() as i32 * LINE).sum::<i32>();
             // **Both kingdoms overflow now, where only the plant did.** The
@@ -8065,7 +10433,16 @@ mod tests {
             let over = flat > page_content_budget();
             assert!(over, "{name}: flat page is {flat}px against a {}px budget -- it fits without folding, so the fold is not being tested at all", page_content_budget());
 
+            // **Starts collapsed.** Owner complaint that shaped this: "all
+            // the subinformation in the cell box should start minimized,
+            // right now you cannot even do that manually, something always
+            // has to be expanded." A freshly inspected cell -- nothing
+            // clicked yet -- shows the five fixed rows and every group
+            // heading shut, regardless of how many groups would actually
+            // fit together.
             let rows = ui.inspect_rows(&world, (10, 10));
+            let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
+            assert_eq!(shut, sections.len(), "{name}: the cell page did not start with every group folded shut");
             for anchor in [0, 200, W as i32 - 10] {
                 let r = page_rect(&rows, anchor, bar_top() - 4);
                 assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
@@ -8073,6 +10450,19 @@ mod tests {
                 assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
             }
 
+            // **Choosing a group is what makes the fold matter**, and this is
+            // the positive control the `over` assertion above set up: with
+            // `flat` already proven too tall for the budget, a chosen group
+            // has to fold the rest away rather than overflow the screen.
+            let mut ui = Ui::new();
+            ui.show_specimen_section(0);
+            let rows = ui.inspect_rows(&world, (10, 10));
+            for anchor in [0, 200, W as i32 - 10] {
+                let r = page_rect(&rows, anchor, bar_top() - 4);
+                assert!(r.y >= MARGIN, "the {kingdom} cell page starts at y={} -- off the top of the screen", r.y);
+                assert!(r.bottom() <= bar_top(), "the {kingdom} cell page runs into the bar");
+                assert!(r.x >= 0 && r.right() <= W as i32, "the {kingdom} cell page runs off the side");
+            }
             // **The fold is what fits it, not the backstop.** `fit_rows` will
             // trim anything to size, so a page that fits only because rows
             // were dropped is a page that has quietly stopped saying things.
@@ -8087,10 +10477,12 @@ mod tests {
             // because rows were trimmed, which the assertion above checks.
             let shut = rows.iter().filter(|row| matches!(row.body, Body::Head { open: false, .. })).count();
             assert!(shut >= 1, "{name}: nothing folded, so the fold is not being tested on this kingdom");
-            assert!(shut < sections.len(), "{name}: every group is shut, so the page shows no rows at all");
+            assert!(shut < sections.len(), "{name}: every group is shut, so choosing one did not open it");
 
-            // **A click opens what it says, whichever group it is.** The half
-            // the fit assertions cannot reach: a rule that served the groups
+            // **A click opens what it says, whichever group it is, and a
+            // second click on the group it just opened folds the page back
+            // to its starting, fully-collapsed state.** The half the fit
+            // assertions cannot reach: a rule that served the groups
             // strictly from the top would fit the page perfectly and ignore
             // the player, and every assertion above would still be green.
             for chosen in 0..sections.len() {
@@ -8106,6 +10498,20 @@ mod tests {
                     .collect();
                 assert_eq!(heads.len(), sections.len(), "{name}: the page lost a group heading");
                 assert!(heads[chosen], "{name}: clicking group {chosen} did not open it");
+
+                ui.show_specimen_section(chosen);
+                let folded: Vec<bool> = ui
+                    .inspect_rows(&world, (10, 10))
+                    .iter()
+                    .filter_map(|row| match row.body {
+                        Body::Head { open, .. } => Some(open),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    !folded.iter().any(|&open| open),
+                    "{name}: clicking open group {chosen} a second time did not fold it back up"
+                );
             }
         }
     }
@@ -8372,6 +10778,148 @@ mod tests {
             "the trail changed after its subject died -- it should stop growing and lose nothing"
         );
         assert!(lab.ui.watch.about(a.id), "the ring stopped answering for a dead individual it still holds");
+    }
+
+    /// **Halo covers every living animal, not only the pinned one.**
+    ///
+    /// Red for a shape that draws nothing at all (the cycle wired to
+    /// nothing, or a colour lookup that always misses), and red just as
+    /// surely for one that only draws the individual `Watch`/the pin already
+    /// marks -- this bed never pins anybody, so a count that only cleared
+    /// because of the pin's own bright reticle would not clear here.
+    #[test]
+    fn the_halo_covers_every_living_animal() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        // The key-list overlay is on by default outside the real binary
+        // (`Lab::new`'s `PIXEL_PHYSICS_LAB_HELP` gate) and paints over the
+        // whole screen -- every other pixel-reading guard in this file turns
+        // it off first, and this one must too or it is reading the key list.
+        lab.show_help = false;
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        // Inputs actually vary what the guard checks, before trusting the
+        // count below -- `CLAUDE.md`'s standing warning about a guard whose
+        // scene is blind by construction.
+        assert!(live.len() >= 2, "test setup: the bed has no colony to mark: {} animals", live.len());
+        assert!(lab.ui.pinned().is_none(), "test setup: something is pinned, which would confound the count");
+
+        assert_eq!(lab.ui.life_marks(), LifeMarks::Off, "test setup: marks are not off by default");
+        assert_eq!(lab.ui.cycle_life_marks(), LifeMarks::Halo, "test setup: the cycle's first stop past Off is not Halo");
+
+        // Every colour a live animal is actually wearing, computed the
+        // identical way `draw_life_marks` computes it -- not a guessed
+        // constant, which would pass even if the mode the box actually
+        // opened on had changed.
+        let mode = lab.ui.creature_colour();
+        let mut colours: std::collections::HashSet<[u8; 4]> = std::collections::HashSet::new();
+        for row in &live {
+            let Some(state) = row.who.resolve(&lab.world) else { continue };
+            let homeless = lab.world.species.get(state.species).creature.as_ref().is_some_and(|c| c.nest.is_empty());
+            let rgb = render::group_colour(mode, state.species, state.colony, homeless).unwrap_or([MARKER[0] as f32, MARKER[1] as f32, MARKER[2] as f32]);
+            colours.insert([rgb[0] as u8, rgb[1] as u8, rgb[2] as u8, 255]);
+        }
+        assert!(!colours.is_empty(), "test setup: resolved no colour for any live animal");
+
+        let mut buf = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut buf, 60.0);
+        let hits = buf.chunks_exact(4).filter(|px| colours.contains(&[px[0], px[1], px[2], px[3]])).count();
+        assert!(
+            hits >= live.len(),
+            "only {hits} halo pixels drawn for {} live animals -- the shape drew nothing, or drew fewer marks than there are animals",
+            live.len()
+        );
+    }
+
+    /// **Neither shipped mark may ever change a body pixel -- the exact
+    /// fault the owner caught in the shape this replaced (a solid blob that
+    /// hid the body and the colour it wears), and a stricter one than a
+    /// per-animal bounding box would catch.**
+    ///
+    /// "Body pixel" here means what the world actually says: any screen
+    /// pixel whose cell carries an `organism_id`, checked the same way
+    /// `fill_mark_row` checks it (`screen_to_world` then `organism_id`) --
+    /// **not** a per-animal bounding box. A box was tried first and is
+    /// wrong the moment a two-cell body is diagonal rather than square: the
+    /// box then covers an empty gap cell that is not body at all, and
+    /// flagging *that* as a violation is a false positive that would have
+    /// masked this test ever going green honestly. Scanning the whole world
+    /// area by real occupancy is also what makes this catch the fault the
+    /// owner's own review found: a ring sized only to dodge *its own*
+    /// animal still lands on a *neighbour's* body the instant two stand
+    /// adjacent, which a nest guarantees constantly -- this test caught
+    /// exactly that case red before `fill_mark_row` gained the world check,
+    /// and would catch a regression that removed it again.
+    ///
+    /// Also covers the toggle's specificity and sensitivity: two off draws
+    /// must be byte-identical, and each on draw must differ from off
+    /// *somewhere*, or the cycle is wired to nothing and the body-pixel
+    /// check would pass vacuously.
+    #[test]
+    fn a_life_mark_never_touches_a_body_pixel() {
+        let mut lab = crate::lab::Lab::new(crate::lab::scene::LabBox {
+            colonies: 1,
+            founders: 2,
+            ..crate::lab::scene::LabBox::default()
+        });
+        lab.show_help = false;
+        for _ in 0..400 {
+            lab.tick_for_harness();
+        }
+        let live = roster::rows(
+            &lab.world,
+            roster::Kingdom::Creatures,
+            roster::SortKey::Slot,
+            false,
+            roster::Filter::All,
+        );
+        assert!(live.len() >= 2, "test setup: {} animals, need a colony to check", live.len());
+        assert!(lab.ui.pinned().is_none(), "test setup: something is pinned, which would confound the diff");
+
+        assert_eq!(lab.ui.life_marks(), LifeMarks::Off, "test setup: marks are not off by default");
+        let mut off = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut off, 60.0);
+        let mut off_again = vec![0u8; (W * H * 4) as usize];
+        lab.draw(&mut off_again, 60.0);
+        assert_eq!(off, off_again, "two draws with marks off produced different frames");
+
+        let cap = bar_top() - 1;
+        for mode in [LifeMarks::Halo, LifeMarks::Tick] {
+            while lab.ui.life_marks() != mode {
+                lab.ui.cycle_life_marks();
+            }
+            let mut on = vec![0u8; (W * H * 4) as usize];
+            lab.draw(&mut on, 60.0);
+            assert_ne!(on, off, "{mode:?}: turning marks on changed nothing on screen -- the cycle is not gating the pass");
+            let mut body_pixels_checked = 0usize;
+            for y in 0..=cap {
+                for x in 0..W as i32 {
+                    let (wx, wy) = lab.renderer.screen_to_world(x, y);
+                    if lab.world.get(wx, wy).organism_id() == 0 {
+                        continue;
+                    }
+                    body_pixels_checked += 1;
+                    let o = ((y * W as i32 + x) * 4) as usize;
+                    assert_eq!(
+                        &on[o..o + 4],
+                        &off[o..o + 4],
+                        "{mode:?} changed a body pixel at ({x},{y}) -- a mark painted over an animal"
+                    );
+                }
+            }
+            assert!(body_pixels_checked > 0, "test setup: no organism-owned pixel was on screen to check for {mode:?}");
+        }
     }
 
     /// A rebuild puts the frame counter back to zero, and a series carried
