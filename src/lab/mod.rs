@@ -1528,7 +1528,7 @@ impl Lab {
         let every = Self::chronicle_census_every();
         if self.world.frame.is_multiple_of(every) {
             let ids = census::Ids::resolve(&self.world);
-            let nest_cols = census::nest_columns(&self.spec, self.scenario.as_ref());
+            let nest_cols = census::nest_columns(&self.world, &self.spec, self.scenario.as_ref());
             let gut = census::ant_gut_bias(&self.world);
             // `Some(&self.time)`: a real `Lab` always has a dial, so the
             // perf columns (round 31) are always filled in here -- the load

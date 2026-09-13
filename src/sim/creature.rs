@@ -2329,6 +2329,27 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
 pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
     let Some(st) = world.organism(organism) else { return 0 };
     let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
+    // **A blind animal does not pay for the body walk that scales an eye it
+    // does not have**, and this returns the identical value rather than an
+    // approximation of it: the expression below is `0.0 * mix`, which is
+    // `0.0` for every finite `mix`, and `f32::max(NaN, 0.0)` is `0.0`, so a
+    // NaN or infinite mix lands on 0 here too. Nothing about *which* animals
+    // cast changes -- `base` is still the full trait-shifted reach, so a
+    // lineage that evolves `TRAIT_SIGHT_RANGE` off a species authored at 0
+    // falls through to the mix exactly as before.
+    //
+    // It is worth a guard clause because `body_mix` walks the animal's whole
+    // body and this is called **twice per tick** -- once by `creature_tick`'s
+    // cast gate and once inside `sense` -- for every animal in the world,
+    // while every shipped species but the beetle authors `sight_range: 0`.
+    // Measured by callgrind on the played bed's species (`antcost`, 49,568
+    // creature ticks): 1,406 Ir per creature tick, 2.5% of the tick, spent
+    // deciding that a long ant still cannot see. `CLAUDE.md`'s "guard
+    // hot-path work at the call site that already has the data" -- the datum
+    // here is `base`, which the line above has just computed.
+    if base == 0 {
+        return 0;
+    }
     let mix = composition_mix(body_mix(world, organism).head, BASELINE_HEAD_FRAC);
     (base as f32 * mix).round().max(0.0) as i32
 }
@@ -3377,7 +3398,13 @@ pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 /// congested dead ends accumulate trail and the colony ossifies pointing
 /// into a wall.
 fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
-    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name.clone()) else {
+    // **No `String` clone here, and that is not tidiness.** `materials` and
+    // `species` are separate fields of `World`, so both can be borrowed
+    // immutably at once and the clone that used to stand between them was
+    // buying nothing but a `malloc`/`free` pair per animal per tick. The
+    // `id_of` hash stays -- removing that wants a material id cached on the
+    // species, which is a registry change rather than a line.
+    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name) else {
         return Vec::new();
     };
     let cell = world.get(x, y);
@@ -16196,6 +16223,57 @@ mod tests {
     }
 
     // --- body plans ---------------------------------------------------------
+
+    /// **A held world does not tick animals outside a quickening**, and the
+    /// held-world guards did not cover this until now.
+    ///
+    /// `a_held_world_grows_only_inside_a_quickening` and
+    /// `a_held_plant_does_not_refill_its_water` are both about *plants*.
+    /// Creatures reach the same gate — `scheduler::step` tests
+    /// `World::time_runs_at` at the one point every kind of living work is
+    /// dispatched — but "reaches the same gate" is an argument, and the two
+    /// kingdoms take different paths to get there. This is the measurement.
+    ///
+    /// **The signal is movement, not a counter.** An animal that ticks walks,
+    /// and a head that has not moved after two thousand frames did not think.
+    /// A counter would need pairing with an effect counter from the far side
+    /// of the call to mean anything (`CLAUDE.md`), and position *is* that far
+    /// side.
+    ///
+    /// Three arms, so the middle one cannot pass for an off switch: the third
+    /// puts the circle over the animal and it must move again.
+    #[test]
+    fn a_held_world_does_not_tick_animals_outside_a_quickening() {
+        fn arm(held: bool, circles: &[crate::sim::world::Quickening]) -> bool {
+            let mut w = test_world();
+            let floor = w.materials.id_of("stone").unwrap_or(material::STONE);
+            for x in 60..140 {
+                w.set(x, 120, Cell::new(floor, 0).with_attached(true));
+            }
+            let ant = spawn(&mut w, "ant", 100, 119);
+            assert_ne!(ant, 0, "the ant was not placed; this scene does not contain the situation the test is about");
+            let start = w.organism(ant).and_then(|st| st.chain.first().copied());
+            assert!(start.is_some(), "test setup: the ant has no head to watch");
+
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            run(&mut w, 2_000);
+
+            let now = w.organism(ant).and_then(|st| st.chain.first().copied());
+            // A dead ant is not a still one -- if the slot is gone the arm
+            // says nothing about the gate, so that is a failure rather than
+            // a quiet "it did not move".
+            assert!(now.is_some(), "the ant died, so this arm measures nothing");
+            now != start
+        }
+
+        assert!(arm(false, &[]), "test setup: an ant in a running world has to move, or the arms below compare nothing");
+        assert!(!arm(true, &[]), "an ant on held ground moved, so the gate does not reach creatures");
+        assert!(
+            arm(true, &[crate::sim::world::Quickening { x: 100, y: 119, r: 40 }]),
+            "an ant inside a quickening must think again -- otherwise this gate is an off switch rather than a place"
+        );
+    }
 
     fn spawn(w: &mut World, species: &str, x: i32, y: i32) -> u16 {
         plant_creature_seed(w, x, y, species).map(|site| {
