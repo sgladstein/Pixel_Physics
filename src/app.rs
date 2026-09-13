@@ -482,10 +482,33 @@ pub struct App {
     /// the window cannot display is remembered rather than clobbered, and
     /// comes back when the window grows.
     ///
-    /// **A runtime selector rather than a chosen constant**, per `CLAUDE.md`:
-    /// the two review cards this shipped with disagree — the lab plainly gains
-    /// and outdoor rock arguably loses its grain to smoothness — so the
-    /// default stays at today's look until the owner's verdict says otherwise.
+    /// **A runtime selector rather than a chosen constant**, per `CLAUDE.md`.
+    /// It shipped at 1 because the two cards it went out with disagreed — the
+    /// lab plainly gained, and outdoor rock arguably lost its grain to
+    /// smoothness — with the default held "until the owner's verdict says
+    /// otherwise".
+    ///
+    /// **The verdict arrived, 2026-09-13, and it is why this is 2 and not 1.**
+    /// On the real game at x1 against x2, HUD included, he chose **x2**:
+    /// *"much better wit A"* (card `20260913T100843436Z-de27a0`, A being the
+    /// x2 arm — the stored choice agrees, which is what a two-pane blind has
+    /// to be read off). On the lab bed at x1/x2/x4 he chose the finest:
+    /// *"C is best"*, C being **x4** (`20260913T083914900Z-764956`). The
+    /// outdoor card came back *"looks good"* naming no pane
+    /// (`20260913T083948135Z-0f4767`) — no preference, and, importantly, no
+    /// objection: the smoothed-grain worry that held this at 1 did not survive
+    /// his eye.
+    ///
+    /// **2 rather than 4** because x2 is the only value he judged *in the real
+    /// game*, and it is the cheaper half of the trade: 1.29x the whole frame
+    /// against 1.66x, for 4x the cells against 16x. It costs nothing at
+    /// ordinary zoom — at `zoom > 1`, at rung 1, and at budget 1 the scale is
+    /// 1 and the frame is bit-identical by construction — so the 1.29x is paid
+    /// only while pulled back. `+` still reaches x4 for anyone who wants it.
+    ///
+    /// **The lab is not covered by this**: `bin/lab.rs` has its own draw path
+    /// and HUD and does not carry the buffer yet, which is where he liked it
+    /// most.
     pub pixel_budget: i32,
     /// The most buffer the *window* can actually show, in logical-pixel
     /// multiples — set by `main.rs` from the surface size, 1 until it is.
@@ -781,7 +804,7 @@ impl App {
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
-            pixel_budget: 1,
+            pixel_budget: 2,
             pixel_scale_cap: 1,
             toast: None,
             shake_flash: None,
@@ -4314,13 +4337,27 @@ pub fn build_terrain_only(world: &mut World) {
 #[cfg(test)]
 mod tests {
 
-    /// The zoom-out pixel budget must be **invisible until asked for**: a
-    /// freshly built app draws into exactly the buffer it always did.
+    /// The zoom-out pixel budget must be **invisible until the view is
+    /// actually pulled back**: a freshly built app draws into exactly the
+    /// buffer it always did, *even though the budget now defaults to 2*.
+    ///
+    /// The budget changed from 1 to 2 on the owner's verdict (2026-09-13, card
+    /// `20260913T100843436Z-de27a0`). That moved this test's subject: the
+    /// invariant worth guarding was never *"the default is 1"* — it is **"an
+    /// ordinary frame is untouched"**, which holds because the scale is 1 at
+    /// `zoom > 1` and at rung 1 whatever the budget says. Asserting the
+    /// viewport is the claim; asserting the constant is only bookkeeping, and
+    /// it is kept here so a silent change to the shipped default is still
+    /// caught.
     #[test]
     fn the_default_app_draws_into_the_buffer_it_always_did() {
         let app = App::build(false, (256, 128), &mut |_, _| {});
-        assert_eq!(app.pixel_budget, 1);
-        assert_eq!(app.viewport(), (WIDTH, HEIGHT));
+        assert_eq!(app.pixel_budget, 2, "the shipped default, per the owner's verdict");
+        assert_eq!(
+            app.viewport(),
+            (WIDTH, HEIGHT),
+            "an app that is not zoomed out must draw into the buffer it always did"
+        );
     }
 
     /// The two terms, and which one wins. The player's choice is *remembered*
@@ -4396,6 +4433,12 @@ mod tests {
         let mut app = App::build(false, (256, 128), &mut |_, _| {});
         app.pixel_scale_cap = 4;
         app.renderer.zoom_out_stride = 4;
+        // Start from x1 explicitly rather than from whatever ships as the
+        // default. The claim here is that the key walks the ring 1 -> 2 -> 4
+        // -> 1; it is not a claim about where the ring is entered, and this
+        // test failed for that reason alone when the default moved 1 -> 2 on
+        // the owner's verdict (2026-09-13).
+        app.pixel_budget = 1;
         assert_eq!(app.cycle_pixel_budget(), 2);
         assert_eq!(app.cycle_pixel_budget(), 4);
         assert_eq!(app.cycle_pixel_budget(), 1);
