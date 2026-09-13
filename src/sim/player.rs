@@ -1552,6 +1552,26 @@ impl Bodies {
     }
 }
 
+/// Whether root tissue is ground underfoot (`Material::underfoot`).
+/// `PIXEL_PHYSICS_ROOT_FOOTING=off` restores the behaviour where a root was
+/// scenery he fell through, which is the bug the flag exists to fix.
+///
+/// **An ablation rather than a dead switch, and it ships with the rule for
+/// the reason `plant::roots_need_substrate`'s own doc gives at length**: the
+/// only question that matters here is judged by eye, and it is a *paired*
+/// one — the same stand, the same frames, the rule on and off. Without a
+/// switch that comparison has to cross a rebuild, and a rebuilt "before" is
+/// a different binary rather than a different rule.
+///
+/// One `OnceLock` load, on the character's own predicate rather than in the
+/// sweep: `footing` runs on the order of a hundred times a tick for one
+/// gnome, against 163,840 cells a frame for the world.
+fn roots_are_ground() -> bool {
+    use std::sync::OnceLock;
+    static ON: OnceLock<bool> = OnceLock::new();
+    *ON.get_or_init(|| !matches!(std::env::var("PIXEL_PHYSICS_ROOT_FOOTING").as_deref(), Ok("off")))
+}
+
 /// What the cell at `(x, y)` is, to the character. Raw material kind
 /// rather than `is_empty`, so a managed liquid body's container cells
 /// (materially empty) read as the water they look like.
@@ -1596,7 +1616,7 @@ fn footing(world: &World, bodies: &Bodies, x: i32, y: i32) -> Footing {
     // `climbable: true` for the four systems that still read it -- the
     // shake's plant flood, `creature::crossable`, and the tree-depth
     // occlusion -- so the flag cannot be dropped to say "not a ladder".
-    if cell.organism_id() != 0 && material.underfoot {
+    if roots_are_ground() && cell.organism_id() != 0 && material.underfoot {
         return Footing::Soft;
     }
     if cell.organism_id() != 0 && material.climbable {
@@ -5556,6 +5576,7 @@ mod tests {
             let (_, _, _, feet) = world.player.as_ref().expect("a gnome").bounds();
             feet
         }
+        assert!(roots_are_ground(), "PIXEL_PHYSICS_ROOT_FOOTING=off is set -- this suite is measuring the ablation");
         let still = settled_feet(None);
         let serial = settled_feet(Some(crate::sim::update::step));
         let parallel = settled_feet(Some(crate::sim::parallel::step));
