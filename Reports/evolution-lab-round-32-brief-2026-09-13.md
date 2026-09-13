@@ -95,6 +95,19 @@ dispersal, which is only a 1.4x effect:
 **Treat these as one problem.** Fixing dispersal alone buys 1.4x against a
 2.8x predation loss.
 
+**One thing already moves this number, and #376 measured it: the dig gate.**
+Its whole justification was re-derived this round from *the colony lives* —
+which is now 12 of 12 in both arms and says nothing — to **the bed stays
+green**: plants standing higher with the gate on, **10 of 12 seeds, median
++24, p = 0.039**, and only in the *second half* of a session. That is a
+land-recovery result wearing a colony-behaviour label, and it is the closest
+thing to a baseline this task has. Two consequences. **Use its method** —
+paired arms on the same seeds, a sign test over twelve, read at 200,000 frames
+rather than at 120,000, where the same comparison is 7 of 12 and p = 0.77.
+And **whatever you change here, re-run the gate arm with it**: the gate and
+the four causes above all act on the same standing-plant count, so a fix
+measured against a trunk with the gate on is not measuring itself alone.
+
 ## Task 4 — §Z13: two of three explanations are closed, the third is untouched
 
 **Do not build a fourth idle animation. Round 31 answered why the first three
