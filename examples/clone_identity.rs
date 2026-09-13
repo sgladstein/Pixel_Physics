@@ -107,7 +107,7 @@ fn render_window(w: &World, cx: i32, gy: i32, half_w: i32, up: i32, down: i32) -
     let mut renderer = Renderer::new();
     renderer.pinned_light = Some(pixel_physics::sky::frame_for_daylight(1.0));
     let particles = pixel_physics::sim::particle::ParticleSystem::new();
-    renderer.draw(w, &particles, &std::collections::HashSet::new(), &mut buf, (ww, wh), true);
+    renderer.draw(w, &particles, &pixel_physics::sim::fxhash::ChunkSet::default(), &mut buf, (ww, wh), true);
     let (x0, x1) = ((cx - half_w).max(b.min_x), (cx + half_w).min(b.max_x));
     let (y0, y1) = ((gy - up).max(b.min_y), (gy + down).min(b.max_y));
     let (cw, ch) = ((x1 - x0 + 1) as u32, (y1 - y0 + 1) as u32);
