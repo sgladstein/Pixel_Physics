@@ -239,8 +239,12 @@ whose root ticks eight times per shoot tick.
 
 ### The ant that walks across
 
-This is the one that needs a decision, because a creature *will* cross, every
-few seconds, and it carries state stamped in frames:
+This is the one that needs a decision. How often an ant actually crosses a rim
+is **not measured** — it is one of the things §6's bed should count on the way
+past — but it is a routine event rather than an edge case by construction: the
+carried circle is 28 cells and moves with the player, so its rim sweeps across
+standing ground continuously, and a foraging ant carries state stamped in
+frames:
 
 - **`born_frame`** (`organism.rs:6059`), read as `world.frame - born_frame` for
   age. Stamped in whatever clock was running when it was born.
@@ -622,6 +626,11 @@ Why this one, ahead of anything about rates at all:
   suspiciously tight, suspect the harness before believing it — `CLAUDE.md`'s
   tell is tidiness, and this is a chaotic system where twelve identical trees
   span 31 to 153 cells.
+
+**Count two things on the way past, since the bed is running anyway**: how
+many organisms have cells on both sides of a rim, and how many creatures
+change which circle they are in between consecutive ticks. Both are the cost
+driver for any boundary policy (§2) and neither is measured today.
 
 **What it must not be.** Not the fast circle's own cell count: that is the
 number the withdrawn build read all the way to the wrong conclusion (143, then
