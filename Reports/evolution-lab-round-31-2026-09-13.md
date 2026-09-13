@@ -121,6 +121,53 @@ different question.
 lane. The Sonnet choices are now justified by rate — 2.5x under Opus for a
 bounded build with a clear acceptance test — rather than by an invoice.
 
+## The combined-merge probe, and what it caught
+
+**Round 30's rule is that the dangerous merge is the conflict-free one. Round
+31 acted on it *before* merging rather than after, and it paid immediately.**
+
+With three lane branches green-or-nearly and each measured against a trunk
+that lacked the other two, the coordinator merged all three into a scratch
+branch off `main` and ran the suite there. **Zero conflicts** — `src/lab/ui.rs`
+and `src/sim/creature.rs` both auto-merged — `clippy --all-targets` clean, and
+then:
+
+```
+sim::creature::tests::digging_moves_the_ground_rather_than_eating_it
+ground cells 259 -> 207 over 491 digs and 490 dumps
+  left: 207   right: 262
+```
+
+**Isolated to Lane B alone** by re-running B against `main` on its own, so it
+was not an interaction — it was a lane's own regression that **no CI had
+reported, because that lane had not opened its PR yet.** The probe was the only
+thing in the round positioned to see it.
+
+**And the failure meant the opposite of what it said.** The test's `ground`
+closure counts exactly two materials in both halves — `standing` over rows
+0..=199 (`m == soil || m == packed`) and `held`, the spoil in an ant's
+mandibles (`sp.cell.material == soil || sp.cell.material == packed`). Lane B's
+entire approach was to introduce a **third**, `spoil`. So the 55 missing cells
+are cells that are now the new material: the bed is conserved and the ruler
+shrank. Read as written — *digging is still eating the bed* — it condemns a
+correct change.
+
+**That test had already survived this exact trap once, and says so in its own
+comment**: *"Fixing the census rather than the engine, because the engine was
+right: nothing was created, the two columns were adding up different things"*
+(2026-09-05, when `held` counted **any** spoil rather than only ground spoil).
+Lane B is the other direction of the identical mistake — and it had already
+remembered to teach `lab::census` and `soilfork` about `spoil`, missing only
+this test's own private census.
+
+**The transferable part.** Adding a material silently changes the meaning of
+every census that enumerates materials by name, and those censuses do not
+announce themselves — one was inside a test. So: **when a change introduces a
+new material, grep every site that enumerates the old ones as a category, and
+treat a conservation failure as a question about the ruler before treating it
+as a question about the engine.** Both readings are consistent with the number;
+they prescribe opposite work.
+
 ## Numbers this round established for its own use
 
 - **Post-merge baseline**, `main` at `047df5c6`: `cargo test --lib --release`
