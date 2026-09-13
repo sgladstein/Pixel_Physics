@@ -56,6 +56,27 @@ Every one of those was a starvation before this shipped.
   on, 10 of 12 seeds, p=0.039** — and only in the second half of a session,
   not at 120,000 frames.
 
+## Two numbers a five-seed read got wrong here, kept as a warning
+
+- **The `deliveries` cliff is a seed, not the lifespan.** Read at five seeds,
+  `deliveries` at 200,000 frames on played_bed seed 1 is **37** on the shipped
+  arm against **5,932** immortal, which reads as a 160x lifespan effect
+  isolated by a paired control. It is not: on the same seed, **20,000 delivers
+  2,466 and 80,000 delivers 4,792** — both mortal, gate on, everything else
+  identical. Across twelve seeds the shipped arm is the *best* deliverer
+  (median 9,664 against 6,846 immortal). Seed 1 and seed 6 both have real
+  delivery collapses worth a lane; neither is evidence about `life_half_life`.
+- **The immortal arm's internal control is `starved + killed == died`, not
+  `starved == died`.** The latter holds on nine of twelve seeds; 10, 11 and 12
+  book 1, 5 and 115 `killed`, and seed 12's 115 is the seed-cargo channel live
+  on this bed. `oldage == 0` holds on all twelve.
+- **State the percentile convention.** These tables are **nearest-rank**
+  (`v[round((n-1)p)]`), so every number printed is a seed that was run. Under
+  linear interpolation the same twelve seeds read 8.9 / 111.0 / 286.8 for
+  shipped ants at 200,000 against nearest-rank's 6 / 117 / 290. At n=12 the two
+  differ visibly and no answer here turns on which is used — but two people
+  reading the same file and not saying which will think they disagree.
+
 ## What not to re-derive
 
 - **The hazard interval had to become an argument, and it is settled.**

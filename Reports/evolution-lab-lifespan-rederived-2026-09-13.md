@@ -251,6 +251,86 @@ should not be quoted again; the reproduction to run is the two boxes at
 300,000 frames, and the claim to keep is the narrow one — *some shipped beds
 end a session with a colony too small to be one.*
 
+## The coordinator's independent read, reconciled — and one of its findings corrected
+
+Round 31's coordinator computed the order statistics off the committed digest
+without seeing this analysis. Both readings are reproduced here because one of
+them was wrong and it is worth saying which.
+
+**The two agree exactly once the percentile convention is stated, and it had
+not been.** This report's tables use **nearest-rank** (`v[round((n-1)p)]`);
+the coordinator used **linear interpolation**. At n=12 that moves the numbers
+visibly and neither is more correct:
+
+| ants alive at 200,000 | nearest-rank (this report) | interpolated (coordinator) |
+|---|---|---|
+| A shipped | 6 / **117** / 290 | 8.9 / **111.0** / 286.8 |
+| B immortal | 31 / 108 / 452 | 32.5 / 94.5 / 428.8 |
+| C no gate | 12 / 84 / 205 | 13.0 / 69.5 / 199.9 |
+
+Re-computed both ways from the same file, the interpolated column reproduces
+the coordinator's figures to the decimal. **Nothing in either reading changes
+an answer**, and the tables above stay nearest-rank so that every number
+printed is a seed that was actually run.
+
+Two of its aggregates are worth keeping, because they say in one figure what
+the paired tables say in twelve rows. **Pooled over twelve seeds at 200,000
+frames, age is 49.4% of colony deaths on the shipped arm** (2,513 old age
+against 2,575 starved, 29 killed) — against 0% before this shipped. And
+**making the colony immortal raises pooled starvation 2,575 → 4,067, +58%**:
+removing death makes the colony hungrier, not larger, which is the sharpest
+form of the paired result above.
+
+### The `deliveries` cliff is real and is not the lifespan
+
+Read at five seeds, arm A's `deliveries` at 200,000 frames on seed 1 is **37**
+against the immortal arm's **5,932** — a 160x gap on one seed, with A-s1 still
+holding 51 ants and 32,355 eats, so those ants are feeding themselves and not
+provisioning the nest. That was flagged as *"the cleanest causal result in the
+sweep"*.
+
+**The value arms, which did not exist when it was read, refute the causal
+half.** On that same seed 1, `deliveries`:
+
+| arm | A 40,000 | C 40,000, gate off | **D 20,000** | **E 80,000** | B immortal |
+|---|---|---|---|---|---|
+| deliveries, seed 1 | **37** | 345 | **2,466** | **4,792** | 5,932 |
+
+**D and E are mortal arms** — 20,000 and 80,000, gate on, everything else
+identical — and neither collapses. A lifespan of 40,000 delivers 37 while a
+lifespan of 20,000 delivers 2,466 and one of 80,000 delivers 4,792 on the same
+seed of the same bed. The mortal/immortal split that the five-seed reading
+saw was two mortal arms happening to sit at the bottom, not a mechanism.
+
+**And across twelve seeds the shipped arm is the *best* deliverer, not the
+worst** (nearest-rank p10 / median / p90):
+
+| arm | p10 | median | p90 | min |
+|---|---|---|---|---|
+| A shipped | 1,728 | **9,664** | 18,743 | **37** |
+| B immortal | 2,751 | 6,846 | 13,069 | 2,248 |
+| C no gate | 1,696 | 6,100 | 8,012 | 345 |
+| D half | 1,326 | 7,028 | 12,874 | 985 |
+| E double | 2,087 | 8,023 | 12,635 | 1,802 |
+
+**What survives is a bed, not a constant: seed 1 has a delivery collapse that
+four of five arms escape and two do not, and nothing about the lifespan
+predicts which.** Its neighbour is seed 6, the lowest surviving colony in the
+sweep (1 ant, 1,728 deliveries, 8,024 eats). Both are worth a lane; neither is
+this one's, and neither is evidence about `life_half_life`. This is the
+five-seed version of `CLAUDE.md`'s own warning that six is not a sweep,
+arriving on a quantity nobody was sweeping.
+
+### The immortal arm's internal control, in its correct form
+
+`lifespan=0` leaves only two ways to die, so the arm can prove it is doing what
+its label says without a second binary. **`oldage` is 0 on all twelve seeds,
+and `starved + killed == died` exactly on all twelve.** The stronger form —
+`starved == died` — holds on nine; seeds 10, 11 and 12 book 1, 5 and 115
+`killed`, and seed 12's 115 is the seed-cargo channel visibly live on this bed
+rather than a rounding. Quote the arithmetic that holds on twelve, not the one
+that holds on the first five.
+
 ## What this round did not do, and why
 
 - **The hazard-interval arithmetic was not re-derived.**
