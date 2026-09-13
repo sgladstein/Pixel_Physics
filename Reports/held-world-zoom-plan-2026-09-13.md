@@ -42,7 +42,33 @@ because `Renderer::pixel_scale_for` only ever returns a power of two that
 view draws every one of its cells into its own pixel instead of discarding
 fifteen in sixteen.
 
-Had the cap landed on 3 this plan would be a no-op wearing a feature — see §5.
+Had the cap landed on 3 this plan would be a no-op wearing a feature.
+
+**Run rather than asserted**, with a control either side — both functions
+copied verbatim out of `render.rs` into a standalone binary, so this executes
+the repo's own arithmetic rather than a restatement of it. (It is not the
+crate: a `cargo test` reaching the real `Renderer` is the stronger check and is
+worth doing when someone builds this.)
+
+```
+control   512x320 world -> max stride 1     # fits one screen: must not zoom out
+control  8192x2560 world -> max stride 4    # the sandbox, known to reach the cap
+DRUID     2560x960 world -> max stride 4
+
+  rung 1: budget 4 -> pixel_scale 1   (view  512x320  cells)
+  rung 2: budget 4 -> pixel_scale 2   (view 1024x640  cells)
+  rung 3: budget 4 -> pixel_scale 1   (view 1536x960  cells)   <- the hole
+  rung 4: budget 4 -> pixel_scale 4   (view 2048x1280 cells)
+```
+
+**And the hole is not where it was expected to be.** §6 raises rung 3 as a
+general defect of the ladder; this table makes it a *specific* one for this
+world. Rung 3 spans `1536x960` — the first rung showing **the world's entire
+height**, 960 rows exactly, and the one a player wanting to see where they are
+will stop at. It is also the only rung of the four where the budget buys
+nothing. Rung 4 is no substitute: it overshoots vertically by 320 rows of void
+and still shows only 2048 of 2560 columns, so it is a different, more
+letterboxed picture rather than a better version of the same one.
 
 ## 3. What the held world does *not* need
 
@@ -110,11 +136,27 @@ ladder is `1, 2, 3, 4` and the budget is a power of two, so **at rung 3 the
 budget buys nothing** — `pixel_scale_for` returns 1 because 3 has no power-of-
 two divisor above 1. `src/app.rs` already guards this ("rung 3 cannot absorb a
 power-of-two budget"). A player walking out from rung 1 therefore gets sharp,
-sharp, *blurry*, sharp. The held world is where this will be most visible,
-because zooming out is the whole point of a five-screen world. Whether the
-ladder should skip 3 is a look question for the review queue, it affects all
-three games, and it is cheaper to answer before a third game ships onto the
-ladder than after.
+sharp, *blurry*, sharp. The held world is where this will be most visible, and
+§2's table says why it is worse there than a general blemish: **rung 3 is the
+rung that first shows the whole world top to bottom**, so it is at once the
+most useful rung and the only one the budget cannot reach.
+
+Three ways out, and it is a look question rather than an argument:
+
+- **Leave it.** Rung 3 stays a soft rung. Cheapest, and it is what ships in
+  two games already.
+- **Drop 3 from the ladder** (`1, 2, 4`). Every rung then absorbs the budget.
+  Costs the one view that frames this world's full height — the very thing §2
+  says a held-world player will want.
+- **Let the budget be non-power-of-two**, permitting 3 where the rung is 3.
+  The only option that keeps the useful view *and* makes it sharp, and the
+  largest change: `pixel_scale_for`'s power-of-two walk is load-bearing
+  elsewhere, and CLAUDE.md's shared-budget rule says to budget re-deriving
+  that as part of the work rather than discover it during.
+
+The cheap move is a blind A/B of rung 3 at scale 1 against rung 4 at scale 4:
+the question is which picture a player actually wants out of a five-screen
+world, and that is not answerable from the numbers.
 
 **The default, which must be measured rather than inherited.** x4 is the
 owner's pick in both other games and consistency is a stated requirement, so
