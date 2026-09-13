@@ -1767,6 +1767,72 @@ fn carry_cue() -> CarryCue {
     })
 }
 
+/// How a resting creature signals that it is resting rather than stuck —
+/// `Reports/open-bugs-handoff.md` §Z13. Three full-length long ants the
+/// owner marked as motionless turned out to be full-length, unwedged, and
+/// simply not asking to move: `moves`/`moves_blocked` both flat, which is
+/// `p_move` collapsing to zero exactly as designed ("rest is the absence of
+/// a reason to act", 2026-09-09). The shipped two-cell ant rests just as
+/// long — nobody ever noticed, because two motionless pixels read as
+/// scenery and a seven-cell motionless body reads as stuck. **The body got
+/// big enough to see; the walk is not the bug.**
+///
+/// So this is a look question, and §Z13 itself asks it: what should a
+/// resting animal *do* so it reads as resting? Three candidates, none of
+/// which move the animal or touch its economy — `CLAUDE.md`'s "for 'does
+/// this look right', ship a runtime selector rather than choosing." `Off`
+/// is what shipped through round 30.
+#[derive(Clone, Copy, PartialEq)]
+enum IdleAnim {
+    Off,
+    /// The head cell pulses brighter and back — a glint, as if turning to
+    /// catch the light. The only candidate with no footprint outside the
+    /// animal's own body, so it never needs to draw over open ground.
+    Head,
+    /// A brief bright tick just past the head, on a short duty cycle — a
+    /// feeler twitching out and back.
+    Antennae,
+    /// The body reaches one cell forward and pulls back, on a slower cycle
+    /// than the antenna twitch — a step half-taken. **Approximate by
+    /// necessity**: `Renderer::draw` takes `&World`, not `&mut World`, so
+    /// this cannot relocate the animal's own cells for a few frames without
+    /// leaving the true position looking exactly as occupied as ever (there
+    /// is nothing else there to reveal) — it can only draw an extra mark
+    /// where the reach lands, the same shape as `Antennae`. A true
+    /// relocate-and-return needs write access to the grid, which belongs to
+    /// the simulation side of the lane split, not this one.
+    Shuffle,
+}
+
+fn idle_anim_mode() -> IdleAnim {
+    static MODE: std::sync::OnceLock<IdleAnim> = std::sync::OnceLock::new();
+    *MODE.get_or_init(|| match std::env::var("PIXEL_PHYSICS_IDLE_ANIM").as_deref() {
+        Ok("head") => IdleAnim::Head,
+        Ok("antennae") => IdleAnim::Antennae,
+        Ok("shuffle") => IdleAnim::Shuffle,
+        _ => IdleAnim::Off,
+    })
+}
+
+/// The antenna twitch's own colour — distinct from every carry cue and
+/// overlay tint already in the palette, so a card showing more than one
+/// idle-animation channel at once cannot confuse them. Pale and warm rather
+/// than a saturated primary: it is meant to read as a small highlight
+/// catching the light, not as a marker.
+const IDLE_ANTENNA_TINT: [u8; 4] = [255, 235, 150, 255];
+
+/// One organism's idle bookkeeping for [`IdleAnim`] — render-side only.
+/// `OrganismState::moves`/`moves_blocked` already carry what §Z13's own
+/// probe reads; this just remembers last frame's values and when they last
+/// changed, which needs no new simulation field.
+#[derive(Clone, Copy)]
+struct IdleTrack {
+    moves: u32,
+    blocked: u32,
+    /// The render frame `moves`/`blocked` last changed.
+    since: u64,
+}
+
 /// How bright a zero reading draws, as a fraction of the channel's
 /// full-scale colour. Low enough that zero and full are unmistakable at a
 /// glance, high enough that a zero cell still has a visible silhouette.
@@ -2703,6 +2769,28 @@ pub struct Renderer {
     /// repaint and leaves the previous pose on screen until something else
     /// happens to dirty it.
     last_player_pose: Option<(Rect, bool, bool)>,
+    /// Per-organism [`IdleTrack`]s for [`IdleAnim`] — empty and untouched
+    /// whenever `idle_anim_mode()` is `Off`, so this costs nothing on the
+    /// frame everybody actually plays. Pruned every `draw` against
+    /// `World::live_organism_ids` rather than left to grow across a session
+    /// that breeds and starves continuously.
+    idle_tracks: std::collections::HashMap<u16, IdleTrack>,
+    /// World cells this frame's idle animation draws into that are not the
+    /// animal's own body — the antenna tip or the shuffle reach. Rebuilt
+    /// every `draw`; empty whenever `idle_anim_mode()` is `Off` or `Head`,
+    /// which is what keeps the per-pixel check in `cell_colour` free then.
+    idle_extra: std::collections::HashMap<(i32, i32), [u8; 4]>,
+    /// `idle_extra`'s keys as of the *previous* `draw` — a mark that moved,
+    /// turned off, or belonged to an animal that started walking again
+    /// leaves a stale pixel behind unless the old cell is repainted too.
+    /// Same smear problem `last_body_rects` solves, one cell at a time.
+    last_idle_extra_cells: Vec<(i32, i32)>,
+    /// Head-cell world positions animating this frame under `IdleAnim::
+    /// Head` — always empty otherwise. The pulse changes with nothing in
+    /// the world dirtied (the cell's material never moves while resting),
+    /// so these have to be unioned into the dirty region by hand, the same
+    /// reason `last_body_rects` exists.
+    idle_head_cells: Vec<(i32, i32)>,
     /// World coordinate displayed at the top-left pixel. Moved by
     /// [`Renderer::follow`] once there is a player to follow.
     pub camera_x: i32,
@@ -3116,6 +3204,10 @@ impl Renderer {
             frame: 0,
             last_body_rects: Vec::new(),
             last_player_pose: None,
+            idle_tracks: std::collections::HashMap::new(),
+            idle_extra: std::collections::HashMap::new(),
+            last_idle_extra_cells: Vec::new(),
+            idle_head_cells: Vec::new(),
             camera_x: 0,
             camera_y: 0,
             pan_residual: (0.0, 0.0),
@@ -3858,6 +3950,10 @@ impl Renderer {
         );
 
         self.frame = self.frame.wrapping_add(1);
+        // Rebuilt once here, not per pixel -- see the method's own doc.
+        // Free (no-op past the mode check) whenever `PIXEL_PHYSICS_IDLE_ANIM`
+        // is unset, which is every ordinary frame today.
+        self.refresh_idle_anim(world);
         // The animated variants are the ones whose output changes with
         // nothing in the world changing, so they have to defeat the
         // dirty-rect skip. Measured on a fully settled world: a redraw every
@@ -4273,6 +4369,34 @@ impl Renderer {
                     }
                 }
             }
+            // `IdleAnim`: the pulse or the mark changes with nothing in the
+            // world dirtied -- a resting animal's cells never move, which is
+            // the whole finding -- so these have to be found and unioned in
+            // by hand, the same reason the liquid-grain loop above exists.
+            // Both empty whenever `idle_anim_mode()` is `Off`.
+            for &(hx, hy) in &self.idle_head_cells {
+                if let Some(r) = self.world_rect_to_screen_rect(Rect::point(hx, hy), width, height) {
+                    dirty = Some(match dirty {
+                        Some(d) => d.union(r),
+                        None => r,
+                    });
+                }
+            }
+            // Both this frame's marks and last frame's: a mark that moved,
+            // turned off, or belonged to an animal that started walking
+            // again leaves a stale pixel behind unless the cell it used to
+            // occupy is repainted too -- `last_body_rects`'s own reasoning,
+            // one cell at a time.
+            let idle_extra_cells: Vec<(i32, i32)> = self.idle_extra.keys().copied().collect();
+            for &(ex, ey) in idle_extra_cells.iter().chain(self.last_idle_extra_cells.iter()) {
+                if let Some(r) = self.world_rect_to_screen_rect(Rect::point(ex, ey), width, height) {
+                    dirty = Some(match dirty {
+                        Some(d) => d.union(r),
+                        None => r,
+                    });
+                }
+            }
+            self.last_idle_extra_cells = idle_extra_cells;
             let mut n = 0usize;
             if let Some(rect) = dirty {
                 // Parallel over rows, exactly as the full path above, and
@@ -6258,6 +6382,34 @@ impl Renderer {
                         }
                     }
                 }
+                // `IdleAnim::Head`, §Z13's turning-head candidate: the head
+                // cell pulses brighter and back while resting. Reuses the
+                // organism lookup this block already paid for, and reads
+                // `idle_tracks` rather than recomputing anything -- see
+                // `refresh_idle_anim`, which built it once for the whole
+                // frame. A brightness pulse rather than a moved highlight
+                // because it has to work identically at `zoom == 1`, where a
+                // head is one pixel with no sub-cell room to draw a turn
+                // into.
+                if idle_anim_mode() == IdleAnim::Head
+                    && matches!(organism::cell_type(cell.aux()), Some(organism::CellType::Head))
+                {
+                    if let Some(track) = self.idle_tracks.get(&cell.organism_id()) {
+                        let idle_for = self.frame.saturating_sub(track.since);
+                        if idle_for >= Self::IDLE_ANIM_DELAY {
+                            let phase = idle_for - Self::IDLE_ANIM_DELAY;
+                            const PERIOD: u64 = 90;
+                            let half = PERIOD / 2;
+                            let t = phase % PERIOD;
+                            let tri = if t < half { t as f32 / half as f32 } else { 2.0 - t as f32 / half as f32 };
+                            const PULSE: f32 = 0.35;
+                            let boost = 1.0 + tri * PULSE;
+                            for c in base.iter_mut().take(3) {
+                                *c = (*c as f32 * boost).round().clamp(0.0, 255.0) as u8;
+                            }
+                        }
+                    }
+                }
             }
         }
         // Fractured rock draws dark along the break. Cracks are edge state
@@ -6409,6 +6561,16 @@ impl Renderer {
             // outside the world keeps its own colour and stays
             // distinguishable from a dark night sky.
             base = self.background_at(world, x, y);
+            // `IdleAnim::Antennae`/`Shuffle`: both draw into a cell just past
+            // some resting animal's head rather than into the animal's own
+            // body, so the mark lands here, over open ground. `idle_extra`
+            // is empty whenever the mode is `Off` or `Head`, which is what
+            // keeps this check free then -- one length read, no hash lookup.
+            if !self.idle_extra.is_empty() {
+                if let Some(&tint) = self.idle_extra.get(&(x, y)) {
+                    base = tint;
+                }
+            }
             // Still route through the field overlay below (a field reading
             // exists over empty space same as anywhere else -- pressure and
             // temperature very much propagate through vacuum) rather than
@@ -6726,6 +6888,129 @@ impl Renderer {
             for (at, stress) in crate::sim::plant::stress_field(world, id) {
                 self.bend_field.insert(at, stress.stress);
             }
+        }
+    }
+
+    /// Ticks a walking animal decides on: `tick_interval: 6` on both ant
+    /// species (`assets/species/ant.ron`, `assets/species/longant.ron`), so
+    /// an animal merely between two ordinary steps still moves `moves` or
+    /// `moves_blocked` at least this often. Set well above it so the
+    /// animation waits for a genuine rest rather than flickering on during
+    /// every gap in a normal walk — `Reports/open-bugs-handoff.md` §Z13
+    /// measures real rests in the tens of thousands of frames, so the exact
+    /// value here only has to clear the gait, not match the rest.
+    const IDLE_ANIM_DELAY: u64 = 60;
+
+    /// Rebuilds this frame's [`IdleTrack`]s and, for `Antennae`/`Shuffle`,
+    /// `idle_extra` — once per `draw`, never per pixel: `cell_colour` runs
+    /// for every visible cell, and a `World::organism` lookup there for
+    /// every empty pixel on the chance it is someone's antenna target would
+    /// cost far more than the animation it draws.
+    ///
+    /// Free when `idle_anim_mode()` is `Off`, the same "zero cost until
+    /// opted in" shape `field_overlay` and `organism_overlay` already use.
+    fn refresh_idle_anim(&mut self, world: &World) {
+        self.idle_extra.clear();
+        self.idle_head_cells.clear();
+        let mode = idle_anim_mode();
+        if mode == IdleAnim::Off {
+            if !self.idle_tracks.is_empty() {
+                self.idle_tracks.clear();
+                self.idle_tracks.shrink_to_fit();
+            }
+            return;
+        }
+        let live = world.live_organism_ids();
+        let live_set: std::collections::HashSet<u16> = live.iter().copied().collect();
+        // An id this map never revisits (death, starvation, a colony wiped
+        // out) must not sit in it forever -- a session runs for hours and
+        // breeds and starves continuously.
+        self.idle_tracks.retain(|id, _| live_set.contains(id));
+        let frame = self.frame;
+        for id in live {
+            let Some(state) = world.organism(id) else { continue };
+            if world.species.get(state.species).creature.is_none() {
+                // A plant organism shares the same state type but has no
+                // `moves`/`moves_blocked` to speak of; both read 0 forever,
+                // which would otherwise animate every idle plant on screen.
+                continue;
+            }
+            // Airborne, mid-crossing or senescent is a different state from
+            // resting, not a slower version of it -- §Z13's own probe rules
+            // these out as explanations for a standing animal precisely
+            // because each is distinct from "not asking to move at all".
+            if state.flight.is_some() || state.crossing.is_some() || state.senescent {
+                self.idle_tracks.remove(&id);
+                continue;
+            }
+            let track = self.idle_tracks.entry(id).or_insert(IdleTrack {
+                moves: state.life.moves,
+                blocked: state.life.moves_blocked,
+                since: frame,
+            });
+            if track.moves != state.life.moves || track.blocked != state.life.moves_blocked {
+                *track = IdleTrack { moves: state.life.moves, blocked: state.life.moves_blocked, since: frame };
+                continue;
+            }
+            let idle_for = frame.saturating_sub(track.since);
+            if idle_for < Self::IDLE_ANIM_DELAY {
+                continue;
+            }
+            let Some(&(hx, hy)) = state.chain.first() else { continue };
+            let phase = idle_for - Self::IDLE_ANIM_DELAY;
+            match mode {
+                IdleAnim::Off => {}
+                // Drawn per pixel in `cell_colour` straight off `idle_tracks`
+                // -- the head cell is already being visited for its own
+                // material colour, so no extra position map earns its cost
+                // here the way it does for the other two candidates.
+                IdleAnim::Head => {}
+                IdleAnim::Antennae => {
+                    // A quick out-and-back: on for a tenth of the period,
+                    // alternating which side of the head it appears on --
+                    // long enough to catch the eye, short enough to read as
+                    // a flick rather than a steady mark.
+                    const PERIOD: u64 = 50;
+                    const ON_FOR: u64 = 10;
+                    if phase % PERIOD < ON_FOR {
+                        let side: i32 = if (phase / PERIOD).is_multiple_of(2) { 1 } else { -1 };
+                        let (fx, fy) = crate::sim::creature::DIRS[state.heading as usize % 8];
+                        let side_idx = (state.heading as i32 + side).rem_euclid(8) as usize;
+                        let (sx, sy) = crate::sim::creature::DIRS[side_idx];
+                        let at = (hx + fx + sx, hy + fy + sy);
+                        if world.is_empty(at.0, at.1) {
+                            self.idle_extra.insert(at, IDLE_ANTENNA_TINT);
+                        }
+                    }
+                }
+                IdleAnim::Shuffle => {
+                    // A slower reach: out for well over a second at 60
+                    // Hz, pulled back for the rest of a several-second
+                    // cycle -- a step half-taken, not a twitch. Coloured
+                    // from the head's own rendered colour (group tint,
+                    // gut bias, carry cue and all) rather than a flat
+                    // material sample, so the reach reads as the same
+                    // animal rather than a foreign mark.
+                    const PERIOD: u64 = 240;
+                    const OUT_FOR: u64 = 90;
+                    if phase % PERIOD < OUT_FOR {
+                        let (fx, fy) = crate::sim::creature::DIRS[state.heading as usize % 8];
+                        let at = (hx + fx, hy + fy);
+                        if world.is_empty(at.0, at.1) {
+                            let colour = self.cell_colour(world, hx, hy, (0, 0), world.get(hx, hy));
+                            self.idle_extra.insert(at, colour);
+                        }
+                    }
+                }
+            }
+        }
+        if mode == IdleAnim::Head {
+            self.idle_head_cells = self
+                .idle_tracks
+                .iter()
+                .filter(|(_, t)| frame.saturating_sub(t.since) >= Self::IDLE_ANIM_DELAY)
+                .filter_map(|(id, _)| world.organism(*id).and_then(|s| s.chain.first().copied()))
+                .collect();
         }
     }
 
@@ -12307,5 +12592,185 @@ mod tests {
         let touched = world.take_touched_chunks();
         let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
         assert_eq!(recomputed, (w * h) as usize, "the field grid diffuses independent of chunk settledness, so its overlay must bypass the skip");
+    }
+
+    /// A settled bed of `n` single-cell idle animals scattered along a stone
+    /// floor, for pricing [`IdleAnim`] the way `CLAUDE.md`'s animated-grain
+    /// lesson asks: against the state the mechanism exists for. `n` at 300
+    /// matches `ascii`'s own `scene="ants: the foraging loop"` at its
+    /// reported "287 live organisms"; `Reports/lanes/evolution-lab-longant-
+    /// pile.md` records a runaway colony reaching into the low thousands,
+    /// which is what the `1500` probes below are for.
+    ///
+    /// One cell per animal, not a real multi-cell body plan: `Head`,
+    /// `Antennae` and `Shuffle` all key off `OrganismState::chain.first()`
+    /// and `heading` alone, so a full `creature::place_creature` body buys
+    /// this measurement nothing and would need the crate-private seams
+    /// `predation_probe.rs`'s own note says an example cannot reach anyway
+    /// -- this lives in `render.rs`'s own test module for exactly that
+    /// access. The world never steps (`World::end_step` twice to settle the
+    /// initial paint and nothing after), matching `render_stress_scene`'s
+    /// own "static scene" reasoning in `examples/ascii.rs`: `moves`/
+    /// `moves_blocked` are trivially constant when nothing ever calls
+    /// `World::step`, which is all `IdleTrack` needs to read every animal as
+    /// resting once `Renderer::IDLE_ANIM_DELAY` render frames have passed.
+    fn idle_anim_price_world(n: i32, band: i32) -> World {
+        let (w, h) = (512, 320);
+        let mut world = World::new(Rect::new(0, 0, w - 1, h - 1));
+        for x in 0..w {
+            world.set(x, h - 1, Cell::new(material::STONE, 0));
+        }
+        let wood = world.materials.id_of("wood").expect("wood is compiled in");
+        let species = world.species.id_of("ant").expect("ant is compiled in");
+        let aux = organism::pack_cell_type(organism::CellType::Head);
+        let band = band.max(1);
+        for i in 0..n {
+            let x = 4 + (i * 3) % (w - 8);
+            // Spread over `band` rows, not one. `Rect::union` folds every
+            // idle cell into a single bounding box (the same shape
+            // `last_body_rects`/`last_moon_rect` already use), so how tall a
+            // slice of the view a colony occupies is what sets the cost, not
+            // how many animals are in it -- worth measuring on purpose
+            // rather than discovering by accident on a one-row placement.
+            let y = h - 2 - (i * 7) % band;
+            let organism = world.push_organism(species).expect("an organism slot is free");
+            if let Some(state) = world.organism_mut(organism) {
+                state.chain = vec![(x, y)];
+            }
+            world.set(x, y, Cell::new(wood, 0).with_organism_id(organism).with_aux(aux));
+        }
+        world.end_step();
+        world.end_step();
+        world
+    }
+
+    /// Runs `Renderer::draw` for long enough to pass `IDLE_ANIM_DELAY` and a
+    /// full `Shuffle` period (the longest cycle of the three candidates),
+    /// and prints the worst and mean frame -- the number `CLAUDE.md` says to
+    /// quote. `mode_env` sets `PIXEL_PHYSICS_IDLE_ANIM` before the first call
+    /// that can read it; `idle_anim_mode`'s `OnceLock` means this is only
+    /// trustworthy run as its own process (`cargo test --release --lib --
+    /// --exact <name> --nocapture`), never alongside another test that might
+    /// touch the same lock first.
+    fn price_idle_anim(label: &str, mode_env: Option<&str>, n: i32, band: i32) {
+        match mode_env {
+            Some(v) => std::env::set_var("PIXEL_PHYSICS_IDLE_ANIM", v),
+            None => std::env::remove_var("PIXEL_PHYSICS_IDLE_ANIM"),
+        }
+        let mut world = idle_anim_price_world(n, band);
+        let (w, h) = (512u32, 320u32);
+        let particles = ParticleSystem::new();
+        let mut renderer = Renderer::new();
+        let mut frame = vec![0u8; (w * h * 4) as usize];
+        let warm_up_touched = world.take_touched_chunks();
+        renderer.draw(&world, &particles, &warm_up_touched, &mut frame, (w, h), true); // warm up
+        let mut worst = std::time::Duration::ZERO;
+        let mut total = std::time::Duration::ZERO;
+        let mut worst_recomputed = 0usize;
+        const RUNS: u32 = 400;
+        for _ in 0..RUNS {
+            let touched = world.take_touched_chunks();
+            let started = std::time::Instant::now();
+            let recomputed = renderer.draw(&world, &particles, &touched, &mut frame, (w, h), false);
+            let elapsed = started.elapsed();
+            worst = worst.max(elapsed);
+            total += elapsed;
+            worst_recomputed = worst_recomputed.max(recomputed);
+        }
+        println!(
+            "{label}: worst {:.3} ms, mean {:.3} ms over {RUNS} frames, {n} idle animals, worst recomputed {worst_recomputed} of {} px",
+            worst.as_secs_f64() * 1000.0,
+            total.as_secs_f64() * 1000.0 / RUNS as f64,
+            w * h,
+        );
+    }
+
+    // Three bands: one row (the cheapest possible layout -- a single
+    // `Rect::union` costs nothing extra to grow sideways), a soil-depth band
+    // (60 rows -- `Reports/instruments.md`'s `labsoil` entry: the shipped
+    // bed is 40 rows and the colony's own galleries already reach 35 of
+    // them, so 60 is a generous read of "how tall a slice of one screen a
+    // colony actually occupies"), and the full 320-row world (the case
+    // where idle animals are found from the top of the view to the bottom
+    // of it, which folds the union into something close to a full redraw --
+    // see `price_idle_anim`'s own doc on why a single bounding `Rect` does
+    // that).
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_off_row() {
+        price_idle_anim("off (control), one row", None, 300, 1);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_head_row() {
+        price_idle_anim("head, one row", Some("head"), 300, 1);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_antennae_row() {
+        price_idle_anim("antennae, one row", Some("antennae"), 300, 1);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_shuffle_row() {
+        price_idle_anim("shuffle, one row", Some("shuffle"), 300, 1);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_off_band() {
+        price_idle_anim("off (control), 60-row band", None, 300, 60);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_head_band() {
+        price_idle_anim("head, 60-row band", Some("head"), 300, 60);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_antennae_band() {
+        price_idle_anim("antennae, 60-row band", Some("antennae"), 300, 60);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_shuffle_band() {
+        price_idle_anim("shuffle, 60-row band", Some("shuffle"), 300, 60);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_shuffle_band_1500() {
+        price_idle_anim("shuffle, 60-row band, runaway colony's scale", Some("shuffle"), 1500, 60);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_off_fullheight() {
+        price_idle_anim("off (control), scattered top to bottom of the view", None, 300, 316);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_head_fullheight() {
+        price_idle_anim("head, scattered top to bottom of the view", Some("head"), 300, 316);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_antennae_fullheight() {
+        price_idle_anim("antennae, scattered top to bottom of the view", Some("antennae"), 300, 316);
+    }
+
+    #[test]
+    #[ignore = "probe: prints, never asserts -- run one at a time, see price_idle_anim's own doc"]
+    fn probe_idle_anim_cost_shuffle_fullheight() {
+        price_idle_anim("shuffle, scattered top to bottom of the view", Some("shuffle"), 300, 316);
     }
 }
