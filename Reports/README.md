@@ -2737,6 +2737,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ant and dumped spoil weathers back to soil. Also names `labforage`'s
   `plants` column as plants **plus** the bank, which relabels every earlier
   count on this bed.
+- [evolution-lab-chronicle-counts-2026-09-13.md](evolution-lab-chronicle-counts-2026-09-13.md)
+  — **built and landed, 2026-09-13: the chronicle's `COUNTS:` line was a
+  census of its own ring.** The owner's playtest reported `BORN 664` for a bed
+  that had had 15,905 animal births in it, because `chronicle_text` tallied
+  `RunLog::recent()` and a *full* ring prints as a *complete* count. **The cap
+  was the symptom**: no cap fixes it short of holding the whole session, which
+  is 131,072 events — **7.3 MB per world and ~0.95 ms of every painted frame
+  the LOG page is open** (measured paired over four ring lengths; `Ui::
+  log_rows` collects the whole ring per paint). A 72-byte cumulative tally
+  fixes it at any cap, which is the rule the LOG page's own `OLDER` row
+  already stated — *"nothing in the lab is ever counted off this page"*.
+  Also **corrects §5's attribution**: at most ~46,300 of the 81,690 events can
+  be animal, so **~35,400 are the plant stand**, which germinates and dies
+  into the same ring. Cap re-derived 2048 → 8192 against a played session
+  rather than the shipped bed, whose colony is down to 5 ants by 60,000
+  frames.
 - [evolution-lab-census-datum-2026-09-13.md](evolution-lab-census-datum-2026-09-13.md)
   — **built and landed, 2026-09-13: the five dead chronicle columns, and why
   they are two bugs rather than one.** The owner's 560,000-frame playtest read
