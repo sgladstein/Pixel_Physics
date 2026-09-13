@@ -168,6 +168,52 @@ treat a conservation failure as a question about the ruler before treating it
 as a question about the engine.** Both readings are consistent with the number;
 they prescribe opposite work.
 
+## The round's largest finding: nobody can reproduce the owner's bed
+
+**Three separate visual complaints were investigated this round on a bed that
+does not contain any of them, and nobody noticed until the owner said so.**
+
+Lane B's §Z18 card rendered `played_bed` seed 3 at 150,000 frames — **74
+ants**, described in the lane's own commit as *"the most developed nest of the
+four beds measured"*. The owner's verdict:
+
+> *"Everything looks normal is all these pictures. None of this reads as an
+> ant hill though it just looks like herbs growing in dirt which is fine"*
+
+**He plays sessions with 1000+ long ants.** Seventy-four ants in a herb patch
+is not the scene his complaint is about. So every number in §Z18 — 19 cells,
+90 cells, the 22-cell repair, the twelve-seed coin flip — is arithmetic about
+a bed that does not show the phenomenon. The repair is real and the
+measurements are honest; the *scene* was never checked against the complaint.
+
+`CLAUDE.md` has this rule already — *when a mechanism appears inert, check the
+scene still contains the situation you think it does* — and it was written for
+a mechanism looking dead. **This is its other half: a scene can also fail to
+contain a defect you are trying to remove**, and then a fix that does nothing
+and a fix that works are indistinguishable, both reading as "looks normal".
+
+**The scale gap is now measured rather than suspected.** Lane A's 75 runs put
+the shipped bed's maximum at **408 ants** at 200,000 frames (median 111), and
+the whole sweep's maximum at **1,067**, reached once, on `life_half_life:
+80000` seed 8. The owner's ordinary play is at or above the top of everything
+this project can currently generate.
+
+**What this invalidates, and what it does not.** It does not invalidate the
+pellet repair, `hangcensus`, its six controls, or the tint pass — the tint
+pass is the round's most transferable instrument, being the only one that can
+tell worked ground from plant *on sight* rather than by counting. What it
+invalidates is any claim that those numbers describe what the owner sees. §Z18
+now records the bed as **unreproduced**, in those words.
+
+**The consequence for the programme is larger than §Z18.** The floating
+debris, the stripped ground that never recovers, and the resting ants that
+read as stuck are all reports from a bed nobody here has built. Until one
+exists, a rendered card is a picture of a different world and a null result
+from it means nothing. **The chronicle work (#374) is therefore the round's
+critical path rather than a convenience**: one played session gives the scale,
+the species mix, the horizon and the player's own actions, which is what a
+reproducing bed has to be built from.
+
 ## Numbers this round established for its own use
 
 - **Post-merge baseline**, `main` at `047df5c6`: `cargo test --lib --release`
