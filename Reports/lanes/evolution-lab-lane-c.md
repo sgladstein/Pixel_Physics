@@ -1,5 +1,36 @@
 # Lane C — round 32
 
+## The owner's question, answered in one line
+
+He asked, on card `20260913T052938222Z-c7bc21`, 2026-09-13: ***"Are they
+resting or stuck?"***
+
+> **Resting.** All three of the ants you marked were measured from the inside,
+> and across 3,000 frames not one of them ever tried to move and failed — they
+> never asked to move at all. The ordinary two-cell ant you have never
+> complained about rests just as long, 50,000-plus frames in one spot on every
+> seed. What changed is not the behaviour; it is that the body got big enough
+> to see.
+
+**This is a measurement, not a reading of the picture.** A resting ant and a
+blocked one are separable by counter and not at all by eye, which is why this
+was a probe and not another card. If it needs one more sentence for him: *the
+long ant rests at the same rate (74–76% against the shipped ant's 75%) and for
+the same duration (p90 11–16 stops against 13–20), so nothing about the long
+ant is anomalous — it is the same rest, on a body seven cells long instead of
+two.*
+
+**Provenance, because this lane did not re-run it and must not be read as
+having done so.** Round 29 performed exactly the measurement round 32's brief
+asks for, and it is on `main`: §Z13 and
+`Reports/lanes/evolution-lab-longant-pile.md` §4 carry the capture parameters
+recovered from the stored GIF (`zoom=4`, `crop=160,120,224,56`), the three
+markers mapped to world cells **(363,155)**, **(302,149)**, **(244,154)**, and
+the per-animal table. Re-running a 120,000-frame probe to reproduce a
+published table is not what a round is for; **verifying the one claim it rests
+on without a control is** — see §2 below.
+
+
 Two jobs: the spoil teleport (§Z19, **shipped**) and §Z13's *resting or
 stuck* (**already answered on `main`; no code written**).
 
