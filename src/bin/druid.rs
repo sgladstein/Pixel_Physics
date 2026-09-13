@@ -11,7 +11,8 @@
 //! `main.rs`'s fixed-timestep accumulator is the one that belongs here.
 //!
 //! Keys: `A`/`D` walk, `W` jump, `S` down, `Shift` hold on to a tree,
-//! `P` pause, `H` release or re-hold the world, `Esc` quit.
+//! `P` pause, `H` release or re-hold the world, `L` how held ground is drawn,
+//! `Esc` quit.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -77,10 +78,17 @@ struct HeldKeys {
 impl Handler {
     fn new() -> Self {
         let now = Instant::now();
+        let mut game = Druid::new();
+        // `PIXEL_PHYSICS_DRUID_LOOK=onehue` -- start in a look rather than
+        // reaching it with a key, because a headless screenshot cannot press
+        // one and the whole point of the selector is to be compared.
+        if std::env::var("PIXEL_PHYSICS_DRUID_LOOK").is_ok_and(|v| v.eq_ignore_ascii_case("onehue")) {
+            game.renderer.held_look = pixel_physics::render::HeldLook::OneHue;
+        }
         Self {
             window: None,
             pixels: None,
-            game: Druid::new(),
+            game,
             last_frame: now,
             last_title: now,
             accumulator: Duration::ZERO,
@@ -100,9 +108,13 @@ impl Handler {
     fn title(&self) -> String {
         let q = self.game.world.quickenings.len();
         format!(
-            "The Held World — {:.0} fps — {} — {} standing quickening{}{}",
+            "The Held World — {:.0} fps — {} — look {} — {} standing quickening{}{}",
             self.fps,
             if self.game.world.held { "HELD" } else { "running" },
+            // Named on screen, per `CLAUDE.md`'s rule for a runtime selector:
+            // an option nobody can see the value of is one nobody can tell is
+            // disconnected.
+            self.game.renderer.held_look.label(),
             q,
             if q == 1 { "" } else { "s" },
             if self.game.paused { " — PAUSED" } else { "" },
@@ -172,6 +184,10 @@ impl Handler {
         match code {
             KeyCode::Escape => event_loop.exit(),
             KeyCode::KeyP => self.game.paused = !self.game.paused,
+            // **How held ground is drawn.** A selector rather than a
+            // decision, because this is precisely the question no amount of
+            // argument settles -- see `render::HeldLook`.
+            KeyCode::KeyL => self.game.renderer.cycle_held_look(),
             // **Release the world, or hold it again.** The single most useful
             // key for judging this game: the look the owner picked has no
             // colour tell, so whether "held" reads at all is a question you

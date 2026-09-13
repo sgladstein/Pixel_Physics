@@ -2708,7 +2708,86 @@ const HAZE_DIM: u16 = 168;
 /// either, so the screen would keep midnight's rock under a noon sky until
 /// something else happened. It also erases the on-screen pin badge on the
 /// frame the pin is released, which has no tracked footprint of its own.
-type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>, MagnifyKey);
+/// **How the world is drawn where time has stopped** — the held-world game
+/// only (`Reports/held-world-game-concept-2026-09-13.md`); `Off` everywhere
+/// else and `Off` by default, so the sandbox and the lab are unchanged.
+///
+/// A selector rather than a decision, per `CLAUDE.md`: *for "does this look
+/// right", ship a runtime selector rather than choosing*. Five grain modes
+/// on one key once settled in minutes a question no amount of argument had,
+/// and this is the same question about a bigger surface.
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum HeldLook {
+    /// **The owner's pick, 2026-09-13, and the default.** Nothing changes
+    /// colour at all: held ground is drawn exactly as running ground is, and
+    /// the only tells are that nothing moves and the sky does not turn.
+    ///
+    /// The purest reading and the cheapest — it costs one comparison per
+    /// cell — and the one real doubt about it is that a screenshot of a held
+    /// world is indistinguishable from a screenshot of a living one.
+    #[default]
+    Unchanged,
+    /// **One hue.** Held ground holds a single cold blue-grey while the
+    /// quickened circle keeps its full spectrum.
+    ///
+    /// **Luminance is preserved exactly and only the hue is replaced**,
+    /// which is what keeps the world legible rather than making it look
+    /// unloaded: every silhouette, every shadow and every depth cue survives,
+    /// and the picture reads as *lit differently* rather than as broken. That
+    /// is also why it is a full replace and not a blend into the cell's own
+    /// colour — `CLAUDE.md` records a magnitude-scaled blend producing a
+    /// sheet that read as blank, because a mid-range value moved one colour
+    /// byte from 139 to 155.
+    OneHue,
+}
+
+impl HeldLook {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Unchanged => Self::OneHue,
+            Self::OneHue => Self::Unchanged,
+        }
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::Unchanged => "unchanged",
+            Self::OneHue => "one hue",
+        }
+    }
+}
+
+/// The cold cast held ground takes under [`HeldLook::OneHue`], **already
+/// divided by its own luma** so multiplying a pixel's luminance by it leaves
+/// that luminance where it was. Written as the derivation rather than as
+/// three magic numbers, because the property that matters — value preserved,
+/// hue replaced — is a statement about this arithmetic and not about the
+/// values it happens to produce.
+const HELD_CAST: [f32; 3] = {
+    // A cold blue-grey, before normalisation.
+    let (r, g, b) = (0.78, 0.86, 1.05);
+    // Rec. 601 luma, the same weighting the rest of this file uses.
+    let luma = 0.299 * r + 0.587 * g + 0.114 * b;
+    [r / luma, g / luma, b / luma]
+};
+
+type LookKey = (TerrainLight, bool, GrainMode, GlowShape, Option<u64>, Option<Weather>, MagnifyKey, HeldKey);
+
+/// **Where time is running, as something a `LookKey` can compare** —
+/// `None` whenever the held-world look is off, which is every frame of the
+/// sandbox and the lab, so neither pays anything for this existing.
+///
+/// It has to be in the key because the boundary **moves without a CA write
+/// behind it**. The player's carried quickening follows him, so cells cross
+/// in and out of "outside" every frame he walks, and nothing marks their
+/// chunks dirty: `take_touched_chunks` reports what the *simulation* wrote,
+/// and this is a change in how already-settled cells are *drawn*. Without
+/// this the rim smears, with no error anywhere — the same failure shape as
+/// forgetting `take_touched_chunks` in the first place.
+///
+/// The quickenings fold to one number rather than being carried as a list:
+/// a `LookKey` is compared every frame and must stay cheap and `Copy`.
+type HeldKey = Option<(Option<(i32, i32, i32)>, u64)>;
 
 /// The magnified style and every dial on it, as something a `LookKey` can
 /// compare. The dials are `f32`, which is neither `Eq` nor `Hash`, so they go
@@ -2909,6 +2988,11 @@ pub struct Renderer {
     /// debug overlay that is `Off` by default and costs exactly nothing
     /// then, which is the same bargain `field_overlay` already makes.
     pub organism_overlay: OrganismOverlay,
+    /// **How held ground is drawn** — see [`HeldLook`]. `Unchanged` by
+    /// default, so the sandbox and the lab are byte-identical and never pay
+    /// for this: `apply_held_look` returns on one comparison and `held_key`
+    /// contributes `None` to the `LookKey`.
+    pub held_look: HeldLook,
     /// **Which colour an animal wears** -- see [`CreatureColour`]. `Off`
     /// here; the lab sets `Colony` when it builds its renderer.
     pub creature_colour: CreatureColour,
@@ -3208,6 +3292,7 @@ impl Renderer {
         Self {
             bend_field: std::collections::HashMap::new(),
             grain: GrainMode::default(),
+            held_look: HeldLook::default(),
             bubbles: BubbleMode::default(),
             gas: GasMode::default(),
             tree_depth: TreeDepth::default(),
@@ -3447,6 +3532,32 @@ impl Renderer {
     /// real running plant answers.
     pub fn cycle_organism_overlay(&mut self) {
         self.organism_overlay = self.organism_overlay.next();
+    }
+
+    /// Step how held ground is drawn — see [`HeldLook`].
+    pub fn cycle_held_look(&mut self) {
+        self.held_look = self.held_look.next();
+    }
+
+    /// Where time is running, as a `LookKey` component — `None` whenever this
+    /// cannot change a pixel, which is every frame of the other two games.
+    ///
+    /// **Why the whole boundary has to be in the redraw key.** The player's
+    /// carried quickening moves with him, so cells cross in and out of
+    /// "outside" with no simulation write behind them. `take_touched_chunks`
+    /// reports what the *sweep* wrote; this is a change in how already-settled
+    /// cells are *drawn*, which it cannot see. Leaving it out smears the rim
+    /// and reports nothing.
+    fn held_key(&self, world: &World) -> HeldKey {
+        if self.held_look == HeldLook::Unchanged || !world.held {
+            return None;
+        }
+        // A fold rather than the list itself: a `LookKey` is compared every
+        // frame and has to stay `Copy` and cheap.
+        let fold = world.quickenings.iter().fold(0u64, |acc, q| {
+            acc.wrapping_mul(0x0000_0100_0000_01b3) ^ ((q.x as i64 as u64) << 40 ^ (q.y as i64 as u64) << 20 ^ q.r as i64 as u64)
+        });
+        Some((world.carried.map(|q| (q.x, q.y, q.r)), fold))
     }
 
     /// Step the creature colour mode — see [`CreatureColour`].
@@ -4091,6 +4202,7 @@ impl Renderer {
             world.clock.sky_hold,
             world.weather_override,
             self.magnify_key(),
+            self.held_key(world),
         );
         let look_changed = self.last_look != Some(look);
         self.last_look = Some(look);
@@ -6835,7 +6947,12 @@ impl Renderer {
         // lighting: a debug channel must stay readable at midnight, and the
         // full-replace ramps below are exactly the channels that must not be
         // modulated by the time of day.
-        self.apply_organism_overlay(world, x, y, tinted)
+        // **Last, and after the debug channels deliberately.** This one is
+        // not a readout, it is what the *world* looks like where time has
+        // stopped, so a debug overlay drawn on held ground should still read
+        // as that overlay rather than being greyed with everything else.
+        let tinted = self.apply_organism_overlay(world, x, y, tinted);
+        self.apply_held_look(world, x, y, tinted)
     }
 
     /// Blends `base` toward a ramp keyed on the selected organism channel,
@@ -7039,6 +7156,27 @@ impl Renderer {
                 .filter_map(|(id, _)| world.organism(*id).and_then(|s| s.chain.first().copied()))
                 .collect();
         }
+    }
+
+    /// **Draw held ground differently from ground where time is running.**
+    ///
+    /// A no-op returning `base` on one comparison unless the held-world look
+    /// is selected *and* the world is actually held, which is the whole of
+    /// what the other two games pay.
+    ///
+    /// [`HeldLook::OneHue`] replaces the hue and **keeps the luminance**, so
+    /// every silhouette, shadow and depth cue survives and the picture reads
+    /// as lit differently rather than as unloaded. A full replace, not a
+    /// blend: `CLAUDE.md` records a magnitude-scaled blend producing a sheet
+    /// that read as blank because a mid-range value moved one colour byte
+    /// from 139 to 155.
+    fn apply_held_look(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
+        if self.held_look == HeldLook::Unchanged || !world.held || world.time_runs_at(x, y) {
+            return base;
+        }
+        let luma = 0.299 * base[0] as f32 + 0.587 * base[1] as f32 + 0.114 * base[2] as f32;
+        let chan = |i: usize| (luma * HELD_CAST[i]).clamp(0.0, 255.0) as u8;
+        [chan(0), chan(1), chan(2), base[3]]
     }
 
     fn apply_organism_overlay(&self, world: &World, x: i32, y: i32, base: [u8; 4]) -> [u8; 4] {
@@ -8389,6 +8527,67 @@ mod tests {
             "at one depth the shaft must stay far darker than the open pit: \
              shaft {shaft_shallow}, pit floor {pit_floor}"
         );
+    }
+
+    /// **The other two games cannot see the held-world look**, which is the
+    /// sibling of the lab guard below and lands with the first
+    /// druid-conditional path in this file.
+    ///
+    /// `two-games-one-repo` §4 names the real divergence risk as shared
+    /// tuning constants — *"nothing notices when a shared constant is edited
+    /// for one game's benefit"* — and a third game doubles that exposure.
+    /// This is the cheap standing check: on a world that is **not held**, the
+    /// look setting must not move one byte, so the sandbox and the lab are
+    /// unreachable from it even if something set it.
+    ///
+    /// **The control comes first.** A guard that only asserts "nothing
+    /// changed" passes just as happily against a pass that never runs, which
+    /// is `CLAUDE.md`'s blind-guard case: so this holds the look fixed and
+    /// *holds the world*, proving the mechanism fires, before asserting that
+    /// an unheld world is untouched by it.
+    #[test]
+    fn the_other_games_cannot_see_the_held_world_look() {
+        let mut world = World::new(Rect::new(0, 0, 199, 199));
+        for x in 0..200 {
+            for y in 120..200 {
+                world.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        world.begin_step();
+        let particles = ParticleSystem::new();
+        let touched: ChunkSet = ChunkSet::default();
+        let mut r = Renderer::new();
+        let shot = |r: &mut Renderer, world: &World| {
+            let mut buf = vec![0u8; 200 * 200 * 4];
+            r.draw(world, &particles, &touched, &mut buf, (200, 200), true);
+            buf
+        };
+
+        let plain = shot(&mut r, &world);
+
+        // **The control.** With the look selected AND the world held, the
+        // picture must move -- otherwise every assertion below is about a
+        // pass that does nothing.
+        r.held_look = HeldLook::OneHue;
+        world.held = true;
+        let held = shot(&mut r, &world);
+        assert_ne!(plain, held, "the one-hue look changed nothing on a held world, so this guard is blind");
+
+        // Now the claim: the same look on a world that is NOT held is
+        // byte-identical to no look at all. That is the sandbox and the lab.
+        world.held = false;
+        let unheld_with_look = shot(&mut r, &world);
+        assert_eq!(
+            plain, unheld_with_look,
+            "the held-world look reached a world that is not held -- the sandbox and the lab both draw through this path"
+        );
+
+        // And the inside of a quickening is untouched even when the world IS
+        // held, which is the other half of what the look means.
+        world.held = true;
+        world.quickenings = vec![crate::sim::world::Quickening { x: 100, y: 100, r: 5_000 }];
+        let all_quickened = shot(&mut r, &world);
+        assert_eq!(plain, all_quickened, "a world entirely inside a quickening must draw exactly as a running one");
     }
 
     /// **The outdoor game draws exactly what it drew before the lab existed.**
