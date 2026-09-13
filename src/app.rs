@@ -499,16 +499,35 @@ pub struct App {
     /// objection: the smoothed-grain worry that held this at 1 did not survive
     /// his eye.
     ///
-    /// **2 rather than 4** because x2 is the only value he judged *in the real
-    /// game*, and it is the cheaper half of the trade: 1.29x the whole frame
-    /// against 1.66x, for 4x the cells against 16x. It costs nothing at
-    /// ordinary zoom — at `zoom > 1`, at rung 1, and at budget 1 the scale is
-    /// 1 and the frame is bit-identical by construction — so the 1.29x is paid
-    /// only while pulled back. `+` still reaches x4 for anyone who wants it.
+    /// **4, and it was briefly 2 — the correction is worth recording.** The
+    /// first reading of those verdicts set this to 2, on the grounds that x2
+    /// was the only value he had judged *in the real game*. He rejected that,
+    /// 2026-09-13: *"I am not sure what questions that I answered that suggests
+    /// zoom should be different between the games, but that doesn't seem like
+    /// what I want."*
     ///
-    /// **The lab is not covered by this**: `bin/lab.rs` has its own draw path
-    /// and HUD and does not carry the buffer yet, which is where he liked it
-    /// most.
+    /// He is right, and the mistake is instructive: **the two cards offered
+    /// different options, so the apparent preference was an artifact of the
+    /// menu rather than of his eye.** The lab card offered x1/x2/x4 and he took
+    /// the finest; the real-game card was two panes, x1 against x2, so **x4 was
+    /// never on offer there.** Reading "x2 in the game, x4 in the lab" off that
+    /// pair is reading the cards' construction, not the player. Given the full
+    /// range he picked the finest, so the finest is the default, and **both
+    /// games get the same one.**
+    ///
+    /// **What it costs, stated because it is not free**: 1.66x the whole frame
+    /// against x2's 1.29x, for 16x the cells against 4x. It costs nothing at
+    /// ordinary zoom — at `zoom > 1`, at rung 1, and at budget 1 the scale is 1
+    /// and the frame is bit-identical by construction — so it is paid only
+    /// while pulled back. Outdoors that is every frame at the widest rung,
+    /// because the sky never stops moving and the dirty-rect skip never fires;
+    /// in the lab a settled box repaints 0 pixels and the same change measures
+    /// flat across a 16x pixel range. `+` still cycles down for anyone who
+    /// wants the cheaper rung.
+    ///
+    /// **`bin/lab.rs` does not carry this yet** — it has its own draw path and
+    /// HUD — so until it does, the two games *are* inconsistent, which is the
+    /// thing he objected to. That is being closed separately, to the same x4.
     pub pixel_budget: i32,
     /// The most buffer the *window* can actually show, in logical-pixel
     /// multiples — set by `main.rs` from the surface size, 1 until it is.
@@ -804,7 +823,7 @@ impl App {
             tool: Tool::Brush,
             drag_from: None,
             show_stress: false,
-            pixel_budget: 2,
+            pixel_budget: 4,
             pixel_scale_cap: 1,
             toast: None,
             shake_flash: None,
@@ -4341,8 +4360,8 @@ mod tests {
     /// actually pulled back**: a freshly built app draws into exactly the
     /// buffer it always did, *even though the budget now defaults to 2*.
     ///
-    /// The budget changed from 1 to 2 on the owner's verdict (2026-09-13, card
-    /// `20260913T100843436Z-de27a0`). That moved this test's subject: the
+    /// The budget changed from 1 to 4 on the owner's verdict (2026-09-13),
+    /// via a brief and corrected stop at 2. That moved this test's subject: the
     /// invariant worth guarding was never *"the default is 1"* — it is **"an
     /// ordinary frame is untouched"**, which holds because the scale is 1 at
     /// `zoom > 1` and at rung 1 whatever the budget says. Asserting the
@@ -4352,7 +4371,7 @@ mod tests {
     #[test]
     fn the_default_app_draws_into_the_buffer_it_always_did() {
         let app = App::build(false, (256, 128), &mut |_, _| {});
-        assert_eq!(app.pixel_budget, 2, "the shipped default, per the owner's verdict");
+        assert_eq!(app.pixel_budget, 4, "the shipped default, per the owner's verdict");
         assert_eq!(
             app.viewport(),
             (WIDTH, HEIGHT),
