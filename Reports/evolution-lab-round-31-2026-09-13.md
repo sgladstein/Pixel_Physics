@@ -93,6 +93,34 @@ type alias is neither.** Fixed to the idiom `examples/clone_variance.rs:209`
 already uses — the sibling harness from the same report, current only because
 it landed. `clippy --all-targets --release --locked -D warnings`: **101 → 0**.
 
+## The brief's own model guidance was wrong, and it was corrected mid-round
+
+`PR #372`, opened by the round-30 coordinator an hour after #370 landed,
+retracts the model-choice section it had just written. **Fable 5.1 is
+`$10.00` / `$50.00` per MTok against Opus 5's `$5.00` / `$25.00` — twice
+Opus on both, the most expensive tier available here, not "three to five
+times cheaper".** Sonnet 5 is `$2.00` / `$10.00`, Haiku 4.5 `$1.00` / `$5.00`.
+
+**Verified independently against the API reference before acting on it**, per
+the brief's own instruction to check a claim rather than take it. The rates
+match, and so does the documented order: start on Opus 5 and escalate *up* to
+Fable only for long-horizon work where Opus at higher effort has measured
+short — the opposite direction from the retracted bullet. Confirmed too that
+**`create_session` accepts `model` and no effort or thinking parameter**, so
+for a lane the model is the whole dial and the choice carries more weight here
+than generic guidance assumes.
+
+**What went wrong is this repo's own recurring failure, one more time**: the
+section inferred a *rate* from one round's *invoice*. Two Fable lanes cost $22
+and $15 against an Opus lane at $105 — but those were short design lanes that
+read little, while the Opus lane ran a twelve-seed paired sweep. **The invoice
+measured run length, not model rate.** Arithmetically correct, and about a
+different question.
+
+**Round 31 was unaffected**: A and B on Opus, C, D and E on Sonnet, no Fable
+lane. The Sonnet choices are now justified by rate — 2.5x under Opus for a
+bounded build with a clear acceptance test — rather than by an invoice.
+
 ## Numbers this round established for its own use
 
 - **Post-merge baseline**, `main` at `047df5c6`: `cargo test --lib --release`
