@@ -6,6 +6,17 @@ founder colony you design, and a bubble of fast time. What follows is that
 idea with the engine's own measurements pushed back into it — several of which
 change the design rather than merely costing it.*
 
+**Revised 2026-09-13, same day, by the owner from play.** The first draft
+said *a rich place is heavy* and priced it off a **stale** measurement (§2a).
+The owner's own bed says otherwise — *"I can get 10x full of plants; it really
+slows to 1x when I get 1000+ creatures"* — and the code agrees, for a reason
+that is better than the one it replaces: **plant cost can be banded and animal
+cost cannot.** The corrected law is *a **populous** place is heavy*, and it
+does the work §4 was missing. The owner also rejected felling as the economy
+(§5) and asked for creatures to be load-bearing rather than resident (§4a).
+The inversion itself stands — the owner's word is *"I loved the time inversion
+bubble idea"*.
+
 **One line: the land is not slow, it is *held*. Nothing grows, breeds, rots or
 weathers anywhere in the world. You carry the only time there is, you spend it
 in circles on the ground, and the only way to get more is to leave something
@@ -150,22 +161,63 @@ one root's draw — a soil cell supports one root indefinitely and runs down
 only where roots crowd. An ecology that recycles is measurably cheaper to run
 than one that mines, in the code as it stands today.
 
-### 2a. The best consequence: a rich place is heavy
+### 2a. The best consequence: a **populous** place is heavy
 
-**The rate you can afford falls as the bubble fills with life** — because that
-is literally what it costs. 0.006 ms empty, 7.03 ms with eight plants.
+**The first draft got this wrong and the correction is the most useful thing
+in the document.** It read the 0.006-vs-7.03 ms split as *life is expensive*
+and concluded that a mature wood must run slow. The owner refuted it from
+play: **10x with a bed full of plants, down to 1x at 1000+ creatures.**
 
-Read that as a game mechanic and it is superb:
+Both halves are in the tree, and the reason is structural rather than
+incidental.
 
-- Bare ground quickens fast and cheap. Your first bubble on a new patch *rips*.
-- As the wood matures, time thickens through it. The same circle that ran at
-  8x runs at 2x with a stand in it.
-- To go fast in a mature place you must **shrink the circle** — focus on one
-  tree, one nest — or fund it from gardens elsewhere.
+**The 7.03 ms was measured 2026-09-01 and has been overtaken by an entire
+optimisation programme.** The full box is now **~1.95 ms** with
+`step_organisms` at **0.198 ms — 10% of it**. And it was never the plants'
+*code*: of the original 7.03, `active_sites` was 0.28 ms and the other 6.7 was
+**the world reacting to them** — 25 awake chunks and 39.3 field solves per
+frame. A plant is expensive because it keeps chunks awake, which is a cost
+that yields to work, and has.
 
-Pacing, expansion pressure and a difficulty curve, all emergent from the cost
-model, all thematically exact. *Time moves slowly through a rich place.* That
-is the sentence the game is about.
+**Then the owner's own lever, which is the whole answer.**
+`PLANT_SIZE_CADENCE` bands a plant by cell count and multiplies its tick
+interval — `<50` 1x, `<200` 2x, `<800` 3x, `<3200` 4x, `3200+` 5x. Per-frame
+cost is `cells / interval` and cost is flat per cell, so **multiplying the
+interval divides the cost exactly.** Measured over ten seeds: the dial median
+**2.25x → 5.95x**, per-seed ratio median **2.73x** (range 1.68–3.81), **10 of
+10 improved and none worse** — while the box holds **+7% plant cells and 1.60x
+the leaf** in a third as many plants. It defaults **off**
+(`World::plant_size_cadence`), so this is shipped, measured, and switched off.
+
+**And the sentence that decides the game's shape**, from that same section:
+
+> *"Creatures are not banded — an ant's tick is **its brain** rather than an
+> economy that can run slower."*
+
+A tree's economy is a rate and a rate can be run on a slower cadence. **A
+thought cannot.** Every animal has to decide every tick it is alive, so
+creature cost is linear in population with no lever under it.
+
+So the corrected law, and it is a better one:
+
+- **A grown place is light.** A mature wood runs fast, and the more mature it
+  is the cheaper per cell it gets. Growing a wood stays a fast, watchable,
+  satisfying thing — which is what the moment-to-moment loop needs.
+- **A populous place is heavy.** Your colony is what makes time expensive, and
+  it is the one thing whose size you chose.
+- **An empty place is free.** An empty lab runs at **1024x**, which is the
+  measurement that licenses the held world at all.
+
+**This is a better mechanic than the one it replaces on every axis.** The
+weight now sits on the thing the player deliberately made and cares about
+rather than on passive scenery; the cost curve is a decision instead of a
+tax; and it is what makes §4a possible — creatures are structurally central
+because **population is the price of time**, which is not a conceit but the
+literal shape of the engine's cost.
+
+And the fiction is exactly true, which is rare: **time is cheap over things
+that merely grow, and expensive over things that think.** A druid can run a
+century through a forest in an afternoon. He cannot do it to a mind.
 
 ### 2b. What the dial can honestly promise
 
@@ -174,18 +226,24 @@ check**: on a full box the whole display-rate ladder moves the achieved
 multiplier **2.03x → 2.47x**; with soil water off as a control it reaches
 **6.9x**. A tick costs 7.3 ms and a drawn frame 4.7 ms.
 
-So **20x over a wood is not going to happen** and the design should not
-promise it. A believable ladder is roughly:
+**Revised against §2a's correction**, and the shape is now a function of
+*population* rather than of biomass. From the owner's own bed:
 
-| bubble | what is in it | plausible rate |
+| bubble | what is in it | rate |
 |---|---|---|
-| small | bare ground, a seed | 8–16x |
-| medium | a young stand | 4–8x |
-| medium | a mature wood + a colony | 1–2x |
-| large | anything | 1x, and expensive |
+| any | held / empty | ~free (an empty lab runs at 1024x) |
+| medium | a wood, no colony | **~10x** — owner's figure, from play |
+| medium | a wood + a working colony | falls with head-count |
+| medium | a wood + 1000 animals | **~1x** — owner's figure, from play |
 
-That is a *better* dial than 20x-everywhere. A rate you have to husband is a
-decision; a rate you always have is a loading screen.
+So the dial is not a mystery the player has to feel out: **it is a
+population counter.** That is legible, controllable, and it puts the throttle
+on the exact quantity §4a wants the player thinking about.
+
+A rate you have to husband is a decision; a rate you always have is a loading
+screen. And note the lever still on the shelf — `PLANT_SIZE_CADENCE` is worth
+a further **2.73x median** and is default-off, so the plant half has headroom
+already measured and not yet spent.
 
 ---
 
@@ -294,6 +352,60 @@ So "when may you found" is a real decision the player should be making, not a
 button that is always available. *Found it on a stand you grew* is the rule the
 measurement already suggests.
 
+## 4a. Making the colony load-bearing, not resident
+
+**The owner's objection to the first draft, and it was correct:** *"this
+doesn't intimately integrate creatures into the game."* They were a founding
+minigame and then scenery. Three roles fix that, and all three are mechanisms
+that already exist.
+
+### The colony is your mouth
+
+**You cannot draw time from a plant.** A plant turns light into tissue; only
+*animal* metabolism produces the thing a druid can drink. So **a wood with no
+colony pays you nothing**, and founding one stops being flavour.
+
+That makes the food match the puzzle rather than a checkbox: your animals have
+to be able to eat what you grew. The engine already prices that — diet lists,
+`nectar_only` (*a plant specialist's mouth eats the plant and no gut setting
+avoids it*), the whole forage economy.
+
+**And it makes the control problem the right shape.** You leach the colony;
+the colony leaches the wood. Three levels, and your *economic* lever only
+touches the top one — which is exactly what governing an ecosystem feels
+like, and is a far more interesting instrument than a slider on a forest.
+It does not fall foul of the second law, because the hand-verbs in §5 reach
+every level directly: route them with scent, thin them with a cull, feed
+them, fling them, break a drought over them.
+
+### The colony is your hands beyond the rim
+
+**Ants already carry seed and set it down somewhere else** — shipped
+2026-09-12. A seed dropped outside the bubble does not die: it goes into the
+bank and **waits**, because outside is held.
+
+So your colony sows ground you have not quickened, and you find out what it
+did **when you later expand the circle and a wood comes up that your ants
+planted while you were not looking.** That is an emergent long-game payoff
+out of two shipped mechanisms, and it is the concrete answer to the owner's
+*"it is outpacing you"* — the way a garden outgrows your draw is that
+**something else is planting it faster than you can.**
+
+### The colony is the weight
+
+Per §2a: population is the frame cost and **cannot be banded**, because a
+brain has to run every tick. So head-count is a dial with a real price, and
+there is an *optimum* — big enough to harvest and to sow, small enough to run
+time fast over. It is different in every valley, and it is a live decision
+every session rather than a one-off.
+
+**Which finally gives "founding is rare and costly" a reason that is not
+arbitrary.** A colony is the most expensive thing you can put inside a bubble
+and you are committing to running it **forever**. The cost is not a gate on
+the founding screen; it is the standing bill.
+
+**Mouth, hands, weight.** How you eat, how you expand, and what you pay.
+
 ---
 
 ## 5. The druid's hands — and the axe
@@ -324,24 +436,58 @@ on the squash curve where the slope is one in a thousand, so the ±6 trail term
 moves a step by about ±0.003. If a druid's signature verb is "tell them where
 to go", that bug is on this game's critical path rather than in the backlog.
 
-### The trade the game is actually about
+### The trade the game is actually about — interest, not principal
 
-A druid with an axe is more interesting than a druid without one.
+**The first draft made felling the economy and the owner rejected it, rightly:**
+*"I don't think it would be fun to have to grow a bunch of plants to then chop
+them all down and the world is always barren."* A loop whose steady state is
+bare ground throws away the only thing the game is for.
 
-**Dead matter buys time.** Burn wood, break stone, get seconds. So the fastest
-way to fund the next bubble is to cut down the wood you just grew:
+**The owner's model instead**, and it is better: *"you seed an area, let it
+grow, and you are leaching on it, slowing it down, but it is outpacing you (if
+you are winning the game)."* Conceded as the economy. It is continuous rather
+than punctuated, the garden **persists**, and the win condition is legible at
+a glance — is it outgrowing your draw or not?
 
-> **Fell it and get time now, or leave it and get time forever — if it takes.**
+Three things that make it work, each using a mechanism that exists:
 
-That is the oldest trade in the genre, but here it is not a number on a card.
-It is a real tree on real ground that takes many strokes at a mature bole,
-which comes down as pieces with the foliage riding the piece it hung on, in a
-wood that either will or will not reproduce. Felling already works and already
-feels right; the game just has to *charge* for the standing tree.
+**Leach taxes income, never biomass.** If a draw removes cells it is slow
+logging and we are back to barren. Tax the *energy budget* the plant economy
+already runs, and an over-drawn stand stops **growing** and stops **seeding**
+while still standing. That is the right failure: your garden goes static and
+stops spreading, and it is recoverable. Push far enough and the engine kills
+it anyway, gradedly, through the mechanism it already has — a plant that
+cannot pay its maintenance is marked senescent and carried out at the species
+half-life.
 
-And the game should let you play it badly all the way to the end: strip the
-world for time, finish rich, with nothing alive. That is a real ending and it
-costs nothing to allow.
+**Leach is visible on the plants.** Colour is already a readout rather than
+decoration, so a stand you are drawing too hard from **pales**. Your draw rate
+is legible by looking at the wood, with no HUD at all, and it is graded rather
+than binary — the first law, for free.
+
+**Winning and losing are both one image: the radius.** If income funds the
+circle, a garden that outpaces your draw **visibly expands the live circle**,
+and your score is its radius with nothing on screen to read. The failure image
+is as good and as free: an over-drawn circle *contracts*, and the outer ring of
+your own wood freezes mid-life as the rim passes back over it — trees you grew,
+now held, standing dead still in the grey.
+
+### Where the axe survives, narrowed
+
+Not as the economy. As a **bank withdrawal**.
+
+> **Leach is interest. Felling is principal.**
+
+Leaching is a *rate*, and a rate cannot save you from a crisis. Felling
+converts standing capital into time **immediately**, at the cost of that
+plant's yield for ever. So it is what you do when you are about to go bankrupt,
+or to fund one push you cannot otherwise afford.
+
+That turns stripping the world from a *strategy* into a **death spiral**:
+behind, so you fell; less income, so further behind. The barren ending is still
+reachable and it is now reachable only by losing, which is exactly right — and
+the axe stays in the game, where it belongs, because felling already works and
+already feels good.
 
 ---
 
@@ -469,25 +615,40 @@ Working titles: **Quickening**, **The Held World**, **Still Country**,
 
 ## 10. Open questions for the owner
 
-1. **Is the inversion right?** Held world with live circles, or the original
-   slow world with fast circles? The held version is cheaper, prettier and
-   more thematically exact; the slow version keeps a world that is *alive* in
-   the background, which is a real thing to give up.
-2. **How much of the lab's instrument comes across?** Rosters, specimen shelf
-   and plain-speech genome are enormous assets and would take this well past
-   "watch a garden grow" — but they are a lot of screen, and the outdoor game
-   has kept its UI thin on purpose.
-3. **Does the axe stay?** The strip-mine-to-fund-the-garden trade is the
-   sharpest thing in here, and it is also the least druidic. It could be cut
-   and the game would still work.
-4. **Is a standing garden a base, or is the game a walk?** A permanent
-   quickening you return to is a colony-sim; a purely forward walk through a
-   dead country, leaving circles you will never see again, is a very different
-   and possibly better game.
-5. **Does founding a colony need a real ritual, or is it a menu?** The
-   measured founding cliff (5 against 39) says *when* you found matters as
-   much as *what* you found, which argues for a ritual with a cost and a
-   moment.
+**Two of the first draft's five are now settled** and are recorded here rather
+than asked again. **The inversion is right** — *"I loved the time inversion
+bubble idea"*. **The axe stays, narrowed**: felling is principal, leaching is
+interest (§5), and the barren ending is reachable only by losing.
+
+Live, in the order they change the most work:
+
+1. **Is a standing garden a base, or is the game a walk?** A permanent
+   quickening you return to makes this a colony-sim with a map of holdings; a
+   forward walk through a dead country, leaving circles you will never see
+   again, is a very different and possibly better game. Everything about
+   progression, saving and the map depends on the answer.
+2. **Do you drink from animals, or from the whole system?** §4a's strongest
+   claim is that a plant pays nothing and only animal metabolism produces what
+   a druid can take — which is what makes the colony structural rather than
+   decorative. The cost is that a wood alone is worthless, which may be too
+   harsh.
+3. **How much of the lab's instrument comes across?** Rosters, specimen shelf,
+   plain-speech genome, life record, lineage overlay. Enormous assets that
+   would take this well past *watch a garden grow* — and a lot of screen, in a
+   game whose UI has been kept thin on purpose.
+4. **Is the circle's radius the score?** Income funds the rim, so winning is
+   the circle growing and losing is it closing over your own wood. It is a
+   HUD-free readout of the whole economy; it also commits the game to circles
+   as the permanent shape of everything.
+5. **Does founding a colony need a ritual, or is it a menu?** The measured
+   founding cliff — 5 against 39 at frame 6,000 on the same bed — says *when*
+   you found matters as much as *what*, which argues for a moment with a cost
+   rather than a button that is always lit.
+
+Standing question, not yet argued: **is there anything in the grey?** A held
+world with something in it that does not need time would be a strong
+antagonist, and the engine has `ThreatNear`, `Attack` and the alarm plane
+already. Not pushed — it is a whole second design.
 
 ## 11. What could kill this
 

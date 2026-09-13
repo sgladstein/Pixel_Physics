@@ -69,10 +69,13 @@ by somebody about to try it on creatures.
   already most of it — the outdoor world is the stage, the lab is the
   interface, and the missing piece is a **price**, which the owner's own lab
   ruling (*"give me the tools... that is the game"*) leaves out by design.
-  Three findings drive the design rather than costing it: **a box costs 0.006
-  ms empty and 7.03 ms with eight plants in it**, so a held world is the
-  engine's cheap configuration and *a rich place is expensive to run fast* —
-  pacing for free; **`frame::step`'s "more ticks is exact, faster subsystems is
+  Three findings drive the design rather than costing it: **an empty lab runs
+  at 1024x**, so a held world is the engine's cheap configuration; **plant cost
+  can be banded and animal cost cannot** (`PLANT_SIZE_CADENCE` divides cost
+  exactly, 2.73x median over ten seeds; *"an ant's tick is its brain rather
+  than an economy that can run slower"*), which makes **a populous place heavy
+  and a grown one light** — the throttle is a population counter, and that is
+  what makes the colony structural rather than resident; **`frame::step`'s "more ticks is exact, faster subsystems is
   a behaviour change"** (median 0.61x cells at `growth_slowdown: 4`), which
   makes *regional tick* the only admissible implementation; and the **seed
   bank** (~9 waiting seeds per standing plant), which dissolves the
