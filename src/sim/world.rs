@@ -1970,6 +1970,42 @@ pub struct SoilWaterStats {
     pub changed: u64,
 }
 
+/// **A circle of running time in a held world** — the player's verb, and the
+/// unit the whole held-world economy is priced in
+/// (`Reports/held-world-game-concept-2026-09-13.md`).
+///
+/// Radius and rate are the two dials the owner settled on 2026-09-13: you buy
+/// a wide slow circle or a narrow fast one out of one pool. Only the radius
+/// lives here — the rate is how many times a caller steps the world, per
+/// `sim::frame::step`'s standing rule that *more ticks is exact where faster
+/// subsystems is a behaviour change*.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Quickening {
+    pub x: i32,
+    pub y: i32,
+    pub r: i32,
+}
+
+impl Quickening {
+    /// Squared-distance test, so nothing here needs a square root and the
+    /// boundary is exact in integers.
+    ///
+    /// **The drawn rim is deliberately not this circle.** A constant-level
+    /// disc reads as a soap bubble — the owner rejected exactly that shape on
+    /// sight for foliage (`Reports/dead-ends.md`), and the repair recorded
+    /// there is a coherent value noise keyed to *world* position so it does
+    /// not crawl with the camera. That belongs in the renderer; the
+    /// simulation's own membership stays a clean circle, because a ragged
+    /// gate would make every quantity measured across it depend on the
+    /// texture.
+    #[inline]
+    pub fn contains(&self, x: i32, y: i32) -> bool {
+        let (dx, dy) = (x - self.x, y - self.y);
+        dx * dx + dy * dy <= self.r * self.r
+    }
+}
+
+
 #[derive(Clone)]
 pub struct World {
     chunks: ChunkGrid,
@@ -3631,6 +3667,28 @@ pub struct World {
     ///
     /// Defaults **off**, so nothing changes until it is asked for.
     pub plant_size_cadence: bool,
+    /// **Whether the world is *held* — nothing grows, breeds, ages, rots or
+    /// weathers except inside a [`Quickening`].**
+    ///
+    /// The premise of the held-world game concept
+    /// (`Reports/held-world-game-concept-2026-09-13.md`): the land is not
+    /// running slowly, it is stopped, and the player carries the only time
+    /// there is. **Physics is untouched** — rock still falls, water still
+    /// flows, a pick still cuts — exactly as `sim::clock`'s five rate knobs
+    /// leave the CA sweep alone. What this gates is *life*: the active-site
+    /// schedule and the per-organism economy.
+    ///
+    /// Defaults **off**, so every existing world, test, harness and
+    /// acceptance scene is byte-identical to the tree before this existed.
+    pub held: bool,
+    /// **Where time is running**, when [`held`](Self::held) is set. Empty is
+    /// a legal and completely stopped world.
+    ///
+    /// A `Vec` rather than one circle because the concept's endgame is a map
+    /// of standing gardens, and because the cost of testing membership is
+    /// linear in a list the player is expected to keep short — the frame
+    /// budget is what caps it, which is the whole point of that design.
+    pub quickenings: Vec<Quickening>,
     /// **Whether soil levels its water sideways as readily as it does when
     /// it is dry.** `update::update_soil_water`'s capillary exchange, and
     /// the reason the bed stands in visible columns under the moisture
@@ -4643,6 +4701,8 @@ impl World {
             soil_capillary_levels: false,
             plant_bending: true,
             plant_size_cadence: false,
+            held: false,
+            quickenings: Vec::new(),
             developmental_key: super::organism::DevelopmentalKey::default(),
             deepest_generation: 0,
             deepest_animal_generation: 0,
@@ -4728,6 +4788,51 @@ impl World {
     /// `scheduler::step` for why growth reads/writes go through the
     /// ordinary `World::get`/`set` rather than needing any of M5's
     /// parallel-sweep machinery.
+    /// **Does time run at this cell?** The one question every held-world
+    /// gate asks, and the only place the rule is written.
+    ///
+    /// `true` everywhere when the world is not [`held`](Self::held), which is
+    /// what keeps this free for every existing caller: one bool test, and the
+    /// `quickenings` list is never walked.
+    #[inline]
+    pub fn time_runs_at(&self, x: i32, y: i32) -> bool {
+        if !self.held {
+            return true;
+        }
+        self.quickenings.iter().any(|q| q.contains(x, y))
+    }
+
+    /// [`time_runs_at`](Self::time_runs_at) for a whole organism, resolved at
+    /// **one** cell rather than by walking its body.
+    ///
+    /// A creature answers at its head, which is the cell its own tick is
+    /// keyed on anyway. A plant answers at whichever cell its map yields
+    /// first — arbitrary, but `PosMap` is `fxhash`-backed and unrandomised,
+    /// so it is the *same* arbitrary cell run to run, and a held plant does
+    /// not mutate, so the choice cannot wobble underneath the gate.
+    ///
+    /// **Known gap, deliberately not solved here: a plant straddling a rim
+    /// is all-in or all-out.** Whether a half-quickened tree should grow on
+    /// one side is a design question the concept has not answered, and
+    /// guessing at it in a resolver would bury the decision.
+    pub fn time_runs_for_organism(&self, organism: u16) -> bool {
+        if !self.held {
+            return true;
+        }
+        match self.organism(organism) {
+            // No cells anywhere is not "held" -- it is an empty slot on its
+            // way to reclamation, and it must not be gated out of reaching
+            // it. See `plant::step_organisms`.
+            Some(state) => state
+                .chain
+                .first()
+                .copied()
+                .or_else(|| state.cells.keys().next().copied())
+                .is_none_or(|(x, y)| self.time_runs_at(x, y)),
+            None => true,
+        }
+    }
+
     pub fn step_active_sites(&mut self) {
         scheduler::step(self);
         // Mature organism cells are no longer on that schedule at all --
