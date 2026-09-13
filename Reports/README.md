@@ -3251,6 +3251,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ns/px. Author's style pick is *illustrated*: the only look that answers
   "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
   style question deserves its own round and what it does first. Two cards.
+- [zoom-out-resolution-2026-09-13.md](zoom-out-resolution-2026-09-13.md)
+  — **measurement, 2026-09-13, verdicts pending.** What it costs to give the
+  zoomed-out view its own pixels, for the owner's *"why my screen resolution
+  can solve all of the pixels, why cannot there just be more pixels when you
+  zoom out?"*. The renderer draws into a fixed 512x320 buffer and the screen
+  magnifies it, so the widest zoom-out discards **94% of the cells in view**.
+  `examples/zoomout_pixels.rs` holds the span fixed and trades stride against
+  resolution — `pixels x stride²` constant, so cell reads are equal and only
+  per-pixel work varies. **16x the pixels costs 1.8–2.1x the whole frame, not
+  16x**, and the x2 rung carries 4x the cells for 1.31–1.37x. The brief's
+  hypothesis (the dirty-rect skip absorbs it) is **wrong outdoors** — the sky
+  moves, so the skip never fires there and the moving number governs; in the
+  lab it fires and the cost is flat across a 16x pixel range. Two cards, and
+  they do not agree: the lab plainly gains (Coverage keeps a one-cell stem but
+  draws it four cells wide), outdoor rock arguably loses its grain to
+  smoothness. Says what to build and what the HUD costs.
 - [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
   — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
   eighteen pull requests from nine cloud lanes, merged in one order because
@@ -3315,10 +3331,41 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
-- [dead-ends.md](dead-ends.md) — **live index.** 546 tried-and-reverted
+- [dead-ends.md](dead-ends.md) — **live index.** 808 tried-and-reverted (2026-09-13;
+  the live count is the sum of its `##` section headings, which
+  `deadendindex.py --check` gates, so read that rather than this number)
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [dead-ends-revival-2026-09-11.md](dead-ends-revival-2026-09-11.md) — **the
+  sweep `dead-ends.md` had never had, complete; numbers revised 2026-09-12.**
+  Every entry carries a verdict: **563 are structurally dead, 109 reject an
+  instrument rather than a mechanism, and 49 are revival candidates** — not the
+  118 the first pass reported. Both error rates are now measured and they point
+  opposite ways. Sampling `DEAD` reopens 3 of 40, replicated at 4 of 40 and
+  pooling to 7 of 80 — but six of those seven are *stale* rather than revivable,
+  the world having moved with no write-back. Re-rating the **candidates** blind
+  against an equal number of `DEAD` controls confirmed only 37%, with 4 of 106
+  controls reopened, and adjudicating all 71 disagreements against source took
+  the list to 49. `CONFOUNDED` fell 57 → 19 and `SUSPECT-INSTRUMENT` 10 → 1,
+  almost all of the latter into `META`. The durable value is the nine register
+  write-backs and the `creatures:039` correction — its named artifact arrived
+  while the condition stayed unmet, which no textual rule can see. Read with
+  [dead-ends.md](dead-ends.md); the machine-readable results are
+  in [data/dead-ends-triage/](data/dead-ends-triage/).
+- [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **screening
+  complete; the resumable state.** Which of `dead-ends.md`'s rejections were the
+  *idea* being wrong, and which were the test being wrong, the experiment
+  confounded, or the condition since changed. 97% of entries describe a world
+  older than the 2026-09-06 coupling day, and 708 name a re-test condition
+  nobody had checked. **Every entry now carries a verdict**, `candidates.tsv` is
+  generated from `screened.tsv` rather than maintained, and `deadendindex.py
+  --touching` closes half the loop the sweep found open — it surfaces entries
+  whose clause names an identifier your branch *adds*, at 2-of-5 recall, so its
+  silence is not evidence. What is left is ranking the 49 that survived
+  adjudication. Pick it up from this file — it
+  carries what a later session must not re-derive, including the two rubric
+  rules that are under-applied by default.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
