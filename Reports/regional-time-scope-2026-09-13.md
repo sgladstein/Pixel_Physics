@@ -96,6 +96,14 @@ constraint on anything that replaces the clock: **a second counter that
 | **Age / duration** — `frame - born_frame`, `frame - since` | 8 | **Yes, and this is the sharp one** (§4a) |
 | **Phase clock** — `sky_frame`, `weather_frame`, `lightning_at` | 6 (+ `Clock`) | **No.** Legitimately global, and in a held world already stopped |
 | **UI timeouts** — toast, shake-flash, druid message | 7 | **No.** Player time |
+| *comments* | 29 | — |
+| *residual* — lab sampling cursors, local `let frame = world.frame`, cooldowns | 39 | Mostly rebinds that then fall into a class above; none is a schedule |
+
+**The classes do not sum to 163 without that residual row, and it is there
+rather than folded away**: it is the bucket a classifier cannot decide, mostly
+`let frame = world.frame;` rebinds whose real class is wherever `frame` is
+used two lines later, plus the lab's own sampling cursors. It was read, not
+counted and dropped. Nothing in it schedules anything.
 
 Two things the census settles that reading the code casually does not.
 
