@@ -784,30 +784,137 @@ predator is not selection pressure** (`dead-ends.md`:986) — it must be able to
 being unable to resolve a 31-cell trail, and a bearing to a known bubble centre
 is a cast like `KinBearing`, not a lateral difference of coarse-field samples.
 
-### It cannot be beaten by fighting, and the measurements say why
+### It CAN be beaten by fighting — this section's first draft was wrong
 
-Two findings make a straight fight the wrong answer:
+*Superseded 2026-09-13 by the owner, who declined the conclusion and asked for
+the fight to be fixed instead. Read at the code rather than at the summary, he
+is right, the numbers I quoted were from a configuration that no longer ships,
+and **most of the fix already landed**. The withdrawn claim is left standing
+below the correction because the reasoning that produced it is the failure
+mode, not the conclusion.*
 
-- **Ant-versus-ant does not grade.** Damage is `(bite/armour)²`, best authored
-  armour is 0.50 against a bite of 1.00, so it is **one-shot at every allele**
-  (`lanes/creature-fight-handoff-2026-09-06.md`). A binary outcome fails the
-  first law outright.
-- **An inedible predator collapses the colony** 17–21 ants → 3–5 on **4 of 4
-  seeds** (`selective-environments-2026-09-05.md`). Toughness is not a knob
-  with a safe setting; it was never swept against the graded bite.
+**What I got wrong, precisely.** I quoted `(bite/armour)²` giving 4.0 at
+armour 0.50 against a bite of 1.00. **The ratio is clamped**:
 
-**So you do not kill it. You slow it, burn it, or route around it**, and the
-verbs are the druid's rather than the colony's:
+```rust
+let ratio = if armour <= 0.0 { 1.0 } else { (gut.bite / armour).clamp(0.0, 1.0) };
+let damage = ratio * ratio;
+```
+
+Damage can never exceed 1.0, and 1.0 is *one cell*, not a kill. So the curve
+does not blow up; it saturates.
+
+**The curve is already graded, and there is a test asserting it.**
+`damage(0.5, 1.0) == 0.25` — a mouth half the plate makes a quarter of the
+progress, four bites to the cell — with the assertion *"the curve must be
+quadratic in the ratio"* and a continuity check at `bite == armour`
+(`creature.rs:13732-13742`).
+
+**And the armour range I quoted is from before the fix.**
+`creature-fight-handoff-2026-09-06.md:197` says *"best armour an ant lineage
+reaches 0.25 x 2.0 = 0.50"* — plate max **2.0**, which is `trait_reach` **1**.
+The tree ships `TRAIT_REACH_DEFAULT = TRAIT_REACH_MAX = 8.0`, landed **the same
+day, in response to exactly that finding**, and at reach 8 the plate runs
+**0.1 to 9.0**, so an ant lineage reaches `0.25 x 9.0 =` **2.25**. I quoted the
+disease and missed the cure sitting two files away.
+
+**What is actually still true, and it is a much narrower claim.**
+`ARMS_RACE_SLOTS = [TRAIT_ARMOUR, TRAIT_DIG_FORCE]` widens *both* together, so
+**max-jaw versus max-plate stays 1.0 at every reach — the ratio is
+scale-invariant**, and the shipped ant sits at the neutral allele on both, where
+bite ≈ armour and the first bite takes the cell. So the one-shot is a
+**starting condition**, not a law: the graded middle of the curve is real,
+tested, and simply unvisited, because nothing has diverged onto it. Reach 8
+buys the *spread between lineages*, and a lineage moves 0.15 of a slot per
+birth over ~8,600-frame generations.
+
+### Four things already in the tree that make a colony a weapon
+
+1. **Swarming works, and the damage banks on the victim, not the attacker.**
+   `st.gnawed += damage` accumulates on the target across every mouth
+   (`creature.rs:5952`), so **many weak ants bring down what no single ant
+   can**. Tested in a running world by
+   `a_swarm_gets_through_what_one_mouth_cannot`, deliberately *not* as
+   arithmetic — the test's own comment records that writing it as arithmetic
+   was a tautology that *"would pass just as happily with the damage banked on
+   the ATTACKER, which is the one arrangement under which swarming does not
+   work."*
+2. **A long body has a middle; a two-cell body does not.**
+   `a_bite_in_the_middle_of_a_body_severs_it_rather_than_killing_it` and
+   `a_bite_at_the_tail_shortens_and_does_not_sever` — a long animal loses its
+   tail and lives. The shipped worker is `Chain(2)` and can only be alive or
+   dead. **This is the first law at the level of the body plan**, and
+   `ant_long.ron` and `longant.ron` already exist.
+3. **Materials are an armour ladder that needs no code.** ant **0.25**,
+   `chitin_pale` **0.5**, `chitin_mid` **0.7**, beetle **0.8**. A soldier whose
+   cells are chitin rather than ant flesh is in the graded region at generation
+   zero, with no evolution required and no constant retuned.
+4. **`Caution` is a working consumer no species authors** — footing up to 1.2,
+   everything sitting at 0.6.
+
+**So what is missing is authorship, not machinery.** Nothing in any species
+file wires `ThreatNear`/`ThreatBearing` to `Attack`; the only route in is
+`Alarm`, which only a landed bite raises. Give a soldier the wire, a chitin
+body and a longer chain and the fight the engine already implements starts
+happening.
+
+### The design this opens, which is better than "you cannot fight it"
+
+**The colony has two jobs and they trade against each other in the game's one
+currency.** Workers are small, cheap, fast: your income and your reach.
+Soldiers are chitin, long, slow, expensive: your defence. **And both count
+toward the population that makes time heavy** (§2a), so a standing army is
+paid for in exactly the resource the garden is trying to earn. Guns against
+butter, denominated in time, with no second currency invented.
+
+**And the swarm rule means the answer is never "build the biggest soldier"** —
+it is *enough mouths*, which is what an ant colony should be, and it keeps the
+arms race off the one axis (max jaw vs max plate) that is scale-invariant and
+therefore unwinnable.
+
+**The creep is killable, and killing it costs you the two things the game is
+about**: animals, which are your income, and animals, which are your weight.
+
+### And the druid still fights it his own way
+
+The colony being a real weapon does not retire the druid's half — it means the
+two answer different problems, and a fight uses both.
 
 - **Shrink the bubble** and it falls back toward held time. It does not die, it
-  creeps again. Graded, reversible, and it uses a dial that already exists.
+  creeps again. Reversible, graded, and it uses the dial you set your economy
+  with — a retreat that costs you income is a proper decision.
 - **Fire.** The only authored non-starvation killer that reaches both kingdoms,
-  and corpses burn (`fire.rs:632-650`). A druid cutting a firebreak against a
-  slow thing is the best verb in this whole document.
+  and corpses burn (`fire.rs:632-650`). Cutting a firebreak against a slow
+  thing is the best verb in this document, and it is the one that does not
+  spend ants.
 - **The world.** Drop a ceiling on it with the hammer, wall it in, flood it.
-  This engine's fight should be terrain and time, never a health bar.
-- **The colony delays it**, and cannot win. Their deaths are a real loss because
-  population is both your income and your weight.
+  A fight in this engine should be terrain and time before it is teeth.
+- **Alarm and scent** to put the soldiers where you need them — the hand-verbs
+  are how you *command*, which is the difference between owning a colony and
+  watching one.
+
+**The trade between the two halves is the interesting part.** Ants are the
+cheap answer and they cost income and weight. Fire and terrain are the free
+answer and they cost the garden you were growing.
+
+### What is genuinely still parked
+
+**The inedible-predator collapse** — 17–21 ants → 3–5 on 4 of 4 seeds
+(`selective-environments-2026-09-05.md`) — is real and is **unswept since the
+bite became graded and the reach became 8**. It is the precondition on giving
+the creep any armour at all, and it is a sweep rather than a wall. Per
+`CLAUDE.md`: set the bar from measurement, and run the seed sweep *before*
+changing a model over procedural content, not after.
+
+**The withdrawn claim, kept for its failure mode.** The first draft read two
+measured findings — a one-shot fight and a colony collapse — and concluded the
+mechanic was impossible. Both numbers were real. Both were taken under a
+configuration the tree had already moved off, and the survey that supplied them
+said so in as many words: *"it was binary then; the graded bite means the number
+can now move, but has never been swept."* **Treating an unswept parameter as a
+settled impossibility is the error**, and it is a variant of this file's
+worst-recurring failure: a number that is arithmetically correct and answers a
+different question than the one asked.
 
 ### What it does instead of biting
 

@@ -98,10 +98,19 @@ by somebody about to try it on creatures.
   time* — is **rejected by `dead-ends.md`'s protection-as-exemption entry**
   (four support models died that way) and replaced by a capacity: it is not
   stopped by held time, merely slowed by it, **so your speed dial is also its
-  speed dial** and the quickening is what it homes on. It cannot be fought —
-  ant-vs-ant damage is one-shot at every allele, and an inedible predator
-  collapsed the colony on 4 of 4 seeds — so it is slowed, burned or routed
-  around, and what it does instead of biting is **un-quicken**. Also names two
+  speed dial** and the quickening is what it homes on. **A first draft said it could not be
+  fought and the owner declined that; read at the code he is right and the
+  quoted numbers were pre-fix** — the damage ratio is *clamped*, the quadratic
+  curve is graded and tested, and the "best armour 0.50" figure is at
+  `trait_reach` 1 against a tree that ships **8** (plate 0.1–9.0), landed the
+  same day in response to that very finding. Swarm damage banks on the
+  **victim**, so many weak mouths bring down what one cannot; a long body
+  severs and shortens where a `Chain(2)` worker can only live or die; and
+  `chitin_pale`/`chitin_mid` are an armour ladder needing no code. **What is
+  missing is authorship, not machinery** — nothing wires `ThreatNear` to
+  `Attack`. So the colony is a weapon, workers and soldiers trade against each
+  other in the game's one currency, and what the creep does instead of biting
+  is **un-quicken**. Also names two
   things it makes reachable that nothing else has: alarm without paying every
   ant the measured 4%-of-a-life eye, and a real reason for `Caution`, a
   shipped working lever **no species has ever authored**.
