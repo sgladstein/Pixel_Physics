@@ -67,7 +67,12 @@ build he asked for or a landing needs. **`labforage`, `labstats` and
 fields first, append yours, never interleave. And, not to be re-litigated:
 `nectar_only` stays (a plant specialist's mouth eats the plant, no gut setting
 avoids it); trophallaxis is a brain output the genome evolves, never a rule;
-**rest is the absence of a reason to act**; a queen is three authored values
+**rest is the absence of a reason to act** -- *but the owner re-litigated
+his own ruling on 2026-09-13: "How long do they go without asking to move. If
+they never ask to move that is still stuck, it is just because the rest
+mechanism needs fixing." Rest still needs a reason; **standing still long
+enough is now one of them** (`brain::BrainInput::Stillness`, round 33). The
+old sentence is not withdrawn, it is completed*; a queen is three authored values
 over existing mechanisms, **never a type the engine knows**; the breeding trade
 ships graded only after `GRADED_MAX_SUPPRESSION` is swept; ants are not the
 pollinators; the eye is heritable (`TRAIT_SIGHT_RANGE`). Direction: *the colony
