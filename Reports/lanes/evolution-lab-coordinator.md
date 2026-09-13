@@ -83,58 +83,42 @@ that gardens survives*.
 §18.5): the **~21% in the kernel and rayon**, then the moisture pass, then the
 pheromone `roundf`, which is **not** behaviour-free. **Rebuild the baseline binary after every merge.**
 
-## Rounds twenty-nine and thirty, 2026-09-12
+## Rounds twenty-nine and thirty, 2026-09-12 — archived
 
-*Records: [`../evolution-lab-round-29-2026-09-12.md`](../evolution-lab-round-29-2026-09-12.md)
-(18 PRs; designs `../evolution-lab-flight-design-2026-09-11.md`,
-`../evolution-lab-late-game-design-2026-09-12.md`,
-`../evolution-lab-fission-design-2026-09-12.md`) and
-[`../evolution-lab-round-30-2026-09-12.md`](../evolution-lab-round-30-2026-09-12.md)
-(#344–#346, #352, #355, #359, #362, #363).*
-
-**What still binds.** **Every played-bed figure past ~100,000 frames taken
-before #347 is stale** (nest scent drift 0.15); **a control shorter than the
-mechanism's onset proves nothing.** **The nest is not where the colony lives**
-on two beds in three (#350): budding, cohesion and "time away turns enemy" all
-wait on that. **The flitter is caged by the canopy, not broken in flight**
-(§Z15). **The long-ant pile is not visibly fixed** — owner's verdict, and the
-fix arm read *worse*. **A card paired against a census passes `rain=off`, and
-its `meta` is measured in the window it shows.** **Survival was in neither
-colony lane's sweep and it is the variable that moves**: 2 of 384 deaths are
-attributable to an attacker and two fifths were a plant written into the ant's
-head (§Z16, repaired in r29). **Green CI is not mergeability**; the harness
-rules round 30 paid for are in [`../session-programs.md`](../session-programs.md).
-(#359's own justification was re-taken and replaced in r31 — see below.)
+*Both records are in [`../evolution-lab-rounds-archive.md`](../evolution-lab-rounds-archive.md).
+**What still binds is here; the narrative is there.*** Every played-bed figure
+past ~100,000 frames taken **before #347** is stale (nest scent drift 0.15), and
+**a control shorter than the mechanism's onset proves nothing**. **The nest is
+not where the colony lives** on two beds in three (#350) — budding, cohesion and
+"time away turns enemy" all wait on that. **The flitter is caged by the canopy,
+not broken in flight** (§Z15). **The long-ant pile is not visibly fixed.** **A
+card paired against a census passes `rain=off`, and its `meta` is measured in
+the window it shows.** **Survival was in neither colony lane's sweep and it is
+the variable that moves.** **Green CI is not mergeability**
+([`../session-programs.md`](../session-programs.md)).
 
 ## Round thirty-one, 2026-09-13 — the bed the complaints come from does not exist here
 
-*Record: [`../evolution-lab-round-31-2026-09-13.md`](../evolution-lab-round-31-2026-09-13.md);
-brief `../evolution-lab-round-31-brief-2026-09-13.md`. Landed #370–#376.*
+*Record: [`../evolution-lab-round-31-2026-09-13.md`](../evolution-lab-round-31-2026-09-13.md).
+Landed #370–#376, #379, #380.*
 
-**What binds, and the first governs the rest.** **Nobody here can build the
-owner's bed, so a card is a picture of a different world.** He plays 1000+ long
-ants; the shipped bed's median at 200,000 frames is **111**, max over 75 runs
-**408** (whole sweep 1,067, once). His verdict on the most developed nest
-anyone has rendered — 74 ants — was *"none of this reads as an ant hill... just
-herbs growing in dirt"*. **Floating debris, the stripped ground that never
-recovers and the resting-ants complaint are all reports from a bed never
-reproduced here**, so a null from a card means nothing until one exists.
-`CLAUDE.md`'s *check the scene still contains the situation* has a second half:
-**a scene can fail to contain a defect you are trying to remove**, and then a
-working fix and a dead one look identical. **Round 32's task 1**; everything
-visual waits on it.
+**Nobody here can build the owner's bed, so a card is a picture of a different
+world.** He plays 1000+ long ants; the shipped bed's median at 200,000 frames
+is **111**, max over 75 runs **408**. **A scene can fail to contain a defect
+you are trying to remove**, and then a working fix and a dead one look
+identical. *Round 32 reframed this usefully: a bed that sits past the knee from
+100 ants is the **defect in a box**, which is better than a replica.*
 
-**The chronicle is the way in** (#374) — it records the player's own actions
-and whether the box was slow, and autosaves. **One played session, the newest
+**The chronicle is the way in** (#374) — it records the player's own actions and
+whether the box was slow, and autosaves. **One played session, the newest
 `.txt` under `assets/chronicles/`, is what a reproducing bed is built from.**
 
 **`life_half_life: 40000` survives on a floor, not on population** (#376, 75
-runs): against an immortal colony it moves nothing (p ≥ 0.39 everywhere),
-halving to 20,000 kills 4 of 12 colonies. **§Z6 overturned as written** — 26 of
-27 runs hold a colony at 200,000 frames — left OPEN narrower. **The dig gate is
-rewritten**: not #359's *the colony lives* (12 of 12 both arms now) but *the
-bed stays green*, 10 of 12 seeds, p = 0.039. **Removing death makes the colony
-hungrier, not larger:** starvation +58%.
+runs): halving to 20,000 kills 4 of 12 colonies; against an immortal colony it
+moves nothing. **§Z6 overturned as written.** **The dig gate is rewritten** —
+not *the colony lives* (12 of 12 both arms) but *the bed stays green*, 10 of 12
+seeds, p = 0.039. **Removing death makes the colony hungrier, not larger:**
+starvation +58%.
 
 **Adding a material silently breaks every census that names materials.**
 `spoil` broke **five**; the lane found three, CI the rest, and **both misses
@@ -163,20 +147,57 @@ only copy, so write it into the register rather than pointing at the card.**
 
 **Ask "did it fire at all" of a negative verdict, not only of a harness.** All
 three idle animations read as failures and the mechanism had mostly not run —
-its delay counted draw calls, so **8 of 22** long ants animated in the window
-he judged (21 of 22 fixed), live in the real game too. **The check is not "is
-the effect too subtle" but "how many animals did it reach".**
+its delay counted draw calls, so **8 of 22** long ants animated in the window he
+judged (21 of 22 fixed). **The check is not "is the effect too subtle" but "how
+many animals did it reach".**
 
-**The review queue is for visual evaluations ONLY.** Owner ruling, 2026-09-13,
-on a card that asked him to send a chronicle file: *"This is a bad use of the
-review tool. This is just for needed visual evaluations. General questions or
-requests should be sent to the coordinating agent to tell me."* So a lane that
-wants a file, an answer, a preference or a decision **routes it through the
-coordinator, who asks in chat**. A card is for something he has to *look* at.
+**The review queue is for visual evaluations ONLY.** Owner ruling: *"General
+questions or requests should be sent to the coordinating agent to tell me."* A
+lane wanting a file, an answer or a decision **routes it through the
+coordinator**. **Read a card with `get <id>`, never off `inbox`** — `inbox` is a
+filtered view, and a card carrying markers reads as having none off it. **A card
+can be archived carrying no stored response** even after he answers, so write
+the verdict into the record rather than pointing at the card.
 
 **Before filing a bug run `python3 scripts/bugindex.py --branches`, not
-`--check`**: `--check` reads one working tree and passes on a letter already
-live on an unlanded branch, which is how §Z16 got filed twice.
+`--check`.**
+
+## Round thirty-two, 2026-09-13 — the performance round
+
+*Record: [`../evolution-lab-round-32-2026-09-13.md`](../evolution-lab-round-32-2026-09-13.md);
+brief `../evolution-lab-round-32-brief-2026-09-13.md`. Landed #385, #387, #388,
+#389; #386 accepted. Owner: **"the biggest issue is the performance after the
+creature numbers get high and that is our #1 priority by far."***
+
+**The creature cost is not linear, and the knee is the finding.** An ant costs
+**~0.3–0.5 µs below ~400 of them and ~2.6–2.9 µs above ~600** — the played
+log's `1.0 ms + 2.1 µs/ant` averages two regimes and describes neither. **The
+~1.0 ms floor is measured** (three zero-ant samples), not fitted; a regression
+puts that intercept anywhere in 234–930 µs. **Calibrate any creature-cost
+harness above 800 ants**: below the knee it reads ~0.3 and looks like a broken
+harness. **It is ant count, not session age** — 51 pairs in the owner's own log
+run later-and-cheaper (frame 340k, 2,334 ants, 6,300 µs against frame 410k,
+1,252 ants, 3,500 µs), so *looking was cheaper than the sweep the coordinator
+demanded*.
+
+**The cost is diffuse — 57,314 instructions per decision, no term over 31%, so
+no lever halves it.** The one that would: **the creature pass has no
+parallelism**, worth more than everything else combined at ~86% of the frame on
+one core. **`MOISTURE_MARKS=cells` is built and worth 1.21–1.40x whole-frame**,
+owing only its seed sweep.
+
+**A repair can remove the picture and leave the mechanism, and the inherited
+census will hide it** (§Z18/#221: the standing heap is gone via #379's footing
+rule, the 116-row lift was untouched). **Census the mechanism, not its
+consequence.** **§Z13 is closed: the marked ants are _resting_** — never asked
+to move; the two-cell ant rests as long. The body got big enough to see.
+
+**A *look* ships default-off pending his eye; *ship everything on* governs
+behaviours.** The zoom-out buffer carries every cell at 1.66x the frame, and
+its own cards disagree — the lab wins, outdoors the grain goes smooth against a
+chunky house style. **Three cards open on `board=zoom`.** **Verify live**: it
+panicked in the real app under xvfb where all 1,687 tests passed, because every
+test applied the budget before drawing and `main.rs` did not.
 
 ## The earlier rounds
 
