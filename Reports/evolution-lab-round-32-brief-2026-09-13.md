@@ -110,14 +110,29 @@ first is closed and was most of it, and the second is now testable for the
 first time on a card where the mechanism actually runs. **The third is
 untouched and is the one that matters**, because if those ants are genuinely
 stuck then §Z13's "look problem, not a walk bug" is wrong and the walk is. It
-could not be checked in round 31 for a reason worth knowing: **the owner
-placed three markers on the card and the annotations never reached the shared
-queue** — both cards read `annotations: []`, while his free-text comment came
-through fine. So **do not design this round's card around marker placement.**
-Check it instead from the inside: `HeadBlock`/`head_block` and `moves_blocked`
-in `src/sim/creature.rs`, on full-length long ants, over a long span — a
-resting ant and a blocked one are trivially separable by counter and not at
-all separable by eye.
+**has its marker coordinates, and round 31 said otherwise and was wrong.**
+Round 31's own idle card (`20260913T034419970Z-34d562`) is archived carrying no
+stored response at all, so nothing is retrievable from it. But **round 29's
+card `20260912T045951545Z-6931d4` is the same complaint on the same animals,
+and `get` returns its three markers in full**, normalised to the image:
+
+| x | y | the owner's note |
+|---|---|---|
+| 0.9078 | 0.6414 | *"This the most prominent thing that shows no movement in both images"* |
+| 0.6347 | 0.5325 | *"also no movement"* |
+| 0.3773 | 0.6172 | *"no movement"* |
+
+Map those back through that card's own crop and zoom to world cells, find the
+animals standing there, and **check them from the inside**: `moves`,
+`moves_blocked`, `traffic_deferred`, and `HeadBlock`/`head_block`'s
+open-heading count in `src/sim/creature.rs`. A resting ant and a blocked one
+are trivially separable by counter and not at all separable by eye.
+
+**Read cards with `get <id>`, never off `inbox`.** `inbox` is a filtered view,
+not a listing: measured 2026-09-13, all three cards named above are absent from
+it entirely while `get` returns them, and off `inbox` the round-29 card reads
+as having no annotations. Round 31 concluded *"annotations do not survive the
+queue"* from exactly that mistake, and told a lane the check was impossible.
 
 **And a resting ant's idle streaks run 33–83 stops of 900 frames**, so a card
 must be long enough to show both the animation cycling and an animal that has
@@ -193,10 +208,17 @@ register section under a letter `bugindex.py --branches` says is free.**
   task 4 above is the other half — a card whose mechanism did not run and a
   card whose mechanism does not work are the same picture and the same
   verdict.
-- **A card's free-text comment survives the review queue; its annotations do
-  not** (measured 2026-09-13, two cards, `annotations: []` after the owner
-  placed three markers). Never make a card's answer depend on marker
-  placement.
+- **`review.py inbox` is a filtered view, not a listing of the queue, and
+  reading a verdict off it gives wrong answers.** Measured 2026-09-13: three
+  cards, two posted that day, are absent from `inbox` entirely while
+  `get <id>` returns them in full — and off `inbox` a card carrying three
+  marker annotations reads as having none. **`get <id>` is the only
+  authoritative read.** Round 31 got this wrong in the other direction first
+  and published "annotations do not survive the queue", which is false.
+- **A card can be archived carrying no stored response at all** even after the
+  owner answers it — round 31's idle card is. When that happens the verdict he
+  relayed in chat is the only copy, so write it into the register rather than
+  pointing at the card.
 - **The coordinator note is 12,859 B against its 12,000 B advisory cap**, up
   from 11,727, because round 31 produced six binding findings and five
   compression passes could not reach the cap without dropping a ruling.
