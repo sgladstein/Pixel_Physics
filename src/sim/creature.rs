@@ -2329,6 +2329,27 @@ pub fn sight_range_of(def: &CreatureDef, traits: &[f32; CREATURE_TRAITS]) -> i32
 pub fn organism_sight_range(world: &World, organism: u16, def: &CreatureDef) -> i32 {
     let Some(st) = world.organism(organism) else { return 0 };
     let base = sight_range_of(def, &expressed_traits(st, world.plasticity, world.trait_reach));
+    // **A blind animal does not pay for the body walk that scales an eye it
+    // does not have**, and this returns the identical value rather than an
+    // approximation of it: the expression below is `0.0 * mix`, which is
+    // `0.0` for every finite `mix`, and `f32::max(NaN, 0.0)` is `0.0`, so a
+    // NaN or infinite mix lands on 0 here too. Nothing about *which* animals
+    // cast changes -- `base` is still the full trait-shifted reach, so a
+    // lineage that evolves `TRAIT_SIGHT_RANGE` off a species authored at 0
+    // falls through to the mix exactly as before.
+    //
+    // It is worth a guard clause because `body_mix` walks the animal's whole
+    // body and this is called **twice per tick** -- once by `creature_tick`'s
+    // cast gate and once inside `sense` -- for every animal in the world,
+    // while every shipped species but the beetle authors `sight_range: 0`.
+    // Measured by callgrind on the played bed's species (`antcost`, 49,568
+    // creature ticks): 1,406 Ir per creature tick, 2.5% of the tick, spent
+    // deciding that a long ant still cannot see. `CLAUDE.md`'s "guard
+    // hot-path work at the call site that already has the data" -- the datum
+    // here is `base`, which the line above has just computed.
+    if base == 0 {
+        return 0;
+    }
     let mix = composition_mix(body_mix(world, organism).head, BASELINE_HEAD_FRAC);
     (base as f32 * mix).round().max(0.0) as i32
 }
@@ -3377,7 +3398,13 @@ pub fn colony_ant_site(world: &World, cx: i32, cursor_y: i32) -> Option<i32> {
 /// congested dead ends accumulate trail and the colony ossifies pointing
 /// into a wall.
 fn creature_tick(world: &mut World, x: i32, y: i32, organism: u16, def: &CreatureDef) -> Vec<ActiveSite> {
-    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name.clone()) else {
+    // **No `String` clone here, and that is not tidiness.** `materials` and
+    // `species` are separate fields of `World`, so both can be borrowed
+    // immutably at once and the clone that used to stand between them was
+    // buying nothing but a `malloc`/`free` pair per animal per tick. The
+    // `id_of` hash stays -- removing that wants a material id cached on the
+    // species, which is a registry change rather than a line.
+    let Some(material_id) = world.materials.id_of(&world.species.get(world.organism(organism).expect("live").species).name) else {
         return Vec::new();
     };
     let cell = world.get(x, y);

@@ -3268,6 +3268,34 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   merge-tree serialisation, bug-letter collisions) the next coordinator pays
   for otherwise.
 
+- [evolution-lab-creature-cost-2026-09-13.md](evolution-lab-creature-cost-2026-09-13.md)
+  — **what one ant costs per tick, and why halving it is not a tuning
+  problem.** The headless replay the playtest report asked for, on a quiet box
+  with threads pinned and arms round-robin inside one run. **The played
+  session's curve has a knee and this bed sits past it from a hundred ants** —
+  refitted from the raw log, the owner's marginal cost is **0.53 µs/ant** below
+  ~400 ants and **2.66 µs/ant** above, so the report's single 2.1 figure
+  averages two regimes and describes neither. This harness measures 5.14, which
+  matches his *expensive* regime through the box scalar and misses his cheap one
+  by four — making it the defect in a box rather than a replica. The
+  transferable quantity is the **share**: **86.5% of the frame is the
+  creatures** at 2,709 ants, read straight off the log. Settles ant count
+  against session age from that log alone — frame 340,000 at 2,334 ants costs
+  6,300 µs against frame 410,000 at 1,252 ants at 3,500, and 51 such pairs. **One ant's decision costs 57,314 instructions,
+  split five ways with no term over 31%**: `sense` 30%, `step_chain` 17%, the
+  brain 14%, `tumble` 13%, `act` 11%. Two hypotheses that would each have given
+  one big lever were refuted by measurement — the ants are not jammed (blocked
+  moves 3.8–7.9% against a 5.2% standing control), and the soil-moisture pass
+  that a callgrind profile put at 37.8% of all instructions is **flat in ant
+  count**, settled by one switch that moves the intercept 1.84x and the slope
+  by 0.3%. Lands two bit-identical cuts worth 2.41% of the tick and says plainly
+  that **2.41% is not measurable on this box** (the slope's own run-to-run
+  spread is 1.39x) and is not the answer. Prices the six things that would be:
+  the creature pass has **no parallelism at all** — one thread against four is
+  worth 1.09x on the background and 1.20x on the ants — and at the owner's
+  population that leaves ~86% of the frame single-threaded. Harness:
+  `examples/antcost.rs`.
+
 ## Licensing and distribution
 
 - [dependency-license-audit.md](dependency-license-audit.md) — **settled
