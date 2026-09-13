@@ -74,7 +74,68 @@ use pixel_physics::sim::frame;
 use pixel_physics::sim::material::MaterialKind;
 use pixel_physics::sim::particle::ParticleSystem;
 use pixel_physics::sim::player;
+use pixel_physics::render::Renderer;
 use pixel_physics::sim::world::World;
+
+/// **One fixed camera for every arm, sited from the shared bed.** Never a
+/// follow camera and never a per-arm crop: the owner has twice called a
+/// following shot unreadable, and a crop re-sited per arm is two different
+/// pictures rather than a pair. The centre is the centroid of the worked
+/// ground above the surface, which is `soilfork`'s own lesson -- a colony digs
+/// where its ants are, not where it was founded, and a crop on the founding
+/// column held none of the 250 roofed cells that harness had just counted.
+/// `mark` paints every worked (`self_supporting`) cell orange and nothing else.
+/// **A full replace on one flat colour, not a blend**, per `CLAUDE.md`: a
+/// magnitude-scaled tint over brown ground reads as a blank sheet. It answers
+/// one question and it is the question the pair below could not -- *which of
+/// the things in this sky is dirt?* The pale lattice standing in the air over
+/// this bed is not, and no plain render says so, because worked soil is dark
+/// brown against dark brown ground and a change of twenty cells in ninety-two
+/// thousand is invisible however true it is.
+fn render(world: &mut World, spec: &LabBox, crop: (i32, i32, i32, i32), zoom: u32, out: &str, mark: bool) {
+    let (vw, vh) = (spec.width as u32, spec.height as u32);
+    let mut renderer = Renderer::new();
+    renderer.creature_colour = pixel_physics::render::CreatureColour::Colony;
+    let particles = ParticleSystem::new();
+    let mut buf = vec![0u8; (vw * vh * 4) as usize];
+    let touched = world.take_touched_chunks();
+    renderer.draw(world, &particles, &touched, &mut buf, (vw, vh), true);
+    let (cx, cy, cw, ch) = crop;
+    let (ow, oh) = (cw as u32 * zoom, ch as u32 * zoom);
+    let mut img = vec![0u8; (ow * oh * 4) as usize];
+    for oy in 0..oh {
+        for ox in 0..ow {
+            let wx = (cx + (ox / zoom) as i32).clamp(0, spec.width - 1);
+            let wy = (cy + (oy / zoom) as i32).clamp(0, spec.height - 1);
+            let sp = ((wy as u32 * vw + wx as u32) * 4) as usize;
+            let d = ((oy * ow + ox) * 4) as usize;
+            img[d..d + 4].copy_from_slice(&buf[sp..sp + 4]);
+            if mark {
+                let cell = world.get(wx, wy);
+                if !cell.is_empty() && cell.organism_id() == 0 && world.materials.get(cell.material).self_supporting {
+                    img[d..d + 4].copy_from_slice(&[255, 128, 0, 255]);
+                }
+            }
+        }
+    }
+    image::save_buffer(out, &img, ow, oh, image::ColorType::Rgba8).expect("writing the render");
+    println!("  wrote {out} ({ow}x{oh}, crop {cx},{cy},{cw},{ch} at {zoom}x)");
+}
+
+/// The column the worked ground above the surface is actually centred on.
+fn worked_centroid(world: &World, spec: &LabBox) -> i32 {
+    let (mut sum, mut n) = (0i64, 0i64);
+    for y in 0..spec.ground_y {
+        for x in 0..spec.width {
+            let cell = world.get(x, y);
+            if !cell.is_empty() && cell.organism_id() == 0 && world.materials.get(cell.material).self_supporting {
+                sum += x as i64;
+                n += 1;
+            }
+        }
+    }
+    if n == 0 { spec.width / 2 } else { (sum / n) as i32 }
+}
 
 fn arg<T: std::str::FromStr>(key: &str) -> Option<T> {
     std::env::args().skip(1).find_map(|a| a.strip_prefix(&format!("{key}=")).and_then(|v| v.parse().ok()))
@@ -391,6 +452,16 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
     }
     let at_fork = census(&world, spec.width, spec.height);
     why(&world, spec.width, spec.height, 8);
+    // Sited once, off the shared bed, and handed to every arm unchanged.
+    let zoom: u32 = arg("zoom").unwrap_or(4);
+    let out: Option<String> = arg("out");
+    let cw = 192.min(spec.width);
+    let crop = (
+        (worked_centroid(&world, &spec) - cw / 2).clamp(0, spec.width - cw),
+        (spec.ground_y - 80).max(0),
+        cw,
+        120.min(spec.height),
+    );
     let cs = census::census(&world, &spec, 0.0, &[spec.width / 2], &ids);
     row(&format!("frame {shared} (shared)"), at_fork);
     println!(
@@ -449,6 +520,16 @@ fn fork(scenario: pixel_physics::lab::scenario::Scenario, shared: u64, after: u6
             (true, true, _) => "footing ON + every chunk woken",
             (true, false, true) => "footing ON + soil falls through plants",
         };
+        if let Some(out) = &out {
+            let tag = match (footing, woken, through) {
+                (false, ..) => "main",
+                (true, false, false) => "repair",
+                (true, true, _) => "woken",
+                (true, false, true) => "through",
+            };
+            render(&mut w, &spec, crop, zoom, &format!("{out}-{tag}.png"), false);
+            render(&mut w, &spec, crop, zoom, &format!("{out}-{tag}-marked.png"), true);
+        }
         row(&format!("+{after} {label}"), f);
         println!(
             "{:<26} ants {:>5} roofed {:>6} pit {:>5} pack^ {:>6} mound_high {:>3} digs {:>7} dumped {:>7}",

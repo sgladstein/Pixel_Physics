@@ -158,7 +158,7 @@ point.
 | Z15 | **OPEN** | 11359 | A plant holds a creature up and also blocks it, so a bed of foliage is a cage: between a ... |
 | Z16 | closed | 11437 | DeathCause::Killed is not a killing counter, and the played bed's colony is being overgro... |
 | Z18 | **OPEN** | 11578 | Dug spoil stands in open sky, and the owner sees it before he sees anything else |
-| Z17 | **OPEN** | 11706 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
+| Z17 | **OPEN** | 11727 | World::ground_datum is built and wrong inside a sealed lab box, and it reads as "the whol... |
 
 <!-- END GENERATED INDEX -->
 
@@ -11690,6 +11690,27 @@ the same four forks as a fourth arm: `hang` 12 → 6, 68 → 58, 73 → 76, 6 �
 i.e. almost nothing, while **`mound_high` collapses from 36/39/35/16 rows to
 11/11/36/9**. It flattens the anthill. Declined here on that number rather than
 argued about, and filed in `dead-ends.md`.
+
+**And then the picture overturned the section's own framing, which is why the
+card asks what it asks.** Card `20260913T044615016Z-4a2dbc` (board `lab`), three
+panes on one fixed camera, played_bed seed 3 at 150,000 frames and 74 ants — the
+most developed nest of the four beds measured. Panes one and two are the bed
+under the two rules and **they are indistinguishable by eye**: the repair moves
+22 cells out of roughly ninety thousand on screen, in dark brown against dark
+brown ground. Pane three is the same frame with every `self_supporting` cell
+painted flat orange, and **there is no worked ground in the sky at all** — the
+orange is a crust lying along the surface. The conspicuous pale lattice standing
+in open air over this bed, the thing that reads as *stuff floating in the air*
+at a glance, **is plant material.**
+
+So the owner's report may not be about spoil at all, and no measurement in this
+section could have said so: every census here counts worked ground, which is
+exactly the material that turns out not to be up there. `CLAUDE.md`'s *resolve
+an ambiguous complaint before building anything* — asked late rather than
+early, and it cost most of a lane. The card puts the fork to him directly:
+*is it the pale plant material you mean, or dirt?* **Read that verdict before
+taking this section any further**, because if the answer is "the plant", the
+repair below is still correct and the bug is somewhere in the plant line.
 
 **What is left of this section**, for whoever takes it next: worked ground *cut
 in place* that ends up standing on plant tissue or on an ant. It is a different
