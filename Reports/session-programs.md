@@ -66,6 +66,45 @@ confirmed what a just-merged PR did and did not touch. That is real work and
 it is in a session you are about to archive. Fold it into the new brief, and
 verify it yourself first — see *Verify what a lane relays* below.
 
+### Which model a lane gets, priced from one whole round
+
+**There was no guidance here at all until 2026-09-13**, and the standing rule
+in `CLAUDE.md` — *spawned workers run on Opus, never inherited from the
+coordinator* — is a **cost-safety floor**, written after three workers silently
+inherited a premium tier and ran $25–71 each inside ninety minutes. It is not
+a claim that every lane wants Opus.
+
+Round 30 ran seven lanes across three models and the invoice is the only real
+evidence this repo has:
+
+| lane | model | cost | what it produced |
+|---|---|---|---|
+| anthill | Opus | **$105** | a 12-seed paired sweep, a simulation change, the round's headline finding |
+| zoom-out | Opus | $45 | a render fix |
+| painted look | Opus | $43 | five look modes behind one key |
+| master menu | Sonnet | $53 | a substantial UI build; caught two runtime bugs by driving the real page |
+| two soils | Fable | **$22** | the soil design report, four issues given verdicts, three options costed |
+| zoom-in | Fable | **$15** | the zoom-in design report |
+| readout and corner | Sonnet | $11 | a bounded UI trim |
+
+**What it supports, stated no more strongly than n = 7 allows:**
+
+- **Opus where a wrong number compounds** — sweeps, constants, anything whose
+  output other lanes will build on, anything touching `src/sim/`. The anthill
+  lane is the case for it: its re-read of its own runs overturned the round.
+- **Sonnet for a bounded build with a clear acceptance test** — UI work, an
+  instrument with a defined output. The master menu is the case for it, and it
+  found two runtime defects no gate would have.
+- **Fable for design exploration whose deliverable is a report a human judges**
+  — three to five times cheaper, and both round-30 design reports were
+  substantive. **Check its factual claims**: the soil lane reported a
+  review-queue collision that one command disproved.
+
+**Cost tracks how long a lane ran and how much it measured at least as much as
+which model it was**, so read the table as a prior and not a price list. The
+round totalled about **$294**, which is the number to weigh before deciding how
+many lanes to run at once.
+
 ### A lane being healthy is not evidence its work is durable
 
 **Measured 2026-09-12: a lane three hours and $7.85 into a working build had
