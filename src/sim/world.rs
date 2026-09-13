@@ -1343,6 +1343,26 @@ pub struct CreatureStats {
     /// exists to make visible — matter that entered an animal and did not
     /// leave it — and neither counter alone can see it.
     pub spoil_dumped: u64,
+    /// **Of those, the ones the drop could not place beside the animal and
+    /// sent *up the column* instead** — and the largest such lift in rows.
+    ///
+    /// `spoil_dumped` sums both placement branches, so a pellet laid on the
+    /// ground beside an ant and one posted ninety rows into a canopy are the
+    /// same number today, which is why nothing had ever measured
+    /// `Reports/open-bugs-handoff.md` §Z18. The split is **PR #221's**
+    /// (`claude/creature-plant-pathfinding-rjzkqe`, open since 2026-09-03 and
+    /// never merged because its register letter collided); ported here with
+    /// its reasoning rather than re-derived.
+    ///
+    /// What it is for: `creature::act`'s spoil drop falls back to the first
+    /// cell **straight up** that has two of three filled beneath it, as far as
+    /// `SPOIL_LIFT` rows — **with no check that a path exists**. The ant never
+    /// climbs. A plant cell counts as filled, so a pellet can be set down on a
+    /// leaf far above the ground, and being worked soil it stays there. A
+    /// `spoil_lift_max` well above a single row is that rule firing.
+    pub spoil_lifted: u64,
+    /// See `spoil_lifted`. Rows, largest single lift in the run.
+    pub spoil_lift_max: u32,
     /// **Pellets that died with their carrier and had nowhere to land** —
     /// cells that genuinely left the world, and the only way one still can
     /// through this path.

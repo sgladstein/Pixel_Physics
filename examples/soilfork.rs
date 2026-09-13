@@ -316,7 +316,14 @@ struct Footprint {
     bank_wet: f32,
 }
 
-fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<MaterialId>, soil: Option<MaterialId>) -> Footprint {
+/// `spoil` rides beside `packed` rather than replacing it: `packedsoil` is
+/// the wall an ant cut in place and `spoil` the pellet it hauled out
+/// (`assets/materials/spoil.ron`, §Z18), both are tamped, and a census of
+/// worked ground above the surface is about both. A single id here would have
+/// read the mound as empty from 2026-09-13 on -- the silent-zero failure this
+/// harness's own `hanging` column exists to catch.
+fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<MaterialId>, spoil: Option<MaterialId>, soil: Option<MaterialId>) -> Footprint {
+    let is_packed = |m: pixel_physics::sim::material::MaterialId| Some(m) == packed || Some(m) == spoil;
     let mut f = Footprint::default();
     let rotting: Vec<MaterialId> = ["litter", "deadleaf", "deadwood", "ash", "corpse", "log", "windfall"]
         .iter()
@@ -358,7 +365,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
                     if n.material != material::EMPTY {
                         filled += 1;
                     }
-                    if Some(n.material) == packed {
+                    if is_packed(n.material) {
                         packed_n += 1;
                     }
                 }
@@ -373,7 +380,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
                 covered = true;
                 let cap = world.materials.get(cell.material).water_capacity;
                 if y < spec.ground_y {
-                    if Some(cell.material) == packed {
+                    if is_packed(cell.material) {
                         f.packed_above += 1;
                         f.mound_high = f.mound_high.max(spec.ground_y - y);
                         if cap > 0 {
@@ -384,7 +391,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
                         f.soil_above += 1;
                         f.mound_high = f.mound_high.max(spec.ground_y - y);
                     }
-                } else if Some(cell.material) == packed {
+                } else if is_packed(cell.material) {
                     f.packed_below += 1;
                 } else if Some(cell.material) == soil && y < spec.ground_y + 4 && cap > 0 {
                     bank_wet += soil_moisture(cell) as f64 / cap as f64;
@@ -446,7 +453,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
     for y in top..spec.ground_y {
         for x in 0..spec.width {
             let cell = world.get(x, y);
-            if Some(cell.material) != packed || seen[idx(x, y)] {
+            if !is_packed(cell.material) || seen[idx(x, y)] {
                 continue;
             }
             f.hanging += 1;
@@ -462,7 +469,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
                     if nx < 0 || nx >= spec.width || ny < top || ny >= spec.ground_y || piece_seen[idx(nx, ny)] {
                         continue;
                     }
-                    if Some(world.get(nx, ny).material) == packed && !seen[idx(nx, ny)] {
+                    if is_packed(world.get(nx, ny).material) && !seen[idx(nx, ny)] {
                         piece_seen[idx(nx, ny)] = true;
                         st.push((nx, ny));
                     }
@@ -478,7 +485,7 @@ fn footprint(world: &World, spec: &LabBox, nest_cols: &[i32], packed: Option<Mat
 /// tight render of this harness was centred on the founding column and
 /// contained none of the 250 roofed cells it had just counted -- a colony
 /// digs where its ants are, not where it was founded.
-fn profile(world: &World, spec: &LabBox, packed: Option<MaterialId>) -> (Vec<(i32, usize, usize, usize)>, i32) {
+fn profile(world: &World, spec: &LabBox, packed: Option<MaterialId>, spoil: Option<MaterialId>) -> (Vec<(i32, usize, usize, usize)>, i32) {
     let bins = (spec.width / 32) as usize;
     let mut rows = vec![(0i32, 0usize, 0usize, 0usize); bins];
     let (mut sum_x, mut n) = (0i64, 0i64);
@@ -490,7 +497,7 @@ fn profile(world: &World, spec: &LabBox, packed: Option<MaterialId>) -> (Vec<(i3
             let cell = world.get(x, y);
             if is_ground(world, cell) {
                 covered = true;
-                if Some(cell.material) == packed {
+                if Some(cell.material) == packed || Some(cell.material) == spoil {
                     if y < spec.ground_y {
                         rows[b].1 += 1;
                     } else {
@@ -508,8 +515,8 @@ fn profile(world: &World, spec: &LabBox, packed: Option<MaterialId>) -> (Vec<(i3
     (rows, centroid)
 }
 
-fn print_profile(world: &World, spec: &LabBox, packed: Option<MaterialId>) -> i32 {
-    let (rows, centroid) = profile(world, spec, packed);
+fn print_profile(world: &World, spec: &LabBox, packed: Option<MaterialId>, spoil: Option<MaterialId>) -> i32 {
+    let (rows, centroid) = profile(world, spec, packed, spoil);
     let line: Vec<String> = rows.iter().filter(|r| r.1 + r.2 + r.3 > 0).map(|r| format!("x{}:{}^/{}</{}v", r.0, r.1, r.2, r.3)).collect();
     println!("  packed and roofed by 32-column bin (above^/below</roofed v): {}  -- packed centroid x={centroid}", line.join(" "));
     centroid
@@ -661,15 +668,17 @@ fn fork() {
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
     );
     let packed = world.materials.id_of("packedsoil");
+    // **The hauled pellet, beside the wall cut in place** -- see `footprint`.
+    let spoil = world.materials.id_of("spoil");
     let soil = world.materials.id_of("soil");
     let t = std::time::Instant::now();
     run(&mut world, frames, Some(&scenario), &spec);
     println!("  ran {frames} frames in {:.1} s ({:.2} ms/frame)", t.elapsed().as_secs_f64(), t.elapsed().as_secs_f64() * 1000.0 / frames.max(1) as f64);
     let st = world.creature_stats;
     println!("  colony so far: digs {} spoil_dumped {} eats {} births {} deaths {}", st.digs, st.spoil_dumped, st.eats, st.births, st.deaths);
-    let before = footprint(&world, &spec, &nest_cols, packed, soil);
+    let before = footprint(&world, &spec, &nest_cols, packed, spoil, soil);
     print_footprint(&format!("frame {frames} (shared)"), &before);
-    let centroid = print_profile(&world, &spec, packed);
+    let centroid = print_profile(&world, &spec, packed, spoil);
     // The crop is fixed at the fork so every arm shows the same cells.
     let crop = crop_arg.unwrap_or((centroid.clamp(96, spec.width - 96) - 96, spec.ground_y - 70, 192, 120));
     let shared = world.clone();
@@ -719,9 +728,9 @@ fn fork() {
             },
             t.elapsed().as_secs_f64()
         );
-        let f = footprint(&w, &spec, &nest_cols, Some(packed), Some(soil));
+        let f = footprint(&w, &spec, &nest_cols, Some(packed), spoil, Some(soil));
         print_footprint(&format!("arm={arm} +{after}"), &f);
-        print_profile(&w, &spec, Some(packed));
+        print_profile(&w, &spec, Some(packed), spoil);
         render(&mut w, &spec, crop, zoom, &format!("{out}-{arm}.png"), tint);
     }
 }
