@@ -90,6 +90,33 @@ struct Arm {
     /// which bed is on the clock.
     rep_moves: Vec<u64>,
     rep_blocked: Vec<u64>,
+    /// **Awake chunks and the soil-moisture pass's own walk, summed over the
+    /// timed window** — the two quantities that say whether an ant is
+    /// expensive *inside* `creature::tick` or expensive because of what it
+    /// leaves dirty behind it.
+    ///
+    /// **They exist because they refuted the hypothesis that added them, and
+    /// that is why they are worth keeping.** A callgrind profile of this
+    /// harness at 151 ants put `world::visit_soil_water` at **37.8% of all
+    /// instructions** against `creature::tick`'s 7.1%, which reads as *ants
+    /// dirty soil, the moisture pass walks the row hull of every mark*. These
+    /// columns say otherwise on a wall clock: soil-water visits are **highest
+    /// at zero ants** (13,591, against 7,804 at 148 and 10,315 at 254) and
+    /// awake chunks are flat in ant count (18.1 / 20.9 / 19.3). That profile's
+    /// bed had **8 plants in it**, so the ants were the only things marking
+    /// soil at all -- `CLAUDE.md`'s worst-recurring failure, a number that is
+    /// arithmetically correct and about the wrong question.
+    ///
+    /// The switch that settles it outright is `PIXEL_PHYSICS_MOISTURE=sweep`
+    /// (`update::moisture_phase_enabled`, a control and never a setting),
+    /// which puts the pass back inside the CA sweep: it moves the intercept
+    /// **1.84x** and the per-ant slope by **0.3%**. So the moisture pass is
+    /// the *intercept*, and these columns are what stops the next session
+    /// re-deriving that.
+    /// `Reports/evolution-lab-creature-cost-2026-09-13.md` §2.
+    rep_awake: Vec<u64>,
+    rep_swvisited: Vec<u64>,
+    rep_swsoil: Vec<u64>,
 }
 
 /// **Stock the bed to `want` ants using only the shipped founding path.**
@@ -150,10 +177,16 @@ fn main() {
 
     let threads = std::env::var("RAYON_NUM_THREADS").unwrap_or_else(|_| "unset".to_string());
     let sched = std::env::var("SCHED_PASS").unwrap_or_else(|_| "0".to_string());
+    // **Echoed because it is the one switch that can silently halve the
+    // frame.** `update::moisture_phase_enabled` reads it once through a
+    // `OnceLock`, so it cannot be set per arm and a run that has it set looks
+    // exactly like a run that does not unless the header says so.
+    let moisture = std::env::var("PIXEL_PHYSICS_MOISTURE").unwrap_or_else(|_| "on".to_string());
     println!(
         "antcost: ants={wants:?} frames={frames} reps={reps} seed={seed} width={width} height={height} \
          soil={soil} founders={founders} species={species} colony_species={colony_species} grow={grow} \
-         rounds={rounds} settle={settle} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched}"
+         rounds={rounds} settle={settle} plant_load={plant_load} RAYON_NUM_THREADS={threads} SCHED_PASS={sched} \
+         PIXEL_PHYSICS_MOISTURE={moisture}"
     );
 
     let spec = LabBox {
@@ -194,6 +227,9 @@ fn main() {
             rep_ticks: Vec::new(),
             rep_moves: Vec::new(),
             rep_blocked: Vec::new(),
+            rep_awake: Vec::new(),
+            rep_swvisited: Vec::new(),
+            rep_swsoil: Vec::new(),
         });
     }
 
@@ -207,9 +243,23 @@ fn main() {
             let ticks_before = arm.lab.world.creature_stats.ticks;
             let moves_before = arm.lab.world.creature_stats.moves;
             let blocked_before = arm.lab.world.creature_stats.moves_blocked;
+            // **Accumulated inside the timed loop, and that is a real cost
+            // this harness pays.** `soil_water_stats` is overwritten every
+            // frame, so it cannot be read afterwards; three `u64` adds and one
+            // `active_chunk_count` per frame is identical work in every arm,
+            // so it cannot tilt a comparison between them, and it is ~0.1% of
+            // a 2,500 µs frame. Timed rather than excluded because excluding
+            // it would need a second clock inside the loop, which costs more
+            // than the thing it was measuring.
+            let mut awake = 0u64;
+            let mut swv = 0u64;
+            let mut sws = 0u64;
             let t = Instant::now();
             for _ in 0..frames {
                 arm.lab.tick_for_harness();
+                awake += arm.lab.world.active_chunk_count() as u64;
+                swv += arm.lab.world.soil_water_stats.visited;
+                sws += arm.lab.world.soil_water_stats.soil;
             }
             let ns = t.elapsed().as_nanos();
             let ants_after = arm.lab.world.live_creature_count();
@@ -218,6 +268,9 @@ fn main() {
             arm.rep_ticks.push(arm.lab.world.creature_stats.ticks - ticks_before);
             arm.rep_moves.push(arm.lab.world.creature_stats.moves - moves_before);
             arm.rep_blocked.push(arm.lab.world.creature_stats.moves_blocked - blocked_before);
+            arm.rep_awake.push(awake);
+            arm.rep_swvisited.push(swv);
+            arm.rep_swsoil.push(sws);
         }
         eprintln!("  rep {}/{reps} done", rep + 1);
     }
@@ -249,7 +302,7 @@ fn main() {
             f64::NAN
         };
         println!(
-            "{:>6} {:>7} {:>8.0} {:>10.1} {:>10.2} {:>9.1} {:>8.1} {:>6.1} {:>9.3} {:>7.2}",
+            "{:>6} {:>7} {:>8.0} {:>10.1} {:>10.2} {:>9.1} {:>8.1} {:>6.1} {:>8.1} {:>10.0} {:>10.0} {:>9.3} {:>7.2}",
             arm.want,
             arm.stocked,
             ants,
@@ -258,6 +311,9 @@ fn main() {
             crticks,
             moves,
             blk,
+            arm.rep_awake[best_i] as f64 / frames as f64,
+            arm.rep_swvisited[best_i] as f64 / frames as f64,
+            arm.rep_swsoil[best_i] as f64 / frames as f64,
             per,
             us[us.len() - 1] / best
         );
