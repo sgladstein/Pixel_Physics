@@ -1,0 +1,67 @@
+{
+  "id": "20260913T083914900Z-764956",
+  "created": "2026-09-13T08:39:14Z",
+  "board": "zoom",
+  "origin": {
+    "worktree": "/home/user/Pixel_Physics",
+    "branch": "HEAD",
+    "commit": "fc5480f4",
+    "agent": null,
+    "session_id": "0f29addc-d732-5b36-b056-bc32aba2ff6a",
+    "user": null,
+    "cwd": "/home/user/Pixel_Physics"
+  },
+  "title": "Zoomed all the way out: how many world cells get a pixel of their own (lab)",
+  "question": "At the widest zoom-out, which of these is the game you want to be looking at?",
+  "context_md": "Your question, 2026-09-13: *\"why my screen resolution can solve all of the pixels, why cannot there just be more pixels when you zoom out?\"* — you were right, and this is what the answer looks like.\n\nThe renderer draws into a **fixed 512x320 buffer** and the screen magnifies that image. At the widest zoom-out the view spans 2048x1280 cells, so **fifteen of every sixteen cells never reach a pixel at all**. These three grow the buffer instead, so more of the view is carried at its own cells.\n\nAll three show the **identical patch of world at the identical size on screen** — the coarse one is magnified back up exactly as your monitor already does it. This is the **lab bed**; the outdoor skyline is a separate card, and it does not obviously agree.\n\nThe question underneath is the house style: the more cells reach the screen, the **sharper and finer** the picture, and chunky is what this game looks like.",
+  "kind": "gallery",
+  "blind": true,
+  "blocking": false,
+  "items": [
+    {
+      "label": "buffer x1 (what ships today)",
+      "files": [
+        "20260913T083914900Z-764956/000-stride4_x1.png"
+      ],
+      "caption": "one pixel per 4x4 block of world",
+      "meta": {
+        "cells reaching a pixel": 163840,
+        "cells discarded": 2457600,
+        "share discarded": "94%"
+      },
+      "focus": null
+    },
+    {
+      "label": "buffer x2",
+      "files": [
+        "20260913T083914900Z-764956/001-stride2_x2.png"
+      ],
+      "caption": "one pixel per 2x2 block of world",
+      "meta": {
+        "cells reaching a pixel": 655360,
+        "cells discarded": 1966080,
+        "share discarded": "75%"
+      },
+      "focus": null
+    },
+    {
+      "label": "buffer x4 (one pixel per cell)",
+      "files": [
+        "20260913T083914900Z-764956/002-stride1_x4.png"
+      ],
+      "caption": "nothing discarded",
+      "meta": {
+        "cells reaching a pixel": 2621440,
+        "cells discarded": 0,
+        "share discarded": "0%"
+      },
+      "focus": null
+    }
+  ],
+  "ask": {
+    "choice": false,
+    "rating": true,
+    "comment": true,
+    "annotations": true
+  }
+}
