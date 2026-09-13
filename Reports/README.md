@@ -2499,21 +2499,46 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   plants ever grew from a pip; windfall lies 67–100% where no ant walks;
   petal colour became heritable and moved every seeded plant figure twice;
   a bigger flower head pays per-cell upkeep for as long as it stands.
+- [evolution-lab-round-30-2026-09-12.md](evolution-lab-round-30-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round thirty: seven
+  lanes on work the owner asked for in his own words that morning (the
+  tooltip, the top-left corner, a master menu, the zoom-out dropout, the
+  zoom-in exploration) plus the soil design and the anthill. What the round
+  overturned: **both lanes chasing the colony were counting a variable that
+  does not move.** The who-kills lane booked 216/98/70 killings against 2/0/0
+  attributable to an attacker, two fifths of the rest a plant standing in the
+  dead ant's head; this round's anthill lane found the dig gate's premise false
+  (a third of at-nest crowding reads sit in the bottom tenth, so an ant at its
+  own door is very often alone) and the gate no help to the mound at all. Then
+  it re-read its own twelve paired runs for the thing neither sweep had
+  tracked: **the colony is alive at 300,000 frames on 5 beds of 12 with the
+  gate on and 0 of 12 without** (p ≈ 0.03, McNemar), so the gate ships **on**,
+  and *by what route* is round 31's question. Also the coordination findings
+  that cost the round real time, several now closed with a command rather than
+  a rule: **a spawned session inherits the environment and not the
+  repository**; **which bug letter is free is a question about every branch**,
+  which `bugindex.py --branches` now answers and `--check` cannot; **a shared
+  budget and a duplicated claim are one failure git cannot see**; a session's
+  status describes the turn that ended, not the one running; a partly-green PR
+  carries almost no information; and green CI is not mergeability.
 - [evolution-lab-soil-design-2026-09-12.md](evolution-lab-soil-design-2026-09-12.md)
-  — **design of record for the two soils, 2026-09-12: what a colony's tamped
-  spoil should do with time, and what a plant inside a mound should do.** The
-  owner's three symptoms measured with the new `examples/soilfork`: the
-  towers and the engulfing are real, *"a ground new plants don't grow in"* is
-  not (the bare band is there before the mound, and seed 1's 3,182-ant colony
-  stands 200 plants on a 3,124-cell heap). Burial cannot kill a plant today —
-  `field.rs` treats every powder as transparent, shown with a stone positive
-  control — so candidate 1 is a light-model property, not a plant rule.
-  Recommends brief 3's weathering re-cut as a second material (`spoil`,
-  because the chunk-settle scan would otherwise weather the tunnel lining),
-  with the rate a dial whose zero is the owner's towers; then an `opaque`
-  material flag with its three re-derivations budgeted; rejects the loose
-  end state (a third of the nest in 6,000 frames) and the moisture premise
-  (the mound is as wet as the bank or wetter).
+  — **design of record for the two soils, 2026-09-12: the owner's four
+  issues as criteria, every option in both directions scored against them,
+  and a recommendation with its trade stated.** Measured with the new
+  `examples/soilfork`: the towers, the engulfing and the untunnellable drift
+  are real; *"a ground new plants don't grow in"* is not (the bare band is
+  there before the mound, and seed 1's 3,182-ant colony stands 200 plants on
+  a 3,124-cell heap). Rot-made soil *is* bank soil and tamps like it; what
+  cannot be tunnelled is the litter and carrion that have not become soil
+  yet, which have no `packs_into` — a thin layer on the lab bed. Burial cannot kill a plant — every powder is transparent to
+  the lamp, shown with a stone positive control — so *depth does not exist
+  for the light model*. Recommends weathering of dumped spoil as a second
+  material (`spoil`; a `decays_into` on `packedsoil` would weather the tunnel
+  lining through the settle scan) with the rate a dial whose zero is the
+  towers, an `opaque` material flag with its re-derivation budgeted, and a
+  yes-or-no on making the drift tampable; rejects the loose end state (a
+  third of the nest in 6,000 frames), settle-to-set (repose gone from the
+  world) and the moisture premise (the mound is as wet as the bank).
 - [evolution-lab-late-game-design-2026-09-12.md](evolution-lab-late-game-design-2026-09-12.md)
   — **design of record for the late game, 2026-09-12, with the census it is
   measured against.** The owner's report — a colony that booms to hundreds,
@@ -3066,6 +3091,22 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   ns/px. Author's style pick is *illustrated*: the only look that answers
   "crisp" (re-read as *nothing disappears*) better than today at 3x. Says the
   style question deserves its own round and what it does first. Two cards.
+- [evolution-lab-round-29-2026-09-12.md](evolution-lab-round-29-2026-09-12.md)
+  — **record, 2026-09-12.** The coordinator's account of round twenty-nine:
+  eighteen pull requests from nine cloud lanes, merged in one order because
+  five of them met in `creature.rs`, with round thirty running beside it on
+  the same trunk. What the round overturned, with the numbers: the played
+  bed's baseline moved under everyone (nest scent drift at 0.15, attributed
+  to one commit, every proposed mechanism refuted by a control, inert on the
+  trunk it now sits on); the colony is not fought and does not turn on
+  itself — `Killed` was never a killing counter and two of 384 such deaths
+  are an animal's bite, the rest a plant grown into the ant's head or an empty
+  cell nobody has explained; the stuck flitter was never the flight but a
+  canopy cage; the nest door stood under a puddle; a seed carried home saves
+  the bed and shrinks the colony to a dozen; survival at 2.5 lifespans is
+  1.31%, not 0.4%. Carries the cloud-lane mechanics (poke, auto-merge,
+  merge-tree serialisation, bug-letter collisions) the next coordinator pays
+  for otherwise.
 
 ## Licensing and distribution
 

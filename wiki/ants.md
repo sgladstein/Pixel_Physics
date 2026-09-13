@@ -1,9 +1,74 @@
 # Ants
 
-*Current as of: 2026-09-12, when **a nest became a place that holds a
-smell** — ants blend with the mound they stand on, scent drift ships on at
-last, and two mounds nobody walks between become two colonies within a
-session. See "Who is family". Before that, 2026-09-11, evening, when **a bed was built for the flitter
+*Current as of: 2026-09-12, when **an ant stopped planting the seed it had
+just eaten inside its own head.** When a meal that carried a seed was
+finished, the seed was set down at the spot where the ant stood, which is
+the ant, and the ant died of it, booked as a killing that no animal had
+done. On the played bed that was most of what was "killing" the colony:
+take it away and a colony that was gone by a session's midpoint is still
+there with fifty ants, and eats the seed bank it had been building. The
+seed now goes down beside the ant, or two cells out, or at the midden, and
+an ant boxed in on every side loses the seed rather than its life. Before
+that, on the same day, **an ant at the nest started being asked
+how much room the colony has** rather than how many ants are pressed against
+it — and it was measured that this does not make the anthill smaller. The
+question is a better one and the colony answers it sensibly: it digs hard while
+the burrow is bare, quietens once there are a few cells of chamber for each
+ant, and starts again when the brood outgrows them. What it does not do is stop
+the mound. Across twelve beds run twice each it left a *bigger* mound on nine of
+them and dug about twice as much on eleven of twelve. The old question was
+supposed to be one an ant could never answer, and it is not: **more than a
+third of the time an ant stands at its own door there is nobody near it at
+all.** It ships switched on: you picked it by eye over the old one, and the
+colony then turned out to be **alive at half a million frames on five beds of
+twelve where the old question left none alive at all.** What it was built to do
+it does not do; what it does instead is keep the colony going. See "Digging, and the mound". Also the same day, when **we found out why the flying animal always
+looked stuck: most of the time it is** -- a plant holds an animal up, and it
+also blocks it, so an animal inside a bush cannot move in any direction at
+all. See "The flitter" below, and "Stuck in the bush" under it. The same day,
+when **ants started dying of old age** -- the
+first thing in this world that does, on the other side of the glass from the
+plants that always have. See "Ants get old" below; it is what turns a colony's
+boom-and-crash into a size it holds. The same day, **a long ant stops waiting
+for a nestmate that is never going to move**. A long ant that is carrying something waits
+out a jam rather than turning for home -- and it used to wait for ever,
+because the ant in its way was often stuck for the same reason. It now waits
+a few beats and then turns round. See "And a long ant can now turn round"
+below. The census that found it also found two things nobody had looked for.
+**Most of what piles up in a long-run colony is not long animals at all**
+but ones whose bodies are a single cell, bred that way rather than cut down,
+and for those turning round is not a move. And **the ant you notice standing
+still is usually just resting**: the most conspicuous standing animals on a
+crowded bed have room to move and no reason to use it, the small shipped ants
+rest for just as long, and the real gap is that resting and stuck look
+identical. The same day, **a seed an ant bites is cargo, not a
+meal** -- a harvester became a sower. Bite a seed off the floor and most of
+the time it survives the mouth whole: the ant keeps only the small provision
+the seed carries for exactly that purpose, the seed itself rides home in the
+same mouth a meal would, and it is set down where the last bite of that meal
+goes down. Only the bites that go wrong destroy a seed. **Grass, shrub and
+tree seeds survive now too** -- until this they were certain death, so a
+colony living on the seed bank was eating the bed's next generation and not
+its surplus. The same day, and part of the same change: **a leaf on a living
+plant stopped being worth a meal to an ordinary ant.** Fallen leaf litter on
+the ground is still a full meal, and the floor is where an ant is meant to
+feed; a leaf still on the plant now pays so little that a normal gut does not
+see it as food at all. An animal whose taste has drifted far enough toward
+plants does see it, so grazing a standing stand is something a bloodline can
+*become* rather than something every colony does from the first frame. See
+"What they do" and "An ant can carry a seed home" below. The same day,
+**the nest door stopped standing under a puddle.** The worked ground a colony
+walks home to used to be the one piece of the bed that could not soak up
+water; every misting left a film sitting on it, and since nothing walks into
+water, the whole colony simply lost its front door — food kept being picked up and none of it ever came home. The threshold
+has drains in it now: every third column of it is left as ordinary ground, so
+a film has one cell to travel before the earth drinks it. The door looks very
+slightly speckled and is otherwise the same place; a thin sheen can still
+catch on it after heavy misting. See "Coming home" below. The same day,
+**a nest became a place that holds a smell** -- ants blend with the
+mound they stand on, scent drift ships on at last, and two mounds nobody
+walks between become two colonies within a session. See "Who is family".
+Earlier, on 2026-09-11, evening, when **a bed was built for the flitter
 and it still could not live on one** -- four flowering clumps beside the nest
 multiply the flowers it drinks from about ninefold and change nothing about
 whether it survives, because on a bed that rich it barely comes down. See "The
@@ -317,6 +382,44 @@ will wait out a jam from a nestmate rather than turn for home and walk away
 from a door it was about to reach, and only turns end for end when nothing
 in its way is going to move on its own.
 
+**But the wait now ends.** Waiting for a nestmate to move only works if the
+nestmate is going to move, and in a crowded nest it very often is not --
+it is standing still for the same reason, behind an ant that is standing
+still behind an ant. A carrying long ant used to wait out that jam for the
+rest of its life, standing in one place with only its head turning, and a
+group of them locked together made the pile a player actually notices. It
+now gives the ant in front a few beats to move and then turns round anyway.
+A short ant is not affected: it can simply step backwards, so waiting never
+cost it anything.
+
+What that buys and what it costs are both worth saying, because they are
+the same thing. A colony that stops standing still starts walking, and
+walking is what an ant spends its food on: the colony that comes out of a
+long session is smaller and hungrier, and it carries more home. Whether
+that trade is the right one is a question about how much a long ant should
+have to eat, not about turning round, and it has not been settled.
+
+**And a pile is usually not what it looks like.** Follow one for long
+enough and most of the animals wedged in it turn out to be ants whose
+bodies have been cut down to a cell or two -- and for those, turning round
+is not a move at all: there is nothing to turn. They are held in place by
+the bodies around them and nothing they can do changes that. Why a long ant
+ends up one cell long is not yet known.
+
+**And the ant you notice standing still is usually just resting.** Watch a
+crowded bed for a while and the animals that draw the eye are big
+full-length ones that hold one spot for a minute of play or more. Follow one
+and it is not wedged at all: there is open ground beside it, it never once
+tries a step and fails, and it is not waiting on anybody. An ant rests when
+it has no reason to act, and that is how it has always worked -- the small
+ants that come with the game rest for just as long, on every bed, and nobody
+notices, because two motionless pixels look like scenery and a motionless
+seven-segment animal looks like something that has got itself stuck. The ant
+is fine. What is missing is any way to tell resting from stuck by looking,
+which is a question about what a resting ant should be *doing* -- turning its
+head, feeling about with its feelers, shifting a step and coming back -- and
+that has not been decided.
+
 **Some creatures can jump. The ones you place are not among them, yet.**
 Jumping is now something a creature can be *born* able to do rather than
 something the game does for it, and the ants that come with the game have
@@ -344,6 +447,27 @@ Nothing in the game knows what any of those creatures is. Weight comes from
 counting its cells, and how well it catches the air comes from how wide it
 is against how tall — so a long creature strung out flat along a ledge
 glides, and the same creature curled up in a corner does not.
+
+### Coming home
+
+**The door has to be walkable, and for a long time it was not.** A colony
+recognises home by *touching* it — the patch of worked ground under the nest,
+and nothing else. Until 2026-09-12 that patch was the only ground in the bed
+that could not take up water, so a misting left a film standing on it; nothing
+walks into water, so the door was walled off and the colony lost home
+altogether. Food went on being found and picked up and none of it came back.
+The threshold has drains in it now — every third column of it is left as
+ordinary earth — so a film has one cell to travel before the ground drinks it,
+exactly as it does everywhere else in the bed. On screen that is a door which
+looks faintly speckled rather than a door with a puddle on it.
+
+**What is still not right**, and it is worth knowing before you read a run:
+even with the door clear a colony can lose track of home for a long stretch —
+tens of thousands of frames where nobody goes near the nest at all — and then
+find it again. An ant has no idea where home is; it only smells the trail
+other ants leave, and if the whole colony drifts far enough for long enough
+there is no trail left to follow and finding the way back is luck. That is the
+next thing to fix, not a thing you are meant to be seeing.
 
 **They leave smells behind.** Every ant continuously leaves a scent that
 says *home is this way*: strongest for an ant that has just been at the
@@ -530,10 +654,20 @@ the difference between an animal feeding itself and a colony feeding
 itself. An ant that goes hungry while it is still holding something eats
 that instead of dying with it — which sounds obvious, and was not: for a
 while a laden ant simply had no way back to feeding, and would starve to
-death with a mouthful of food. Ants eat dead things — corpses and seeds — and they eat leaves off
-living trees, which is what makes a stand of trees a food supply rather
-than a pile that runs out. A tree finds out it has lost a leaf the same way
-it would if the wind took it.
+death with a mouthful of food. Ants eat dead things — corpses, fallen leaf
+litter and seeds — and a stand of trees is still what makes a bed a food
+supply rather than a pile that runs out, because a stand keeps dropping
+leaves and the fallen ones are a full meal. **What changed on 2026-09-12 is
+that they stopped eating leaves straight off the living plant.** A leaf on a
+branch is now worth so little to an ordinary ant's stomach that it does not
+register as food; the same leaf on the ground, after the plant has let it
+go, is worth the whole of what it always was. So the bed feeds the colony out
+of what it sheds instead of out of its own body, and a colony that used to
+strip a stand bare now has to wait for it. An animal whose taste has drifted
+a long way toward plants — far enough that it has given up meat to get there
+— can still eat the standing leaf, so a grazer is a thing a bloodline turns
+into rather than the way every ant starts. A tree finds out it has lost a
+leaf the same way it would if the wind took it.
 
 Whether they can *reach* the leaves is a different question, and it used to
 be the thing a colony lived or died on: leaves grow in the canopy and ants
@@ -639,6 +773,58 @@ to actually dig *less* than it can afford, the wanting itself has to change,
 and that is bred rather than set — it needs far more ants over far more
 generations than a bed currently produces.
 
+**The wanting now changes with the room the colony has — and that still does
+not shrink the mound.** An ant standing at its own door used to decide whether
+to dig from how many other ants were pressed up against it, which is a
+question about the crush in one small square and not about the nest. It is now
+a question about the nest: the space the colony has hollowed out and roofed
+over, divided among the ants living in it. That reads low when the burrow is
+bare and high when there is a chamber's worth each, and the colony behaves
+exactly as you would hope — it digs hard through the founding, quietens once
+there are a few cells of room per ant, and starts again when the brood
+outgrows them. Watch the numbers and you can see the loop close and reopen:
+about a third of a cell each at the founding, four cells each by the time the
+first chambers are cut, ten when the colony has thinned, and back down to
+three or four as it fills again.
+
+**What it does not do is what it was built for.** The old question was
+supposed to be one an ant could never answer — always "yes, we are packed",
+whatever the colony dug. It is not. Stand at the door and count, over two
+thirds of a million moments across twelve beds: **a quarter of the time there
+is nobody near the ant at all**, a fifth of the time it is as crowded as it
+can get, and the middle of that spread sits around a third. An ant at its own
+door is very often standing alone, so the old gate was never stuck.
+
+And the mound does not come out smaller. It comes out bigger. Twelve beds, each
+run twice from the same starting point with only this question changed: the
+colony dug about twice as much on eleven of the twelve, and left about twice
+the mound. The spread between beds is absurd, from a fiftieth of the mound on
+one to hundreds of times it on another, so any single bed will show you a large
+difference — but the direction across twelve is not in doubt.
+
+That is worth saying plainly because it moves the blame. A mound that never
+regreens is not a colony asking itself the wrong question at the door. It is a
+colony that outgrows its own rooms faster than it can cut them, and the lever
+for that is how many ants there are, not what each one is asked.
+
+**And then the question turned out to be the wrong one.** Counting the same
+twelve beds again, this time for whether anything was still alive at the end:
+the old question leaves **no colony standing on any of the twelve**, and the new
+one leaves **five**, two of them several hundred ants strong. That is not what
+it was built for and it is worth more than what it was built for. It also
+settles the thing you picked by eye — shown two anthills blind you called the
+old one bad and this one good, and it turns out you were not looking at one
+lucky bed.
+
+Be clear about what it costs, because it is not free and the bed pays some of
+it. About a twenty-fifth of a frame. Roughly twice as much digging. And where
+the colony does survive it is eating: the seed bank and the standing plants
+come out lower on those beds, and far more ants starve, because there are ants
+left alive to starve. Across all twelve neither the bank nor the stand moves
+reliably either way. It is one switch on the ants page if you want the old
+behaviour, and the loop closing and reopening is the clearest view of a
+colony's own economy the box has.
+
 **You can see what an ant is carrying, which you could not before.** An ant
 with a heavy load of food draws brighter than one nearly empty, in three
 steps, and one hauling a lump of dug earth draws darker. Nothing about the
@@ -733,7 +919,35 @@ is not enough to build a wall out of: walls, pillars and chambers are something
 this preference could in principle grow into rather than something you will
 watch happen.
 
-**Ants starve now, and a colony settles at a size instead of running down.**
+**Ants get old and die of it, and that is what actually settles a colony at
+a size.** Until now nothing in this world died of age. Every death in every
+session was hunger or a fight, so a colony could only shrink by famine: it
+found a bed full of food, bred on it until there were hundreds of them, ate
+the bed down to bare ground, and then went all at once. Watch one long enough
+and you get a boom, a cliff, and a dead bed with the session still to run.
+
+An ant now has a lifespan, and it works the way a plant's does: it is the
+*middle* of a spread, not a stopwatch. Half a brood is still walking at it.
+Nineteen in twenty are alive at a quarter of it. About one in eighty reaches
+two and a half times it. So there is no moment where the colony turns over -- there is
+a steady trickle of ants that simply stop, all through the run, and the
+colony's size settles near how fast it breeds times how long an ant lives,
+instead of climbing until there is nothing left to eat. When it does fall, it
+falls as a slope rather than a cliff.
+
+Each ant that goes leaves a body where it fell, exactly as a starved one does,
+and a body is food -- so a colony that is losing its old is also feeding its
+young on them. A long run is now several generations deep instead of one line
+of animals that outlives the session.
+
+It is a number you can set, on the ANTS page, and it ships on only for the two
+ants. The hopper, the flitter and the beetle are still immortal, because
+nobody has measured what their lifespans should be. At zero -- which is what
+they are -- nothing ever dies of age and you get the old behaviour back
+exactly. It is not inherited yet: every ant of a kind lives the same span, and
+a lineage cannot evolve a longer one until living longer costs something.
+
+**Ants starve too, and that was the first thing that made a colony settle.**
 An ant carries a store of energy, spends it on standing still, walking and
 thinking, and refills it by eating. That store used to be so deep that
 nothing reached the bottom of it inside any run anyone actually watched — so
@@ -1080,6 +1294,61 @@ land and a flitter can see 32; bring the nearest bloom inside about ninety
 columns and the whole ninefold arrives, and bringing it closer than that buys
 nothing and starts costing the nest its footing.
 
+### Stuck in the bush
+
+**Watch one flitter for a while and it will look stuck, and four times out of
+four that is what people said about it.** The reason turned out to have
+nothing to do with its wings. **A plant holds an animal up, and a plant is
+also solid to it** — and those two facts together make a bush a cage. An
+animal standing in the middle of foliage has leaves on every side, so there
+is nowhere for it to step; but the leaves under it are perfectly good ground,
+so it can still jump. It jumps, gets nowhere, comes down in the same place,
+and does it again. From outside that reads as hopping in place, or as sitting.
+
+It is not rare. Counted over a whole bed, **between about a sixth and a half
+of the living flitters cannot move in any direction at any given moment** —
+and when we watched one animal closely it had no free cell beside it on
+**seven frames out of eight**. It is also not new, and not something the
+flying work caused: the same thing is true of the older build, and it is
+slightly commoner now only because there are more animals sharing the same
+bushes. Worth knowing if you are ever wondering whether an animal is broken:
+look at what is touching it first.
+
+### What flying looks like now
+
+**Until 2026-09-12 the animal could not actually hover, and nobody had noticed
+the arithmetic said so.** Its wings could only ever cancel *part* of its
+weight — never all of it, no matter how hard it flapped — so every "flight"
+was a thrown arc that fell a bit more slowly. That is why it kept reading as
+hopping: it *was* hopping.
+
+Now a fed flitter genuinely holds itself up. It leaves the ground level
+instead of climbing, bobs as it goes the way something with wings does,
+wanders a little off its line rather than ruling a straight one, and comes
+down as it tires. Three other things changed with it, all of them things that
+were making the animal look dead when it was not:
+
+- **Flying is now priced by how hard it is flying.** A gentle glide used to
+  cost exactly what a full hover cost, which meant there was no such thing as
+  a cheap, long, shallow crossing. On its own this change roughly **doubled**
+  how many flowers the colony drinks from.
+- **It will now fly somewhere it cannot see.** Before, it only ever spent lift
+  on a flower already within about nine cells — so every journey longer than
+  that was an unpowered throw, and the animal crossed its bed by hopping and
+  flew only the last few cells. Now a well-fed one sets off on spec and glides
+  down as the effort runs out. A hungry one still just hops; it cannot afford
+  to go looking.
+- **And it gives up.** An animal used to be able to hover two cells short of a
+  flower it could see and stay there until it starved, because the only thing
+  that told it to stop flying was arriving — which never happened. One was
+  watched doing exactly that for **371 frames without moving**. Now a flight
+  that is getting nowhere stops, and the animal drops and walks.
+
+**None of this makes it survive.** On every bed and every seed tried, the
+colony still empties by the end of a long session. It drinks from several
+times as many flowers as it used to and raises young on more of them, and it
+still does not make a living.
+
 **And the richer bed exposed something the poor one was hiding.** A flitter
 only stops flying when there is no flower in sight — so on a bed full of
 flowers it hardly ever stops. Watched over a long session there, **fifty-five
@@ -1255,7 +1524,20 @@ the whole loop runs.
 into a plant now matches when it is actually eaten, not when it is merely
 set down.** Biting a fallen fruit sometimes leaves the seed inside it whole
 rather than destroying it, and a whole seed can ride home in the same mouth
-a meal would. A seed used to come free the moment the ant next put anything
+a meal would.
+
+**Since 2026-09-12 that is true of a bare seed lying on the floor as well,
+which is the version that matters, because a bare seed is most of what a
+colony eats.** Bite one and it usually survives: the ant gets only the small
+provision the seed carries — about a quarter of what the whole seed is worth
+— and the seed itself goes into the mouth as cargo and comes out where the
+meal ends. Every plant in the box does this now; grass, shrub and tree seeds
+used to be destroyed outright, so three of the five species had no way at all
+of being carried anywhere. A seed is still the best thing an ant can find
+without climbing, so the colony still goes for the bank first; what changed
+is that going for the bank now *plants* the bank somewhere else instead of
+ending it. What that looks like over a session is a midden that sprouts, and
+a bed that is still standing at the end of one. A seed used to come free the moment the ant next put anything
 down, wherever that happened to be — even a mouthful it had not swallowed a
 bite of yet. Now a seed only comes free once the meal carrying it is
 actually finished: an ant that eats everything in its mouth, flesh and all,

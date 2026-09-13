@@ -23,6 +23,7 @@
 //! | `scene` | the box: geometry, soil, light, partitions, founders |
 //! | `time`  | paused vs running, the speed dial, and what it actually achieved |
 //! | `stats` | the census, and the page that draws it |
+//! | `census`| the late-game census -- ants, larder, nest footprint, dead zone -- shared with `examples/latecensus.rs` |
 //! | `ui`    | the control bar along the bottom, its pages, and the mouse |
 //! | `params`| which numbers the player can reach, and how they are written |
 //! | `rain`  | the mister on the lid: rates, cadence, and the measurement the default rests on |
@@ -34,6 +35,7 @@
 //! with one from the other.
 
 pub mod batch;
+pub mod census;
 pub mod names;
 pub mod params;
 pub mod plainspeak;
@@ -99,6 +101,12 @@ pub struct Lab {
     pub time: time::TimeControl,
     /// The census and its page. See `stats`.
     pub stats: stats::Stats,
+    /// **The CENSUS rows this run has taken so far**, oldest first --
+    /// `Lab::write_chronicle`'s CENSUS section reads straight off this. One
+    /// entry every `chronicle_census_every()` frames (`Lab::tick`), cleared
+    /// on `reset()` alongside `stats` because it belongs to the run that is
+    /// about to be thrown away, not the box that replaces it.
+    pub chronicle_census: Vec<census::ChronicleRow>,
     /// The control bar along the bottom, the pages it opens, and the mouse.
     /// See `ui`.
     pub ui: ui::Ui,
@@ -249,6 +257,12 @@ pub struct Chamber {
     /// by seed, which is the comparison the sweep existed to make.
     pub setting: Option<f32>,
     pub stats: stats::Stats,
+    /// This chamber's own CENSUS rows, parked with it for the same reason
+    /// `stats` is -- a switch away from a chamber freezes it (`ChamberSummary`'s
+    /// own doc), so its census history must not keep accumulating under
+    /// whichever box is on screen, and must come back intact when you
+    /// switch to it again.
+    pub chronicle_census: Vec<census::ChronicleRow>,
     pub particles: ParticleSystem,
     pub blasts: Blasts,
     /// The population strip `Ui` keeps for the bar. Parked with its box for
@@ -422,14 +436,29 @@ impl Lab {
         // `CycleCreatureColour`'s handler, next to `renderer.creature_colour`
         // itself, so the two can never drift more than one action apart.
         ui.set_creature_colour(renderer.creature_colour);
+        // **The MENU page's five magnify rows and its display-floor row**,
+        // told what `Renderer`/`TimeControl` already hold so the mirror
+        // never opens on a stale reading before the first cycle. See
+        // `Ui::set_magnify`/`set_display_floor`'s own doc for why the mirror
+        // exists at all.
+        ui.set_magnify(
+            renderer.magnify_style,
+            renderer.magnify_notch,
+            renderer.magnify_ink,
+            renderer.magnify_level,
+            renderer.magnify_grain,
+        );
+        let time = time::TimeControl::new();
+        ui.set_display_floor(time.display_floor());
         Self {
             world,
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             renderer,
             player_tuning: player::Tuning::default(),
-            time: time::TimeControl::new(),
+            time,
             stats: stats::Stats::new(),
+            chronicle_census: Vec::new(),
             ui,
             spec,
             scenario: None,
@@ -469,6 +498,21 @@ impl Lab {
             thumb: None,
             view_dirty: false,
         }
+    }
+
+    /// **How often, in simulated frames, the chronicle takes a CENSUS
+    /// sample.** `Reports/evolution-lab-late-game-design-2026-09-12.md`
+    /// brief 0's own cadence: the late-game question turns on hundreds of
+    /// ants and tens of thousands of frames, and every-frame is the bar's
+    /// job (`stats::SAMPLE_INTERVAL`), not the chronicle's.
+    pub const CHRONICLE_CENSUS_EVERY: u64 = 10_000;
+    /// Environment override for [`Lab::CHRONICLE_CENSUS_EVERY`],
+    /// `CHRONICLE_DIR_ENV`'s own shape: a test that cannot afford ten
+    /// thousand real ticks per sample sets this lower.
+    pub const CHRONICLE_CENSUS_EVERY_ENV: &'static str = "PIXEL_PHYSICS_CHRONICLE_CENSUS_EVERY";
+
+    fn chronicle_census_every() -> u64 {
+        std::env::var(Self::CHRONICLE_CENSUS_EVERY_ENV).ok().and_then(|v| v.parse().ok()).filter(|&n| n > 0).unwrap_or(Self::CHRONICLE_CENSUS_EVERY)
     }
 
     /// **Where a chronicle export goes**, gitignored beside the shelf and the
@@ -533,7 +577,15 @@ impl Lab {
             self.bed_slug(),
             self.spec.seed
         ));
-        let text = ui::chronicle_text(&self.world, &self.spec, &self.bed_label(), self.time.requested);
+        // **What the player actually changed, against a bed nobody has
+        // touched.** `founders: 0, colonies: 0` only skips the planting
+        // pass -- every dial field lives on `World` itself and is set the
+        // same way regardless -- so this is a cheap reference box, not a
+        // second played bed. Built fresh here rather than cached: this runs
+        // once per `REBUILD` or quit, never per frame.
+        let shipped = scene::LabBox { founders: 0, colonies: 0, ..scene::LabBox::default() }.build();
+        let dial_changes = params::Dials::from_world(&self.world).changes_from(&params::Dials::from_world(&shipped));
+        let text = ui::chronicle_text(&self.world, &self.spec, &self.bed_label(), self.time.requested, &self.chronicle_census, &dial_changes);
         let result = std::fs::create_dir_all(&dir).and_then(|()| std::fs::write(&path, text));
         match result {
             Ok(()) => self.ui.say(format!("CHRONICLE SAVED -> {}", path.display())),
@@ -578,6 +630,11 @@ impl Lab {
         self.particles = ParticleSystem::new();
         self.blasts = Blasts::new();
         self.stats = stats::Stats::new();
+        // The outgoing run's CENSUS rows just went out with it above
+        // (`write_chronicle`, before `spec.build()` replaced `self.world`);
+        // the box that replaces it starts its own history at frame 0, same
+        // reason `stats` resets here.
+        self.chronicle_census.clear();
         placed
     }
 
@@ -747,6 +804,7 @@ impl Lab {
             spec: std::mem::replace(&mut self.spec, incoming.spec),
             scenario: std::mem::replace(&mut self.scenario, incoming.scenario),
             stats: std::mem::replace(&mut self.stats, incoming.stats),
+            chronicle_census: std::mem::replace(&mut self.chronicle_census, incoming.chronicle_census),
             particles: std::mem::replace(&mut self.particles, incoming.particles),
             blasts: std::mem::replace(&mut self.blasts, incoming.blasts),
             history: std::mem::replace(&mut self.ui.history, incoming.history),
@@ -803,6 +861,7 @@ impl Lab {
             setting: None,
             batch: None,
             stats: stats::Stats::new(),
+            chronicle_census: Vec::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -1067,6 +1126,10 @@ impl Lab {
             setting,
             batch,
             stats: stats::Stats::restored(census, history),
+            // A batch runs its own headless loop (`batch.rs`), not
+            // `Lab::tick`, so a landed row never took a CENSUS sample --
+            // same reason it adopts with fresh `particles`/`blasts` below.
+            chronicle_census: Vec::new(),
             particles: ParticleSystem::new(),
             blasts: Blasts::new(),
             history: ui::History::default(),
@@ -1419,6 +1482,25 @@ impl Lab {
         self.world.regroup_by_scent();
         self.stats.observe(&self.world);
         self.ui.observe(&self.world);
+        // **The chronicle's own census, on its own cadence.** `CHRONICLE_
+        // CENSUS_EVERY` frames -- independent of `stats::SAMPLE_INTERVAL`/
+        // `STANDING_INTERVAL` above, which feed the bar's population strip
+        // and are tuned for a screen redrawn every frame. This feeds a row
+        // meant to be read minutes or hours apart in a text file
+        // (`Reports/evolution-lab-late-game-design-2026-09-12.md` brief 0),
+        // so a coarser, env-overridable cadence is the right one, not the
+        // same one. Frame 0 never samples -- `World::begin_step` increments
+        // `frame` before any of this runs, so the first multiple of the
+        // interval a fresh box reaches is the interval itself -- which is
+        // what keeps a box nobody has run from getting a spurious row, the
+        // same reason `write_chronicle` itself skips `frame == 0`.
+        let every = Self::chronicle_census_every();
+        if self.world.frame.is_multiple_of(every) {
+            let ids = census::Ids::resolve(&self.world);
+            let nest_cols = census::nest_columns(&self.spec, self.scenario.as_ref());
+            let gut = census::ant_gut_bias(&self.world);
+            self.chronicle_census.push(census::take_chronicle_row(&self.world, &self.spec, gut, &nest_cols, &ids, &self.spec.colony_species));
+        }
     }
 
     /// **One tick, for a harness that needs to advance the world without the
@@ -2817,7 +2899,75 @@ impl Lab {
                 self.spec.rain = self.spec.rain.next();
                 self.ui.say(format!("RAIN -- {}", self.spec.rain.label()));
             }
+            // **`F`'s own verb, routed through `Lab::act` now that the MENU
+            // page gives it a second route in.** `Lab::act` exists to
+            // dispatch a verb a button also draws, and until this page
+            // existed this one had no button -- `bin/lab.rs`'s `F` key used
+            // to call `self.lab.time.cycle_display_floor()` directly for
+            // exactly that reason.
+            ui::Action::CycleDisplayFloor => {
+                self.time.cycle_display_floor();
+                self.ui.set_display_floor(self.time.display_floor());
+                self.ui.say(format!("DISPLAY FLOOR MIN {}HZ", self.time.display_floor()));
+            }
+            // `Digit9`'s own verb, `CycleDisplayFloor`'s own reason.
+            ui::Action::WriteChronicle => self.write_chronicle(),
+            // **The outdoor game's own cycle**, `Renderer::cycle_magnify_
+            // style` -- `Shift`+`=` there, this action's key (`0`) and MENU
+            // row here. Reused rather than re-derived so the lab and the
+            // outdoor game step through the identical sequence. Mirrored
+            // into `Ui` in the same action that changes it,
+            // `CycleCreatureColour`'s reason.
+            ui::Action::CycleMagnifyStyle => {
+                self.renderer.cycle_magnify_style();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY STYLE -- {}", self.renderer.magnify_style.label()));
+            }
+            // `Renderer::cycle_magnify_notch` -- `Shift`+`[` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyNotch => {
+                self.renderer.cycle_magnify_notch();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY NOTCH -- {}", self.renderer.magnify_notch.label()));
+            }
+            // `Renderer::cycle_magnify_ink` -- `Shift`+`]` in the outdoor
+            // game, `CycleMagnifyStyle`'s own reason for reusing it.
+            ui::Action::CycleMagnifyInk => {
+                self.renderer.cycle_magnify_ink();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY INK {:.2}", self.renderer.magnify_ink));
+            }
+            // **`magnify_level`/`magnify_grain` had no cycle method on
+            // `Renderer` when this lane started** -- `render.rs` was another
+            // round-30 lane's file. That lane closed and #352 merged, so the
+            // blocker lifted mid-lane; `Renderer::cycle_magnify_level`/
+            // `cycle_magnify_grain` now exist beside the three fields that
+            // already had one, `cycle_magnify_ink`'s own shape, so all five
+            // magnify fields share one mechanism rather than three-plus-two.
+            ui::Action::CycleMagnifyLevel => {
+                self.renderer.cycle_magnify_level();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY LEVEL {:.2}", self.renderer.magnify_level));
+            }
+            ui::Action::CycleMagnifyGrain => {
+                self.renderer.cycle_magnify_grain();
+                self.sync_magnify();
+                self.ui.say(format!("MAGNIFY GRAIN {:.2}", self.renderer.magnify_grain));
+            }
         }
+    }
+
+    /// Push all five `Renderer::magnify_*` fields across to `Ui`'s mirror in
+    /// one call -- `Ui::set_magnify`'s own reason for taking all five rather
+    /// than one.
+    fn sync_magnify(&mut self) {
+        self.ui.set_magnify(
+            self.renderer.magnify_style,
+            self.renderer.magnify_notch,
+            self.renderer.magnify_ink,
+            self.renderer.magnify_level,
+            self.renderer.magnify_grain,
+        );
     }
 
     // ------------------------------------------------------------ the shelf
@@ -3290,7 +3440,7 @@ const HELP: [&str; 30] = [
     "           KEEP AND PLACE ARE BUTTONS NOW,",
     "           ON THE CELL PAGE AND THE RACK",
     "; \x27        DRIFT A RELEASE, IN BROODS",
-    "K E I J Q U  WALL FOOD SCENT ALARM FLING LAMP -- KEY ONLY",
+    "K E I J Q U 9  WALL FOOD SCENT ALARM FLING LAMP CHRONICLE -- KEY ONLY",
     "F1 F2 F3 F4   PLANTS ANTS BOX RACK   TAB STATS",
     "SHIFT+1..5   SWITCH CHAMBER    ALL   THE WHOLE RACK",
     "F RATE   WASD PAN   - = ZOOM   R REBUILD",
@@ -3381,6 +3531,58 @@ mod tests {
         for _ in 0..n {
             lab.tick();
         }
+    }
+
+    // ------------------------------------------------------- the chronicle census
+
+    /// Both chronicle-census tests read `Lab::chronicle_census_every()`,
+    /// which reads a process-wide env var -- `SHELF_LOCK`'s own reason for
+    /// existing. Without this, the override test setting the var to `5`
+    /// while the cadence test is mid-run would make that run take a CENSUS
+    /// sample every 5 ticks instead of every 10,000, and its exact-one-row
+    /// assertion would fail on a totally correct `Lab`.
+    static CENSUS_ENV_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+    /// **The chronicle's CENSUS section takes one row per cadence, and no
+    /// more.** Runs exactly `Lab::CHRONICLE_CENSUS_EVERY` ticks on a small
+    /// bed and asserts one row lands, naming that exact frame -- not "at
+    /// least one", since a cadence gate that fired on every tick would also
+    /// pass a looser assertion.
+    ///
+    /// **Put the fault back**: comment out the cadence check in `Lab::tick`
+    /// (the `if self.world.frame % every == 0 { .. }` block) and this goes
+    /// red -- `lab.chronicle_census` stays empty for the whole run, and
+    /// `write_chronicle`'s CENSUS section (`census::chronicle_section`)
+    /// prints `NO CENSUS SAMPLE HAS RUN YET.` instead of a row. Watched:
+    /// removing the block drops the count from 1 to 0, confirming the
+    /// assertion below is not vacuous.
+    #[test]
+    fn chronicle_takes_one_census_row_per_cadence() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV); // this test runs at the shipped default
+        let mut lab = Lab::new(scene::LabBox { founders: 0, colonies: 0, ..rack_bed(1) });
+        run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
+        assert_eq!(lab.chronicle_census.len(), 1, "expected exactly one CENSUS row after one cadence, got {}", lab.chronicle_census.len());
+        assert_eq!(lab.chronicle_census[0].frame, Lab::CHRONICLE_CENSUS_EVERY, "the one row taken names the wrong frame");
+        // A second cadence adds a second row rather than replacing the first
+        // -- the whole point of a CENSUS section being a table over time.
+        run(&mut lab, Lab::CHRONICLE_CENSUS_EVERY as u32);
+        assert_eq!(lab.chronicle_census.len(), 2, "a second cadence should append, not replace");
+    }
+
+    /// **The cadence is overridable, `CLAUDE.md`'s build spec for this
+    /// deliverable.** No `Lab`, no world, just the env var this whole
+    /// feature is read through -- `PIXEL_PHYSICS_LAB_HELP`'s and
+    /// `CHRONICLE_DIR_ENV`'s own shape.
+    #[test]
+    fn chronicle_census_every_reads_the_env_override() {
+        let _guard = CENSUS_ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "the default should hold with no override set");
+        std::env::set_var(Lab::CHRONICLE_CENSUS_EVERY_ENV, "5");
+        assert_eq!(Lab::chronicle_census_every(), 5, "the env override was not read");
+        std::env::remove_var(Lab::CHRONICLE_CENSUS_EVERY_ENV);
+        assert_eq!(Lab::chronicle_census_every(), Lab::CHRONICLE_CENSUS_EVERY, "removing the override did not restore the default");
     }
 
     /// **The chronicle stays bounded per lineage, not per birth.** A colony

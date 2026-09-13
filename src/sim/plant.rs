@@ -2194,7 +2194,60 @@ fn schedule_rebloom(world: &mut World, organism_id: u16, species_id: organism::S
 /// `false` at `p <= 0.0` **without drawing**, so an ordinary seed bite on
 /// such a species costs nothing and perturbs no stream, exactly as it did
 /// before this function existed.
-pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> bool {
+///
+/// **Round 29, Brief 1 -- a bare seed is now in scope too, and which of the
+/// two it was is the return value rather than a bool.**
+/// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. The census
+/// that brief is built on says the colony's staple is the *seed bank* -- it
+/// drains 16x while the leaves hold -- so the cell that matters most to the
+/// bed's future is exactly the one this function used to decline:
+/// `cell.material != windfall_id` sent every bare `seed` of a fruiting
+/// species (herb, scrambler) straight to `Digested`, and the three species
+/// that have no fruit at all reached the roll only because
+/// `windfall_material` defaults to the string `"seed"`, whereupon their
+/// unset `seed_gut_survival: 0.0` failed it. Now a `CellType::Seed` wearing
+/// the plain `seed` material rolls the same odds the fruit's passenger
+/// rolls.
+///
+/// **Why the caller needs to know which**, and why this stopped being a
+/// `bool`: the two cases are priced differently and only this function knows
+/// which one it saw. A windfall is flesh around a seed -- the mouth ate the
+/// flesh, so it is paid in full and the seed rides as a passenger inside
+/// what it ate. A bare seed *is* the mouthful; sparing it means the mouth
+/// got only the provision the seed attaches to buy its carriage
+/// (`SpeciesDef::seed_provision_fraction`). Returning the discriminator is
+/// the alternative to the bite site re-deriving it from the material, which
+/// is the "readout derived separately from the mechanism" failure
+/// `food_value`'s own doc records.
+///
+/// **`PIXEL_PHYSICS_SEED_CARGO=0`** restores the windfall-only test in one
+/// binary -- the same one-binary kill-switch convention
+/// `PIXEL_PHYSICS_SEED_WHERE_EATEN` and `PIXEL_PHYSICS_MIDDEN` already use.
+/// It cannot restore `leaf.ron`'s food value, which is an asset and not a
+/// branch; the byte-identity control this build quotes reverts that value
+/// in the file and runs the switch off.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum SeedBite {
+    /// The roll failed, or there was never a seed to spare here: the caller
+    /// clears the cell exactly as it always has.
+    Digested,
+    /// A windfall's seed survived. The flesh around it was the meal, so the
+    /// bite is paid at face value and the spared seed is the passenger.
+    SurvivedInFlesh,
+    /// A bare seed survived. The seed *was* the meal, so the bite is paid
+    /// only `SpeciesDef::seed_provision_fraction` of face.
+    SurvivedBare,
+}
+
+impl SeedBite {
+    /// Did anything survive -- i.e. must the caller leave the cell standing?
+    /// The predicate every pre-round-29 call site was written against.
+    pub fn survived(self) -> bool {
+        !matches!(self, SeedBite::Digested)
+    }
+}
+
+pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> SeedBite {
     let cell = world.get(x, y);
     let organism_id = cell.organism_id();
     if organism_id == 0 {
@@ -2214,13 +2267,13 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
         if world.materials.id_of("windfall").is_some_and(|id| id == cell.material) {
             world.windfall_bitten_ownerless += 1;
         }
-        return false;
+        return SeedBite::Digested;
     }
     if organism::cell_type(cell.aux()) != Some(CellType::Seed) {
-        return false;
+        return SeedBite::Digested;
     }
     let Some(species) = world.organism(organism_id).map(|s| s.species) else {
-        return false;
+        return SeedBite::Digested;
     };
     // A standing pip meeting a *second* bite: not a windfall, so there is
     // nothing to roll. This is the `pips_eaten` exit -- counted here
@@ -2232,16 +2285,35 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
             // Round 28's garden-loop instrument: "where" for the eaten
             // exit, same convention as `pip_rot_x` beside it.
             world.pip_eaten_x.push(x);
-            return false;
+            return SeedBite::Digested;
         }
     }
     let windfall_name = world.species.get(species).windfall_material.clone();
     let Some(windfall_id) = world.materials.id_of(&windfall_name) else {
-        return false;
+        return SeedBite::Digested;
     };
-    if cell.material != windfall_id {
-        return false; // a bare-set `seed`, or a species with no fruit: unaffected
-    }
+    // **Which of the two this is, decided once, here.** `windfall_id` can
+    // *be* the `seed` material (a species with no fruit takes
+    // `default_windfall_material`'s `"seed"` sentinel), so the flesh case is
+    // the narrower test and has to be asked first: a cell is flesh only when
+    // it wears a windfall material that is not that sentinel.
+    let bare_seed = world.materials.id_of("seed") == Some(cell.material);
+    let in_flesh = cell.material == windfall_id && windfall_name != "seed";
+    // **Round 29's kill switch, and the only branch it changes.** With
+    // `PIXEL_PHYSICS_SEED_CARGO=0` a bare seed falls through to `Digested`
+    // exactly as it did before Brief 1, so one binary carries both arms.
+    let cargo = std::env::var("PIXEL_PHYSICS_SEED_CARGO").as_deref() != Ok("0");
+    let kind = if in_flesh {
+        SeedBite::SurvivedInFlesh
+    } else if bare_seed && cargo {
+        SeedBite::SurvivedBare
+    } else {
+        // A cell that is neither -- a species whose `windfall_material`
+        // names something this world does not load as the bitten cell's
+        // material, or a bare seed with the switch off: unaffected, exactly
+        // as before.
+        return SeedBite::Digested;
+    };
     // **The true bite count, before the roll decides anything -- but only
     // for a species that authors real fruit.** M2's brief (`Reports/lanes/
     // evolution-lab-ecology-measure-2.md`) needed "how many times did an ant
@@ -2259,17 +2331,26 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     // not fallen fruit at all. Guarded the same way the roll below already
     // is safe on such a species: exclude the sentinel string rather than
     // trust that reaching this line means a real fruit was bitten.
-    if windfall_name != "seed" {
+    // **`in_flesh`, not the name test this line used to carry, and the two
+    // are identical for every case that reached here before round 29.** The
+    // old guard asked only "does this species author real fruit", which was
+    // sufficient while the only cell that got this far WAS that fruit. A bare
+    // seed of a fruiting species now reaches this line too, and it is not a
+    // fallen fruit -- counting it would put herb's and scrambler's seed bank
+    // into a counter whose whole job is to say how often a mouth met a fallen
+    // fruit. Caught by `a_bare_seed_survives_a_bite_and_reports_itself_as_
+    // bare`, not by review.
+    if in_flesh {
         world.windfall_bitten += 1;
     }
     let survival = world.species.get(species).seed_gut_survival.clamp(0.0, 1.0);
     if !rng.chance(survival) {
-        return false; // the roll failed: the caller clears it exactly as today
+        return SeedBite::Digested; // the roll failed: the caller clears it exactly as today
     }
     // A stripped asset set with no `pip.ron` loaded: degrade to today's
     // behaviour rather than pretend a survival the world cannot represent.
     let Some(pip_id) = world.materials.id_of("pip") else {
-        return false;
+        return SeedBite::Digested;
     };
     // Uniform across the material's own palette, mirroring `bear_seed_at`'s
     // own shade draw for a fresh windfall/seed -- no species banding here,
@@ -2278,7 +2359,34 @@ pub fn seed_survives_bite(world: &mut World, x: i32, y: i32, rng: &mut Rng) -> b
     let shade = rng.below(shades) as u8;
     world.set(x, y, Cell::new(pip_id, shade).with_organism_id(organism_id).with_aux(cell.aux()));
     world.seeds_spilled += 1;
-    true
+    if kind == SeedBite::SurvivedBare {
+        world.bare_seeds_spared += 1;
+    }
+    kind
+}
+
+/// **What fraction of a spared bare seed's face value the mouth keeps** --
+/// `SpeciesDef::seed_provision_fraction`, read off the organism that owns
+/// `(x, y)`.
+///
+/// Called by `creature.rs`'s two bite sites immediately after
+/// `seed_survives_bite` has returned `SeedBite::SurvivedBare`, on the cell it
+/// has just rewritten as `pip` **in place** -- the rewrite keeps the organism
+/// id, so the species is still readable here and this does not have to be
+/// captured before the roll.
+///
+/// **Clamped to `0..=1`, and `1.0` when the species cannot be read at all.**
+/// A fraction above 1 would pay more for a seed that survived than for one
+/// that did not, which is a pump; falling back to the full value on a missing
+/// species keeps a degraded world behaving as it did before this field
+/// existed, rather than silently starving a colony because an asset is
+/// stripped.
+pub fn seed_provision_fraction(world: &World, x: i32, y: i32) -> f32 {
+    let organism_id = world.get(x, y).organism_id();
+    world
+        .organism(organism_id)
+        .map(|s| world.species.get(s.species).seed_provision_fraction.clamp(0.0, 1.0))
+        .unwrap_or(1.0)
 }
 
 /// **A2 -- the crop-side half of "the seed rides home."**
@@ -2526,6 +2634,60 @@ fn deliver_seed_passenger_with_material(world: &mut World, x: i32, y: i32, passe
     let (x, y) = {
         let already_wet = site_holds_enough_water(world, world.get(x, y + 1), threshold);
         if already_wet || midden_disabled { (x, y) } else { find_midden_site(world, x, y, threshold).unwrap_or((x, y)) }
+    };
+    // **Never over an occupied cell -- open-bugs §Z16, 2026-09-12.** The
+    // digestion exit in `creature.rs` hands the pip in at the ant's *own
+    // head* coordinates (the meal is eaten where the ant stands), and this
+    // function wrote it there unconditionally whenever the redirect above
+    // left `(x, y)` alone: on ground already wet enough (`already_wet`
+    // short-circuits), or with no midden site in reach. The ant's head cell
+    // became a pip, `reconcile_chain` booked the death as `Killed`, and on
+    // the played bed at 500,000 frames that one path was 71 / 58 / 35 of
+    // the colony's 216 / 98 / 70 "killed" deaths on seeds 1-3 -- the
+    // colony was being planted, not fought. The drop verb and the corpse
+    // drop already hand in an empty cell, so for them this is a no-op.
+    //
+    // The order is the drop verb's own: the first empty of the eight
+    // neighbours (the seed lands beside where the meal was eaten, which is
+    // the owner's 2026-09-11 rule to within a cell), then the ring two
+    // cells out -- measured 2026-09-12 on `played_bed` seed 1 at 20,000
+    // frames, 6 of 11 digestion releases had every neighbour taken, because
+    // a meal is mostly eaten in a tunnel full of nestmates, and a tunnel
+    // has an empty cell within two -- then the midden search regardless of
+    // wetness, and only then a counted loss. **A cap on the search must
+    // bound work, not decide the outcome**: the loss exit below releases
+    // the carried-set guard and counts `World::seeds_lost_no_room` rather
+    // than silently dropping the seed, and it is exactly the corpse path's
+    // own no-room handling.
+    //
+    // `PIXEL_PHYSICS_PIP_OVERWRITE=1` -- a one-binary kill switch, the same
+    // shape as `PIXEL_PHYSICS_MIDDEN` above: reproduces today's write into
+    // the head so a before/after census comes from one binary and one seed.
+    // Default off (the fix). Read only on this rare branch, never the sweep.
+    let overwrite_allowed = std::env::var("PIXEL_PHYSICS_PIP_OVERWRITE").as_deref() == Ok("1");
+    let site = if overwrite_allowed || world.is_empty(x, y) {
+        Some((x, y))
+    } else {
+        NEIGHBOURS_8
+            .iter()
+            .map(|&(dx, dy)| (x + dx, y + dy))
+            .find(|&(px, py)| world.is_empty(px, py))
+            .or_else(|| {
+                (-2..=2)
+                    .flat_map(|dy| (-2..=2).map(move |dx| (dx, dy)))
+                    .filter(|&(dx, dy): &(i32, i32)| dx.abs() == 2 || dy.abs() == 2)
+                    .map(|(dx, dy)| (x + dx, y + dy))
+                    .find(|&(px, py)| world.is_empty(px, py))
+            })
+            .or_else(|| find_midden_site(world, x, y, threshold))
+    };
+    let Some((x, y)) = site else {
+        world.carried_seed_organisms.remove(&passenger.organism_id);
+        world.seeds_lost_no_room += 1;
+        if std::env::var("A2_DEBUG").as_deref() == Ok("1") {
+            eprintln!("A2_DEBUG lost frame={} organism={} at=({x},{y}) no empty cell within reach", world.frame, passenger.organism_id);
+        }
+        return;
     };
     // **Counts the outcome, not only the redirect firing** -- a pip whose
     // original site already qualified never touches `find_midden_site` at
@@ -3684,18 +3846,49 @@ pub const SEED_TICK_INTERVAL: u64 = 4;
 /// `S(a) = exp(-ln2 * (a/T)^2)` — a Weibull with shape 2. Three consequences
 /// worth naming because the bars in the tests are set from them rather than
 /// from taste: **T is the median lifespan**, survival at `T/4` is **96%**,
-/// and survival at `2.5T` is **0.4%**.
+/// and survival at `2.5T` is **1.3%**.
+///
+/// **That last figure read `0.4%` until 2026-09-12 and was arithmetically
+/// wrong**, found while giving the ant the same hazard: `exp(-ln2 * 2.5^2)`
+/// is `2^-6.25` = **1.31%**, and the discrete product over ticks agrees to
+/// three places (1.23% at `T`=4,000 / interval 45, 1.31% at 40,000 / 6).
+/// `0.4%` is `2^-8`, i.e. the survival at **2.83T**. Nothing depended on it
+/// — every bar set from it is `< 0.02`, which 1.3% clears — so this is a
+/// corrected label rather than a corrected model, and it is written down
+/// because `Reports/evolution-lab-late-game-design-2026-09-12.md` §1.2 and
+/// two test comments repeat the wrong number from here.
 ///
 /// Returns 0 for a non-positive `life_half_life`, which is every species'
 /// default and means immortal — the behaviour everything had before this
 /// existed. Clamped to 1, so an absurdly short life is instant death rather
 /// than a probability above one.
 fn old_age_chance(age_frames: f32, life_half_life: f32) -> f32 {
+    old_age_chance_over(age_frames, life_half_life, ORGANISM_TICK_INTERVAL)
+}
+
+/// The same hazard for a caller whose tick is **not** `ORGANISM_TICK_INTERVAL`.
+///
+/// `old_age_chance` above is this with the plant's own cadence baked in; the
+/// creature's is a different number and a *per-individual* one -- `pace` is a
+/// heritable trait, so two ants of one colony take their turns at different
+/// intervals. The interval belongs in the signature rather than in the body
+/// for exactly the reason `half_life_chance`'s doc gives for its own
+/// `interval` argument: the outcome must be a property of the half-life and
+/// not of how often the check happens. Baking 45 in and letting the ant roll
+/// every 6 frames would have made a fast lineage die at `T/2.7` and turned
+/// `pace` into a silent lifespan gene -- the shape `CLAUDE.md`'s "a term in a
+/// weighted sum is not an independent knob" warns about, found before it was
+/// built rather than after.
+///
+/// **T is the median lifespan in frames at every interval**, which is the
+/// property `the_hazard_is_a_property_of_the_half_life_not_the_interval`
+/// asserts by surviving two intervals seven times apart.
+pub(crate) fn old_age_chance_over(age_frames: f32, life_half_life: f32, interval: u64) -> f32 {
     if life_half_life <= 0.0 || age_frames <= 0.0 {
         return 0.0;
     }
     let per_frame = 2.0 * std::f32::consts::LN_2 * age_frames / (life_half_life * life_half_life);
-    (per_frame * ORGANISM_TICK_INTERVAL as f32).clamp(0.0, 1.0)
+    (per_frame * interval.max(1) as f32).clamp(0.0, 1.0)
 }
 
 fn half_life_chance(half_life: f32, interval: u64) -> f32 {
@@ -22141,7 +22334,8 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
     ///
     /// The numbers are the model's, not tuned: the hazard integrates to
     /// `ln 2` at `age == T`, so survival is `exp(-ln2 * (age/T)^2)` — **97%**
-    /// at `T/5`, 50% at `T`, and 0.4% at `2.5T`. The bars are set from that
+    /// at `T/5`, 50% at `T`, and **1.3%** at `2.5T` (this said `0.4%` until
+    /// 2026-09-12; see `old_age_chance`'s own doc for the arithmetic). The bars are set from that
     /// with headroom, and the horizon is `2.5T` for the same reason.
     /// **The old-age hazard rises with age and integrates to a median at
     /// `T`** — the arithmetic half of `SpeciesDef::life_half_life`, tested
@@ -22190,6 +22384,42 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         assert!(late < 0.02, "an old plant must be all but gone: survival {late:.4} at 2.5T");
     }
 
+    /// **The hazard is a property of the half-life, not of how often it is
+    /// checked** -- the claim `old_age_chance_over`'s third argument exists
+    /// to keep true, asserted across an interval ratio of 7.5x because the
+    /// creature that now shares this function rolls every 6 frames where a
+    /// plant rolls every 45.
+    ///
+    /// Put the fault back to see it go red: drop the `interval` argument and
+    /// bake `ORGANISM_TICK_INTERVAL` into the body, and the 6-frame arm's
+    /// median lands at `T/2.7` -- an ant with a 40,000-frame lifespan dying
+    /// at 15,000, and a *pace* gene silently deciding it, which is the whole
+    /// reason this is a parameter.
+    #[test]
+    fn the_hazard_is_a_property_of_the_half_life_not_the_interval() {
+        const T: f32 = 40_000.0;
+        let survival_at = |age: f32, interval: u64| -> f32 {
+            let mut s = 1.0f32;
+            let mut a = 0.0f32;
+            while a < age {
+                s *= 1.0 - old_age_chance_over(a, T, interval);
+                a += interval as f32;
+            }
+            s
+        };
+        for interval in [6u64, 12, 45] {
+            let (quarter, half, late) = (survival_at(T / 4.0, interval), survival_at(T, interval), survival_at(T * 2.5, interval));
+            println!("interval {interval}: survival {quarter:.3} at T/4, {half:.3} at T, {late:.4} at 2.5T");
+            assert!((half - 0.5).abs() < 0.02, "T must be the median at interval {interval}: {half:.3}");
+            assert!(quarter > 0.94, "96% must still be alive at T/4 at interval {interval}: {quarter:.3}");
+            assert!(late < 0.02, "about 1.3% must be left at 2.5T at interval {interval}: {late:.4}");
+        }
+        // An interval of 0 would be a division the caller cannot make sense
+        // of; it is floored at 1 rather than panicking, because a clock knob
+        // at zero is a `Clock::creature_interval` question and not this one's.
+        assert!(old_age_chance_over(100.0, T, 0) > 0.0, "a zero interval is floored at 1, not treated as immortal");
+    }
+
     #[test]
     fn old_age_kills_a_grown_plant_and_spares_a_seedling() {
         // **The horizon is bounded by the scene, not by the model, and that
@@ -22208,7 +22438,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
         // Survival at `T/4` is `exp(-ln2/16)` = **96%**, so "still alive" is
         // a claim about the hazard's shape rather than about luck.
         const YOUNG: usize = (LIFE / 4.0) as usize;
-        // `2.5T`: survival `exp(-ln2 * 6.25)` = **0.4%**.
+        // `2.5T`: survival `exp(-ln2 * 6.25)` = **1.3%**.
         const OLD: usize = (LIFE * 2.5) as usize;
 
         /// -> is **the plant this arm planted** still alive?
@@ -22243,7 +22473,7 @@ mis-wired {miswired_root}, so `slot_1_is_a_root_locus_and_not_a_shoot_one` would
 
         assert!(run_arm(0.0, OLD), "life_half_life 0.0 is the shipped default and must be immortal: nothing survived {OLD} frames");
         assert!(run_arm(LIFE, YOUNG), "the hazard rises with age, so a plant {YOUNG} frames into an {LIFE}-frame life must still be standing");
-        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 0.4% by the model");
+        assert!(!run_arm(LIFE, OLD), "a plant {OLD} frames into an {LIFE}-frame life must be dead: survival is 1.3% by the model");
     }
 
     #[test]
@@ -22789,7 +23019,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
 
         let mut rng = Rng::new(7);
-        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng).survived();
 
         assert!(survived, "a gut_survival of 1.0 must always let the seed through");
         let cell = w.get(x, y);
@@ -22811,7 +23041,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
 
         let mut rng = Rng::new(7);
-        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng).survived();
 
         assert!(!survived, "a gut_survival of 0.0 must never let the seed through");
         assert_eq!(w.get(x, y).material, windfall, "the cell must be untouched -- clearing it is the caller's job, not this function's");
@@ -22836,7 +23066,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         assert_eq!(w.get(x, y).organism_id(), 0, "test setup: the cell must be ownerless");
 
         let mut rng = Rng::new(7);
-        let survived = seed_survives_bite(&mut w, x, y, &mut rng);
+        let survived = seed_survives_bite(&mut w, x, y, &mut rng).survived();
 
         assert!(!survived, "an ownerless cell has no species to roll a survival chance for");
         assert_eq!(w.windfall_bitten_ownerless, 1, "the ownerless bite must be counted on its own line");
@@ -22865,7 +23095,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let (hx, hy) = (50, 50);
         place(&mut w, (hx, hy), windfall, herb_id, CellType::Seed, (0.0, 0.0));
         let mut rng = Rng::new(7);
-        seed_survives_bite(&mut w, hx, hy, &mut rng);
+        let _ = seed_survives_bite(&mut w, hx, hy, &mut rng);
         assert_eq!(w.windfall_bitten, 1, "a real fruit bite (herb, windfall material) must move the counter");
 
         // The negative control: grass authors no fruit, so its own
@@ -22880,12 +23110,94 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let grass_id = w.push_organism(grass).expect("an organism slot is free");
         let (gx, gy) = (60, 50);
         place(&mut w, (gx, gy), seed_mat, grass_id, CellType::Seed, (0.0, 0.0));
-        seed_survives_bite(&mut w, gx, gy, &mut rng);
+        let _ = seed_survives_bite(&mut w, gx, gy, &mut rng);
         assert_eq!(
             w.windfall_bitten, 1,
             "an ordinary bare-seed bite on a species with no fruit must NOT move `windfall_bitten` -- \
              it is a bite-on-fruit count, not a bite-on-anything-that-reaches-the-roll count"
         );
+    }
+
+    /// **Round 29, Brief 1 -- a bare seed is in scope now, and the return
+    /// value says which kind of survival it was.**
+    /// `Reports/evolution-lab-late-game-design-2026-09-12.md` §2. Before
+    /// this build `cell.material != windfall_id` sent every bare `seed` of
+    /// a fruiting species straight out as certain death, which is the line
+    /// the late-game census identified as the colony eating the bed's
+    /// future. Written against `herb`, whose `windfall_material` is a real
+    /// `"windfall"`, so the bare seed genuinely takes the new branch rather
+    /// than falling through the no-fruit sentinel a grass seed takes.
+    ///
+    /// **The fault is put back in the same test**, per `CLAUDE.md`: at
+    /// `seed_gut_survival: 0.0` the identical call must read `Digested` and
+    /// leave the counter alone, so a green here is evidence about the roll
+    /// and not about the scaffolding.
+    #[test]
+    fn a_bare_seed_survives_a_bite_and_reports_itself_as_bare() {
+        let mut w = test_world();
+        let herb = w.species.id_of("herb").expect("herb species must be loaded");
+        let seed_mat = w.materials.id_of("seed").expect("seed material is compiled in");
+        let pip = w.materials.id_of("pip").expect("pip.ron must be registered");
+        assert_eq!(
+            w.species.get(herb).windfall_material,
+            "windfall",
+            "test premise: herb must author a real fruit, or this is the no-fruit path and proves nothing about the new branch"
+        );
+        w.species.get_mut(herb).seed_gut_survival = 1.0;
+        let id = w.push_organism(herb).expect("an organism slot is free");
+        let (x, y) = (50, 50);
+        place(&mut w, (x, y), seed_mat, id, CellType::Seed, (0.0, 0.0));
+        let mut rng = Rng::new(11);
+
+        assert_eq!(
+            seed_survives_bite(&mut w, x, y, &mut rng),
+            SeedBite::SurvivedBare,
+            "a bare seed at survival 1.0 must survive, and must say it was bare"
+        );
+        assert_eq!(w.get(x, y).material, pip, "the spared bare seed must be converted in place to a pip, exactly as a windfall's is");
+        assert_eq!(w.get(x, y).organism_id(), id, "and must keep its organism, or there is nothing left to germinate");
+        assert_eq!(w.bare_seeds_spared, 1, "the bare route's own it-fired counter must move");
+        assert_eq!(w.windfall_bitten, 0, "a bare seed is not a fallen fruit: the fruit-bite counter must stay put");
+
+        // Put the fault back: certain death is what this build replaced, and
+        // the same call has to reproduce it.
+        w.species.get_mut(herb).seed_gut_survival = 0.0;
+        let id2 = w.push_organism(herb).expect("a second organism slot is free");
+        let (x2, y2) = (60, 50);
+        place(&mut w, (x2, y2), seed_mat, id2, CellType::Seed, (0.0, 0.0));
+        assert_eq!(
+            seed_survives_bite(&mut w, x2, y2, &mut rng),
+            SeedBite::Digested,
+            "at survival 0.0 a bare seed must still be certain death"
+        );
+        assert_eq!(w.bare_seeds_spared, 1, "and the counter must not have moved for it");
+    }
+
+    /// **The three species that had no way to be carried anywhere now have
+    /// one.** An asset guard, and it is the whole of Brief 1's reach into
+    /// the shipped bed: `grass`, `shrub` and `tree` authored no
+    /// `seed_gut_survival` at all, so it defaulted to `0.0` and every seed
+    /// of theirs an ant bit was destroyed. They carry `herb`'s 0.6 now --
+    /// the only value in the corpus, chosen over inventing a second
+    /// unmeasured number (`Reports/lanes/evolution-lab-seed-cargo.md`).
+    /// Delete or retune either field and this says so.
+    #[test]
+    fn every_shipped_plant_can_have_a_seed_carried() {
+        let w = test_world();
+        for name in ["grass", "shrub", "tree", "herb", "scrambler"] {
+            let id = w.species.id_of(name).unwrap_or_else(|| panic!("{name} species must be loaded"));
+            let sp = w.species.get(id);
+            assert!(
+                sp.seed_gut_survival > 0.0,
+                "{name} authors seed_gut_survival {} -- at 0.0 a bitten seed is certain death and this species cannot be dispersed by an animal at all",
+                sp.seed_gut_survival
+            );
+            assert!(
+                sp.seed_provision_fraction > 0.0 && sp.seed_provision_fraction <= 1.0,
+                "{name} authors seed_provision_fraction {} -- outside (0, 1] it is either a seed nobody profits by carrying or a pump",
+                sp.seed_provision_fraction
+            );
+        }
     }
 
     /// **Confirms `Behavior::Germinate` does not key on material at all**,
@@ -22961,6 +23273,13 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             aux: organism::pack_cell_type(CellType::Seed),
             picked_up_frame: w.frame,
         };
+        // The pickup empties the cell it takes the seed from
+        // (`take_seed_passenger`), and the planter now refuses an occupied
+        // one (open-bugs §Z16) -- so hand it the empty cell the real
+        // sequence would, rather than delivering onto the fruit still
+        // standing there, which the old unconditional write let this scene
+        // get away with.
+        w.set(fx, fy, Cell::EMPTY);
         deliver_seed_passenger(&mut w, fx, fy, passenger);
 
         assert_eq!(
@@ -23073,7 +23392,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         let (fx, fy) = (10, 10);
         place(&mut w, (fx, fy), windfall, id, CellType::Seed, (0.0, 0.0));
         let mut rng = Rng::new(7);
-        assert!(seed_survives_bite(&mut w, fx, fy, &mut rng), "test setup: the roll must pass at seed_gut_survival 1.0");
+        assert!(seed_survives_bite(&mut w, fx, fy, &mut rng).survived(), "test setup: the roll must pass at seed_gut_survival 1.0");
         let passenger = take_seed_passenger(&mut w, fx, fy).expect("test setup: a pip must yield a passenger");
 
         // The long carry: delivered 300 frames after pickup, well past
@@ -23290,7 +23609,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         place(&mut w, (x, y), windfall, id, CellType::Seed, (0.0, 0.0));
 
         let mut rng = Rng::new(7);
-        assert!(seed_survives_bite(&mut w, x, y, &mut rng), "test setup: the roll must pass at seed_gut_survival 1.0");
+        assert!(seed_survives_bite(&mut w, x, y, &mut rng).survived(), "test setup: the roll must pass at seed_gut_survival 1.0");
 
         let passenger = take_seed_passenger(&mut w, x, y).expect("a pip the bite just converted in place must yield a passenger");
         assert_eq!(passenger.organism_id, id, "the passenger must carry the seed's own organism id, not a fresh one");
@@ -23325,14 +23644,14 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         place(&mut w, (x2, y2), windfall, second_id, CellType::Seed, (0.0, 0.0));
 
         let mut rng = Rng::new(7);
-        assert!(seed_survives_bite(&mut w, x1, y1, &mut rng), "test setup: the first roll must pass");
+        assert!(seed_survives_bite(&mut w, x1, y1, &mut rng).survived(), "test setup: the first roll must pass");
         let passenger = take_seed_passenger(&mut w, x1, y1).expect("test setup: the first pip must be taken as a passenger");
 
         // The crop now carries a passenger -- exactly the condition
         // `creature.rs`'s gate checks (`crop.is_none_or(|c| c.passenger.is_none())`)
         // -- so the caller must not call `take_seed_passenger` again. This
         // second bite converts the cell to `pip` in place and is left there.
-        assert!(seed_survives_bite(&mut w, x2, y2, &mut rng), "test setup: the second roll must also pass");
+        assert!(seed_survives_bite(&mut w, x2, y2, &mut rng).survived(), "test setup: the second roll must also pass");
 
         let second_cell = w.get(x2, y2);
         assert_eq!(second_cell.material, pip, "the second surviving seed must still be standing as a pip, not vanished");
@@ -23395,7 +23714,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         w.set(gx, gy + 2, Cell::new(material::STONE, 0));
         let gid = w.push_organism(herb).expect("an organism slot is free");
         place(&mut w, (gx, gy), windfall, gid, CellType::Seed, (0.0, 0.0));
-        assert!(seed_survives_bite(&mut w, gx, gy, &mut rng), "gut_survival 1.0 must always spill");
+        assert!(seed_survives_bite(&mut w, gx, gy, &mut rng).survived(), "gut_survival 1.0 must always spill");
         let site = reschedule_organism(gx, gy, gid, 0, 0, w.organism_due(ORGANISM_TICK_INTERVAL));
         w.schedule_active_site(site);
 
@@ -23408,7 +23727,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
             w.set(sx, sy + 1, Cell::new(material::STONE, 0));
             let sid = w.push_organism(herb).expect("an organism slot is free");
             place(&mut w, (sx, sy), windfall, sid, CellType::Seed, (0.0, 0.0));
-            assert!(seed_survives_bite(&mut w, sx, sy, &mut rng), "gut_survival 1.0 must always spill");
+            assert!(seed_survives_bite(&mut w, sx, sy, &mut rng).survived(), "gut_survival 1.0 must always spill");
             let site = reschedule_organism(sx, sy, sid, 0, 0, w.organism_due(ORGANISM_TICK_INTERVAL));
             w.schedule_active_site(site);
             standing_positions.push((sx, sy));
@@ -23418,7 +23737,7 @@ GrowingTip again, the rootless-plant case is live and grass needs a drought deat
         // already-spilled pip: not a windfall, so this must not spill
         // again -- it is `pips_eaten`, and the caller (here, this line)
         // clears the cell exactly as `creature.rs`'s hook does.
-        assert!(!seed_survives_bite(&mut w, gx, gy, &mut rng), "a standing pip must not be protected a second time");
+        assert!(!seed_survives_bite(&mut w, gx, gy, &mut rng).survived(), "a standing pip must not be protected a second time");
         // `gx, gy` no longer stands for the germination arm after this --
         // it has just been eaten, so drop it from the standing-pip scan
         // below and do not expect it to germinate.
