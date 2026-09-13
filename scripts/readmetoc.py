@@ -82,7 +82,14 @@ DOC = Path(__file__).resolve().parent.parent / "README.md"
 # first.** With two games on one engine (the outdoor sandbox and the evolution
 # lab, `Reports/two-games-one-repo-2026-08-30.md`) a session working on one of
 # them was reading a topic map that could not tell it which entries were even
-# about its game. This column is the cheapest possible fix: it changes no
+# about its game.
+#
+# **There are three games now.** `held` joined `outdoor` and `lab` on
+# 2026-09-13 (`cargo run --release --bin druid`,
+# `Reports/held-world-game-concept-2026-09-13.md`), and the argument for the
+# column is exactly the one it was added under -- the two-game report's
+# reasoning does not depend on the number two, only on there being more than
+# one game reading one map. This column is the cheapest possible fix: it changes no
 # file layout, it is reversible in one commit, and it scopes the two routing
 # layers every agent is sent to before it opens anything else.
 #
@@ -158,6 +165,11 @@ GAME = {
     # landed, because what a player paints in by hand -- a food heap on a
     # schedule, a raised bank -- could not be expressed as a bare `LabBox`.
     "a saved starting box, and replicating it in a rack": "lab",
+    # **The third game's only row, and the first `held` tag.** Everything the
+    # held world stands on defaults off, so almost all of it is `engine` code
+    # that this row does not claim; what is `held` is the inversion itself --
+    # the two life gates, the circles, the economy and the binary.
+    "the held world — the third game, and time you carry": "held",
 }
 
 TOPICS = {
@@ -371,6 +383,9 @@ TOPICS = {
     "a saved starting box, and replicating it in a rack": [
         "Lab scenarios status — a saved starting box with a question written on it",
     ],
+    "the held world — the third game, and time you carry": [
+        "Held world status — the third game, and time you carry in a circle",
+    ],
 }
 
 # Sections deliberately absent from the topic index, so that `--check` can
@@ -466,9 +481,9 @@ def validate(rows):
         if t not in GAME:
             problems.append(
                 f"  topic {t!r} has no GAME entry\n"
-                f"    -> add it to GAME as 'engine', 'outdoor' or 'lab'. 'engine'\n"
-                f"       is the honest default: mark a topic for one game only when\n"
-                f"       the other never builds a scene that reaches it."
+                f"    -> add it to GAME as 'engine', 'outdoor', 'lab' or 'held'.\n"
+                f"       'engine' is the honest default: mark a topic for one game\n"
+                f"       only when the others never build a scene that reaches it."
             )
     for t in GAME:
         if t not in TOPICS:
@@ -544,10 +559,10 @@ def render(rows):
         "file, not the first. Read it before concluding something is broken.",
         "",
         "**Which game a topic belongs to** is the third column. `engine` is shared",
-        "by both and is most of the table -- that sharing is the whole argument for",
-        "one repository. `outdoor` and `lab` mark topics the other game never builds",
-        "a scene that reaches. It is a hint about where your time goes, not a rule",
-        "about what you may read.",
+        "by all of them and is most of the table -- that sharing is the whole",
+        "argument for one repository. `outdoor`, `lab` and `held` mark topics the",
+        "other two games never build a scene that reaches. It is a hint about where",
+        "your time goes, not a rule about what you may read.",
         "",
         "| Topic | Game | Sections, primary first |",
         "|---|---|---|",

@@ -21,6 +21,8 @@
 //! world-edge behaviour beyond the sandbox's. Named here as out of scope
 //! rather than discovered later.
 
+pub mod hud;
+
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
@@ -30,7 +32,7 @@ use crate::sim::material;
 use crate::sim::organism;
 use crate::sim::particle::ParticleSystem;
 use crate::sim::player;
-use crate::sim::world::World;
+use crate::sim::world::{World, CARRIED_RADIUS};
 use crate::worldgen::{self, WorldgenPresets};
 
 /// **Five screens wide, three deep.** The viewport is 512x320
@@ -112,6 +114,62 @@ const COLONY_SPECIES: &str = "ant";
 /// this world is grown before it is held, so that condition is already met.
 const COLONY_SIZE: i32 = 12;
 
+/// **The economy, and every number in it is a first guess.**
+///
+/// `CLAUDE.md` says to set bars from measurement with headroom, never from an
+/// aspiration — and there is nothing to measure yet, because nobody has
+/// played this. So these are round numbers chosen to make the meter *move* at
+/// a rate a person can watch, and the honest thing is to say so here rather
+/// than to dress them as derived. The `U` key exists precisely because they
+/// are wrong: it takes the economy out of the way so the mechanics can be
+/// judged without it.
+///
+/// The shape is the part worth keeping. Drain is charged on **what is awake
+/// inside a circle**, not on its radius — honest to the engine, since that is
+/// literally what costs, and it means the same circle gets dearer as a colony
+/// grows in it. Income is **animals only**: a wood with no colony pays
+/// nothing (owner's ruling, 2026-09-13).
+const POWER_START: f32 = 600.0;
+/// Charged per standing circle per second, before anything living in it.
+const DRAIN_PER_CIRCLE: f32 = 1.0;
+/// ...and per plant standing inside one. A mature wood is expensive to keep
+/// running; bare ground is nearly free.
+const DRAIN_PER_PLANT: f32 = 0.02;
+/// Paid per animal per second, wherever time is running for it. The carried
+/// circle is free, so a colony under your feet pays without costing.
+const INCOME_PER_ANIMAL: f32 = 0.6;
+/// How often the economy is recomputed, in ticks. Walking every organism is
+/// `O(organisms)` and there are thousands, so this runs twice a second rather
+/// than sixty times and scales what it charges.
+const ECONOMY_INTERVAL: u64 = 30;
+
+/// Radius a placed quickening starts at, and the range `Q`/`E` walk.
+const PLACE_RADIUS_START: i32 = 60;
+pub const PLACE_RADIUS_MIN: i32 = 20;
+pub const PLACE_RADIUS_MAX: i32 = 240;
+
+/// **How far the player walks before his carried circle wakes the ground
+/// ahead of him.**
+///
+/// `World::wake_region` rebuilds both scheduler heaps, so calling it every
+/// frame is exactly the unbounded per-frame cost the scheduler exists to
+/// avoid. Calling it never means ground he has walked onto takes up to
+/// `HELD_RECHECK` — about two seconds — to notice, which is a visible lag on
+/// the one thing he does constantly. Half a radius is the compromise: bounded
+/// (a handful of wakes a second at a run) and short enough that the ground
+/// keeps up with him.
+const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
+
+/// **How long the interface holds on to the last thing that happened**, in
+/// ticks — three seconds.
+///
+/// Expiry is checked against `world.frame` at draw time rather than ticked
+/// down, which needs no update-phase wiring and has one deliberate
+/// consequence `App::active_toast` records too: a message raised while
+/// *paused* stays up until the world runs again. That is the behaviour worth
+/// having here — paused is exactly when somebody is reading.
+const MESSAGE_FRAMES: u64 = 180;
+
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
 /// three callers would be the larger change.
@@ -123,6 +181,38 @@ pub struct Druid {
     pub player_tuning: player::Tuning,
     pub player_input: player::PlayerInput,
     pub paused: bool,
+    /// **The pool.** Seconds of world, in the fiction; a float here.
+    pub power: f32,
+    /// **Unlimited power — the playtest switch.** Owner's ask: judge the
+    /// mechanics without the economy fighting you. Nothing is charged and
+    /// nothing is collected while this is on, and the readout says so, since
+    /// a full meter and a disabled one look identical.
+    pub unlimited: bool,
+    /// Radius the next placed quickening takes.
+    pub place_radius: i32,
+    /// Income and drain as of the last recompute, for the readout. Per
+    /// second, so a person can read them against a clock.
+    pub income: f32,
+    pub drain: f32,
+    /// Where the carried circle was when it last woke the ground — see
+    /// [`CARRY_WAKE_STEP`].
+    last_wake: Option<(i32, i32)>,
+    /// **The key legend, on by default.** The owner's first playtest found no
+    /// interface at all and no way to guess one — see [`hud`].
+    pub show_keys: bool,
+    /// The last thing that happened and the frame it stops being shown on.
+    /// Raised by [`Druid::note`]; see [`MESSAGE_FRAMES`].
+    pub message: Option<(String, u64)>,
+    /// Animals alive, and animals in running time, as of the last economy
+    /// pass. **Fields rather than a census**: `World::live_creature_count`
+    /// walks every organism slot, which is thousands, and the readout is
+    /// drawn every frame while the economy runs twice a second.
+    pub animals: usize,
+    pub animals_awake: usize,
+    /// What the interface drew last frame, so a *change* can force the
+    /// repaint the dirty-rect skip would otherwise not know it owed. See
+    /// [`hud::Interface`].
+    last_ui: Option<hud::Interface>,
 }
 
 impl Default for Druid {
@@ -209,6 +299,51 @@ impl Druid {
             player_tuning,
             player_input: player::PlayerInput::default(),
             paused: false,
+            power: POWER_START,
+            unlimited: false,
+            place_radius: PLACE_RADIUS_START,
+            income: 0.0,
+            drain: 0.0,
+            last_wake: None,
+            show_keys: true,
+            message: None,
+            animals: 0,
+            animals_awake: 0,
+            last_ui: None,
+        }
+    }
+
+    /// **Say what just happened, on screen.**
+    ///
+    /// Every verb in this game used to report to stdout and nowhere else, so
+    /// a founding that placed nobody and one that placed twelve were the same
+    /// event to the person playing. The `println!`s stay — they are how a
+    /// headless run is read — and this is the same fact put where the player
+    /// is looking.
+    pub fn note(&mut self, text: impl Into<String>) {
+        self.message = Some((text.into(), self.world.frame + MESSAGE_FRAMES));
+    }
+
+    /// The current message, if one is set and has not yet expired.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
+    }
+
+    /// Everything the corner readout says, as numbers. See [`hud::Readout`].
+    pub fn readout(&self) -> hud::Readout {
+        hud::Readout {
+            power: self.power,
+            income: self.income,
+            drain: self.drain,
+            unlimited: self.unlimited,
+            animals: self.animals,
+            animals_awake: self.animals_awake,
+            circles: self.world.quickenings.len(),
+            radius: self.place_radius,
+            held: self.world.held,
+            paused: self.paused,
+            look: self.renderer.held_look.label(),
+            message: self.message().map(str::to_string),
         }
     }
 
@@ -239,7 +374,126 @@ impl Druid {
         let (x, y) = player.center();
         let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
         println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        // Counted here rather than waiting for the next economy pass: half a
+        // second of a readout still saying zero, right after the key that was
+        // meant to change it, reads as the key not working.
+        self.animals += placed;
+        match placed {
+            0 => self.note("nothing founded - no ground here"),
+            n => self.note(format!("founded {n} animals at your feet")),
+        }
         placed
+    }
+
+    /// **Place a standing quickening where he is standing.**
+    ///
+    /// The economy's verb, as against the carried circle, which is free and
+    /// is what he *is*. A standing one runs while he is elsewhere, which is
+    /// the whole endgame — and is why it costs.
+    ///
+    /// **It lurches.** `wake_region` pulls every scheduled site inside the
+    /// new circle forward to now, so the ground starts at once rather than
+    /// trickling into life over `HELD_RECHECK`. Returns the number of sites
+    /// woken, because a placement that woke nothing and one that woke a wood
+    /// look identical for the first second.
+    pub fn place_quickening(&mut self) -> Option<usize> {
+        let Some(player) = &self.world.player else {
+            return None;
+        };
+        let (x, y) = player.center();
+        let r = self.place_radius;
+        self.world.quickenings.push(crate::sim::world::Quickening { x, y, r });
+        let woken = self.world.wake_region(x, y, r);
+        println!("druid: quickening at {x},{y} r{r} — woke {woken} sites");
+        self.note(format!("circle placed r{r} - woke {woken} sites"));
+        Some(woken)
+    }
+
+    /// Take back the standing quickening nearest the player, refunding
+    /// nothing. The playtest counterpart of placing one.
+    pub fn lift_quickening(&mut self) -> bool {
+        let Some(player) = &self.world.player else {
+            return false;
+        };
+        let (px, py) = player.center();
+        let nearest = self
+            .world
+            .quickenings
+            .iter()
+            .enumerate()
+            .min_by_key(|(_, q)| ((q.x - px) as i64).pow(2) + ((q.y - py) as i64).pow(2))
+            .map(|(i, _)| i);
+        match nearest {
+            Some(i) => {
+                let q = self.world.quickenings.remove(i);
+                println!("druid: lifted the quickening at {},{}", q.x, q.y);
+                self.note("circle lifted");
+                true
+            }
+            None => {
+                self.note("no circle to lift");
+                false
+            }
+        }
+    }
+
+    /// **Income and drain, and what the pool does about them.**
+    ///
+    /// One walk over the organisms rather than one per circle: there are
+    /// thousands of them and a per-circle walk would be quadratic in the
+    /// thing the player is encouraged to accumulate.
+    fn step_economy(&mut self) {
+        if !self.world.frame.is_multiple_of(ECONOMY_INTERVAL) {
+            return;
+        }
+        let seconds = ECONOMY_INTERVAL as f32 / 60.0;
+
+        let mut animals_running = 0.0f32;
+        let mut animals_alive = 0usize;
+        let mut plants_in_circles = 0.0f32;
+        for id in self.world.live_organism_ids() {
+            let Some(state) = self.world.organism(id) else { continue };
+            let Some((x, y)) = state.chain.first().copied().or_else(|| state.cells.keys().next().copied()) else {
+                continue;
+            };
+            let creature = self.world.species.get(state.species).creature.is_some();
+            if creature {
+                animals_alive += 1;
+                // **Anywhere time runs, carried circle included.** A colony
+                // under his feet pays without costing, which is what makes
+                // the carried circle worth walking somewhere with.
+                if self.world.time_runs_at(x, y) {
+                    animals_running += 1.0;
+                }
+            } else if self.world.quickenings.iter().any(|q| q.contains(x, y)) {
+                // Charged only inside a *standing* circle: the carried one is
+                // free, so walking through a wood does not bill you for it.
+                plants_in_circles += 1.0;
+            }
+        }
+
+        self.income = INCOME_PER_ANIMAL * animals_running;
+        self.drain = DRAIN_PER_CIRCLE * self.world.quickenings.len() as f32 + DRAIN_PER_PLANT * plants_in_circles;
+        // The readout's two animal numbers, taken from the walk that was
+        // happening anyway rather than from a second census per frame.
+        self.animals = animals_alive;
+        self.animals_awake = animals_running as usize;
+
+        if self.unlimited {
+            return;
+        }
+        self.power += (self.income - self.drain) * seconds;
+        if self.power < 0.0 {
+            // **The circle closes over your own wood.** Not a game-over and
+            // not a silent stall: the newest standing quickening is the one
+            // that goes, so running out reads as the map contracting rather
+            // than as nothing happening.
+            self.power = 0.0;
+            if self.world.quickenings.pop().is_some() {
+                println!("druid: out of power — a standing quickening set");
+                self.note("out of power - a standing circle closed");
+            }
+        }
     }
 
     /// One tick.
@@ -251,6 +505,23 @@ impl Druid {
         // **Consumed here, or a catch-up burst turns one press into five
         // jumps.** The edge is the caller's to set and this tick's to clear.
         self.player_input.jump_pressed = false;
+
+        // **Wake the ground he has walked onto, on a distance threshold.**
+        // Every frame would be the unbounded heap rebuild `wake_region`'s own
+        // doc refuses; never would leave newly-covered ground asleep for
+        // `HELD_RECHECK`, which is a visible lag on the thing he does most.
+        if let Some(carried) = self.world.carried {
+            let far = self.last_wake.is_none_or(|(lx, ly)| {
+                let (dx, dy) = (carried.x - lx, carried.y - ly);
+                dx * dx + dy * dy >= CARRY_WAKE_STEP * CARRY_WAKE_STEP
+            });
+            if far {
+                self.last_wake = Some((carried.x, carried.y));
+                self.world.wake_region(carried.x, carried.y, carried.r);
+            }
+        }
+
+        self.step_economy();
     }
 
     /// One drawn frame.
@@ -261,11 +532,25 @@ impl Druid {
         if let Some(player) = &self.world.player {
             self.renderer.follow(player.center(), viewport, self.world.bounds());
         }
+        // **The interface is built before the world is drawn, because
+        // whether it *changed* decides whether the world has to be repainted
+        // underneath it.** Nothing here has a footprint the renderer tracks,
+        // so a readout that shrinks by a digit, a message that expires, or a
+        // ring that moved one pixel would otherwise stay burned into settled
+        // ground with no error anywhere. Forcing a full redraw every frame is
+        // what the lab does and is wrong here: this game's premise is a world
+        // standing still, which is exactly where the render skip earns its
+        // keep. See `hud::Interface`.
+        let ui = hud::Interface::build(self, viewport);
+        let ui_changed = self.last_ui.as_ref() != Some(&ui);
+        self.last_ui = Some(ui.clone());
+
         // **Taken every frame, without exception.** `take_touched_chunks` is
         // a `mem::take`: a frame that skips it drops those chunks for good and
         // they redraw as stale pixels with no error anywhere.
         let touched = self.world.take_touched_chunks();
-        self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full);
+        self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full || ui_changed);
+        ui.draw(frame_buf, viewport);
     }
 }
 

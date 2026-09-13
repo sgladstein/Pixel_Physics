@@ -1401,6 +1401,21 @@ pub struct CreatureStats {
     pub spoil_lifted: u64,
     /// See `spoil_lifted`. Rows, largest single lift in the run.
     pub spoil_lift_max: u32,
+    /// See `spoil_lifted`. **Rows summed over every lift**, so the pair gives
+    /// a mean.
+    ///
+    /// A max alone cannot decide anything here, and that is the whole reason
+    /// this field exists. `CLAUDE.md`'s *an outcome is a distribution, not a
+    /// binary*: a colony whose every lift is one row, with a single freak of
+    /// 107, and one that routinely posts pellets fifty rows into the sky
+    /// report the **same `spoil_lift_max`** — and they want opposite verdicts,
+    /// because the first is an ant stepping up onto its own spoil heap and the
+    /// second is teleportation. Measured on `spoil_destination`, twelve seeded
+    /// beds with a tree in them, `RAYON_NUM_THREADS=1`, before the bound: the
+    /// tallest single lift is **116 rows**, the median seed's tallest is
+    /// **78.5**, and the mean over every lift is **7.8**. The extreme is real
+    /// and it is rare, and only the pair can say so.
+    pub spoil_lift_rows: u64,
     /// **Pellets that died with their carrier and had nowhere to land** —
     /// cells that genuinely left the world, and the only way one still can
     /// through this path.
@@ -3456,6 +3471,20 @@ pub struct World {
     /// Leaves reclaimed by `shed_stranded_leaves` after either pressure
     /// fired -- consequential fall, not a lever of its own.
     pub shed_stranded: u32,
+    /// **Dormant buds broken by `plant::break_buds`** -- the did-it-fire
+    /// counter for the frontier's only source of new growing tips.
+    ///
+    /// Added *before* the mechanism that will need it (`plants:124`, letting
+    /// a damaged plant mobilise reserves), which is the order `CLAUDE.md`
+    /// asks for: an image shows what and where and cannot show whether the
+    /// thing you built is what produced it. A crown rebuilt by ordinary
+    /// growth and a crown rebuilt by reserve mobilisation look identical on
+    /// a contact sheet, and only this number separates them.
+    ///
+    /// Counted where the bud is actually converted, not where a flush is
+    /// scheduled -- `supportable` is a budget and spending none of it is the
+    /// outcome the defect produces.
+    pub buds_flushed: u32,
     /// **Root cells taken by fine-root turnover** — `plant.rs`'s
     /// `ROOT_TURNOVER_PER_TICK`, the did-it-fire counter for a mechanism
     /// that ships at zero.
@@ -4772,6 +4801,7 @@ impl World {
             shed_drought: 0,
             roots_shed: 0,
             shed_stranded: 0,
+            buds_flushed: 0,
             fields_settled: false,
             touched_chunks: ChunkSet::default(),
             load_budget: crate::sim::load::MAX_LOAD_CELLS_PER_FRAME,
@@ -5228,6 +5258,52 @@ impl World {
     /// Total pending active sites. The headline number for whether the
     /// scheduler's cost is actually proportional to "interesting cells"
     /// rather than world size — see the debug overlay.
+    /// **Pull every scheduled site inside a circle forward to now.**
+    ///
+    /// The held world's *lurch*. A site on held ground is not dropped — it is
+    /// put back at `frame + scheduler::HELD_RECHECK`, because rechecking the
+    /// whole map every frame is the unbounded cost the scheduler exists to
+    /// avoid. That is right for ground nobody is looking at and wrong the
+    /// instant time actually arrives somewhere: placing a quickening, or
+    /// founding a colony, would otherwise trickle into life over two seconds
+    /// instead of starting.
+    ///
+    /// **For discrete events only.** This walks both heaps, so it is
+    /// `O(n log n)` in the scheduled-site count — fine when a player presses
+    /// a key, ruinous every frame. The carried quickening calls it on a
+    /// *movement threshold* rather than continuously, for that reason.
+    ///
+    /// Returns how many sites were moved, because "the lurch fired" and "the
+    /// lurch found nothing" look identical on screen.
+    pub fn wake_region(&mut self, cx: i32, cy: i32, r: i32) -> usize {
+        let frame = self.frame;
+        let r2 = (r as i64) * (r as i64);
+        let inside = |s: &ActiveSite| {
+            let (dx, dy) = ((s.x - cx) as i64, (s.y - cy) as i64);
+            dx * dx + dy * dy <= r2
+        };
+        let mut moved = 0;
+        // Drained and rebuilt rather than mutated in place: a `BinaryHeap`
+        // has no way to re-key an entry, and re-pushing is what restores the
+        // ordering `ActiveSite`'s `Ord` guarantees. Both heaps, because
+        // creatures live in their own (see `World::creature_sites`).
+        for heap in [&mut self.active_sites, &mut self.creature_sites] {
+            let taken: Vec<_> = std::mem::take(heap).into_vec();
+            let rebuilt = taken.into_iter().map(|Reverse(mut site)| {
+                // **Only ever earlier.** A site already due sooner than now
+                // must not be pushed back by this, or waking a region would
+                // *delay* the work it exists to hurry.
+                if site.next_frame > frame && inside(&site) {
+                    site.next_frame = frame;
+                    moved += 1;
+                }
+                Reverse(site)
+            });
+            *heap = rebuilt.collect();
+        }
+        moved
+    }
+
     pub fn active_site_count(&self) -> usize {
         self.active_sites.len() + self.creature_sites.len()
     }

@@ -2593,6 +2593,26 @@ design guide's §7b-i calls "already data" are Rust `const`s.
   warning that the dangerous merge is the conflict-free one: a clean
   `merge-tree` broke the build on a `ChunkSet` type alias neither side's lines
   touched.
+- [evolution-lab-rest-with-an-end-2026-09-13.md](evolution-lab-rest-with-an-end-2026-09-13.md)
+  — **record, 2026-09-13, round 33 lane F. `engine`, not `lab`** — it changes
+  every creature in both games. **§Z13 re-aimed and fixed**, on the owner
+  overruling his own *"rest is the absence of a reason to act"*: *"If they
+  never ask to move that is still stuck, it is just because the rest mechanism
+  needs fixing."* `p_move` is `squash(sum).clamp(0.0, 1.0)` and `squash`
+  returns a negative number for a negative sum, so **every** degree of "would
+  rather not" collapses onto the same exact zero, from which no roll can
+  produce a step — **48.7–64.0% of long-ant decision ticks and 54.4–77.5% of
+  *shipped two-cell ant* ticks** sat there. Per animal, **18.5% and 21.9% go quiet and
+  are never seen moving again**, having stood a median 8,100–13,500 frames and
+  up to 43,200: a latch, and the measurement that settles the owner's *"some
+  creatures got frozen"* against the pooled 75% that could not. Fixed with
+  `BrainInput::Stillness`, a **squared** ramp — the linear one repealed the
+  homing mechanism, because `Move`'s negative half is run-and-tumble
+  steering (deliveries 4,908 → 54) and that is the transferable lesson: **ask
+  what an output's existing low values are already used for before adding a
+  term to it.** Also carries §Z20, `labgif wire=` having been a silent no-op
+  for every card it ever produced. Owner's blind verdict on the fixed arm:
+  *"A looks way better"*.
 - [evolution-lab-round-31-brief-2026-09-13.md](evolution-lab-round-31-brief-2026-09-13.md)
   — **brief, 2026-09-13.** Round 31's ordered work, handed over at main
   `16bab295`: re-derive the ant lifespan and every played-bed number on the
@@ -3331,10 +3351,41 @@ design guide's §7b-i calls "already data" are Rust `const`s.
 - [open-bugs-handoff.md](open-bugs-handoff.md) — **open bugs.** Working
   reproductions, what has been ruled out by measurement. Read before
   touching a listed area.
-- [dead-ends.md](dead-ends.md) — **live index.** 546 tried-and-reverted
+- [dead-ends.md](dead-ends.md) — **live index.** 808 tried-and-reverted (2026-09-13;
+  the live count is the sum of its `##` section headings, which
+  `deadendindex.py --check` gates, so read that rather than this number)
   approaches, each with the condition its rejection depended on and where
   the full record lives. Grep your area's section before proposing or
   retrying anything in it; a revert adds its entry in the same change.
+- [dead-ends-revival-2026-09-11.md](dead-ends-revival-2026-09-11.md) — **the
+  sweep `dead-ends.md` had never had, complete; numbers revised 2026-09-12.**
+  Every entry carries a verdict: **563 are structurally dead, 109 reject an
+  instrument rather than a mechanism, and 49 are revival candidates** — not the
+  118 the first pass reported. Both error rates are now measured and they point
+  opposite ways. Sampling `DEAD` reopens 3 of 40, replicated at 4 of 40 and
+  pooling to 7 of 80 — but six of those seven are *stale* rather than revivable,
+  the world having moved with no write-back. Re-rating the **candidates** blind
+  against an equal number of `DEAD` controls confirmed only 37%, with 4 of 106
+  controls reopened, and adjudicating all 71 disagreements against source took
+  the list to 49. `CONFOUNDED` fell 57 → 19 and `SUSPECT-INSTRUMENT` 10 → 1,
+  almost all of the latter into `META`. The durable value is the nine register
+  write-backs and the `creatures:039` correction — its named artifact arrived
+  while the condition stayed unmet, which no textual rule can see. Read with
+  [dead-ends.md](dead-ends.md); the machine-readable results are
+  in [data/dead-ends-triage/](data/dead-ends-triage/).
+- [dead-ends-triage-handoff.md](dead-ends-triage-handoff.md) — **screening
+  complete; the resumable state.** Which of `dead-ends.md`'s rejections were the
+  *idea* being wrong, and which were the test being wrong, the experiment
+  confounded, or the condition since changed. 97% of entries describe a world
+  older than the 2026-09-06 coupling day, and 708 name a re-test condition
+  nobody had checked. **Every entry now carries a verdict**, `candidates.tsv` is
+  generated from `screened.tsv` rather than maintained, and `deadendindex.py
+  --touching` closes half the loop the sweep found open — it surfaces entries
+  whose clause names an identifier your branch *adds*, at 2-of-5 recall, so its
+  silence is not evidence. What is left is ranking the 49 that survived
+  adjudication. Pick it up from this file — it
+  carries what a later session must not re-derive, including the two rubric
+  rules that are under-applied by default.
 - [water-phase-merge-plan.md](water-phase-merge-plan.md) — **merge handoff;
   the run it briefs has been done.** The prompt for merging the water-phase
   branch into the trunk: the measured conflict inventory, the files that
