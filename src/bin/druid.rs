@@ -10,11 +10,12 @@
 //! forwarding and wrong for a game somebody is walking around in;
 //! `main.rs`'s fixed-timestep accumulator is the one that belongs here.
 //!
-//! Keys: `A`/`D` walk, `W` jump, `S` down, `Shift` hold on to a tree,
-//! `P` pause, `H` release or re-hold the world, `L` how held ground is drawn,
-//! `C` found a colony at your feet, `Space` place a standing quickening,
-//! `X` lift the nearest one, `Q`/`E` its radius, **`U` unlimited power**,
-//! `Esc` quit.
+//! **The keys are on screen**, listed in the bottom-left corner and hideable
+//! with `/`. They live in `druid::hud::KEYS` rather than in this comment, and
+//! a guard there reads *this file* and fails if a key is bound here and not
+//! named there — because a comment at the top of a source file is precisely
+//! where they were the first time somebody tried to play this and reported
+//! that the game had no interface at all.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -204,11 +205,21 @@ impl Handler {
     fn key(&mut self, code: KeyCode, event_loop: &ActiveEventLoop) {
         match code {
             KeyCode::Escape => event_loop.exit(),
-            KeyCode::KeyP => self.game.paused = !self.game.paused,
+            KeyCode::KeyP => {
+                self.game.paused = !self.game.paused;
+            }
+            // The key list, and the only way back to it once it is off.
+            // `F1` as well as `/` because `/` is a different physical key on
+            // a non-US layout and this is the one binding a lost player needs.
+            KeyCode::Slash | KeyCode::F1 => self.game.show_keys = !self.game.show_keys,
             // **How held ground is drawn.** A selector rather than a
             // decision, because this is precisely the question no amount of
             // argument settles -- see `render::HeldLook`.
-            KeyCode::KeyL => self.game.renderer.cycle_held_look(),
+            KeyCode::KeyL => {
+                self.game.renderer.cycle_held_look();
+                let look = self.game.renderer.held_look.label();
+                self.game.note(format!("held ground drawn: {look}"));
+            }
             // **Found a colony where you are standing.** It has to be inside
             // running time to tick at all, and the circle you carry is at
             // your feet -- see `Druid::found_colony`.
@@ -222,13 +233,20 @@ impl Handler {
             KeyCode::KeyX => {
                 self.game.lift_quickening();
             }
+            // No note for these two: the radius is on the readout and the
+            // preview ring at his feet resizes as he presses them, so a
+            // message would be a third copy of a fact already on screen twice.
             KeyCode::KeyQ => self.game.place_radius = (self.game.place_radius - 10).max(pixel_physics::druid::PLACE_RADIUS_MIN),
             KeyCode::KeyE => self.game.place_radius = (self.game.place_radius + 10).min(pixel_physics::druid::PLACE_RADIUS_MAX),
             // **Unlimited power, for playtesting.** The economy's numbers are
             // first guesses and nobody has played this, so being able to take
             // them out of the way is what makes the mechanics judgeable at
             // all -- the owner's own lab ruling, applied here.
-            KeyCode::KeyU => self.game.unlimited = !self.game.unlimited,
+            KeyCode::KeyU => {
+                self.game.unlimited = !self.game.unlimited;
+                let state = if self.game.unlimited { "on" } else { "off" };
+                self.game.note(format!("unlimited power {state}"));
+            }
             // **Release the world, or hold it again.** The single most useful
             // key for judging this game: the look the owner picked has no
             // colour tell, so whether "held" reads at all is a question you
@@ -237,6 +255,7 @@ impl Handler {
                 self.game.world.held = !self.game.world.held;
                 let hold = if self.game.world.held { pixel_physics::sim::clock::SkyPin::Noon.hold() } else { None };
                 self.game.world.set_sky_hold(hold);
+                self.game.note(if self.game.world.held { "the world is held" } else { "the world is running" });
             }
             _ => {}
         }

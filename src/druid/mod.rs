@@ -21,6 +21,8 @@
 //! world-edge behaviour beyond the sandbox's. Named here as out of scope
 //! rather than discovered later.
 
+pub mod hud;
+
 use crate::render::Renderer;
 use crate::sim::chunk::Rect;
 use crate::sim::clock::SkyPin;
@@ -158,6 +160,16 @@ pub const PLACE_RADIUS_MAX: i32 = 240;
 /// keeps up with him.
 const CARRY_WAKE_STEP: i32 = CARRIED_RADIUS / 2;
 
+/// **How long the interface holds on to the last thing that happened**, in
+/// ticks — three seconds.
+///
+/// Expiry is checked against `world.frame` at draw time rather than ticked
+/// down, which needs no update-phase wiring and has one deliberate
+/// consequence `App::active_toast` records too: a message raised while
+/// *paused* stays up until the world runs again. That is the behaviour worth
+/// having here — paused is exactly when somebody is reading.
+const MESSAGE_FRAMES: u64 = 180;
+
 /// The whole game: the same quartet `App` and `Lab` each declare, because
 /// there is no extracted game core in this engine and inventing one to hold
 /// three callers would be the larger change.
@@ -185,6 +197,22 @@ pub struct Druid {
     /// Where the carried circle was when it last woke the ground — see
     /// [`CARRY_WAKE_STEP`].
     last_wake: Option<(i32, i32)>,
+    /// **The key legend, on by default.** The owner's first playtest found no
+    /// interface at all and no way to guess one — see [`hud`].
+    pub show_keys: bool,
+    /// The last thing that happened and the frame it stops being shown on.
+    /// Raised by [`Druid::note`]; see [`MESSAGE_FRAMES`].
+    pub message: Option<(String, u64)>,
+    /// Animals alive, and animals in running time, as of the last economy
+    /// pass. **Fields rather than a census**: `World::live_creature_count`
+    /// walks every organism slot, which is thousands, and the readout is
+    /// drawn every frame while the economy runs twice a second.
+    pub animals: usize,
+    pub animals_awake: usize,
+    /// What the interface drew last frame, so a *change* can force the
+    /// repaint the dirty-rect skip would otherwise not know it owed. See
+    /// [`hud::Interface`].
+    last_ui: Option<hud::Interface>,
 }
 
 impl Default for Druid {
@@ -277,6 +305,45 @@ impl Druid {
             income: 0.0,
             drain: 0.0,
             last_wake: None,
+            show_keys: true,
+            message: None,
+            animals: 0,
+            animals_awake: 0,
+            last_ui: None,
+        }
+    }
+
+    /// **Say what just happened, on screen.**
+    ///
+    /// Every verb in this game used to report to stdout and nowhere else, so
+    /// a founding that placed nobody and one that placed twelve were the same
+    /// event to the person playing. The `println!`s stay — they are how a
+    /// headless run is read — and this is the same fact put where the player
+    /// is looking.
+    pub fn note(&mut self, text: impl Into<String>) {
+        self.message = Some((text.into(), self.world.frame + MESSAGE_FRAMES));
+    }
+
+    /// The current message, if one is set and has not yet expired.
+    pub fn message(&self) -> Option<&str> {
+        self.message.as_ref().filter(|(_, until)| self.world.frame < *until).map(|(text, _)| text.as_str())
+    }
+
+    /// Everything the corner readout says, as numbers. See [`hud::Readout`].
+    pub fn readout(&self) -> hud::Readout {
+        hud::Readout {
+            power: self.power,
+            income: self.income,
+            drain: self.drain,
+            unlimited: self.unlimited,
+            animals: self.animals,
+            animals_awake: self.animals_awake,
+            circles: self.world.quickenings.len(),
+            radius: self.place_radius,
+            held: self.world.held,
+            paused: self.paused,
+            look: self.renderer.held_look.label(),
+            message: self.message().map(str::to_string),
         }
     }
 
@@ -307,6 +374,14 @@ impl Druid {
         let (x, y) = player.center();
         let placed = self.world.found_colony_of(x, y, COLONY_SPECIES, COLONY_SIZE);
         println!("druid: founded {placed} animals at {x},{y} (colony {})", if placed > 0 { "took" } else { "REFUSED - no ground, or no nest material" });
+        // Counted here rather than waiting for the next economy pass: half a
+        // second of a readout still saying zero, right after the key that was
+        // meant to change it, reads as the key not working.
+        self.animals += placed;
+        match placed {
+            0 => self.note("nothing founded - no ground here"),
+            n => self.note(format!("founded {n} animals at your feet")),
+        }
         placed
     }
 
@@ -330,6 +405,7 @@ impl Druid {
         self.world.quickenings.push(crate::sim::world::Quickening { x, y, r });
         let woken = self.world.wake_region(x, y, r);
         println!("druid: quickening at {x},{y} r{r} — woke {woken} sites");
+        self.note(format!("circle placed r{r} - woke {woken} sites"));
         Some(woken)
     }
 
@@ -351,9 +427,13 @@ impl Druid {
             Some(i) => {
                 let q = self.world.quickenings.remove(i);
                 println!("druid: lifted the quickening at {},{}", q.x, q.y);
+                self.note("circle lifted");
                 true
             }
-            None => false,
+            None => {
+                self.note("no circle to lift");
+                false
+            }
         }
     }
 
@@ -369,6 +449,7 @@ impl Druid {
         let seconds = ECONOMY_INTERVAL as f32 / 60.0;
 
         let mut animals_running = 0.0f32;
+        let mut animals_alive = 0usize;
         let mut plants_in_circles = 0.0f32;
         for id in self.world.live_organism_ids() {
             let Some(state) = self.world.organism(id) else { continue };
@@ -377,6 +458,7 @@ impl Druid {
             };
             let creature = self.world.species.get(state.species).creature.is_some();
             if creature {
+                animals_alive += 1;
                 // **Anywhere time runs, carried circle included.** A colony
                 // under his feet pays without costing, which is what makes
                 // the carried circle worth walking somewhere with.
@@ -392,6 +474,10 @@ impl Druid {
 
         self.income = INCOME_PER_ANIMAL * animals_running;
         self.drain = DRAIN_PER_CIRCLE * self.world.quickenings.len() as f32 + DRAIN_PER_PLANT * plants_in_circles;
+        // The readout's two animal numbers, taken from the walk that was
+        // happening anyway rather than from a second census per frame.
+        self.animals = animals_alive;
+        self.animals_awake = animals_running as usize;
 
         if self.unlimited {
             return;
@@ -405,6 +491,7 @@ impl Druid {
             self.power = 0.0;
             if self.world.quickenings.pop().is_some() {
                 println!("druid: out of power — a standing quickening set");
+                self.note("out of power - a standing circle closed");
             }
         }
     }
@@ -445,11 +532,25 @@ impl Druid {
         if let Some(player) = &self.world.player {
             self.renderer.follow(player.center(), viewport, self.world.bounds());
         }
+        // **The interface is built before the world is drawn, because
+        // whether it *changed* decides whether the world has to be repainted
+        // underneath it.** Nothing here has a footprint the renderer tracks,
+        // so a readout that shrinks by a digit, a message that expires, or a
+        // ring that moved one pixel would otherwise stay burned into settled
+        // ground with no error anywhere. Forcing a full redraw every frame is
+        // what the lab does and is wrong here: this game's premise is a world
+        // standing still, which is exactly where the render skip earns its
+        // keep. See `hud::Interface`.
+        let ui = hud::Interface::build(self, viewport);
+        let ui_changed = self.last_ui.as_ref() != Some(&ui);
+        self.last_ui = Some(ui.clone());
+
         // **Taken every frame, without exception.** `take_touched_chunks` is
         // a `mem::take`: a frame that skips it drops those chunks for good and
         // they redraw as stale pixels with no error anywhere.
         let touched = self.world.take_touched_chunks();
-        self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full);
+        self.renderer.draw(&self.world, &self.particles, &touched, frame_buf, viewport, force_full || ui_changed);
+        ui.draw(frame_buf, viewport);
     }
 }
 
