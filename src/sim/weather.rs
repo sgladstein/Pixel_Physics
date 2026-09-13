@@ -1371,12 +1371,30 @@ fn gust(world: &mut World, w: Weather) {
     // tiles, and a held world whose whole premise is that it draws for free
     // paying `field::step`'s five-pass solve for ever.
     //
-    // The consequence is graded rather than binary, which is what the ethos
-    // asks of it: a dipole spans `GUST_RADIUS * 2 + lead` — about 91 cells —
-    // so the player's own `CARRIED_RADIUS` 28 circle is smaller than any
-    // weather system and never catches one, while a large placed quickening
-    // does. A bubble you can walk around is smaller than the wind, and that
-    // reads as true rather than as a missing feature.
+    // **What this costs is worth stating, because it is nearly all of the
+    // wind.** A gust fires *in the upper air* by construction — see
+    // `planned_gust`'s span arithmetic, which puts `y` in
+    // `[min_y + span/8, min_y + 3*span/8)`, a band 70 to 150 cells above the
+    // ground on a druid world — and a quickening is a circle centred on
+    // something standing on the ground. The dipole is also about 91 cells
+    // across (`GUST_RADIUS * 2 + lead`) against `CARRIED_RADIUS` 28. So the
+    // honest reading is that **held worlds get essentially no wind, in or
+    // out of a circle**, not that wind is scaled down inside one.
+    //
+    // That is the right trade today and it is not the end of the story. An
+    // ungated gust is the single most expensive thing that can happen to a
+    // held world: `add_pressure_impulse` clears `fields_settled` and
+    // unsettles tiles, so a world whose whole claim is that it costs nothing
+    // to stand still would pay `field::step`'s five-pass solve every
+    // `GUST_INTERVAL` frames for as long as the wind channel is up — the
+    // "outside is a photograph and draws for free" promise, gone, for a
+    // channel nothing inside the circle is reading.
+    //
+    // **When the gale spell arrives** (the concept doc's §6, *"call a gale to
+    // disperse seed further than it would go"*), it will need the impulse
+    // *aimed* rather than merely permitted: pinning `weather::Pin::Gale`
+    // raises what a gust delivers, and does nothing about the fact that
+    // where it lands is drawn from `(seed, frame)` over the whole map.
     //
     // `planned_gust` is deliberately left ungated: it is the forecast, and a
     // harness asking what the sky intends should get the same answer held or
@@ -2243,6 +2261,7 @@ mod tests {
     use super::*;
     use crate::sim::chunk::Rect;
     use crate::sim::parallel;
+    use crate::sim::world::Quickening;
 
     /// The opening frames of a world, where `window` is 0 and the "previous
     /// window" probe has nowhere to go.
@@ -4206,6 +4225,183 @@ is what this measures rather than the rule"
         // answers really are different, so the assertions above are about the
         // pin rather than about seed 7.
         assert_ne!(stormy, count(None), "seed 7 unpinned already behaves like a pinned storm; pick another");
+    }
+
+
+    /// Every cell that differs between two snapshots of one world, by the
+    /// three channels the sky writes: what material stands there, a
+    /// `Powder`'s wetness or a `Liquid`'s fill (both `aux`), and the cell's
+    /// own temperature.
+    ///
+    /// **A census of `Solid` cells would have answered "nothing happened" to
+    /// every arm below** — `CLAUDE.md`'s standing trap, a number that is
+    /// arithmetically right about the wrong question. A frost writes only
+    /// temperature, a soak writes only `aux`, and only a spawned flake
+    /// writes a material; an instrument that misses any one of the three
+    /// reads a gated channel as a working one.
+    fn cells_differing(before: &World, after: &World, bounds: Rect) -> Vec<(i32, i32)> {
+        let mut out = Vec::new();
+        for y in bounds.min_y..=bounds.max_y {
+            for x in bounds.min_x..=bounds.max_x {
+                let (a, b) = (before.get(x, y), after.get(x, y));
+                if a.material != b.material || a.aux() != b.aux() || a.temperature() != b.temperature() {
+                    out.push((x, y));
+                }
+            }
+        }
+        out
+    }
+
+    /// A flat stone shelf under a sky that is precipitating from frame 0.
+    ///
+    /// Seed 3 is the positive control `tests/worldgen.rs` already documents:
+    /// `weather::at` is a pure function of `(seed, frame)` and seed 3 opens
+    /// on Snow at intensity 0.36. Flat bare stone rather than a generated
+    /// world, so the only thing that can write a cell is the sky — a scene
+    /// that contradicts the code looks like a bug in the code
+    /// (`CLAUDE.md`), and a loose pile settling under the CA sweep would
+    /// land in the census as weather.
+    fn held_weather_world() -> World {
+        let mut w = World::new(Rect::new(0, 0, 255, 191));
+        w.seed = 3;
+        for x in 0..256 {
+            for y in 150..192 {
+                w.set(x, y, Cell::new(material::STONE, 0));
+            }
+        }
+        w
+    }
+
+    /// **Weather does not run where time does not run** — the held world's
+    /// (`bin/druid`) whole premise applied to the one system that was still
+    /// outside its gate. Owner's report, 2026-09-13: *"Rain/other
+    /// environmental effects are not frozen outside the bubble."*
+    ///
+    /// Three arms in one test, because the claim is a *comparison* and each
+    /// arm is the control for the next:
+    ///
+    /// 1. **unheld** — the sky writes, and writes a lot. Without this the
+    ///    two arms below would both pass on a seed that simply never
+    ///    precipitated, which is most seeds most of the time (see this
+    ///    module's own note on `first_frame_with`).
+    /// 2. **held, no circle** — nothing anywhere. This is the bug.
+    /// 3. **held, one circle** — inside it and nowhere else. The gate is a
+    ///    *filter*, not an off switch, and this arm is what says so: a
+    ///    wholesale `if held { return }` passes arm 2 and fails here.
+    ///
+    /// Put the fault back and watch it go red, per `CLAUDE.md`: remove any
+    /// one of `weather::step`'s four position gates and arm 2 fires with a
+    /// count in the hundreds.
+    #[test]
+    fn weather_does_not_run_where_time_does_not_run() {
+        let bounds = Rect::new(0, 0, 255, 191);
+        const FRAMES: usize = 400;
+        let run = |held: bool, circles: &[Quickening]| {
+            let mut w = held_weather_world();
+            w.held = held;
+            w.quickenings = circles.to_vec();
+            let before = w.clone();
+            for _ in 0..FRAMES {
+                parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            cells_differing(&before, &w, bounds)
+        };
+
+        // Arm 1, the control. Read first: every assertion below is about a
+        // sky that is doing something.
+        let unheld = run(false, &[]);
+        assert!(
+            unheld.len() > 100,
+            "seed 3 wrote only {} cells in {FRAMES} unheld frames -- the control is dead and this guard is blind",
+            unheld.len()
+        );
+
+        // Arm 2, the bug.
+        let held = run(true, &[]);
+        assert!(
+            held.is_empty(),
+            "a held world with no quickening took {} cells of weather (first at {:?}); it is meant to be a photograph",
+            held.len(),
+            held.first()
+        );
+
+        // Arm 3: the gate is a filter. A circle well clear of the world's
+        // edges, so "outside" is a real region in every direction.
+        let circle = Quickening { x: 128, y: 150, r: 40 };
+        let quickened = run(true, &[circle]);
+        assert!(
+            !quickened.is_empty(),
+            "a quickened circle got no weather at all -- the gate is an off switch, not a rim"
+        );
+        let outside: Vec<(i32, i32)> = quickened.iter().copied().filter(|&(x, y)| !circle.contains(x, y)).collect();
+        // The soak reaches `SOAK_DEPTH` cells below the landing cell and the
+        // chill run reaches `WATER_CHILL_RADIUS` columns either side, so a
+        // drop landing just inside the rim writes a little way past it. That
+        // is the rim being soft rather than the gate leaking: what must not
+        // happen is weather arriving somewhere no drop landed.
+        for &(x, y) in &outside {
+            let near = (-(WATER_CHILL_RADIUS + 1)..=(WATER_CHILL_RADIUS + 1))
+                .any(|dx| (0..=SOAK_DEPTH).any(|dy| circle.contains(x + dx, y - dy)));
+            assert!(near, "weather reached ({x}, {y}), which is not within one drop's reach of the circle");
+        }
+        println!(
+            "weather cells written in {FRAMES} frames: unheld {}, held {}, held+circle {} ({} of them just past the rim)",
+            unheld.len(),
+            held.len(),
+            quickened.len(),
+            outside.len()
+        );
+    }
+
+    /// **The other two games cannot see the held-world weather gate.**
+    ///
+    /// Modelled on `render.rs`'s `the_other_games_cannot_see_the_held_world_
+    /// look`, and it makes the same claim from the simulation side: `held` is
+    /// `false` in the sandbox and the lab, so nothing about their weather may
+    /// move. Asserted as an *equality between two arms of this binary*
+    /// rather than against a recorded hash, because that is the stronger
+    /// statement — a world entirely inside one quickening must step to the
+    /// identical grid as a world that is not held at all. That can only hold
+    /// if the gate is a pure filter: one that consumed a draw, reordered a
+    /// loop or moved a `hint` would diverge here even though every cell it
+    /// gates is running.
+    ///
+    /// Watched going red: gating the *whole* of `weather::step` on
+    /// `world.held` (the shape this deliberately is not) fails this test on
+    /// the first precipitating frame.
+    #[test]
+    fn a_world_entirely_inside_a_quickening_weathers_exactly_like_an_unheld_one() {
+        let bounds = Rect::new(0, 0, 255, 191);
+        let run = |held: bool| {
+            let mut w = held_weather_world();
+            w.held = held;
+            if held {
+                w.quickenings = vec![Quickening { x: 128, y: 96, r: 5_000 }];
+            }
+            for _ in 0..400 {
+                parallel::step(&mut w);
+                w.step_active_sites();
+                w.step_fields();
+            }
+            w
+        };
+        let unheld = run(false);
+        let all_quickened = run(true);
+        let diff = cells_differing(&unheld, &all_quickened, bounds);
+        assert!(
+            diff.is_empty(),
+            "a fully quickened world diverged from an unheld one at {} cells (first {:?}) -- the gate is not a pure filter",
+            diff.len(),
+            diff.first()
+        );
+        // ...and the arm is not vacuously equal because nothing happened.
+        let bare = held_weather_world();
+        assert!(
+            !cells_differing(&bare, &unheld, bounds).is_empty(),
+            "neither arm's sky did anything, so this comparison proves nothing"
+        );
     }
 
 }
