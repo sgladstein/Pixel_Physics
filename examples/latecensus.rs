@@ -49,7 +49,7 @@
 //! `colony_deaths` are `pixel_physics::lab::census`'s.
 
 use pixel_physics::lab::census::{self, Ids};
-use pixel_physics::lab::scenario::{Placement, Scenario};
+use pixel_physics::lab::scenario::Scenario;
 use pixel_physics::lab::scene::LabBox;
 use pixel_physics::sim::cell::Cell;
 use pixel_physics::sim::explosion::Blasts;
@@ -292,20 +292,13 @@ fn main() {
         "  bed: {} of {} founders planted; scenario placed {} cells, {} plants, {} animals",
         planted.planted, planted.asked, placed.cells, placed.plants, placed.animals
     );
-    let nest_cols: Vec<i32> = {
-        let mut v: Vec<i32> = scenario
-            .placements
-            .iter()
-            .chain(scenario.timeline.iter().map(|e| &e.what))
-            .filter_map(|p| match p {
-                Placement::Colony { x, .. } => Some(*x),
-                _ => None,
-            })
-            .collect();
-        v.sort_unstable();
-        v.dedup();
-        v
-    };
+    // **`census::nest_columns`, not a copy of half of it.** This block read
+    // only the scenario's own placements and timeline; the shared function
+    // adds the bed's `colonies` and -- the half that was missing everywhere
+    // -- the nests the *world* holds, which is the only source that knows
+    // about a colony founded by hand. Recomputed per sample below, because a
+    // timeline colony mints its site when it lands.
+    let nest_cols = census::nest_columns(&world, &spec, Some(&scenario));
     println!("  nests at {nest_cols:?}; band = +-{BAND} columns of a nest\n");
     let ids = Ids::resolve(&world);
     let mut particles = ParticleSystem::new();
@@ -355,6 +348,7 @@ fn main() {
             }
         }
         if f % sample_every == 0 {
+            let nest_cols = census::nest_columns(&world, &spec, Some(&scenario));
             let s = census::census(&world, &spec, gut, &nest_cols, &ids);
             let st = world.creature_stats;
             let (starved, killed, oldage, other) = census::colony_deaths(&world, &spec.colony_species);
@@ -472,6 +466,7 @@ fn main() {
         }
     }
     let st = world.creature_stats;
+    let nest_cols = census::nest_columns(&world, &spec, Some(&scenario));
     let final_census = census::census(&world, &spec, gut, &nest_cols, &ids);
     // **Who killed whom, and when.** `killd` says a colony is being eaten and
     // nothing else; this says by what, from which group, at which frame, and
@@ -605,6 +600,7 @@ fn main() {
     // **Appended at the end, in addition to every field above in its own
     // order** -- this line is contested by every lane of the round and a
     // reordering breaks whatever is parsing it elsewhere.
+    let nest_cols = census::nest_columns(&world, &spec, Some(&scenario));
     let s = census::census(&world, &spec, gut, &nest_cols, &ids);
     let q = |v: &mut Vec<f32>| -> String {
         if v.is_empty() {
