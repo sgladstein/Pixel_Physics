@@ -618,11 +618,14 @@ struct Piles {
     /// Long runs (>= `LATCH_MIN` stops) that ended because the animal was
     /// next seen somewhere else -- it came back.
     long_runs_ended_by_moving: u64,
-    /// ...and animals still inside one when they were last seen at all,
-    /// which is death or the end of the run. The ratio is the latch.
-    long_runs_never_ended: u64,
-    /// Distinct animals that were ever observed moving *after* a long run of
-    /// their own, against those that had one and never were.
+    /// **Distinct animals that were ever observed moving *after* a long run
+    /// of their own, against those that had one and never were** -- and the
+    /// difference of the two sets is the latch count.
+    ///
+    /// Counted per *animal* rather than per run, which is the version of this
+    /// that answers the question: an animal with three long runs that came
+    /// back twice and then stopped for good is one latched animal, and a
+    /// per-run tally would score it 2/3 "fine".
     came_back: std::collections::HashSet<u16>,
     had_long_run: std::collections::HashSet<u16>,
     /// **What tells a frozen animal from a busy one at the moment it is
