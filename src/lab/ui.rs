@@ -1696,13 +1696,19 @@ enum Body {
     /// exist is telling two fighting groups apart by more than a colour.
     /// One axis, several tints.
     Lines { caption: String, series: Vec<(Vec<u32>, [u8; 4])> },
-    /// **A row that reads like `Value` and clicks like `Head`.** Label on
-    /// the left, the current setting on the right, and the whole row is a
-    /// hit target through the same `taps` mechanism `Head` already uses in
-    /// `paint_page` -- no new painter code, the same trap `Head`'s own doc
+    /// **A clickable row, drawn as a button.** Label on the left, the
+    /// current setting on the right, and the whole row is a hit target
+    /// through the same `taps` mechanism `Head` already uses in
+    /// `paint_page` -- no new click code, the same trap `Head`'s own doc
     /// records ("built, thrown away, and could never fire") already has its
     /// fix in one place. Written for the ANTS page's colour-mode toggle,
     /// which needed a clickable row rather than a foldable group.
+    ///
+    /// **Until round 31 it drew pixel-identical to `Value`** -- an
+    /// information row -- so a working button was invisible; the owner's
+    /// MENU complaint ("looks more like a list") was this, not the click
+    /// mechanism, which already worked. `paint_rows` now gives it the bar
+    /// button's own face/edge chrome, hover and pressed included.
     Choice { label: String, value: String, action: Action },
     /// **A named group of rows, and whether it is showing.** Clickable: the
     /// action opens this group and closes whichever was open. `hidden` is how
@@ -1763,8 +1769,10 @@ impl Row {
     fn height(&self) -> i32 {
         match self.body {
             Body::Value { .. } => LINE,
-            // Same footprint as `Value` -- it draws like one and only the
-            // tap target under it differs.
+            // Same footprint as `Value` -- the button chrome `paint_rows`
+            // draws for it fits inside one row exactly (a 1px face/edge
+            // border top and bottom, `hud::GLYPH_HEIGHT` of text between),
+            // so a `Choice` costs no extra height for looking like a button.
             Body::Choice { .. } => LINE,
             // A rule above the label and a pixel of air under it, so a shut
             // group reads as a lid rather than as another value row.
@@ -4034,6 +4042,27 @@ impl Ui {
         ]
     }
 
+    /// `menu_rows` split at its own `Row::gap()` into the two lists MENU's
+    /// two columns draw -- destinations first, view toggles second. Each
+    /// half is run through `fit_rows` on its own, against half the vertical
+    /// budget a single-column page would use (less one line for the column
+    /// header `paint_menu` draws above it): two columns of ~13 rows each
+    /// need nowhere near `page_content_budget()`, but a species list or a
+    /// toggle set that grows past what one column holds should still drop
+    /// rows and say so rather than draw off the page, the reason
+    /// `panel_rows`' own `Panel::Menu` arm called `fit_rows` before this
+    /// split existed.
+    fn menu_columns(&self, world: &World) -> (Vec<Row>, Vec<Row>) {
+        let mut rows = self.menu_rows(world);
+        let split = rows.iter().position(|r| matches!(r.body, Body::Gap)).unwrap_or(rows.len());
+        let mut toggles = rows.split_off(split);
+        if !toggles.is_empty() {
+            toggles.remove(0); // the `Row::gap()` marker itself
+        }
+        let budget = page_content_budget() - (LINE + 2);
+        (fit_rows(rows, budget), fit_rows(toggles, budget))
+    }
+
     fn compare_rows(&self, world: &World) -> Vec<Row> {
         let (Some(a), Some(b)) = (self.held, self.pinned) else {
             return vec![Row::value(
@@ -4144,18 +4173,19 @@ impl Ui {
             // and a range, so they are not `Row`s; `draw` branches away before
             // this is called, and the arm is here so that a page added to
             // `Panel` cannot be silently left out of both.
-            Panel::Params | Panel::Shelf | Panel::Chambers | Panel::PlantList | Panel::AntList | Panel::History => {
-                Vec::new()
-            }
+            //
+            // **`Menu` is here for a different reason**: it draws two
+            // columns, and a single `Vec<Row>` cannot carry the split
+            // `paint_menu` needs -- `draw` calls `menu_columns` directly
+            // instead of this function.
+            Panel::Params
+            | Panel::Shelf
+            | Panel::Chambers
+            | Panel::PlantList
+            | Panel::AntList
+            | Panel::History
+            | Panel::Menu => Vec::new(),
             Panel::Compare => self.compare_rows(world),
-            // **`fit_rows`, not a bare return.** Every other generic
-            // (non-self-drawing) page here is short enough to always fit and
-            // none of them call it; this is the first one long enough to
-            // risk running off the bottom of the screen silently -- `page_
-            // rect`'s own doc names `fit_rows` as the thing that actually
-            // keeps a page whole, and a page that skips it just draws past
-            // the frame buffer's edge with nothing on screen to say so.
-            Panel::Menu => fit_rows(self.menu_rows(world), page_content_budget()),
             Panel::Plants => {
                 let (d, tint) = delta_text(self.history.delta(|s| s.plants as i64));
                 let (gd, gtint) = delta_text(self.history.delta(|s| s.germinations as i64));
@@ -4893,10 +4923,9 @@ fn page_rect(rows: &[Row], anchor_x: i32, bottom: i32) -> Rect {
 
 /// Draw one page and return the note under the cursor, if any.
 ///
-/// Hover is found **inside** the paint loop, with `y` advancing by the row's
-/// own height — lane A's idiom, and for its reason: a second pass over the
-/// same arithmetic is how a label and its explanation come to disagree about
-/// which row they belong to.
+/// A thin wrapper over `paint_rows`: the header and the one column are all a
+/// single-column page needs, and `paint_menu`'s two columns share the same
+/// row painter rather than duplicating it.
 fn paint_page(
     frame: &mut [u8],
     rect: Rect,
@@ -4904,6 +4933,7 @@ fn paint_page(
     rows: &[Row],
     cursor: Option<(i32, i32)>,
     taps: &mut Vec<Widget>,
+    pressed: Option<Action>,
 ) -> Option<(String, i32)> {
     fill(frame, rect, PANEL_BG);
     outline(frame, rect, PANEL_EDGE);
@@ -4911,22 +4941,45 @@ fn paint_page(
     for x in rect.x + 1..rect.right() - 1 {
         render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
     }
+    let col = Rect { x: rect.x, y: rect.y + PAGE_HEADER, w: rect.w, h: rect.h - PAGE_HEADER };
+    paint_rows(frame, col, rows, cursor, taps, pressed)
+}
 
-    let left = rect.x + PAGE_PAD;
-    let right = rect.right() - PAGE_PAD;
-    let mut y = rect.y + PAGE_HEADER;
+/// Draw one column of rows and return the note under the cursor, if any.
+///
+/// `col` plays the role a whole page's `rect` used to: text sits `PAGE_PAD`
+/// in from `col.x`/`col.right()`, and a row's hit target and hover highlight
+/// run almost the full column width (`col.x + 1 .. col.right() - 1`), same
+/// margin a single-column page always drew at. `paint_page` is one column;
+/// `paint_menu` is two, side by side, each with its own `col`.
+///
+/// Hover is found **inside** the paint loop, with `y` advancing by the row's
+/// own height — lane A's idiom, and for its reason: a second pass over the
+/// same arithmetic is how a label and its explanation come to disagree about
+/// which row they belong to.
+fn paint_rows(
+    frame: &mut [u8],
+    col: Rect,
+    rows: &[Row],
+    cursor: Option<(i32, i32)>,
+    taps: &mut Vec<Widget>,
+    pressed: Option<Action>,
+) -> Option<(String, i32)> {
+    let left = col.x + PAGE_PAD;
+    let right = col.right() - PAGE_PAD;
+    let mut y = col.y;
     let mut hovered = None;
     for row in rows {
-        if let Some((cx, cy)) = cursor {
-            if !row.note.is_empty()
-                && (rect.x..rect.right()).contains(&cx)
-                && (y..y + row.height()).contains(&cy)
-            {
-                hovered = Some((row.note.clone(), y));
-                // A hovered row lights up, so the note is visibly *about*
-                // something rather than floating beside the page.
-                fill(frame, Rect { x: rect.x + 1, y, w: rect.w - 2, h: row.height() }, [34, 40, 52, 255]);
-            }
+        let hover = cursor
+            .is_some_and(|(cx, cy)| (col.x..col.right()).contains(&cx) && (y..y + row.height()).contains(&cy));
+        if hover && !row.note.is_empty() {
+            hovered = Some((row.note.clone(), y));
+            // A hovered row lights up, so the note is visibly *about*
+            // something rather than floating beside the page. `Choice`
+            // overpaints this with its own hover face below -- the two never
+            // fight, because a `Choice` row's whole point is that hovering it
+            // has a visible answer of its own.
+            fill(frame, Rect { x: col.x + 1, y, w: col.w - 2, h: row.height() }, [34, 40, 52, 255]);
         }
         match &row.body {
             Body::Gap => {}
@@ -4943,14 +4996,28 @@ fn paint_page(
                 text(frame, left, y + CHART_H + 2, caption, FAINT);
             }
             Body::Choice { label, value, action } => {
-                text(frame, left, y, label, FAINT);
-                text(frame, right - hud::text_width(value), y, value, GOOD);
-                // The same invisible full-width hit target `Head` pushes
-                // below -- a `Choice` is a `Head` that draws as a value row
-                // instead of a heading, and the click mechanism does not
-                // care which one drew it.
+                // The bar button's own idiom (`paint_widget`), scaled to one
+                // 9px row: a filled face and a 1px edge, face and edge alone
+                // changing for hover and press. `LINE` (`GLYPH_HEIGHT` + 2)
+                // is exactly a 1px border top and bottom around one line of
+                // text -- checked, not assumed, the day this replaced the
+                // `Value`-alike draw that read as a list rather than a menu.
+                let btn = Rect { x: col.x + 1, y, w: col.w - 2, h: row.height() };
+                let down = hover && pressed == Some(*action);
+                let (face, edge) = match (down, hover) {
+                    (true, _) => (FACE_DOWN, EDGE_ON),
+                    (false, true) => (FACE_HOVER, EDGE),
+                    (false, false) => (FACE, EDGE),
+                };
+                fill(frame, btn, face);
+                outline(frame, btn, edge);
+                text(frame, left, y + 1, label, LABEL);
+                text(frame, right - hud::text_width(value), y + 1, value, GOOD);
+                // The same hit target `Head` pushes below -- a `Choice` is a
+                // `Head` that draws as a button instead of a heading, and the
+                // click mechanism does not care which one drew it.
                 taps.push(Widget {
-                    rect: Rect { x: rect.x + 1, y, w: rect.w - 2, h: row.height() },
+                    rect: btn,
                     line1: String::new(),
                     line2: String::new(),
                     action: Some(*action),
@@ -4961,7 +5028,7 @@ fn paint_page(
                 });
             }
             Body::Head { label, open, hidden, action } => {
-                for x in rect.x + 1..rect.right() - 1 {
+                for x in col.x + 1..col.right() - 1 {
                     render::put(frame, W, H, x, y + 1, DIVIDER);
                 }
                 // `-` open, `+` shut, then the count of what is behind it.
@@ -4979,7 +5046,7 @@ fn paint_page(
                 // painted" -- `paint_widget`'s own caller skips it, so the
                 // heading above is the only thing on screen.
                 taps.push(Widget {
-                    rect: Rect { x: rect.x + 1, y, w: rect.w - 2, h: row.height() },
+                    rect: Rect { x: col.x + 1, y, w: col.w - 2, h: row.height() },
                     line1: String::new(),
                     line2: String::new(),
                     action: Some(*action),
@@ -4993,6 +5060,79 @@ fn paint_page(
         y += row.height();
     }
     hovered
+}
+
+/// The right column's header. **Not `VIEW & TOGGLES`**: `hud`'s font has no
+/// `&` glyph (it renders any character outside its set as a blank gap, the
+/// same omission `_`, `<`, `>` and `*` were each found by before it), and
+/// the string that shipped in the round-30 heading this replaces would have
+/// drawn as `VIEW` a blank `TOGGLES` -- caught by looking at the rendered
+/// page, not by any test, since nothing here asserts the font covers a
+/// literal.
+const TOGGLES_HEADER: &str = "VIEW / TOGGLES";
+
+/// Two columns of rows under one MENU header, and the note under the cursor
+/// if either column has one.
+///
+/// **Why MENU alone gets its own painter rather than another `paint_page`
+/// call:** its rows split into two independent lists (`pages`, `toggles`)
+/// that must be drawn side by side, not one after the other -- `paint_rows`
+/// takes one `col` and knows nothing about a second one, by design, so a
+/// second call with a second `col` is the whole change. `PAGES` and
+/// `TOGGLES_HEADER` are column headers here, not `Row::value` rows -- the
+/// round that first shipped MENU tried the row-heading form
+/// (`Row::value("PAGES", "KEY", ..)`) and cut it a round later for pixel
+/// budget; going to two columns buys that budget back several times over,
+/// so the headings return as the thing they actually are.
+fn paint_menu(
+    frame: &mut [u8],
+    rect: Rect,
+    pages: &[Row],
+    toggles: &[Row],
+    cursor: Option<(i32, i32)>,
+    taps: &mut Vec<Widget>,
+    pressed: Option<Action>,
+) -> Option<(String, i32)> {
+    fill(frame, rect, PANEL_BG);
+    outline(frame, rect, PANEL_EDGE);
+    text(frame, rect.x + PAGE_PAD, rect.y + 6, "MENU", TITLE);
+    for x in rect.x + 1..rect.right() - 1 {
+        render::put(frame, W, H, x, rect.y + PAGE_HEADER - 4, DIVIDER);
+    }
+
+    let pages_w = menu_col_inner(pages, "PAGES") + PAGE_PAD * 2;
+    let header_y = rect.y + PAGE_HEADER;
+    let body_y = header_y + LINE + 2;
+    text(frame, rect.x + PAGE_PAD, header_y, "PAGES", FAINT);
+    text(frame, rect.x + pages_w + PAGE_PAD, header_y, TOGGLES_HEADER, FAINT);
+
+    let left_col = Rect { x: rect.x, y: body_y, w: pages_w, h: rect.bottom() - body_y };
+    let right_col = Rect { x: rect.x + pages_w, y: body_y, w: rect.w - pages_w, h: rect.bottom() - body_y };
+    let a = paint_rows(frame, left_col, pages, cursor, taps, pressed);
+    let b = paint_rows(frame, right_col, toggles, cursor, taps, pressed);
+    a.or(b)
+}
+
+/// The widest a MENU column's rows need, or its own header if that is wider
+/// (`TOGGLES_HEADER` is wider than every toggle row it names).
+fn menu_col_inner(rows: &[Row], header: &str) -> i32 {
+    rows.iter().map(Row::width).max().unwrap_or(0).max(hud::text_width(header))
+}
+
+/// Where the MENU page goes and how big it is, `page_rect`'s job for a page
+/// with two columns instead of one.
+fn menu_rect(pages: &[Row], toggles: &[Row], anchor_x: i32, bottom: i32) -> Rect {
+    let w = menu_col_inner(pages, "PAGES") + PAGE_PAD * 2 + menu_col_inner(toggles, TOGGLES_HEADER) + PAGE_PAD * 2;
+    let content = pages
+        .iter()
+        .map(Row::height)
+        .sum::<i32>()
+        .max(toggles.iter().map(Row::height).sum::<i32>())
+        + LINE
+        + 2;
+    let h = PAGE_HEADER + content + PAGE_PAD;
+    let x = anchor_x.min(W as i32 - MARGIN - w).max(MARGIN);
+    Rect { x, y: (bottom - h).max(MARGIN), w, h }
 }
 
 /// A population over time, oldest on the left.
@@ -8333,6 +8473,36 @@ impl Ui {
             self.rack_bar = Bar::default();
             self.roster_box = None;
             self.roster_bar = Bar::default();
+        } else if self.panel == Some(Panel::Menu) {
+            // Its own painter: two columns rather than `paint_page`'s one,
+            // which a single `Vec<Row>` can't carry (see `panel_rows`'
+            // comment on its `Menu` arm). Which box it owns, how it is
+            // anchored and what note it can show all match the generic
+            // branch below -- only the row source and the painter differ.
+            self.params_box = None;
+            self.params_bar = Bar::default();
+            self.shelf_box = None;
+            self.shelf_bar = Bar::default();
+            self.rack_box = None;
+            self.rack_bar = Bar::default();
+            self.roster_box = None;
+            self.roster_bar = Bar::default();
+            self.history_box = None;
+            self.history_bar = Bar::default();
+            let (pages, toggles) = self.menu_columns(world);
+            let anchor = self
+                .bar
+                .widgets
+                .iter()
+                .find(|wid| wid.action == Some(Action::Panel(Panel::Menu)))
+                .map_or(MARGIN, |wid| wid.rect.x);
+            let rect = menu_rect(&pages, &toggles, anchor, bar_top() - 4);
+            self.panel_box = Some(rect);
+            let mut taps: Vec<Widget> = Vec::new();
+            if let Some((text, y)) = paint_menu(frame, rect, &pages, &toggles, self.cursor, &mut taps, self.pressed) {
+                note = Some((text, rect, y, Note::BesidePage));
+            }
+            self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
         } else if let Some(panel) = self.panel {
             self.params_box = None;
             self.params_bar = Bar::default();
@@ -8359,7 +8529,7 @@ impl Ui {
             let rect = page_rect(&rows, anchor, bar_top() - 4);
             self.panel_box = Some(rect);
             let mut taps: Vec<Widget> = Vec::new();
-            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut taps) {
+            if let Some((text, y)) = paint_page(frame, rect, panel.title(), &rows, self.cursor, &mut taps, self.pressed) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             self.panel_bar = Bar { widgets: taps, dividers: Vec::new() };
@@ -8414,7 +8584,7 @@ impl Ui {
             // `paint_page`'s own hover rule, and the reason it is stated
             // there).
             let mut taps: Vec<Widget> = Vec::new();
-            if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor, &mut taps) {
+            if let Some((text, y)) = paint_page(frame, rect, "CELL", &rows, self.cursor, &mut taps, self.pressed) {
                 note = Some((text, rect, y, Note::BesidePage));
             }
             // **`KEEP`, in the header, and only while there is something to
